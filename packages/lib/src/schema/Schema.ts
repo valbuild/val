@@ -1,4 +1,4 @@
-type ValidTypes = string;
+import { ValidTypes } from "../ValidTypes";
 
 export abstract class Schema<T extends ValidTypes> {
   /**

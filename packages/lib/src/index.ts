@@ -1,0 +1,1 @@
+export { initVal } from "./initVal";
