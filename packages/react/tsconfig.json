@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "allowJs": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "lib": [
+      "es6",
+      "dom"
+    ],
+    "noEmit": true,
+    "outDir": "dist"
+  },
+  "exclude": [
+    "dist/**",
+    "jsx-runtime/dist/**",
+    "jsx-dev-runtime/dist/**"
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "name": "@val/react",
+  "version": "1.0.0",
+  "sideEffects": false,
+  "dependencies": {
+    "@val/lib": "1.0.0"
+  },
+  "peerDependencies": {
+    "@babel/core": "^7.0.0",
+    "react": ">=16.8.0"
+  },
+  "peerDependenciesMeta": {
+    "@babel/core": {
+      "optional": true
+    },
+    "@types/react": {
+      "optional": true
+    }
+  },
+  "preconstruct": {
+    "entrypoints": [
+      "./index.ts",
+      "./jsx-runtime.js",
+      "./jsx-dev-runtime.js"
+    ],
+    "umdName": "valReact",
+    "exports": {
+      "envConditions": [
+        "browser",
+        "worker"
+      ]
+    }
+  },
+  "main": "dist/val-react.cjs.js",
+  "module": "dist/val-react.esm.js",
+  "browser": {
+    "./dist/val-react.cjs.js": "./dist/val-react.browser.cjs.js",
+    "./dist/val-react.esm.js": "./dist/val-react.browser.esm.js"
+  }
+}

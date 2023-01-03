@@ -1,0 +1,5 @@
+{
+  "name": "@val/lib",
+  "version": "1.0.0",
+  "main": "dist/val-lib.cjs.js"
+}
