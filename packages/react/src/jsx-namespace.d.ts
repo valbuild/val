@@ -1,3 +1,5 @@
+import { Val } from "@val/lib/src/Val";
+
 // unpack all here to avoid infinite self-referencing when defining our own JSX namespace
 type ReactJSXElement = JSX.Element;
 type ReactJSXElementClass = JSX.ElementClass;
@@ -11,16 +13,14 @@ type ReactJSXIntrinsicAttributes = JSX.IntrinsicAttributes;
 type ReactJSXIntrinsicClassAttributes<T> = JSX.IntrinsicClassAttributes<T>;
 type ReactJSXIntrinsicElements = JSX.IntrinsicElements;
 
-// type MaybeVal<T> = T extends string | number | boolean
-//   ? _OLD_DELETE_Val<T> | T
-//   : T;
-type WithVal<T extends {}> = T;
-//   [K in keyof T]: K extends "style"
-//     ? WithVal<React.CSSProperties>
-//     : T[K] extends {}
-//     ? T[K]
-//     : MaybeVal<T[K]>;
-// };
+type MaybeVal<T> = T extends string ? Val<T> | T : T;
+type WithVal<T extends {}> = {
+  [K in keyof T]: K extends "style"
+    ? WithVal<React.CSSProperties>
+    : T[K] extends {}
+    ? T[K]
+    : MaybeVal<T[K]>;
+};
 
 export namespace ValJSX {
   interface Element extends ReactJSXElement {}
