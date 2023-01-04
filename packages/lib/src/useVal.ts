@@ -16,7 +16,7 @@ function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
     return new Proxy(val, {
       get(target, prop: string) {
         if (target[prop]) {
-          return buildVal(`${id}/${prop}`, target[prop]);
+          return buildVal(`${id}.${prop}`, target[prop]);
         }
         return undefined;
       },

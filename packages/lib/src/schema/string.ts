@@ -1,8 +1,17 @@
 import { Schema } from "./Schema";
+import { SerializedSchema } from "./SerializedSchema";
 
 type StringOptions = {
   maxLength?: number;
   minLength?: number;
+};
+
+export type SerializedStringSchema = {
+  type: "string";
+  options: {
+    maxLength?: number;
+    minLength?: number;
+  };
 };
 
 class StringSchema extends Schema<string> {
@@ -27,6 +36,16 @@ class StringSchema extends Schema<string> {
     }
 
     return false;
+  }
+
+  serialize(): SerializedStringSchema {
+    return {
+      type: "string",
+      options: {
+        maxLength: this.options?.maxLength,
+        minLength: this.options?.minLength,
+      },
+    };
   }
 }
 export const string = (options?: StringOptions): Schema<string> => {

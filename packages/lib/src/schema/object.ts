@@ -1,6 +1,11 @@
 import { ValidObject } from "../ValidTypes";
 import { Schema } from "./Schema";
-import { string } from "./string";
+import type { SerializedSchema } from "./SerializedSchema";
+
+export type SerializedObjectSchema = {
+  type: "object";
+  schema: Record<string, SerializedSchema>;
+};
 
 class ObjectSchema<T extends ValidObject> extends Schema<T> {
   constructor(private readonly schema: { [key in keyof T]: Schema<T[key]> }) {
@@ -20,6 +25,18 @@ class ObjectSchema<T extends ValidObject> extends Schema<T> {
       return errors;
     }
     return false;
+  }
+
+  serialize(): SerializedObjectSchema {
+    return {
+      type: "object",
+      schema: Object.fromEntries(
+        Object.entries(this.schema).map(([key, schema]) => [
+          key,
+          schema.serialize(),
+        ])
+      ),
+    };
   }
 }
 export const object = <T extends ValidObject>(schema: {

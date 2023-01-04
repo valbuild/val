@@ -1,4 +1,5 @@
 import { Schema } from "./schema/Schema";
+import { SerializedSchema } from "./schema/SerializedSchema";
 import { ValidTypes } from "./ValidTypes";
 
 /**
@@ -14,5 +15,12 @@ export class StaticVal<T extends ValidTypes> {
    */
   get(): T {
     return this.val;
+  }
+
+  serialize(): { val: T; schema: SerializedSchema } {
+    return {
+      val: this.val,
+      schema: this.schema.serialize(),
+    };
   }
 }

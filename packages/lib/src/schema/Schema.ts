@@ -1,5 +1,6 @@
 import { StaticVal } from "../StaticVal";
 import { ValidTypes } from "../ValidTypes";
+import { SerializedSchema } from "./SerializedSchema";
 
 export abstract class Schema<T extends ValidTypes> {
   /**
@@ -13,4 +14,6 @@ export abstract class Schema<T extends ValidTypes> {
   static(val: T): StaticVal<T> {
     return new StaticVal(val, this);
   }
+
+  abstract serialize(): SerializedSchema;
 }
