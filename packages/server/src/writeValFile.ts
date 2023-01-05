@@ -1,11 +1,50 @@
-import {
-  ImportDeclaration,
-  MethodDeclaration,
-  Program,
-  Project,
-} from "ts-morph";
-import * as ts from "typescript";
+import { ClassDeclaration, MethodDeclaration, Project } from "ts-morph";
+import ts from "typescript";
 import path from "path";
+
+const getStaticMethodDecl = (
+  project: Project,
+  valModulePath: string
+): MethodDeclaration => {
+  const resolutionResult = ts.resolveModuleName(
+    "@val/lib",
+    valModulePath,
+    project.compilerOptions.get(),
+    project.getModuleResolutionHost()
+  );
+  const valLibModule = resolutionResult.resolvedModule;
+  if (!valLibModule) {
+    throw Error(`Unable to resolve "@val/lib": Module not found`);
+  }
+  const valLibSourceFile = project.getSourceFile(valLibModule.resolvedFileName);
+  if (!valLibSourceFile) {
+    throw Error(`"@val/lib" types not found: Type declarations not found`);
+  }
+  const schemaDecls = valLibSourceFile.getExportedDeclarations().get("Schema");
+  if (!schemaDecls) {
+    throw Error(
+      `Unable to resolve Schema from "@val/lib": Export declaration not found`
+    );
+  }
+
+  const staticMethodsDecls = schemaDecls
+    .filter((schemaDeclaration): schemaDeclaration is ClassDeclaration =>
+      schemaDeclaration.isKind(ts.SyntaxKind.ClassDeclaration)
+    )
+    .map((decl) => decl.getMethod("static"))
+    .filter((method): method is MethodDeclaration => !!method);
+  if (staticMethodsDecls.length === 0) {
+    throw Error(
+      `Unable to resolve Schema["static"] from "@val/lib": Method not found`
+    );
+  }
+  if (staticMethodsDecls.length > 1) {
+    throw Error(
+      `Unable to resolve Schema["static"] from "@val/lib": Method is ambiguous`
+    );
+  }
+  return staticMethodsDecls[0];
+};
 
 export const writeValFile = async (
   rootDir: string,
@@ -19,70 +58,17 @@ export const writeValFile = async (
 
   const filePath = path.join(rootDir, `${fileId}.val.ts`);
 
-  const schemaModuleNames = [
-    "@val/lib/src/schema/Schema",
-    "@val/lib/dist/schema/Schema",
-  ];
-  const maybeResolution = ts.resolveModuleName(
-    "@val/lib/src/schema/Schema",
-    filePath,
-    project.compilerOptions.get(),
-    project.getModuleResolutionHost()
-  );
-  const valLibModule = maybeResolution.resolvedModule;
-  if (!valLibModule) {
-    throw Error(`Unable to resolve "@val/lib/src/schema/Schema"`);
+  const valStaticMethod = getStaticMethodDecl(project, filePath);
+
+  for (const referencedSymbol of valStaticMethod.findReferences()) {
+    for (const reference of referencedSymbol.getReferences()) {
+      const referencingFilePath = reference.getSourceFile().getFilePath();
+      if (path.resolve(referencingFilePath) === path.resolve(filePath)) {
+        // TODO: check id
+        console.log(reference.getNode().getFullText());
+      }
+    }
   }
-
-  const valLibSchemaSourceFile = project.getSourceFile(
-    valLibModule.resolvedFileName
-  );
-  if (!valLibSchemaSourceFile) {
-    throw Error(`"@val/lib/src/schema/Schema" types not found`);
-  }
-  console.log(valLibSchemaSourceFile);
-
-  // if (!schemaExportDecl) {
-  //   throw Error(`No export declaration found for Schema`);
-  // }
-  // const schemaExportSpecifier = schemaExportDecl
-  //   .getNamedExports()
-  //   .find((exportImport) => exportImport.getName() === "Schema");
-
-  // if (!schemaExportSpecifier) {
-  //   throw Error(`Could not find export specifier for Schema`);
-  // }
-  // const lsp = project.getLanguageService();
-
-  // let valStaticMethod: MethodDeclaration | undefined = undefined;
-
-  // for (const declaration of schemaExportSpecifier
-  //   .getSymbol()
-  //   ?.getDeclarations() || []) {
-  //   for (const def of lsp.getDefinitions(declaration)) {
-  //     // TODO: rewrite! Also check if this is actually class Schema
-  //     valStaticMethod = def
-  //       .getDeclarationNode()
-  //       ?.asKindOrThrow(ts.SyntaxKind.ClassDeclaration)
-  //       .getMethod("static");
-  //   }
-  // }
-
-  // if (!valStaticMethod) {
-  //   throw Error(`Could not find static method`);
-  // }
-
-  // const referencedSymbols = valStaticMethod.findReferences();
-
-  // for (const referencedSymbol of referencedSymbols) {
-  //   for (const reference of referencedSymbol.getReferences()) {
-  //     const filePath = reference.getSourceFile().getFilePath();
-  //     if (path.resolve(filePath) === path.join(rootDir, fileId + ".val.ts")) {
-  //       // TODO: check id
-  //       console.log(reference.getNode().getFullText());
-  //     }
-  //   }
-  // }
 
   // typeChecker.getExportsOfModule(valConfigModuleSymbol).forEach((symbol) => {
   //   if (symbol.getName() === "s") {
