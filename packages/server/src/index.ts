@@ -1,22 +1,29 @@
 import express from "express";
 import path from "path";
 import { readValFile } from "./readValFile";
+import { writeValFile } from "./writeValFile";
 
 const PORT = process.env.PORT || 4123;
 const ROOT_DIR = path.join(process.cwd(), "..", "..", "examples", "next");
 
+const getFileIdFromParams = (params: { 0: string }) => {
+  const id = params[0];
+  return id.slice(0, id.indexOf(".") === -1 ? id.length : id.indexOf("."));
+};
+
 const main = async () => {
   const app = express();
 
-  app.get<{ 0: string; id: string }>("/ids/:id*", async (req, res) => {
+  app.get<{ 0: string }>("/ids/*", async (req, res) => {
     try {
       console.log(req.params);
-      const id = req.params.id + "/" + req.params[0];
-      const fileId = id.slice(
-        0,
-        id.indexOf(".") === -1 ? id.length : id.indexOf(".")
+      console.log(
+        JSON.stringify(
+          await readValFile(ROOT_DIR, getFileIdFromParams(req.params)),
+          null,
+          2
+        )
       );
-      console.log(JSON.stringify(await readValFile(ROOT_DIR, fileId), null, 2));
       res.send("OK");
     } catch (err) {
       console.error(err);
@@ -24,9 +31,18 @@ const main = async () => {
     }
   });
 
-  app.post<{ id: string }>("/ids/:id*", express.json(), async (req, res) => {
-    console.log("post req.params.id", req.params.id);
-    res.send("OK");
+  app.post<{ 0: string }>("/ids/*", express.json(), async (req, res) => {
+    console.log("post req.params", req.params);
+    console.log(getFileIdFromParams(req.params));
+    console.log(req.body);
+
+    try {
+      await writeValFile(ROOT_DIR, getFileIdFromParams(req.params), req.body);
+      res.send("OK");
+    } catch (err) {
+      console.error(err);
+      res.sendStatus(500);
+    }
   });
 
   const httpServer = app.listen(PORT, () => {

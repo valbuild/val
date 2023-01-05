@@ -31,6 +31,7 @@ const ValEditButton = forwardRef<
         background: "url('/valcms-logo.svg')",
         backgroundSize: "contain",
         backgroundRepeat: "no-repeat",
+        backgroundColor: "white",
         width: "20px",
         height: "20px",
         border: "none",
@@ -38,6 +39,7 @@ const ValEditButton = forwardRef<
     />
   );
 });
+
 const ValSidebar = ({
   selectedIds,
   onClose,
