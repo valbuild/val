@@ -217,9 +217,11 @@ const ValEditForm: React.FC<{
         left: position.left,
         top: position.top,
         zIndex: 999999,
-        background: "white",
+        minWidth: "300px",
+        background: "black",
+        color: "white",
         padding: "10px",
-        border: "1px solid black",
+        border: "1px solid white",
       }}
     >
       {resolvedIds === null
@@ -232,13 +234,21 @@ const ValEditForm: React.FC<{
               ) : resolvedId.status === "error" ? (
                 resolvedId.error
               ) : (
-                <input
+                <textarea
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    background: "black",
+                    color: "white",
+                    minHeight: "200px",
+                  }}
                   name={resolvedId.id}
                   defaultValue={resolvedId.data as ValidPrimitive}
-                ></input>
+                ></textarea>
               )}
             </label>
           ))}
+      <input type="submit" value="Save" />
     </form>
   );
 };
