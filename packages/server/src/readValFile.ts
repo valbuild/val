@@ -1,11 +1,12 @@
 import path from "path";
 import { SerializedSchema } from "@val/lib";
 import { ValContent } from "@val/lib/src/content";
+import { ValidTypes } from "@val/lib/src/ValidTypes";
 
 export const readValFile = async (
   rootDir: string,
   id: string
-): Promise<{ val: any; schema: SerializedSchema }> => {
+): Promise<{ val: ValidTypes; schema: SerializedSchema }> => {
   const filepaths = [
     path.join(rootDir, id) + ".val.ts",
     path.join(rootDir, id) + ".val.js",
@@ -13,6 +14,8 @@ export const readValFile = async (
 
   for (const filepath of filepaths) {
     try {
+      // TODO: Load val modules in isolated context
+      delete require.cache[require.resolve(filepath)];
       const valContent = (await import(filepath)).default as ValContent<any>;
       // FIXME:
       // if (val.default.id !== id) {

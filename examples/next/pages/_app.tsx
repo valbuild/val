@@ -14,6 +14,8 @@ import React, {
   useState,
 } from "react";
 
+const API_URL = "http://localhost:4123";
+
 const baseZIndex = 8500; // Next uses 9000 highest z-index so keep us below that
 
 const ValElementEditButton = forwardRef<
@@ -131,12 +133,9 @@ type FormPosition = {
   top: number;
 };
 
-const getValModuleId = (id: string) => {
-  return id.split(".")[0];
-};
-
-const getPathFromModuleId = (id: string) => {
-  return id.split(".").slice(1);
+const parseValPath = (path: string): [moduleId: string, path: string[]] => {
+  const [moduleId, ...pathInModule] = path.split(".");
+  return [moduleId, pathInModule];
 };
 
 const getValFromModule = (paths: string[], valContent: ValidTypes) => {
@@ -155,14 +154,40 @@ const getValFromModule = (paths: string[], valContent: ValidTypes) => {
   return val;
 };
 
-const fetchValContent = async (id: string): Promise<SerializedVal> => {
-  const res = await fetch(`http://localhost:4123/ids/${getValModuleId(id)}`);
+const getModuleContent = async (moduleId: string): Promise<SerializedVal> => {
+  const res = await fetch(`${API_URL}/ids${moduleId}`);
   if (res.ok) {
     const serializedVal = await res.json();
     return serializedVal;
   } else {
     throw Error(
-      `Failed to fetch val content for id: ${id}. Error: ${await res.text()}`
+      `Failed to get content of module "${moduleId}". Error: ${await res.text()}`
+    );
+  }
+};
+
+type Operation = {
+  op: "replace";
+  path: string;
+  value: ValidTypes;
+};
+
+const patchModuleContent = async (
+  moduleId: string,
+  patch: Operation[]
+): Promise<void> => {
+  const res = await fetch(`${API_URL}/ids${moduleId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json-patch+json",
+    },
+    body: JSON.stringify(patch),
+  });
+  if (res.ok) {
+    return;
+  } else {
+    throw Error(
+      `Failed to patch content of module "${moduleId}". Error: ${await res.text()}`
     );
   }
 };
@@ -171,23 +196,29 @@ const ValEditForm: React.FC<{
   position: FormPosition | null;
   selectedIds: string[];
 }> = ({ position, selectedIds }) => {
-  const [resolvedIds, setResolvedIds] = useState<
+  const [entries, setEntries] = useState<
     (
-      | { id: string; status: "not-asked" }
+      | { id: string; status: "loading" }
       | { id: string; status: "error"; error: string }
       | { id: string; status: "ready"; data: ValidTypes }
     )[]
   >([]);
+
+  const [submission, setSubmission] = useState<
+    | { status: "submitting" }
+    | { status: "error"; error: string }
+    | { status: "ready" }
+  >({ status: "ready" });
+
   useEffect(() => {
-    setResolvedIds(selectedIds.map((id) => ({ id, status: "not-asked" })));
+    setEntries(selectedIds.map((id) => ({ id, status: "loading" })));
+
     Promise.all(
       selectedIds.map(async (id) => {
         try {
-          const serializedVal = await fetchValContent(id);
-          const val = getValFromModule(
-            getPathFromModuleId(id),
-            serializedVal.val
-          );
+          const [moduleId, path] = parseValPath(id);
+          const serializedVal = await getModuleContent(moduleId);
+          const val = getValFromModule(path, serializedVal.val);
           return {
             id,
             status: "ready",
@@ -202,7 +233,7 @@ const ValEditForm: React.FC<{
         }
       })
     ).then((resolvedIds) => {
-      setResolvedIds(resolvedIds);
+      setEntries(resolvedIds);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedIds.join(",")]);
@@ -223,13 +254,52 @@ const ValEditForm: React.FC<{
         padding: "10px",
         border: "1px solid white",
       }}
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setSubmission({ status: "submitting" });
+        try {
+          const data = new FormData(e.currentTarget);
+          const modulePatches: Record<string, Operation[]> = {};
+          for (const entry of entries) {
+            if (entry.status === "ready") {
+              const [moduleId, path] = parseValPath(entry.id);
+              if (!modulePatches[moduleId]) {
+                modulePatches[moduleId] = [];
+              }
+              const value = data.get(entry.id);
+              if (typeof value !== "string") {
+                throw Error("Invalid non-string value in form");
+              }
+              modulePatches[moduleId].push({
+                op: "replace",
+                path: "/" + path.join("/"),
+                value,
+              });
+            }
+          }
+          await Promise.all(
+            Object.entries(modulePatches).map(async ([moduleId, patch]) => {
+              await patchModuleContent(moduleId, patch);
+            })
+          );
+          setSubmission({
+            status: "ready",
+          });
+        } catch (err) {
+          setSubmission({
+            status: "error",
+            error: err instanceof Error ? err.message : "Unknown error",
+          });
+        }
+      }}
     >
-      {resolvedIds === null
+      {submission.status === "error" && submission.error}
+      {entries === null
         ? "Loading..."
-        : resolvedIds.map((resolvedId) => (
+        : entries.map((resolvedId) => (
             <label key={resolvedId.id}>
               {resolvedId.id}
-              {resolvedId.status === "not-asked" ? (
+              {resolvedId.status === "loading" ? (
                 "Loading..."
               ) : resolvedId.status === "error" ? (
                 resolvedId.error

@@ -1,6 +1,7 @@
 import { ClassDeclaration, MethodDeclaration, Project } from "ts-morph";
 import ts from "typescript";
 import path from "path";
+import { ValidTypes } from "@val/lib/src/ValidTypes";
 
 const getStaticMethodDecl = (
   project: Project,
@@ -49,7 +50,7 @@ const getStaticMethodDecl = (
 export const writeValFile = async (
   rootDir: string,
   fileId: string,
-  updatedVal: unknown
+  updatedVal: ValidTypes
 ): Promise<void> => {
   const project = new Project({
     tsConfigFilePath: path.join(rootDir, "tsconfig.json"),
