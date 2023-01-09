@@ -1,5 +1,5 @@
 import type { AppProps } from "next/app";
-import {
+import React, {
   CSSProperties,
   forwardRef,
   MouseEventHandler,
@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 
-const ValEditButton = forwardRef<
+const ValElementEditButton = forwardRef<
   HTMLButtonElement,
   {
     left?: CSSProperties["left"];
@@ -82,63 +82,158 @@ const ValSidebar = ({
   );
 };
 
-function MyApp({ Component, pageProps }: AppProps) {
-  const buttonElementRef = useRef<HTMLButtonElement>(null);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [currentIds, setCurrentIds] = useState<string[]>([]);
-  const [editButtonProps, setEditButtonProps] = useState<{
-    left?: CSSProperties["left"];
-    top?: CSSProperties["top"];
-    display?: CSSProperties["display"];
-  }>({ left: 0, top: "auto", display: "none" });
-  useEffect(() => {
-    let timeout: NodeJS.Timeout;
-
-    const listener = (e: MouseEvent) => {
-      const currentElement = document.elementFromPoint(e.clientX, e.clientY);
-      const valId = currentElement?.getAttribute("data-val-ids");
-      if (currentElement) {
-        if (valId) {
-          setCurrentIds(valId.split(","));
-          clearTimeout(timeout);
-          const rect = currentElement.getBoundingClientRect();
-          setEditButtonProps({
-            display: "block",
-            left: rect.left + "px",
-            top: rect.top + "px",
-          });
-        } else if (currentElement === buttonElementRef.current) {
-          clearTimeout(timeout);
+const ValEditEnableButton = ({
+  enabled,
+  setEnabled,
+}: {
+  enabled: boolean;
+  setEnabled: (enabled: boolean) => void;
+}) => {
+  return (
+    <button
+      style={{
+        background: 'url("/logo.svg")',
+        backgroundSize: "contain",
+        backgroundRepeat: "no-repeat",
+        backgroundColor: "black",
+        border: "none",
+        position: "fixed",
+        zIndex: 999999,
+        height: "50px",
+        width: "50px",
+        cursor: "pointer",
+        borderRadius: "100%",
+        left: "10px",
+        bottom: "10px",
+      }}
+      onClick={() => {
+        if (!enabled) {
+          document.body.classList.add("valcms-edit-mode");
         } else {
-          timeout = setTimeout(() => {
-            setEditButtonProps({ display: "none" });
-          }, 1000);
+          document.body.classList.remove("valcms-edit-mode");
+        }
+        setEnabled(!enabled);
+      }}
+    ></button>
+  );
+};
+
+const ValEditForm: React.FC<{ selectedIds: string[] }> = ({ selectedIds }) => {
+  const [position, setPosition] = useState<
+    { left: number; top: number } | undefined
+  >();
+  useEffect(() => {
+    if (selectedIds.length > 0) {
+      if (
+        document.querySelectorAll(`[data-val-ids='${selectedIds.join(",")}']`)
+      ) {
+        const element = document.querySelector(
+          `[data-val-ids='${selectedIds.join(",")}']`
+        );
+        if (element) {
+          const rect = element.getBoundingClientRect();
+          setPosition({
+            left: rect.left + rect.width + window.scrollX,
+            top: rect.top,
+          });
+        }
+      }
+    }
+  }, [selectedIds]);
+  if (!position) {
+    return null;
+  }
+  return (
+    <form
+      style={{
+        position: "absolute",
+        left: position.left,
+        top: position.top,
+        zIndex: 999999,
+        background: "white",
+        padding: "10px",
+        border: "1px solid black",
+      }}
+    >
+      <input type="text"></input>
+    </form>
+  );
+};
+
+const ValContext = React.createContext<{}>({});
+
+function Val({ children }: { children: React.ReactNode }) {
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    // capture event clicks on data-val-ids elements
+    const editButtonClickListener = (e: MouseEvent) => {
+      if (enabled && selectedIds.length === 0) {
+        if (e.target instanceof Element) {
+          const valId = e.target?.getAttribute("data-val-ids");
+          if (valId) {
+            e.stopPropagation();
+            setSelectedIds(valId.split(","));
+          }
         }
       }
     };
-    document.addEventListener("mousemove", listener, { passive: true });
-    return () => {
-      document.removeEventListener("mousemove", listener);
-      clearTimeout(timeout);
+
+    // create style element on body
+    document.getElementById("val-edit-highlight")?.remove();
+    const styleElement = document.createElement("style");
+    styleElement.id = "val-edit-highlight";
+    styleElement.innerHTML = `
+        .valcms-edit-mode >* [data-val-ids] {
+          outline: black solid 1px;
+        }
+        .valcms-edit-mode >* [data-val-ids]:before {
+          content: '';
+          background: url('/logo.svg');
+          background-size: 20px;
+          background-repeat: no-repeat;
+          background-position: top;
+          padding: 4px;
+          cursor: pointer;
+          height: 20px;
+          width: 20px;
+          position: absolute;
+        }
+      `;
+    document.body.appendChild(styleElement);
+
+    //
+    const editButtonClickOptions = {
+      capture: true,
+      passive: true,
     };
-  }, []);
+    document.addEventListener(
+      "click",
+      editButtonClickListener,
+      editButtonClickOptions
+    );
+    return () => {
+      document.removeEventListener(
+        "click",
+        editButtonClickListener,
+        editButtonClickOptions
+      );
+    };
+  }, [enabled, selectedIds.length]);
   return (
-    <div>
+    <ValContext.Provider value={{}}>
+      {children}
+      <ValEditForm selectedIds={selectedIds} />
+      <ValEditEnableButton enabled={enabled} setEnabled={setEnabled} />
+    </ValContext.Provider>
+  );
+}
+
+function MyApp({ Component, pageProps }: AppProps) {
+  return (
+    <Val>
       <Component {...pageProps} />
-      <ValEditButton
-        ref={buttonElementRef}
-        {...editButtonProps}
-        onClick={() => {
-          setSelectedIds(currentIds);
-        }}
-      />
-      <ValSidebar
-        selectedIds={selectedIds}
-        onClose={() => {
-          setSelectedIds([]);
-        }}
-      />
-    </div>
+    </Val>
   );
 }
 
