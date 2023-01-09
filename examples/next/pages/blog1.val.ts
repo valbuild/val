@@ -1,6 +1,6 @@
 import { s, val } from "../val.config";
 
-export default val.content("/pages/blog", () =>
+export default val.content("/pages/blog1", () =>
   s.object({ title: s.string(), text: s.string() }).static({
     title: "HVA?",
     text: `Vi gjør mange ting sammen i Blank, men det vi lever av er å designe og utvikle digitale tjenester for kundene våre.

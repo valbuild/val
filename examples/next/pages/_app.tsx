@@ -1,3 +1,9 @@
+import { SerializedVal } from "@val/lib/src/StaticVal";
+import {
+  ValidObject,
+  ValidPrimitive,
+  ValidTypes,
+} from "@val/lib/src/ValidTypes";
 import type { AppProps } from "next/app";
 import React, {
   CSSProperties,
@@ -7,6 +13,8 @@ import React, {
   useRef,
   useState,
 } from "react";
+
+const baseZIndex = 8500; // Next uses 9000 highest z-index so keep us below that
 
 const ValElementEditButton = forwardRef<
   HTMLButtonElement,
@@ -26,7 +34,7 @@ const ValElementEditButton = forwardRef<
         left,
         top,
         position: "absolute",
-        zIndex: 999998,
+        zIndex: baseZIndex + 1,
         cursor: "pointer",
         background: "url('/valcms-logo.svg')",
         backgroundSize: "contain",
@@ -59,7 +67,7 @@ const ValSidebar = ({
         height: "100vh",
         width: "300px",
         background: "whitesmoke",
-        zIndex: 999999,
+        zIndex: baseZIndex + 1,
       }}
     >
       <button
@@ -98,7 +106,7 @@ const ValEditEnableButton = ({
         backgroundColor: "black",
         border: "none",
         position: "fixed",
-        zIndex: 999999,
+        zIndex: baseZIndex + 1,
         height: "50px",
         width: "50px",
         cursor: "pointer",
@@ -118,28 +126,87 @@ const ValEditEnableButton = ({
   );
 };
 
-const ValEditForm: React.FC<{ selectedIds: string[] }> = ({ selectedIds }) => {
-  const [position, setPosition] = useState<
-    { left: number; top: number } | undefined
-  >();
-  useEffect(() => {
-    if (selectedIds.length > 0) {
-      if (
-        document.querySelectorAll(`[data-val-ids='${selectedIds.join(",")}']`)
-      ) {
-        const element = document.querySelector(
-          `[data-val-ids='${selectedIds.join(",")}']`
-        );
-        if (element) {
-          const rect = element.getBoundingClientRect();
-          setPosition({
-            left: rect.left + rect.width + window.scrollX,
-            top: rect.top,
-          });
-        }
-      }
+type FormPosition = {
+  left: number;
+  top: number;
+};
+
+const getValModuleId = (id: string) => {
+  return id.split(".")[0];
+};
+
+const getPathFromModuleId = (id: string) => {
+  return id.split(".").slice(1);
+};
+
+const getValFromModule = (paths: string[], valContent: ValidTypes) => {
+  let val: ValidTypes = valContent;
+  for (const path of paths) {
+    if (typeof val === "object" && val) {
+      val = (val as ValidObject)[path];
+    } else {
+      throw Error(
+        `Cannot descend into non-object. Path: ${path}. Content: ${JSON.stringify(
+          module
+        )}`
+      );
     }
-  }, [selectedIds]);
+  }
+  return val;
+};
+
+const fetchValContent = async (id: string): Promise<SerializedVal> => {
+  const res = await fetch(`http://localhost:4123/ids/${getValModuleId(id)}`);
+  if (res.ok) {
+    const serializedVal = await res.json();
+    return serializedVal;
+  } else {
+    throw Error(
+      `Failed to fetch val content for id: ${id}. Error: ${await res.text()}`
+    );
+  }
+};
+
+const ValEditForm: React.FC<{
+  position: FormPosition | null;
+  selectedIds: string[];
+}> = ({ position, selectedIds }) => {
+  const [resolvedIds, setResolvedIds] = useState<
+    (
+      | { id: string; status: "not-asked" }
+      | { id: string; status: "error"; error: string }
+      | { id: string; status: "ready"; data: ValidTypes }
+    )[]
+  >([]);
+  useEffect(() => {
+    setResolvedIds(selectedIds.map((id) => ({ id, status: "not-asked" })));
+    Promise.all(
+      selectedIds.map(async (id) => {
+        try {
+          const serializedVal = await fetchValContent(id);
+          const val = getValFromModule(
+            getPathFromModuleId(id),
+            serializedVal.val
+          );
+          return {
+            id,
+            status: "ready",
+            data: val,
+          } as const;
+        } catch (err) {
+          return {
+            id,
+            status: "error",
+            error: err instanceof Error ? err.message : "Unknown error",
+          } as const;
+        }
+      })
+    ).then((resolvedIds) => {
+      setResolvedIds(resolvedIds);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIds.join(",")]);
+
   if (!position) {
     return null;
   }
@@ -155,7 +222,23 @@ const ValEditForm: React.FC<{ selectedIds: string[] }> = ({ selectedIds }) => {
         border: "1px solid black",
       }}
     >
-      <input type="text"></input>
+      {resolvedIds === null
+        ? "Loading..."
+        : resolvedIds.map((resolvedId) => (
+            <label key={resolvedId.id}>
+              {resolvedId.id}
+              {resolvedId.status === "not-asked" ? (
+                "Loading..."
+              ) : resolvedId.status === "error" ? (
+                resolvedId.error
+              ) : (
+                <input
+                  name={resolvedId.id}
+                  defaultValue={resolvedId.data as ValidPrimitive}
+                ></input>
+              )}
+            </label>
+          ))}
     </form>
   );
 };
@@ -165,15 +248,28 @@ const ValContext = React.createContext<{}>({});
 function Val({ children }: { children: React.ReactNode }) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [enabled, setEnabled] = useState(false);
+  const [editFormPosition, setEditFormPosition] = useState<FormPosition | null>(
+    null
+  );
+
   useEffect(() => {
+    if (!enabled) {
+      setSelectedIds([]);
+      setEditFormPosition(null);
+    }
     // capture event clicks on data-val-ids elements
     const editButtonClickListener = (e: MouseEvent) => {
-      if (enabled && selectedIds.length === 0) {
+      if (enabled) {
         if (e.target instanceof Element) {
           const valId = e.target?.getAttribute("data-val-ids");
           if (valId) {
             e.stopPropagation();
             setSelectedIds(valId.split(","));
+            const rect = e.target.getBoundingClientRect();
+            setEditFormPosition({
+              left: rect.right,
+              top: rect.top - 1 /* outline */,
+            });
           }
         }
       }
@@ -223,7 +319,7 @@ function Val({ children }: { children: React.ReactNode }) {
   return (
     <ValContext.Provider value={{}}>
       {children}
-      <ValEditForm selectedIds={selectedIds} />
+      <ValEditForm selectedIds={selectedIds} position={editFormPosition} />
       <ValEditEnableButton enabled={enabled} setEnabled={setEnabled} />
     </ValContext.Provider>
   );

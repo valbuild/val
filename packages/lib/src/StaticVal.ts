@@ -17,10 +17,15 @@ export class StaticVal<T extends ValidTypes> {
     return this.val;
   }
 
-  serialize(): { val: T; schema: SerializedSchema } {
+  serialize(): SerializedVal {
     return {
       val: this.val,
       schema: this.schema.serialize(),
     };
   }
 }
+
+export type SerializedVal = {
+  val: ValidTypes;
+  schema: SerializedSchema;
+};
