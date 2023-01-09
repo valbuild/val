@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import { readValFile } from "./readValFile";
 import { writeValFile } from "./writeValFile";
+import cors from "cors";
 
 const PORT = process.env.PORT || 4123;
 const ROOT_DIR = path.join(process.cwd(), "..", "..", "examples", "next");
@@ -13,6 +14,8 @@ const getFileIdFromParams = (params: { 0: string }) => {
 
 const main = async () => {
   const app = express();
+  // TODO: configure cors properly
+  app.use(cors());
 
   app.get<{ 0: string }>("/ids/*", async (req, res) => {
     try {
@@ -24,7 +27,11 @@ const main = async () => {
           2
         )
       );
-      res.send("OK");
+      const valContent = await readValFile(
+        ROOT_DIR,
+        getFileIdFromParams(req.params)
+      );
+      res.json(valContent);
     } catch (err) {
       console.error(err);
       res.sendStatus(500);
