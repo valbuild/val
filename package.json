@@ -9,7 +9,9 @@
   "scripts": {
     "build": "preconstruct build",
     "release": "yarn build && npm publish",
-    "postinstall": "preconstruct dev"
+    "postinstall": "preconstruct dev",
+    "format": "prettier --check .",
+    "format:fix": "prettier --write ."
   },
   "devDependencies": {
     "@preconstruct/cli": "^2.1.5",

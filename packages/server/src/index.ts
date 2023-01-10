@@ -3,12 +3,7 @@ import path from "path";
 import { readValFile } from "./readValFile";
 import { writeValFile } from "./writeValFile";
 import cors from "cors";
-import {
-  validate,
-  applyPatch,
-  Operation,
-  JsonPatchError,
-} from "fast-json-patch";
+import { applyPatch, Operation, JsonPatchError } from "fast-json-patch";
 import { ValidTypes } from "@val/lib/src/ValidTypes";
 
 const PORT = process.env.PORT || 4123;
