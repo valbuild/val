@@ -2,6 +2,14 @@
   "name": "@val/lib",
   "version": "1.0.0",
   "main": "dist/val-lib.cjs.js",
+  "module": "dist/val-lib.esm.js",
+  "exports": {
+    ".": {
+      "module": "./dist/val-lib.esm.js",
+      "default": "./dist/val-lib.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
   "devDependencies": {
     "@types/jest": "^29.2.5",
     "jest": "^29.3.1",

@@ -15,7 +15,7 @@
     "lint": "eslint ."
   },
   "devDependencies": {
-    "@preconstruct/cli": "^2.1.5",
+    "@preconstruct/cli": "^2.3.0",
     "@typescript-eslint/eslint-plugin": "^5.48.1",
     "@typescript-eslint/parser": "^5.48.1",
     "eslint": "^8.31.0",
