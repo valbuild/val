@@ -2,7 +2,8 @@
   "name": "@val/lib",
   "version": "1.0.0",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
   },
   "main": "dist/val-lib.cjs.js",
   "module": "dist/val-lib.esm.js",

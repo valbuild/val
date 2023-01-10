@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "sideEffects": false,
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "echo \"no tests found :(\""
   },
   "dependencies": {
     "@val/lib": "1.0.0"
