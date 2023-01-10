@@ -2,6 +2,9 @@
   "name": "@val/react",
   "version": "1.0.0",
   "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
   "dependencies": {
     "@val/lib": "1.0.0"
   },
