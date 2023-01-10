@@ -1,6 +1,14 @@
 {
   "name": "@val/server",
   "main": "dist/val-server.cjs.js",
+  "module": "dist/val-server.esm.js",
+  "exports": {
+    ".": {
+      "module": "./dist/val-server.esm.js",
+      "default": "./dist/val-server.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
   "version": "1.0.0",
   "scripts": {
     "dev": "ENV=development nodemon --watch 'src/**' --watch '.env' --ext 'js,ts,tsx,.env,json' --exec 'ts-node src/index.ts'"
