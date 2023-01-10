@@ -1,0 +1,11 @@
+# next.js
+examples/next/.next/
+examples/next/out/
+
+# production
+examples/next/build
+
+trials
+
+dist
+tsconfig.tsbuildinfo
