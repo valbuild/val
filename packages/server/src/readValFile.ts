@@ -3,10 +3,10 @@ import { SerializedSchema } from "@val/lib";
 import { ValContent } from "@val/lib/src/content";
 import { ValidTypes } from "@val/lib/src/ValidTypes";
 
-export const readValFile = async (
+const resolveValModule = async (
   rootDir: string,
   id: string
-): Promise<{ val: ValidTypes; schema: SerializedSchema }> => {
+): Promise<ValContent<ValidTypes>> => {
   const filepaths = [
     path.join(rootDir, id) + ".val.ts",
     path.join(rootDir, id) + ".val.js",
@@ -16,21 +16,23 @@ export const readValFile = async (
     try {
       // TODO: Load val modules in isolated context
       delete require.cache[require.resolve(filepath)];
-      const valContent = (await import(filepath)).default as ValContent<any>;
-      // FIXME:
-      // if (val.default.id !== id) {
-      //   throw Error(
-      //     `File ${filepath} does not export a Val(id) module with the correct id. Asked for ${id}, got ${val.default.id}`
-      //   );
-      // }
-      if (typeof valContent.val.serialize === "function") {
-        return valContent.val.serialize();
-      } else {
-        throw Error(`File ${filepath} does not export a Val(id) module`);
-      }
+      return (await import(filepath)).default as ValContent<ValidTypes>;
     } catch (err) {
-      throw err;
+      // TODO: Detect err is module not found
+      console.debug(err);
     }
   }
   throw Error(`No files found! Searched: ${filepaths.join(", ")}`);
+};
+
+export const readValFile = async (
+  rootDir: string,
+  id: string
+): Promise<{ val: ValidTypes; schema: SerializedSchema }> => {
+  const module = await resolveValModule(rootDir, id);
+  if (typeof module.val.serialize === "function") {
+    return module.val.serialize();
+  } else {
+    throw Error(`${id} is not a Val(id) module`);
+  }
 };

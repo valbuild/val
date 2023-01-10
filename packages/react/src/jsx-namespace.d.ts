@@ -14,28 +14,29 @@ type ReactJSXIntrinsicClassAttributes<T> = JSX.IntrinsicClassAttributes<T>;
 type ReactJSXIntrinsicElements = JSX.IntrinsicElements;
 
 type MaybeVal<T> = T extends string ? Val<T> | T : T;
-type WithVal<T extends {}> = {
+type WithVal<T extends object> = {
   [K in keyof T]: K extends "style"
     ? WithVal<React.CSSProperties>
-    : T[K] extends {}
+    : T[K] extends object
     ? T[K]
     : MaybeVal<T[K]>;
 };
 
 export namespace ValJSX {
-  interface Element extends ReactJSXElement {}
-  interface ElementClass extends ReactJSXElementClass {}
-  interface ElementAttributesProperty
-    extends ReactJSXElementAttributesProperty {}
-  interface ElementChildrenAttribute extends ReactJSXElementChildrenAttribute {}
+  export type Element = ReactJSXElement;
+  export type ElementClass = ReactJSXElementClass;
+  export type ElementAttributesProperty = ReactJSXElementAttributesProperty;
+  export type ElementChildrenAttribute = ReactJSXElementChildrenAttribute;
 
-  type LibraryManagedAttributes<C, P> = ReactJSXLibraryManagedAttributes<C, P>;
+  export type LibraryManagedAttributes<C, P> = ReactJSXLibraryManagedAttributes<
+    C,
+    P
+  >;
 
-  interface IntrinsicAttributes extends ReactJSXIntrinsicAttributes {}
-  interface IntrinsicClassAttributes<T>
-    extends ReactJSXIntrinsicClassAttributes<T> {}
+  export type IntrinsicAttributes = ReactJSXIntrinsicAttributes;
+  export type IntrinsicClassAttributes<T> = ReactJSXIntrinsicClassAttributes<T>;
 
-  type IntrinsicElements = {
+  export type IntrinsicElements = {
     [K in keyof ReactJSXIntrinsicElements]: WithVal<
       ReactJSXIntrinsicElements[K]
     >;
