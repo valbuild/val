@@ -11,7 +11,8 @@
   },
   "version": "1.0.0",
   "scripts": {
-    "dev": "ENV=development nodemon --watch 'src/**' --watch '.env' --ext 'js,ts,tsx,.env,json' --exec 'ts-node src/index.ts'"
+    "dev": "ENV=development nodemon --watch 'src/**' --watch '.env' --ext 'js,ts,tsx,.env,json' --exec 'ts-node src/index.ts'",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@types/cors": "^2.8.13",
