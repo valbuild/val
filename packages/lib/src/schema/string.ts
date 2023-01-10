@@ -1,5 +1,4 @@
 import { Schema } from "./Schema";
-import { SerializedSchema } from "./SerializedSchema";
 
 type StringOptions = {
   maxLength?: number;

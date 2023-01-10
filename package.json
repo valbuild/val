@@ -11,10 +11,16 @@
     "release": "yarn build && npm publish",
     "postinstall": "preconstruct dev",
     "format": "prettier --check .",
-    "format:fix": "prettier --write ."
+    "format:fix": "prettier --write .",
+    "lint": "eslint ."
   },
   "devDependencies": {
     "@preconstruct/cli": "^2.1.5",
+    "@typescript-eslint/eslint-plugin": "^5.48.1",
+    "@typescript-eslint/parser": "^5.48.1",
+    "eslint": "^8.31.0",
+    "eslint-config-prettier": "^8.6.0",
+    "eslint-plugin-react": "^7.31.11",
     "prettier": "^2.8.2"
   },
   "dependencies": {

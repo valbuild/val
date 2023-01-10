@@ -1,5 +1,3 @@
-import { object } from "./schema/object";
-import { SerializedSchema } from "./schema/SerializedSchema";
 import { StaticVal } from "./StaticVal";
 import { ValidTypes } from "./ValidTypes";
 

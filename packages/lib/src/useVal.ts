@@ -1,8 +1,6 @@
-import { content, ValContent } from "./content";
-import { object } from "./schema/object";
-import { string } from "./schema/string";
+import { ValContent } from "./content";
 import { StaticVal } from "./StaticVal";
-import { Val, ValObject, ValString } from "./Val";
+import { Val } from "./Val";
 import { ValidTypes } from "./ValidTypes";
 
 function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
@@ -37,13 +35,3 @@ export const useVal = <T extends ValidTypes>(
   }
   return buildVal(content.id, staticVal.get());
 };
-
-// TODO: move this to tests
-{
-  const val: ValString = useVal(content("foo", () => string().static("bar")));
-}
-{
-  const val: ValObject<{ foo: string }> = useVal(
-    content("foo", () => object({ foo: string() }).static({ foo: "bar" }))
-  );
-}
