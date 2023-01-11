@@ -1,5 +1,5 @@
-import { Schema } from "@val/lib";
-import { initVal } from "@val/lib";
+import { Schema } from "@valcms/lib";
+import { initVal } from "@valcms/lib";
 
 const { useVal, s, val } = initVal();
 

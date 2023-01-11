@@ -1,5 +1,5 @@
 {
-  "name": "val-next",
+  "name": "example-next",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -11,19 +11,19 @@
     "test": "echo \"no tests found :(\""
   },
   "dependencies": {
-    "@types/react": "18.0.17",
-    "@val/lib": "*",
-    "@val/react": "*",
+    "@valcms/lib": "*",
+    "@valcms/react": "*",
     "next": "^12.1.6",
     "next-compose-plugins": "^2.2.0",
     "next-transpile-modules": "^9.0.0",
     "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "@val/server": "*"
+    "react-dom": "18.2.0"
   },
   "devDependencies": {
     "@types/node": "18.11.18",
+    "@types/react": "18.0.17",
     "@types/react-dom": "18.0.6",
+    "@valcms/server": "*",
     "eslint": "8.23.0",
     "eslint-config-next": "12.2.5",
     "typescript": "^4.8.2"

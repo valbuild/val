@@ -1,9 +1,9 @@
-import { SerializedVal } from "@val/lib/src/StaticVal";
+import { SerializedVal } from "@valcms/lib/src/StaticVal";
 import {
   ValidObject,
   ValidPrimitive,
   ValidTypes,
-} from "@val/lib/src/ValidTypes";
+} from "@valcms/lib/src/ValidTypes";
 import type { AppProps } from "next/app";
 import React, {
   CSSProperties,

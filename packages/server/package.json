@@ -1,15 +1,15 @@
 {
-  "name": "@val/server",
-  "main": "dist/val-server.cjs.js",
-  "module": "dist/val-server.esm.js",
+  "name": "@valcms/server",
+  "main": "dist/valcms-server.cjs.js",
+  "module": "dist/valcms-server.esm.js",
   "exports": {
     ".": {
-      "module": "./dist/val-server.esm.js",
-      "default": "./dist/val-server.cjs.js"
+      "module": "./dist/valcms-server.esm.js",
+      "default": "./dist/valcms-server.cjs.js"
     },
     "./package.json": "./package.json"
   },
-  "version": "1.0.0",
+  "version": "0.0.1",
   "scripts": {
     "dev": "ENV=development nodemon --watch 'src/**' --watch '.env' --ext 'js,ts,tsx,.env,json' --exec 'ts-node src/index.ts'",
     "typecheck": "tsc --noEmit",
@@ -18,11 +18,11 @@
   "devDependencies": {
     "@types/cors": "^2.8.13",
     "@types/express": "^4.17.15",
-    "@val/lib": "*",
     "nodemon": "^2.0.20",
     "ts-node": "^10.9.1"
   },
   "dependencies": {
+    "@valcms/lib": "^0.0.1",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "fast-json-patch": "^3.1.1",
