@@ -22,6 +22,7 @@ jobs:
       - uses: valcms/changesets-action@v2
         with:
           publish: npm run release
+          version: npm run version-packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # NODE_AUTH_TOKEN is referenced from .npmrc, as configured by setup-node
