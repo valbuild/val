@@ -6,10 +6,10 @@ describe("array schema", () => {
     expect(
       array(
         string({
-          maxLength: 3,
+          maxLength: 11,
           minLength: 2,
         })
-      ).validate(["Testing 123", "1"])
+      ).validate(["Testing 1234", "Should pass", "1"])
     ).toHaveLength(2);
   });
 });
