@@ -1,13 +1,13 @@
 {
   "name": "@valcms/react",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "sideEffects": false,
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "echo \"no tests found :(\""
   },
   "dependencies": {
-    "@valcms/lib": "^0.0.1"
+    "@valcms/lib": "^0.0.2"
   },
   "peerDependencies": {
     "@babel/core": "^7.0.0",
