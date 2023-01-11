@@ -9,7 +9,7 @@
     },
     "./package.json": "./package.json"
   },
-  "version": "0.0.1",
+  "version": "0.0.2",
   "scripts": {
     "dev": "ENV=development nodemon --watch 'src/**' --watch '.env' --ext 'js,ts,tsx,.env,json' --exec 'ts-node src/index.ts'",
     "typecheck": "tsc --noEmit",
@@ -22,7 +22,7 @@
     "ts-node": "^10.9.1"
   },
   "dependencies": {
-    "@valcms/lib": "^0.0.1",
+    "@valcms/lib": "^0.0.2",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "fast-json-patch": "^3.1.1",
