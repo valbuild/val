@@ -1,16 +1,16 @@
 {
-  "name": "@val/lib",
-  "version": "1.0.0",
+  "name": "@valcms/lib",
+  "version": "0.0.1",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest"
   },
-  "main": "dist/val-lib.cjs.js",
-  "module": "dist/val-lib.esm.js",
+  "main": "dist/valcms-lib.cjs.js",
+  "module": "dist/valcms-lib.esm.js",
   "exports": {
     ".": {
-      "module": "./dist/val-lib.esm.js",
-      "default": "./dist/val-lib.cjs.js"
+      "module": "./dist/valcms-lib.esm.js",
+      "default": "./dist/valcms-lib.cjs.js"
     },
     "./package.json": "./package.json"
   },

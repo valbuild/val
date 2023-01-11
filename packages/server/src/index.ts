@@ -4,7 +4,7 @@ import { readValFile } from "./readValFile";
 import { writeValFile } from "./writeValFile";
 import cors from "cors";
 import { applyPatch, Operation, JsonPatchError } from "fast-json-patch";
-import { ValidTypes } from "@val/lib/src/ValidTypes";
+import { ValidTypes } from "@valcms/lib/src/ValidTypes";
 
 const PORT = process.env.PORT || 4123;
 const ROOT_DIR = path.join(process.cwd(), "..", "..", "examples", "next");
