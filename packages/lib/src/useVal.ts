@@ -1,7 +1,7 @@
 import { ValContent } from "./content";
 import { StaticVal } from "./StaticVal";
 import { Val } from "./Val";
-import { ValidTypes } from "./ValidTypes";
+import { ValidObject, ValidTypes } from "./ValidTypes";
 
 function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
   if (typeof val === "string") {
@@ -9,9 +9,15 @@ function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
       id,
       val,
     } as Val<T>;
+  } else if (Array.isArray(val)) {
+    // Should this fall-through to object if-clause or use Proxy / lazy to be consistent with object (currently a Proxy)?
+    // NOTE: we want the methods on array here so probably not Proxy
+    return val.map((item, index) =>
+      buildVal(`${id}.${index}`, item)
+    ) as unknown as Val<T>;
   } else if (typeof val === "object") {
     // Should this be a Proxy / lazy or not? Is it serializable?
-    return new Proxy(val, {
+    return new Proxy(val as ValidObject, {
       get(target, prop: string) {
         if (target[prop]) {
           return buildVal(`${id}.${prop}`, target[prop]);

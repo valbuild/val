@@ -4,6 +4,5 @@ export type ReservedKeys = (typeof reservedKeys)[number];
 export type ValidObject = { [key: string]: ValidTypes } & {
   [key in ReservedKeys]?: never;
 };
-
 export type ValidPrimitive = string;
-export type ValidTypes = ValidPrimitive | ValidObject;
+export type ValidTypes = ValidPrimitive | ValidObject | ValidTypes[];
