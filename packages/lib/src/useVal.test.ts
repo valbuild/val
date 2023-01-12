@@ -9,7 +9,7 @@ describe("useVal", () => {
     const val: ValString = useVal(content("foo", () => string().static("bar")));
     expect(val).toStrictEqual<ValString>({
       val: "bar",
-      id: "foo",
+      valId: "foo",
     });
   });
 
@@ -18,7 +18,7 @@ describe("useVal", () => {
       content("baz", () => object({ foo: string() }).static({ foo: "bar" }))
     );
     expect(val.foo).toStrictEqual<ValString>({
-      id: "baz.foo",
+      valId: "baz.foo",
       val: "bar",
     });
     // expect(val).toStrictEqual<ValObject<{ foo: string }>>({
