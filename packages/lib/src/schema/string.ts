@@ -22,12 +22,12 @@ class StringSchema extends Schema<string> {
     const errors: string[] = [];
     if (this.options?.maxLength && input.length > this.options.maxLength) {
       errors.push(
-        `String '${input}' is too long (max ${this.options.maxLength})`
+        `String '${input}' is too long. Length: ${input.length}. Max ${this.options.maxLength}`
       );
     }
     if (this.options?.minLength && input.length < this.options.minLength) {
       errors.push(
-        `String '${input}' is too short (min ${this.options.minLength})`
+        `String '${input}' is too short. Length: ${input.length}.Min ${this.options.minLength}.`
       );
     }
     if (errors.length > 0) {
