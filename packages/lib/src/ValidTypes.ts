@@ -1,11 +1,13 @@
 export type ValProps<T> = {
   val: T;
+  id: string;
 };
 
 type ReservedKeys = keyof ValProps<unknown>;
 
 const reservedKeysObj: { [key in ReservedKeys]: true } = {
   val: true,
+  id: true,
 };
 
 export const reservedKeys = Object.keys(reservedKeysObj) as ReservedKeys[];
