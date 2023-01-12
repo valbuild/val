@@ -11,8 +11,8 @@ const devalProps = (type, props) => {
 
   if (isIntrinsicElement(type)) {
     for (const [key, value] of Object.entries(props)) {
-      if (value && value.val && value.id) {
-        valIds.push(value.id);
+      if (value && value.val && value.valId) {
+        valIds.push(value.valId);
         if (typeof value.val === "string") {
           props[key] = value.val;
         } else {
