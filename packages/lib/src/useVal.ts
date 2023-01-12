@@ -1,14 +1,14 @@
 import { ValContent } from "./content";
 import { StaticVal } from "./StaticVal";
-import { Val } from "./Val";
+import { Val, ValString } from "./Val";
 import { ValidObject, ValidTypes, ValProps } from "./ValidTypes";
 
 function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
   if (typeof val === "string") {
     return {
-      id,
+      valId: id,
       val,
-    } as Val<T>;
+    } as ValString as Val<T>;
   } else if (Array.isArray(val)) {
     // Should this fall-through to object if-clause or use Proxy / lazy to be consistent with object (currently a Proxy)?
     // NOTE: we want the methods on array here so probably not Proxy
@@ -20,7 +20,7 @@ function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
     return new Proxy(val as ValidObject, {
       get(target, prop: string) {
         const idProp: keyof ValProps<T> /* type check to make sure idProp is, in fact, a prop of ValProps */ =
-          "id";
+          "valId";
         if (prop === idProp) {
           return id;
         }
