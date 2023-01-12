@@ -1,4 +1,4 @@
-const reservedKeys = ["_val"] as const;
+const reservedKeys = ["_val", "id"] as const;
 export type ReservedKeys = (typeof reservedKeys)[number];
 
 export type ValidObject = { [key: string]: ValidTypes } & {

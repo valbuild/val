@@ -7,7 +7,7 @@ export type ValString = {
 
 export type ValObject<T extends ValidObject> = {
   [key in keyof T]: Val<T[key]>;
-};
+} & { id: string };
 
 export type Val<T extends ValidTypes> = T extends string
   ? ValString
