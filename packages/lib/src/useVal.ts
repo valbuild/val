@@ -1,7 +1,7 @@
 import { ValContent } from "./content";
 import { StaticVal } from "./StaticVal";
 import { Val } from "./Val";
-import { ValidObject, ValidTypes } from "./ValidTypes";
+import { ValidObject, ValidTypes, ValProps } from "./ValidTypes";
 
 function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
   if (typeof val === "string") {
@@ -19,6 +19,16 @@ function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
     // Should this be a Proxy / lazy or not? Is it serializable?
     return new Proxy(val as ValidObject, {
       get(target, prop: string) {
+        const idProp: keyof ValProps<T> /* type check to make sure idProp is, in fact, a prop of ValProps */ =
+          "id";
+        if (prop === idProp) {
+          return id;
+        }
+        const valProp: keyof ValProps<T> /* type check to make sure valProps is, in fact, a prop of ValProps */ =
+          "val";
+        if (prop === valProp) {
+          return val;
+        }
         if (target[prop]) {
           return buildVal(`${id}.${prop}`, target[prop]);
         }
