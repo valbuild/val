@@ -12,9 +12,7 @@ function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
   } else if (Array.isArray(val)) {
     // Should this fall-through to object if-clause or use Proxy / lazy to be consistent with object (currently a Proxy)?
     // NOTE: we want the methods on array here so probably not Proxy
-    return val.map((item, index) =>
-      buildVal(`${id}.${index}`, item)
-    ) as unknown as Val<T>;
+    return val.map((item, index) => buildVal(`${id}.${index}`, item)) as Val<T>;
   } else if (typeof val === "object") {
     // Should this be a Proxy / lazy or not? Is it serializable?
     return new Proxy(val as ValidObject, {
@@ -34,7 +32,7 @@ function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
         }
         return undefined;
       },
-    }) as unknown as Val<T>;
+    }) as Val<T>;
   }
   throw new Error("Not implemented");
 }
