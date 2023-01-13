@@ -7,6 +7,7 @@ import React, {
   useEffect,
   useState,
 } from "react";
+import { logo, valcmsLogo } from "../assets";
 
 const baseZIndex = 8500; // Next uses 9000 highest z-index so keep us below that
 
@@ -32,7 +33,7 @@ const ValElementEditButton = forwardRef<
         position: "absolute",
         zIndex: baseZIndex + 1,
         cursor: "pointer",
-        background: "url('/valcms-logo.svg')",
+        background: `url('${valcmsLogo}')`,
         backgroundSize: "contain",
         backgroundRepeat: "no-repeat",
         backgroundColor: "white",
@@ -98,7 +99,7 @@ const ValEditEnableButton = ({
   return (
     <button
       style={{
-        background: 'url("/logo.svg")',
+        background: `url('${logo}')`,
         backgroundSize: "contain",
         backgroundRepeat: "no-repeat",
         backgroundColor: "black",
@@ -383,7 +384,7 @@ export function ValProvider({
         }
         .valcms-edit-mode >* [data-val-ids]:before {
           content: '';
-          background: url('/logo.svg');
+          background: url('${logo}');
           background-size: 20px;
           background-repeat: no-repeat;
           background-position: top;
