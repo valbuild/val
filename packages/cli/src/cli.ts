@@ -15,6 +15,7 @@ async function serve({
   const server = await createValServer(service, {
     port,
   });
+  info(`Root is ${service.rootDir}`);
   info(`Listening on port ${server.port}`);
 
   let handled = false;
