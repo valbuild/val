@@ -1,3 +1,4 @@
+import path from "path";
 import meow from "meow";
 import { createValServer, createService } from "@valcms/server";
 import { error, info } from "./logger";
@@ -10,7 +11,7 @@ async function serve({
   port: number;
 }): Promise<void> {
   const service = createService({
-    rootDir: root ?? process.cwd(),
+    rootDir: root ? path.resolve(root) : process.cwd(),
   });
   const server = await createValServer(service, {
     port,
