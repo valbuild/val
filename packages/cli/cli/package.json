@@ -1,0 +1,4 @@
+{
+  "main": "dist/valcms-cli-cli.cjs.js",
+  "module": "dist/valcms-cli-cli.esm.js"
+}
