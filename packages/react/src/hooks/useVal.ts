@@ -1,7 +1,16 @@
-import { ValContent } from "./content";
-import { StaticVal } from "./StaticVal";
-import { Val, ValString } from "./Val";
-import { ValidObject, ValidTypes, ValProps } from "./ValidTypes";
+import {
+  ValContent,
+  Val,
+  ValString,
+  ValidObject,
+  ValidTypes,
+  ValProps,
+} from "@valcms/lib";
+
+const idProp: keyof ValProps<unknown> /* type check to make sure idProp is, in fact, a prop of ValProps */ =
+  "valId";
+const valProp: keyof ValProps<unknown> /* type check to make sure valProps is, in fact, a prop of ValProps */ =
+  "val";
 
 function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
   if (typeof val === "string") {
@@ -17,13 +26,9 @@ function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
     // Should this be a Proxy / lazy or not? Is it serializable?
     return new Proxy(val as ValidObject, {
       get(target, prop: string) {
-        const idProp: keyof ValProps<T> /* type check to make sure idProp is, in fact, a prop of ValProps */ =
-          "valId";
         if (prop === idProp) {
           return id;
         }
-        const valProp: keyof ValProps<T> /* type check to make sure valProps is, in fact, a prop of ValProps */ =
-          "val";
         if (prop === valProp) {
           return val;
         }
@@ -40,7 +45,7 @@ function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
 export const useVal = <T extends ValidTypes>(
   content: ValContent<T>
 ): Val<T> => {
-  const staticVal: StaticVal<T> = content.val;
+  const staticVal = content.val;
   const validationError = staticVal.schema.validate(staticVal.get());
   if (validationError) {
     throw new Error(
