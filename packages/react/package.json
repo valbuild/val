@@ -7,7 +7,8 @@
     "test": "jest"
   },
   "dependencies": {
-    "@valcms/lib": "^0.2.0"
+    "@valcms/lib": "^0.2.0",
+    "base64-arraybuffer": "^1.0.2"
   },
   "devDependencies": {
     "@types/jest": "^29.2.5",
