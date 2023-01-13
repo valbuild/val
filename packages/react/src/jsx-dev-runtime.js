@@ -27,22 +27,6 @@ const devalProps = (type, props) => {
   }
 };
 
-export function jsx(type, props, key) {
-  // console.log("jsx", type, props, key);
-
-  devalProps(type, props);
-
-  return ReactJSXRuntimeDev.jsx(type, props, key);
-}
-
-export function jsxs(type, props, key) {
-  // console.log("jsxs", type, props, key);
-
-  devalProps(type, props);
-
-  return ReactJSXRuntimeDev.jsxs(type, props, key);
-}
-
 export function jsxDEV(type, props, key, isStaticChildren, source, self) {
   // console.log("jsxDEV", type, props, key, isStaticChildren, source, self);
 
