@@ -4,13 +4,21 @@
   "sideEffects": false,
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "echo \"no tests found :(\""
+    "test": "jest"
   },
   "dependencies": {
     "@valcms/lib": "^0.1.0"
   },
+  "devDependencies": {
+    "@types/jest": "^29.2.5",
+    "@types/react": "^18.0.26",
+    "jest": "^29.3.1",
+    "react": "^16.14.0",
+    "react-dom": "^16.14.0",
+    "react-test-renderer": "^16.14.0",
+    "ts-jest": "^29.0.5"
+  },
   "peerDependencies": {
-    "@babel/core": "^7.0.0",
     "react": ">=16.8.0"
   },
   "peerDependenciesMeta": {
