@@ -1,13 +1,13 @@
 {
   "name": "@valcms/react",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "sideEffects": false,
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest"
   },
   "dependencies": {
-    "@valcms/lib": "^0.1.0"
+    "@valcms/lib": "^0.2.0"
   },
   "devDependencies": {
     "@types/jest": "^29.2.5",
