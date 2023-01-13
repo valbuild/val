@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "val-server": "val serve",
-    "val-server:dev": "ENV=development nodemon --watch '../../packages/cli/src/**' --watch '.env' --ext 'js,ts,json' --exec 'val serve'",
+    "val-server:dev": "ENV=development nodemon --watch '../../packages/*/src/**' --ext 'js,ts,json' --exec 'val serve'",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
