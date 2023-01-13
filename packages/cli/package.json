@@ -1,6 +1,6 @@
 {
   "name": "@valcms/cli",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "description": "Val CLI tools",
   "bin": {
     "val": "./bin.js"
@@ -17,7 +17,7 @@
     "test": "echo \"no tests found :(\""
   },
   "dependencies": {
-    "@valcms/server": "^0.0.2",
+    "@valcms/server": "^0.1.0",
     "chalk": "^4.1.2",
     "meow": "^9.0.0"
   },
