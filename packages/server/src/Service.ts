@@ -6,9 +6,9 @@ import { writeValFile } from "./writeValFile";
 
 export type ServiceOptions = {
   /**
-   * Root directory of the project. Defaults to `process.cwd()`.
+   * Root directory of the project.
    */
-  rootDir?: string;
+  rootDir: string;
 };
 
 export function createService(opts: ServiceOptions): Service {
@@ -18,7 +18,7 @@ export function createService(opts: ServiceOptions): Service {
 export class Service {
   readonly rootDir: string;
 
-  constructor({ rootDir = process.cwd() }: ServiceOptions) {
+  constructor({ rootDir }: ServiceOptions) {
     this.rootDir = rootDir;
   }
 

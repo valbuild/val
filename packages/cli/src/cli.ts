@@ -10,7 +10,7 @@ async function serve({
   port: number;
 }): Promise<void> {
   const service = createService({
-    rootDir: root,
+    rootDir: root ?? process.cwd(),
   });
   const server = await createValServer(service, {
     port,
