@@ -1,7 +1,7 @@
 import { ClassDeclaration, MethodDeclaration, Project } from "ts-morph";
 import ts from "typescript";
 import path from "path";
-import { ValidTypes } from "@valcms/lib/src/ValidTypes";
+import { ValidTypes } from "@valcms/lib";
 
 const getStaticMethodDecl = (
   project: Project,

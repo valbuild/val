@@ -1,4 +1,4 @@
-import { Val } from "@valcms/lib/src/Val";
+import { Val } from "@valcms/lib";
 
 // unpack all here to avoid infinite self-referencing when defining our own JSX namespace
 type ReactJSXElement = JSX.Element;
