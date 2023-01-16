@@ -49,16 +49,18 @@ export const readValFile = async (
 
     if (!valModule) {
       errors.push(`Could not find any modules at: ${id}`);
-    } else if (!valModule.id) {
-      errors.push(`Could not verify id of val module: ${id}`);
-    } else if (valModule.id !== id) {
-      errors.push(`Expected val id: ${id} but got: ${valModule.id}`);
-    }
-    if (valModule.schema === undefined) {
-      errors.push(`Expected val id: ${id} to have a schema`);
-    }
-    if (valModule.val === undefined) {
-      errors.push(`Expected val id: ${id} to have a val`);
+    } else {
+      if (!valModule?.id) {
+        errors.push(`Could not verify id of val module: ${id}`);
+      } else if (valModule.id !== id) {
+        errors.push(`Expected val id: ${id} but got: ${valModule.id}`);
+      }
+      if (!valModule?.schema) {
+        errors.push(`Expected val id: ${id} to have a schema`);
+      }
+      if (!valModule?.val) {
+        errors.push(`Expected val id: ${id} to have a val`);
+      }
     }
 
     if (errors.length > 0) {
