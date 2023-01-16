@@ -26,6 +26,7 @@ export class ValFileSystemModuleResolver implements ValModuleResolver {
   }
 
   async getTranspiledCode(modulePath: string): Promise<string> {
+    // TODO: consider using compilerHost instead of fs below:
     const code = await promises.readFile(modulePath, "utf-8");
     return ts.transpile(code, {
       allowJs: true,
@@ -61,6 +62,7 @@ export class ValFileSystemModuleResolver implements ValModuleResolver {
     const modulePath = resolvedFileName;
     let filePath = modulePath;
 
+    // TODO: consider using compilerHost instead of fs below:
     if (filePath.endsWith(".d.ts")) {
       const jsFilePath = filePath.replace(/\.d.ts$/, ".js");
       if (fs.existsSync(jsFilePath)) {
