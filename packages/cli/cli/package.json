@@ -1,4 +1,4 @@
 {
-  "main": "dist/valcms-cli-cli.cjs.js",
-  "module": "dist/valcms-cli-cli.esm.js"
+  "main": "dist/valbuild-cli-cli.cjs.js",
+  "module": "dist/valbuild-cli-cli.esm.js"
 }

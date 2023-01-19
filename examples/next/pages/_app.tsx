@@ -1,4 +1,4 @@
-import { ValProvider } from "@valcms/react";
+import { ValProvider } from "@valbuild/react";
 import type { AppProps } from "next/app";
 
 function MyApp({ Component, pageProps }: AppProps) {

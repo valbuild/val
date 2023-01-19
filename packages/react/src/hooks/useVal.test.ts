@@ -1,5 +1,5 @@
 import { useVal } from "./useVal";
-import { initVal, ValObject, ValString } from "@valcms/lib";
+import { initVal, ValObject, ValString } from "@valbuild/lib";
 
 const { s, val } = initVal();
 

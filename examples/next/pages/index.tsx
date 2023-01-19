@@ -1,5 +1,5 @@
 import { NextPage } from "next";
-import { useVal } from "@valcms/react";
+import { useVal } from "@valbuild/react";
 import blogsVal from "./blogs.val";
 
 const Home: NextPage = () => {

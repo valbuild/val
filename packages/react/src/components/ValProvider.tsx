@@ -1,5 +1,5 @@
-import { SerializedVal } from "@valcms/lib";
-import { ValidObject, ValidPrimitive, ValidTypes } from "@valcms/lib";
+import { SerializedVal } from "@valbuild/lib";
+import { ValidObject, ValidPrimitive, ValidTypes } from "@valbuild/lib";
 import React, {
   CSSProperties,
   forwardRef,
@@ -115,9 +115,9 @@ const ValEditEnableButton = ({
       }}
       onClick={() => {
         if (!enabled) {
-          document.body.classList.add("valcms-edit-mode");
+          document.body.classList.add("val-edit-mode");
         } else {
-          document.body.classList.remove("valcms-edit-mode");
+          document.body.classList.remove("val-edit-mode");
         }
         setEnabled(!enabled);
       }}
@@ -379,10 +379,10 @@ export function ValProvider({
     const styleElement = document.createElement("style");
     styleElement.id = "val-edit-highlight";
     styleElement.innerHTML = `
-        .valcms-edit-mode >* [data-val-ids] {
+        .val-edit-mode >* [data-val-ids] {
           outline: black solid 1px;
         }
-        .valcms-edit-mode >* [data-val-ids]:before {
+        .val-edit-mode >* [data-val-ids]:before {
           content: '';
           background: url('${logo}');
           background-size: 20px;
