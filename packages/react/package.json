@@ -1,5 +1,5 @@
 {
-  "name": "@valcms/react",
+  "name": "@valbuild/react",
   "version": "0.2.1",
   "sideEffects": false,
   "scripts": {
@@ -7,7 +7,7 @@
     "test": "jest"
   },
   "dependencies": {
-    "@valcms/lib": "^0.2.0",
+    "@valbuild/lib": "^0.2.0",
     "base64-arraybuffer": "^1.0.2"
   },
   "devDependencies": {
@@ -44,35 +44,35 @@
       ]
     }
   },
-  "main": "dist/valcms-react.cjs.js",
-  "module": "dist/valcms-react.esm.js",
+  "main": "dist/valbuild-react.cjs.js",
+  "module": "dist/valbuild-react.esm.js",
   "browser": {
-    "./dist/valcms-react.esm.js": "./dist/valcms-react.browser.esm.js"
+    "./dist/valbuild-react.esm.js": "./dist/valbuild-react.browser.esm.js"
   },
   "exports": {
     ".": {
       "module": {
-        "worker": "./dist/valcms-react.worker.esm.js",
-        "browser": "./dist/valcms-react.browser.esm.js",
-        "default": "./dist/valcms-react.esm.js"
+        "worker": "./dist/valbuild-react.worker.esm.js",
+        "browser": "./dist/valbuild-react.browser.esm.js",
+        "default": "./dist/valbuild-react.esm.js"
       },
-      "default": "./dist/valcms-react.cjs.js"
+      "default": "./dist/valbuild-react.cjs.js"
     },
     "./jsx-runtime": {
       "module": {
-        "worker": "./jsx-runtime/dist/valcms-react-jsx-runtime.worker.esm.js",
-        "browser": "./jsx-runtime/dist/valcms-react-jsx-runtime.browser.esm.js",
-        "default": "./jsx-runtime/dist/valcms-react-jsx-runtime.esm.js"
+        "worker": "./jsx-runtime/dist/valbuild-react-jsx-runtime.worker.esm.js",
+        "browser": "./jsx-runtime/dist/valbuild-react-jsx-runtime.browser.esm.js",
+        "default": "./jsx-runtime/dist/valbuild-react-jsx-runtime.esm.js"
       },
-      "default": "./jsx-runtime/dist/valcms-react-jsx-runtime.cjs.js"
+      "default": "./jsx-runtime/dist/valbuild-react-jsx-runtime.cjs.js"
     },
     "./jsx-dev-runtime": {
       "module": {
-        "worker": "./jsx-dev-runtime/dist/valcms-react-jsx-dev-runtime.worker.esm.js",
-        "browser": "./jsx-dev-runtime/dist/valcms-react-jsx-dev-runtime.browser.esm.js",
-        "default": "./jsx-dev-runtime/dist/valcms-react-jsx-dev-runtime.esm.js"
+        "worker": "./jsx-dev-runtime/dist/valbuild-react-jsx-dev-runtime.worker.esm.js",
+        "browser": "./jsx-dev-runtime/dist/valbuild-react-jsx-dev-runtime.browser.esm.js",
+        "default": "./jsx-dev-runtime/dist/valbuild-react-jsx-dev-runtime.esm.js"
       },
-      "default": "./jsx-dev-runtime/dist/valcms-react-jsx-dev-runtime.cjs.js"
+      "default": "./jsx-dev-runtime/dist/valbuild-react-jsx-dev-runtime.cjs.js"
     },
     "./package.json": "./package.json"
   }

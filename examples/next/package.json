@@ -13,8 +13,8 @@
     "test": "echo \"no tests found :(\""
   },
   "dependencies": {
-    "@valcms/lib": "*",
-    "@valcms/react": "*",
+    "@valbuild/lib": "*",
+    "@valbuild/react": "*",
     "next": "^12.1.6",
     "next-compose-plugins": "^2.2.0",
     "next-transpile-modules": "^9.0.0",
@@ -25,7 +25,7 @@
     "@types/node": "18.11.18",
     "@types/react": "18.0.26",
     "@types/react-dom": "18.0.6",
-    "@valcms/cli": "*",
+    "@valbuild/cli": "*",
     "eslint": "8.23.0",
     "eslint-config-next": "12.2.5",
     "ts-node": "^10.9.1",

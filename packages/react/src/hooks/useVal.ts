@@ -5,7 +5,7 @@ import {
   ValidObject,
   ValidTypes,
   ValProps,
-} from "@valcms/lib";
+} from "@valbuild/lib";
 
 const idProp: keyof ValProps<unknown> /* type check to make sure idProp is, in fact, a prop of ValProps */ =
   "valId";

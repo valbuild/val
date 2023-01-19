@@ -1,5 +1,5 @@
 import path from "path";
-import { SerializedSchema, ValContent, ValidTypes } from "@valcms/lib";
+import { SerializedSchema, ValContent, ValidTypes } from "@valbuild/lib";
 
 const resolveValModule = async (
   rootDir: string,

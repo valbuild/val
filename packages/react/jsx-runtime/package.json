@@ -1,7 +1,7 @@
 {
-  "main": "dist/valcms-react-jsx-runtime.cjs.js",
-  "module": "dist/valcms-react-jsx-runtime.esm.js",
+  "main": "dist/valbuild-react-jsx-runtime.cjs.js",
+  "module": "dist/valbuild-react-jsx-runtime.esm.js",
   "browser": {
-    "./dist/valcms-react-jsx-runtime.esm.js": "./dist/valcms-react-jsx-runtime.browser.esm.js"
+    "./dist/valbuild-react-jsx-runtime.esm.js": "./dist/valbuild-react-jsx-runtime.browser.esm.js"
   }
 }
