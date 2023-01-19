@@ -17,9 +17,9 @@ jobs:
           node-version: 18
           cache: npm
           registry-url: "https://npm.pkg.github.com/"
-          scope: "@valcms"
+          scope: "@valbuild"
       - run: npm ci
-      - uses: valcms/changesets-action@v2
+      - uses: valbuild/changesets-action@v2
         with:
           publish: npm run release
           version: npm run version-packages

@@ -1,30 +1,30 @@
 import { ClassDeclaration, MethodDeclaration, Project } from "ts-morph";
 import ts from "typescript";
 import path from "path";
-import { ValidTypes } from "@valcms/lib";
+import { ValidTypes } from "@valbuild/lib";
 
 const getStaticMethodDecl = (
   project: Project,
   valModulePath: string
 ): MethodDeclaration => {
   const resolutionResult = ts.resolveModuleName(
-    "@valcms/lib",
+    "@valbuild/lib",
     valModulePath,
     project.compilerOptions.get(),
     project.getModuleResolutionHost()
   );
   const valLibModule = resolutionResult.resolvedModule;
   if (!valLibModule) {
-    throw Error(`Unable to resolve "@valcms/lib": Module not found`);
+    throw Error(`Unable to resolve "@valbuild/lib": Module not found`);
   }
   const valLibSourceFile = project.getSourceFile(valLibModule.resolvedFileName);
   if (!valLibSourceFile) {
-    throw Error(`"@valcms/lib" types not found: Type declarations not found`);
+    throw Error(`"@valbuild/lib" types not found: Type declarations not found`);
   }
   const schemaDecls = valLibSourceFile.getExportedDeclarations().get("Schema");
   if (!schemaDecls) {
     throw Error(
-      `Unable to resolve Schema from "@valcms/lib": Export declaration not found`
+      `Unable to resolve Schema from "@valbuild/lib": Export declaration not found`
     );
   }
 
@@ -36,12 +36,12 @@ const getStaticMethodDecl = (
     .filter((method): method is MethodDeclaration => !!method);
   if (staticMethodsDecls.length === 0) {
     throw Error(
-      `Unable to resolve Schema["static"] from "@valcms/lib": Method not found`
+      `Unable to resolve Schema["static"] from "@valbuild/lib": Method not found`
     );
   }
   if (staticMethodsDecls.length > 1) {
     throw Error(
-      `Unable to resolve Schema["static"] from "@valcms/lib": Method is ambiguous`
+      `Unable to resolve Schema["static"] from "@valbuild/lib": Method is ambiguous`
     );
   }
   return staticMethodsDecls[0];

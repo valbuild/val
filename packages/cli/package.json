@@ -1,5 +1,5 @@
 {
-  "name": "@valcms/cli",
+  "name": "@valbuild/cli",
   "version": "0.2.0",
   "description": "Val CLI tools",
   "bin": {
@@ -7,8 +7,8 @@
   },
   "exports": {
     "./cli": {
-      "module": "./cli/dist/valcms-cli-cli.esm.js",
-      "default": "./cli/dist/valcms-cli-cli.cjs.js"
+      "module": "./cli/dist/valbuild-cli-cli.esm.js",
+      "default": "./cli/dist/valbuild-cli-cli.cjs.js"
     },
     "./package.json": "./package.json"
   },
@@ -17,7 +17,7 @@
     "test": "echo \"no tests found :(\""
   },
   "dependencies": {
-    "@valcms/server": "^0.2.0",
+    "@valbuild/server": "^0.2.0",
     "chalk": "^4.1.2",
     "meow": "^9.0.0"
   },

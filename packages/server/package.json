@@ -1,11 +1,11 @@
 {
-  "name": "@valcms/server",
-  "main": "dist/valcms-server.cjs.js",
-  "module": "dist/valcms-server.esm.js",
+  "name": "@valbuild/server",
+  "main": "dist/valbuild-server.cjs.js",
+  "module": "dist/valbuild-server.esm.js",
   "exports": {
     ".": {
-      "module": "./dist/valcms-server.esm.js",
-      "default": "./dist/valcms-server.cjs.js"
+      "module": "./dist/valbuild-server.esm.js",
+      "default": "./dist/valbuild-server.cjs.js"
     },
     "./package.json": "./package.json"
   },
@@ -22,7 +22,7 @@
     "ts-node": "^10.9.1"
   },
   "dependencies": {
-    "@valcms/lib": "^0.2.0",
+    "@valbuild/lib": "^0.2.0",
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "fast-json-patch": "^3.1.1",
