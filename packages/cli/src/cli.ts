@@ -1,6 +1,6 @@
 import path from "path";
 import meow from "meow";
-import { createValServer, createService } from "@valcms/server";
+import { createValServer, createService } from "@valbuild/server";
 import { error, info } from "./logger";
 
 async function serve({

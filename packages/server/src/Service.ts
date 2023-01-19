@@ -1,4 +1,4 @@
-import { SerializedSchema, ValidTypes } from "@valcms/lib";
+import { SerializedSchema, ValidTypes } from "@valbuild/lib";
 import { applyPatch, Operation } from "fast-json-patch";
 import { readValFile } from "./readValFile";
 import { writeValFile } from "./writeValFile";
