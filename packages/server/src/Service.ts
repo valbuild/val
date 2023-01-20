@@ -8,6 +8,12 @@ export type ServiceOptions = {
    * Root directory of the project.
    */
   rootDir: string;
+  /**
+   * Relative path to the val.config.js file from the root directory.
+   *
+   * @example src
+   */
+  relativeValConfigPath?: string;
 };
 
 export function createService(opts: ServiceOptions): Service {
@@ -16,20 +22,24 @@ export function createService(opts: ServiceOptions): Service {
 
 export class Service {
   readonly rootDir: string;
+  readonly relativeValConfigPath?: string;
 
-  constructor({ rootDir }: ServiceOptions) {
+  constructor({ rootDir, relativeValConfigPath }: ServiceOptions) {
     this.rootDir = rootDir;
+    this.relativeValConfigPath = relativeValConfigPath;
   }
 
   get(
     moduleId: string
   ): Promise<{ val: ValidTypes; schema: SerializedSchema }> {
-    return readValFile(this.rootDir, moduleId);
+    return readValFile(moduleId, this.rootDir, this.relativeValConfigPath);
   }
 
   async patch(moduleId: string, patch: Operation[]): Promise<void> {
     // TODO: Validate patch and/or resulting document against schema
-    const document = (await readValFile(this.rootDir, moduleId)).val;
+    const document = (
+      await readValFile(moduleId, this.rootDir, this.relativeValConfigPath)
+    ).val;
     const result = applyPatch(document, patch, true, false);
     const newDocument = result.newDocument;
 

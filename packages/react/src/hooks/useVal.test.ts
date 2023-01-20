@@ -6,7 +6,7 @@ const { s, val } = initVal();
 describe("useVal", () => {
   test("extracts ValString from string", () => {
     const vs: ValString = useVal(
-      val.content("foo", () => s.string().static("bar"))
+      val.content("foo", () => s.string().fixed("bar"))
     );
     expect(vs).toStrictEqual<ValString>({
       val: "bar",
@@ -17,7 +17,7 @@ describe("useVal", () => {
   test("extracts ValString from ValObject", () => {
     const vo: ValObject<{ foo: string }> = useVal(
       val.content("baz", () =>
-        s.object({ foo: s.string() }).static({ foo: "bar" })
+        s.object({ foo: s.string() }).fixed({ foo: "bar" })
       )
     );
     expect(vo.foo).toStrictEqual<ValString>({
