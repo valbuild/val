@@ -3,7 +3,7 @@ import ts from "typescript";
 import path from "path";
 import { ValidTypes } from "@valbuild/lib";
 
-const getStaticMethodDecl = (
+const getFixedMethodDecl = (
   project: Project,
   valModulePath: string
 ): MethodDeclaration => {
@@ -28,23 +28,23 @@ const getStaticMethodDecl = (
     );
   }
 
-  const staticMethodsDecls = schemaDecls
+  const fixedMethodsDecls = schemaDecls
     .filter((schemaDeclaration): schemaDeclaration is ClassDeclaration =>
       schemaDeclaration.isKind(ts.SyntaxKind.ClassDeclaration)
     )
-    .map((decl) => decl.getMethod("static"))
+    .map((decl) => decl.getMethod("fixed"))
     .filter((method): method is MethodDeclaration => !!method);
-  if (staticMethodsDecls.length === 0) {
+  if (fixedMethodsDecls.length === 0) {
     throw Error(
-      `Unable to resolve Schema["static"] from "@valbuild/lib": Method not found`
+      `Unable to resolve Schema["fixed"] from "@valbuild/lib": Method not found`
     );
   }
-  if (staticMethodsDecls.length > 1) {
+  if (fixedMethodsDecls.length > 1) {
     throw Error(
-      `Unable to resolve Schema["static"] from "@valbuild/lib": Method is ambiguous`
+      `Unable to resolve Schema["fixed"] from "@valbuild/lib": Method is ambiguous`
     );
   }
-  return staticMethodsDecls[0];
+  return fixedMethodsDecls[0];
 };
 
 export const writeValFile = async (
@@ -65,18 +65,16 @@ export const writeValFile = async (
     throw Error(`No file found at ${filePath}`);
   }
 
-  const staticReferencesInModule = valStaticMethod
+  const fixedReferencesInModule = valfixedMethod
     .findReferencesAsNodes()
     .filter((reference) => reference.getSourceFile() === sourceFile);
-  if (staticReferencesInModule.length === 0) {
-    throw Error(`No reference to Schema["static"] in ${fileId}.val.ts found`);
+  if (fixedReferencesInModule.length === 0) {
+    throw Error(`No reference to Schema["fixed"] in ${id}.val.ts found`);
   }
-  if (staticReferencesInModule.length > 1) {
-    throw Error(
-      `Multiple references to Schema["static"] in ${fileId}.val.ts found`
-    );
+  if (fixedReferencesInModule.length > 1) {
+    throw Error(`Multiple references to Schema["fixed"] in ${id}.val.ts found`);
   }
-  const [staticReference] = staticReferencesInModule;
+  const [fixedReference] = fixedReferencesInModule;
 
   // typeChecker.getExportsOfModule(valConfigModuleSymbol).forEach((symbol) => {
   //   if (symbol.getName() === "s") {
@@ -146,8 +144,8 @@ export const writeValFile = async (
     throw Error(`Function body expression is not a property access expression`);
   }
 
-  if (functionBodyExpr.getNameNode() !== staticReference) {
-    throw Error(`Function body expression is not a static call`);
+  if (functionBodyExpr.getNameNode() !== fixedReference) {
+    throw Error(`Function body expression is not a fixed call`);
   }
 
   const functionBodyArgs = functionBody.getArguments();

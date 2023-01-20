@@ -11,7 +11,7 @@ export abstract class Schema<T extends ValidTypes> {
    */
   abstract validate(input: T): false | string[];
 
-  static(val: T): StaticVal<T> {
+  fixed(val: T): StaticVal<T> {
     return new StaticVal(val, this);
   }
 

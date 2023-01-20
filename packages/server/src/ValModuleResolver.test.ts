@@ -1,28 +1,79 @@
-import { ValFileSystemModuleResolver } from "./ValModuleResolver";
+import { ValModuleResolver } from "./ValModuleResolver";
 import path from "path";
 
+const TestCaseDir = "../test/example-projects";
+const TestCases = [
+  { name: "basic-next-typescript", valConfigDir: ".", ext: "ts" },
+  {
+    name: "basic-next-src-typescript",
+    valConfigDir: "./src",
+    ext: "ts",
+  },
+  { name: "basic-next-javascript", valConfigDir: ".", ext: "js" },
+  { name: "typescript-description-files", valConfigDir: ".", ext: "js" },
+];
+
 describe("val module resolver", () => {
-  test.each([
-    "basic-typescript",
-    "basic-javascript",
-    "typescript-description-files",
-  ])("basic resolution: %s", async (testName) => {
+  test.each(TestCases)("basic resolution: $name", async (testCase) => {
+    const rootDir = path.resolve(__dirname, TestCaseDir, testCase.name);
+    const resolver = new ValModuleResolver(rootDir);
+    console.log(
+      resolver.resolveModulePath(
+        `${testCase.valConfigDir}/val-system.${testCase.ext}`,
+        "./pages/blogs.val"
+      )
+    );
+    // TODO: check actual results as well:
+    expect(
+      await resolver.getTranspiledCode(
+        resolver.resolveModulePath(
+          `${testCase.valConfigDir}/val-system.${testCase.ext}`,
+          "./pages/blogs.val"
+        )
+      )
+    ).toBeDefined();
+    expect(
+      await resolver.getTranspiledCode(
+        resolver.resolveModulePath(
+          `${testCase.valConfigDir}/pages/blogs.val.${testCase.ext}`,
+          "../val.config"
+        )
+      )
+    ).toBeDefined();
+  });
+
+  test("resolution based on baseDir / paths in tsconfig", () => {
     const rootDir = path.resolve(
       __dirname,
-      "../test/module-resolver",
-      testName
+      TestCaseDir,
+      "basic-next-src-typescript"
     );
-    const resolver = new ValFileSystemModuleResolver(rootDir);
-    expect(
-      await resolver.getTranspiledCode(
-        resolver.resolveModulePath("./val-system.js", "./pages/blogs.val")
-      )
-    ).toBeDefined();
+    const resolver = new ValModuleResolver(rootDir);
 
-    expect(
-      await resolver.getTranspiledCode(
-        resolver.resolveModulePath("./pages/blogs.val.ts", "../val.config")
-      )
-    ).toBeDefined();
+    const containingFile = "./src/pages/blogs.val.ts";
+    const baseCase = resolver.resolveModulePath(
+      containingFile,
+      "../val.config"
+    ); // tsconfig maps @ to src
+    const pathsMapping = resolver.resolveModulePath(
+      containingFile,
+      "@/val.config"
+    ); // tsconfig maps @ to src
+    expect(baseCase).toBeDefined();
+    expect(baseCase).toEqual(pathsMapping);
+  });
+
+  test("resolution on .d.ts files", () => {
+    const rootDir = path.resolve(
+      __dirname,
+      TestCaseDir,
+      "typescript-description-files"
+    );
+    const resolver = new ValModuleResolver(rootDir);
+
+    const containingFile = "./pages/blogs.val.js";
+    expect(resolver.resolveModulePath(containingFile, "../val.config")).toMatch(
+      /val\.config\.js$/
+    );
   });
 });
