@@ -8,9 +8,9 @@ export async function newValQuickJSRuntime(
     maxStackSize = 1024 * 640, // TODO: these were randomly chosen, we should figure out what the right values are:
     memoryLimit = 1024 * 640,
   }: {
-    maxStackSize: number;
-    memoryLimit: number;
-  }
+    maxStackSize?: number;
+    memoryLimit?: number;
+  } = {}
 ) {
   const runtime = quickJSModule.newRuntime();
 
@@ -22,7 +22,10 @@ export async function newValQuickJSRuntime(
       return moduleResolver.getTranspiledCode(modulePath);
     },
     (baseModuleName, requestedName) => {
-      return moduleResolver.resolveModulePath(baseModuleName, requestedName);
+      return moduleResolver.resolveRuntimeModulePath(
+        baseModuleName,
+        requestedName
+      );
     }
   );
   return runtime;

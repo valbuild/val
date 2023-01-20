@@ -9,13 +9,13 @@ import { newValQuickJSRuntime } from "./ValQuickJSRuntime";
 
 const TestCaseDir = "../test/example-projects";
 const TestCases = [
-  { name: "basic-next-typescript", valConfigDir: "." },
+  { name: "basic-next-typescript", valConfigPath: "./val.config" },
   {
     name: "basic-next-src-typescript",
-    valConfigDir: "./src",
+    valConfigPath: "./src/val.config",
   },
-  { name: "basic-next-javascript", valConfigDir: "." },
-  { name: "typescript-description-files", valConfigDir: "." },
+  { name: "basic-next-javascript", valConfigPath: "./val.config" },
+  { name: "typescript-description-files", valConfigPath: "./val.config" },
 ];
 
 describe("read val file", () => {
@@ -40,7 +40,7 @@ describe("read val file", () => {
     });
     const result = await readValFile(
       "/pages/blogs",
-      testCase.valConfigDir,
+      testCase.valConfigPath,
       testRuntime
     );
     expect(result).toHaveProperty("val");

@@ -18,7 +18,7 @@ describe("val module resolver", () => {
     const rootDir = path.resolve(__dirname, TestCaseDir, testCase.name);
     const resolver = new ValModuleResolver(rootDir);
     console.log(
-      resolver.resolveModulePath(
+      resolver.resolveRuntimeModulePath(
         `${testCase.valConfigDir}/val-system.${testCase.ext}`,
         "./pages/blogs.val"
       )
@@ -26,7 +26,7 @@ describe("val module resolver", () => {
     // TODO: check actual results as well:
     expect(
       await resolver.getTranspiledCode(
-        resolver.resolveModulePath(
+        resolver.resolveRuntimeModulePath(
           `${testCase.valConfigDir}/val-system.${testCase.ext}`,
           "./pages/blogs.val"
         )
@@ -34,7 +34,7 @@ describe("val module resolver", () => {
     ).toBeDefined();
     expect(
       await resolver.getTranspiledCode(
-        resolver.resolveModulePath(
+        resolver.resolveRuntimeModulePath(
           `${testCase.valConfigDir}/pages/blogs.val.${testCase.ext}`,
           "../val.config"
         )
@@ -51,11 +51,11 @@ describe("val module resolver", () => {
     const resolver = new ValModuleResolver(rootDir);
 
     const containingFile = "./src/pages/blogs.val.ts";
-    const baseCase = resolver.resolveModulePath(
+    const baseCase = resolver.resolveRuntimeModulePath(
       containingFile,
       "../val.config"
     ); // tsconfig maps @ to src
-    const pathsMapping = resolver.resolveModulePath(
+    const pathsMapping = resolver.resolveRuntimeModulePath(
       containingFile,
       "@/val.config"
     ); // tsconfig maps @ to src
@@ -72,8 +72,8 @@ describe("val module resolver", () => {
     const resolver = new ValModuleResolver(rootDir);
 
     const containingFile = "./pages/blogs.val.js";
-    expect(resolver.resolveModulePath(containingFile, "../val.config")).toMatch(
-      /val\.config\.js$/
-    );
+    expect(
+      resolver.resolveRuntimeModulePath(containingFile, "../val.config")
+    ).toMatch(/val\.config\.js$/);
   });
 });
