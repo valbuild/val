@@ -2,6 +2,7 @@ import { ClassDeclaration, MethodDeclaration, Project } from "ts-morph";
 import ts from "typescript";
 import path from "path";
 import { ValidTypes } from "@valbuild/lib";
+import { ValModuleResolver } from "./ValModuleResolver";
 
 const getFixedMethodDecl = (
   project: Project,
@@ -48,17 +49,21 @@ const getFixedMethodDecl = (
 };
 
 export const writeValFile = async (
-  rootDir: string,
-  fileId: string,
-  updatedVal: ValidTypes
+  id: string,
+  valConfigPath: string,
+  updatedVal: ValidTypes,
+  resolver: ValModuleResolver
 ): Promise<void> => {
   const project = new Project({
-    tsConfigFilePath: path.join(rootDir, "tsconfig.json"),
+    tsConfigFilePath: path.join(resolver.projectRoot, "tsconfig.json"),
   });
   const typeChecker = project.getTypeChecker();
 
-  const filePath = path.join(rootDir, `${fileId}.val.ts`);
-  const valStaticMethod = getStaticMethodDecl(project, filePath);
+  const filePath = resolver.resolveSourceModulePath(
+    valConfigPath,
+    `.${id}.val`
+  );
+  const valfixedMethod = getFixedMethodDecl(project, filePath);
 
   const sourceFile = project.getSourceFile(filePath);
   if (!sourceFile) {
@@ -126,7 +131,7 @@ export const writeValFile = async (
     );
   }
 
-  const expectedId = `"/${fileId}"`;
+  const expectedId = `"${id}"`;
   if (maybeIdLiteral.getText() !== expectedId) {
     throw Error(
       `First argument to export expression is not the expected id. Expected: ${expectedId}. Actual: ${maybeIdLiteral.getText()}`

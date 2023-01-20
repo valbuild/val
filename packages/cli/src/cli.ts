@@ -1,22 +1,32 @@
 import path from "path";
 import meow from "meow";
-import { createValServer, createService } from "@valbuild/server";
+import {
+  createValServer,
+  createService,
+  ValModuleResolver,
+} from "@valbuild/server";
 import { error, info } from "./logger";
 
 async function serve({
   root,
   port,
+  cfg,
 }: {
   root?: string;
   port: number;
+  cfg?: string;
 }): Promise<void> {
-  const service = createService({
-    rootDir: root ? path.resolve(root) : process.cwd(),
+  const resolver = new ValModuleResolver(
+    root ? path.resolve(root) : process.cwd()
+  );
+  const service = await createService(resolver, {
+    valConfigPath: cfg ?? "./val.config",
   });
   const server = await createValServer(service, {
     port,
   });
-  info(`Root is ${service.rootDir}`);
+  info(`Root is ${resolver.projectRoot}`);
+  info(`Config is ${service.valConfigPath}`);
   info(`Listening on port ${server.port}`);
 
   let handled = false;
@@ -40,7 +50,10 @@ async function serve({
   process.on("SIGTERM", handleInterrupt);
 
   return new Promise((resolve) => {
-    server.on("close", resolve);
+    server.on("close", () => {
+      service.dispose();
+      resolve();
+    });
   });
 }
 
@@ -56,6 +69,7 @@ async function main(): Promise<void> {
         --help                   Show this message
         --port [port], -p [port] Set server port (default 4123)
         --root [root], -r [root] Set project root directory (default process.cwd())
+        --cfg  [cfg],  -c [cfg]  Set path to config relative to root (default ./val.config)
     `,
     {
       flags: {
@@ -67,6 +81,10 @@ async function main(): Promise<void> {
         root: {
           type: "string",
           alias: "r",
+        },
+        cfg: {
+          type: "string",
+          alias: "c",
         },
       },
       hardRejection: false,
@@ -87,6 +105,7 @@ async function main(): Promise<void> {
       return serve({
         root: flags.root,
         port: flags.port,
+        cfg: flags.cfg,
       });
     default:
       return error(`Unknown command "${input.join(" ")}"`);

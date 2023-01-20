@@ -13,16 +13,16 @@ const JsFileLookupMapping: [resolvedFileExt: string, replacements: string[]][] =
 export class ValModuleResolver {
   private readonly compilerHost: ts.CompilerHost;
   private readonly compilerOptions: ts.CompilerOptions;
-  private readonly projectRoot: string;
+  readonly projectRoot: string;
 
   private getCompilerOptions(rootDir: string): ts.CompilerOptions {
     const parseConfigHost: ts.ParseConfigHost = ts.sys;
     const tsConfigPath = path.resolve(rootDir, "tsconfig.json");
     const jsConfigPath = path.resolve(rootDir, "jsconfig.json");
     let configFilePath: string;
-    if (parseConfigHost.readFile(jsConfigPath)) {
+    if (parseConfigHost.fileExists(jsConfigPath)) {
       configFilePath = jsConfigPath;
-    } else if (parseConfigHost.readFile(tsConfigPath)) {
+    } else if (parseConfigHost.fileExists(tsConfigPath)) {
       configFilePath = tsConfigPath;
     } else {
       throw Error(
@@ -84,7 +84,7 @@ export class ValModuleResolver {
     });
   }
 
-  resolveModulePath(
+  resolveSourceModulePath(
     containingFilePath: string,
     requestedModuleName: string
   ): string {
@@ -107,13 +107,18 @@ export class ValModuleResolver {
         )}`
       );
     }
-    const resolvedFileName = resolvedModule.resolvedFileName;
-    if (!resolvedFileName) {
-      throw Error(
-        `Could not resolve module "${requestedModuleName}", base: "${containingFilePath}"": No file name returned.`
-      );
-    }
-    const matches = this.findMatchingJsFile(resolvedFileName);
+    return resolvedModule.resolvedFileName;
+  }
+
+  resolveRuntimeModulePath(
+    containingFilePath: string,
+    requestedModuleName: string
+  ): string {
+    const sourceFileName = this.resolveSourceModulePath(
+      containingFilePath,
+      requestedModuleName
+    );
+    const matches = this.findMatchingJsFile(sourceFileName);
     if (matches.match === false) {
       throw Error(
         `Could not find matching js file for module "${requestedModuleName}". Tried:\n${matches.tried.join(

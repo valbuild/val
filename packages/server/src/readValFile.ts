@@ -1,10 +1,10 @@
+import path from "path";
 import { SerializedSchema, ValidTypes } from "@valbuild/lib";
 import { QuickJSRuntime } from "quickjs-emscripten";
-import { ValModuleResolver } from "./ValModuleResolver";
 
 export const readValFile = async (
   id: string,
-  valConfigDir = ".",
+  valConfigPath: string,
   runtime: QuickJSRuntime
 ): Promise<{ val: ValidTypes; schema: SerializedSchema }> => {
   const context = runtime.newContext();
@@ -13,7 +13,11 @@ export const readValFile = async (
     const code = `import * as valModule from ${JSON.stringify(modulePath)};
 globalThis.valModule = { id: valModule?.default?.id, ...valModule?.default?.val?.serialize() };
 `;
-    const result = context.evalCode(code, `${valConfigDir}/<val>`);
+    const result = context.evalCode(
+      code,
+      // Synthetic module name
+      path.join(valConfigPath, "..", "<val>")
+    );
     if (result.error) {
       const error = result.error.consume(context.dump);
       console.error("Got error", error); // TODO: use this to figure out how to strip out QuickJS specific errors and get the actual stack
