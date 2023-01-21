@@ -14,33 +14,29 @@ const TestCases = [
 ];
 
 describe("val module resolver", () => {
-  test.each(TestCases)("basic resolution: $name", async (testCase) => {
-    const rootDir = path.resolve(__dirname, TestCaseDir, testCase.name);
-    const resolver = new ValModuleResolver(rootDir);
-    console.log(
-      resolver.resolveRuntimeModulePath(
-        `${testCase.valConfigDir}/val-system.${testCase.ext}`,
-        "./pages/blogs.val"
-      )
-    );
-    // TODO: check actual results as well:
-    expect(
-      await resolver.getTranspiledCode(
-        resolver.resolveRuntimeModulePath(
-          `${testCase.valConfigDir}/val-system.${testCase.ext}`,
-          "./pages/blogs.val"
+  test.each(TestCases)(
+    "resolution and smoke test transpilation for: $name",
+    async (testCase) => {
+      const rootDir = path.resolve(__dirname, TestCaseDir, testCase.name);
+      const resolver = new ValModuleResolver(rootDir);
+      expect(
+        await resolver.getTranspiledCode(
+          resolver.resolveRuntimeModulePath(
+            `${testCase.valConfigDir}/val-system.${testCase.ext}`,
+            "./pages/blogs.val"
+          )
         )
-      )
-    ).toBeDefined();
-    expect(
-      await resolver.getTranspiledCode(
-        resolver.resolveRuntimeModulePath(
-          `${testCase.valConfigDir}/pages/blogs.val.${testCase.ext}`,
-          "../val.config"
+      ).toContain("/pages/blogs");
+      expect(
+        await resolver.getTranspiledCode(
+          resolver.resolveRuntimeModulePath(
+            `${testCase.valConfigDir}/pages/blogs.val.${testCase.ext}`,
+            "../val.config"
+          )
         )
-      )
-    ).toBeDefined();
-  });
+      ).toContain("@valbuild/lib");
+    }
+  );
 
   test("resolution based on baseDir / paths in tsconfig", () => {
     const rootDir = path.resolve(
