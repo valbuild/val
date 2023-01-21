@@ -136,6 +136,19 @@ export class ValModuleResolver {
   private findMatchingJsFile(
     filePath: string
   ): { match: string } | { match: false; tried: string[] } {
+    let requiresReplacements = false;
+    for (const [currentEnding] of JsFileLookupMapping) {
+      if (filePath.endsWith(currentEnding)) {
+        requiresReplacements = true;
+        break;
+      }
+    }
+    // avoid unnecessary calls to fileExists if we don't need to replace anything
+    if (!requiresReplacements) {
+      if (this.compilerHost.fileExists(filePath)) {
+        return { match: filePath };
+      }
+    }
     const tried = [];
     for (const [currentEnding, replacements] of JsFileLookupMapping) {
       if (filePath.endsWith(currentEnding)) {
