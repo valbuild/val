@@ -5,8 +5,7 @@ import http from "node:http";
 import { Service } from "./Service";
 
 const getFileIdFromParams = (params: { 0: string }) => {
-  const id = params[0];
-  return id.slice(0, id.indexOf(".") === -1 ? id.length : id.indexOf("."));
+  return `/${params[0]}`;
 };
 
 export type ValServerOptions = {

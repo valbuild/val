@@ -2,8 +2,9 @@ import { ClassDeclaration, MethodDeclaration, Project } from "ts-morph";
 import ts from "typescript";
 import path from "path";
 import { ValidTypes } from "@valbuild/lib";
+import { ValModuleResolver } from "./ValModuleResolver";
 
-const getStaticMethodDecl = (
+const getFixedMethodDecl = (
   project: Project,
   valModulePath: string
 ): MethodDeclaration => {
@@ -28,55 +29,57 @@ const getStaticMethodDecl = (
     );
   }
 
-  const staticMethodsDecls = schemaDecls
+  const fixedMethodsDecls = schemaDecls
     .filter((schemaDeclaration): schemaDeclaration is ClassDeclaration =>
       schemaDeclaration.isKind(ts.SyntaxKind.ClassDeclaration)
     )
-    .map((decl) => decl.getMethod("static"))
+    .map((decl) => decl.getMethod("fixed"))
     .filter((method): method is MethodDeclaration => !!method);
-  if (staticMethodsDecls.length === 0) {
+  if (fixedMethodsDecls.length === 0) {
     throw Error(
-      `Unable to resolve Schema["static"] from "@valbuild/lib": Method not found`
+      `Unable to resolve Schema["fixed"] from "@valbuild/lib": Method not found`
     );
   }
-  if (staticMethodsDecls.length > 1) {
+  if (fixedMethodsDecls.length > 1) {
     throw Error(
-      `Unable to resolve Schema["static"] from "@valbuild/lib": Method is ambiguous`
+      `Unable to resolve Schema["fixed"] from "@valbuild/lib": Method is ambiguous`
     );
   }
-  return staticMethodsDecls[0];
+  return fixedMethodsDecls[0];
 };
 
 export const writeValFile = async (
-  rootDir: string,
-  fileId: string,
-  updatedVal: ValidTypes
+  id: string,
+  valConfigPath: string,
+  updatedVal: ValidTypes,
+  resolver: ValModuleResolver
 ): Promise<void> => {
   const project = new Project({
-    tsConfigFilePath: path.join(rootDir, "tsconfig.json"),
+    tsConfigFilePath: path.join(resolver.projectRoot, "tsconfig.json"),
   });
   const typeChecker = project.getTypeChecker();
 
-  const filePath = path.join(rootDir, `${fileId}.val.ts`);
-  const valStaticMethod = getStaticMethodDecl(project, filePath);
+  const filePath = resolver.resolveSourceModulePath(
+    valConfigPath,
+    `.${id}.val`
+  );
+  const valfixedMethod = getFixedMethodDecl(project, filePath);
 
   const sourceFile = project.getSourceFile(filePath);
   if (!sourceFile) {
     throw Error(`No file found at ${filePath}`);
   }
 
-  const staticReferencesInModule = valStaticMethod
+  const fixedReferencesInModule = valfixedMethod
     .findReferencesAsNodes()
     .filter((reference) => reference.getSourceFile() === sourceFile);
-  if (staticReferencesInModule.length === 0) {
-    throw Error(`No reference to Schema["static"] in ${fileId}.val.ts found`);
+  if (fixedReferencesInModule.length === 0) {
+    throw Error(`No reference to Schema["fixed"] in ${id}.val.ts found`);
   }
-  if (staticReferencesInModule.length > 1) {
-    throw Error(
-      `Multiple references to Schema["static"] in ${fileId}.val.ts found`
-    );
+  if (fixedReferencesInModule.length > 1) {
+    throw Error(`Multiple references to Schema["fixed"] in ${id}.val.ts found`);
   }
-  const [staticReference] = staticReferencesInModule;
+  const [fixedReference] = fixedReferencesInModule;
 
   // typeChecker.getExportsOfModule(valConfigModuleSymbol).forEach((symbol) => {
   //   if (symbol.getName() === "s") {
@@ -128,7 +131,7 @@ export const writeValFile = async (
     );
   }
 
-  const expectedId = `"/${fileId}"`;
+  const expectedId = `"${id}"`;
   if (maybeIdLiteral.getText() !== expectedId) {
     throw Error(
       `First argument to export expression is not the expected id. Expected: ${expectedId}. Actual: ${maybeIdLiteral.getText()}`
@@ -146,8 +149,8 @@ export const writeValFile = async (
     throw Error(`Function body expression is not a property access expression`);
   }
 
-  if (functionBodyExpr.getNameNode() !== staticReference) {
-    throw Error(`Function body expression is not a static call`);
+  if (functionBodyExpr.getNameNode() !== fixedReference) {
+    throw Error(`Function body expression is not a fixed call`);
   }
 
   const functionBodyArgs = functionBody.getArguments();
