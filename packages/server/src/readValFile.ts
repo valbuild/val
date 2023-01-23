@@ -16,7 +16,7 @@ globalThis.valModule = { id: valModule?.default?.id, ...valModule?.default?.val?
     const result = context.evalCode(
       code,
       // Synthetic module name
-      path.join(valConfigPath, "..", "<val>")
+      path.join(path.dirname(valConfigPath), "<val>")
     );
     if (result.error) {
       const error = result.error.consume(context.dump);
