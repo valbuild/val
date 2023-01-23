@@ -163,9 +163,7 @@ export class ValModuleResolver {
         }
       }
     }
-    if (this.compilerHost.fileExists(filePath)) {
-      return { match: filePath };
-    }
+
     return { match: false, tried: tried.concat(filePath) };
   }
 }
