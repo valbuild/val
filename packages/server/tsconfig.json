@@ -4,5 +4,6 @@
     "isolatedModules": true,
     "noEmit": true,
     "esModuleInterop": true
-  }
+  },
+  "exclude": ["test/**/*"]
 }

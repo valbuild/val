@@ -1,3 +1,3 @@
-#!/usr/bin/env ts-node
+#!/usr/bin/env node
 "use strict";
 require("./cli");

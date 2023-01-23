@@ -8,7 +8,7 @@ describe("content function", () => {
       content("/id", () =>
         object({
           foo: string(),
-        }).static({
+        }).fixed({
           foo: "bar",
         })
       ).val.get()
