@@ -1,5 +1,5 @@
 ---
-"@valcms/server": minor
+"@valbuild/server": minor
 ---
 
 Improve perf and reliability when reading val files
