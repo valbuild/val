@@ -26,7 +26,6 @@
   },
   "dependencies": {
     "@valbuild/lib": "~0.4.0",
-    "cors": "^2.8.5",
     "express": "^4.18.2",
     "fast-json-patch": "^3.1.1",
     "quickjs-emscripten": "^0.21.1",
