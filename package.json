@@ -12,7 +12,7 @@
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
     "lint": "eslint .",
-    "version-packages": "changeset version",
+    "version-packages": "changeset version && npm i --package-lock-only",
     "release": "npm run build && changeset publish"
   },
   "devDependencies": {
