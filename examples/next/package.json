@@ -15,6 +15,7 @@
   "dependencies": {
     "@valbuild/lib": "*",
     "@valbuild/react": "*",
+    "@valbuild/server": "*",
     "next": "^12.1.6",
     "next-compose-plugins": "^2.2.0",
     "next-transpile-modules": "^9.0.0",
