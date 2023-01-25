@@ -7,7 +7,7 @@
     "test": "jest"
   },
   "dependencies": {
-    "@valbuild/lib": "^0.4.0",
+    "@valbuild/lib": "~0.4.0",
     "base64-arraybuffer": "^1.0.2"
   },
   "devDependencies": {
