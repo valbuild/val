@@ -11,7 +11,7 @@ const JsFileLookupMapping: [resolvedFileExt: string, replacements: string[]][] =
   ];
 
 export class ValModuleResolver {
-  private readonly compilerHost: ts.CompilerHost;
+  readonly compilerHost: ts.CompilerHost;
   private readonly compilerOptions: ts.CompilerOptions;
   readonly projectRoot: string;
 
