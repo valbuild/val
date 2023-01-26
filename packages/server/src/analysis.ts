@@ -1,9 +1,70 @@
+import { ValidTypes } from "@valbuild/lib";
 import ts from "typescript";
 
 export type ValModuleAnalysis = {
   schema: ts.Node;
   fixedContent: ts.Node;
 };
+
+function evaluatePropertyName(name: ts.PropertyName): string {
+  if (ts.isIdentifier(name)) {
+    return name.text;
+  } else if (ts.isStringLiteral(name)) {
+    return name.text;
+  } else if (ts.isNumericLiteral(name)) {
+    // TODO: This is a terrible idea, isn't it?
+    return (eval(name.text) as number).toString();
+  } else if (ts.isComputedPropertyName(name)) {
+    throw Error("Computed property names are not supported");
+  } else if (ts.isPrivateIdentifier(name)) {
+    throw Error("Private identifiers are not supported");
+  } else {
+    throw Error("Invalid property name");
+  }
+}
+
+export function evaluateExpression(value: ts.Node): ValidTypes {
+  if (ts.isStringLiteralLike(value)) {
+    return value.text;
+  } else if (ts.isArrayLiteralExpression(value)) {
+    return value.elements.map(evaluateExpression);
+  } else if (ts.isObjectLiteralExpression(value)) {
+    return Object.fromEntries(
+      value.properties.map((assignment) => {
+        if (!ts.isPropertyAssignment(assignment)) {
+          throw Error("Object entry is not a property assignment");
+        }
+        const key = evaluatePropertyName(assignment.name);
+        const value = evaluateExpression(assignment.initializer);
+        return [key, value];
+      })
+    );
+  } else {
+    throw Error("Value must be a string/integer/object/array literal");
+  }
+}
+
+export function find(value: ts.Node, key: string): ts.Node | undefined {
+  if (ts.isObjectLiteralExpression(value)) {
+    // Assuming in the case of duplicate keys the last value should be used.
+    const assignment = [...value.properties]
+      .reverse()
+      .find((assignment): assignment is ts.PropertyAssignment => {
+        if (!ts.isPropertyAssignment(assignment)) {
+          throw Error("Object entry is not a property assignment");
+        }
+        return evaluatePropertyName(assignment.name) === key;
+      });
+
+    return assignment?.initializer;
+  } else if (ts.isArrayLiteralExpression(value)) {
+    const keyNum = parseInt(key);
+    // TODO: This is inaccurate in case elements are spreads
+    return value.elements[keyNum];
+  } else {
+    throw Error("Value is not an object or an array");
+  }
+}
 
 function analyseContentExpression(node: ts.Node) {
   if (!ts.isCallExpression(node)) {
