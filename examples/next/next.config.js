@@ -1,8 +1,3 @@
-/** @type {import('next').NextConfig} */
-const withPlugins = require("next-compose-plugins");
-const withTM = require("next-transpile-modules")([
-  "@valbuild/react",
-  "@valbuild/lib",
-]);
+const withPreconstruct = require("@preconstruct/next");
 
-module.exports = withPlugins([withTM]);
+module.exports = withPreconstruct();

@@ -13,11 +13,10 @@
     "test": "echo \"no tests found :(\""
   },
   "dependencies": {
+    "@preconstruct/next": "^4.0.0",
     "@valbuild/lib": "*",
     "@valbuild/react": "*",
     "next": "^12.1.6",
-    "next-compose-plugins": "^2.2.0",
-    "next-transpile-modules": "^9.0.0",
     "react": "18.2.0",
     "react-dom": "18.2.0"
   },
