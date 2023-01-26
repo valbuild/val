@@ -1,7 +1,7 @@
-import { createDevRequestListener } from "@valbuild/server";
+import { createRequestListener } from "@valbuild/server";
 import { NextApiHandler } from "next";
 
-const handler: NextApiHandler = createDevRequestListener("/api/val", {
+const handler: NextApiHandler = createRequestListener("/api/val", {
   valConfigPath: "./val.config",
 });
 

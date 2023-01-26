@@ -4,7 +4,7 @@ import { createService, ServiceOptions } from "./Service";
 import { ValModuleResolver } from "./ValModuleResolver";
 import { createRequestHandler } from "./ValServer";
 
-async function _createDevRequestListener(
+async function _createRequestListener(
   route: string,
   opts: ServiceOptions
 ): Promise<RequestListener> {
@@ -14,11 +14,11 @@ async function _createDevRequestListener(
   return express().use(route, reqHandler);
 }
 
-export function createDevRequestListener(
+export function createRequestListener(
   route: string,
   opts: ServiceOptions
 ): RequestListener {
-  const handler = _createDevRequestListener(route, opts);
+  const handler = _createRequestListener(route, opts);
   return async (req, res) => {
     try {
       return (await handler)(req, res);
