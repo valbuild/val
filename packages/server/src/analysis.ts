@@ -29,7 +29,7 @@ function forEachError(
   }
 }
 
-function flattenErrors(tree: ValSyntaxErrorTree): ValSyntaxError[] {
+export function flattenErrors(tree: ValSyntaxErrorTree): ValSyntaxError[] {
   const result: ValSyntaxError[] = [];
   forEachError(tree, result.push.bind(result));
   return result;
@@ -55,29 +55,25 @@ function evaluatePropertyName(
   }
 }
 
-/* function composeSyntaxErrors(message: string, node: ts.Node) {
-  return result.mapErr(
-    (errors: ValSyntaxError[]) =>
-      new CompositeValSyntaxError(message, node, errors)
-  );
-} */
-
-function getObjectLiteralEntries(
+function getObjectPropertyAssignments(
   value: ts.ObjectLiteralExpression
-): result.Result<[key: string, value: ts.Expression][], ValSyntaxErrorTree> {
+): result.Result<
+  [key: string, assignment: ts.PropertyAssignment][],
+  ValSyntaxErrorTree
+> {
   return result.all(
     value.properties.map((assignment) => {
       if (!ts.isPropertyAssignment(assignment)) {
         return result.err(
           new ValSyntaxError(
-            "Object entry is not a property assignment",
+            "Object literal element is not a property assignment",
             assignment
           )
         );
       }
       const key = evaluatePropertyName(assignment.name);
-      return result.map<string, [key: string, value: ts.Expression]>(
-        (key: string) => [key, assignment.initializer]
+      return result.map<string, [key: string, value: ts.PropertyAssignment]>(
+        (key: string) => [key, assignment]
       )(key);
     })
   );
@@ -91,17 +87,18 @@ export function evaluateExpression(
   } else if (ts.isArrayLiteralExpression(value)) {
     return result.all(value.elements.map(evaluateExpression));
   } else if (ts.isObjectLiteralExpression(value)) {
-    return result.flatMap((entries: [key: string, value: ts.Expression][]) =>
-      result.map(Object.fromEntries)(
-        result.all<[key: string, value: ValidTypes][], ValSyntaxErrorTree>(
-          entries.map(([key, valueNode]) =>
-            result.map<ValidTypes, [key: string, value: ValidTypes]>(
-              (value) => [key, value]
-            )(evaluateExpression(valueNode))
+    return result.flatMap(
+      (entries: [key: string, assignment: ts.PropertyAssignment][]) =>
+        result.map(Object.fromEntries)(
+          result.all<[key: string, value: ValidTypes][], ValSyntaxErrorTree>(
+            entries.map(([key, assignment]) =>
+              result.map<ValidTypes, [key: string, value: ValidTypes]>(
+                (value) => [key, value]
+              )(evaluateExpression(assignment.initializer))
+            )
           )
         )
-      )
-    )(getObjectLiteralEntries(value));
+    )(getObjectPropertyAssignments(value));
   } else {
     return result.err(
       new ValSyntaxError("Value must be a string/integer/array literal", value)
@@ -109,12 +106,12 @@ export function evaluateExpression(
   }
 }
 
-export function find(
-  value: ts.Node,
+export function findObjectPropertyAssignment(
+  value: ts.ObjectLiteralExpression,
   key: string
-): result.Result<ts.Node | undefined, ValSyntaxErrorTree> {
-  if (ts.isObjectLiteralExpression(value)) {
-    return result.flatMap((entries: [key: string, value: ts.Node][]) => {
+): result.Result<ts.PropertyAssignment | undefined, ValSyntaxErrorTree> {
+  return result.flatMap(
+    (entries: [key: string, assignment: ts.PropertyAssignment][]) => {
       const matchingEntries = entries.filter(([entryKey]) => entryKey === key);
       if (matchingEntries.length === 0) return result.ok(undefined);
       if (matchingEntries.length === 1) {
@@ -124,7 +121,18 @@ export function find(
       return result.err(
         new ValSyntaxError(`Object key "${key}" is ambiguous`, value)
       );
-    })(getObjectLiteralEntries(value));
+    }
+  )(getObjectPropertyAssignments(value));
+}
+
+export function find(
+  value: ts.Node,
+  key: string
+): result.Result<ts.Node | undefined, ValSyntaxErrorTree> {
+  if (ts.isObjectLiteralExpression(value)) {
+    return result.map(
+      (assignment: ts.PropertyAssignment | undefined) => assignment?.initializer
+    )(findObjectPropertyAssignment(value, key));
   } else if (ts.isArrayLiteralExpression(value)) {
     const keyNum = parseInt(key);
     // TODO: This is inaccurate in case elements are spreads
