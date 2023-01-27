@@ -1,68 +1,138 @@
 import { ValidTypes } from "@valbuild/lib";
 import ts from "typescript";
+import * as result from "./result";
 
 export type ValModuleAnalysis = {
   schema: ts.Node;
   fixedContent: ts.Node;
 };
 
-function evaluatePropertyName(name: ts.PropertyName): string {
+class ValSyntaxError extends Error {
+  constructor(message: string, public node: ts.Node) {
+    super(message);
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+type ValSyntaxErrorTree = ValSyntaxError | ValSyntaxErrorTree[];
+
+function forEachError(
+  tree: ValSyntaxErrorTree,
+  callback: (error: ValSyntaxError) => void
+) {
+  if (Array.isArray(tree)) {
+    for (const subtree of tree) {
+      forEachError(subtree, callback);
+    }
+  } else {
+    callback(tree);
+  }
+}
+
+function flattenErrors(tree: ValSyntaxErrorTree): ValSyntaxError[] {
+  const result: ValSyntaxError[] = [];
+  forEachError(tree, result.push.bind(result));
+  return result;
+}
+
+function evaluatePropertyName(
+  name: ts.PropertyName
+): result.Result<string, ValSyntaxErrorTree> {
   if (ts.isIdentifier(name)) {
-    return name.text;
+    return result.ok(name.text);
   } else if (ts.isStringLiteral(name)) {
-    return name.text;
+    return result.ok(name.text);
   } else if (ts.isNumericLiteral(name)) {
     // TODO: This is a terrible idea, isn't it?
-    return (eval(name.text) as number).toString();
-  } else if (ts.isComputedPropertyName(name)) {
-    throw Error("Computed property names are not supported");
-  } else if (ts.isPrivateIdentifier(name)) {
-    throw Error("Private identifiers are not supported");
+    return result.ok((eval(name.text) as number).toString());
   } else {
-    throw Error("Invalid property name");
+    return result.err([
+      new ValSyntaxError(
+        `Invalid property name type: ${ts.SyntaxKind[name.kind]}`,
+        name
+      ),
+    ]);
   }
 }
 
-export function evaluateExpression(value: ts.Node): ValidTypes {
+/* function composeSyntaxErrors(message: string, node: ts.Node) {
+  return result.mapErr(
+    (errors: ValSyntaxError[]) =>
+      new CompositeValSyntaxError(message, node, errors)
+  );
+} */
+
+function getObjectLiteralEntries(
+  value: ts.ObjectLiteralExpression
+): result.Result<[key: string, value: ts.Expression][], ValSyntaxErrorTree> {
+  return result.all(
+    value.properties.map((assignment) => {
+      if (!ts.isPropertyAssignment(assignment)) {
+        return result.err(
+          new ValSyntaxError(
+            "Object entry is not a property assignment",
+            assignment
+          )
+        );
+      }
+      const key = evaluatePropertyName(assignment.name);
+      return result.map<string, [key: string, value: ts.Expression]>(
+        (key: string) => [key, assignment.initializer]
+      )(key);
+    })
+  );
+}
+
+export function evaluateExpression(
+  value: ts.Node
+): result.Result<ValidTypes, ValSyntaxErrorTree> {
   if (ts.isStringLiteralLike(value)) {
-    return value.text;
+    return result.ok(value.text);
   } else if (ts.isArrayLiteralExpression(value)) {
-    return value.elements.map(evaluateExpression);
+    return result.all(value.elements.map(evaluateExpression));
   } else if (ts.isObjectLiteralExpression(value)) {
-    return Object.fromEntries(
-      value.properties.map((assignment) => {
-        if (!ts.isPropertyAssignment(assignment)) {
-          throw Error("Object entry is not a property assignment");
-        }
-        const key = evaluatePropertyName(assignment.name);
-        const value = evaluateExpression(assignment.initializer);
-        return [key, value];
-      })
-    );
+    return result.flatMap((entries: [key: string, value: ts.Expression][]) =>
+      result.map(Object.fromEntries)(
+        result.all<[key: string, value: ValidTypes][], ValSyntaxErrorTree>(
+          entries.map(([key, valueNode]) =>
+            result.map<ValidTypes, [key: string, value: ValidTypes]>(
+              (value) => [key, value]
+            )(evaluateExpression(valueNode))
+          )
+        )
+      )
+    )(getObjectLiteralEntries(value));
   } else {
-    throw Error("Value must be a string/integer/object/array literal");
+    return result.err(
+      new ValSyntaxError("Value must be a string/integer/array literal", value)
+    );
   }
 }
 
-export function find(value: ts.Node, key: string): ts.Node | undefined {
+export function find(
+  value: ts.Node,
+  key: string
+): result.Result<ts.Node | undefined, ValSyntaxErrorTree> {
   if (ts.isObjectLiteralExpression(value)) {
-    // Assuming in the case of duplicate keys the last value should be used.
-    const assignment = [...value.properties]
-      .reverse()
-      .find((assignment): assignment is ts.PropertyAssignment => {
-        if (!ts.isPropertyAssignment(assignment)) {
-          throw Error("Object entry is not a property assignment");
-        }
-        return evaluatePropertyName(assignment.name) === key;
-      });
-
-    return assignment?.initializer;
+    return result.flatMap((entries: [key: string, value: ts.Node][]) => {
+      const matchingEntries = entries.filter(([entryKey]) => entryKey === key);
+      if (matchingEntries.length === 0) return result.ok(undefined);
+      if (matchingEntries.length === 1) {
+        const [[, value]] = matchingEntries;
+        return result.ok(value);
+      }
+      return result.err(
+        new ValSyntaxError(`Object key "${key}" is ambiguous`, value)
+      );
+    })(getObjectLiteralEntries(value));
   } else if (ts.isArrayLiteralExpression(value)) {
     const keyNum = parseInt(key);
     // TODO: This is inaccurate in case elements are spreads
-    return value.elements[keyNum];
+    return result.ok(value.elements[keyNum]);
   } else {
-    throw Error("Value is not an object or an array");
+    return result.err(
+      new ValSyntaxError("Value is not an object or an array literal", value)
+    );
   }
 }
 
