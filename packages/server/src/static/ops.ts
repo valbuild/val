@@ -1,26 +1,222 @@
-import { ValidTypes } from "@valbuild/lib";
 import ts from "typescript";
 import {
   evaluateExpression,
   find,
   findObjectPropertyAssignment,
   flattenErrors,
+  StaticValue,
 } from "./analysis";
-import * as result from "./result";
+import * as result from "../result";
 
-// TODO: Can we do some fancy formatting for the write operations?
-function removeNode(
+function toExpression(value: StaticValue): ts.Expression {
+  if (typeof value === "string") {
+    return ts.factory.createStringLiteral(value);
+  } else if (typeof value === "number") {
+    return ts.factory.createNumericLiteral(value);
+  } else if (typeof value === "boolean") {
+    return value ? ts.factory.createTrue() : ts.factory.createFalse();
+  } else if (value === null) {
+    return ts.factory.createNull();
+  } else if (Array.isArray(value)) {
+    return ts.factory.createArrayLiteralExpression(value.map(toExpression));
+  } else if (typeof value === "object") {
+    return ts.factory.createObjectLiteralExpression(
+      Object.entries(value).map(([key, value]) =>
+        ts.factory.createPropertyAssignment(key, toExpression(value))
+      )
+    );
+  } else {
+    return ts.factory.createStringLiteral(value);
+  }
+}
+
+declare module "typescript" {
+  interface PrinterOptions {
+    neverAsciiEscape?: boolean;
+  }
+}
+
+// TODO: Choose newline based on project settings/heuristics/system default?
+const newLine = ts.NewLineKind.LineFeed;
+// TODO: Handle indentation of printed code
+const printer = ts.createPrinter({
+  newLine: newLine,
+  // neverAsciiEscape: true,
+});
+
+function replaceNode(
   sourceFile: ts.SourceFile,
-  node: ts.Node
-): [sourceFile: ts.SourceFile, removed: ts.Node] {
-  const start = node.getStart(sourceFile, true);
+  node: ts.Node,
+  replacement: ts.Node
+): ts.SourceFile {
+  const replacementText = printer.printNode(
+    ts.EmitHint.Unspecified,
+    replacement,
+    sourceFile
+  );
+  const start = node.getFullStart();
   const end = node.end;
   const newText = `${sourceFile.text.substring(
     0,
     start
-  )}${sourceFile.text.substring(end)}`;
+  )}${replacementText}${sourceFile.text.substring(end)}`;
 
-  ts.getDefaultFormatCodeSettings();
+  return sourceFile.update(newText, {
+    span: {
+      start,
+      length: end - start,
+    },
+    newLength: replacementText.length,
+  });
+}
+
+function replaceNodeValue(
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  value: StaticValue
+): [sourceFile: ts.SourceFile, replaced: ts.Node] {
+  const replacementText = printer.printNode(
+    ts.EmitHint.Unspecified,
+    toExpression(value),
+    sourceFile
+  );
+  const start = node.getStart(sourceFile, false);
+  const end = node.end;
+  const newText = `${sourceFile.text.substring(
+    0,
+    start
+  )}${replacementText}${sourceFile.text.substring(end)}`;
+
+  return [
+    sourceFile.update(newText, {
+      span: {
+        start,
+        length: end - start,
+      },
+      newLength: replacementText.length,
+    }),
+    node,
+  ];
+}
+
+function isIndentation(s: string): boolean {
+  for (let i = 0; i < s.length; ++i) {
+    const c = s.charAt(i);
+    if (c !== " " && c !== "\t") {
+      return false;
+    }
+  }
+  return true;
+}
+
+function newLineStr(kind: ts.NewLineKind) {
+  if (kind === ts.NewLineKind.CarriageReturnLineFeed) {
+    return "\r\n";
+  } else {
+    return "\n";
+  }
+}
+
+function getSeparator(sourceFile: ts.SourceFile, neighbor: ts.Node): string {
+  const startPos = neighbor.getStart(sourceFile, true);
+  const basis = sourceFile.getLineAndCharacterOfPosition(startPos);
+  const lineStartPos = sourceFile.getPositionOfLineAndCharacter(basis.line, 0);
+  const maybeIndentation = sourceFile
+    .getText()
+    .substring(lineStartPos, startPos);
+
+  if (isIndentation(maybeIndentation)) {
+    return `,${newLineStr(newLine)}${maybeIndentation}`;
+  } else {
+    return `, `;
+  }
+}
+
+function insertAt<T extends ts.Node>(
+  sourceFile: ts.SourceFile,
+  nodes: ts.NodeArray<T>,
+  index: number,
+  node: T
+): ts.SourceFile {
+  if (index < 0 || index > nodes.length) {
+    throw Error("Array index out of bounds");
+  }
+
+  let start: number;
+  let end: number;
+  let replacementText: string;
+  if (nodes.length === 0) {
+    // Replace entire range of nodes
+    replacementText = printer.printNode(
+      ts.EmitHint.Unspecified,
+      node,
+      sourceFile
+    );
+    start = nodes.pos;
+    end = nodes.end;
+  } else if (index === nodes.length) {
+    // Insert after last node
+    const neighbor = nodes[nodes.length - 1];
+    replacementText = `${getSeparator(sourceFile, neighbor)}${printer.printNode(
+      ts.EmitHint.Unspecified,
+      node,
+      sourceFile
+    )}`;
+    start = neighbor.end;
+    end = start;
+  } else {
+    // Insert before node
+    const neighbor = nodes[index];
+    replacementText = `${printer.printNode(
+      ts.EmitHint.Unspecified,
+      node,
+      sourceFile
+    )}${getSeparator(sourceFile, neighbor)}`;
+    start = neighbor.getFullStart();
+    end = start;
+  }
+
+  const newText = `${sourceFile.text.substring(
+    0,
+    start
+  )}${replacementText}${sourceFile.text.substring(end)}`;
+
+  return sourceFile.update(newText, {
+    span: {
+      start,
+      length: end - start,
+    },
+    newLength: replacementText.length,
+  });
+}
+
+function removeAt<T extends ts.Node>(
+  sourceFile: ts.SourceFile,
+  nodes: ts.NodeArray<T>,
+  index: number
+): [sourceFile: ts.SourceFile, removed: T] {
+  if (index < 0 || index >= nodes.length) {
+    throw Error("Array index out of bounds");
+  }
+
+  const node = nodes[index];
+  let start: number, end: number;
+
+  if (index === nodes.length - 1) {
+    // Remove until previous node
+    const neighbor = nodes[index - 1];
+    start = neighbor.end;
+    end = node.end;
+  } else {
+    // Remove before next node
+    const neighbor = nodes[index + 1];
+    start = node.getFullStart();
+    end = neighbor.getFullStart();
+  }
+  const newText = `${sourceFile.text.substring(
+    0,
+    start
+  )}${sourceFile.text.substring(end)}`;
 
   return [
     sourceFile.update(newText, {
@@ -30,105 +226,19 @@ function removeNode(
       },
       newLength: 0,
     }),
-    ts.isPropertyAssignment(node) ? node.initializer : node,
-  ];
-}
-
-function replaceNodeValue(
-  sourceFile: ts.SourceFile,
-  node: ts.Node,
-  value: ValidTypes
-): [sourceFile: ts.SourceFile, replaced: ts.Node] {
-  const valueJSON = JSON.stringify(value);
-  const start = node.getStart(sourceFile, false);
-  const end = node.end;
-  const newText = `${sourceFile.text.substring(
-    0,
-    start
-  )}${valueJSON}${sourceFile.text.substring(end)}`;
-
-  return [
-    sourceFile.update(newText, {
-      span: {
-        start,
-        length: end - start,
-      },
-      newLength: valueJSON.length,
-    }),
     node,
   ];
-}
-
-function insertAfter(
-  sourceFile: ts.SourceFile,
-  node: ts.Node,
-  value: ValidTypes,
-  prefix = ""
-): ts.SourceFile {
-  const replacement = `, ${prefix}${JSON.stringify(value)}`;
-  const start = node.end;
-  const newText = `${sourceFile.text.substring(
-    0,
-    start
-  )}${replacement}${sourceFile.text.substring(start)}`;
-
-  return sourceFile.update(newText, {
-    span: {
-      start,
-      length: 0,
-    },
-    newLength: replacement.length,
-  });
-}
-
-function insertBefore(
-  sourceFile: ts.SourceFile,
-  node: ts.Node,
-  value: ValidTypes,
-  prefix = ""
-): ts.SourceFile {
-  const replacement = `${prefix}${JSON.stringify(value)}, `;
-  const start = node.getStart(sourceFile, true);
-  const newText = `${sourceFile.text.substring(
-    0,
-    start
-  )}${replacement}${sourceFile.text.substring(start)}`;
-
-  return sourceFile.update(newText, {
-    span: {
-      start,
-      length: 0,
-    },
-    newLength: replacement.length,
-  });
 }
 
 function _add(
   sourceFile: ts.SourceFile,
   node: ts.Node,
   key: string,
-  value: ValidTypes
+  value: StaticValue
 ): [sourceFile: ts.SourceFile, replaced?: ts.Node] {
   if (ts.isArrayLiteralExpression(node)) {
-    if (key === "-") {
-      if (node.elements.length === 0) {
-        return [replaceNodeValue(sourceFile, node, [value])[0]];
-      } else {
-        return [
-          insertAfter(
-            sourceFile,
-            node.elements[node.elements.length - 1],
-            value
-          ),
-        ];
-      }
-    } else {
-      const keyNum = parseInt(key);
-      if (keyNum < 0 || keyNum >= node.elements.length) {
-        throw Error("Array index out of bounds");
-      }
-      return [insertBefore(sourceFile, node.elements[keyNum], value)];
-    }
+    const keyNum = key === "-" ? node.elements.length : parseArrayIndex(key);
+    return [insertAt(sourceFile, node.elements, keyNum, toExpression(value))];
   } else if (ts.isObjectLiteralExpression(node)) {
     const existingAssignment = findObjectPropertyAssignment(node, key);
     if (result.isErr(existingAssignment)) {
@@ -137,38 +247,44 @@ function _add(
     }
 
     if (!existingAssignment.value) {
-      if (node.properties.length === 0) {
-        return [replaceNodeValue(sourceFile, node, { [key]: value })[0]];
-      } else {
-        return [
-          insertAfter(
-            sourceFile,
-            node.properties[node.properties.length - 1],
-            value,
-            `${JSON.stringify(key)}: `
-          ),
-        ];
-      }
+      return [
+        insertAt(
+          sourceFile,
+          node.properties,
+          node.properties.length,
+          ts.factory.createPropertyAssignment(key, toExpression(value))
+        ),
+      ];
     } else {
-      return replaceNodeValue(
-        sourceFile,
+      return [
+        replaceNode(
+          sourceFile,
+          existingAssignment.value.initializer,
+          toExpression(value)
+        ),
         existingAssignment.value.initializer,
-        value
-      );
+      ];
     }
   } else {
     throw Error("Cannot add to non-object/array");
   }
 }
 
+function parseArrayIndex(value: string) {
+  if (!/^(0|[1-9][0-9]*)$/g.test(value)) {
+    throw Error(`Invalid array index "${value}"`);
+  }
+  return Number(value);
+}
+
 function _replace(
   sourceFile: ts.SourceFile,
   node: ts.Node,
   key: string,
-  value: ValidTypes
+  value: StaticValue
 ): [sourceFile: ts.SourceFile, replaced: ts.Node] {
   if (ts.isArrayLiteralExpression(node)) {
-    const keyNum = parseInt(key);
+    const keyNum = parseArrayIndex(key);
     if (keyNum < 0 || keyNum >= node.elements.length) {
       throw Error("Array index out of bounds");
     }
@@ -199,11 +315,11 @@ function _remove(
   key: string
 ): [sourceFile: ts.SourceFile, removed: ts.Node] {
   if (ts.isArrayLiteralExpression(node)) {
-    const keyNum = parseInt(key);
+    const keyNum = parseArrayIndex(key);
     if (keyNum < 0 || keyNum >= node.elements.length) {
       throw Error("Array index out of bounds");
     }
-    return removeNode(sourceFile, node.elements[keyNum]);
+    return removeAt(sourceFile, node.elements, keyNum);
   } else if (ts.isObjectLiteralExpression(node)) {
     const assignment = findObjectPropertyAssignment(node, key);
     if (result.isErr(assignment)) {
@@ -213,7 +329,12 @@ function _remove(
     if (!assignment.value) {
       throw Error("Cannot remove object element which does not exist");
     }
-    return removeNode(sourceFile, assignment.value);
+
+    return removeAt(
+      sourceFile,
+      node.properties,
+      node.properties.indexOf(assignment.value)
+    );
   } else {
     throw Error("Cannot remove from non-object/array");
   }
@@ -244,7 +365,7 @@ export function add(
   sourceFile: ts.SourceFile,
   node: ts.Node,
   path: string[],
-  value: ValidTypes
+  value: StaticValue
 ): [removed: ts.SourceFile, replaced?: ts.Node] {
   if (path.length === 0) {
     throw Error("Cannot add to root");
@@ -261,7 +382,7 @@ export function replace(
   sourceFile: ts.SourceFile,
   node: ts.Node,
   path: string[],
-  value: ValidTypes
+  value: StaticValue
 ): [sourceFile: ts.SourceFile, replaced: ts.Node] {
   if (path.length === 0) {
     return replaceNodeValue(sourceFile, node, value);
@@ -370,7 +491,7 @@ export function copy(
   return add(sourceFile, node, path, valueValue.value);
 }
 
-function deepEqual(a: ValidTypes, b: ValidTypes) {
+function deepEqual(a: StaticValue, b: StaticValue) {
   if (a === b) {
     return true;
   }
@@ -418,7 +539,7 @@ function deepEqual(a: ValidTypes, b: ValidTypes) {
 export function test(
   node: ts.Node,
   path: string[],
-  value: ValidTypes
+  value: StaticValue
 ): boolean {
   const valueNode = get(node, path);
   const valueValue = evaluateExpression(valueNode);
