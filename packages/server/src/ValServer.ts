@@ -1,6 +1,6 @@
 import express, { Router, RequestHandler } from "express";
-import { Operation, JsonPatchError } from "fast-json-patch";
 import { Service } from "./Service";
+import { Operation } from "./static/patch";
 
 const getFileIdFromParams = (params: { 0: string }) => {
   return `/${params[0]}`;
@@ -53,17 +53,10 @@ export class ValServer {
       await this.service.patch(id, patch);
       res.send("OK");
     } catch (err) {
-      if (err instanceof JsonPatchError) {
-        res.status(400).json({
-          error: err.name,
-          index: err.index,
-        });
-      } else {
-        console.error(err);
-        res
-          .status(500)
-          .send(err instanceof Error ? err.message : "Unknown error");
-      }
+      console.error(err);
+      res
+        .status(500)
+        .send(err instanceof Error ? err.message : "Unknown error");
     }
   }
 }

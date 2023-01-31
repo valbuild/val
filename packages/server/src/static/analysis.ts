@@ -1,11 +1,5 @@
-import { ValidTypes } from "@valbuild/lib";
 import ts from "typescript";
-import * as result from "./result";
-
-export type ValModuleAnalysis = {
-  schema: ts.Node;
-  fixedContent: ts.Node;
-};
+import * as result from "../result";
 
 class ValSyntaxError extends Error {
   constructor(message: string, public node: ts.Node) {
@@ -34,6 +28,16 @@ export function flattenErrors(tree: ValSyntaxErrorTree): ValSyntaxError[] {
   forEachError(tree, result.push.bind(result));
   return result;
 }
+
+export type StaticValue =
+  | string
+  | number
+  | boolean
+  | null
+  | StaticValue[]
+  | {
+      [key: string]: StaticValue;
+    };
 
 function evaluatePropertyName(
   name: ts.PropertyName
@@ -81,18 +85,27 @@ function getObjectPropertyAssignments(
 
 export function evaluateExpression(
   value: ts.Node
-): result.Result<ValidTypes, ValSyntaxErrorTree> {
+): result.Result<StaticValue, ValSyntaxErrorTree> {
   if (ts.isStringLiteralLike(value)) {
     return result.ok(value.text);
+  } else if (ts.isNumericLiteral(value)) {
+    // TODO: This is a terrible idea, isn't it?
+    return result.ok(eval(value.text) as number);
+  } else if (value.kind === ts.SyntaxKind.TrueKeyword) {
+    return result.ok(true);
+  } else if (value.kind === ts.SyntaxKind.FalseKeyword) {
+    return result.ok(false);
+  } else if (value.kind === ts.SyntaxKind.NullKeyword) {
+    return result.ok(null);
   } else if (ts.isArrayLiteralExpression(value)) {
     return result.all(value.elements.map(evaluateExpression));
   } else if (ts.isObjectLiteralExpression(value)) {
     return result.flatMap(
       (entries: [key: string, assignment: ts.PropertyAssignment][]) =>
         result.map(Object.fromEntries)(
-          result.all<[key: string, value: ValidTypes][], ValSyntaxErrorTree>(
+          result.all<[key: string, value: StaticValue][], ValSyntaxErrorTree>(
             entries.map(([key, assignment]) =>
-              result.map<ValidTypes, [key: string, value: ValidTypes]>(
+              result.map<StaticValue, [key: string, value: StaticValue]>(
                 (value) => [key, value]
               )(evaluateExpression(assignment.initializer))
             )
@@ -128,7 +141,7 @@ export function findObjectPropertyAssignment(
 export function find(
   value: ts.Node,
   key: string
-): result.Result<ts.Node | undefined, ValSyntaxErrorTree> {
+): result.Result<ts.Expression | undefined, ValSyntaxErrorTree> {
   if (ts.isObjectLiteralExpression(value)) {
     return result.map(
       (assignment: ts.PropertyAssignment | undefined) => assignment?.initializer
@@ -142,125 +155,4 @@ export function find(
       new ValSyntaxError("Value is not an object or an array literal", value)
     );
   }
-}
-
-function analyseContentExpression(node: ts.Node) {
-  if (!ts.isCallExpression(node)) {
-    throw Error(
-      `Expected body of val.content callback to be a call expression, got: ${
-        ts.SyntaxKind[node.kind]
-      }`
-    );
-  }
-
-  // Validate that .fixed is called on a Schema
-  const schemaFixed = node.expression;
-  if (!ts.isPropertyAccessExpression(schemaFixed)) {
-    throw Error(
-      `Expected val.content to call Schema.fixed, got: ${
-        ts.SyntaxKind[node.kind]
-      }`
-    );
-  }
-  const fixed = schemaFixed.name;
-  if (!ts.isIdentifier(fixed) || fixed.text !== "fixed") {
-    throw Error(
-      `Expected val.content to call fixed on Schema, got: ${fixed.text}`
-    );
-  }
-  const schema = schemaFixed.expression;
-
-  if (node.arguments.length !== 1) {
-    throw Error(
-      `Expected Schema.fixed call to have a single argument, got: ${node.arguments.length}`
-    );
-  }
-  const [fixedContent] = node.arguments;
-  return {
-    schema,
-    fixedContent,
-  };
-}
-
-function analyseDefaultExport(
-  node: ts.ExportAssignment,
-  sourceFile: ts.SourceFile
-): ValModuleAnalysis {
-  const valContentCall = node.expression;
-  if (!ts.isCallExpression(valContentCall)) {
-    throw Error(
-      `Expected default expression to be a call expression, got: ${
-        ts.SyntaxKind[node.kind]
-      }`
-    );
-  }
-
-  {
-    // Assert that call expression calls val.content
-    const valContent = valContentCall.expression;
-    if (!ts.isPropertyAccessExpression(valContent)) {
-      throw Error(
-        `Expected default expression to be calling val.content, got: ${valContent.getText(
-          sourceFile
-        )}`
-      );
-    }
-    {
-      const val = valContent.expression;
-      const content = valContent.name;
-      if (!ts.isIdentifier(val) || val.text !== "val") {
-        throw Error(
-          `Expected default expression to be calling val.content, got: ${valContent.getText(
-            sourceFile
-          )}`
-        );
-      }
-      if (!ts.isIdentifier(content) || content.text !== "content") {
-        throw Error(
-          `Expected default expression to be calling val.content, got: ${valContent.getText(
-            sourceFile
-          )}`
-        );
-      }
-    }
-  }
-
-  if (valContentCall.arguments.length !== 2) {
-    throw Error(
-      `Expected val.content call to have 2 arguments, got: ${valContentCall.arguments.length}`
-    );
-  }
-  const [id, callback] = valContentCall.arguments;
-  // TODO: validate ID value here?
-  if (!ts.isStringLiteral(id)) {
-    throw Error(
-      `Expected first argument to val.content to be a string literal, got: ${
-        ts.SyntaxKind[id.kind]
-      }`
-    );
-  }
-
-  if (!ts.isArrowFunction(callback)) {
-    throw Error(
-      `Expected second argument to val.content to be an arrow function, got: ${
-        ts.SyntaxKind[id.kind]
-      }`
-    );
-  }
-
-  return analyseContentExpression(callback.body);
-}
-
-export function analyseValModule(sourceFile: ts.SourceFile): ValModuleAnalysis {
-  const analysis = sourceFile.forEachChild((node) => {
-    if (ts.isExportAssignment(node)) {
-      return analyseDefaultExport(node, sourceFile);
-    }
-  });
-
-  if (!analysis) {
-    throw Error("Failed to find fixed content node in val module");
-  }
-
-  return analysis;
 }
