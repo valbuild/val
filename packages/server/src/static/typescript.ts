@@ -1,5 +1,6 @@
 import ts from "typescript";
 import * as result from "../result";
+import { pipe } from "../fp";
 import {
   evaluateExpression,
   find,
@@ -251,26 +252,32 @@ function parseAndValidateArrayInsertIndex(
     return result.ok(length);
   }
 
-  return result.flatMap((index: number) => {
-    if (index < 0 || index > length) {
-      return result.err(new PatchError("Array index out of bounds"));
-    } else {
-      return result.ok(index);
-    }
-  })(parseAndValidateArrayIndex(key));
+  return pipe(
+    parseAndValidateArrayIndex(key),
+    result.flatMap((index: number) => {
+      if (index < 0 || index > length) {
+        return result.err(new PatchError("Array index out of bounds"));
+      } else {
+        return result.ok(index);
+      }
+    })
+  );
 }
 
 function parseAndValidateArrayInboundsIndex(
   key: string,
   length: number
 ): result.Result<number, PatchError> {
-  return result.flatMap((index: number) => {
-    if (index < 0 || index >= length) {
-      return result.err(new PatchError("Array index out of bounds"));
-    } else {
-      return result.ok(index);
-    }
-  })(parseAndValidateArrayIndex(key));
+  return pipe(
+    parseAndValidateArrayIndex(key),
+    result.flatMap((index: number) => {
+      if (index < 0 || index >= length) {
+        return result.err(new PatchError("Array index out of bounds"));
+      } else {
+        return result.ok(index);
+      }
+    })
+  );
 }
 
 function replaceInNode(
@@ -280,27 +287,27 @@ function replaceInNode(
   value: StaticValue
 ): TSOpsResult<[document: ts.SourceFile, replaced: ts.Node]> {
   if (ts.isArrayLiteralExpression(node)) {
-    const index = parseAndValidateArrayInboundsIndex(key, node.elements.length);
-    return result.map((index: number) =>
-      replaceNodeValue(document, node.elements[index], value)
-    )(index);
+    return pipe(
+      parseAndValidateArrayInboundsIndex(key, node.elements.length),
+      result.map((index: number) =>
+        replaceNodeValue(document, node.elements[index], value)
+      )
+    );
   } else if (ts.isObjectLiteralExpression(node)) {
-    const assignment = result.flatMap(
-      (
-        assignment: ts.PropertyAssignment | undefined
-      ): TSOpsResult<ts.PropertyAssignment> => {
+    return pipe(
+      findObjectPropertyAssignment(node, key),
+      result.flatMap((assignment): TSOpsResult<ts.PropertyAssignment> => {
         if (!assignment) {
           return result.err(
             new PatchError("Cannot replace object element which does not exist")
           );
         }
         return result.ok(assignment);
-      }
-    )(findObjectPropertyAssignment(node, key));
-
-    return result.map((assignment: ts.PropertyAssignment) =>
-      replaceNodeValue(document, assignment.initializer, value)
-    )(assignment);
+      }),
+      result.map((assignment: ts.PropertyAssignment) =>
+        replaceNodeValue(document, assignment.initializer, value)
+      )
+    );
   } else {
     return result.err(new PatchError("Cannot add to non-object/array"));
   }
@@ -329,15 +336,18 @@ function getPointerFromPath(
 
 function get(rootNode: ts.Node, path: string[]): TSOpsResult<ts.Node> {
   return result.flatMapReduce((node: ts.Node, key: string) =>
-    result.flatMap((childNode: ts.Node | undefined) => {
-      if (childNode) {
-        return result.ok(childNode);
-      } else {
-        return result.err(
-          new PatchError("Path refers to non-existing object/array")
-        );
-      }
-    })(find(node, key))
+    pipe(
+      find(node, key),
+      result.flatMap((childNode: ts.Node | undefined) => {
+        if (childNode) {
+          return result.ok(childNode);
+        } else {
+          return result.err(
+            new PatchError("Path refers to non-existing object/array")
+          );
+        }
+      })
+    )
   )(path, rootNode);
 }
 
@@ -347,27 +357,31 @@ function removeFromNode(
   key: string
 ): TSOpsResult<[document: ts.SourceFile, removed: ts.Node]> {
   if (ts.isArrayLiteralExpression(node)) {
-    const index = parseAndValidateArrayInboundsIndex(key, node.elements.length);
-    return result.map((index: number) =>
-      removeAt(document, node.elements, index)
-    )(index);
+    return pipe(
+      parseAndValidateArrayInboundsIndex(key, node.elements.length),
+      result.map((index: number) => removeAt(document, node.elements, index))
+    );
   } else if (ts.isObjectLiteralExpression(node)) {
-    const assignment = result.flatMap(
-      (
-        assignment: ts.PropertyAssignment | undefined
-      ): TSOpsResult<ts.PropertyAssignment> => {
-        if (!assignment) {
-          return result.err(
-            new PatchError("Cannot replace object element which does not exist")
-          );
+    return pipe(
+      findObjectPropertyAssignment(node, key),
+      result.flatMap(
+        (
+          assignment: ts.PropertyAssignment | undefined
+        ): TSOpsResult<ts.PropertyAssignment> => {
+          if (!assignment) {
+            return result.err(
+              new PatchError(
+                "Cannot replace object element which does not exist"
+              )
+            );
+          }
+          return result.ok(assignment);
         }
-        return result.ok(assignment);
-      }
-    )(findObjectPropertyAssignment(node, key));
-
-    return result.map((assignment: ts.PropertyAssignment) =>
-      removeAt(document, node.properties, node.properties.indexOf(assignment))
-    )(assignment);
+      ),
+      result.map((assignment: ts.PropertyAssignment) =>
+        removeAt(document, node.properties, node.properties.indexOf(assignment))
+      )
+    );
   } else {
     return result.err(new PatchError("Cannot remove from non-object/array"));
   }
@@ -378,9 +392,12 @@ function removeAtPath(
   rootNode: ts.Node,
   path: [string, ...string[]]
 ): TSOpsResult<[document: ts.SourceFile, removed: ts.Node]> {
-  return result.flatMap(([node, key]: Pointer) =>
-    removeFromNode(document, node, key)
-  )(getPointerFromPath(rootNode, path));
+  return pipe(
+    getPointerFromPath(rootNode, path),
+    result.flatMap(([node, key]: Pointer) =>
+      removeFromNode(document, node, key)
+    )
+  );
 }
 
 function addToNode(
@@ -390,34 +407,41 @@ function addToNode(
   value: StaticValue
 ): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Node]> {
   if (ts.isArrayLiteralExpression(node)) {
-    const index = parseAndValidateArrayInsertIndex(key, node.elements.length);
-    return result.map((index: number): [document: ts.SourceFile] => [
-      insertAt(document, node.elements, index, toExpression(value)),
-    ])(index);
+    return pipe(
+      parseAndValidateArrayInsertIndex(key, node.elements.length),
+      result.map((index: number): [document: ts.SourceFile] => [
+        insertAt(document, node.elements, index, toExpression(value)),
+      ])
+    );
   } else if (ts.isObjectLiteralExpression(node)) {
-    const existingAssignment = findObjectPropertyAssignment(node, key);
-
-    return result.map(
-      (
-        assignment: ts.PropertyAssignment | undefined
-      ): [document: ts.SourceFile, replaced?: ts.Node] => {
-        if (!assignment) {
-          return [
-            insertAt(
-              document,
-              node.properties,
-              node.properties.length,
-              ts.factory.createPropertyAssignment(key, toExpression(value))
-            ),
-          ];
-        } else {
-          return [
-            replaceNode(document, assignment.initializer, toExpression(value)),
-            assignment.initializer,
-          ];
+    return pipe(
+      findObjectPropertyAssignment(node, key),
+      result.map(
+        (
+          assignment: ts.PropertyAssignment | undefined
+        ): [document: ts.SourceFile, replaced?: ts.Node] => {
+          if (!assignment) {
+            return [
+              insertAt(
+                document,
+                node.properties,
+                node.properties.length,
+                ts.factory.createPropertyAssignment(key, toExpression(value))
+              ),
+            ];
+          } else {
+            return [
+              replaceNode(
+                document,
+                assignment.initializer,
+                toExpression(value)
+              ),
+              assignment.initializer,
+            ];
+          }
         }
-      }
-    )(existingAssignment);
+      )
+    );
   } else {
     return result.err(new PatchError("Cannot add to non-object/array"));
   }
@@ -429,15 +453,18 @@ function addAtPath(
   path: [string, ...string[]],
   value: StaticValue
 ): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Node]> {
-  return result.flatMap(([node, key]: Pointer) =>
-    addToNode(document, node, key, value)
-  )(getPointerFromPath(rootNode, path));
+  return pipe(
+    getPointerFromPath(rootNode, path),
+    result.flatMap(([node, key]: Pointer) =>
+      addToNode(document, node, key, value)
+    )
+  );
 }
 
 function pickDocument<
   T extends readonly [document: ts.SourceFile, ...rest: unknown[]]
->(res: TSOpsResult<T>): TSOpsResult<ts.SourceFile> {
-  return result.map(([sourceFile]: T) => sourceFile)(res);
+>([sourceFile]: T) {
+  return sourceFile;
 }
 
 export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
@@ -452,17 +479,20 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
       return result.err(new PatchError("Cannot add root"));
     }
 
-    return pickDocument(addAtPath(document, this.rootNode, path, value));
+    return pipe(
+      addAtPath(document, this.rootNode, path, value),
+      result.map(pickDocument)
+    );
   }
   remove(document: ts.SourceFile, path: string[]): TSOpsResult<ts.SourceFile> {
     if (!isNotRoot(path)) {
       return result.err(new PatchError("Cannot remove root"));
     }
 
-    return result.map(
-      ([sourceFile]: [sourceFile: ts.SourceFile, removed: ts.Node]) =>
-        sourceFile
-    )(removeAtPath(document, this.rootNode, path));
+    return pipe(
+      removeAtPath(document, this.rootNode, path),
+      result.map(pickDocument)
+    );
   }
   replace(
     document: ts.SourceFile,
@@ -473,10 +503,12 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
       return result.err(new PatchError("Cannot replace root"));
     }
 
-    return pickDocument(
+    return pipe(
+      getPointerFromPath(this.rootNode, path),
       result.flatMap(([targetNode, key]: Pointer) =>
         replaceInNode(document, targetNode, key, value)
-      )(getPointerFromPath(this.rootNode, path))
+      ),
+      result.map(pickDocument)
     );
   }
   move(
@@ -500,22 +532,29 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
       );
     }
 
-    return result.flatMap(
-      ([doc, removedValue]: [doc: ts.SourceFile, removedValue: StaticValue]) =>
-        pickDocument(addAtPath(doc, this.rootNode, path, removedValue))
-    )(
+    return pipe(
+      removeAtPath(document, this.rootNode, from),
       result.flatMap(
-        ([doc, removedNode]: [doc: ts.SourceFile, removedNode: ts.Node]) => {
-          return result.map(
-            (
-              removedValue: StaticValue
-            ): [doc: ts.SourceFile, removedValue: StaticValue] => [
-              doc,
-              removedValue,
-            ]
-          )(evaluateExpression(removedNode));
-        }
-      )(removeAtPath(document, this.rootNode, from))
+        ([doc, removedNode]: [doc: ts.SourceFile, removedNode: ts.Node]) =>
+          pipe(
+            evaluateExpression(removedNode),
+            result.map(
+              (
+                removedValue: StaticValue
+              ): [doc: ts.SourceFile, removedValue: StaticValue] => [
+                doc,
+                removedValue,
+              ]
+            )
+          )
+      ),
+      result.flatMap(
+        ([doc, removedValue]: [
+          doc: ts.SourceFile,
+          removedValue: StaticValue
+        ]) => addAtPath(doc, this.rootNode, path, removedValue)
+      ),
+      result.map(pickDocument)
     );
   }
   copy(
@@ -539,17 +578,26 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
       );
     }
 
-    return result.flatMap((value: StaticValue) =>
-      pickDocument(addAtPath(document, this.rootNode, path, value))
-    )(result.flatMap(evaluateExpression)(get(this.rootNode, from)));
+    return pipe(
+      get(this.rootNode, from),
+      result.flatMap(evaluateExpression),
+      result.flatMap((value: StaticValue) =>
+        addAtPath(document, this.rootNode, path, value)
+      ),
+      result.map(pickDocument)
+    );
   }
   test(
     _document: ts.SourceFile,
     path: string[],
     value: StaticValue
   ): TSOpsResult<boolean> {
-    return result.map((documentValue: StaticValue) =>
-      deepEqual(value, documentValue)
-    )(result.flatMap(evaluateExpression)(get(this.rootNode, path)));
+    return pipe(
+      get(this.rootNode, path),
+      result.flatMap(evaluateExpression),
+      result.map((documentValue: StaticValue) =>
+        deepEqual(value, documentValue)
+      )
+    );
   }
 }
