@@ -34,7 +34,14 @@ export function isErr<T, E>(result: Result<T, E>): result is Err<E> {
 export type OkType<R> = R extends Result<infer T, unknown> ? T : never;
 export type ErrType<R> = R extends Result<unknown, infer E> ? E : never;
 
-export function all<T extends unknown[], E>(results: {
+/**
+ * If all results are Ok (or if results is empty), returns Ok with all the Ok
+ * values concatenated into an array. If any result is Err, returns Err with all
+ * Err values concatenated into an array.
+ *
+ * @see {@link all} for use with simple array types.
+ */
+export function allT<T extends unknown[], E>(results: {
   readonly [P in keyof T]: Result<T[P], E>;
 }): Result<T, E[]> {
   const values: T[number][] = [];
@@ -51,6 +58,17 @@ export function all<T extends unknown[], E>(results: {
   } else {
     return ok(values as T);
   }
+}
+
+/**
+ * If all results are Ok (or if results is empty), returns Ok with all the Ok
+ * values concatenated into an array. If any result is Err, returns Err with all
+ * Err values concatenated into an array.
+ *
+ * @see {@link allT} for use with tuple types.
+ */
+export function all<T, E>(results: readonly Result<T, E>[]): Result<T[], E[]> {
+  return allT<T[], E>(results);
 }
 
 export function flatMapReduce<T, E, A>(
