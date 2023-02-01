@@ -31,8 +31,8 @@ export function isErr<T, E>(result: Result<T, E>): result is Err<E> {
   return result.kind === "err";
 }
 
-type OkType<R> = R extends Result<infer T, unknown> ? T : never;
-type ErrType<R> = R extends Result<unknown, infer E> ? E : never;
+export type OkType<R> = R extends Result<infer T, unknown> ? T : never;
+export type ErrType<R> = R extends Result<unknown, infer E> ? E : never;
 
 export function all<T extends unknown[], E>(results: {
   readonly [P in keyof T]: Result<T[P], E>;
@@ -51,6 +51,18 @@ export function all<T extends unknown[], E>(results: {
   } else {
     return ok(values as T);
   }
+}
+
+export function flatMapReduce<T, E, A>(
+  reducer: (acc: T, current: A, currentIndex: number) => Result<T, E>
+): (arr: readonly A[], initVal: T) => Result<T, E> {
+  return (arr, initVal) => {
+    let val: Result<T, E> = ok(initVal);
+    for (let i = 0; i < arr.length && isOk(val); ++i) {
+      val = reducer(val.value, arr[i], i);
+    }
+    return val;
+  };
 }
 
 export function map<T0, T1>(

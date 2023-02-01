@@ -1,6 +1,7 @@
 import express, { Router, RequestHandler } from "express";
 import { Service } from "./Service";
 import { Operation } from "./static/patch";
+import { PatchError } from "./static/ops";
 
 const getFileIdFromParams = (params: { 0: string }) => {
   return `/${params[0]}`;
@@ -53,10 +54,14 @@ export class ValServer {
       await this.service.patch(id, patch);
       res.send("OK");
     } catch (err) {
-      console.error(err);
-      res
-        .status(500)
-        .send(err instanceof Error ? err.message : "Unknown error");
+      if (err instanceof PatchError) {
+        res.status(401).send(err.message);
+      } else {
+        console.error(err);
+        res
+          .status(500)
+          .send(err instanceof Error ? err.message : "Unknown error");
+      }
     }
   }
 }
