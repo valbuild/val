@@ -43,7 +43,7 @@ export type ErrType<R> = R extends Result<unknown, infer E> ? E : never;
  */
 export function allT<T extends unknown[], E>(results: {
   readonly [P in keyof T]: Result<T[P], E>;
-}): Result<T, E[]> {
+}): Result<T, [E, ...E[]]> {
   const values: T[number][] = [];
   const errors: E[] = [];
   for (const result of results) {
@@ -54,7 +54,7 @@ export function allT<T extends unknown[], E>(results: {
     }
   }
   if (errors.length > 0) {
-    return err(errors);
+    return err(errors as [E, ...E[]]);
   } else {
     return ok(values as T);
   }
@@ -67,7 +67,9 @@ export function allT<T extends unknown[], E>(results: {
  *
  * @see {@link allT} for use with tuple types.
  */
-export function all<T, E>(results: readonly Result<T, E>[]): Result<T[], E[]> {
+export function all<T, E>(
+  results: readonly Result<T, E>[]
+): Result<T[], [E, ...E[]]> {
   return allT<T[], E>(results);
 }
 
