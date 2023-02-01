@@ -149,26 +149,3 @@ export function findObjectPropertyAssignment(
     )
   );
 }
-
-export function find(
-  value: ts.Node,
-  key: string
-): result.Result<ts.Expression | undefined, ValSyntaxErrorTree> {
-  if (ts.isObjectLiteralExpression(value)) {
-    return pipe(
-      findObjectPropertyAssignment(value, key),
-      result.map(
-        (assignment: ts.PropertyAssignment | undefined) =>
-          assignment?.initializer
-      )
-    );
-  } else if (ts.isArrayLiteralExpression(value)) {
-    const keyNum = parseInt(key);
-    // TODO: This is inaccurate in case elements are spreads
-    return result.ok(value.elements[keyNum]);
-  } else {
-    return result.err(
-      new ValSyntaxError("Value is not an object or an array literal", value)
-    );
-  }
-}
