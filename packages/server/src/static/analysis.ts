@@ -10,7 +10,9 @@ class ValSyntaxError extends Error {
   }
 }
 
-export type ValSyntaxErrorTree = ValSyntaxError | ValSyntaxErrorTree[];
+export type ValSyntaxErrorTree =
+  | ValSyntaxError
+  | [ValSyntaxErrorTree, ...ValSyntaxErrorTree[]];
 
 function forEachError(
   tree: ValSyntaxErrorTree,
@@ -25,10 +27,12 @@ function forEachError(
   }
 }
 
-export function flattenErrors(tree: ValSyntaxErrorTree): ValSyntaxError[] {
+export function flattenErrors(
+  tree: ValSyntaxErrorTree
+): [ValSyntaxError, ...ValSyntaxError[]] {
   const result: ValSyntaxError[] = [];
   forEachError(tree, result.push.bind(result));
-  return result;
+  return result as [ValSyntaxError, ...ValSyntaxError[]];
 }
 
 function evaluatePropertyName(
