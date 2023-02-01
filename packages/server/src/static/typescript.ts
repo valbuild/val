@@ -3,7 +3,6 @@ import * as result from "../result";
 import { pipe } from "../fp";
 import {
   evaluateExpression,
-  find,
   findObjectPropertyAssignment,
   ValSyntaxErrorTree,
 } from "./analysis";
@@ -313,6 +312,28 @@ function replaceInNode(
   }
 }
 
+export function getFromNode(
+  node: ts.Node,
+  key: string
+): TSOpsResult<ts.Expression | undefined> {
+  if (ts.isArrayLiteralExpression(node)) {
+    return pipe(
+      parseAndValidateArrayInboundsIndex(key, node.elements.length),
+      result.map((index: number) => node.elements[index])
+    );
+  } else if (ts.isObjectLiteralExpression(node)) {
+    return pipe(
+      findObjectPropertyAssignment(node, key),
+      result.map(
+        (assignment: ts.PropertyAssignment | undefined) =>
+          assignment?.initializer
+      )
+    );
+  } else {
+    return result.err(new PatchError("Cannot access non-object/array"));
+  }
+}
+
 type Pointer = [node: ts.Node, key: string];
 function getPointerFromPath(
   node: ts.Node,
@@ -321,7 +342,7 @@ function getPointerFromPath(
   let targetNode: ts.Node = node;
   let key: string = path[0];
   for (let i = 0; i < path.length - 1; ++i, key = path[i]) {
-    const childNode = find(targetNode, key);
+    const childNode = getFromNode(targetNode, key);
     if (result.isErr(childNode)) {
       return childNode;
     }
@@ -334,10 +355,10 @@ function getPointerFromPath(
   return result.ok([targetNode, key]);
 }
 
-function get(rootNode: ts.Node, path: string[]): TSOpsResult<ts.Node> {
+function getAtPath(rootNode: ts.Node, path: string[]): TSOpsResult<ts.Node> {
   return result.flatMapReduce((node: ts.Node, key: string) =>
     pipe(
-      find(node, key),
+      getFromNode(node, key),
       result.flatMap((childNode: ts.Node | undefined) => {
         if (childNode) {
           return result.ok(childNode);
@@ -579,7 +600,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
     }
 
     return pipe(
-      get(this.rootNode, from),
+      getAtPath(this.rootNode, from),
       result.flatMap(evaluateExpression),
       result.flatMap((value: StaticValue) =>
         addAtPath(document, this.rootNode, path, value)
@@ -593,7 +614,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
     value: StaticValue
   ): TSOpsResult<boolean> {
     return pipe(
-      get(this.rootNode, path),
+      getAtPath(this.rootNode, path),
       result.flatMap(evaluateExpression),
       result.map((documentValue: StaticValue) =>
         deepEqual(value, documentValue)
