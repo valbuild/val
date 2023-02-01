@@ -93,7 +93,7 @@ function analyzeDefaultExport(
   }
   const [id, callback] = valContentCall.arguments;
   // TODO: validate ID value here?
-  if (!ts.isStringLiteral(id)) {
+  if (!ts.isStringLiteralLike(id)) {
     throw Error(
       `Expected first argument to val.content to be a string literal, got: ${
         ts.SyntaxKind[id.kind]

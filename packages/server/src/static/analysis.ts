@@ -36,7 +36,7 @@ function evaluatePropertyName(
 ): result.Result<string, ValSyntaxErrorTree> {
   if (ts.isIdentifier(name)) {
     return result.ok(name.text);
-  } else if (ts.isStringLiteral(name)) {
+  } else if (ts.isStringLiteralLike(name)) {
     return result.ok(name.text);
   } else if (ts.isNumericLiteral(name)) {
     // For a NumericLiteral, the stored value is the toString() representation of the number. For example 1, 1.00, and 1e0 are all stored as just "1".
