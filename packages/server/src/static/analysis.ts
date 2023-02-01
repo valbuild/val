@@ -1,5 +1,6 @@
 import ts from "typescript";
 import * as result from "../result";
+import { StaticValue } from "./ops";
 
 class ValSyntaxError extends Error {
   constructor(message: string, public node: ts.Node) {
@@ -8,7 +9,7 @@ class ValSyntaxError extends Error {
   }
 }
 
-type ValSyntaxErrorTree = ValSyntaxError | ValSyntaxErrorTree[];
+export type ValSyntaxErrorTree = ValSyntaxError | ValSyntaxErrorTree[];
 
 function forEachError(
   tree: ValSyntaxErrorTree,
@@ -28,16 +29,6 @@ export function flattenErrors(tree: ValSyntaxErrorTree): ValSyntaxError[] {
   forEachError(tree, result.push.bind(result));
   return result;
 }
-
-export type StaticValue =
-  | string
-  | number
-  | boolean
-  | null
-  | StaticValue[]
-  | {
-      [key: string]: StaticValue;
-    };
 
 function evaluatePropertyName(
   name: ts.PropertyName

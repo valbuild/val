@@ -2,6 +2,10 @@ import ts from "typescript";
 import { ValModuleResolver } from "./ValModuleResolver";
 import { analyzeValModule } from "./static/valModule";
 import { applyPatch, Operation } from "./static/patch";
+import { TSOps } from "./static/typescript";
+import * as result from "./result";
+import { PatchError } from "./static/ops";
+import { flattenErrors } from "./static/analysis";
 
 export const patchValFile = async (
   id: string,
@@ -25,12 +29,22 @@ export const patchValFile = async (
 
   const { fixedContent } = analyzeValModule(sourceFile);
 
-  const newSourceFile = applyPatch(sourceFile, fixedContent, patch);
+  const ops = new TSOps(fixedContent);
+  const newSourceFile = applyPatch(sourceFile, ops, patch);
+  if (result.isErr(newSourceFile)) {
+    if (newSourceFile.error instanceof PatchError) {
+      throw newSourceFile.error;
+    } else {
+      const errors = flattenErrors(newSourceFile.error);
+      throw new Error(`Syntax error:\n${errors.join("\n")}`);
+    }
+  }
+
   resolver.compilerHost.writeFile(
-    newSourceFile.fileName,
-    newSourceFile.text,
+    newSourceFile.value.fileName,
+    newSourceFile.value.text,
     false,
     undefined,
-    [newSourceFile]
+    [newSourceFile.value]
   );
 };

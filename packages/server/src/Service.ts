@@ -42,7 +42,7 @@ export class Service {
   }
 
   async patch(moduleId: string, patch: Operation[]): Promise<void> {
-    await patchValFile(moduleId, this.valConfigPath, patch, this.resolver);
+    return patchValFile(moduleId, this.valConfigPath, patch, this.resolver);
   }
 
   dispose() {

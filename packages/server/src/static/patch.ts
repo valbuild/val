@@ -1,6 +1,6 @@
-import ts from "typescript";
-import { StaticValue } from "./analysis";
-import { add, copy, move, remove, replace, test } from "./ops";
+import * as result from "../result";
+import { StaticValue } from "./ops";
+import { Ops, PatchError } from "./ops";
 
 export type Operation =
   | {
@@ -33,51 +33,53 @@ export type Operation =
       value: StaticValue;
     };
 
-export function applyPatch(
-  sourceFile: ts.SourceFile,
-  node: ts.Node,
+export function applyPatch<T, E>(
+  document: T,
+  ops: Ops<T, E>,
   patch: Operation[]
-): ts.SourceFile {
-  let result = sourceFile;
-  for (const op of patch) {
-    result = apply(result, node, op);
-  }
-  return result;
+): result.Result<T, E | PatchError> {
+  return result.flatMapReduce(
+    (doc: T, op: Operation): result.Result<T, E | PatchError> =>
+      apply(doc, ops, op)
+  )(patch, document);
 }
 
-function parsePath(path: string) {
+function parsePath<E>(path: string): result.Result<string[], E | PatchError> {
   if (!path.startsWith("/")) {
-    throw Error("Invalid path");
+    return result.err(new PatchError("Invalid path"));
   }
-  return path.substring(1).split("/");
+  return result.ok(path.substring(1).split("/"));
 }
 
-function apply(
-  sourceFile: ts.SourceFile,
-  node: ts.Node,
+function apply<T, E>(
+  document: T,
+  ops: Ops<T, E>,
   op: Operation
-): ts.SourceFile {
-  const path = parsePath(op.path);
-  switch (op.op) {
-    case "add":
-      return add(sourceFile, node, path, op.value)[0];
-    case "remove":
-      return remove(sourceFile, node, path)[0];
-    case "replace":
-      return replace(sourceFile, node, path, op.value)[0];
-    case "move": {
-      const from = parsePath(op.from);
-      return move(sourceFile, node, from, path)[0];
-    }
-    case "copy": {
-      const from = parsePath(op.from);
-      return copy(sourceFile, node, from, path)[0];
-    }
-    case "test": {
-      if (!test(sourceFile, path, op.value)) {
-        throw Error("Test failed");
+): result.Result<T, E | PatchError> {
+  return result.flatMap((path: string[]): result.Result<T, E | PatchError> => {
+    switch (op.op) {
+      case "add":
+        return ops.add(document, path, op.value);
+      case "remove":
+        return ops.remove(document, path);
+      case "replace":
+        return ops.replace(document, path, op.value);
+      case "move": {
+        return result.flatMap((from: string[]) =>
+          ops.move(document, from, path)
+        )(parsePath(op.from));
       }
-      return sourceFile;
+      case "copy": {
+        return result.flatMap((from: string[]) =>
+          ops.copy(document, from, path)
+        )(parsePath(op.from));
+      }
+      case "test": {
+        if (!ops.test(document, path, op.value)) {
+          return result.err(new PatchError("Test failed"));
+        }
+        return result.ok(document);
+      }
     }
-  }
+  })(parsePath(op.path));
 }
