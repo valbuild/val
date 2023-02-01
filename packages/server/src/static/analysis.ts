@@ -39,8 +39,9 @@ function evaluatePropertyName(
   } else if (ts.isStringLiteral(name)) {
     return result.ok(name.text);
   } else if (ts.isNumericLiteral(name)) {
-    // TODO: This is a terrible idea, isn't it?
-    return result.ok((eval(name.text) as number).toString());
+    // For a NumericLiteral, the stored value is the toString() representation of the number. For example 1, 1.00, and 1e0 are all stored as just "1".
+    // https://github.com/microsoft/TypeScript/blob/4b794fe1dd0d184d3f8f17e94d8187eace57c91e/src/compiler/types.ts#L2127-L2131
+    return result.ok(name.text);
   } else {
     return result.err([
       new ValSyntaxError(
@@ -78,11 +79,15 @@ function getObjectPropertyAssignments(
 export function evaluateExpression(
   value: ts.Node
 ): result.Result<StaticValue, ValSyntaxErrorTree> {
+  // The text property of a LiteralExpression stores the interpreted value of the literal in text form. For a StringLiteral,
+  // or any literal of a template, this means quotes have been removed and escapes have been converted to actual characters.
+  // For a NumericLiteral, the stored value is the toString() representation of the number. For example 1, 1.00, and 1e0 are all stored as just "1".
+  // https://github.com/microsoft/TypeScript/blob/4b794fe1dd0d184d3f8f17e94d8187eace57c91e/src/compiler/types.ts#L2127-L2131
+
   if (ts.isStringLiteralLike(value)) {
     return result.ok(value.text);
   } else if (ts.isNumericLiteral(value)) {
-    // TODO: This is a terrible idea, isn't it?
-    return result.ok(eval(value.text) as number);
+    return result.ok(Number(value.text));
   } else if (value.kind === ts.SyntaxKind.TrueKeyword) {
     return result.ok(true);
   } else if (value.kind === ts.SyntaxKind.FalseKeyword) {
