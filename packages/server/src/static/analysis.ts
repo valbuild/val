@@ -120,9 +120,7 @@ export function evaluateExpression(
       result.map(Object.fromEntries)
     );
   } else {
-    return result.err(
-      new ValSyntaxError("Value must be a string/integer/array literal", value)
-    );
+    return result.err(new ValSyntaxError("Value must be a literal", value));
   }
 }
 
@@ -148,4 +146,20 @@ export function findObjectPropertyAssignment(
       }
     )
   );
+}
+
+/**
+ * Given a list of expressions, validates that all the expressions are not
+ * spread elements. In other words, it ensures that the expressions are the
+ * initializers of the values at their respective indices in the evaluated list.
+ */
+export function validateInitializers(
+  nodes: ReadonlyArray<ts.Expression>
+): ValSyntaxErrorTree | undefined {
+  for (const node of nodes) {
+    if (ts.isSpreadElement(node)) {
+      return new ValSyntaxError("Unexpected spread element", node);
+    }
+  }
+  return undefined;
 }

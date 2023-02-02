@@ -2,6 +2,7 @@ import ts from "typescript";
 import * as result from "../result";
 import { pipe } from "../fp";
 import {
+  validateInitializers,
   evaluateExpression,
   findObjectPropertyAssignment,
   ValSyntaxErrorTree,
@@ -245,16 +246,28 @@ function parseAndValidateArrayIndex(
 
 function parseAndValidateArrayInsertIndex(
   key: string,
-  length: number
-): result.Result<number, PatchError> {
+  nodes: ReadonlyArray<ts.Expression>
+): TSOpsResult<number> {
   if (key === "-") {
-    return result.ok(length);
+    // For insertion, all nodes up until the insertion index must be valid
+    // initializers
+    const err = validateInitializers(nodes);
+    if (err) {
+      return result.err(err);
+    }
+    return result.ok(nodes.length);
   }
 
   return pipe(
     parseAndValidateArrayIndex(key),
-    result.flatMap((index: number) => {
-      if (index < 0 || index > length) {
+    result.flatMap((index: number): TSOpsResult<number> => {
+      // For insertion, all nodes up until the insertion index must be valid
+      // initializers
+      const err = validateInitializers(nodes.slice(0, index));
+      if (err) {
+        return result.err(err);
+      }
+      if (index < 0 || index > nodes.length) {
         return result.err(new PatchError("Array index out of bounds"));
       } else {
         return result.ok(index);
@@ -265,12 +278,18 @@ function parseAndValidateArrayInsertIndex(
 
 function parseAndValidateArrayInboundsIndex(
   key: string,
-  length: number
-): result.Result<number, PatchError> {
+  nodes: ReadonlyArray<ts.Expression>
+): TSOpsResult<number> {
   return pipe(
     parseAndValidateArrayIndex(key),
-    result.flatMap((index: number) => {
-      if (index < 0 || index >= length) {
+    result.flatMap((index: number): TSOpsResult<number> => {
+      // For in-bounds operations, all nodes up until and including the index
+      // must be valid initializers
+      const err = validateInitializers(nodes.slice(0, index + 1));
+      if (err) {
+        return result.err(err);
+      }
+      if (index < 0 || index >= nodes.length) {
         return result.err(new PatchError("Array index out of bounds"));
       } else {
         return result.ok(index);
@@ -287,7 +306,7 @@ function replaceInNode(
 ): TSOpsResult<[document: ts.SourceFile, replaced: ts.Node]> {
   if (ts.isArrayLiteralExpression(node)) {
     return pipe(
-      parseAndValidateArrayInboundsIndex(key, node.elements.length),
+      parseAndValidateArrayInboundsIndex(key, node.elements),
       result.map((index: number) =>
         replaceNodeValue(document, node.elements[index], value)
       )
@@ -318,7 +337,7 @@ export function getFromNode(
 ): TSOpsResult<ts.Expression | undefined> {
   if (ts.isArrayLiteralExpression(node)) {
     return pipe(
-      parseAndValidateArrayInboundsIndex(key, node.elements.length),
+      parseAndValidateArrayInboundsIndex(key, node.elements),
       result.map((index: number) => node.elements[index])
     );
   } else if (ts.isObjectLiteralExpression(node)) {
@@ -379,7 +398,7 @@ function removeFromNode(
 ): TSOpsResult<[document: ts.SourceFile, removed: ts.Node]> {
   if (ts.isArrayLiteralExpression(node)) {
     return pipe(
-      parseAndValidateArrayInboundsIndex(key, node.elements.length),
+      parseAndValidateArrayInboundsIndex(key, node.elements),
       result.map((index: number) => removeAt(document, node.elements, index))
     );
   } else if (ts.isObjectLiteralExpression(node)) {
@@ -429,7 +448,7 @@ function addToNode(
 ): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Node]> {
   if (ts.isArrayLiteralExpression(node)) {
     return pipe(
-      parseAndValidateArrayInsertIndex(key, node.elements.length),
+      parseAndValidateArrayInsertIndex(key, node.elements),
       result.map((index: number): [document: ts.SourceFile] => [
         insertAt(document, node.elements, index, toExpression(value)),
       ])
