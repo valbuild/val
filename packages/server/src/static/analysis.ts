@@ -35,49 +35,61 @@ export function flattenErrors(
   return result as [ValSyntaxError, ...ValSyntaxError[]];
 }
 
-function evaluatePropertyName(
+type LiteralPropertyName = (
+  | ts.Identifier
+  | ts.StringLiteral
+  | ts.NumericLiteral
+) & {
+  /**
+   * The text property of a LiteralExpression stores the interpreted value of the literal in text form. For a StringLiteral,
+   * or any literal of a template, this means quotes have been removed and escapes have been converted to actual characters.
+   * For a NumericLiteral, the stored value is the toString() representation of the number. For example 1, 1.00, and 1e0 are all stored as just "1".
+   * https://github.com/microsoft/TypeScript/blob/4b794fe1dd0d184d3f8f17e94d8187eace57c91e/src/compiler/types.ts#L2127-L2131
+   */
+  name: string;
+};
+
+function isLiteralPropertyName(
   name: ts.PropertyName
-): result.Result<string, ValSyntaxErrorTree> {
-  if (ts.isIdentifier(name)) {
-    return result.ok(name.text);
-  } else if (ts.isStringLiteralLike(name)) {
-    return result.ok(name.text);
-  } else if (ts.isNumericLiteral(name)) {
-    // For a NumericLiteral, the stored value is the toString() representation of the number. For example 1, 1.00, and 1e0 are all stored as just "1".
-    // https://github.com/microsoft/TypeScript/blob/4b794fe1dd0d184d3f8f17e94d8187eace57c91e/src/compiler/types.ts#L2127-L2131
-    return result.ok(name.text);
-  } else {
-    return result.err([
-      new ValSyntaxError(
-        `Invalid property name type: ${ts.SyntaxKind[name.kind]}`,
-        name
-      ),
-    ]);
-  }
+): name is LiteralPropertyName {
+  return (
+    ts.isIdentifier(name) ||
+    ts.isStringLiteral(name) ||
+    ts.isNumericLiteral(name)
+  );
 }
 
-function getObjectPropertyAssignments(
-  value: ts.ObjectLiteralExpression
-): result.Result<
-  [key: string, assignment: ts.PropertyAssignment][],
-  ValSyntaxErrorTree
-> {
-  return result.all(
-    value.properties.map((assignment) => {
-      if (!ts.isPropertyAssignment(assignment)) {
-        return result.err(
-          new ValSyntaxError(
-            "Object literal element is not a property assignment",
-            assignment
-          )
-        );
-      }
-      const key = evaluatePropertyName(assignment.name);
-      return result.map<string, [key: string, value: ts.PropertyAssignment]>(
-        (key: string) => [key, assignment]
-      )(key);
-    })
-  );
+type LiteralPropertyAssignment = ts.PropertyAssignment & {
+  name: LiteralPropertyName;
+};
+
+function validateObjectProperties<
+  T extends readonly ts.ObjectLiteralElementLike[]
+>(
+  nodes: T
+): result.Result<T & LiteralPropertyAssignment[], ValSyntaxErrorTree> {
+  const errors: ValSyntaxError[] = [];
+  for (const node of nodes) {
+    if (!ts.isPropertyAssignment(node)) {
+      errors.push(
+        new ValSyntaxError(
+          "Object literal element must be property assignment",
+          node
+        )
+      );
+    } else if (!isLiteralPropertyName(node.name)) {
+      errors.push(
+        new ValSyntaxError(
+          "Object literal element key must be an identifier or a literal",
+          node
+        )
+      );
+    }
+  }
+  if (errors.length > 0) {
+    return result.err(errors as ValSyntaxErrorTree);
+  }
+  return result.ok(nodes as T & LiteralPropertyAssignment[]);
 }
 
 /**
@@ -120,20 +132,19 @@ export function evaluateExpression(
     return result.all(value.elements.map(evaluateExpression));
   } else if (ts.isObjectLiteralExpression(value)) {
     return pipe(
-      getObjectPropertyAssignments(value),
-      result.flatMap(
-        (entries: [key: string, assignment: ts.PropertyAssignment][]) =>
-          pipe(
-            entries.map(([key, assignment]) =>
-              pipe(
-                evaluateExpression(assignment.initializer),
-                result.map<StaticValue, [key: string, value: StaticValue]>(
-                  (value) => [key, value]
-                )
+      validateObjectProperties(value.properties),
+      result.flatMap((assignments: ts.NodeArray<LiteralPropertyAssignment>) =>
+        pipe(
+          assignments.map((assignment) =>
+            pipe(
+              evaluateExpression(assignment.initializer),
+              result.map<StaticValue, [key: string, value: StaticValue]>(
+                (value) => [assignment.name.text, value]
               )
-            ),
-            result.all
-          )
+            )
+          ),
+          result.all
+        )
       ),
       result.map(Object.fromEntries)
     );
@@ -145,24 +156,22 @@ export function evaluateExpression(
 export function findObjectPropertyAssignment(
   value: ts.ObjectLiteralExpression,
   key: string
-): result.Result<ts.PropertyAssignment | undefined, ValSyntaxErrorTree> {
+): result.Result<LiteralPropertyAssignment | undefined, ValSyntaxErrorTree> {
   return pipe(
-    getObjectPropertyAssignments(value),
-    result.flatMap(
-      (entries: [key: string, assignment: ts.PropertyAssignment][]) => {
-        const matchingEntries = entries.filter(
-          ([entryKey]) => entryKey === key
-        );
-        if (matchingEntries.length === 0) return result.ok(undefined);
-        if (matchingEntries.length === 1) {
-          const [[, value]] = matchingEntries;
-          return result.ok(value);
-        }
+    validateObjectProperties(value.properties),
+    result.flatMap((assignments: ts.NodeArray<LiteralPropertyAssignment>) => {
+      const matchingAssignments = assignments.filter(
+        (assignment) => assignment.name.text === key
+      );
+      if (matchingAssignments.length === 0) return result.ok(undefined);
+      if (matchingAssignments.length > 1) {
         return result.err(
           new ValSyntaxError(`Object key "${key}" is ambiguous`, value)
         );
       }
-    )
+      const [assignment] = matchingAssignments;
+      return result.ok(assignment);
+    })
   );
 }
 
