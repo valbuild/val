@@ -6,6 +6,7 @@ import {
   evaluateExpression,
   findObjectPropertyAssignment,
   ValSyntaxErrorTree,
+  shallowValidateExpression,
 } from "./analysis";
 import {
   deepEqual,
@@ -81,11 +82,11 @@ function replaceNode(
   });
 }
 
-function replaceNodeValue(
+function replaceNodeValue<T extends ts.Node>(
   document: ts.SourceFile,
-  node: ts.Node,
+  node: T,
   value: StaticValue
-): [document: ts.SourceFile, replaced: ts.Node] {
+): [document: ts.SourceFile, replaced: T] {
   const replacementText = printer.printNode(
     ts.EmitHint.Unspecified,
     toExpression(value),
@@ -300,10 +301,10 @@ function parseAndValidateArrayInboundsIndex(
 
 function replaceInNode(
   document: ts.SourceFile,
-  node: ts.Node,
+  node: ts.Expression,
   key: string,
   value: StaticValue
-): TSOpsResult<[document: ts.SourceFile, replaced: ts.Node]> {
+): TSOpsResult<[document: ts.SourceFile, replaced: ts.Expression]> {
   if (ts.isArrayLiteralExpression(node)) {
     return pipe(
       parseAndValidateArrayInboundsIndex(key, node.elements),
@@ -327,12 +328,15 @@ function replaceInNode(
       )
     );
   } else {
-    return result.err(new PatchError("Cannot add to non-object/array"));
+    return result.err(
+      shallowValidateExpression(node) ??
+        new PatchError("Cannot add to non-object/array")
+    );
   }
 }
 
 export function getFromNode(
-  node: ts.Node,
+  node: ts.Expression,
   key: string
 ): TSOpsResult<ts.Expression | undefined> {
   if (ts.isArrayLiteralExpression(node)) {
@@ -349,16 +353,19 @@ export function getFromNode(
       )
     );
   } else {
-    return result.err(new PatchError("Cannot access non-object/array"));
+    return result.err(
+      shallowValidateExpression(node) ??
+        new PatchError("Cannot access non-object/array")
+    );
   }
 }
 
-type Pointer = [node: ts.Node, key: string];
+type Pointer = [node: ts.Expression, key: string];
 function getPointerFromPath(
-  node: ts.Node,
+  node: ts.Expression,
   path: [string, ...string[]]
 ): TSOpsResult<Pointer> {
-  let targetNode: ts.Node = node;
+  let targetNode: ts.Expression = node;
   let key: string = path[0];
   for (let i = 0; i < path.length - 1; ++i, key = path[i]) {
     const childNode = getFromNode(targetNode, key);
@@ -374,11 +381,14 @@ function getPointerFromPath(
   return result.ok([targetNode, key]);
 }
 
-function getAtPath(rootNode: ts.Node, path: string[]): TSOpsResult<ts.Node> {
-  return result.flatMapReduce((node: ts.Node, key: string) =>
+function getAtPath(
+  rootNode: ts.Expression,
+  path: string[]
+): TSOpsResult<ts.Expression> {
+  return result.flatMapReduce((node: ts.Expression, key: string) =>
     pipe(
       getFromNode(node, key),
-      result.flatMap((childNode: ts.Node | undefined) => {
+      result.flatMap((childNode: ts.Expression | undefined) => {
         if (childNode) {
           return result.ok(childNode);
         } else {
@@ -393,9 +403,9 @@ function getAtPath(rootNode: ts.Node, path: string[]): TSOpsResult<ts.Node> {
 
 function removeFromNode(
   document: ts.SourceFile,
-  node: ts.Node,
+  node: ts.Expression,
   key: string
-): TSOpsResult<[document: ts.SourceFile, removed: ts.Node]> {
+): TSOpsResult<[document: ts.SourceFile, removed: ts.Expression]> {
   if (ts.isArrayLiteralExpression(node)) {
     return pipe(
       parseAndValidateArrayInboundsIndex(key, node.elements),
@@ -418,20 +428,28 @@ function removeFromNode(
           return result.ok(assignment);
         }
       ),
-      result.map((assignment: ts.PropertyAssignment) =>
-        removeAt(document, node.properties, node.properties.indexOf(assignment))
-      )
+      result.map((assignment: ts.PropertyAssignment) => [
+        removeAt(
+          document,
+          node.properties,
+          node.properties.indexOf(assignment)
+        )[0],
+        assignment.initializer,
+      ])
     );
   } else {
-    return result.err(new PatchError("Cannot remove from non-object/array"));
+    return result.err(
+      shallowValidateExpression(node) ??
+        new PatchError("Cannot remove from non-object/array")
+    );
   }
 }
 
 function removeAtPath(
   document: ts.SourceFile,
-  rootNode: ts.Node,
+  rootNode: ts.Expression,
   path: [string, ...string[]]
-): TSOpsResult<[document: ts.SourceFile, removed: ts.Node]> {
+): TSOpsResult<[document: ts.SourceFile, removed: ts.Expression]> {
   return pipe(
     getPointerFromPath(rootNode, path),
     result.flatMap(([node, key]: Pointer) =>
@@ -442,10 +460,10 @@ function removeAtPath(
 
 function addToNode(
   document: ts.SourceFile,
-  node: ts.Node,
+  node: ts.Expression,
   key: string,
   value: StaticValue
-): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Node]> {
+): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Expression]> {
   if (ts.isArrayLiteralExpression(node)) {
     return pipe(
       parseAndValidateArrayInsertIndex(key, node.elements),
@@ -459,7 +477,7 @@ function addToNode(
       result.map(
         (
           assignment: ts.PropertyAssignment | undefined
-        ): [document: ts.SourceFile, replaced?: ts.Node] => {
+        ): [document: ts.SourceFile, replaced?: ts.Expression] => {
           if (!assignment) {
             return [
               insertAt(
@@ -483,16 +501,19 @@ function addToNode(
       )
     );
   } else {
-    return result.err(new PatchError("Cannot add to non-object/array"));
+    return result.err(
+      shallowValidateExpression(node) ??
+        new PatchError("Cannot add to non-object/array")
+    );
   }
 }
 
 function addAtPath(
   document: ts.SourceFile,
-  rootNode: ts.Node,
+  rootNode: ts.Expression,
   path: [string, ...string[]],
   value: StaticValue
-): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Node]> {
+): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Expression]> {
   return pipe(
     getPointerFromPath(rootNode, path),
     result.flatMap(([node, key]: Pointer) =>
@@ -508,7 +529,7 @@ function pickDocument<
 }
 
 export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
-  constructor(private rootNode: ts.Node) {}
+  constructor(private rootNode: ts.Expression) {}
 
   add(
     document: ts.SourceFile,
@@ -575,7 +596,10 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
     return pipe(
       removeAtPath(document, this.rootNode, from),
       result.flatMap(
-        ([doc, removedNode]: [doc: ts.SourceFile, removedNode: ts.Node]) =>
+        ([doc, removedNode]: [
+          doc: ts.SourceFile,
+          removedNode: ts.Expression
+        ]) =>
           pipe(
             evaluateExpression(removedNode),
             result.map(
