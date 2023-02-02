@@ -1,8 +1,8 @@
 import ts from "typescript";
 
 export type ValModuleAnalysis = {
-  schema: ts.Node;
-  fixedContent: ts.Node;
+  schema: ts.Expression;
+  fixedContent: ts.Expression;
 };
 
 function analyzeContentExpression(node: ts.Node) {

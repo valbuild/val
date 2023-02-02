@@ -80,8 +80,26 @@ function getObjectPropertyAssignments(
   );
 }
 
+/**
+ * Validates that the expression is a valid type of expression, but does not
+ * validate its children.
+ */
+export function shallowValidateExpression(
+  value: ts.Expression
+): ValSyntaxError | undefined {
+  return ts.isStringLiteralLike(value) ||
+    ts.isNumericLiteral(value) ||
+    value.kind === ts.SyntaxKind.TrueKeyword ||
+    value.kind === ts.SyntaxKind.FalseKeyword ||
+    value.kind === ts.SyntaxKind.NullKeyword ||
+    ts.isArrayLiteralExpression(value) ||
+    ts.isObjectLiteralExpression(value)
+    ? undefined
+    : new ValSyntaxError("Value must be a literal", value);
+}
+
 export function evaluateExpression(
-  value: ts.Node
+  value: ts.Expression
 ): result.Result<StaticValue, ValSyntaxErrorTree> {
   // The text property of a LiteralExpression stores the interpreted value of the literal in text form. For a StringLiteral,
   // or any literal of a template, this means quotes have been removed and escapes have been converted to actual characters.
