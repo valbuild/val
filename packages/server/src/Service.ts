@@ -2,7 +2,7 @@ import { SerializedSchema, ValidTypes } from "@valbuild/lib";
 import { newQuickJSWASMModule, QuickJSRuntime } from "quickjs-emscripten";
 import { patchValFile } from "./patchValFile";
 import { readValFile } from "./readValFile";
-import { Operation } from "./static/patch";
+import { Operation } from "./patch/patch";
 import { ValModuleResolver } from "./ValModuleResolver";
 import { newValQuickJSRuntime } from "./ValQuickJSRuntime";
 

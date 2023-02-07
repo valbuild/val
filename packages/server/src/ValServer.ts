@@ -1,7 +1,7 @@
 import express, { Router, RequestHandler } from "express";
 import { Service } from "./Service";
-import { Operation } from "./static/patch";
-import { PatchError } from "./static/ops";
+import { Operation } from "./patch/patch";
+import { PatchError } from "./patch/ops";
 
 const getFileIdFromParams = (params: { 0: string }) => {
   return `/${params[0]}`;

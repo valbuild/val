@@ -1,12 +1,12 @@
 import * as result from "../fp/result";
-import { StaticValue } from "./ops";
+import { JSONValue } from "./ops";
 import { Ops, PatchError } from "./ops";
 
 export type Operation =
   | {
       op: "add";
       path: string;
-      value: StaticValue;
+      value: JSONValue;
     }
   | {
       op: "remove";
@@ -15,7 +15,7 @@ export type Operation =
   | {
       op: "replace";
       path: string;
-      value: StaticValue;
+      value: JSONValue;
     }
   | {
       op: "move";
@@ -30,7 +30,7 @@ export type Operation =
   | {
       op: "test";
       path: string;
-      value: StaticValue;
+      value: JSONValue;
     };
 
 export function applyPatch<T, E>(

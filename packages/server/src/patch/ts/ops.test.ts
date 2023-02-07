@@ -1,10 +1,10 @@
 import { describe, test, expect } from "@jest/globals";
 import ts from "typescript";
-import { TSOps } from "./typescript";
-import * as result from "../fp/result";
-import { PatchError, StaticValue } from "./ops";
-import { pipe } from "../fp/util";
-import { ValSyntaxError } from "./analysis";
+import { TSOps } from "./ops";
+import * as result from "../../fp/result";
+import { PatchError, JSONValue } from "../ops";
+import { pipe } from "../../fp/util";
+import { ValSyntaxError } from "./syntax";
 
 function testSourceFile(expression: string): ts.SourceFile {
   return ts.createSourceFile(
@@ -40,7 +40,7 @@ describe("TSOps", () => {
     name: string;
     input: string;
     path: string[];
-    value: StaticValue;
+    value: JSONValue;
     expected: result.Result<string, typeof PatchError | typeof ValSyntaxError>;
   }>([
     {
@@ -243,7 +243,7 @@ describe("TSOps", () => {
     name: string;
     input: string;
     path: string[];
-    value: StaticValue;
+    value: JSONValue;
     expected: result.Result<string, typeof PatchError | typeof ValSyntaxError>;
   }>([
     {
@@ -548,7 +548,7 @@ describe("TSOps", () => {
     name: string;
     input: string;
     path: string[];
-    value: StaticValue;
+    value: JSONValue;
     expected: result.Result<boolean, typeof PatchError | typeof ValSyntaxError>;
   }>([
     {

@@ -1,21 +1,21 @@
 import ts from "typescript";
-import * as result from "../fp/result";
-import { pipe } from "../fp/util";
+import * as result from "../../fp/result";
+import { pipe } from "../../fp/util";
 import {
   validateInitializers,
   evaluateExpression,
   findObjectPropertyAssignment,
   ValSyntaxErrorTree,
   shallowValidateExpression,
-} from "./analysis";
+} from "./syntax";
 import {
   deepEqual,
   isNotRoot,
   isProperPathPrefix,
   Ops,
   PatchError,
-  StaticValue,
-} from "./ops";
+  JSONValue,
+} from "../ops";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
@@ -25,7 +25,7 @@ declare module "typescript" {
   }
 }
 
-function toExpression(value: StaticValue): ts.Expression {
+function toExpression(value: JSONValue): ts.Expression {
   if (typeof value === "string") {
     // TODO: Use configuration/heuristics to determine use of single quote or double quote
     return ts.factory.createStringLiteral(value);
@@ -59,7 +59,7 @@ const printer = ts.createPrinter({
 function replaceNodeValue<T extends ts.Node>(
   document: ts.SourceFile,
   node: T,
-  value: StaticValue
+  value: JSONValue
 ): [document: ts.SourceFile, replaced: T] {
   const replacementText = printer.printNode(
     ts.EmitHint.Unspecified,
@@ -259,7 +259,7 @@ function replaceInNode(
   document: ts.SourceFile,
   node: ts.Expression,
   key: string,
-  value: StaticValue
+  value: JSONValue
 ): TSOpsResult<[document: ts.SourceFile, replaced: ts.Expression]> {
   if (ts.isArrayLiteralExpression(node)) {
     return pipe(
@@ -295,7 +295,7 @@ function replaceAtPath(
   document: ts.SourceFile,
   rootNode: ts.Expression,
   path: string[],
-  value: StaticValue
+  value: JSONValue
 ): TSOpsResult<[document: ts.SourceFile, replaced: ts.Expression]> {
   if (isNotRoot(path)) {
     return pipe(
@@ -438,7 +438,7 @@ function addToNode(
   document: ts.SourceFile,
   node: ts.Expression,
   key: string,
-  value: StaticValue
+  value: JSONValue
 ): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Expression]> {
   if (ts.isArrayLiteralExpression(node)) {
     return pipe(
@@ -481,7 +481,7 @@ function addAtPath(
   document: ts.SourceFile,
   rootNode: ts.Expression,
   path: string[],
-  value: StaticValue
+  value: JSONValue
 ): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Expression]> {
   if (isNotRoot(path)) {
     return pipe(
@@ -511,7 +511,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
   add(
     document: ts.SourceFile,
     path: string[],
-    value: StaticValue
+    value: JSONValue
   ): TSOpsResult<ts.SourceFile> {
     return pipe(
       document,
@@ -539,7 +539,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
   replace(
     document: ts.SourceFile,
     path: string[],
-    value: StaticValue
+    value: JSONValue
   ): TSOpsResult<ts.SourceFile> {
     return pipe(
       document,
@@ -582,8 +582,8 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
             evaluateExpression(removedNode),
             result.map(
               (
-                removedValue: StaticValue
-              ): [doc: ts.SourceFile, removedValue: StaticValue] => [
+                removedValue: JSONValue
+              ): [doc: ts.SourceFile, removedValue: JSONValue] => [
                 doc,
                 removedValue,
               ]
@@ -593,7 +593,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
       result.flatMap(
         ([document, removedValue]: [
           document: ts.SourceFile,
-          removedValue: StaticValue
+          removedValue: JSONValue
         ]) =>
           pipe(
             document,
@@ -618,7 +618,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
         pipe(
           getAtPath(rootNode, from),
           result.flatMap(evaluateExpression),
-          result.flatMap((value: StaticValue) =>
+          result.flatMap((value: JSONValue) =>
             addAtPath(document, rootNode, path, value)
           )
         )
@@ -629,16 +629,14 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
   test(
     document: ts.SourceFile,
     path: string[],
-    value: StaticValue
+    value: JSONValue
   ): TSOpsResult<boolean> {
     return pipe(
       document,
       this.findRoot,
       result.flatMap((rootNode: ts.Expression) => getAtPath(rootNode, path)),
       result.flatMap(evaluateExpression),
-      result.map((documentValue: StaticValue) =>
-        deepEqual(value, documentValue)
-      )
+      result.map((documentValue: JSONValue) => deepEqual(value, documentValue))
     );
   }
 }

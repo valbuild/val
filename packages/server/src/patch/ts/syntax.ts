@@ -1,7 +1,7 @@
 import ts from "typescript";
-import { pipe } from "../fp/util";
-import * as result from "../fp/result";
-import { StaticValue } from "./ops";
+import { pipe } from "../../fp/util";
+import * as result from "../../fp/result";
+import { JSONValue } from "../ops";
 
 export class ValSyntaxError extends Error {
   constructor(message: string, public node: ts.Node) {
@@ -84,7 +84,7 @@ function validateObjectProperties<
   T extends readonly ts.ObjectLiteralElementLike[]
 >(
   nodes: T
-): result.Result<T & LiteralPropertyAssignment[], ValSyntaxErrorTree> {
+): result.Result<T & readonly LiteralPropertyAssignment[], ValSyntaxErrorTree> {
   const errors: ValSyntaxError[] = [];
   for (const node of nodes) {
     if (!ts.isPropertyAssignment(node)) {
@@ -129,7 +129,7 @@ export function shallowValidateExpression(
 
 export function evaluateExpression(
   value: ts.Expression
-): result.Result<StaticValue, ValSyntaxErrorTree> {
+): result.Result<JSONValue, ValSyntaxErrorTree> {
   // The text property of a LiteralExpression stores the interpreted value of the literal in text form. For a StringLiteral,
   // or any literal of a template, this means quotes have been removed and escapes have been converted to actual characters.
   // For a NumericLiteral, the stored value is the toString() representation of the number. For example 1, 1.00, and 1e0 are all stored as just "1".
@@ -155,7 +155,7 @@ export function evaluateExpression(
           assignments.map((assignment) =>
             pipe(
               evaluateExpression(assignment.initializer),
-              result.map<StaticValue, [key: string, value: StaticValue]>(
+              result.map<JSONValue, [key: string, value: JSONValue]>(
                 (value) => [assignment.name.text, value]
               )
             )

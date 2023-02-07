@@ -1,8 +1,8 @@
 import ts from "typescript";
-import { pipe } from "../fp/util";
-import * as result from "../fp/result";
-import * as validation from "../fp/validation";
-import { ValSyntaxError, ValSyntaxErrorTree } from "./analysis";
+import { pipe } from "../../fp/util";
+import * as result from "../../fp/result";
+import * as validation from "../../fp/validation";
+import { ValSyntaxError, ValSyntaxErrorTree } from "./syntax";
 
 export type ValModuleAnalysis = {
   schema: ts.Expression;
