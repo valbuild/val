@@ -1,7 +1,7 @@
 import ts from "typescript";
-import { pipe } from "../fp";
-import * as result from "../result";
-import * as validation from "../validation";
+import { pipe } from "../fp/util";
+import * as result from "../fp/result";
+import * as validation from "../fp/validation";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./analysis";
 
 export type ValModuleAnalysis = {

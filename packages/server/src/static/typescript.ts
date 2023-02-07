@@ -1,6 +1,6 @@
 import ts from "typescript";
-import * as result from "../result";
-import { pipe } from "../fp";
+import * as result from "../fp/result";
+import { pipe } from "../fp/util";
 import {
   validateInitializers,
   evaluateExpression,

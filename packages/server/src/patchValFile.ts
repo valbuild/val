@@ -3,10 +3,10 @@ import { ValModuleResolver } from "./ValModuleResolver";
 import { analyzeValModule } from "./static/valModule";
 import { applyPatch, Operation } from "./static/patch";
 import { TSOps } from "./static/typescript";
-import * as result from "./result";
+import * as result from "./fp/result";
 import { PatchError } from "./static/ops";
 import { flattenErrors } from "./static/analysis";
-import { pipe } from "./fp";
+import { pipe } from "./fp/util";
 
 export const patchValFile = async (
   id: string,
