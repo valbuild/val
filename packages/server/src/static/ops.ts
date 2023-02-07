@@ -1,4 +1,4 @@
-import * as result from "../result";
+import * as result from "../fp/result";
 
 export class PatchError extends Error {
   constructor(message: string) {

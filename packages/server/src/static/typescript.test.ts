@@ -1,9 +1,9 @@
 import { describe, test, expect } from "@jest/globals";
 import ts from "typescript";
 import { TSOps } from "./typescript";
-import * as result from "../result";
+import * as result from "../fp/result";
 import { PatchError, StaticValue } from "./ops";
-import { pipe } from "../fp";
+import { pipe } from "../fp/util";
 import { ValSyntaxError } from "./analysis";
 
 function testSourceFile(expression: string): ts.SourceFile {

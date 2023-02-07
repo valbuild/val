@@ -1,4 +1,4 @@
-import * as result from "../result";
+import * as result from "../fp/result";
 import { StaticValue } from "./ops";
 import { Ops, PatchError } from "./ops";
 
