@@ -3,7 +3,7 @@ import { pipe } from "../fp";
 import * as result from "../result";
 import { StaticValue } from "./ops";
 
-class ValSyntaxError extends Error {
+export class ValSyntaxError extends Error {
   constructor(message: string, public node: ts.Node) {
     super(message);
     Object.setPrototypeOf(this, new.target.prototype);

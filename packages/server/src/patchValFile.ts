@@ -6,6 +6,7 @@ import { TSOps } from "./static/typescript";
 import * as result from "./result";
 import { PatchError } from "./static/ops";
 import { flattenErrors } from "./static/analysis";
+import { pipe } from "./fp";
 
 export const patchValFile = async (
   id: string,
@@ -27,9 +28,12 @@ export const patchValFile = async (
     throw Error(`Source file ${filePath} not found`);
   }
 
-  const { fixedContent } = analyzeValModule(sourceFile);
-
-  const ops = new TSOps(fixedContent);
+  const ops = new TSOps((document) => {
+    return pipe(
+      analyzeValModule(document),
+      result.map(({ fixedContent }) => fixedContent)
+    );
+  });
   const newSourceFile = applyPatch(sourceFile, ops, patch);
   if (result.isErr(newSourceFile)) {
     if (newSourceFile.error instanceof PatchError) {

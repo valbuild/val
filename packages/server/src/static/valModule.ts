@@ -1,121 +1,152 @@
 import ts from "typescript";
+import { pipe } from "../fp";
+import * as result from "../result";
+import * as validation from "../validation";
+import { ValSyntaxError, ValSyntaxErrorTree } from "./analysis";
 
 export type ValModuleAnalysis = {
   schema: ts.Expression;
   fixedContent: ts.Expression;
 };
 
-function analyzeContentExpression(node: ts.Node) {
+function findContent(
+  node: ts.Node
+): result.Result<ValModuleAnalysis, ValSyntaxErrorTree> {
   if (!ts.isCallExpression(node)) {
-    throw Error(
-      `Expected body of val.content callback to be a call expression, got: ${
-        ts.SyntaxKind[node.kind]
-      }`
+    return result.err(
+      new ValSyntaxError(
+        "Expected body of val.content callback to be a call expression",
+        node
+      )
     );
   }
 
   // Validate that .fixed is called on a Schema
   const schemaFixed = node.expression;
   if (!ts.isPropertyAccessExpression(schemaFixed)) {
-    throw Error(
-      `Expected val.content to call Schema.fixed, got: ${
-        ts.SyntaxKind[node.kind]
-      }`
+    return result.err(
+      new ValSyntaxError("Expected val.content to call Schema.fixed", node)
     );
   }
   const fixed = schemaFixed.name;
   if (!ts.isIdentifier(fixed) || fixed.text !== "fixed") {
-    throw Error(
-      `Expected val.content to call fixed on Schema, got: ${fixed.text}`
+    return result.err(
+      new ValSyntaxError("Expected val.content to call Schema.fixed", fixed)
     );
   }
   const schema = schemaFixed.expression;
 
   if (node.arguments.length !== 1) {
-    throw Error(
-      `Expected Schema.fixed call to have a single argument, got: ${node.arguments.length}`
+    return result.err(
+      new ValSyntaxError(
+        "Expected Schema.fixed call to have a single argument",
+        node
+      )
     );
   }
   const [fixedContent] = node.arguments;
-  return {
+  return result.ok({
     schema,
     fixedContent,
-  };
+  });
+}
+
+function isPath(
+  node: ts.Expression,
+  path: readonly [string, ...string[]]
+): boolean {
+  let currentNode = node;
+  for (let i = path.length - 1; i > 0; --i) {
+    const name = path[i];
+    if (!ts.isPropertyAccessExpression(currentNode)) {
+      return false;
+    }
+    if (!ts.isIdentifier(currentNode.name) || currentNode.name.text !== name) {
+      return false;
+    }
+    currentNode = currentNode.expression;
+  }
+  return ts.isIdentifier(currentNode) && currentNode.text === path[0];
+}
+
+function validateArguments(
+  node: ts.CallExpression,
+  validators: readonly validation.Validator<ts.Expression, ValSyntaxError>[]
+): validation.Validation<ValSyntaxErrorTree> {
+  return validation.all<ValSyntaxError>([
+    node.arguments.length === validators.length
+      ? validation.ok()
+      : validation.err(
+          new ValSyntaxError(`Expected ${validators.length} arguments`, node)
+        ),
+    ...node.arguments
+      .slice(0, validators.length)
+      .map((argument, index) => validators[index](argument)),
+  ]);
 }
 
 function analyzeDefaultExport(
-  node: ts.ExportAssignment,
-  sourceFile: ts.SourceFile
-): ValModuleAnalysis {
+  node: ts.ExportAssignment
+): result.Result<ValModuleAnalysis, ValSyntaxErrorTree> {
   const valContentCall = node.expression;
   if (!ts.isCallExpression(valContentCall)) {
-    throw Error(
-      `Expected default expression to be a call expression, got: ${
-        ts.SyntaxKind[node.kind]
-      }`
+    return result.err(
+      new ValSyntaxError(
+        "Expected default expression to be a call expression",
+        valContentCall
+      )
     );
   }
 
-  {
-    // Assert that call expression calls val.content
-    const valContent = valContentCall.expression;
-    if (!ts.isPropertyAccessExpression(valContent)) {
-      throw Error(
-        `Expected default expression to be calling val.content, got: ${valContent.getText(
-          sourceFile
-        )}`
-      );
-    }
-    {
-      const val = valContent.expression;
-      const content = valContent.name;
-      if (!ts.isIdentifier(val) || val.text !== "val") {
-        throw Error(
-          `Expected default expression to be calling val.content, got: ${valContent.getText(
-            sourceFile
-          )}`
-        );
-      }
-      if (!ts.isIdentifier(content) || content.text !== "content") {
-        throw Error(
-          `Expected default expression to be calling val.content, got: ${valContent.getText(
-            sourceFile
-          )}`
-        );
-      }
-    }
-  }
-
-  if (valContentCall.arguments.length !== 2) {
-    throw Error(
-      `Expected val.content call to have 2 arguments, got: ${valContentCall.arguments.length}`
-    );
-  }
-  const [id, callback] = valContentCall.arguments;
-  // TODO: validate ID value here?
-  if (!ts.isStringLiteralLike(id)) {
-    throw Error(
-      `Expected first argument to val.content to be a string literal, got: ${
-        ts.SyntaxKind[id.kind]
-      }`
+  if (!isPath(valContentCall.expression, ["val", "content"])) {
+    return result.err(
+      new ValSyntaxError(
+        "Expected default expression to be calling val.content",
+        valContentCall.expression
+      )
     );
   }
 
-  if (!ts.isArrowFunction(callback)) {
-    throw Error(
-      `Expected second argument to val.content to be an arrow function, got: ${
-        ts.SyntaxKind[id.kind]
-      }`
-    );
-  }
-
-  return analyzeContentExpression(callback.body);
+  return pipe(
+    validateArguments(valContentCall, [
+      (id: ts.Node) => {
+        // TODO: validate ID value here?
+        if (!ts.isStringLiteralLike(id)) {
+          return validation.err(
+            new ValSyntaxError(
+              "Expected first argument to val.content to be a string literal",
+              id
+            )
+          );
+        }
+        return validation.ok();
+      },
+      (callback: ts.Node) => {
+        if (!ts.isArrowFunction(callback)) {
+          return validation.err(
+            new ValSyntaxError(
+              "Expected second argument to val.content to be an arrow function",
+              callback
+            )
+          );
+        }
+        return validation.ok();
+      },
+    ]),
+    result.flatMap(() => {
+      const [, callback] = valContentCall.arguments;
+      // as asserted above, callback must be an arrow function
+      return findContent((callback as ts.ArrowFunction).body);
+    })
+  );
 }
 
-export function analyzeValModule(sourceFile: ts.SourceFile): ValModuleAnalysis {
+export function analyzeValModule(
+  sourceFile: ts.SourceFile
+): result.Result<ValModuleAnalysis, ValSyntaxErrorTree> {
   const analysis = sourceFile.forEachChild((node) => {
     if (ts.isExportAssignment(node)) {
-      return analyzeDefaultExport(node, sourceFile);
+      return analyzeDefaultExport(node);
     }
   });
 

@@ -120,3 +120,41 @@ export function mapErr<E0, E1>(
     }
   };
 }
+
+export function fromPredicate<T0, T1 extends T0, E>(
+  refinement: (value: T0) => value is T1,
+  onFalse: (value: T0) => E
+): (value: T0) => Result<T1, E>;
+export function fromPredicate<T0, E>(
+  refinement: (value: T0) => boolean,
+  onFalse: (value: T0) => E
+): <T1 extends T0>(value: T1) => Result<T1, E> {
+  return (value) => {
+    if (refinement(value)) {
+      return ok(value);
+    } else {
+      return err(onFalse(value));
+    }
+  };
+}
+
+export function filterOrElse<T0, T1 extends T0, E>(
+  refinement: (value: T0) => value is T1,
+  onFalse: (value: T0) => E
+): (result: Result<T0, E>) => Result<T1, E>;
+export function filterOrElse<T0, E>(
+  refinement: (value: T0) => boolean,
+  onFalse: (value: T0) => E
+): <T1 extends T0>(result: Result<T1, E>) => Result<T1, E> {
+  return (result) => {
+    if (isOk(result)) {
+      if (refinement(result.value)) {
+        return result;
+      } else {
+        return err(onFalse(result.value));
+      }
+    } else {
+      return result;
+    }
+  };
+}
