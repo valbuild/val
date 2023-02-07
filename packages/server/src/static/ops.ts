@@ -17,6 +17,9 @@ export type StaticValue =
       [key: string]: StaticValue;
     };
 
+/**
+ * NOTE: MAY mutate the input document.
+ */
 export interface Ops<T, E> {
   add(
     document: T,
@@ -100,8 +103,8 @@ export function deepEqual(a: StaticValue, b: StaticValue) {
           return false;
         }
       }
-    } else {
-      return false;
+
+      return true;
     }
   }
 

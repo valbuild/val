@@ -56,32 +56,6 @@ const printer = ts.createPrinter({
   // neverAsciiEscape: true,
 });
 
-function replaceNode(
-  document: ts.SourceFile,
-  node: ts.Node,
-  replacement: ts.Node
-): ts.SourceFile {
-  const replacementText = printer.printNode(
-    ts.EmitHint.Unspecified,
-    replacement,
-    document
-  );
-  const start = node.getFullStart();
-  const end = node.end;
-  const newText = `${document.text.substring(
-    0,
-    start
-  )}${replacementText}${document.text.substring(end)}`;
-
-  return document.update(newText, {
-    span: {
-      start,
-      length: end - start,
-    },
-    newLength: replacementText.length,
-  });
-}
-
 function replaceNodeValue<T extends ts.Node>(
   document: ts.SourceFile,
   node: T,
@@ -92,21 +66,20 @@ function replaceNodeValue<T extends ts.Node>(
     toExpression(value),
     document
   );
-  const start = node.getStart(document, false);
-  const end = node.end;
+  const span = ts.createTextSpanFromBounds(
+    node.getStart(document, false),
+    node.end
+  );
   const newText = `${document.text.substring(
     0,
-    start
-  )}${replacementText}${document.text.substring(end)}`;
+    span.start
+  )}${replacementText}${document.text.substring(ts.textSpanEnd(span))}`;
 
   return [
-    document.update(newText, {
-      span: {
-        start,
-        length: end - start,
-      },
-      newLength: replacementText.length,
-    }),
+    document.update(
+      newText,
+      ts.createTextChangeRange(span, replacementText.length)
+    ),
     node,
   ];
 }
@@ -148,8 +121,7 @@ function insertAt<T extends ts.Node>(
   index: number,
   node: T
 ): ts.SourceFile {
-  let start: number;
-  let end: number;
+  let span: ts.TextSpan;
   let replacementText: string;
   if (nodes.length === 0) {
     // Replace entire range of nodes
@@ -158,8 +130,7 @@ function insertAt<T extends ts.Node>(
       node,
       document
     );
-    start = nodes.pos;
-    end = nodes.end;
+    span = ts.createTextSpanFromBounds(nodes.pos, nodes.end);
   } else if (index === nodes.length) {
     // Insert after last node
     const neighbor = nodes[nodes.length - 1];
@@ -168,8 +139,7 @@ function insertAt<T extends ts.Node>(
       node,
       document
     )}`;
-    start = neighbor.end;
-    end = start;
+    span = ts.createTextSpan(neighbor.end, 0);
   } else {
     // Insert before node
     const neighbor = nodes[index];
@@ -178,22 +148,18 @@ function insertAt<T extends ts.Node>(
       node,
       document
     )}${getSeparator(document, neighbor)}`;
-    start = neighbor.getStart(document, true);
-    end = start;
+    span = ts.createTextSpan(neighbor.getStart(document, true), 0);
   }
 
   const newText = `${document.text.substring(
     0,
-    start
-  )}${replacementText}${document.text.substring(end)}`;
+    span.start
+  )}${replacementText}${document.text.substring(ts.textSpanEnd(span))}`;
 
-  return document.update(newText, {
-    span: {
-      start,
-      length: end - start,
-    },
-    newLength: replacementText.length,
-  });
+  return document.update(
+    newText,
+    ts.createTextChangeRange(span, replacementText.length)
+  );
 }
 
 function removeAt<T extends ts.Node>(
@@ -201,39 +167,29 @@ function removeAt<T extends ts.Node>(
   nodes: ts.NodeArray<T>,
   index: number
 ): [document: ts.SourceFile, removed: T] {
-  if (index < 0 || index >= nodes.length) {
-    throw Error("Array index out of bounds");
-  }
-
   const node = nodes[index];
-  let start: number, end: number;
+  let span: ts.TextSpan;
 
-  if (index === nodes.length - 1) {
+  if (nodes.length === 1) {
+    span = ts.createTextSpanFromBounds(nodes.pos, nodes.end);
+  } else if (index === nodes.length - 1) {
     // Remove until previous node
     const neighbor = nodes[index - 1];
-    start = neighbor.end;
-    end = node.end;
+    span = ts.createTextSpanFromBounds(neighbor.end, node.end);
   } else {
     // Remove before next node
     const neighbor = nodes[index + 1];
-    start = node.getStart(document, true);
-    end = neighbor.getStart(document, true);
+    span = ts.createTextSpanFromBounds(
+      node.getStart(document, true),
+      neighbor.getStart(document, true)
+    );
   }
   const newText = `${document.text.substring(
     0,
-    start
-  )}${document.text.substring(end)}`;
+    span.start
+  )}${document.text.substring(ts.textSpanEnd(span))}`;
 
-  return [
-    document.update(newText, {
-      span: {
-        start,
-        length: end - start,
-      },
-      newLength: 0,
-    }),
-    node,
-  ];
+  return [document.update(newText, ts.createTextChangeRange(span, 0)), node];
 }
 
 function parseAndValidateArrayIndex(
@@ -335,6 +291,24 @@ function replaceInNode(
   }
 }
 
+function replaceAtPath(
+  document: ts.SourceFile,
+  rootNode: ts.Expression,
+  path: string[],
+  value: StaticValue
+): TSOpsResult<[document: ts.SourceFile, replaced: ts.Expression]> {
+  if (isNotRoot(path)) {
+    return pipe(
+      getPointerFromPath(rootNode, path),
+      result.flatMap(([node, key]: Pointer) =>
+        replaceInNode(document, node, key, value)
+      )
+    );
+  } else {
+    return result.ok(replaceNodeValue(document, rootNode, value));
+  }
+}
+
 export function getFromNode(
   node: ts.Expression,
   key: string
@@ -373,7 +347,9 @@ function getPointerFromPath(
       return childNode;
     }
     if (childNode.value === undefined) {
-      throw Error("Path refers to non-existing object/array");
+      return result.err(
+        new PatchError("Path refers to non-existing object/array")
+      );
     }
     targetNode = childNode.value;
   }
@@ -488,14 +464,7 @@ function addToNode(
               ),
             ];
           } else {
-            return [
-              replaceNode(
-                document,
-                assignment.initializer,
-                toExpression(value)
-              ),
-              assignment.initializer,
-            ];
+            return replaceNodeValue(document, assignment.initializer, value);
           }
         }
       )
@@ -511,15 +480,19 @@ function addToNode(
 function addAtPath(
   document: ts.SourceFile,
   rootNode: ts.Expression,
-  path: [string, ...string[]],
+  path: string[],
   value: StaticValue
 ): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Expression]> {
-  return pipe(
-    getPointerFromPath(rootNode, path),
-    result.flatMap(([node, key]: Pointer) =>
-      addToNode(document, node, key, value)
-    )
-  );
+  if (isNotRoot(path)) {
+    return pipe(
+      getPointerFromPath(rootNode, path),
+      result.flatMap(([node, key]: Pointer) =>
+        addToNode(document, node, key, value)
+      )
+    );
+  } else {
+    return result.ok(replaceNodeValue(document, rootNode, value));
+  }
 }
 
 function pickDocument<
@@ -529,19 +502,23 @@ function pickDocument<
 }
 
 export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
-  constructor(private rootNode: ts.Expression) {}
+  constructor(
+    private findRoot: (
+      document: ts.SourceFile
+    ) => result.Result<ts.Expression, ValSyntaxErrorTree>
+  ) {}
 
   add(
     document: ts.SourceFile,
     path: string[],
     value: StaticValue
   ): TSOpsResult<ts.SourceFile> {
-    if (!isNotRoot(path)) {
-      return result.err(new PatchError("Cannot add root"));
-    }
-
     return pipe(
-      addAtPath(document, this.rootNode, path, value),
+      document,
+      this.findRoot,
+      result.flatMap((rootNode: ts.Expression) =>
+        addAtPath(document, rootNode, path, value)
+      ),
       result.map(pickDocument)
     );
   }
@@ -551,7 +528,11 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
     }
 
     return pipe(
-      removeAtPath(document, this.rootNode, path),
+      document,
+      this.findRoot,
+      result.flatMap((rootNode: ts.Expression) =>
+        removeAtPath(document, rootNode, path)
+      ),
       result.map(pickDocument)
     );
   }
@@ -560,14 +541,11 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
     path: string[],
     value: StaticValue
   ): TSOpsResult<ts.SourceFile> {
-    if (!isNotRoot(path)) {
-      return result.err(new PatchError("Cannot replace root"));
-    }
-
     return pipe(
-      getPointerFromPath(this.rootNode, path),
-      result.flatMap(([targetNode, key]: Pointer) =>
-        replaceInNode(document, targetNode, key, value)
+      document,
+      this.findRoot,
+      result.flatMap((rootNode: ts.Expression) =>
+        replaceAtPath(document, rootNode, path, value)
       ),
       result.map(pickDocument)
     );
@@ -581,10 +559,6 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
       return result.err(new PatchError("Cannot move from root"));
     }
 
-    if (!isNotRoot(path)) {
-      return result.err(new PatchError("Cannot move to root"));
-    }
-
     // The "from" location MUST NOT be a proper prefix of the "path"
     // location; i.e., a location cannot be moved into one of its children.
     if (isProperPathPrefix(from, path)) {
@@ -594,7 +568,11 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
     }
 
     return pipe(
-      removeAtPath(document, this.rootNode, from),
+      document,
+      this.findRoot,
+      result.flatMap((rootNode: ts.Expression) =>
+        removeAtPath(document, rootNode, from)
+      ),
       result.flatMap(
         ([doc, removedNode]: [
           doc: ts.SourceFile,
@@ -613,10 +591,17 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
           )
       ),
       result.flatMap(
-        ([doc, removedValue]: [
-          doc: ts.SourceFile,
+        ([document, removedValue]: [
+          document: ts.SourceFile,
           removedValue: StaticValue
-        ]) => addAtPath(doc, this.rootNode, path, removedValue)
+        ]) =>
+          pipe(
+            document,
+            this.findRoot,
+            result.flatMap((root: ts.Expression) =>
+              addAtPath(document, root, path, removedValue)
+            )
+          )
       ),
       result.map(pickDocument)
     );
@@ -626,38 +611,30 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
     from: string[],
     path: string[]
   ): TSOpsResult<ts.SourceFile> {
-    if (!isNotRoot(from)) {
-      return result.err(new PatchError("Cannot copy from root"));
-    }
-
-    if (!isNotRoot(path)) {
-      return result.err(new PatchError("Cannot copy to root"));
-    }
-
-    // The "from" location MUST NOT be a proper prefix of the "path"
-    // location; i.e., a location cannot be moved into one of its children.
-    if (isProperPathPrefix(from, path)) {
-      return result.err(
-        new PatchError("A location cannot be moved into one of its childen")
-      );
-    }
-
     return pipe(
-      getAtPath(this.rootNode, from),
-      result.flatMap(evaluateExpression),
-      result.flatMap((value: StaticValue) =>
-        addAtPath(document, this.rootNode, path, value)
+      document,
+      this.findRoot,
+      result.flatMap((rootNode: ts.Expression) =>
+        pipe(
+          getAtPath(rootNode, from),
+          result.flatMap(evaluateExpression),
+          result.flatMap((value: StaticValue) =>
+            addAtPath(document, rootNode, path, value)
+          )
+        )
       ),
       result.map(pickDocument)
     );
   }
   test(
-    _document: ts.SourceFile,
+    document: ts.SourceFile,
     path: string[],
     value: StaticValue
   ): TSOpsResult<boolean> {
     return pipe(
-      getAtPath(this.rootNode, path),
+      document,
+      this.findRoot,
+      result.flatMap((rootNode: ts.Expression) => getAtPath(rootNode, path)),
       result.flatMap(evaluateExpression),
       result.map((documentValue: StaticValue) =>
         deepEqual(value, documentValue)
