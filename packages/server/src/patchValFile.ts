@@ -5,7 +5,7 @@ import { applyPatch, Operation } from "./static/patch";
 import { TSOps } from "./static/typescript";
 import * as result from "./fp/result";
 import { PatchError } from "./static/ops";
-import { flattenErrors } from "./static/analysis";
+import { flatMapErrors, formatSyntaxError } from "./static/analysis";
 import { pipe } from "./fp/util";
 
 export const patchValFile = async (
@@ -39,8 +39,11 @@ export const patchValFile = async (
     if (newSourceFile.error instanceof PatchError) {
       throw newSourceFile.error;
     } else {
-      const errors = flattenErrors(newSourceFile.error);
-      throw new Error(`Syntax error:\n${errors.join("\n")}`);
+      throw new Error(
+        `${filePath}\n${flatMapErrors(newSourceFile.error, (error) =>
+          formatSyntaxError(error, sourceFile)
+        ).join("\n")}`
+      );
     }
   }
 

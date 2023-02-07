@@ -35,6 +35,23 @@ export function flattenErrors(
   return result as [ValSyntaxError, ...ValSyntaxError[]];
 }
 
+export function flatMapErrors<T>(
+  tree: ValSyntaxErrorTree,
+  cb: (error: ValSyntaxError) => T
+): [T, ...T[]] {
+  const result: T[] = [];
+  forEachError(tree, (error) => result.push(cb(error)));
+  return result as [T, ...T[]];
+}
+
+export function formatSyntaxError(
+  error: ValSyntaxError,
+  sourceFile: ts.SourceFile
+): string {
+  const pos = sourceFile.getLineAndCharacterOfPosition(error.node.pos);
+  return `${pos.line}:${pos.character} ${error.message}`;
+}
+
 type LiteralPropertyName = (
   | ts.Identifier
   | ts.StringLiteral
