@@ -7,14 +7,14 @@ export class PatchError extends Error {
   }
 }
 
-export type StaticValue =
+export type JSONValue =
   | string
   | number
   | boolean
   | null
-  | StaticValue[]
+  | JSONValue[]
   | {
-      [key: string]: StaticValue;
+      [key: string]: JSONValue;
     };
 
 /**
@@ -24,13 +24,13 @@ export interface Ops<T, E> {
   add(
     document: T,
     path: string[],
-    value: StaticValue
+    value: JSONValue
   ): result.Result<T, E | PatchError>;
   remove(document: T, path: string[]): result.Result<T, E | PatchError>;
   replace(
     document: T,
     path: string[],
-    value: StaticValue
+    value: JSONValue
   ): result.Result<T, E | PatchError>;
   move(
     document: T,
@@ -45,7 +45,7 @@ export interface Ops<T, E> {
   test(
     document: T,
     path: string[],
-    value: StaticValue
+    value: JSONValue
   ): result.Result<boolean, E | PatchError>;
 }
 
@@ -66,7 +66,7 @@ export function isProperPathPrefix(prefix: string[], path: string[]): boolean {
   return true;
 }
 
-export function deepEqual(a: StaticValue, b: StaticValue) {
+export function deepEqual(a: JSONValue, b: JSONValue) {
   if (a === b) {
     return true;
   }

@@ -1,11 +1,11 @@
 import ts from "typescript";
 import { ValModuleResolver } from "./ValModuleResolver";
-import { analyzeValModule } from "./static/valModule";
-import { applyPatch, Operation } from "./static/patch";
-import { TSOps } from "./static/typescript";
+import { analyzeValModule } from "./patch/ts/valModule";
+import { applyPatch, Operation } from "./patch/patch";
+import { TSOps } from "./patch/ts/ops";
 import * as result from "./fp/result";
-import { PatchError } from "./static/ops";
-import { flatMapErrors, formatSyntaxError } from "./static/analysis";
+import { PatchError } from "./patch/ops";
+import { flatMapErrors, formatSyntaxError } from "./patch/ts/syntax";
 import { pipe } from "./fp/util";
 
 export const patchValFile = async (
