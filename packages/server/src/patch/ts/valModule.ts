@@ -1,7 +1,6 @@
 import ts from "typescript";
 import { pipe } from "../../fp/util";
 import * as result from "../../fp/result";
-import * as validation from "../../fp/validation";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./syntax";
 
 export type ValModuleAnalysis = {
@@ -71,12 +70,14 @@ function isPath(
 
 function validateArguments(
   node: ts.CallExpression,
-  validators: readonly validation.Validator<ts.Expression, ValSyntaxError>[]
-): validation.Validation<ValSyntaxErrorTree> {
-  return validation.all<ValSyntaxError>([
+  validators: readonly ((
+    node: ts.Expression
+  ) => result.Result<void, ValSyntaxError>)[]
+): result.Result<void, ValSyntaxErrorTree> {
+  return result.allV<ValSyntaxError>([
     node.arguments.length === validators.length
-      ? validation.ok()
-      : validation.err(
+      ? result.voidOk
+      : result.err(
           new ValSyntaxError(`Expected ${validators.length} arguments`, node)
         ),
     ...node.arguments
@@ -112,25 +113,25 @@ function analyzeDefaultExport(
       (id: ts.Node) => {
         // TODO: validate ID value here?
         if (!ts.isStringLiteralLike(id)) {
-          return validation.err(
+          return result.err(
             new ValSyntaxError(
               "Expected first argument to val.content to be a string literal",
               id
             )
           );
         }
-        return validation.ok();
+        return result.voidOk;
       },
       (callback: ts.Node) => {
         if (!ts.isArrowFunction(callback)) {
-          return validation.err(
+          return result.err(
             new ValSyntaxError(
               "Expected second argument to val.content to be an arrow function",
               callback
             )
           );
         }
-        return validation.ok();
+        return result.voidOk;
       },
     ]),
     result.flatMap(() => {
