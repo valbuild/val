@@ -1,7 +1,8 @@
 import express, { Router, RequestHandler } from "express";
 import { Service } from "./Service";
-import { Operation } from "./patch/patch";
+import { validatePatch } from "./patch/patch";
 import { PatchError } from "./patch/ops";
+import * as result from "./fp/result";
 
 const getFileIdFromParams = (params: { 0: string }) => {
   return `/${params[0]}`;
@@ -48,10 +49,14 @@ export class ValServer {
     req: express.Request<{ 0: string }>,
     res: express.Response
   ): Promise<void> {
-    const patch: Operation[] = req.body;
+    const patch = validatePatch(req.body);
+    if (result.isErr(patch)) {
+      res.status(401).send(patch.error.join("\n"));
+      return;
+    }
     const id = getFileIdFromParams(req.params);
     try {
-      await this.service.patch(id, patch);
+      await this.service.patch(id, patch.value);
       res.send("OK");
     } catch (err) {
       if (err instanceof PatchError) {

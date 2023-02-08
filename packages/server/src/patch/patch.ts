@@ -1,4 +1,6 @@
 import * as result from "../fp/result";
+import { NonEmptyArray, flatten, isNonEmpty } from "../fp/nonEmptyArray";
+import { pipe } from "../fp/util";
 import { JSONValue } from "./ops";
 import { Ops, PatchError } from "./ops";
 
@@ -32,6 +34,89 @@ export type Operation =
       path: string;
       value: JSONValue;
     };
+
+const VALID_OPS = [
+  "add",
+  "remove",
+  "replace",
+  "move",
+  "copy",
+  "test",
+] as const satisfies readonly Operation["op"][];
+
+function isValidOp(op: unknown): op is Operation["op"] {
+  return (VALID_OPS as readonly unknown[]).includes(op);
+}
+
+function validateOperation(
+  operation: JSONValue
+): result.Result<void, NonEmptyArray<PatchError>> {
+  if (
+    typeof operation !== "object" ||
+    operation === null ||
+    Array.isArray(operation)
+  ) {
+    return result.err([new PatchError("Operation is not an object")]);
+  }
+
+  if (!("op" in operation)) {
+    return result.err([new PatchError('Operation is missing member "op"')]);
+  } else if (!isValidOp(operation.op)) {
+    return result.err([new PatchError('Operation has invalid member "op"')]);
+  }
+
+  const errors: PatchError[] = [];
+
+  if (!("path" in operation)) {
+    errors.push(new PatchError('Operation is missing member "path"'));
+  } else if (typeof operation.path !== "string") {
+    errors.push(new PatchError('Operation is has invalid member "path"'));
+  }
+
+  if (
+    operation.op === "add" ||
+    operation.op === "replace" ||
+    operation.op === "test"
+  ) {
+    if (!("value" in operation)) {
+      errors.push(new PatchError('Operation is missing member "value"'));
+    }
+  }
+
+  if (operation.op === "move" || operation.op === "copy") {
+    if (!("from" in operation)) {
+      errors.push(new PatchError('Operation is missing member "from"'));
+    } else if (typeof operation.path !== "string") {
+      errors.push(new PatchError('Operation is has invalid member "from"'));
+    }
+  }
+
+  if (isNonEmpty(errors)) {
+    return result.err(errors);
+  } else {
+    return result.voidOk;
+  }
+}
+
+export function validatePatch(
+  patch: JSONValue
+): result.Result<Operation[], NonEmptyArray<PatchError>> {
+  if (!Array.isArray(patch)) {
+    return result.err([new PatchError("Patch is not an array")]);
+  }
+
+  return pipe(
+    patch.map(validateOperation),
+    result.allV,
+    result.mapErr<
+      NonEmptyArray<NonEmptyArray<PatchError>>,
+      NonEmptyArray<PatchError>
+    >(flatten),
+    result.flatMap<void, Operation[], NonEmptyArray<PatchError>>(() =>
+      result.ok(patch as Operation[])
+    )
+  );
+}
 
 export function applyPatch<T, E>(
   document: T,

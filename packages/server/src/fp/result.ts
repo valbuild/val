@@ -1,15 +1,27 @@
+import { isNonEmpty, NonEmptyArray } from "./nonEmptyArray";
+
 export type Ok<T> = {
-  kind: "ok";
-  value: T;
+  readonly kind: "ok";
+  readonly value: T;
 };
 export type Err<E> = {
-  kind: "err";
-  error: E;
+  readonly kind: "err";
+  readonly error: E;
 };
 
 export type Result<T, E> = Ok<T> | Err<E>;
 
+/**
+ * Singleton instance of Ok<void>. Used to optimize results whose Ok values are
+ * void.
+ */
+export const voidOk: Ok<void> = Object.freeze({
+  kind: "ok",
+  value: undefined,
+});
+
 export function ok<T>(value: T): Ok<T> {
+  if (value === undefined) return voidOk as Ok<T>;
   return {
     kind: "ok",
     value,
@@ -24,11 +36,11 @@ export function err<E>(error: E): Err<E> {
 }
 
 export function isOk<T, E>(result: Result<T, E>): result is Ok<T> {
-  return result.kind === "ok";
+  return result === voidOk || result.kind === "ok";
 }
 
 export function isErr<T, E>(result: Result<T, E>): result is Err<E> {
-  return result.kind === "err";
+  return result !== voidOk && result.kind === "err";
 }
 
 export type OkType<R> = R extends Result<infer T, unknown> ? T : never;
@@ -43,7 +55,7 @@ export type ErrType<R> = R extends Result<unknown, infer E> ? E : never;
  */
 export function allT<T extends unknown[], E>(results: {
   readonly [P in keyof T]: Result<T[P], E>;
-}): Result<T, [E, ...E[]]> {
+}): Result<T, NonEmptyArray<E>> {
   const values: T[number][] = [];
   const errors: E[] = [];
   for (const result of results) {
@@ -53,8 +65,8 @@ export function allT<T extends unknown[], E>(results: {
       errors.push(result.error);
     }
   }
-  if (errors.length > 0) {
-    return err(errors as [E, ...E[]]);
+  if (isNonEmpty(errors)) {
+    return err(errors);
   } else {
     return ok(values as T);
   }
@@ -69,8 +81,27 @@ export function allT<T extends unknown[], E>(results: {
  */
 export function all<T, E>(
   results: readonly Result<T, E>[]
-): Result<T[], [E, ...E[]]> {
+): Result<T[], NonEmptyArray<E>> {
   return allT<T[], E>(results);
+}
+
+/**
+ * If all results are Ok (or if results is empty), returns Ok. If any result is
+ * Err, returns Err with all Err values concatenated into an array.
+ */
+export function allV<E>(
+  results: readonly Result<unknown, E>[]
+): Result<void, NonEmptyArray<E>> {
+  const errs: E[] = [];
+  for (const result of results) {
+    if (isErr(result)) {
+      errs.push(result.error);
+    }
+  }
+  if (isNonEmpty(errs)) {
+    return err(errs);
+  }
+  return voidOk;
 }
 
 export function flatMapReduce<T, E, A>(
