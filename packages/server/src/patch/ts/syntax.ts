@@ -3,11 +3,8 @@ import { pipe } from "../../fp/util";
 import * as result from "../../fp/result";
 import { JSONValue } from "../ops";
 
-export class ValSyntaxError extends Error {
-  constructor(message: string, public node: ts.Node) {
-    super(message);
-    Object.setPrototypeOf(this, new.target.prototype);
-  }
+export class ValSyntaxError {
+  constructor(public message: string, public node: ts.Node) {}
 }
 
 export type ValSyntaxErrorTree =
