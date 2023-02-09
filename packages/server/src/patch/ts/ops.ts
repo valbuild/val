@@ -29,6 +29,33 @@ declare module "typescript" {
   }
 }
 
+function isValidIdentifier(text: string): boolean {
+  if (text.length === 0) {
+    return false;
+  }
+
+  if (!ts.isIdentifierStart(text.charCodeAt(0), ts.ScriptTarget.ES2020)) {
+    return false;
+  }
+
+  for (let i = 1; i < text.length; ++i) {
+    if (!ts.isIdentifierPart(text.charCodeAt(i), ts.ScriptTarget.ES2020)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function createPropertyAssignment(key: string, value: JSONValue) {
+  return ts.factory.createPropertyAssignment(
+    isValidIdentifier(key)
+      ? ts.factory.createIdentifier(key)
+      : ts.factory.createStringLiteral(key),
+    toExpression(value)
+  );
+}
+
 function toExpression(value: JSONValue): ts.Expression {
   if (typeof value === "string") {
     // TODO: Use configuration/heuristics to determine use of single quote or double quote
@@ -44,7 +71,7 @@ function toExpression(value: JSONValue): ts.Expression {
   } else if (typeof value === "object") {
     return ts.factory.createObjectLiteralExpression(
       Object.entries(value).map(([key, value]) =>
-        ts.factory.createPropertyAssignment(key, toExpression(value))
+        createPropertyAssignment(key, value)
       )
     );
   } else {
@@ -469,7 +496,7 @@ function addToNode(
                 document,
                 node.properties,
                 node.properties.length,
-                ts.factory.createPropertyAssignment(key, toExpression(value))
+                createPropertyAssignment(key, value)
               ),
             ];
           } else {
