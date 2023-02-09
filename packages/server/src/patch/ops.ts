@@ -1,11 +1,8 @@
 import { isNonEmpty, NonEmptyArray } from "../fp/array";
 import * as result from "../fp/result";
 
-export class PatchError extends Error {
-  constructor(message: string) {
-    super(message);
-    Object.setPrototypeOf(this, new.target.prototype);
-  }
+export class PatchError {
+  constructor(public message: string) {}
 }
 
 export type JSONValue =
