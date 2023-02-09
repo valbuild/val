@@ -86,24 +86,17 @@ export function deepEqual(a: JSONValue, b: JSONValue) {
 
       return true;
     } else if (!Array.isArray(a) && !Array.isArray(b)) {
-      const aKeys = Object.keys(a).sort();
-      {
-        const bKeys = Object.keys(b).sort();
+      const aKeys = Object.entries(a);
+      // If the objects have a different amount of keys, they cannot be equal
+      if (aKeys.length !== Object.keys(b).length) return false;
 
-        if (aKeys.length !== bKeys.length) return false;
-        for (let i = 0; i < aKeys.length; ++i) {
-          if (aKeys[i] !== bKeys[i]) return false;
-        }
+      for (const [key, aValue] of aKeys) {
+        // b must be a JSON object, so the only way for the bValue to be
+        // undefined is if the key is unset
+        const bValue = b[key] as JSONValue | undefined;
+        if (bValue === undefined) return false;
+        if (!deepEqual(aValue, bValue)) return false;
       }
-
-      for (const key of aKeys) {
-        const valueA = a[key];
-        const valueB = b[key];
-        if (!deepEqual(valueA, valueB)) {
-          return false;
-        }
-      }
-
       return true;
     }
   }
