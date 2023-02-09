@@ -1,4 +1,4 @@
-import { isNonEmpty, NonEmptyArray } from "../fp/nonEmptyArray";
+import { isNonEmpty, NonEmptyArray } from "../fp/array";
 import * as result from "../fp/result";
 
 export class PatchError extends Error {
@@ -52,19 +52,6 @@ export interface Ops<T, E> {
 
 export function isNotRoot(path: string[]): path is NonEmptyArray<string> {
   return isNonEmpty(path);
-}
-
-export function isProperPathPrefix(prefix: string[], path: string[]): boolean {
-  if (prefix.length >= path.length) {
-    // A proper prefix cannot be longer or have the same length as the path
-    return false;
-  }
-  for (let i = 0; i < prefix.length; ++i) {
-    if (prefix[i] !== path[i]) {
-      return false;
-    }
-  }
-  return true;
 }
 
 export function deepEqual(a: JSONValue, b: JSONValue) {

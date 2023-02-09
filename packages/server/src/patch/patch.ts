@@ -1,121 +1,75 @@
 import * as result from "../fp/result";
-import { NonEmptyArray, flatten, isNonEmpty } from "../fp/nonEmptyArray";
+import { NonEmptyArray, flatten, map } from "../fp/array";
 import { pipe } from "../fp/util";
 import { JSONValue } from "./ops";
 import { Ops, PatchError } from "./ops";
+import {
+  Operation,
+  PatchValidationError,
+  parseJSONPath,
+  prefixErrorPath,
+  validateOperation,
+} from "./operation";
 
-export type Operation =
-  | {
-      op: "add";
-      path: string;
-      value: JSONValue;
-    }
-  | {
-      op: "remove";
-      path: string;
-    }
-  | {
-      op: "replace";
-      path: string;
-      value: JSONValue;
-    }
-  | {
-      op: "move";
-      from: string;
-      path: string;
-    }
-  | {
-      op: "copy";
-      from: string;
-      path: string;
-    }
-  | {
-      op: "test";
-      path: string;
-      value: JSONValue;
-    };
-
-const VALID_OPS = [
-  "add",
-  "remove",
-  "replace",
-  "move",
-  "copy",
-  "test",
-] as const satisfies readonly Operation["op"][];
-
-function isValidOp(op: unknown): op is Operation["op"] {
-  return (VALID_OPS as readonly unknown[]).includes(op);
-}
-
-function validateOperation(
-  operation: JSONValue
-): result.Result<void, NonEmptyArray<PatchError>> {
-  if (
-    typeof operation !== "object" ||
-    operation === null ||
-    Array.isArray(operation)
-  ) {
-    return result.err([new PatchError("Operation is not an object")]);
-  }
-
-  if (!("op" in operation)) {
-    return result.err([new PatchError('Operation is missing member "op"')]);
-  } else if (!isValidOp(operation.op)) {
-    return result.err([new PatchError('Operation has invalid member "op"')]);
-  }
-
-  const errors: PatchError[] = [];
-
-  if (!("path" in operation)) {
-    errors.push(new PatchError('Operation is missing member "path"'));
-  } else if (typeof operation.path !== "string") {
-    errors.push(new PatchError('Operation is has invalid member "path"'));
-  }
-
-  if (
-    operation.op === "add" ||
-    operation.op === "replace" ||
-    operation.op === "test"
-  ) {
-    if (!("value" in operation)) {
-      errors.push(new PatchError('Operation is missing member "value"'));
-    }
-  }
-
-  if (operation.op === "move" || operation.op === "copy") {
-    if (!("from" in operation)) {
-      errors.push(new PatchError('Operation is missing member "from"'));
-    } else if (typeof operation.path !== "string") {
-      errors.push(new PatchError('Operation is has invalid member "from"'));
-    }
-  }
-
-  if (isNonEmpty(errors)) {
-    return result.err(errors);
-  } else {
-    return result.voidOk;
-  }
-}
+export type Patch = Operation[];
 
 export function validatePatch(
   patch: JSONValue
-): result.Result<Operation[], NonEmptyArray<PatchError>> {
+): result.Result<Patch, NonEmptyArray<PatchValidationError>> {
   if (!Array.isArray(patch)) {
-    return result.err([new PatchError("Patch is not an array")]);
+    return result.err([
+      {
+        path: [],
+        message: "Not an array",
+      },
+    ]);
   }
 
   return pipe(
-    patch.map(validateOperation),
+    patch
+      .map(validateOperation)
+      .map(
+        result.mapErr(
+          map((error: PatchValidationError, index: number) =>
+            prefixErrorPath(`/${index}`, error)
+          )
+        )
+      ),
     result.allV,
     result.mapErr<
-      NonEmptyArray<NonEmptyArray<PatchError>>,
-      NonEmptyArray<PatchError>
+      NonEmptyArray<NonEmptyArray<PatchValidationError>>,
+      NonEmptyArray<PatchValidationError>
     >(flatten),
-    result.flatMap<void, Operation[], NonEmptyArray<PatchError>>(() =>
+    result.flatMap<void, Operation[], NonEmptyArray<PatchValidationError>>(() =>
       result.ok(patch as Operation[])
     )
   );
+}
+
+function apply<T, E>(
+  document: T,
+  ops: Ops<T, E>,
+  op: Operation
+): result.Result<T, E | PatchError> {
+  const path = parseJSONPath(op.path);
+  switch (op.op) {
+    case "add":
+      return ops.add(document, path, op.value);
+    case "remove":
+      return ops.remove(document, path);
+    case "replace":
+      return ops.replace(document, path, op.value);
+    case "move":
+      return ops.move(document, parseJSONPath(op.from), path);
+    case "copy":
+      return ops.copy(document, parseJSONPath(op.from), path);
+    case "test": {
+      if (!ops.test(document, path, op.value)) {
+        return result.err(new PatchError("Test failed"));
+      }
+      return result.ok(document);
+    }
+  }
 }
 
 export function applyPatch<T, E>(
@@ -131,49 +85,4 @@ export function applyPatch<T, E>(
       document
     )
   );
-}
-
-function parsePath<E>(path: string): result.Result<string[], E | PatchError> {
-  if (!path.startsWith("/")) {
-    return result.err(new PatchError("Invalid path"));
-  }
-  return result.ok(
-    path
-      .substring(1)
-      .split("/")
-      .map((key) => key.replace(/~1/g, "/").replace(/~0/g, "~"))
-  );
-}
-
-function apply<T, E>(
-  document: T,
-  ops: Ops<T, E>,
-  op: Operation
-): result.Result<T, E | PatchError> {
-  return result.flatMap((path: string[]): result.Result<T, E | PatchError> => {
-    switch (op.op) {
-      case "add":
-        return ops.add(document, path, op.value);
-      case "remove":
-        return ops.remove(document, path);
-      case "replace":
-        return ops.replace(document, path, op.value);
-      case "move": {
-        return result.flatMap((from: string[]) =>
-          ops.move(document, from, path)
-        )(parsePath(op.from));
-      }
-      case "copy": {
-        return result.flatMap((from: string[]) =>
-          ops.copy(document, from, path)
-        )(parsePath(op.from));
-      }
-      case "test": {
-        if (!ops.test(document, path, op.value)) {
-          return result.err(new PatchError("Test failed"));
-        }
-        return result.ok(document);
-      }
-    }
-  })(parsePath(op.path));
 }

@@ -1,4 +1,4 @@
-import { isNonEmpty, NonEmptyArray } from "./nonEmptyArray";
+import { isNonEmpty, NonEmptyArray } from "./array";
 
 export type Ok<T> = {
   readonly kind: "ok";

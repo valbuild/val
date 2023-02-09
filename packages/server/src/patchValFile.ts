@@ -1,6 +1,6 @@
 import { ValModuleResolver } from "./ValModuleResolver";
 import { analyzeValModule } from "./patch/ts/valModule";
-import { applyPatch, Operation } from "./patch/patch";
+import { applyPatch, Patch } from "./patch/patch";
 import { TSOps } from "./patch/ts/ops";
 import * as result from "./fp/result";
 import { PatchError } from "./patch/ops";
@@ -10,7 +10,7 @@ import { pipe } from "./fp/util";
 export const patchValFile = async (
   id: string,
   valConfigPath: string,
-  patch: Operation[],
+  patch: Patch,
   resolver: ValModuleResolver
 ): Promise<void> => {
   const filePath = resolver.resolveSourceModulePath(

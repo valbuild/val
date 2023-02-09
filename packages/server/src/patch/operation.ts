@@ -1,0 +1,184 @@
+import { isNonEmpty, NonEmptyArray } from "../fp/array";
+import * as result from "../fp/result";
+import { JSONValue } from "./ops";
+
+export type JSONPath = `/${string}`;
+export type Operation =
+  | {
+      op: "add";
+      path: JSONPath;
+      value: JSONValue;
+    }
+  | {
+      op: "remove";
+      path: JSONPath;
+    }
+  | {
+      op: "replace";
+      path: JSONPath;
+      value: JSONValue;
+    }
+  | {
+      op: "move";
+      from: JSONPath;
+      path: JSONPath;
+    }
+  | {
+      op: "copy";
+      from: JSONPath;
+      path: JSONPath;
+    }
+  | {
+      op: "test";
+      path: JSONPath;
+      value: JSONValue;
+    };
+
+/**
+ * A PatchValidationError signifies an error that makes a Patch or an Operation
+ * invalid. Unlike PatchError, a PatchValidationError is independent of any
+ * document which the Patch or Operation might be applied to.
+ */
+export type PatchValidationError = {
+  path: string[];
+  message: string;
+};
+
+export function prefixErrorPath(
+  prefix: string,
+  { path, message }: PatchValidationError
+): PatchValidationError {
+  return { path: [prefix, ...path], message };
+}
+
+const VALID_OPS = [
+  "add",
+  "remove",
+  "replace",
+  "move",
+  "copy",
+  "test",
+] satisfies readonly Operation["op"][];
+
+function isValidOp(op: unknown): op is Operation["op"] {
+  return (VALID_OPS as readonly unknown[]).includes(op);
+}
+
+function isJSONPath(path: string): path is JSONPath {
+  return path.startsWith("/");
+}
+
+function isProperPathPrefix(prefix: JSONPath, path: JSONPath): boolean {
+  return prefix !== path && `${path}/`.startsWith(`${prefix}/`);
+}
+
+export function validateOperation(
+  operation: JSONValue
+): result.Result<void, NonEmptyArray<PatchValidationError>> {
+  if (
+    typeof operation !== "object" ||
+    operation === null ||
+    Array.isArray(operation)
+  ) {
+    return result.err([
+      {
+        path: [],
+        message: "Not an object",
+      },
+    ]);
+  }
+
+  if (!("op" in operation)) {
+    return result.err([
+      {
+        path: ["op"],
+        message: "Missing member",
+      },
+    ]);
+  } else if (!isValidOp(operation.op)) {
+    return result.err([
+      {
+        path: ["op"],
+        message: "Invalid op",
+      },
+    ]);
+  }
+
+  const errors: PatchValidationError[] = [];
+
+  let path: JSONPath | null = null;
+  if (!("path" in operation)) {
+    errors.push({
+      path: ["path"],
+      message: "Missing member",
+    });
+  } else if (
+    typeof operation.path !== "string" ||
+    !isJSONPath(operation.path)
+  ) {
+    errors.push({
+      path: ["path"],
+      message: "Not a JSON path",
+    });
+  } else {
+    path = operation.path;
+  }
+
+  if (
+    operation.op === "add" ||
+    operation.op === "replace" ||
+    operation.op === "test"
+  ) {
+    if (!("value" in operation)) {
+      errors.push({
+        path: ["value"],
+        message: "Missing member",
+      });
+    }
+  }
+
+  if (operation.op === "move" || operation.op === "copy") {
+    if (!("from" in operation)) {
+      errors.push({
+        path: ["from"],
+        message: "Missing member",
+      });
+    } else if (
+      typeof operation.from !== "string" ||
+      !isJSONPath(operation.from)
+    ) {
+      errors.push({
+        path: ["from"],
+        message: "Not a JSON path",
+      });
+    } else if (operation.op === "move" && path !== null) {
+      // The "from" location MUST NOT be a proper prefix of the "path"
+      // location; i.e., a location cannot be moved into one of its children.
+      if (isProperPathPrefix(operation.from, path)) {
+        errors.push({
+          path: ["from"],
+          message: "Cannot be a proper prefix of path",
+        });
+      }
+    }
+  }
+
+  if (isNonEmpty(errors)) {
+    return result.err(errors);
+  } else {
+    return result.voidOk;
+  }
+}
+
+export function parseJSONPath(path: JSONPath): string[] {
+  return path
+    .substring(1)
+    .split("/")
+    .map((key) => key.replace(/~1/g, "/").replace(/~0/g, "~"));
+}
+
+export function formatJSONPath(path: string[]): JSONPath {
+  return `/${path
+    .map((key) => key.replace(/\//g, "~1").replace(/~/g, "~0"))
+    .join("/")}`;
+}
