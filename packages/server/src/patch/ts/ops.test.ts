@@ -5,6 +5,7 @@ import * as result from "../../fp/result";
 import { PatchError, JSONValue } from "../ops";
 import { pipe } from "../../fp/util";
 import { ValSyntaxError } from "./syntax";
+import { NonEmptyArray } from "../../fp/array";
 
 function testSourceFile(expression: string): ts.SourceFile {
   return ts.createSourceFile(
@@ -150,15 +151,9 @@ describe("TSOps", () => {
   test.each<{
     name: string;
     input: string;
-    path: string[];
+    path: NonEmptyArray<string>;
     expected: result.Result<string, typeof PatchError | typeof ValSyntaxError>;
   }>([
-    {
-      name: "root of document",
-      input: `{ foo: "bar" }`,
-      path: [],
-      expected: result.err(PatchError),
-    },
     {
       name: "defined property from object",
       input: `{ foo: "bar", bar: "baz" }`,
@@ -339,17 +334,10 @@ describe("TSOps", () => {
   test.each<{
     name: string;
     input: string;
-    from: string[];
+    from: NonEmptyArray<string>;
     path: string[];
     expected: result.Result<string, typeof PatchError | typeof ValSyntaxError>;
   }>([
-    {
-      name: "object into itself",
-      input: `{ foo: "bar" }`,
-      from: [],
-      path: ["foo"],
-      expected: result.err(PatchError),
-    },
     {
       name: "value to root of document",
       input: `{ foo: "bar" }`,

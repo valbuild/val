@@ -11,6 +11,9 @@ export type Operation =
     }
   | {
       op: "remove";
+      /**
+       * Must be non-root
+       */
       path: JSONPath;
     }
   | {
@@ -20,6 +23,9 @@ export type Operation =
     }
   | {
       op: "move";
+      /**
+       * Must be non-root and not a proper prefix of "path".
+       */
       from: JSONPath;
       path: JSONPath;
     }
@@ -66,6 +72,10 @@ function isValidOp(op: unknown): op is Operation["op"] {
 
 function isJSONPath(path: string): path is JSONPath {
   return path.startsWith("/");
+}
+
+function isRoot(path: JSONPath): path is "/" {
+  return path === "/";
 }
 
 function isProperPathPrefix(prefix: JSONPath, path: JSONPath): boolean {
@@ -122,6 +132,13 @@ export function validateOperation(
     });
   } else {
     path = operation.path;
+
+    if (operation.op === "remove" && isRoot(path)) {
+      errors.push({
+        path: ["path"],
+        message: "Cannot remove root",
+      });
+    }
   }
 
   if (
@@ -152,9 +169,18 @@ export function validateOperation(
         message: "Not a JSON path",
       });
     } else if (operation.op === "move" && path !== null) {
+      const from = operation.from;
+
+      if (isRoot(from)) {
+        errors.push({
+          path: ["from"],
+          message: "Cannot move root",
+        });
+      }
+
       // The "from" location MUST NOT be a proper prefix of the "path"
       // location; i.e., a location cannot be moved into one of its children.
-      if (isProperPathPrefix(operation.from, path)) {
+      if (isProperPathPrefix(from, path)) {
         errors.push({
           path: ["from"],
           message: "Cannot be a proper prefix of path",

@@ -454,7 +454,7 @@ function removeFromNode(
 function removeAtPath(
   document: ts.SourceFile,
   rootNode: ts.Expression,
-  path: [string, ...string[]]
+  path: NonEmptyArray<string>
 ): TSOpsResult<[document: ts.SourceFile, removed: ts.Expression]> {
   return pipe(
     getPointerFromPath(rootNode, path),
@@ -552,11 +552,10 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
       result.map(pickDocument)
     );
   }
-  remove(document: ts.SourceFile, path: string[]): TSOpsResult<ts.SourceFile> {
-    if (!isNotRoot(path)) {
-      return result.err(new PatchError("Cannot remove root"));
-    }
-
+  remove(
+    document: ts.SourceFile,
+    path: NonEmptyArray<string>
+  ): TSOpsResult<ts.SourceFile> {
     return pipe(
       document,
       this.findRoot,
@@ -582,13 +581,9 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
   }
   move(
     document: ts.SourceFile,
-    from: string[],
+    from: NonEmptyArray<string>,
     path: string[]
   ): TSOpsResult<ts.SourceFile> {
-    if (!isNotRoot(from)) {
-      return result.err(new PatchError("Cannot move from root"));
-    }
-
     return pipe(
       document,
       this.findRoot,

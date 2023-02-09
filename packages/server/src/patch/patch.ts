@@ -56,11 +56,15 @@ function apply<T, E>(
     case "add":
       return ops.add(document, path, op.value);
     case "remove":
-      return ops.remove(document, path);
+      return ops.remove(document, path as NonEmptyArray<string>);
     case "replace":
       return ops.replace(document, path, op.value);
     case "move":
-      return ops.move(document, parseJSONPath(op.from), path);
+      return ops.move(
+        document,
+        parseJSONPath(op.from) as NonEmptyArray<string>,
+        path
+      );
     case "copy":
       return ops.copy(document, parseJSONPath(op.from), path);
     case "test": {
