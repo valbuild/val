@@ -1,4 +1,3 @@
-import ts from "typescript";
 import { ValModuleResolver } from "./ValModuleResolver";
 import { analyzeValModule } from "./patch/ts/valModule";
 import { applyPatch, Operation } from "./patch/patch";
@@ -19,10 +18,7 @@ export const patchValFile = async (
     `.${id}.val`
   );
 
-  const sourceFile = resolver.compilerHost.getSourceFile(
-    filePath,
-    ts.ScriptTarget.ES2020
-  );
+  const sourceFile = resolver.getSourceFile(filePath);
 
   if (!sourceFile) {
     throw Error(`Source file ${filePath} not found`);
@@ -47,11 +43,5 @@ export const patchValFile = async (
     }
   }
 
-  resolver.compilerHost.writeFile(
-    newSourceFile.value.fileName,
-    newSourceFile.value.text,
-    false,
-    undefined,
-    [newSourceFile.value]
-  );
+  resolver.writeSourceFile(newSourceFile.value);
 };
