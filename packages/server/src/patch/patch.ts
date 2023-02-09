@@ -137,7 +137,12 @@ function parsePath<E>(path: string): result.Result<string[], E | PatchError> {
   if (!path.startsWith("/")) {
     return result.err(new PatchError("Invalid path"));
   }
-  return result.ok(path.substring(1).split("/"));
+  return result.ok(
+    path
+      .substring(1)
+      .split("/")
+      .map((key) => key.replace(/~1/g, "/").replace(/~0/g, "~"))
+  );
 }
 
 function apply<T, E>(
