@@ -21,6 +21,10 @@ type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
 declare module "typescript" {
   interface PrinterOptions {
+    /**
+     * Internal option that stops printing unnecessary ASCII escape sequences
+     * in strings, though it might have unintended effects. Might be useful?
+     */
     neverAsciiEscape?: boolean;
   }
 }
