@@ -104,6 +104,20 @@ export function allV<E>(
   return voidOk;
 }
 
+/**
+ * Perform a reduction over an array with a Result-returning reducer. If the
+ * reducer returns Ok, its value is used as the next value. If the reducer
+ * returns Err, it is returned immediately.
+ *
+ * flatMapReduce is a short-circuiting equivalent to:
+ * ```
+ * arr.reduce(
+ *   (accRes, current, currentIndex) =>
+ *     flatMap((acc) => reducer(acc, current, currentIndex))(accRes),
+ *   ok(initVal)
+ * )
+ * ```
+ */
 export function flatMapReduce<T, E, A>(
   reducer: (acc: T, current: A, currentIndex: number) => Result<T, E>,
   initVal: T
