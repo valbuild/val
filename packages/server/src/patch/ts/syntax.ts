@@ -107,8 +107,8 @@ function validateObjectProperties<
 }
 
 /**
- * Validates that the expression is a valid type of expression, but does not
- * validate its children.
+ * Validates that the expression is a JSON compatible type of expression without
+ * validating its children.
  */
 export function shallowValidateExpression(
   value: ts.Expression
@@ -124,6 +124,44 @@ export function shallowValidateExpression(
     : new ValSyntaxError("Value must be a literal", value);
 }
 
+/**
+ * Validates that the expression is JSON compatible.
+ */
+export function deepValidateExpression(
+  value: ts.Expression
+): result.Result<void, ValSyntaxErrorTree> {
+  if (ts.isStringLiteralLike(value)) {
+    return result.voidOk;
+  } else if (ts.isNumericLiteral(value)) {
+    return result.voidOk;
+  } else if (value.kind === ts.SyntaxKind.TrueKeyword) {
+    return result.voidOk;
+  } else if (value.kind === ts.SyntaxKind.FalseKeyword) {
+    return result.voidOk;
+  } else if (value.kind === ts.SyntaxKind.NullKeyword) {
+    return result.voidOk;
+  } else if (ts.isArrayLiteralExpression(value)) {
+    return result.allV(value.elements.map(deepValidateExpression));
+  } else if (ts.isObjectLiteralExpression(value)) {
+    return pipe(
+      validateObjectProperties(value.properties),
+      result.flatMap((assignments: ts.NodeArray<LiteralPropertyAssignment>) =>
+        pipe(
+          assignments.map((assignment) =>
+            deepValidateExpression(assignment.initializer)
+          ),
+          result.allV
+        )
+      )
+    );
+  } else {
+    return result.err(new ValSyntaxError("Value must be a literal", value));
+  }
+}
+
+/**
+ * Evaluates the expression as a JSON value
+ */
 export function evaluateExpression(
   value: ts.Expression
 ): result.Result<JSONValue, ValSyntaxErrorTree> {
