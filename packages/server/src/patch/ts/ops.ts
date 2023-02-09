@@ -365,20 +365,25 @@ function getAtPath(
   rootNode: ts.Expression,
   path: string[]
 ): TSOpsResult<ts.Expression> {
-  return result.flatMapReduce((node: ts.Expression, key: string) =>
-    pipe(
-      getFromNode(node, key),
-      result.flatMap((childNode: ts.Expression | undefined) => {
-        if (childNode) {
-          return result.ok(childNode);
-        } else {
-          return result.err(
-            new PatchError("Path refers to non-existing object/array")
-          );
-        }
-      })
+  return pipe(
+    path,
+    result.flatMapReduce(
+      (node: ts.Expression, key: string) =>
+        pipe(
+          getFromNode(node, key),
+          result.flatMap((childNode: ts.Expression | undefined) => {
+            if (childNode) {
+              return result.ok(childNode);
+            } else {
+              return result.err(
+                new PatchError("Path refers to non-existing object/array")
+              );
+            }
+          })
+        ),
+      rootNode
     )
-  )(path, rootNode);
+  );
 }
 
 function removeFromNode(
