@@ -105,9 +105,10 @@ export function allV<E>(
 }
 
 export function flatMapReduce<T, E, A>(
-  reducer: (acc: T, current: A, currentIndex: number) => Result<T, E>
-): (arr: readonly A[], initVal: T) => Result<T, E> {
-  return (arr, initVal) => {
+  reducer: (acc: T, current: A, currentIndex: number) => Result<T, E>,
+  initVal: T
+): (arr: readonly A[]) => Result<T, E> {
+  return (arr) => {
     let val: Result<T, E> = ok(initVal);
     for (let i = 0; i < arr.length && isOk(val); ++i) {
       val = reducer(val.value, arr[i], i);

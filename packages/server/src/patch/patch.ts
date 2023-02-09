@@ -123,10 +123,14 @@ export function applyPatch<T, E>(
   ops: Ops<T, E>,
   patch: Operation[]
 ): result.Result<T, E | PatchError> {
-  return result.flatMapReduce(
-    (doc: T, op: Operation): result.Result<T, E | PatchError> =>
-      apply(doc, ops, op)
-  )(patch, document);
+  return pipe(
+    patch,
+    result.flatMapReduce(
+      (doc: T, op: Operation): result.Result<T, E | PatchError> =>
+        apply(doc, ops, op),
+      document
+    )
+  );
 }
 
 function parsePath<E>(path: string): result.Result<string[], E | PatchError> {
