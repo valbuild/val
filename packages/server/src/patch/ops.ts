@@ -24,7 +24,10 @@ export interface Ops<T, E> {
     path: string[],
     value: JSONValue
   ): result.Result<T, E | PatchError>;
-  remove(document: T, path: string[]): result.Result<T, E | PatchError>;
+  remove(
+    document: T,
+    path: NonEmptyArray<string>
+  ): result.Result<T, E | PatchError>;
   replace(
     document: T,
     path: string[],
@@ -32,7 +35,7 @@ export interface Ops<T, E> {
   ): result.Result<T, E | PatchError>;
   move(
     document: T,
-    from: string[],
+    from: NonEmptyArray<string>,
     path: string[]
   ): result.Result<T, E | PatchError>;
   copy(
