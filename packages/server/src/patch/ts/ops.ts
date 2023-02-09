@@ -8,14 +8,8 @@ import {
   ValSyntaxErrorTree,
   shallowValidateExpression,
 } from "./syntax";
-import {
-  deepEqual,
-  isNotRoot,
-  isProperPathPrefix,
-  Ops,
-  PatchError,
-  JSONValue,
-} from "../ops";
+import { deepEqual, isNotRoot, Ops, PatchError, JSONValue } from "../ops";
+import { NonEmptyArray } from "../../fp/array";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
@@ -368,7 +362,7 @@ export function getFromNode(
 type Pointer = [node: ts.Expression, key: string];
 function getPointerFromPath(
   node: ts.Expression,
-  path: [string, ...string[]]
+  path: NonEmptyArray<string>
 ): TSOpsResult<Pointer> {
   let targetNode: ts.Expression = node;
   let key: string = path[0];
@@ -593,14 +587,6 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
   ): TSOpsResult<ts.SourceFile> {
     if (!isNotRoot(from)) {
       return result.err(new PatchError("Cannot move from root"));
-    }
-
-    // The "from" location MUST NOT be a proper prefix of the "path"
-    // location; i.e., a location cannot be moved into one of its children.
-    if (isProperPathPrefix(from, path)) {
-      return result.err(
-        new PatchError("A location cannot be moved into one of its childen")
-      );
     }
 
     return pipe(

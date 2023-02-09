@@ -3,6 +3,7 @@ import { Service } from "./Service";
 import { validatePatch } from "./patch/patch";
 import { PatchError } from "./patch/ops";
 import * as result from "./fp/result";
+import { formatJSONPath } from "./patch/operation";
 
 const getFileIdFromParams = (params: { 0: string }) => {
   return `/${params[0]}`;
@@ -51,7 +52,13 @@ export class ValServer {
   ): Promise<void> {
     const patch = validatePatch(req.body);
     if (result.isErr(patch)) {
-      res.status(401).send(patch.error.join("\n"));
+      res
+        .status(401)
+        .send(
+          patch.error
+            .map(({ path, message }) => `${formatJSONPath(path)}: ${message}`)
+            .join("\n")
+        );
       return;
     }
     const id = getFileIdFromParams(req.params);
