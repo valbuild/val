@@ -1,3 +1,4 @@
+import { isNonEmpty, NonEmptyArray } from "../fp/nonEmptyArray";
 import * as result from "../fp/result";
 
 export class PatchError extends Error {
@@ -49,8 +50,8 @@ export interface Ops<T, E> {
   ): result.Result<boolean, E | PatchError>;
 }
 
-export function isNotRoot(path: string[]): path is [string, ...string[]] {
-  return path.length > 0;
+export function isNotRoot(path: string[]): path is NonEmptyArray<string> {
+  return isNonEmpty(path);
 }
 
 export function isProperPathPrefix(prefix: string[], path: string[]): boolean {
