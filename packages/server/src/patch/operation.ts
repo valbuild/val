@@ -197,6 +197,7 @@ export function validateOperation(
 }
 
 export function parseJSONPath(path: JSONPath): string[] {
+  if (path === "/") return [];
   return path
     .substring(1)
     .split("/")
@@ -205,6 +206,6 @@ export function parseJSONPath(path: JSONPath): string[] {
 
 export function formatJSONPath(path: string[]): JSONPath {
   return `/${path
-    .map((key) => key.replace(/\//g, "~1").replace(/~/g, "~0"))
+    .map((key) => key.replace(/~/g, "~0").replace(/\//g, "~1"))
     .join("/")}`;
 }
