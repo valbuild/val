@@ -57,14 +57,7 @@ export function prefixErrorPath(
   return { path: [prefix, ...path], message };
 }
 
-const VALID_OPS = [
-  "add",
-  "remove",
-  "replace",
-  "move",
-  "copy",
-  "test",
-] satisfies readonly Operation["op"][];
+const VALID_OPS = ["add", "remove", "replace", "move", "copy", "test"] as const;
 
 function isValidOp(op: unknown): op is Operation["op"] {
   return (VALID_OPS as readonly unknown[]).includes(op);
