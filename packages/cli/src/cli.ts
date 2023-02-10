@@ -1,11 +1,14 @@
 import path from "path";
 import meow from "meow";
 import {
-  createValServer,
+  createRequestHandler,
   createService,
   ValModuleResolver,
 } from "@valbuild/server";
 import { error, info } from "./logger";
+import express from "express";
+import cors from "cors";
+import { createServer, Server } from "node:http";
 
 async function serve({
   root,
@@ -22,12 +25,18 @@ async function serve({
   const service = await createService(resolver, {
     valConfigPath: cfg ?? "./val.config",
   });
-  const server = await createValServer(service, {
-    port,
+  const valReqHandler = createRequestHandler(service);
+  const app = express();
+  // TODO: Properly configure CORS
+  app.use(cors(), valReqHandler);
+  const server: Server = createServer(app);
+  await new Promise<void>((resolve) => {
+    server.listen(port, resolve);
   });
+
   info(`Root is ${resolver.projectRoot}`);
   info(`Config is ${service.valConfigPath}`);
-  info(`Listening on port ${server.port}`);
+  info(`Listening on port ${port}`);
 
   let handled = false;
   const handleInterrupt: NodeJS.SignalsListener = async () => {
@@ -35,15 +44,11 @@ async function serve({
     handled = true;
 
     info("Shutting down...");
-    try {
-      await server.close();
-    } catch (err) {
-      if (err instanceof Error) {
-        error(err.toString());
-      } else {
-        error(err as string);
-      }
-    }
+
+    server.close((err) => {
+      if (!err) return;
+      error(err.toString());
+    });
   };
 
   process.on("SIGINT", handleInterrupt);

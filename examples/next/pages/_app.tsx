@@ -3,7 +3,7 @@ import type { AppProps } from "next/app";
 
 function MyApp({ Component, pageProps }: AppProps) {
   return (
-    <ValProvider>
+    <ValProvider host="/api/val">
       <Component {...pageProps} />
     </ValProvider>
   );
