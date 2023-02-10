@@ -1,7 +1,12 @@
 import ts from "typescript";
 import { pipe } from "../../fp/util";
 import * as result from "../../fp/result";
-import { ValSyntaxError, ValSyntaxErrorTree } from "./syntax";
+import {
+  deepValidateExpression,
+  formatSyntaxErrors,
+  ValSyntaxError,
+  ValSyntaxErrorTree,
+} from "./syntax";
 
 export type ValModuleAnalysis = {
   schema: ts.Expression;
@@ -156,4 +161,15 @@ export function analyzeValModule(
   }
 
   return analysis;
+}
+
+export function validateValModule(
+  sourceFile: ts.SourceFile
+): result.Result<void, string> {
+  return pipe(
+    sourceFile,
+    analyzeValModule,
+    result.flatMap(({ fixedContent }) => deepValidateExpression(fixedContent)),
+    result.mapErr((errors) => formatSyntaxErrors(errors, sourceFile))
+  );
 }

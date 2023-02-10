@@ -1,5 +1,6 @@
 import path from "path";
 import ts from "typescript";
+import glob from "glob";
 
 const JsFileLookupMapping: [resolvedFileExt: string, replacements: string[]][] =
   [
@@ -178,6 +179,12 @@ export class ValModuleResolver {
       false,
       undefined,
       [sourceFile]
+    );
+  }
+
+  getValModulePaths(configPath: string): string[] {
+    return glob.sync(
+      `${path.dirname(path.join(this.projectRoot, configPath))}/**/*.val.[jt]s`
     );
   }
 }

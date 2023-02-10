@@ -6,6 +6,7 @@
     "dev": "next dev",
     "val-server": "val serve",
     "val-server:dev": "ENV=development nodemon --watch '../../packages/*/src/**' --ext 'js,ts,json' --exec 'val serve'",
+    "validate": "val validate",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

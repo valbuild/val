@@ -3,3 +3,8 @@ export { createService, Service } from "./Service";
 export { createRequestHandler } from "./ValServer";
 export { createRequestListener } from "./hosting";
 export { ValModuleResolver } from "./ValModuleResolver";
+export { validateValModule } from "./patch/ts/valModule";
+export { formatSyntaxErrors } from "./patch/ts/syntax";
+export * as fp from "./fp/util";
+export * as result from "./fp/result";
+export * as array from "./fp/array";

@@ -3,12 +3,16 @@ import meow from "meow";
 import {
   createRequestHandler,
   createService,
+  fp,
+  result,
+  validateValModule,
   ValModuleResolver,
 } from "@valbuild/server";
 import { error, info } from "./logger";
 import express from "express";
 import cors from "cors";
 import { createServer, Server } from "node:http";
+import ts from "typescript";
 
 async function serve({
   root,
@@ -62,13 +66,45 @@ async function serve({
   });
 }
 
+async function validate({
+  root,
+  cfg = "./val.config",
+}: {
+  root?: string;
+  cfg?: string;
+}): Promise<void> {
+  const resolver = new ValModuleResolver(
+    root ? path.resolve(root) : process.cwd()
+  );
+
+  const valModulePaths = resolver.getValModulePaths(cfg);
+
+  const validation = result.allV(
+    valModulePaths.map((valModulePath) =>
+      fp.pipe(
+        resolver.getSourceFile(valModulePath),
+        result.fromPredicate(
+          (sourceFile): sourceFile is ts.SourceFile => sourceFile !== undefined,
+          () => "Unable to get source file"
+        ),
+        result.flatMap(validateValModule),
+        result.mapErr((error: string) => `${valModulePath}:\n${error}`)
+      )
+    )
+  );
+  if (result.isErr(validation)) {
+    throw Error(validation.error.join("\n\n"));
+  }
+}
+
 async function main(): Promise<void> {
   const { input, flags, showHelp } = meow(
     `
       Usage
         $ val [command]
       Commands
-        serve    Run val development server
+        serve       Run val development server
+        validate    val-idate val modules
 
       Options
         --help                   Show this message
@@ -110,6 +146,12 @@ async function main(): Promise<void> {
       return serve({
         root: flags.root,
         port: flags.port,
+        cfg: flags.cfg,
+      });
+    case "validate":
+    case "idate":
+      return validate({
+        root: flags.root,
         cfg: flags.cfg,
       });
     default:
