@@ -1,4 +1,9 @@
-import { formatJSONPath, validateOperation } from "./operation";
+import {
+  formatJSONPath,
+  JSONPath,
+  parseJSONPath,
+  validateOperation,
+} from "./operation";
 import { JSONValue } from "./ops";
 import * as result from "../fp/result";
 import { pipe } from "../fp/util";
@@ -142,5 +147,48 @@ describe("validateOperation", () => {
         )
       )
     ).toEqual(result.err(errors));
+  });
+});
+
+const JSONPathTestCases: { str: JSONPath; arr: string[] }[] = [
+  {
+    str: "/",
+    arr: [],
+  },
+  {
+    str: "/foo",
+    arr: ["foo"],
+  },
+  {
+    str: "/foo/",
+    arr: ["foo", ""],
+  },
+  {
+    str: "/~1",
+    arr: ["/"],
+  },
+  {
+    str: "/~1/~1",
+    arr: ["/", "/"],
+  },
+  {
+    str: "/~0",
+    arr: ["~"],
+  },
+  {
+    str: "/~0/~0",
+    arr: ["~", "~"],
+  },
+];
+
+describe("parseJSONPath", () => {
+  test.each(JSONPathTestCases)("$str", ({ str, arr }) => {
+    expect(parseJSONPath(str)).toEqual(arr);
+  });
+});
+
+describe("formatJSONPath", () => {
+  test.each(JSONPathTestCases)("$str", ({ str, arr }) => {
+    expect(formatJSONPath(arr)).toEqual(str);
   });
 });
