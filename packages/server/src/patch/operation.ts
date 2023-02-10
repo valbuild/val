@@ -2,11 +2,11 @@ import { isNonEmpty, NonEmptyArray } from "../fp/array";
 import * as result from "../fp/result";
 import { JSONValue } from "./ops";
 
-export type JSONPath = `/${string}`;
+export type JSONPointer = `/${string}`;
 export type Operation =
   | {
       op: "add";
-      path: JSONPath;
+      path: JSONPointer;
       value: JSONValue;
     }
   | {
@@ -14,11 +14,11 @@ export type Operation =
       /**
        * Must be non-root
        */
-      path: JSONPath;
+      path: JSONPointer;
     }
   | {
       op: "replace";
-      path: JSONPath;
+      path: JSONPointer;
       value: JSONValue;
     }
   | {
@@ -26,17 +26,17 @@ export type Operation =
       /**
        * Must be non-root and not a proper prefix of "path".
        */
-      from: JSONPath;
-      path: JSONPath;
+      from: JSONPointer;
+      path: JSONPointer;
     }
   | {
       op: "copy";
-      from: JSONPath;
-      path: JSONPath;
+      from: JSONPointer;
+      path: JSONPointer;
     }
   | {
       op: "test";
-      path: JSONPath;
+      path: JSONPointer;
       value: JSONValue;
     };
 
@@ -70,15 +70,15 @@ function isValidOp(op: unknown): op is Operation["op"] {
   return (VALID_OPS as readonly unknown[]).includes(op);
 }
 
-function isJSONPath(path: string): path is JSONPath {
+function isJSONPath(path: string): path is JSONPointer {
   return path.startsWith("/");
 }
 
-function isRoot(path: JSONPath): path is "/" {
+function isRoot(path: JSONPointer): path is "/" {
   return path === "/";
 }
 
-function isProperPathPrefix(prefix: JSONPath, path: JSONPath): boolean {
+function isProperPathPrefix(prefix: JSONPointer, path: JSONPointer): boolean {
   return prefix !== path && `${path}/`.startsWith(`${prefix}/`);
 }
 
@@ -116,7 +116,7 @@ export function validateOperation(
 
   const errors: PatchValidationError[] = [];
 
-  let path: JSONPath | null = null;
+  let path: JSONPointer | null = null;
   if (!("path" in operation)) {
     errors.push({
       path: ["path"],
@@ -196,7 +196,7 @@ export function validateOperation(
   }
 }
 
-export function parseJSONPath(path: JSONPath): string[] {
+export function parseJSONPointer(path: JSONPointer): string[] {
   if (path === "/") return [];
   return path
     .substring(1)
@@ -204,7 +204,7 @@ export function parseJSONPath(path: JSONPath): string[] {
     .map((key) => key.replace(/~1/g, "/").replace(/~0/g, "~"));
 }
 
-export function formatJSONPath(path: string[]): JSONPath {
+export function formatJSONPointer(path: string[]): JSONPointer {
   return `/${path
     .map((key) => key.replace(/~/g, "~0").replace(/\//g, "~1"))
     .join("/")}`;
