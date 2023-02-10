@@ -638,6 +638,13 @@ describe("TSOps", () => {
       expected: result.err(PatchError),
     },
     {
+      name: "escaped paths",
+      input: `{ "foo/bar~/~": "baz" }`,
+      path: ["foo/bar~/~"],
+      value: "baz",
+      expected: result.ok(true),
+    },
+    {
       name: "at non-object/array",
       input: `0`,
       path: ["foo"],
