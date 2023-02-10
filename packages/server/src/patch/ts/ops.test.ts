@@ -66,6 +66,20 @@ describe("TSOps", () => {
       expected: result.ok(`{ foo: "bar", bar: null }`),
     },
     {
+      name: "property to object that is not an identifier (empty string)",
+      input: `{ foo: "bar" }`,
+      path: [""],
+      value: "foo",
+      expected: result.ok(`{ foo: "bar", "": "foo" }`),
+    },
+    {
+      name: "property to object that is not an identifier (strings with whitespace)",
+      input: `{ foo: "bar" }`,
+      path: ["foo and "],
+      value: "foo",
+      expected: result.ok(`{ foo: "bar", "foo and ": "foo" }`),
+    },
+    {
       name: "item to array followed by other items",
       input: `["foo", "bar"]`,
       path: ["0"],
