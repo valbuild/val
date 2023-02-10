@@ -36,13 +36,8 @@ export function validatePatch(
         )
       ),
     result.allV,
-    result.mapErr<
-      NonEmptyArray<NonEmptyArray<PatchValidationError>>,
-      NonEmptyArray<PatchValidationError>
-    >(flatten),
-    result.flatMap<void, Operation[], NonEmptyArray<PatchValidationError>>(() =>
-      result.ok(patch as Operation[])
-    )
+    result.mapErr(flatten<PatchValidationError>),
+    result.map(() => patch as Operation[])
   );
 }
 

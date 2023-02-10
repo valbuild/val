@@ -15,12 +15,16 @@ export function flatten<T>(array: ReadonlyArray<ReadonlyArray<T>>): Array<T> {
   return array.flat(1);
 }
 
-// @ts-expect-error these signatures are actually compatible
 export function map<T, U>(
-  fn: (value: T, index: number, array: ReadonlyNonEmptyArray<T>) => U
-): (array: ReadonlyNonEmptyArray<T>) => NonEmptyArray<U>;
-export function map<T, U>(
-  fn: (value: T, index: number, array: ReadonlyArray<T>) => U
-): (array: ReadonlyArray<T>) => Array<U> {
-  return (array) => array.map(fn);
+  fn: (value: T, index: number) => U
+): {
+  (array: ReadonlyArray<T>): Array<U>;
+  (array: ReadonlyNonEmptyArray<T>): NonEmptyArray<U>;
+} {
+  function mapFn(array: ReadonlyArray<T>): Array<U>;
+  function mapFn(array: ReadonlyNonEmptyArray<T>): NonEmptyArray<U>;
+  function mapFn(array: ReadonlyArray<T>): Array<U> {
+    return array.map(fn);
+  }
+  return mapFn;
 }
