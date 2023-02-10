@@ -1,10 +1,10 @@
 import { SerializedSchema, ValidTypes } from "@valbuild/lib";
-import { applyPatch, Operation } from "fast-json-patch";
 import { newQuickJSWASMModule, QuickJSRuntime } from "quickjs-emscripten";
+import { patchValFile } from "./patchValFile";
 import { readValFile } from "./readValFile";
+import { Patch } from "./patch/patch";
 import { ValModuleResolver } from "./ValModuleResolver";
 import { newValQuickJSRuntime } from "./ValQuickJSRuntime";
-import { writeValFile } from "./writeValFile";
 
 export type ServiceOptions = {
   /**
@@ -41,20 +41,8 @@ export class Service {
     return readValFile(moduleId, this.valConfigPath, this.runtime);
   }
 
-  async patch(moduleId: string, patch: Operation[]): Promise<void> {
-    // TODO: Validate patch and/or resulting document against schema
-    const document = (
-      await readValFile(moduleId, this.valConfigPath, this.runtime)
-    ).val;
-    const result = applyPatch(document, patch, true, false);
-    const newDocument = result.newDocument;
-
-    await writeValFile(
-      moduleId,
-      this.valConfigPath,
-      newDocument,
-      this.resolver
-    );
+  async patch(moduleId: string, patch: Patch): Promise<void> {
+    return patchValFile(moduleId, this.valConfigPath, patch, this.resolver);
   }
 
   dispose() {
