@@ -1,5 +1,7 @@
 import path from "path";
 import ts from "typescript";
+import { getCompilerOptions } from "./getCompilerOptions";
+import type { IValFSHost } from "./ValFSHost";
 
 const JsFileLookupMapping: [resolvedFileExt: string, replacements: string[]][] =
   [
@@ -11,65 +13,20 @@ const JsFileLookupMapping: [resolvedFileExt: string, replacements: string[]][] =
   ];
 
 export class ValModuleResolver {
-  private readonly compilerHost: ts.CompilerHost;
-  private readonly compilerOptions: ts.CompilerOptions;
-  readonly projectRoot: string;
+  public readonly compilerOptions: ts.CompilerOptions;
 
-  private getCompilerOptions(rootDir: string): ts.CompilerOptions {
-    const parseConfigHost: ts.ParseConfigHost = ts.sys;
-    const tsConfigPath = path.resolve(rootDir, "tsconfig.json");
-    const jsConfigPath = path.resolve(rootDir, "jsconfig.json");
-    let configFilePath: string;
-    if (parseConfigHost.fileExists(jsConfigPath)) {
-      configFilePath = jsConfigPath;
-    } else if (parseConfigHost.fileExists(tsConfigPath)) {
-      configFilePath = tsConfigPath;
-    } else {
-      throw Error(
-        `Could not read config from: "${tsConfigPath}" nor "${jsConfigPath}". Root dir: "${rootDir}"`
-      );
-    }
-    const { config, error } = ts.readConfigFile(
-      configFilePath,
-      parseConfigHost.readFile
-    );
-    if (error) {
-      if (typeof error.messageText === "string") {
-        throw Error(
-          `Could not parse config file: ${configFilePath}. Error: ${error.messageText}`
-        );
-      }
-      throw Error(
-        `Could not parse config file: ${configFilePath}. Error: ${error.messageText.messageText}`
-      );
-    }
-    const optionsOverrides = undefined;
-    const parsedConfigFile = ts.parseJsonConfigFileContent(
-      config,
-      parseConfigHost,
-      rootDir,
-      optionsOverrides,
-      configFilePath
-    );
-    if (parsedConfigFile.errors.length > 0) {
-      throw Error(
-        `Could not parse config file: ${configFilePath}. Errors: ${parsedConfigFile.errors
-          .map((e) => e.messageText)
-          .join("\n")}`
-      );
-    }
-    return parsedConfigFile.options;
-  }
-
-  constructor(currentDir: string) {
-    this.projectRoot = currentDir;
-    this.compilerOptions = this.getCompilerOptions(currentDir);
-    this.compilerHost = ts.createCompilerHost(this.compilerOptions);
+  constructor(
+    public readonly projectRoot: string,
+    private readonly host: IValFSHost = ts.sys
+  ) {
+    this.compilerOptions = getCompilerOptions(projectRoot, host);
   }
 
   getTranspiledCode(modulePath: string): string {
-    // TODO: consider using compilerHost instead of fs below:
-    const code = this.compilerHost.readFile(modulePath);
+    if (!modulePath) {
+      throw Error(`Illegal module path: "${modulePath}"`);
+    }
+    const code = this.host.readFile(modulePath);
     if (!code) {
       throw Error(`Could not read file "${modulePath}"`);
     }
@@ -94,7 +51,7 @@ export class ValModuleResolver {
         ? containingFilePath
         : path.resolve(this.projectRoot, containingFilePath),
       this.compilerOptions,
-      this.compilerHost,
+      this.host,
       undefined,
       undefined,
       ts.ModuleKind.ESNext
@@ -128,9 +85,13 @@ export class ValModuleResolver {
     }
     const filePath = matches.match;
     // resolve all symlinks (preconstruct for example symlinks the dist folder)
-    return this.compilerHost.realpath
-      ? this.compilerHost.realpath(filePath)
-      : filePath;
+    const followedPath = this.host.realpath?.(filePath) ?? filePath;
+    if (!followedPath) {
+      throw Error(
+        `File path was empty: "${filePath}", containing file: "${containingFilePath}", requested module: "${requestedModuleName}"`
+      );
+    }
+    return followedPath;
   }
 
   private findMatchingJsFile(
@@ -145,7 +106,7 @@ export class ValModuleResolver {
     }
     // avoid unnecessary calls to fileExists if we don't need to replace anything
     if (!requiresReplacements) {
-      if (this.compilerHost.fileExists(filePath)) {
+      if (this.host.fileExists(filePath)) {
         return { match: filePath };
       }
     }
@@ -155,7 +116,7 @@ export class ValModuleResolver {
         for (const replacement of replacements) {
           const newFilePath =
             filePath.slice(0, -currentEnding.length) + replacement;
-          if (this.compilerHost.fileExists(newFilePath)) {
+          if (this.host.fileExists(newFilePath)) {
             return { match: newFilePath };
           } else {
             tried.push(newFilePath);
@@ -165,19 +126,5 @@ export class ValModuleResolver {
     }
 
     return { match: false, tried: tried.concat(filePath) };
-  }
-
-  getSourceFile(filePath: string): ts.SourceFile | undefined {
-    return this.compilerHost.getSourceFile(filePath, ts.ScriptTarget.ES2020);
-  }
-
-  writeSourceFile(sourceFile: ts.SourceFile) {
-    this.compilerHost.writeFile(
-      sourceFile.fileName,
-      sourceFile.text,
-      false,
-      undefined,
-      [sourceFile]
-    );
   }
 }

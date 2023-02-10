@@ -6,19 +6,21 @@ import * as result from "./fp/result";
 import { PatchError } from "./patch/ops";
 import { flatMapErrors, formatSyntaxError } from "./patch/ts/syntax";
 import { pipe } from "./fp/util";
+import { ValSourceFileHandler } from "./ValSourceFileHandler";
 
 export const patchValFile = async (
   id: string,
   valConfigPath: string,
   patch: Patch,
-  resolver: ValModuleResolver
+  resolver: ValModuleResolver,
+  sourceFileHandler: ValSourceFileHandler
 ): Promise<void> => {
   const filePath = resolver.resolveSourceModulePath(
     valConfigPath,
     `.${id}.val`
   );
 
-  const sourceFile = resolver.getSourceFile(filePath);
+  const sourceFile = sourceFileHandler.getSourceFile(filePath);
 
   if (!sourceFile) {
     throw Error(`Source file ${filePath} not found`);
@@ -43,5 +45,5 @@ export const patchValFile = async (
     }
   }
 
-  resolver.writeSourceFile(newSourceFile.value);
+  sourceFileHandler.writeSourceFile(newSourceFile.value);
 };
