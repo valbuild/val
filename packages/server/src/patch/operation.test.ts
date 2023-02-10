@@ -1,7 +1,7 @@
 import {
-  formatJSONPath,
-  JSONPath,
-  parseJSONPath,
+  formatJSONPointer,
+  JSONPointer,
+  parseJSONPointer,
   validateOperation,
 } from "./operation";
 import { JSONValue } from "./ops";
@@ -143,14 +143,14 @@ describe("validateOperation", () => {
       pipe(
         res,
         result.mapErr(
-          (errors) => new Set(errors.map(({ path }) => formatJSONPath(path)))
+          (errors) => new Set(errors.map(({ path }) => formatJSONPointer(path)))
         )
       )
     ).toEqual(result.err(errors));
   });
 });
 
-const JSONPathTestCases: { str: JSONPath; arr: string[] }[] = [
+const JSONPathTestCases: { str: JSONPointer; arr: string[] }[] = [
   {
     str: "/",
     arr: [],
@@ -181,14 +181,14 @@ const JSONPathTestCases: { str: JSONPath; arr: string[] }[] = [
   },
 ];
 
-describe("parseJSONPath", () => {
+describe("parseJSONPointer", () => {
   test.each(JSONPathTestCases)("$str", ({ str, arr }) => {
-    expect(parseJSONPath(str)).toEqual(arr);
+    expect(parseJSONPointer(str)).toEqual(arr);
   });
 });
 
-describe("formatJSONPath", () => {
+describe("formatJSONPointer", () => {
   test.each(JSONPathTestCases)("$str", ({ str, arr }) => {
-    expect(formatJSONPath(arr)).toEqual(str);
+    expect(formatJSONPointer(arr)).toEqual(str);
   });
 });

@@ -6,7 +6,7 @@ import { Ops, PatchError } from "./ops";
 import {
   Operation,
   PatchValidationError,
-  parseJSONPath,
+  parseJSONPointer,
   prefixErrorPath,
   validateOperation,
 } from "./operation";
@@ -46,7 +46,7 @@ function apply<T, E>(
   ops: Ops<T, E>,
   op: Operation
 ): result.Result<T, E | PatchError> {
-  const path = parseJSONPath(op.path);
+  const path = parseJSONPointer(op.path);
   switch (op.op) {
     case "add":
       return ops.add(document, path, op.value);
@@ -57,11 +57,11 @@ function apply<T, E>(
     case "move":
       return ops.move(
         document,
-        parseJSONPath(op.from) as NonEmptyArray<string>,
+        parseJSONPointer(op.from) as NonEmptyArray<string>,
         path
       );
     case "copy":
-      return ops.copy(document, parseJSONPath(op.from), path);
+      return ops.copy(document, parseJSONPointer(op.from), path);
     case "test": {
       if (!ops.test(document, path, op.value)) {
         return result.err(new PatchError("Test failed"));
