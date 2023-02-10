@@ -166,4 +166,18 @@ export class ValModuleResolver {
 
     return { match: false, tried: tried.concat(filePath) };
   }
+
+  getSourceFile(filePath: string): ts.SourceFile | undefined {
+    return this.compilerHost.getSourceFile(filePath, ts.ScriptTarget.ES2020);
+  }
+
+  writeSourceFile(sourceFile: ts.SourceFile) {
+    this.compilerHost.writeFile(
+      sourceFile.fileName,
+      sourceFile.text,
+      false,
+      undefined,
+      [sourceFile]
+    );
+  }
 }

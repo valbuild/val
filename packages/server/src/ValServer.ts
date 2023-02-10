@@ -1,6 +1,9 @@
 import express, { Router, RequestHandler } from "express";
-import { Operation, JsonPatchError } from "fast-json-patch";
 import { Service } from "./Service";
+import { validatePatch } from "./patch/patch";
+import { PatchError } from "./patch/ops";
+import * as result from "./fp/result";
+import { formatJSONPointer } from "./patch/operation";
 
 const getFileIdFromParams = (params: { 0: string }) => {
   return `/${params[0]}`;
@@ -47,17 +50,26 @@ export class ValServer {
     req: express.Request<{ 0: string }>,
     res: express.Response
   ): Promise<void> {
-    const patch: Operation[] = req.body;
+    const patch = validatePatch(req.body);
+    if (result.isErr(patch)) {
+      res
+        .status(401)
+        .send(
+          patch.error
+            .map(
+              ({ path, message }) => `${formatJSONPointer(path)}: ${message}`
+            )
+            .join("\n")
+        );
+      return;
+    }
     const id = getFileIdFromParams(req.params);
     try {
-      await this.service.patch(id, patch);
+      await this.service.patch(id, patch.value);
       res.send("OK");
     } catch (err) {
-      if (err instanceof JsonPatchError) {
-        res.status(400).json({
-          error: err.name,
-          index: err.index,
-        });
+      if (err instanceof PatchError) {
+        res.status(401).send(err.message);
       } else {
         console.error(err);
         res
