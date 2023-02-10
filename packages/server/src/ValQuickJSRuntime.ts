@@ -1,4 +1,4 @@
-import { QuickJSWASMModule } from "quickjs-emscripten";
+import { JSModuleNormalizeResult, QuickJSWASMModule } from "quickjs-emscripten";
 import { ValModuleResolver } from "./ValModuleResolver";
 
 export async function newValQuickJSRuntime(
@@ -19,13 +19,28 @@ export async function newValQuickJSRuntime(
 
   runtime.setModuleLoader(
     (modulePath) => {
-      return moduleResolver.getTranspiledCode(modulePath);
+      try {
+        return { value: moduleResolver.getTranspiledCode(modulePath) };
+      } catch (e) {
+        return {
+          error: Error(`Could not resolve module: ${modulePath}'`),
+        };
+      }
     },
-    (baseModuleName, requestedName) => {
-      return moduleResolver.resolveRuntimeModulePath(
-        baseModuleName,
-        requestedName
-      );
+    (baseModuleName, requestedName): JSModuleNormalizeResult => {
+      try {
+        const modulePath = moduleResolver.resolveRuntimeModulePath(
+          baseModuleName,
+          requestedName
+        );
+        return { value: modulePath };
+      } catch (e) {
+        console.debug(
+          `Could not resolve ${requestedName} in ${baseModuleName}`,
+          e
+        );
+        return { value: requestedName };
+      }
     }
   );
   return runtime;
