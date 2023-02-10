@@ -1,10 +1,6 @@
 import path from "path";
 import meow from "meow";
-import {
-  createRequestHandler,
-  createService,
-  ValModuleResolver,
-} from "@valbuild/server";
+import { createRequestHandler, createService } from "@valbuild/server";
 import { error, info } from "./logger";
 import express from "express";
 import cors from "cors";
@@ -19,10 +15,8 @@ async function serve({
   port: number;
   cfg?: string;
 }): Promise<void> {
-  const resolver = new ValModuleResolver(
-    root ? path.resolve(root) : process.cwd()
-  );
-  const service = await createService(resolver, {
+  const projectRoot = root ? path.resolve(root) : process.cwd();
+  const service = await createService(projectRoot, {
     valConfigPath: cfg ?? "./val.config",
   });
   const valReqHandler = createRequestHandler(service);
@@ -34,7 +28,7 @@ async function serve({
     server.listen(port, resolve);
   });
 
-  info(`Root is ${resolver.projectRoot}`);
+  info(`Root is ${projectRoot}`);
   info(`Config is ${service.valConfigPath}`);
   info(`Listening on port ${port}`);
 
