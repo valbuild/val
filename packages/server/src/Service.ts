@@ -3,8 +3,12 @@ import { newQuickJSWASMModule, QuickJSRuntime } from "quickjs-emscripten";
 import { patchValFile } from "./patchValFile";
 import { readValFile } from "./readValFile";
 import { Patch } from "./patch/patch";
-import { ValModuleResolver } from "./ValModuleResolver";
+import { ValModuleLoader } from "./ValModuleLoader";
 import { newValQuickJSRuntime } from "./ValQuickJSRuntime";
+import { ValSourceFileHandler } from "./ValSourceFileHandler";
+import ts from "typescript";
+import { getCompilerOptions } from "./getCompilerOptions";
+import { IValFSHost } from "./ValFSHost";
 
 export type ServiceOptions = {
   /**
@@ -16,12 +20,25 @@ export type ServiceOptions = {
 };
 
 export async function createService(
-  resolver: ValModuleResolver,
-  opts: ServiceOptions
+  projectRoot: string,
+  opts: ServiceOptions,
+  host: IValFSHost = ts.sys
 ): Promise<Service> {
+  const compilerOptions = getCompilerOptions(projectRoot, host);
+  const sourceFileHandler = new ValSourceFileHandler(
+    projectRoot,
+    compilerOptions,
+    host
+  );
+  const loader = new ValModuleLoader(
+    projectRoot,
+    compilerOptions,
+    sourceFileHandler,
+    host
+  );
   const module = await newQuickJSWASMModule();
-  const runtime = await newValQuickJSRuntime(module, resolver);
-  return new Service(opts, resolver, runtime);
+  const runtime = await newValQuickJSRuntime(module, loader);
+  return new Service(opts, sourceFileHandler, runtime);
 }
 
 export class Service {
@@ -29,7 +46,7 @@ export class Service {
 
   constructor(
     { valConfigPath }: ServiceOptions,
-    private readonly resolver: ValModuleResolver,
+    private readonly sourceFileHandler: ValSourceFileHandler,
     private readonly runtime: QuickJSRuntime
   ) {
     this.valConfigPath = valConfigPath;
@@ -42,7 +59,12 @@ export class Service {
   }
 
   async patch(moduleId: string, patch: Patch): Promise<void> {
-    return patchValFile(moduleId, this.valConfigPath, patch, this.resolver);
+    return patchValFile(
+      moduleId,
+      this.valConfigPath,
+      patch,
+      this.sourceFileHandler
+    );
   }
 
   dispose() {

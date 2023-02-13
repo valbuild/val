@@ -1,9 +1,9 @@
-import { QuickJSWASMModule } from "quickjs-emscripten";
-import { ValModuleResolver } from "./ValModuleResolver";
+import { JSModuleNormalizeResult, QuickJSWASMModule } from "quickjs-emscripten";
+import { ValModuleLoader } from "./ValModuleLoader";
 
 export async function newValQuickJSRuntime(
   quickJSModule: Pick<QuickJSWASMModule, "newRuntime">,
-  moduleResolver: ValModuleResolver,
+  moduleLoader: ValModuleLoader,
   {
     maxStackSize = 1024 * 640, // TODO: these were randomly chosen, we should figure out what the right values are:
     memoryLimit = 1024 * 640,
@@ -19,13 +19,28 @@ export async function newValQuickJSRuntime(
 
   runtime.setModuleLoader(
     (modulePath) => {
-      return moduleResolver.getTranspiledCode(modulePath);
+      try {
+        return { value: moduleLoader.getModule(modulePath) };
+      } catch (e) {
+        return {
+          error: Error(`Could not resolve module: ${modulePath}'`),
+        };
+      }
     },
-    (baseModuleName, requestedName) => {
-      return moduleResolver.resolveRuntimeModulePath(
-        baseModuleName,
-        requestedName
-      );
+    (baseModuleName, requestedName): JSModuleNormalizeResult => {
+      try {
+        const modulePath = moduleLoader.resolveModulePath(
+          baseModuleName,
+          requestedName
+        );
+        return { value: modulePath };
+      } catch (e) {
+        console.debug(
+          `Could not resolve ${requestedName} in ${baseModuleName}`,
+          e
+        );
+        return { value: requestedName };
+      }
     }
   );
   return runtime;

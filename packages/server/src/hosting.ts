@@ -1,15 +1,13 @@
 import type { RequestListener } from "node:http";
 import express from "express";
 import { createService, ServiceOptions } from "./Service";
-import { ValModuleResolver } from "./ValModuleResolver";
 import { createRequestHandler } from "./ValServer";
 
 async function _createRequestListener(
   route: string,
   opts: ServiceOptions
 ): Promise<RequestListener> {
-  const resolver = new ValModuleResolver(process.cwd());
-  const service = await createService(resolver, opts);
+  const service = await createService(process.cwd(), opts);
   const reqHandler = createRequestHandler(service);
   return express().use(route, reqHandler);
 }

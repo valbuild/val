@@ -23,9 +23,6 @@
     "react": ">=16.8.0"
   },
   "peerDependenciesMeta": {
-    "@babel/core": {
-      "optional": true
-    },
     "@types/react": {
       "optional": true
     }
