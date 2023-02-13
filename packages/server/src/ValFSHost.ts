@@ -1,31 +1,17 @@
 import path from "path";
+import ts from "typescript";
 import { ValFS } from "./ValFS";
 
 /**
  * An implementation of methods in the various ts.*Host interfaces
  * that uses ValFS to resolve modules and read/write files.
  */
-export interface IValFSHost {
+export interface IValFSHost
+  extends ts.ParseConfigHost,
+    ts.ModuleResolutionHost {
   useCaseSensitiveFileNames: boolean;
-  readDirectory(
-    rootDir: string,
-    extensions: readonly string[],
-    excludes: readonly string[] | undefined,
-    includes: readonly string[],
-    depth?: number | undefined
-  ): readonly string[];
 
   writeFile(fileName: string, text: string, writeByteOrderMark: boolean): void;
-
-  getCurrentDirectory?(): string;
-
-  getCanonicalFileName?(fileName: string): string;
-
-  fileExists(fileName: string): boolean;
-
-  readFile(fileName: string): string | undefined;
-
-  realpath?(path: string): string;
 }
 
 export class ValFSHost implements IValFSHost {
