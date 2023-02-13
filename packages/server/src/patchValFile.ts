@@ -1,4 +1,3 @@
-import { ValModuleResolver } from "./ValModuleResolver";
 import { analyzeValModule } from "./patch/ts/valModule";
 import { applyPatch, Patch } from "./patch/patch";
 import { TSOps } from "./patch/ts/ops";
@@ -12,10 +11,9 @@ export const patchValFile = async (
   id: string,
   valConfigPath: string,
   patch: Patch,
-  resolver: ValModuleResolver,
   sourceFileHandler: ValSourceFileHandler
 ): Promise<void> => {
-  const filePath = resolver.resolveSourceModulePath(
+  const filePath = sourceFileHandler.resolveSourceModulePath(
     valConfigPath,
     `.${id}.val`
   );

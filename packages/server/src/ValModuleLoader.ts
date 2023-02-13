@@ -1,7 +1,7 @@
-import path from "path";
 import ts from "typescript";
 import { getCompilerOptions } from "./getCompilerOptions";
 import type { IValFSHost } from "./ValFSHost";
+import { ValSourceFileHandler } from "./ValSourceFileHandler";
 
 const JsFileLookupMapping: [resolvedFileExt: string, replacements: string[]][] =
   [
@@ -12,17 +12,34 @@ const JsFileLookupMapping: [resolvedFileExt: string, replacements: string[]][] =
     [".d.ts", [".js"]],
   ];
 
-export class ValModuleResolver {
-  public readonly compilerOptions: ts.CompilerOptions;
+export const createModuleLoader = (
+  rootDir: string,
+  host: IValFSHost = ts.sys
+): ValModuleLoader => {
+  const compilerOptions = getCompilerOptions(rootDir, host);
+  const sourceFileHandler = new ValSourceFileHandler(
+    rootDir,
+    compilerOptions,
+    host
+  );
+  const loader = new ValModuleLoader(
+    rootDir,
+    compilerOptions,
+    sourceFileHandler,
+    host
+  );
+  return loader;
+};
 
+export class ValModuleLoader {
   constructor(
     public readonly projectRoot: string,
+    private readonly compilerOptions: ts.CompilerOptions,
+    private readonly sourceFileHandler: ValSourceFileHandler,
     private readonly host: IValFSHost = ts.sys
-  ) {
-    this.compilerOptions = getCompilerOptions(projectRoot, host);
-  }
+  ) {}
 
-  getTranspiledCode(modulePath: string): string {
+  getModule(modulePath: string): string {
     if (!modulePath) {
       throw Error(`Illegal module path: "${modulePath}"`);
     }
@@ -41,37 +58,11 @@ export class ValModuleResolver {
     });
   }
 
-  resolveSourceModulePath(
+  resolveModulePath(
     containingFilePath: string,
     requestedModuleName: string
   ): string {
-    const resolutionRes = ts.resolveModuleName(
-      requestedModuleName,
-      path.isAbsolute(containingFilePath)
-        ? containingFilePath
-        : path.resolve(this.projectRoot, containingFilePath),
-      this.compilerOptions,
-      this.host,
-      undefined,
-      undefined,
-      ts.ModuleKind.ESNext
-    );
-    const resolvedModule = resolutionRes.resolvedModule;
-    if (!resolvedModule) {
-      throw Error(
-        `Could not resolve module "${requestedModuleName}", base: "${containingFilePath}": No resolved modules returned: ${JSON.stringify(
-          resolutionRes
-        )}`
-      );
-    }
-    return resolvedModule.resolvedFileName;
-  }
-
-  resolveRuntimeModulePath(
-    containingFilePath: string,
-    requestedModuleName: string
-  ): string {
-    const sourceFileName = this.resolveSourceModulePath(
+    const sourceFileName = this.sourceFileHandler.resolveSourceModulePath(
       containingFilePath,
       requestedModuleName
     );

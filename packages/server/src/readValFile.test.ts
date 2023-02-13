@@ -4,7 +4,7 @@ import {
 } from "quickjs-emscripten";
 import { readValFile } from "./readValFile";
 import path from "path";
-import { ValModuleResolver } from "./ValModuleResolver";
+import { createModuleLoader } from "./ValModuleLoader";
 import { newValQuickJSRuntime } from "./ValQuickJSRuntime";
 
 const TestCaseDir = "../test/example-projects";
@@ -33,8 +33,8 @@ describe("read val file", () => {
 
   test.each(TestCases)("read basic val file from:  $name", async (testCase) => {
     const rootDir = path.resolve(__dirname, TestCaseDir, testCase.name);
-    const resolver = new ValModuleResolver(rootDir);
-    const testRuntime = await newValQuickJSRuntime(QuickJS, resolver, {
+    const loader = createModuleLoader(rootDir);
+    const testRuntime = await newValQuickJSRuntime(QuickJS, loader, {
       maxStackSize: 1024 * 640,
       memoryLimit: 1024 * 640,
     });
