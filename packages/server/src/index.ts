@@ -3,3 +3,8 @@ export { createService, Service } from "./Service";
 export { createRequestHandler } from "./ValServer";
 export { createRequestListener } from "./hosting";
 export { ValModuleLoader } from "./ValModuleLoader";
+export { getCompilerOptions } from "./getCompilerOptions";
+export { ValSourceFileHandler } from "./ValSourceFileHandler";
+export { ValFSHost } from "./ValFSHost";
+export type { IValFSHost } from "./ValFSHost";
+export type { ValFS } from "./ValFS";
