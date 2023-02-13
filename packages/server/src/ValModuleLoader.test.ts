@@ -1,4 +1,4 @@
-import { ValModuleResolver } from "./ValModuleResolver";
+import { createModuleLoader } from "./ValModuleLoader";
 import path from "path";
 
 const TestCaseDir = "../test/example-projects";
@@ -13,23 +13,23 @@ const TestCases = [
   { name: "typescript-description-files", valConfigDir: ".", ext: "js" },
 ];
 
-describe("val module resolver", () => {
+describe("val module loader", () => {
   test.each(TestCases)(
     "resolution and smoke test transpilation for: $name",
     async (testCase) => {
       const rootDir = path.resolve(__dirname, TestCaseDir, testCase.name);
-      const resolver = new ValModuleResolver(rootDir);
+      const loader = createModuleLoader(rootDir);
       expect(
-        await resolver.getTranspiledCode(
-          resolver.resolveRuntimeModulePath(
+        await loader.getModule(
+          loader.resolveModulePath(
             `${testCase.valConfigDir}/val-system.${testCase.ext}`,
             "./pages/blogs.val"
           )
         )
       ).toContain("/pages/blogs");
       expect(
-        await resolver.getTranspiledCode(
-          resolver.resolveRuntimeModulePath(
+        await loader.getModule(
+          loader.resolveModulePath(
             `${testCase.valConfigDir}/pages/blogs.val.${testCase.ext}`,
             "../val.config"
           )
@@ -44,14 +44,14 @@ describe("val module resolver", () => {
       TestCaseDir,
       "basic-next-src-typescript"
     );
-    const resolver = new ValModuleResolver(rootDir);
+    const moduleLoader = createModuleLoader(rootDir);
 
     const containingFile = "./src/pages/blogs.val.ts";
-    const baseCase = resolver.resolveRuntimeModulePath(
+    const baseCase = moduleLoader.resolveModulePath(
       containingFile,
       "../val.config"
     ); // tsconfig maps @ to src
-    const pathsMapping = resolver.resolveRuntimeModulePath(
+    const pathsMapping = moduleLoader.resolveModulePath(
       containingFile,
       "@/val.config"
     ); // tsconfig maps @ to src
@@ -65,11 +65,11 @@ describe("val module resolver", () => {
       TestCaseDir,
       "typescript-description-files"
     );
-    const resolver = new ValModuleResolver(rootDir);
+    const moduleLoader = createModuleLoader(rootDir);
 
     const containingFile = "./pages/blogs.val.js";
     expect(
-      resolver.resolveRuntimeModulePath(containingFile, "../val.config")
+      moduleLoader.resolveModulePath(containingFile, "../val.config")
     ).toMatch(/val\.config\.js$/);
   });
 });
