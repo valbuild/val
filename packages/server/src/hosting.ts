@@ -8,7 +8,7 @@ async function _createRequestListener(
   opts: ServiceOptions
 ): Promise<RequestListener> {
   const service = await createService(process.cwd(), opts);
-  const reqHandler = createRequestHandler(service);
+  const reqHandler = createRequestHandler(service, route);
   return express().use(route, reqHandler);
 }
 

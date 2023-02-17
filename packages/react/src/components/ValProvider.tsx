@@ -7,7 +7,7 @@ import React, {
   useEffect,
   useState,
 } from "react";
-import { logo, valcmsLogo } from "../assets";
+import { editIcon, logo, valcmsLogo } from "../assets";
 
 const baseZIndex = 8500; // Next uses 9000 highest z-index so keep us below that
 
@@ -99,29 +99,45 @@ const ValEditEnableButton = ({
   return (
     <button
       style={{
-        background: `url('${logo}')`,
-        backgroundSize: "contain",
-        backgroundRepeat: "no-repeat",
-        backgroundColor: "black",
-        border: "none",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
         position: "fixed",
         zIndex: baseZIndex + 1,
-        height: "50px",
-        width: "50px",
         cursor: "pointer",
-        borderRadius: "100%",
         left: "10px",
         bottom: "10px",
+        color: "white",
+        backgroundColor: "black",
+        height: "50px",
+        width: "10rem",
+        border: "1px solid white",
       }}
       onClick={() => {
-        if (!enabled) {
-          document.body.classList.add("val-edit-mode");
-        } else {
-          document.body.classList.remove("val-edit-mode");
-        }
         setEnabled(!enabled);
       }}
-    ></button>
+    >
+      <span
+        style={{
+          background: `url('${editIcon(18, "white")}')`,
+          backgroundSize: "contain",
+          backgroundRepeat: "no-repeat",
+          appearance: "none",
+          cursor: "pointer",
+          height: "18px",
+          width: "18px",
+          border: "none",
+        }}
+      ></span>
+      <span
+        style={{
+          marginLeft: "8px",
+          fontSize: "16px",
+        }}
+      >
+        EDIT
+      </span>
+    </button>
   );
 };
 
@@ -192,6 +208,7 @@ const patchModuleContent = async (
     );
   }
 };
+const ValFontFamily = "Arial, Verdana, Tahoma, Cantarell, sans-serif";
 
 const ValEditForm: React.FC<{
   host: string;
@@ -254,6 +271,7 @@ const ValEditForm: React.FC<{
         color: "white",
         padding: "10px",
         border: "1px solid white",
+        fontFamily: ValFontFamily,
       }}
       onSubmit={async (e) => {
         e.preventDefault();
@@ -341,6 +359,9 @@ export type ValProviderProps = {
   children?: React.ReactNode;
 };
 
+type AuthStatus = {
+  status: "not-asked" | "authenticated" | "unauthenticated" | "error";
+};
 export function ValProvider({
   host = "http://localhost:4123",
   children,
@@ -350,52 +371,38 @@ export function ValProvider({
   const [editFormPosition, setEditFormPosition] = useState<FormPosition | null>(
     null
   );
+  const [authentication, setAuthentication] = useState<AuthStatus>({
+    status: "not-asked",
+  });
 
   useEffect(() => {
-    if (!enabled) {
-      setSelectedIds([]);
-      setEditFormPosition(null);
-    }
-    // capture event clicks on data-val-ids elements
-    const editButtonClickListener = (e: MouseEvent) => {
-      if (enabled) {
-        if (e.target instanceof Element) {
-          const valId = e.target?.getAttribute("data-val-ids");
-          if (valId) {
-            e.stopPropagation();
-            setSelectedIds(valId.split(","));
-            const rect = e.target.getBoundingClientRect();
-            setEditFormPosition({
-              left: rect.right,
-              top: rect.top - 1 /* outline */,
-            });
-          }
-        }
-      }
-    };
-
     // create style element on body
     document.getElementById("val-edit-highlight")?.remove();
     const styleElement = document.createElement("style");
     styleElement.id = "val-edit-highlight";
     styleElement.innerHTML = `
         .val-edit-mode >* [data-val-ids] {
-          outline: black solid 1px;
-        }
-        .val-edit-mode >* [data-val-ids]:before {
-          content: '';
-          background: url('${logo}');
-          background-size: 20px;
-          background-repeat: no-repeat;
-          background-position: top;
-          padding: 4px;
-          cursor: pointer;
-          height: 20px;
-          width: 20px;
-          position: absolute;
+          outline: black solid 2px;
+          outline-offset: 4px;
         }
       `;
     document.body.appendChild(styleElement);
+
+    // capture event clicks on data-val-ids elements
+    const editButtonClickListener = (e: MouseEvent) => {
+      if (e.target instanceof Element) {
+        const valId = e.target?.getAttribute("data-val-ids");
+        if (valId) {
+          e.stopPropagation();
+          setSelectedIds(valId.split(","));
+          const rect = e.target.getBoundingClientRect();
+          setEditFormPosition({
+            left: rect.right,
+            top: rect.top - 1 /* outline */,
+          });
+        }
+      }
+    };
 
     //
     const editButtonClickOptions = {
@@ -413,8 +420,54 @@ export function ValProvider({
         editButtonClickListener,
         editButtonClickOptions
       );
+      styleElement.remove();
     };
-  }, [enabled, selectedIds.length]);
+  });
+
+  useEffect(() => {
+    const isAuthenticated = authentication.status === "authenticated";
+    if (!isAuthenticated) {
+      setSelectedIds([]);
+      setEditFormPosition(null);
+    }
+  }, [enabled, selectedIds.length, authentication.status]);
+
+  useEffect(() => {
+    if (enabled) {
+      document.body.classList.add("val-edit-mode");
+    } else {
+      document.body.classList.remove("val-edit-mode");
+    }
+
+    if (enabled) {
+      if (authentication.status !== "authenticated") {
+        fetch(`${host}/whoami`).then((res) => {
+          if (res.status === 401) {
+            setAuthentication({
+              status: "unauthenticated",
+            });
+          } else if (res.ok) {
+            setAuthentication({
+              status: "authenticated",
+            });
+          } else {
+            setAuthentication({
+              status: "error",
+            });
+          }
+
+          console.log(res.status);
+        });
+      }
+    } else {
+      if (authentication.status === "error") {
+        setAuthentication({
+          status: "not-asked",
+        });
+      }
+    }
+  }, [enabled]);
+
   return (
     <ValContext.Provider
       value={{
@@ -422,12 +475,122 @@ export function ValProvider({
       }}
     >
       {children}
-      <ValEditForm
-        host={host}
-        selectedIds={selectedIds}
-        position={editFormPosition}
+      {authentication.status === "authenticated" && (
+        <>
+          {enabled && (
+            <ValLogout host={host} setAuthentication={setAuthentication} />
+          )}
+          <ValEditForm
+            host={host}
+            selectedIds={selectedIds}
+            position={editFormPosition}
+          />
+        </>
+      )}
+      {enabled && authentication.status === "unauthenticated" && (
+        <ValLoginPrompt host={host} />
+      )}
+      {authentication.status === "error" && (
+        <div
+          style={{
+            position: "absolute",
+            height: "100vh",
+            width: "100vw",
+            background: "red",
+            zIndex: baseZIndex,
+            top: 0,
+            left: 0,
+          }}
+        >
+          Auth error!
+        </div>
+      )}
+      <iframe
+        src={`${host}/ui`}
+        style={{ position: "fixed", top: 0, left: 0, width }}
       />
       <ValEditEnableButton enabled={enabled} setEnabled={setEnabled} />
     </ValContext.Provider>
+  );
+}
+
+function Menu({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        minHeight: "2em",
+        width: "10rem",
+        background: "black",
+        color: "white",
+        zIndex: baseZIndex,
+        bottom: 68,
+        left: 10,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        border: "1px solid white",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function ValLogout({
+  host,
+  setAuthentication,
+}: {
+  host: string;
+  setAuthentication: (auth: AuthStatus) => void;
+}) {
+  return (
+    <Menu>
+      <button
+        style={{
+          color: "white",
+          background: "transparent",
+          border: "none",
+          cursor: "pointer",
+          width: "100%",
+          fontFamily: ValFontFamily,
+          fontWeight: "normal",
+          fontSize: "16px",
+        }}
+        onClick={() => {
+          fetch(`${host}/logout`).then((res) => {
+            if (res.ok) {
+              setAuthentication({
+                status: "unauthenticated",
+              });
+            } else {
+              console.error("Could not log out", res.status);
+            }
+          });
+        }}
+      >
+        Log out
+      </button>
+    </Menu>
+  );
+}
+
+function ValLoginPrompt({ host }: { host: string }) {
+  return (
+    <Menu>
+      <a
+        style={{
+          color: "white",
+          fontFamily: ValFontFamily,
+          fontWeight: "normal",
+          fontSize: "16px",
+        }}
+        href={`${host}/authorize?redirect_to=${encodeURIComponent(
+          location.href
+        )}`}
+      >
+        Login
+      </a>
+    </Menu>
   );
 }

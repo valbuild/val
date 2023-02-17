@@ -17,6 +17,11 @@ export type ServiceOptions = {
    * @example src/val.config
    */
   valConfigPath: string;
+
+  /**
+   * Host url of the Val application
+   */
+  appBaseUrl?: string;
 };
 
 export async function createService(
@@ -43,13 +48,15 @@ export async function createService(
 
 export class Service {
   readonly valConfigPath: string;
+  readonly appBaseUrl?: string;
 
   constructor(
-    { valConfigPath }: ServiceOptions,
+    { valConfigPath, appBaseUrl }: ServiceOptions,
     private readonly sourceFileHandler: ValSourceFileHandler,
     private readonly runtime: QuickJSRuntime
   ) {
     this.valConfigPath = valConfigPath;
+    this.appBaseUrl = appBaseUrl;
   }
 
   async get(
