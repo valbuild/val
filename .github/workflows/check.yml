@@ -65,4 +65,4 @@ jobs:
           node-version-file: ".nvmrc"
           cache: npm
       - run: npm ci
-      - run: npm -ws test
+      - run: npm test
