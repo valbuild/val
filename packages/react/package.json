@@ -72,5 +72,6 @@
       "default": "./jsx-dev-runtime/dist/valbuild-react-jsx-dev-runtime.cjs.js"
     },
     "./package.json": "./package.json"
-  }
+  },
+  "types": "dist/valbuild-react.cjs.d.ts"
 }
