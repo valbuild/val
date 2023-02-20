@@ -9,6 +9,7 @@
     },
     "./package.json": "./package.json"
   },
+  "types": "dist/valbuild-server.cjs.d.ts",
   "version": "0.6.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
