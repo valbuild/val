@@ -91,3 +91,24 @@ export function deepEqual(a: JSONValue, b: JSONValue) {
 
   return false;
 }
+
+export function deepClone<T extends JSONValue>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map(deepClone) as T;
+  } else if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, value]) => [key, deepClone(value)])
+    ) as T;
+  } else {
+    return value;
+  }
+}
+
+export function parseAndValidateArrayIndex(
+  value: string
+): result.Result<number, PatchError> {
+  if (!/^(0|[1-9][0-9]*)$/g.test(value)) {
+    return result.err(new PatchError(`Invalid array index "${value}"`));
+  }
+  return result.ok(Number(value));
+}

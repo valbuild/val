@@ -39,3 +39,14 @@ export function pipe(a: unknown, ...fns: ((u: unknown) => unknown)[]): unknown {
   }
   return current;
 }
+
+/**
+ * Runs the callback with the supplied value, then returns the value. Useful for
+ * debugging pipes.
+ */
+export function tap<T>(callback: (value: T) => void): (value: T) => T {
+  return (value) => {
+    callback(value);
+    return value;
+  };
+}
