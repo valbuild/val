@@ -1,24 +1,90 @@
 import { isNonEmpty, NonEmptyArray } from "../fp/array";
 import * as result from "../fp/result";
-import { JSONValue } from "./ops";
+import type { JSONValue } from "./ops";
+import { z } from "zod";
+import { pipe } from "../fp/util";
 
-export type JSONPointer = `/${string}`;
+const JSONValue: z.ZodType<JSONValue> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(JSONValue),
+    z.record(JSONValue),
+  ])
+);
+
+/**
+ * Raw JSON patch operation.
+ */
+export const OperationJSON = z.discriminatedUnion("op", [
+  z
+    .object({
+      op: z.literal("add"),
+      path: z.string(),
+      value: JSONValue,
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal("remove"),
+      /**
+       * Must be non-root
+       */
+      path: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal("replace"),
+      path: z.string(),
+      value: JSONValue,
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal("move"),
+      /**
+       * Must be non-root and not a proper prefix of "path".
+       */
+      from: z.string(),
+      path: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal("copy"),
+      from: z.string(),
+      path: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      op: z.literal("test"),
+      path: z.string(),
+      value: JSONValue,
+    })
+    .strict(),
+]);
+export type OperationJSON = z.infer<typeof OperationJSON>;
+
+/**
+ * Parsed form of JSON patch operation.
+ */
 export type Operation =
   | {
       op: "add";
-      path: JSONPointer;
+      path: string[];
       value: JSONValue;
     }
   | {
       op: "remove";
-      /**
-       * Must be non-root
-       */
-      path: JSONPointer;
+      path: NonEmptyArray<string>;
     }
   | {
       op: "replace";
-      path: JSONPointer;
+      path: string[];
       value: JSONValue;
     }
   | {
@@ -26,178 +92,155 @@ export type Operation =
       /**
        * Must be non-root and not a proper prefix of "path".
        */
-      from: JSONPointer;
-      path: JSONPointer;
+      // TODO: Replace with common prefix field
+      from: NonEmptyArray<string>;
+      path: string[];
     }
   | {
       op: "copy";
-      from: JSONPointer;
-      path: JSONPointer;
+      from: string[];
+      path: string[];
     }
   | {
       op: "test";
-      path: JSONPointer;
+      path: string[];
       value: JSONValue;
     };
 
 /**
- * A PatchValidationError signifies an error that makes a Patch or an Operation
- * invalid. Unlike PatchError, a PatchValidationError is independent of any
- * document which the Patch or Operation might be applied to.
+ * A signifies an issue that makes a PatchJSON or an OperationJSON invalid.
+ * Unlike PatchError, a StaticPatchIssue indicates an issue with the patch
+ * document itself; it is independent of any document which the patch or
+ * might be applied to.
  */
-export type PatchValidationError = {
+export type StaticPatchIssue = {
   path: string[];
   message: string;
 };
 
-export function prefixErrorPath(
+export function prefixIssuePath(
   prefix: string,
-  { path, message }: PatchValidationError
-): PatchValidationError {
+  { path, message }: StaticPatchIssue
+): StaticPatchIssue {
   return { path: [prefix, ...path], message };
 }
 
-const VALID_OPS = ["add", "remove", "replace", "move", "copy", "test"] as const;
-
-function isValidOp(op: unknown): op is Operation["op"] {
-  return (VALID_OPS as readonly unknown[]).includes(op);
+function createIssueAtPath(path: string[]) {
+  return (message: string): StaticPatchIssue => ({
+    path,
+    message,
+  });
 }
 
-function isJSONPath(path: string): path is JSONPointer {
-  return path.startsWith("/");
-}
-
-function isRoot(path: JSONPointer): path is "/" {
-  return path === "/";
-}
-
-function isProperPathPrefix(prefix: JSONPointer, path: JSONPointer): boolean {
-  return prefix !== path && `${path}/`.startsWith(`${prefix}/`);
-}
-
-export function validateOperation(
-  operation: JSONValue
-): result.Result<void, NonEmptyArray<PatchValidationError>> {
-  if (
-    typeof operation !== "object" ||
-    operation === null ||
-    Array.isArray(operation)
-  ) {
-    return result.err([
-      {
-        path: [],
-        message: "Not an object",
-      },
-    ]);
+function isProperPathPrefix(prefix: string[], path: string[]): boolean {
+  if (prefix.length >= path.length) {
+    // A proper prefix cannot be longer or have the same length as the path
+    return false;
   }
-
-  if (!("op" in operation)) {
-    return result.err([
-      {
-        path: ["op"],
-        message: "Missing member",
-      },
-    ]);
-  } else if (!isValidOp(operation.op)) {
-    return result.err([
-      {
-        path: ["op"],
-        message: "Invalid op",
-      },
-    ]);
-  }
-
-  const errors: PatchValidationError[] = [];
-
-  let path: JSONPointer | null = null;
-  if (!("path" in operation)) {
-    errors.push({
-      path: ["path"],
-      message: "Missing member",
-    });
-  } else if (
-    typeof operation.path !== "string" ||
-    !isJSONPath(operation.path)
-  ) {
-    errors.push({
-      path: ["path"],
-      message: "Not a JSON path",
-    });
-  } else {
-    path = operation.path;
-
-    if (operation.op === "remove" && isRoot(path)) {
-      errors.push({
-        path: ["path"],
-        message: "Cannot remove root",
-      });
+  for (let i = 0; i < prefix.length; ++i) {
+    if (prefix[i] !== path[i]) {
+      return false;
     }
   }
+  return true;
+}
 
-  if (
-    operation.op === "add" ||
-    operation.op === "replace" ||
-    operation.op === "test"
-  ) {
-    if (!("value" in operation)) {
-      errors.push({
-        path: ["value"],
-        message: "Missing member",
-      });
-    }
-  }
+export function parseOperation(
+  operation: OperationJSON
+): result.Result<Operation, NonEmptyArray<StaticPatchIssue>> {
+  const path = parseJSONPointer(operation.path);
 
-  if (operation.op === "move" || operation.op === "copy") {
-    if (!("from" in operation)) {
-      errors.push({
-        path: ["from"],
-        message: "Missing member",
-      });
-    } else if (
-      typeof operation.from !== "string" ||
-      !isJSONPath(operation.from)
-    ) {
-      errors.push({
-        path: ["from"],
-        message: "Not a JSON path",
-      });
-    } else if (operation.op === "move" && path !== null) {
-      const from = operation.from;
-
-      if (isRoot(from)) {
-        errors.push({
-          path: ["from"],
-          message: "Cannot move root",
-        });
-      }
-
-      // The "from" location MUST NOT be a proper prefix of the "path"
-      // location; i.e., a location cannot be moved into one of its children.
-      if (isProperPathPrefix(from, path)) {
-        errors.push({
-          path: ["from"],
-          message: "Cannot be a proper prefix of path",
-        });
-      }
-    }
-  }
-
-  if (isNonEmpty(errors)) {
-    return result.err(errors);
-  } else {
-    return result.voidOk;
+  switch (operation.op) {
+    case "add":
+    case "replace":
+    case "test":
+      return pipe(
+        path,
+        result.mapErr(
+          (error: string): NonEmptyArray<StaticPatchIssue> => [
+            createIssueAtPath(["path"])(error),
+          ]
+        ),
+        result.map((path: string[]) => ({
+          op: operation.op,
+          path,
+          value: operation.value,
+        }))
+      );
+    case "remove":
+      return pipe(
+        path,
+        result.filterOrElse(isNonEmpty, () => "Cannot remove root"),
+        result.mapErr(
+          (error: string): NonEmptyArray<StaticPatchIssue> => [
+            createIssueAtPath(["path"])(error),
+          ]
+        ),
+        result.map((path: NonEmptyArray<string>) => ({
+          op: operation.op,
+          path,
+        }))
+      );
+    case "move":
+      return pipe(
+        result.allT<
+          [from: NonEmptyArray<string>, path: string[]],
+          StaticPatchIssue
+        >([
+          pipe(
+            parseJSONPointer(operation.from),
+            result.filterOrElse(isNonEmpty, () => "Cannot move root"),
+            result.mapErr(createIssueAtPath(["from"]))
+          ),
+          pipe(path, result.mapErr(createIssueAtPath(["path"]))),
+        ]),
+        result.filterOrElse(
+          ([from, path]) => !isProperPathPrefix(from, path),
+          (): NonEmptyArray<StaticPatchIssue> => [
+            createIssueAtPath(["from"])("Cannot be a proper prefix of path"),
+          ]
+        ),
+        result.map(([from, path]) => ({
+          op: operation.op,
+          from,
+          path,
+        }))
+      );
+    case "copy":
+      return pipe(
+        result.allT<[from: string[], path: string[]], StaticPatchIssue>([
+          pipe(
+            parseJSONPointer(operation.from),
+            result.mapErr(createIssueAtPath(["from"]))
+          ),
+          pipe(path, result.mapErr(createIssueAtPath(["path"]))),
+        ]),
+        result.map(([from, path]) => ({
+          op: operation.op,
+          from,
+          path,
+        }))
+      );
   }
 }
 
-export function parseJSONPointer(path: JSONPointer): string[] {
-  if (path === "/") return [];
-  return path
-    .substring(1)
-    .split("/")
-    .map((key) => key.replace(/~1/g, "/").replace(/~0/g, "~"));
+export function parseJSONPointer(
+  path: string
+): result.Result<string[], string> {
+  if (path === "/") return result.ok([]);
+  if (!path.startsWith("/"))
+    return result.err("JSON pointer must start with /");
+
+  return result.ok(
+    path
+      .substring(1)
+      .split("/")
+      // TODO: Handle invalid escapes?
+      .map((key) => key.replace(/~1/g, "/").replace(/~0/g, "~"))
+  );
 }
 
-export function formatJSONPointer(path: string[]): JSONPointer {
+export function formatJSONPointer(path: string[]): string {
   return `/${path
     .map((key) => key.replace(/~/g, "~0").replace(/\//g, "~1"))
     .join("/")}`;

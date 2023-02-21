@@ -1,23 +1,30 @@
 import {
   formatJSONPointer,
-  JSONPointer,
+  OperationJSON,
+  Operation,
   parseJSONPointer,
-  validateOperation,
+  parseOperation,
+  StaticPatchIssue,
 } from "./operation";
-import { JSONValue } from "./ops";
 import * as result from "../fp/result";
-import { pipe } from "../fp/util";
+import { NonEmptyArray } from "../fp/array";
 
-describe("validateOperation", () => {
+describe("parseOperation", () => {
   test.each<{
     name: string;
-    value: JSONValue;
+    value: OperationJSON;
+    expected: Operation;
   }>([
     {
       name: "basic add operation",
       value: {
         op: "add",
         path: "/",
+        value: null,
+      },
+      expected: {
+        op: "add",
+        path: [],
         value: null,
       },
     },
@@ -27,12 +34,21 @@ describe("validateOperation", () => {
         op: "remove",
         path: "/foo",
       },
+      expected: {
+        op: "remove",
+        path: ["foo"],
+      },
     },
     {
       name: "basic replace operation",
       value: {
         op: "replace",
         path: "/",
+        value: null,
+      },
+      expected: {
+        op: "replace",
+        path: [],
         value: null,
       },
     },
@@ -43,13 +59,23 @@ describe("validateOperation", () => {
         from: "/foo",
         path: "/bar",
       },
+      expected: {
+        op: "move",
+        from: ["foo"],
+        path: ["bar"],
+      },
     },
     {
       name: "basic copy operation",
       value: {
-        op: "move",
+        op: "copy",
         from: "/foo",
         path: "/bar",
+      },
+      expected: {
+        op: "copy",
+        from: ["foo"],
+        path: ["bar"],
       },
     },
     {
@@ -59,42 +85,22 @@ describe("validateOperation", () => {
         path: "/",
         value: null,
       },
+      expected: {
+        op: "test",
+        path: [],
+        value: null,
+      },
     },
-  ])("$name is valid", ({ value }) => {
-    const res = validateOperation(value);
-    expect(res).toEqual(result.voidOk);
+  ])("$name is valid", ({ value, expected }) => {
+    const res = parseOperation(value);
+    expect(res).toEqual(result.ok(expected));
   });
 
   test.each<{
     name: string;
-    value: JSONValue;
-    errors: Set<string>;
+    value: OperationJSON;
+    errors: NonEmptyArray<string[]>;
   }>([
-    {
-      name: "operation with no op",
-      value: {
-        path: "/",
-        value: null,
-      },
-      errors: new Set(["/op"]),
-    },
-    {
-      name: "operation with unknown op",
-      value: {
-        op: "foo",
-        path: "/",
-        value: null,
-      },
-      errors: new Set(["/op"]),
-    },
-    {
-      name: "add operation with no path",
-      value: {
-        op: "add",
-        value: null,
-      },
-      errors: new Set(["/path"]),
-    },
     {
       name: "add operation with empty path",
       value: {
@@ -102,14 +108,7 @@ describe("validateOperation", () => {
         path: "",
         value: null,
       },
-      errors: new Set(["/path"]),
-    },
-    {
-      name: "add operation with no path or value",
-      value: {
-        op: "add",
-      },
-      errors: new Set(["/path", "/value"]),
+      errors: [["path"]],
     },
     {
       name: "remove root",
@@ -117,7 +116,7 @@ describe("validateOperation", () => {
         op: "remove",
         path: "/",
       },
-      errors: new Set(["/path"]),
+      errors: [["path"]],
     },
     {
       name: "move from root",
@@ -126,7 +125,7 @@ describe("validateOperation", () => {
         from: "/",
         path: "/",
       },
-      errors: new Set(["/from"]),
+      errors: [["from"]],
     },
     {
       name: "move from prefix of path",
@@ -135,22 +134,25 @@ describe("validateOperation", () => {
         from: "/foo",
         path: "/foo/bar",
       },
-      errors: new Set(["/from"]),
+      errors: [["from"]],
     },
   ])("$name is invalid", ({ value, errors }) => {
-    const res = validateOperation(value);
-    expect(
-      pipe(
-        res,
-        result.mapErr(
-          (errors) => new Set(errors.map(({ path }) => formatJSONPointer(path)))
+    expect(parseOperation(value)).toEqual(
+      result.err(
+        expect.arrayContaining<NonEmptyArray<StaticPatchIssue>>(
+          errors.map((path) =>
+            expect.objectContaining<StaticPatchIssue>({
+              path,
+              message: expect.anything(),
+            })
+          )
         )
       )
-    ).toEqual(result.err(errors));
+    );
   });
 });
 
-const JSONPathTestCases: { str: JSONPointer; arr: string[] }[] = [
+const JSONPathTestCases: { str: string; arr: string[] }[] = [
   {
     str: "/",
     arr: [],
@@ -183,7 +185,7 @@ const JSONPathTestCases: { str: JSONPointer; arr: string[] }[] = [
 
 describe("parseJSONPointer", () => {
   test.each(JSONPathTestCases)("$str", ({ str, arr }) => {
-    expect(parseJSONPointer(str)).toEqual(arr);
+    expect(parseJSONPointer(str)).toEqual(result.ok(arr));
   });
 });
 
