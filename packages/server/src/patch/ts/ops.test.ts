@@ -11,7 +11,8 @@ function testSourceFile(expression: string): ts.SourceFile {
   return ts.createSourceFile(
     "test.ts",
     `(${expression})`,
-    ts.ScriptTarget.ES2020
+    ts.ScriptTarget.ES2020,
+    true
   );
 }
 
@@ -145,19 +146,11 @@ describe("TSOps", () => {
   ])("add $name", ({ input, path, value, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);
-    expect(
-      pipe(
-        ops.add(src, path, value),
-        result.map((src) => src.text),
-        result.mapErr((error) =>
-          error instanceof PatchError ? PatchError : ValSyntaxError
-        )
-      )
-    ).toEqual(
+    expect(ops.add(src, path, value)).toEqual(
       pipe(
         expected,
         result.map(testSourceFile),
-        result.map((src) => src.text)
+        result.mapErr((errorType) => expect.any(errorType))
       )
     );
   });
@@ -231,19 +224,11 @@ describe("TSOps", () => {
   ])("remove $name", ({ input, path, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);
-    expect(
-      pipe(
-        ops.remove(src, path),
-        result.map((src) => src.text),
-        result.mapErr((error) =>
-          error instanceof PatchError ? PatchError : ValSyntaxError
-        )
-      )
-    ).toEqual(
+    expect(ops.remove(src, path)).toEqual(
       pipe(
         expected,
         result.map(testSourceFile),
-        result.map((src) => src.text)
+        result.mapErr((errorType) => expect.any(errorType))
       )
     );
   });
@@ -328,19 +313,11 @@ describe("TSOps", () => {
   ])("replace $name", ({ input, path, value, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);
-    expect(
-      pipe(
-        ops.replace(src, path, value),
-        result.map((src) => src.text),
-        result.mapErr((error) =>
-          error instanceof PatchError ? PatchError : ValSyntaxError
-        )
-      )
-    ).toEqual(
+    expect(ops.replace(src, path, value)).toEqual(
       pipe(
         expected,
         result.map(testSourceFile),
-        result.map((src) => src.text)
+        result.mapErr((errorType) => expect.any(errorType))
       )
     );
   });
@@ -425,19 +402,11 @@ describe("TSOps", () => {
   ])("move $name", ({ input, from, path, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);
-    expect(
-      pipe(
-        ops.move(src, from, path),
-        result.map((src) => src.text),
-        result.mapErr((error) =>
-          error instanceof PatchError ? PatchError : ValSyntaxError
-        )
-      )
-    ).toEqual(
+    expect(ops.move(src, from, path)).toEqual(
       pipe(
         expected,
         result.map(testSourceFile),
-        result.map((src) => src.text)
+        result.mapErr((errorType) => expect.any(errorType))
       )
     );
   });
@@ -529,20 +498,8 @@ describe("TSOps", () => {
   ])("copy $name", ({ input, from, path, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);
-    expect(
-      pipe(
-        ops.copy(src, from, path),
-        result.map((src) => src.text),
-        result.mapErr((error) =>
-          error instanceof PatchError ? PatchError : ValSyntaxError
-        )
-      )
-    ).toEqual(
-      pipe(
-        expected,
-        result.map(testSourceFile),
-        result.map((src) => src.text)
-      )
+    expect(ops.copy(src, from, path)).toEqual(
+      pipe(expected, result.map(testSourceFile), result.mapErr(expect.any))
     );
   });
 
@@ -654,13 +611,8 @@ describe("TSOps", () => {
   ])("test $name", ({ input, path, value, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);
-    expect(
-      pipe(
-        ops.test(src, path, value),
-        result.mapErr((error) =>
-          error instanceof PatchError ? PatchError : ValSyntaxError
-        )
-      )
-    ).toEqual(expected);
+    expect(ops.test(src, path, value)).toEqual(
+      pipe(expected, result.mapErr(expect.any))
+    );
   });
 });
