@@ -3,5 +3,6 @@
   "module": "dist/valbuild-react-jsx-dev-runtime.esm.js",
   "browser": {
     "./dist/valbuild-react-jsx-dev-runtime.esm.js": "./dist/valbuild-react-jsx-dev-runtime.browser.esm.js"
-  }
+  },
+  "types": "../src/jsx-runtime.dev.d.ts"
 }

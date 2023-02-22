@@ -27,5 +27,8 @@
     "entrypoints": [
       "cli.ts"
     ]
+  },
+  "engines": {
+    "node": ">=16.0.0"
   }
 }
