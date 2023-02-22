@@ -224,20 +224,45 @@ export function parseOperation(
   }
 }
 
+function parseJSONPointerReferenceToken(value: string): string | undefined {
+  if (value.endsWith("~")) {
+    return undefined;
+  }
+  try {
+    return value.replace(/~./, (escaped) => {
+      switch (escaped) {
+        case "~0":
+          return "~";
+        case "~1":
+          return "/";
+      }
+      throw new Error();
+    });
+  } catch (e) {
+    return undefined;
+  }
+}
+
 export function parseJSONPointer(
-  path: string
+  pointer: string
 ): result.Result<string[], string> {
-  if (path === "/") return result.ok([]);
-  if (!path.startsWith("/"))
+  if (pointer === "/") return result.ok([]);
+  if (!pointer.startsWith("/"))
     return result.err("JSON pointer must start with /");
 
-  return result.ok(
-    path
-      .substring(1)
-      .split("/")
-      // TODO: Handle invalid escapes?
-      .map((key) => key.replace(/~1/g, "/").replace(/~0/g, "~"))
-  );
+  const tokens = pointer
+    .substring(1)
+    .split("/")
+    .map(parseJSONPointerReferenceToken);
+  if (
+    tokens.every(
+      (token: string | undefined): token is string => token !== undefined
+    )
+  ) {
+    return result.ok(tokens);
+  } else {
+    return result.err("Invalid JSON pointer escape sequence");
+  }
 }
 
 export function formatJSONPointer(path: string[]): string {

@@ -24,7 +24,7 @@ export function parsePatch(
       .map(
         result.mapErr(
           map((error: StaticPatchIssue, index: number) =>
-            prefixIssuePath(`/${index}`, error)
+            prefixIssuePath(index.toString(), error)
           )
         )
       ),
