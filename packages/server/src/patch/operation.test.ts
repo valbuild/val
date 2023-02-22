@@ -152,7 +152,7 @@ describe("parseOperation", () => {
   });
 });
 
-const JSONPathTestCases: { str: string; arr: string[] }[] = [
+const JSONPointerTestCases: { str: string; arr: string[] }[] = [
   {
     str: "/",
     arr: [],
@@ -184,13 +184,20 @@ const JSONPathTestCases: { str: string; arr: string[] }[] = [
 ];
 
 describe("parseJSONPointer", () => {
-  test.each(JSONPathTestCases)("$str", ({ str, arr }) => {
+  test.each(JSONPointerTestCases)("valid: $str", ({ str, arr }) => {
     expect(parseJSONPointer(str)).toEqual(result.ok(arr));
   });
+
+  test.each(["", "foo", "foo/bar", "/~2", "/~"])(
+    "invalid: %s",
+    (path: string) => {
+      expect(parseJSONPointer(path)).toEqual(result.err(expect.any(String)));
+    }
+  );
 });
 
 describe("formatJSONPointer", () => {
-  test.each(JSONPathTestCases)("$str", ({ str, arr }) => {
+  test.each(JSONPointerTestCases)("$str", ({ str, arr }) => {
     expect(formatJSONPointer(arr)).toEqual(str);
   });
 });
