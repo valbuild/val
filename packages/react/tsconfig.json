@@ -10,7 +10,9 @@
     "module": "CommonJS",
     "noEmit": true,
     "target": "ES5",
-    "outDir": "dist"
+    "outDir": "dist",
+    "rootDir": "src"
   },
+  "include": ["src/**/*"],
   "exclude": ["dist/**", "jsx-runtime/dist/**", "jsx-dev-runtime/dist/**"]
 }
