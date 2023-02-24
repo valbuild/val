@@ -4,6 +4,7 @@ import { validatePatch } from "./patch/patch";
 import { PatchError } from "./patch/ops";
 import * as result from "./fp/result";
 import { formatJSONPointer } from "./patch/operation";
+import url from "url";
 
 const getFileIdFromParams = (params: { 0: string }) => {
   return `/${params[0]}`;
@@ -12,6 +13,9 @@ const getFileIdFromParams = (params: { 0: string }) => {
 export function createRequestHandler(service: Service): RequestHandler {
   return new ValServer(service).createRouter();
 }
+
+// @ts-expect-error import.meta is supported by babel/rollup
+const assetDir = url.fileURLToPath(new url.URL("../assets/", import.meta.url));
 
 export class ValServer {
   constructor(readonly service: Service) {}
@@ -26,6 +30,7 @@ export class ValServer {
       }),
       this.patchIds.bind(this)
     );
+    router.use("/assets", express.static(assetDir));
     return router;
   }
 
