@@ -505,10 +505,6 @@ export function ValProvider({
           Auth error!
         </div>
       )}
-      <iframe
-        src={`${host}/ui`}
-        style={{ position: "fixed", top: 0, left: 0, width }}
-      />
       <ValEditEnableButton enabled={enabled} setEnabled={setEnabled} />
     </ValContext.Provider>
   );
