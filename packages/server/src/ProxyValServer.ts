@@ -97,14 +97,18 @@ export class ProxyValServer {
       );
       return;
     }
-    const cookie = createUserCookie(user, this.options.sessionKey);
+    const exp = getExpire();
+    const cookie = encodeJwt(
+      userToJwtPayload(user, exp),
+      this.options.sessionKey
+    );
 
     res
       .cookie(VAL_SESSION_COOKIE, cookie, {
         httpOnly: true,
         sameSite: "strict",
         secure: true,
-        expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 3), // 5 days - NOTE: this is not used for authorization, only for authentication
+        expires: new Date(exp * 1000), // NOTE: this is not used for authorization, only for authentication
       })
       .redirect(callbackReqSuccess.redirect_uri || "/");
   }
@@ -112,7 +116,7 @@ export class ProxyValServer {
   async whoami(req: express.Request, res: express.Response): Promise<void> {
     const cookie = req.cookies[VAL_SESSION_COOKIE];
     if (typeof cookie === "string") {
-      const user = getUserFromCookie(cookie, this.options.sessionKey);
+      const user = decodeJwt(cookie, this.options.sessionKey);
       res.json(user);
     } else {
       res.sendStatus(401);
@@ -143,6 +147,10 @@ export class ProxyValServer {
 
 type User = {
   id: string;
+};
+type JwtPayload = {
+  sub: string;
+  exp: number;
 };
 
 function verifyCallbackReq(req: express.Request):
@@ -215,39 +223,72 @@ async function exchangeCodeForUser(
     });
 }
 
-function getUserFromCookie(cookie: string, sessionKey: string): User | null {
-  // TODO: see comment in createUserCookie
-  const [userBase64, signatureBase64] = cookie.split(".");
-  if (!userBase64 || !signatureBase64) {
-    console.debug("Invalid cookie: no user or signature");
+function decodeJwt(cookie: string, sessionKey: string): JwtPayload | null {
+  const [headerBase64, payloadBase64, signatureBase64] = cookie.split(".");
+  if (!headerBase64 || !payloadBase64 || !signatureBase64) {
+    console.debug("Invalid cookie: missing header, payload or signature");
     return null;
   }
   const signature = crypto
     .createHmac("sha256", sessionKey)
-    .update(userBase64)
+    .update(`${headerBase64}.${payloadBase64}`)
     .digest("base64");
   if (signature !== signatureBase64) {
     console.debug("Invalid cookie: invalid signature");
     return null;
   }
-  const user = JSON.parse(Buffer.from(userBase64, "base64").toString("utf8"));
-  if (typeof user !== "object" || user === null) {
-    console.debug("Invalid cookie: could not parse user");
+  const payload = JSON.parse(
+    Buffer.from(payloadBase64, "base64").toString("utf8")
+  );
+  if (typeof payload !== "object" || payload === null) {
+    console.debug("Invalid cookie: could not parse payload");
     return null;
   }
-  if (typeof user.id !== "string") {
-    console.debug("Invalid cookie: invalid user (id was not a string)", user);
+  if (typeof payload.sub !== "string") {
+    console.debug(
+      "Invalid cookie: invalid payload (sub was not a string)",
+      payload
+    );
     return null;
   }
-  return user;
+  if (typeof payload.exp !== "number") {
+    console.debug(
+      "Invalid cookie: invalid payload (exp was not a number)",
+      payload
+    );
+    return null;
+  }
+  if (payload.exp < Math.floor(Date.now() / 1000)) {
+    console.debug("Invalid cookie: expired", payload);
+    return null;
+  }
+  return payload;
 }
 
-function createUserCookie(user: User, sessionKey: string): string {
-  // NOTE: this is only used for authentication, not for authorization (i.e. what a user can do) - this is handled on on the val app
-  const userBase64 = Buffer.from(JSON.stringify(user)).toString("base64");
-  return `${userBase64}.${crypto
+function getExpire(): number {
+  return Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 4; // 4 days
+}
+
+const jwtHeader = {
+  alg: "HS256",
+  typ: "JWT",
+};
+const jwtHeaderBase64 = Buffer.from(JSON.stringify(jwtHeader)).toString(
+  "base64"
+);
+function userToJwtPayload(user: User, exp: number): JwtPayload {
+  return {
+    sub: user.id,
+    exp,
+  };
+}
+
+function encodeJwt(payload: JwtPayload, sessionKey: string): string {
+  // NOTE: this is only used for authentication, not for authorization (i.e. what a user can do) - this is handled when actually doing operations
+  const payloadBase64 = Buffer.from(JSON.stringify(payload)).toString("base64");
+  return `${jwtHeaderBase64}.${payloadBase64}.${crypto
     .createHmac("sha256", sessionKey)
-    .update(userBase64)
+    .update(`${jwtHeaderBase64}.${payloadBase64}`)
     .digest("base64")}`;
 }
 
