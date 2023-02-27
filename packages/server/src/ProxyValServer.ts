@@ -336,7 +336,8 @@ function getAuthorizeUrl(
   valBuildUrl: string
 ): string {
   return `${valBuildUrl}/authorize?${new URLSearchParams({
-    redirect_uri: encodeURIComponent(`${basePath}/callback?state=${token}`),
+    redirect_uri: encodeURIComponent(`${basePath}/callback`),
+    state: token,
   }).toString()}`;
 }
 
