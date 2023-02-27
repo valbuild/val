@@ -14,7 +14,6 @@ export function createRequestHandler(service: Service): RequestHandler {
   return new ValServer(service).createRouter();
 }
 
-// @ts-expect-error import.meta is supported by babel/rollup
 const assetDir = url.fileURLToPath(new url.URL("../assets/", import.meta.url));
 
 export class ValServer {

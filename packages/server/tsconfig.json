@@ -3,7 +3,9 @@
     "strict": true,
     "isolatedModules": true,
     "noEmit": true,
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "node16"
   },
   "exclude": ["test/**/*"]
 }
