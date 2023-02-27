@@ -19,7 +19,10 @@ async function serve({
   const service = await createService(projectRoot, {
     valConfigPath: cfg ?? "./val.config",
   });
-  const valReqHandler = createRequestHandler(service);
+  const valReqHandler = createRequestHandler({
+    mode: "local",
+    service,
+  });
   const app = express();
   // TODO: Properly configure CORS
   app.use(cors(), valReqHandler);
