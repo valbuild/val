@@ -359,9 +359,14 @@ export type ValProviderProps = {
   children?: React.ReactNode;
 };
 
-type AuthStatus = {
-  status: "not-asked" | "authenticated" | "unauthenticated" | "error";
-};
+type AuthStatus =
+  | {
+      status: "not-asked" | "authenticated" | "unauthenticated";
+    }
+  | {
+      status: "error";
+      message: string;
+    };
 export function ValProvider({
   host = "http://localhost:4123",
   children,
@@ -441,7 +446,7 @@ export function ValProvider({
 
     if (enabled) {
       if (authentication.status !== "authenticated") {
-        fetch(`${host}/whoami`).then((res) => {
+        fetch(`${host}/whoami`).then(async (res) => {
           if (res.status === 401) {
             setAuthentication({
               status: "unauthenticated",
@@ -451,8 +456,15 @@ export function ValProvider({
               status: "authenticated",
             });
           } else {
+            let message = "Unknown error";
+            try {
+              message = await res.text();
+            } catch {
+              // ignore
+            }
             setAuthentication({
               status: "error",
+              message,
             });
           }
 
@@ -502,7 +514,7 @@ export function ValProvider({
             left: 0,
           }}
         >
-          Auth error!
+          Error: {authentication.message}
         </div>
       )}
       <ValEditEnableButton enabled={enabled} setEnabled={setEnabled} />
