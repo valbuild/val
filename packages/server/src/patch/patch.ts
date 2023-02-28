@@ -1,43 +1,35 @@
 import * as result from "../fp/result";
 import { NonEmptyArray, flatten, map } from "../fp/array";
 import { pipe } from "../fp/util";
-import { JSONValue } from "./ops";
 import { Ops, PatchError } from "./ops";
 import {
+  StaticPatchIssue,
+  prefixIssuePath,
+  parseOperation,
   Operation,
-  PatchValidationError,
-  parseJSONPointer,
-  prefixErrorPath,
-  validateOperation,
+  OperationJSON,
 } from "./operation";
+import { z } from "zod";
 
+export const PatchJSON = z.array(OperationJSON);
+export type PatchJSON = z.infer<typeof PatchJSON>;
 export type Patch = Operation[];
 
-export function validatePatch(
-  patch: JSONValue
-): result.Result<Patch, NonEmptyArray<PatchValidationError>> {
-  if (!Array.isArray(patch)) {
-    return result.err([
-      {
-        path: [],
-        message: "Not an array",
-      },
-    ]);
-  }
-
+export function parsePatch(
+  patch: PatchJSON
+): result.Result<Patch, NonEmptyArray<StaticPatchIssue>> {
   return pipe(
     patch
-      .map(validateOperation)
+      .map(parseOperation)
       .map(
         result.mapErr(
-          map((error: PatchValidationError, index: number) =>
-            prefixErrorPath(`/${index}`, error)
+          map((error: StaticPatchIssue, index: number) =>
+            prefixIssuePath(index.toString(), error)
           )
         )
       ),
-    result.allV,
-    result.mapErr(flatten<PatchValidationError>),
-    result.map(() => patch as Operation[])
+    result.all,
+    result.mapErr(flatten<StaticPatchIssue>)
   );
 }
 
@@ -46,24 +38,19 @@ function apply<T, E>(
   ops: Ops<T, E>,
   op: Operation
 ): result.Result<T, E | PatchError> {
-  const path = parseJSONPointer(op.path);
   switch (op.op) {
     case "add":
-      return ops.add(document, path, op.value);
+      return ops.add(document, op.path, op.value);
     case "remove":
-      return ops.remove(document, path as NonEmptyArray<string>);
+      return ops.remove(document, op.path);
     case "replace":
-      return ops.replace(document, path, op.value);
+      return ops.replace(document, op.path, op.value);
     case "move":
-      return ops.move(
-        document,
-        parseJSONPointer(op.from) as NonEmptyArray<string>,
-        path
-      );
+      return ops.move(document, op.from, op.path);
     case "copy":
-      return ops.copy(document, parseJSONPointer(op.from), path);
+      return ops.copy(document, op.from, op.path);
     case "test": {
-      if (!ops.test(document, path, op.value)) {
+      if (!ops.test(document, op.path, op.value)) {
         return result.err(new PatchError("Test failed"));
       }
       return result.ok(document);
