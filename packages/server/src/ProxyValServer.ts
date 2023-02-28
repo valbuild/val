@@ -1,5 +1,6 @@
 import express, { Router } from "express";
 import crypto from "crypto";
+import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 
 const VAL_SESSION_COOKIE = "val_session";
 const VAL_STATE_COOKIE = "val_state";
@@ -17,7 +18,7 @@ export type ProxyValServerOptions = {
   /**
    * The base url of Val
    *
-   * @example https://val.build
+   * @example https://app.val.build
    */
   valBuildUrl: string;
 };
@@ -83,12 +84,12 @@ export class ProxyValServer {
       return;
     }
 
-    const user = await exchangeCodeForUser(
+    const data = await consumeCode(
       callbackReqSuccess.code,
       this.options.apiKey,
       this.options.valBuildUrl
     );
-    if (user === null) {
+    if (data === null) {
       res.redirect(
         getAppErrorUrl(
           "Failed to exchange code for user",
@@ -99,7 +100,10 @@ export class ProxyValServer {
     }
     const exp = getExpire();
     const cookie = encodeJwt(
-      userToJwtPayload(user, exp),
+      {
+        ...data,
+        exp, // this is the client side exp
+      },
       this.options.sessionKey
     );
 
@@ -116,8 +120,8 @@ export class ProxyValServer {
   async whoami(req: express.Request, res: express.Response): Promise<void> {
     const cookie = req.cookies[VAL_SESSION_COOKIE];
     if (typeof cookie === "string") {
-      const user = decodeJwt(cookie, this.options.sessionKey);
-      res.json(user);
+      const data = decodeJwt(cookie, this.options.sessionKey);
+      res.json(data);
     } else {
       res.sendStatus(401);
     }
@@ -144,14 +148,6 @@ export class ProxyValServer {
     throw new Error("Not implemented");
   }
 }
-
-type User = {
-  id: string;
-};
-type JwtPayload = {
-  sub: string;
-  exp: number;
-};
 
 function verifyCallbackReq(req: express.Request):
   | {
@@ -191,27 +187,38 @@ function verifyCallbackReq(req: express.Request):
   };
 }
 
-async function exchangeCodeForUser(
+async function consumeCode(
   code: string,
-  secretKey: string,
+  apiKey: string,
   valBuildUrl: string
-): Promise<User | null> {
+): Promise<{ sub: string; exp: number; token: string } | null> {
   // TODO: search params
   return fetch(`${valBuildUrl}/api/val/auth/user/token?code=${code}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${secretKey}`,
+      Authorization: `Bearer ${apiKey}`,
     },
   })
     .then(async (res) => {
       if (res.status === 200) {
-        const user = await res.json();
-        if (typeof user?.id == "string") {
-          return user;
-        } else {
-          console.debug("Invalid user from code: ", user);
+        const token = await res.text();
+        const dataBase64 = token.split(".")[1];
+        const data = JSON.parse(
+          Buffer.from(dataBase64, "base64").toString("utf8")
+        );
+        if (typeof data?.sub !== "string") {
+          console.debug("Invalid user from code (no sub)", data);
         }
+        if (typeof data?.exp !== "number") {
+          console.debug("Invalid user from code (no sub)", data);
+          return null;
+        }
+        return {
+          sub: data?.sub,
+          exp: data?.exp,
+          token,
+        };
       } else {
         console.debug("Failed to get user from code: ", res.status);
       }
@@ -221,75 +228,6 @@ async function exchangeCodeForUser(
       console.debug("Failed to get user from code: ", err);
       return null;
     });
-}
-
-function decodeJwt(cookie: string, sessionKey: string): JwtPayload | null {
-  const [headerBase64, payloadBase64, signatureBase64] = cookie.split(".");
-  if (!headerBase64 || !payloadBase64 || !signatureBase64) {
-    console.debug("Invalid cookie: missing header, payload or signature");
-    return null;
-  }
-  const signature = crypto
-    .createHmac("sha256", sessionKey)
-    .update(`${headerBase64}.${payloadBase64}`)
-    .digest("base64");
-  if (signature !== signatureBase64) {
-    console.debug("Invalid cookie: invalid signature");
-    return null;
-  }
-  const payload = JSON.parse(
-    Buffer.from(payloadBase64, "base64").toString("utf8")
-  );
-  if (typeof payload !== "object" || payload === null) {
-    console.debug("Invalid cookie: could not parse payload");
-    return null;
-  }
-  if (typeof payload.sub !== "string") {
-    console.debug(
-      "Invalid cookie: invalid payload (sub was not a string)",
-      payload
-    );
-    return null;
-  }
-  if (typeof payload.exp !== "number") {
-    console.debug(
-      "Invalid cookie: invalid payload (exp was not a number)",
-      payload
-    );
-    return null;
-  }
-  if (payload.exp < Math.floor(Date.now() / 1000)) {
-    console.debug("Invalid cookie: expired", payload);
-    return null;
-  }
-  return payload;
-}
-
-function getExpire(): number {
-  return Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 4; // 4 days
-}
-
-const jwtHeader = {
-  alg: "HS256",
-  typ: "JWT",
-};
-const jwtHeaderBase64 = Buffer.from(JSON.stringify(jwtHeader)).toString(
-  "base64"
-);
-function userToJwtPayload(user: User, exp: number): JwtPayload {
-  return {
-    sub: user.id,
-    exp,
-  };
-}
-
-function encodeJwt(payload: JwtPayload, sessionKey: string): string {
-  // NOTE: this is only used for authentication, not for authorization (i.e. what a user can do) - this is handled when actually doing operations
-  const payloadBase64 = Buffer.from(JSON.stringify(payload)).toString("base64");
-  return `${jwtHeaderBase64}.${payloadBase64}.${crypto
-    .createHmac("sha256", sessionKey)
-    .update(`${jwtHeaderBase64}.${payloadBase64}`)
-    .digest("base64")}`;
 }
 
 type StateCookie = {
