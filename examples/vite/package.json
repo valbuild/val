@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node server.js",
-    "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
