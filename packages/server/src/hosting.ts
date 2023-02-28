@@ -21,7 +21,7 @@ async function initHandlerOptions(
   opts: ServiceOptions
 ): Promise<RequestHandlerOptions> {
   const maybeApiKey = process.env.VAL_API_KEY;
-  const maybeSessionKey = process.env.VAL_SESSION_KEY;
+  const maybeSessionKey = process.env.VAL_SECRET;
   if (maybeApiKey && maybeSessionKey) {
     const publicValApiRoute =
       process.env.VAL_PUBLIC_URL ||
@@ -30,7 +30,7 @@ async function initHandlerOptions(
         : undefined);
     if (!publicValApiRoute) {
       throw new Error(
-        "VAL_PUBLIC_ROUTE or VERCEL_URL env vars must be set when using VAL_API_KEY and VAL_SESSION_KEY"
+        "VAL_PUBLIC_ROUTE or VERCEL_URL env vars must be set when using VAL_API_KEY and VAL_SECRET"
       );
     }
     return {
@@ -38,11 +38,11 @@ async function initHandlerOptions(
       apiKey: maybeApiKey,
       sessionKey: maybeSessionKey,
       publicValApiRoute: `${publicValApiRoute}${route}`,
-      valBuildUrl: process.env.VAL_BUILD_URL || "https://val.build",
+      valBuildUrl: process.env.VAL_BUILD_URL || "https://app.val.build",
     };
   } else if (maybeApiKey || maybeSessionKey) {
     throw new Error(
-      "VAL_API_KEY and VAL_SESSION_KEY env vars must both be set when using VAL_API_KEY and VAL_SESSION_KEY"
+      "VAL_API_KEY and VAL_SECRET env vars must both be set when using VAL_API_KEY and VAL_SECRET"
     );
   } else {
     const service = await createService(process.cwd(), opts);
