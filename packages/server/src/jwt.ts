@@ -4,6 +4,8 @@ export type JwtPayload = {
   sub: string;
   exp: number;
   token: string;
+  org: string;
+  project: string;
 };
 
 export function decodeJwt(
@@ -37,6 +39,27 @@ export function decodeJwt(
   if (typeof payload.sub !== "string") {
     console.debug(
       "Invalid cookie: invalid payload (sub was not a string)",
+      payload
+    );
+    return null;
+  }
+  if (typeof payload.token !== "string") {
+    console.debug(
+      "Invalid cookie: invalid payload (token was not a string)",
+      payload
+    );
+    return null;
+  }
+  if (typeof payload.org !== "string") {
+    console.debug(
+      "Invalid cookie: invalid payload (org was not a string)",
+      payload
+    );
+    return null;
+  }
+  if (typeof payload.project !== "string") {
+    console.debug(
+      "Invalid cookie: invalid payload (project was not a string)",
       payload
     );
     return null;

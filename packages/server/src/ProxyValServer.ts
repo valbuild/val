@@ -1,6 +1,6 @@
 import express, { Router } from "express";
 import crypto from "crypto";
-import { decodeJwt, encodeJwt, getExpire } from "./jwt";
+import { decodeJwt, encodeJwt, getExpire, JwtPayload } from "./jwt";
 
 const VAL_SESSION_COOKIE = "val_session";
 const VAL_STATE_COOKIE = "val_state";
@@ -28,7 +28,7 @@ export class ProxyValServer {
 
   createRouter(): Router {
     const router = Router();
-    router.get("/whoami", this.whoami.bind(this));
+    router.get("/session", this.session.bind(this));
     router.get("/authorize", this.authorize.bind(this));
     router.get("/callback", this.callback.bind(this));
     router.get("/logout", this.logout.bind(this));
@@ -117,16 +117,6 @@ export class ProxyValServer {
       .redirect(callbackReqSuccess.redirect_uri || "/");
   }
 
-  async whoami(req: express.Request, res: express.Response): Promise<void> {
-    const cookie = req.cookies[VAL_SESSION_COOKIE];
-    if (typeof cookie === "string") {
-      const data = decodeJwt(cookie, this.options.sessionKey);
-      res.json(data);
-    } else {
-      res.sendStatus(401);
-    }
-  }
-
   async logout(_req: express.Request, res: express.Response): Promise<void> {
     res
       .clearCookie(VAL_SESSION_COOKIE)
@@ -134,11 +124,66 @@ export class ProxyValServer {
       .sendStatus(200);
   }
 
+  async withAuth<T>(
+    req: express.Request,
+    res: express.Response,
+    handler: (data: JwtPayload) => Promise<T>
+  ): Promise<T | undefined> {
+    const cookie = req.cookies[VAL_SESSION_COOKIE];
+    if (typeof cookie === "string") {
+      const data = decodeJwt(cookie, this.options.sessionKey);
+      if (data === null) {
+        res.sendStatus(401);
+        return;
+      }
+      return handler(data);
+    } else {
+      res.sendStatus(401);
+    }
+  }
+
+  getAuthHeaders(token: string) {
+    return {
+      Authorization: `Bearer ${token}`,
+    };
+  }
+
+  async session(req: express.Request, res: express.Response): Promise<void> {
+    return this.withAuth(req, res, async (data) => {
+      const url = new URL(
+        "/api/val/auth/user/session",
+        this.options.valBuildUrl
+      );
+      const fetchRes = await fetch(url, {
+        headers: this.getAuthHeaders(data.token),
+      });
+      if (fetchRes.ok) {
+        res.status(fetchRes.status).json(await fetchRes.json());
+      } else {
+        res.sendStatus(fetchRes.status);
+      }
+    });
+  }
+
   async getIds(
     req: express.Request<{ 0: string }>,
     res: express.Response
   ): Promise<void> {
-    throw new Error("Not implemented");
+    return this.withAuth(req, res, async ({ token }) => {
+      const gitRef = "main"; // TODO:
+      const url = new URL(
+        `/api/val/modules/${encodeURIComponent(gitRef)}/${req.params[0]}`,
+        this.options.valBuildUrl
+      );
+      const fetchRes = await fetch(url, {
+        headers: this.getAuthHeaders(token),
+      });
+      if (fetchRes.ok) {
+        res.status(fetchRes.status).json(await fetchRes.json());
+      } else {
+        res.sendStatus(fetchRes.status);
+      }
+    });
   }
 
   async patchIds(
@@ -191,7 +236,13 @@ async function consumeCode(
   code: string,
   apiKey: string,
   valBuildUrl: string
-): Promise<{ sub: string; exp: number; token: string } | null> {
+): Promise<{
+  sub: string;
+  exp: number;
+  org: string;
+  project: string;
+  token: string;
+} | null> {
   // TODO: search params
   return fetch(`${valBuildUrl}/api/val/auth/user/token?code=${code}`, {
     method: "POST",
@@ -208,19 +259,27 @@ async function consumeCode(
           Buffer.from(dataBase64, "base64").toString("utf8")
         );
         if (typeof data?.sub !== "string") {
-          console.debug("Invalid user from code (no sub)", data);
+          console.debug("Invalid data from code (no sub)", data);
+        }
+        if (typeof data?.org !== "string") {
+          console.debug("Invalid data from code (no org)", data);
+        }
+        if (typeof data?.project !== "string") {
+          console.debug("Invalid data from code (no project)", data);
         }
         if (typeof data?.exp !== "number") {
-          console.debug("Invalid user from code (no sub)", data);
+          console.debug("Invalid data from code (no sub)", data);
           return null;
         }
         return {
           sub: data?.sub,
           exp: data?.exp,
+          org: data?.org,
+          project: data?.project,
           token,
         };
       } else {
-        console.debug("Failed to get user from code: ", res.status);
+        console.debug("Failed to get data from code: ", res.status);
       }
       return null;
     })

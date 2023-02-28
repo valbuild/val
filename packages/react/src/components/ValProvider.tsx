@@ -446,7 +446,7 @@ export function ValProvider({
 
     if (enabled) {
       if (authentication.status !== "authenticated") {
-        fetch(`${host}/whoami`).then(async (res) => {
+        fetch(`${host}/session`).then(async (res) => {
           if (res.status === 401) {
             setAuthentication({
               status: "unauthenticated",
