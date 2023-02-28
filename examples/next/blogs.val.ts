@@ -1,4 +1,4 @@
-import { s, val } from "../val.config";
+import { s, val } from "./val.config";
 
 export default val.content("/pages/blogs", () =>
   s.array(s.object({ title: s.string(), text: s.string() })).fixed([
