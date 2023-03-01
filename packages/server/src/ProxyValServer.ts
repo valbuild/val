@@ -1,9 +1,10 @@
-import express, { Router } from "express";
+import express from "express";
 import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire, JwtPayload } from "./jwt";
 import { parsePatch, PatchJSON } from "./patch/patch";
 import * as result from "./fp/result";
 import { getFileIdFromParams } from "./expressHelpers";
+import { ValServer } from "./ValServer";
 
 const VAL_SESSION_COOKIE = "val_session";
 const VAL_STATE_COOKIE = "val_state";
@@ -27,25 +28,8 @@ export type ProxyValServerOptions = {
 };
 
 const fakeGitRef = "main"; // TODO: get this from env vars
-export class ProxyValServer {
+export class ProxyValServer implements ValServer {
   constructor(readonly options: ProxyValServerOptions) {}
-
-  createRouter(): Router {
-    const router = Router();
-    router.get("/session", this.session.bind(this));
-    router.get("/authorize", this.authorize.bind(this));
-    router.get("/callback", this.callback.bind(this));
-    router.get("/logout", this.logout.bind(this));
-    router.get<{ 0: string }>("/ids/*", this.getIds.bind(this));
-    router.patch<{ 0: string }>(
-      "/ids/*",
-      express.json({
-        type: "application/json-patch+json",
-      }),
-      this.patchIds.bind(this)
-    );
-    return router;
-  }
 
   async authorize(req: express.Request, res: express.Response): Promise<void> {
     const { redirect_to } = req.query;

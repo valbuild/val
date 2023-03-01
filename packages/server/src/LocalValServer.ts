@@ -1,37 +1,16 @@
-import express, { Router } from "express";
+import express from "express";
 import { Service } from "./Service";
 import { PatchJSON, parsePatch } from "./patch/patch";
 import { PatchError } from "./patch/ops";
 import * as result from "./fp/result";
 import { getFileIdFromParams } from "./expressHelpers";
-
+import { ValServer } from "./ValServer";
 export type LocalValServerOptions = {
   service: Service;
 };
 
-export class LocalValServer {
+export class LocalValServer implements ValServer {
   constructor(readonly options: LocalValServerOptions) {}
-
-  createRouter(): Router {
-    const router = Router();
-    router.get("/session", this.session.bind(this));
-    router.get("/authorize", this.noop.bind(this));
-    router.get("/callback", this.noop.bind(this));
-    router.get("/logout", this.noop.bind(this));
-    router.get<{ 0: string }>("/ids/*", this.getIds.bind(this));
-    router.patch<{ 0: string }>(
-      "/ids/*",
-      express.json({
-        type: "application/json-patch+json",
-      }),
-      this.patchIds.bind(this)
-    );
-    return router;
-  }
-
-  async noop(_req: express.Request, res: express.Response): Promise<void> {
-    res.sendStatus(200);
-  }
 
   async session(_req: express.Request, res: express.Response): Promise<void> {
     res.json({
@@ -86,5 +65,21 @@ export class LocalValServer {
           .send(err instanceof Error ? err.message : "Unknown error");
       }
     }
+  }
+  async badRequest(req: express.Request, res: express.Response): Promise<void> {
+    console.debug("Local server does handle this request", req.url);
+    res.sendStatus(400);
+  }
+
+  authorize(req: express.Request, res: express.Response): Promise<void> {
+    return this.badRequest(req, res);
+  }
+
+  callback(req: express.Request, res: express.Response): Promise<void> {
+    return this.badRequest(req, res);
+  }
+
+  logout(req: express.Request, res: express.Response): Promise<void> {
+    return this.badRequest(req, res);
   }
 }
