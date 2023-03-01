@@ -87,40 +87,36 @@ async function initHandlerOptions(
 ): Promise<RequestHandlerOptions> {
   const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
   const maybeSessionKey = opts.valSecret || process.env.VAL_SECRET;
-  if (
+  const isProxyMode =
     opts.mode === "proxy" ||
-    (opts.mode === undefined && maybeApiKey && maybeSessionKey)
-  ) {
-    if (!maybeApiKey || !maybeSessionKey) {
-      throw new Error(
-        "VAL_API_KEY and VAL_SECRET env vars must both be set in proxy mode"
-      );
-    }
-    const publicValApiRoute =
+    (opts.mode === undefined && (maybeApiKey || maybeSessionKey));
+
+  if (isProxyMode) {
+    const publicValUrl =
       opts.publicValUrl ||
       process.env.VAL_PUBLIC_URL ||
       (process.env.VERCEL_URL
         ? `https://${process.env.VERCEL_URL}`
         : undefined);
-    if (!publicValApiRoute) {
+    const valBuildUrl =
+      opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://app.val.build";
+    if (!maybeApiKey || !maybeSessionKey) {
       throw new Error(
-        "VAL_PUBLIC_ROUTE or VERCEL_URL env vars must be set when using VAL_API_KEY and VAL_SECRET"
+        "VAL_API_KEY and VAL_SECRET env vars must both be set in proxy mode"
+      );
+    }
+    if (!publicValUrl) {
+      throw new Error(
+        "VAL_PUBLIC_URL or VERCEL_URL env var must be set in proxy mode"
       );
     }
     return {
       mode: "proxy",
       apiKey: maybeApiKey,
       sessionKey: maybeSessionKey,
-      publicValApiRoute: `${publicValApiRoute}${route}`,
-      valBuildUrl:
-        opts.valBuildUrl ||
-        process.env.VAL_BUILD_URL ||
-        "https://app.val.build",
+      publicValApiRoute: `${publicValUrl}${route}`,
+      valBuildUrl,
     };
-  } else if (opts.mode === undefined && (maybeApiKey || maybeSessionKey)) {
-    throw new Error(
-      "VAL_API_KEY and VAL_SECRET env vars must both be set when using VAL_API_KEY and VAL_SECRET"
-    );
   } else {
     const service = await createService(process.cwd(), opts);
     return {
