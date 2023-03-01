@@ -29,53 +29,73 @@ export function decodeJwt(
     console.debug("Invalid cookie: invalid signature");
     return null;
   }
-  const payload = JSON.parse(
-    Buffer.from(payloadBase64, "base64").toString("utf8")
-  );
-  if (typeof payload !== "object" || payload === null) {
-    console.debug("Invalid cookie: could not parse payload");
+  try {
+    const payload = JSON.parse(
+      Buffer.from(payloadBase64, "base64").toString("utf8")
+    ) as unknown;
+    if (typeof payload !== "object" || payload === null) {
+      console.debug("Invalid cookie: could not parse payload");
+      return null;
+    }
+    if (
+      "sub" in payload &&
+      "token" in payload &&
+      "org" in payload &&
+      "project" in payload &&
+      "exp" in payload
+    ) {
+      const { sub, token, org, project, exp } = payload;
+      if (typeof sub !== "string") {
+        console.debug(
+          "Invalid cookie: invalid payload (sub was not a string)",
+          payload
+        );
+        return null;
+      }
+      if (typeof token !== "string") {
+        console.debug(
+          "Invalid cookie: invalid payload (token was not a string)",
+          payload
+        );
+        return null;
+      }
+      if (typeof org !== "string") {
+        console.debug(
+          "Invalid cookie: invalid payload (org was not a string)",
+          payload
+        );
+        return null;
+      }
+      if (typeof project !== "string") {
+        console.debug(
+          "Invalid cookie: invalid payload (project was not a string)",
+          payload
+        );
+        return null;
+      }
+      if (typeof exp !== "number") {
+        console.debug(
+          "Invalid cookie: invalid payload (exp was not a number)",
+          payload
+        );
+        return null;
+      }
+      if (exp < Math.floor(Date.now() / 1000)) {
+        console.debug("Invalid cookie: expired", payload);
+        return null;
+      }
+      return { sub, token, org, project, exp };
+    } else {
+      console.debug(
+        "Invalid cookie: invalid payload (missing required fields: sub, token, org, project, exp)",
+        payload
+      );
+      return null;
+    }
+  } catch (err) {
+    console.debug("Invalid cookie: could not parse payload", err);
     return null;
   }
-  if (typeof payload.sub !== "string") {
-    console.debug(
-      "Invalid cookie: invalid payload (sub was not a string)",
-      payload
-    );
-    return null;
-  }
-  if (typeof payload.token !== "string") {
-    console.debug(
-      "Invalid cookie: invalid payload (token was not a string)",
-      payload
-    );
-    return null;
-  }
-  if (typeof payload.org !== "string") {
-    console.debug(
-      "Invalid cookie: invalid payload (org was not a string)",
-      payload
-    );
-    return null;
-  }
-  if (typeof payload.project !== "string") {
-    console.debug(
-      "Invalid cookie: invalid payload (project was not a string)",
-      payload
-    );
-    return null;
-  }
-  if (typeof payload.exp !== "number") {
-    console.debug(
-      "Invalid cookie: invalid payload (exp was not a number)",
-      payload
-    );
-    return null;
-  }
-  if (payload.exp < Math.floor(Date.now() / 1000)) {
-    console.debug("Invalid cookie: expired", payload);
-    return null;
-  }
-  return payload;
 }
 
 export function getExpire(): number {
