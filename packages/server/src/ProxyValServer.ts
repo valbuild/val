@@ -132,7 +132,7 @@ export class ProxyValServer {
         this.options.valBuildUrl
       );
       const fetchRes = await fetch(url, {
-        headers: this.getAuthHeaders(data.token),
+        headers: this.getAuthHeaders("application/json", data.token),
       });
       if (fetchRes.ok) {
         res
@@ -156,7 +156,7 @@ export class ProxyValServer {
         this.options.valBuildUrl
       );
       const fetchRes = await fetch(url, {
-        headers: this.getAuthHeaders(token),
+        headers: this.getAuthHeaders("application/json-patch+json", token),
       });
       if (fetchRes.ok) {
         res.status(fetchRes.status).json(await fetchRes.json());
@@ -192,7 +192,7 @@ export class ProxyValServer {
       // Proxy patch to val.build
       const fetchRes = await fetch(url, {
         method: "PATCH",
-        headers: this.getAuthHeaders(token),
+        headers: this.getAuthHeaders("application/json-patch+json", token),
         body: JSON.stringify(patch),
       });
       if (fetchRes.ok) {
@@ -203,8 +203,12 @@ export class ProxyValServer {
     });
   }
 
-  private getAuthHeaders(token: string) {
+  private getAuthHeaders(
+    type: "application/json" | "application/json-patch+json",
+    token: string
+  ) {
     return {
+      "Content-Type": type,
       Authorization: `Bearer ${token}`,
     };
   }
@@ -220,10 +224,7 @@ export class ProxyValServer {
     url.searchParams.set("code", encodeURIComponent(code));
     return fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.options.apiKey}`,
-      },
+      headers: this.getAuthHeaders("application/json", this.options.apiKey), // NOTE: we use apiKey as auth on this endpoint (we do not have a token yet)
     })
       .then(async (res) => {
         if (res.status === 200) {
