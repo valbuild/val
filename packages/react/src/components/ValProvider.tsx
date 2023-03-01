@@ -505,6 +505,13 @@ export function ValProvider({
       }}
     >
       {children}
+      {authentication.status === "local" && enabled && (
+        <ValEditForm
+          host={host}
+          selectedIds={selectedIds}
+          position={editFormPosition}
+        />
+      )}
       {authentication.status === "authenticated" && (
         <>
           {enabled && (
@@ -516,13 +523,6 @@ export function ValProvider({
             position={editFormPosition}
           />
         </>
-      )}
-      {authentication.status === "local" && enabled && (
-        <ValEditForm
-          host={host}
-          selectedIds={selectedIds}
-          position={editFormPosition}
-        />
       )}
       {enabled && authentication.status === "unauthenticated" && (
         <ValLoginPrompt host={host} />
