@@ -5,17 +5,9 @@ import { ValServer } from "./ValServer";
 
 export type RequestHandlerOptions =
   | ({
-      /**
-       * Mode of operation: proxy means that the Val server is hosted on a different domain than the application.
-       * Typically this is used when the application is deployed (i.e. hosted somewhere like Vercel, Netlify, etc.)
-       */
       mode: "proxy";
     } & ProxyValServerOptions)
   | ({
-      /**
-       * Mode of operation: locale means that the Val server locally and will update files directly.
-       * Typically this is used when developing locally.
-       */
       mode: "local";
     } & LocalValServerOptions);
 
