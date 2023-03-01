@@ -216,17 +216,15 @@ export class ProxyValServer {
     project: string;
     token: string;
   } | null> {
-    // TODO: search params
-    return fetch(
-      `${this.options.valBuildUrl}/api/val/auth/user/token?code=${code}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.options.apiKey}`,
-        },
-      }
-    )
+    const url = new URL(`/api/val/auth/user/token`, this.options.valBuildUrl);
+    url.searchParams.set("code", encodeURIComponent(code));
+    return fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.options.apiKey}`,
+      },
+    })
       .then(async (res) => {
         if (res.status === 200) {
           const token = await res.text();
@@ -266,18 +264,25 @@ export class ProxyValServer {
   }
 
   private getAuthorizeUrl(token: string): string {
-    return `${this.options.valBuildUrl}/authorize?${new URLSearchParams({
-      redirect_uri: encodeURIComponent(
-        `${this.options.publicValApiRoute}/callback`
-      ),
-      state: token,
-    }).toString()}`;
+    const url = new URL(
+      "/api/val/auth/user/authorize",
+      this.options.valBuildUrl
+    );
+    url.searchParams.set(
+      "redirect_uri",
+      encodeURIComponent(`${this.options.publicValApiRoute}/callback`)
+    );
+    url.searchParams.set("state", token);
+    return url.toString();
   }
 
   private getAppErrorUrl(error: string): string {
-    return `${this.options.valBuildUrl}/authorize?${new URLSearchParams({
-      error,
-    }).toString()}`;
+    const url = new URL(
+      "/api/val/auth/user/authorize",
+      this.options.valBuildUrl
+    );
+    url.searchParams.set("error", error);
+    return url.toString();
   }
 }
 
