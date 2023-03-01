@@ -14,6 +14,10 @@ export class LocalValServer {
 
   createRouter(): Router {
     const router = Router();
+    router.get("/session", this.session.bind(this));
+    router.get("/authorize", this.noop.bind(this));
+    router.get("/callback", this.noop.bind(this));
+    router.get("/logout", this.noop.bind(this));
     router.get<{ 0: string }>("/ids/*", this.getIds.bind(this));
     router.patch<{ 0: string }>(
       "/ids/*",
@@ -23,6 +27,16 @@ export class LocalValServer {
       this.patchIds.bind(this)
     );
     return router;
+  }
+
+  async noop(_req: express.Request, res: express.Response): Promise<void> {
+    res.sendStatus(200);
+  }
+
+  async session(_req: express.Request, res: express.Response): Promise<void> {
+    res.json({
+      mode: "local",
+    });
   }
 
   async getIds(

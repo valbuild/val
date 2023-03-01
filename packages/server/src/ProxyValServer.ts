@@ -158,7 +158,9 @@ export class ProxyValServer {
         headers: this.getAuthHeaders(data.token),
       });
       if (fetchRes.ok) {
-        res.status(fetchRes.status).json(await fetchRes.json());
+        res
+          .status(fetchRes.status)
+          .json({ mode: "proxy", ...(await fetchRes.json()) });
       } else {
         res.sendStatus(fetchRes.status);
       }

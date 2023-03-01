@@ -361,7 +361,12 @@ export type ValProviderProps = {
 
 type AuthStatus =
   | {
-      status: "not-asked" | "authenticated" | "unauthenticated";
+      status:
+        | "not-asked"
+        | "authenticated"
+        | "unauthenticated"
+        | "loading"
+        | "local";
     }
   | {
       status: "error";
@@ -430,8 +435,11 @@ export function ValProvider({
   });
 
   useEffect(() => {
-    const isAuthenticated = authentication.status === "authenticated";
-    if (!isAuthenticated) {
+    const requestAuth = !(
+      authentication.status === "authenticated" ||
+      authentication.status === "local"
+    );
+    if (requestAuth) {
       setSelectedIds([]);
       setEditFormPosition(null);
     }
@@ -452,9 +460,19 @@ export function ValProvider({
               status: "unauthenticated",
             });
           } else if (res.ok) {
-            setAuthentication({
-              status: "authenticated",
-            });
+            const data = await res.json();
+            if (data.mode === "local") {
+              setAuthentication({ status: "local" });
+            } else if (data.mode === "proxy") {
+              setAuthentication({
+                status: "authenticated",
+              });
+            } else {
+              setAuthentication({
+                status: "error",
+                message: "Unknown authentication mode",
+              });
+            }
           } else {
             let message = "Unknown error";
             try {
@@ -499,6 +517,13 @@ export function ValProvider({
           />
         </>
       )}
+      {authentication.status === "local" && enabled && (
+        <ValEditForm
+          host={host}
+          selectedIds={selectedIds}
+          position={editFormPosition}
+        />
+      )}
       {enabled && authentication.status === "unauthenticated" && (
         <ValLoginPrompt host={host} />
       )}
@@ -526,7 +551,7 @@ function Menu({ children }: { children: React.ReactNode }) {
   return (
     <div
       style={{
-        position: "absolute",
+        position: "fixed",
         minHeight: "2em",
         width: "10rem",
         background: "black",
