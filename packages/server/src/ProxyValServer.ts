@@ -193,7 +193,7 @@ export class ProxyValServer implements ValServer {
     project: string;
     token: string;
   } | null> {
-    const url = new URL(`/api/val/auth/user/token`, this.options.valBuildUrl);
+    const url = new URL("/api/val/auth/user/token", this.options.valBuildUrl);
     url.searchParams.set("code", encodeURIComponent(code));
     return fetch(url, {
       method: "POST",
@@ -222,10 +222,7 @@ export class ProxyValServer implements ValServer {
   }
 
   private getAuthorizeUrl(token: string): string {
-    const url = new URL(
-      "/api/val/auth/user/authorize",
-      this.options.valBuildUrl
-    );
+    const url = new URL("/authorize", this.options.valBuildUrl);
     url.searchParams.set(
       "redirect_uri",
       encodeURIComponent(`${this.options.publicValApiRoute}/callback`)
@@ -235,11 +232,8 @@ export class ProxyValServer implements ValServer {
   }
 
   private getAppErrorUrl(error: string): string {
-    const url = new URL(
-      "/api/val/auth/user/authorize",
-      this.options.valBuildUrl
-    );
-    url.searchParams.set("error", error);
+    const url = new URL("/authorize", this.options.valBuildUrl);
+    url.searchParams.set("error", encodeURIComponent(error));
     return url.toString();
   }
 }
