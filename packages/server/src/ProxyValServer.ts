@@ -12,18 +12,7 @@ const VAL_STATE_COOKIE = "val_state";
 export type ProxyValServerOptions = {
   apiKey: string;
   sessionKey: string;
-  /**
-   * Url of the hosted Val endpoints.
-   * Typically the public url of your application with /api/val appended.
-   *
-   * @example https://foo.vercel.app/api/val
-   */
   publicValApiRoute: string;
-  /**
-   * The base url of Val
-   *
-   * @example https://app.val.build
-   */
   valBuildUrl: string;
 };
 
