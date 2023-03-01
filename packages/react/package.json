@@ -11,13 +11,10 @@
     "base64-arraybuffer": "^1.0.2"
   },
   "devDependencies": {
-    "@types/jest": "^29.2.5",
     "@types/react": "^18.0.26",
-    "jest": "^29.3.1",
     "react": "^16.14.0",
     "react-dom": "^16.14.0",
-    "react-test-renderer": "^16.14.0",
-    "ts-jest": "^29.0.5"
+    "react-test-renderer": "^16.14.0"
   },
   "peerDependencies": {
     "react": ">=16.8.0"
@@ -33,7 +30,6 @@
       "./jsx-runtime.js",
       "./jsx-dev-runtime.js"
     ],
-    "umdName": "valReact",
     "exports": {
       "envConditions": [
         "browser",
@@ -72,5 +68,6 @@
       "default": "./jsx-dev-runtime/dist/valbuild-react-jsx-dev-runtime.cjs.js"
     },
     "./package.json": "./package.json"
-  }
+  },
+  "types": "dist/valbuild-react.cjs.d.ts"
 }

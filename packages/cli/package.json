@@ -13,8 +13,7 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "echo \"no tests found :(\""
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@valbuild/server": "~0.6.0",
@@ -27,5 +26,8 @@
     "entrypoints": [
       "cli.ts"
     ]
+  },
+  "engines": {
+    "node": ">=16.0.0"
   }
 }

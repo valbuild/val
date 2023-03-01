@@ -10,6 +10,3 @@ export type {
   ValProps,
 } from "./ValidTypes";
 export type { SerializedVal } from "./StaticVal";
-
-// DO NOT TOUCH THIS: it is used to get the Schema symbol
-export type { Schema } from "./schema/Schema";

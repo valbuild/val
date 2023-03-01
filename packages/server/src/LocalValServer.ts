@@ -1,9 +1,8 @@
 import express, { Router } from "express";
 import { Service } from "./Service";
-import { validatePatch } from "./patch/patch";
+import { PatchJSON, parsePatch } from "./patch/patch";
 import { PatchError } from "./patch/ops";
 import * as result from "./fp/result";
-import { formatJSONPointer } from "./patch/operation";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -60,17 +59,16 @@ export class LocalValServer {
     req: express.Request<{ 0: string }>,
     res: express.Response
   ): Promise<void> {
-    const patch = validatePatch(req.body);
+    // First validate that the body has the right structure
+    const patchJSON = PatchJSON.safeParse(req.body);
+    if (!patchJSON.success) {
+      res.status(401).json(patchJSON.error.issues);
+      return;
+    }
+    // Then parse/validate
+    const patch = parsePatch(patchJSON.data);
     if (result.isErr(patch)) {
-      res
-        .status(401)
-        .send(
-          patch.error
-            .map(
-              ({ path, message }) => `${formatJSONPointer(path)}: ${message}`
-            )
-            .join("\n")
-        );
+      res.status(401).json(patch.error);
       return;
     }
     const id = getFileIdFromParams(req.params);
