@@ -51,19 +51,12 @@ export class ProxyValServer {
     const { redirect_to } = req.query;
     if (typeof redirect_to !== "string") {
       res.redirect(
-        getAppErrorUrl(
-          "Login failed: missing redirect_to param",
-          this.options.valBuildUrl
-        )
+        this.getAppErrorUrl("Login failed: missing redirect_to param")
       );
       return;
     }
     const token = crypto.randomUUID();
-    const appAuthorizeUrl = getAuthorizeUrl(
-      token,
-      this.options.publicValApiRoute,
-      this.options.valBuildUrl
-    );
+    const appAuthorizeUrl = this.getAuthorizeUrl(token);
     res
       .cookie(VAL_STATE_COOKIE, createStateCookie({ redirect_to, token }), {
         httpOnly: true,
@@ -79,27 +72,13 @@ export class ProxyValServer {
     res.clearCookie(VAL_STATE_COOKIE); // we don't need this anymore
 
     if (callbackReqError !== null) {
-      res.redirect(
-        getAppErrorUrl(
-          "Failed to verify callback request",
-          this.options.valBuildUrl
-        )
-      );
+      res.redirect(this.getAppErrorUrl("Failed to verify callback request"));
       return;
     }
 
-    const data = await consumeCode(
-      callbackReqSuccess.code,
-      this.options.apiKey,
-      this.options.valBuildUrl
-    );
+    const data = await this.consumeCode(callbackReqSuccess.code);
     if (data === null) {
-      res.redirect(
-        getAppErrorUrl(
-          "Failed to exchange code for user",
-          this.options.valBuildUrl
-        )
-      );
+      res.redirect(this.getAppErrorUrl("Failed to exchange code for user"));
       return;
     }
     const exp = getExpire();
@@ -144,12 +123,6 @@ export class ProxyValServer {
     } else {
       res.sendStatus(401);
     }
-  }
-
-  getAuthHeaders(token: string) {
-    return {
-      Authorization: `Bearer ${token}`,
-    };
   }
 
   async session(req: express.Request, res: express.Response): Promise<void> {
@@ -229,6 +202,83 @@ export class ProxyValServer {
       }
     });
   }
+
+  private getAuthHeaders(token: string) {
+    return {
+      Authorization: `Bearer ${token}`,
+    };
+  }
+
+  private async consumeCode(code: string): Promise<{
+    sub: string;
+    exp: number;
+    org: string;
+    project: string;
+    token: string;
+  } | null> {
+    // TODO: search params
+    return fetch(
+      `${this.options.valBuildUrl}/api/val/auth/user/token?code=${code}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.options.apiKey}`,
+        },
+      }
+    )
+      .then(async (res) => {
+        if (res.status === 200) {
+          const token = await res.text();
+          const dataBase64 = token.split(".")[1];
+          const data = JSON.parse(
+            Buffer.from(dataBase64, "base64").toString("utf8")
+          );
+          if (typeof data?.sub !== "string") {
+            console.debug("Invalid data from code (no sub)", data);
+          }
+          if (typeof data?.org !== "string") {
+            console.debug("Invalid data from code (no org)", data);
+          }
+          if (typeof data?.project !== "string") {
+            console.debug("Invalid data from code (no project)", data);
+          }
+          if (typeof data?.exp !== "number") {
+            console.debug("Invalid data from code (no sub)", data);
+            return null;
+          }
+          return {
+            sub: data?.sub,
+            exp: data?.exp,
+            org: data?.org,
+            project: data?.project,
+            token,
+          };
+        } else {
+          console.debug("Failed to get data from code: ", res.status);
+        }
+        return null;
+      })
+      .catch((err) => {
+        console.debug("Failed to get user from code: ", err);
+        return null;
+      });
+  }
+
+  private getAuthorizeUrl(token: string): string {
+    return `${this.options.valBuildUrl}/authorize?${new URLSearchParams({
+      redirect_uri: encodeURIComponent(
+        `${this.options.publicValApiRoute}/callback`
+      ),
+      state: token,
+    }).toString()}`;
+  }
+
+  private getAppErrorUrl(error: string): string {
+    return `${this.options.valBuildUrl}/authorize?${new URLSearchParams({
+      error,
+    }).toString()}`;
+  }
 }
 
 function verifyCallbackReq(req: express.Request):
@@ -269,63 +319,6 @@ function verifyCallbackReq(req: express.Request):
   };
 }
 
-async function consumeCode(
-  code: string,
-  apiKey: string,
-  valBuildUrl: string
-): Promise<{
-  sub: string;
-  exp: number;
-  org: string;
-  project: string;
-  token: string;
-} | null> {
-  // TODO: search params
-  return fetch(`${valBuildUrl}/api/val/auth/user/token?code=${code}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-  })
-    .then(async (res) => {
-      if (res.status === 200) {
-        const token = await res.text();
-        const dataBase64 = token.split(".")[1];
-        const data = JSON.parse(
-          Buffer.from(dataBase64, "base64").toString("utf8")
-        );
-        if (typeof data?.sub !== "string") {
-          console.debug("Invalid data from code (no sub)", data);
-        }
-        if (typeof data?.org !== "string") {
-          console.debug("Invalid data from code (no org)", data);
-        }
-        if (typeof data?.project !== "string") {
-          console.debug("Invalid data from code (no project)", data);
-        }
-        if (typeof data?.exp !== "number") {
-          console.debug("Invalid data from code (no sub)", data);
-          return null;
-        }
-        return {
-          sub: data?.sub,
-          exp: data?.exp,
-          org: data?.org,
-          project: data?.project,
-          token,
-        };
-      } else {
-        console.debug("Failed to get data from code: ", res.status);
-      }
-      return null;
-    })
-    .catch((err) => {
-      console.debug("Failed to get user from code: ", err);
-      return null;
-    });
-}
-
 type StateCookie = {
   redirect_to: string;
   token: string;
@@ -362,21 +355,4 @@ function getStateFromCookie(cookie: string):
 
 function createStateCookie(state: StateCookie): string {
   return Buffer.from(JSON.stringify(state), "utf8").toString("base64");
-}
-
-function getAuthorizeUrl(
-  token: string,
-  basePath: string,
-  valBuildUrl: string
-): string {
-  return `${valBuildUrl}/authorize?${new URLSearchParams({
-    redirect_uri: encodeURIComponent(`${basePath}/callback`),
-    state: token,
-  }).toString()}`;
-}
-
-function getAppErrorUrl(error: string, valBuildUrl: string): string {
-  return `${valBuildUrl}/authorize?${new URLSearchParams({
-    error,
-  }).toString()}`;
 }
