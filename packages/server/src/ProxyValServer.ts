@@ -1,6 +1,9 @@
 import express, { Router } from "express";
 import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire, JwtPayload } from "./jwt";
+import { parsePatch, PatchJSON } from "./patch/patch";
+import * as result from "./fp/result";
+import { getFileIdFromParams } from "./expressHelpers";
 
 const VAL_SESSION_COOKIE = "val_session";
 const VAL_STATE_COOKIE = "val_state";
@@ -23,6 +26,7 @@ export type ProxyValServerOptions = {
   valBuildUrl: string;
 };
 
+const fakeGitRef = "main"; // TODO: get this from env vars
 export class ProxyValServer {
   constructor(readonly options: ProxyValServerOptions) {}
 
@@ -172,9 +176,10 @@ export class ProxyValServer {
     res: express.Response
   ): Promise<void> {
     return this.withAuth(req, res, async ({ token }) => {
-      const gitRef = "main"; // TODO:
+      const gitRef = fakeGitRef;
+      const id = getFileIdFromParams(req.params);
       const url = new URL(
-        `/api/val/modules/${encodeURIComponent(gitRef)}/${req.params[0]}`,
+        `/api/val/modules/${encodeURIComponent(gitRef)}/${id}`,
         this.options.valBuildUrl
       );
       const fetchRes = await fetch(url, {
@@ -192,7 +197,37 @@ export class ProxyValServer {
     req: express.Request<{ 0: string }>,
     res: express.Response
   ): Promise<void> {
-    throw new Error("Not implemented");
+    this.withAuth(req, res, async ({ token }) => {
+      // First validate that the body has the right structure
+      const patchJSON = PatchJSON.safeParse(req.body);
+      if (!patchJSON.success) {
+        res.status(401).json(patchJSON.error.issues);
+        return;
+      }
+      // Then parse/validate
+      const patch = parsePatch(patchJSON.data);
+      if (result.isErr(patch)) {
+        res.status(401).json(patch.error);
+        return;
+      }
+      const id = getFileIdFromParams(req.params);
+      const gitRef = fakeGitRef;
+      const url = new URL(
+        `/api/val/modules/${encodeURIComponent(gitRef)}/${id}}`,
+        this.options.valBuildUrl
+      );
+      // Proxy patch to val.build
+      const fetchRes = await fetch(url, {
+        method: "PATCH",
+        headers: this.getAuthHeaders(token),
+        body: JSON.stringify(patch),
+      });
+      if (fetchRes.ok) {
+        res.status(fetchRes.status).json(await fetchRes.json());
+      } else {
+        res.sendStatus(fetchRes.status);
+      }
+    });
   }
 }
 

@@ -3,6 +3,7 @@ import { Service } from "./Service";
 import { PatchJSON, parsePatch } from "./patch/patch";
 import { PatchError } from "./patch/ops";
 import * as result from "./fp/result";
+import { getFileIdFromParams } from "./expressHelpers";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -86,8 +87,4 @@ export class LocalValServer {
       }
     }
   }
-}
-
-function getFileIdFromParams(params: { 0: string }): string {
-  return `/${params[0]}`;
 }
