@@ -229,30 +229,18 @@ export class ProxyValServer {
       .then(async (res) => {
         if (res.status === 200) {
           const token = await res.text();
-          const [headerBase64, payloadBase64, signatureBase64, ...rest] =
-            token.split(".");
-          if (
-            !headerBase64 ||
-            !payloadBase64 ||
-            !signatureBase64 ||
-            rest.length > 0
-          ) {
-            console.debug("Invalid token: token does not have 3 parts", token);
+          const decodedToken = decodeToken(token);
+          if (!decodedToken) {
             return null;
           }
-          const data = parseCodeData(
-            Buffer.from(payloadBase64, "base64").toString("utf8")
-          );
-          if (data) {
-            return {
-              ...data,
-              token,
-            };
-          }
+          return {
+            ...decodedToken,
+            token,
+          };
         } else {
           console.debug("Failed to get data from code: ", res.status);
+          return null;
         }
-        return null;
       })
       .catch((err) => {
         console.debug("Failed to get user from code: ", err);
@@ -391,59 +379,65 @@ function createStateCookie(state: StateCookie): string {
 /**
  * @returns valid data or null if invalid (forces user to re-auth)
  */
-function parseCodeData(
-  payload: string
+function decodeToken(
+  token: string
 ): { sub: string; exp: number; project: string; org: string } | null {
   try {
-    const data = JSON.parse(payload) as unknown;
-    if (data === null || data === undefined) {
-      console.debug("Invalid data from code (null/undefined)", data);
+    const [headerBase64, payloadBase64, signatureBase64, ...rest] =
+      token.split(".");
+    if (
+      !headerBase64 ||
+      !payloadBase64 ||
+      !signatureBase64 ||
+      rest.length > 0
+    ) {
+      console.debug(
+        "Invalid token: token format is not exactly {header}.{payload}.{signature}",
+        token
+      );
       return null;
     }
-    if (typeof data === "object") {
-      if (
-        "sub" in data &&
-        "org" in data &&
-        "project" in data &&
-        "exp" in data
-      ) {
-        const { sub, org, project, exp } = data;
-        if (typeof sub !== "string") {
-          console.debug("Invalid data from code (sub was not a string)", data);
-          return null;
-        } else if (typeof org !== "string") {
-          console.debug("Invalid data from code (org was not a string)", data);
-          return null;
-        } else if (typeof project !== "string") {
-          console.debug(
-            "Invalid data from code (project was not a string)",
-            data
-          );
-          return null;
-        } else if (typeof exp !== "number") {
-          console.debug("Invalid data from code (exp was not a number)", data);
-          return null;
-        } else {
-          return {
-            sub,
-            org,
-            project,
-            exp,
-          };
-        }
-      } else {
-        console.debug(
-          "Invalid data from code (missing required fields: sub, org, project, exp)",
-          data
-        );
+    const payload = Buffer.from(payloadBase64, "base64").toString("utf8");
+    const data = JSON.parse(payload) as unknown;
+    if (data === null || data === undefined) {
+      console.debug("Invalid token: null/undefined", data);
+      return null;
+    }
+    if (typeof data !== "object") {
+      console.debug("Invalid token: not an object", data);
+      return null;
+    }
+    if ("sub" in data && "org" in data && "project" in data && "exp" in data) {
+      const { sub, org, project, exp } = data;
+      if (typeof sub !== "string") {
+        console.debug("Invalid token: sub was not a string", data);
         return null;
+      } else if (typeof org !== "string") {
+        console.debug("Invalid token: org was not a string", data);
+        return null;
+      } else if (typeof project !== "string") {
+        console.debug("Invalid token: project was not a string", data);
+        return null;
+      } else if (typeof exp !== "number") {
+        console.debug("Invalid token: exp was not a number", data);
+        return null;
+      } else {
+        return {
+          sub,
+          org,
+          project,
+          exp,
+        };
       }
     } else {
-      console.debug("Invalid data from code (not an object)", data);
+      console.debug(
+        "Invalid token: missing required fields: sub, org, project, exp",
+        data
+      );
       return null;
     }
   } catch (err) {
-    console.debug("Failed to parse data from code", err);
+    console.debug("Failed to parse token", err);
     return null;
   }
 }
