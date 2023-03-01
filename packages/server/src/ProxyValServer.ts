@@ -68,7 +68,7 @@ export class ProxyValServer {
 
   async callback(req: express.Request, res: express.Response): Promise<void> {
     const { success: callbackReqSuccess, error: callbackReqError } =
-      verifyCallbackReq(req);
+      verifyCallbackReq(req.cookies[VAL_STATE_COOKIE], req.query);
     res.clearCookie(VAL_STATE_COOKIE); // we don't need this anymore
 
     if (callbackReqError !== null) {
@@ -228,30 +228,26 @@ export class ProxyValServer {
       .then(async (res) => {
         if (res.status === 200) {
           const token = await res.text();
-          const dataBase64 = token.split(".")[1];
-          const data = JSON.parse(
-            Buffer.from(dataBase64, "base64").toString("utf8")
-          );
-          if (typeof data?.sub !== "string") {
-            console.debug("Invalid data from code (no sub)", data);
-          }
-          if (typeof data?.org !== "string") {
-            console.debug("Invalid data from code (no org)", data);
-          }
-          if (typeof data?.project !== "string") {
-            console.debug("Invalid data from code (no project)", data);
-          }
-          if (typeof data?.exp !== "number") {
-            console.debug("Invalid data from code (no sub)", data);
+          const [headerBase64, payloadBase64, signatureBase64, ...rest] =
+            token.split(".");
+          if (
+            !headerBase64 ||
+            !payloadBase64 ||
+            !signatureBase64 ||
+            rest.length > 0
+          ) {
+            console.debug("Invalid token: token does not have 3 parts", token);
             return null;
           }
-          return {
-            sub: data?.sub,
-            exp: data?.exp,
-            org: data?.org,
-            project: data?.project,
-            token,
-          };
+          const data = parseCodeData(
+            Buffer.from(payloadBase64, "base64").toString("utf8")
+          );
+          if (data) {
+            return {
+              ...data,
+              token,
+            };
+          }
         } else {
           console.debug("Failed to get data from code: ", res.status);
         }
@@ -286,19 +282,20 @@ export class ProxyValServer {
   }
 }
 
-function verifyCallbackReq(req: express.Request):
+function verifyCallbackReq(
+  stateCookie: string,
+  queryParams: Record<string, unknown>
+):
   | {
       success: { code: string; redirect_uri?: string };
       error: null;
     }
   | { success: false; error: string } {
-  const stateCookie = req.cookies[VAL_STATE_COOKIE];
-
   if (typeof stateCookie !== "string") {
     return { success: false, error: "No state cookie" };
   }
 
-  const { code, state: tokenFromQuery } = req.query;
+  const { code, state: tokenFromQuery } = queryParams;
 
   if (typeof code !== "string") {
     return { success: false, error: "No code query param" };
@@ -329,35 +326,123 @@ type StateCookie = {
   token: string;
 };
 
-function getStateFromCookie(cookie: string):
+function getStateFromCookie(stateCookie: string):
   | {
       success: StateCookie;
       error: null;
     }
   | { success: false; error: string } {
-  const decoded = Buffer.from(cookie, "base64").toString("utf8");
-  const parsed = JSON.parse(decoded);
-  if (!parsed) {
+  try {
+    const decoded = Buffer.from(stateCookie, "base64").toString("utf8");
+    const parsed = JSON.parse(decoded) as unknown;
+
+    if (!parsed) {
+      return {
+        success: false,
+        error: "Invalid state cookie: could not parse",
+      };
+    }
+    if (typeof parsed !== "object") {
+      return {
+        success: false,
+        error: "Invalid state cookie: parsed object is not an object",
+      };
+    }
+    if ("token" in parsed && "redirect_to" in parsed) {
+      const { token, redirect_to } = parsed;
+      if (typeof token !== "string") {
+        return {
+          success: false,
+          error: "Invalid state cookie: no token in parsed object",
+        };
+      }
+      if (typeof redirect_to !== "string") {
+        return {
+          success: false,
+          error: "Invalid state cookie: no redirect_to in parsed object",
+        };
+      }
+      return {
+        success: {
+          token,
+          redirect_to,
+        },
+        error: null,
+      };
+    } else {
+      return {
+        success: false,
+        error: "Invalid state cookie: no token or redirect_to in parsed object",
+      };
+    }
+  } catch (err) {
     return {
       success: false,
       error: "Invalid state cookie: could not parse",
     };
   }
-  if (typeof parsed.token !== "string") {
-    return {
-      success: false,
-      error: "Invalid state cookie: no token in parsed object",
-    };
-  }
-  if (typeof parsed.redirect_to !== "string") {
-    return {
-      success: false,
-      error: "Invalid state cookie: no redirect_to in parsed object",
-    };
-  }
-  return { success: parsed, error: null };
 }
 
 function createStateCookie(state: StateCookie): string {
   return Buffer.from(JSON.stringify(state), "utf8").toString("base64");
+}
+
+/**
+ * @returns valid data or null if invalid (forces user to re-auth)
+ */
+function parseCodeData(
+  payload: string
+): { sub: string; exp: number; project: string; org: string } | null {
+  try {
+    const data = JSON.parse(payload) as unknown;
+    if (data === null || data === undefined) {
+      console.debug("Invalid data from code (null/undefined)", data);
+      return null;
+    }
+    if (typeof data === "object") {
+      if (
+        "sub" in data &&
+        "org" in data &&
+        "project" in data &&
+        "exp" in data
+      ) {
+        const { sub, org, project, exp } = data;
+        if (typeof sub !== "string") {
+          console.debug("Invalid data from code (sub was not a string)", data);
+          return null;
+        } else if (typeof org !== "string") {
+          console.debug("Invalid data from code (org was not a string)", data);
+          return null;
+        } else if (typeof project !== "string") {
+          console.debug(
+            "Invalid data from code (project was not a string)",
+            data
+          );
+          return null;
+        } else if (typeof exp !== "number") {
+          console.debug("Invalid data from code (exp was not a number)", data);
+          return null;
+        } else {
+          return {
+            sub,
+            org,
+            project,
+            exp,
+          };
+        }
+      } else {
+        console.debug(
+          "Invalid data from code (missing required fields: sub, org, project, exp)",
+          data
+        );
+        return null;
+      }
+    } else {
+      console.debug("Invalid data from code (not an object)", data);
+      return null;
+    }
+  } catch (err) {
+    console.debug("Failed to parse data from code", err);
+    return null;
+  }
 }
