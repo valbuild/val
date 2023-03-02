@@ -1,12 +1,14 @@
 import crypto from "crypto";
+import { z } from "zod";
 
-export type JwtPayload = {
-  sub: string;
-  exp: number;
-  token: string;
-  org: string;
-  project: string;
-};
+const JwtPayload = z.object({
+  sub: z.string(),
+  exp: z.number(),
+  token: z.string(),
+  org: z.string(),
+  project: z.string(),
+});
+export type JwtPayload = z.infer<typeof JwtPayload>;
 
 export function decodeJwt(
   token: string,
@@ -30,68 +32,18 @@ export function decodeJwt(
     return null;
   }
   try {
-    const payload = JSON.parse(
+    const parsedPayload = JSON.parse(
       Buffer.from(payloadBase64, "base64").toString("utf8")
     ) as unknown;
-    if (typeof payload !== "object" || payload === null) {
-      console.debug("Invalid cookie: could not parse payload");
-      return null;
-    }
-    if (
-      "sub" in payload &&
-      "token" in payload &&
-      "org" in payload &&
-      "project" in payload &&
-      "exp" in payload
-    ) {
-      const { sub, token, org, project, exp } = payload;
-      if (typeof sub !== "string") {
-        console.debug(
-          "Invalid cookie: invalid payload (sub was not a string)",
-          payload
-        );
-        return null;
-      }
-      if (typeof token !== "string") {
-        console.debug(
-          "Invalid cookie: invalid payload (token was not a string)",
-          payload
-        );
-        return null;
-      }
-      if (typeof org !== "string") {
-        console.debug(
-          "Invalid cookie: invalid payload (org was not a string)",
-          payload
-        );
-        return null;
-      }
-      if (typeof project !== "string") {
-        console.debug(
-          "Invalid cookie: invalid payload (project was not a string)",
-          payload
-        );
-        return null;
-      }
-      if (typeof exp !== "number") {
-        console.debug(
-          "Invalid cookie: invalid payload (exp was not a number)",
-          payload
-        );
-        return null;
-      }
-      if (exp < Math.floor(Date.now() / 1000)) {
-        console.debug("Invalid cookie: expired", payload);
-        return null;
-      }
-      return { sub, token, org, project, exp };
-    } else {
+    const payloadVerification = JwtPayload.safeParse(parsedPayload);
+    if (!payloadVerification.success) {
       console.debug(
-        "Invalid cookie: invalid payload (missing required fields: sub, token, org, project, exp)",
-        payload
+        "Invalid cookie: schema mismatch",
+        payloadVerification.error
       );
       return null;
     }
+    return payloadVerification.data;
   } catch (err) {
     console.debug("Invalid cookie: could not parse payload", err);
     return null;

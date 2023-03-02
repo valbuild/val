@@ -5,6 +5,7 @@ import { parsePatch, PatchJSON } from "./patch/patch";
 import * as result from "./fp/result";
 import { getFileIdFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
+import { z } from "zod";
 
 const VAL_SESSION_COOKIE = "val_session";
 const VAL_STATE_COOKIE = "val_state";
@@ -343,12 +344,18 @@ function createStateCookie(state: StateCookie): string {
   return Buffer.from(JSON.stringify(state), "utf8").toString("base64");
 }
 
+const ValToken = z.object({
+  sub: z.string(),
+  exp: z.number(),
+  project: z.string(),
+  org: z.string(),
+});
+type ValToken = z.infer<typeof ValToken>;
+
 /**
  * @returns valid data or null if invalid (forces user to re-auth)
  */
-function decodeToken(
-  token: string
-): { sub: string; exp: number; project: string; org: string } | null {
+function decodeToken(token: string): ValToken | null {
   try {
     const [headerBase64, payloadBase64, signatureBase64, ...rest] =
       token.split(".");
@@ -365,44 +372,16 @@ function decodeToken(
       return null;
     }
     const payload = Buffer.from(payloadBase64, "base64").toString("utf8");
-    const data = JSON.parse(payload) as unknown;
-    if (data === null || data === undefined) {
-      console.debug("Invalid token: null/undefined", data);
-      return null;
-    }
-    if (typeof data !== "object") {
-      console.debug("Invalid token: not an object", data);
-      return null;
-    }
-    if ("sub" in data && "org" in data && "project" in data && "exp" in data) {
-      const { sub, org, project, exp } = data;
-      if (typeof sub !== "string") {
-        console.debug("Invalid token: sub was not a string", data);
-        return null;
-      } else if (typeof org !== "string") {
-        console.debug("Invalid token: org was not a string", data);
-        return null;
-      } else if (typeof project !== "string") {
-        console.debug("Invalid token: project was not a string", data);
-        return null;
-      } else if (typeof exp !== "number") {
-        console.debug("Invalid token: exp was not a number", data);
-        return null;
-      } else {
-        return {
-          sub,
-          org,
-          project,
-          exp,
-        };
-      }
-    } else {
+    const parsedPayload = JSON.parse(payload) as unknown;
+    const payloadVerification = ValToken.safeParse(parsedPayload);
+    if (!payloadVerification.success) {
       console.debug(
-        "Invalid token: missing required fields: sub, org, project, exp",
-        data
+        "Invalid code jwt token payload",
+        payloadVerification.error
       );
       return null;
     }
+    return payloadVerification.data;
   } catch (err) {
     console.debug("Failed to parse token", err);
     return null;
