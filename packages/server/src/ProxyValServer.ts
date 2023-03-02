@@ -34,7 +34,7 @@ export class ProxyValServer implements ValServer {
     res
       .cookie(VAL_STATE_COOKIE, createStateCookie({ redirect_to, token }), {
         httpOnly: true,
-        sameSite: "strict",
+        sameSite: "lax",
         expires: new Date(Date.now() + 1000 * 60 * 60), // 1 hour
       })
       .redirect(appAuthorizeUrl);
