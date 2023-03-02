@@ -10,7 +10,7 @@ type Opts = ValServerOverrides & ServiceOptions;
 
 type ValServerOverrides = Partial<{
   /**
-   * The public url this application.
+   * The public url of this application.
    *
    * This value can also be set using the VAL_PUBLIC_URL env var.
    * If this is not set, it will default to the value of the VERCEL_URL env var.
