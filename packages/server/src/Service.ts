@@ -43,7 +43,6 @@ export async function createService(
 
 export class Service {
   readonly valConfigPath: string;
-  readonly appBaseUrl?: string;
 
   constructor(
     { valConfigPath }: ServiceOptions,
