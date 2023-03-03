@@ -7,7 +7,7 @@ import React, {
   useEffect,
   useState,
 } from "react";
-import { editIcon, logo, valcmsLogo } from "../assets";
+import { editIcon, valcmsLogo } from "../assets";
 
 const baseZIndex = 8500; // Next uses 9000 highest z-index so keep us below that
 
