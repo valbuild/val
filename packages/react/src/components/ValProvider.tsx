@@ -178,7 +178,9 @@ const getModuleContent = async (
     return serializedVal;
   } else {
     throw Error(
-      `Failed to get content of module "${moduleId}". Error: ${await res.text()}`
+      `Failed to get content of module "${moduleId}". Status: ${
+        res.status
+      }. Error: ${await res.text()}`
     );
   }
 };
