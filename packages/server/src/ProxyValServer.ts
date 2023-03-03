@@ -128,7 +128,7 @@ export class ProxyValServer implements ValServer {
       const gitRef = fakeGitRef;
       const id = getFileIdFromParams(req.params);
       const url = new URL(
-        `/api/val/modules/${encodeURIComponent(gitRef)}/${id}`,
+        `/api/val/modules/${encodeURIComponent(gitRef)}${id}`,
         this.options.valBuildUrl
       );
       const fetchRes = await fetch(url, {
@@ -139,6 +139,8 @@ export class ProxyValServer implements ValServer {
       } else {
         res.sendStatus(fetchRes.status);
       }
+    }).catch((e) => {
+      res.status(500).send({ error: { message: e?.message, status: 500 } });
     });
   }
 
@@ -162,7 +164,7 @@ export class ProxyValServer implements ValServer {
       const id = getFileIdFromParams(req.params);
       const gitRef = fakeGitRef;
       const url = new URL(
-        `/api/val/modules/${encodeURIComponent(gitRef)}/${id}}`,
+        `/api/val/modules/${encodeURIComponent(gitRef)}${id}`,
         this.options.valBuildUrl
       );
       // Proxy patch to val.build
@@ -176,6 +178,8 @@ export class ProxyValServer implements ValServer {
       } else {
         res.sendStatus(fetchRes.status);
       }
+    }).catch((e) => {
+      res.status(500).send({ error: { message: e?.message, status: 500 } });
     });
   }
 
