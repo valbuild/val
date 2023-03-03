@@ -98,6 +98,7 @@ const ValEditEnableButton = ({
 }) => {
   return (
     <button
+      data-val-element="true"
       style={{
         display: "flex",
         justifyContent: "center",
@@ -214,7 +215,8 @@ const ValEditForm: React.FC<{
   host: string;
   position: FormPosition | null;
   selectedIds: string[];
-}> = ({ host, position, selectedIds }) => {
+  onClose: () => void;
+}> = ({ host, position, selectedIds, onClose }) => {
   const [entries, setEntries] = useState<
     (
       | { id: string; status: "loading" }
@@ -261,6 +263,7 @@ const ValEditForm: React.FC<{
   }
   return (
     <form
+      data-val-element={true}
       style={{
         position: "absolute",
         left: position.left,
@@ -304,6 +307,7 @@ const ValEditForm: React.FC<{
           setSubmission({
             status: "ready",
           });
+          onClose();
         } catch (err) {
           setSubmission({
             status: "error",
@@ -372,6 +376,17 @@ type AuthStatus =
       status: "error";
       message: string;
     };
+
+function isValElement(el: Element | null): boolean {
+  if (!el) {
+    return false;
+  }
+  if (el.getAttribute("data-val-element") === "true") {
+    return true;
+  }
+  return isValElement(el.parentElement);
+}
+
 export function ValProvider({
   host = "http://localhost:4123",
   children,
@@ -412,12 +427,11 @@ export function ValProvider({
           if (valId) {
             e.stopPropagation();
             setSelectedIds(valId.split(","));
-            const rect = e.target.getBoundingClientRect();
             setEditFormPosition({
-              left: rect.right,
-              top: rect.top - 1 /* outline */,
+              left: e.clientX,
+              top: e.clientY,
             });
-          } else {
+          } else if (!isValElement(e.target)) {
             setEditFormPosition(null);
             setSelectedIds([]);
           }
@@ -528,6 +542,10 @@ export function ValProvider({
           host={host}
           selectedIds={selectedIds}
           position={editFormPosition}
+          onClose={() => {
+            setEditFormPosition(null);
+            setSelectedIds([]);
+          }}
         />
       )}
       {authentication.status === "authenticated" && (
@@ -539,6 +557,10 @@ export function ValProvider({
             host={host}
             selectedIds={selectedIds}
             position={editFormPosition}
+            onClose={() => {
+              setEditFormPosition(null);
+              setSelectedIds([]);
+            }}
           />
         </>
       )}
@@ -568,6 +590,7 @@ export function ValProvider({
 function Menu({ children }: { children: React.ReactNode }) {
   return (
     <div
+      data-val-element="true"
       style={{
         position: "fixed",
         minHeight: "2em",
