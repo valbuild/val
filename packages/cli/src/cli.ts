@@ -5,6 +5,7 @@ import { error, info } from "./logger";
 import express from "express";
 import cors from "cors";
 import { createServer, Server } from "node:http";
+import { LocalValServer } from "@valbuild/server/src/LocalValServer";
 
 async function serve({
   root,
@@ -19,7 +20,11 @@ async function serve({
   const service = await createService(projectRoot, {
     valConfigPath: cfg ?? "./val.config",
   });
-  const valReqHandler = createRequestHandler(service);
+  const valReqHandler = createRequestHandler(
+    new LocalValServer({
+      service,
+    })
+  );
   const app = express();
   // TODO: Properly configure CORS
   app.use(cors(), valReqHandler);
