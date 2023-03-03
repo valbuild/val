@@ -387,10 +387,7 @@ function isValElement(el: Element | null): boolean {
   return isValElement(el.parentElement);
 }
 
-export function ValProvider({
-  host = "http://localhost:4123",
-  children,
-}: ValProviderProps) {
+export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [enabled, setEnabled] = useState(false);
   const [editFormPosition, setEditFormPosition] = useState<FormPosition | null>(
