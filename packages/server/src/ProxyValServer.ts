@@ -46,7 +46,11 @@ export class ProxyValServer implements ValServer {
     res.clearCookie(VAL_STATE_COOKIE); // we don't need this anymore
 
     if (callbackReqError !== null) {
-      res.redirect(this.getAppErrorUrl("Failed to verify callback request"));
+      res.redirect(
+        this.getAppErrorUrl(
+          `Authorization callback failed. Details: ${callbackReqError}`
+        )
+      );
       return;
     }
 
