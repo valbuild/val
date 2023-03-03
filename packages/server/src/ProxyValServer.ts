@@ -12,7 +12,7 @@ const VAL_STATE_COOKIE = "val_state";
 
 export type ProxyValServerOptions = {
   apiKey: string;
-  sessionKey: string;
+  valSecret: string;
   publicValApiRoute: string;
   valBuildUrl: string;
 };
@@ -61,7 +61,7 @@ export class ProxyValServer implements ValServer {
         ...data,
         exp, // this is the client side exp
       },
-      this.options.sessionKey
+      this.options.valSecret
     );
 
     res
@@ -89,7 +89,7 @@ export class ProxyValServer implements ValServer {
     const cookie = req.cookies[VAL_SESSION_COOKIE];
     if (typeof cookie === "string") {
       const verification = IntegratedServerJwtPayload.safeParse(
-        decodeJwt(cookie, this.options.sessionKey)
+        decodeJwt(cookie, this.options.valSecret)
       );
       if (!verification.success) {
         res.sendStatus(401);

@@ -90,10 +90,10 @@ async function initHandlerOptions(
   opts: ValServerOverrides & ServiceOptions
 ): Promise<ValServerOptions> {
   const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
-  const maybeSessionKey = opts.valSecret || process.env.VAL_SECRET;
+  const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
   const isProxyMode =
     opts.mode === "proxy" ||
-    (opts.mode === undefined && (maybeApiKey || maybeSessionKey));
+    (opts.mode === undefined && (maybeApiKey || maybeValSecret));
 
   if (isProxyMode) {
     const publicValUrl =
@@ -104,7 +104,7 @@ async function initHandlerOptions(
         : undefined);
     const valBuildUrl =
       opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://app.val.build";
-    if (!maybeApiKey || !maybeSessionKey) {
+    if (!maybeApiKey || !maybeValSecret) {
       throw new Error(
         "VAL_API_KEY and VAL_SECRET env vars must both be set in proxy mode"
       );
@@ -117,7 +117,7 @@ async function initHandlerOptions(
     return {
       mode: "proxy",
       apiKey: maybeApiKey,
-      sessionKey: maybeSessionKey,
+      valSecret: maybeValSecret,
       publicValApiRoute: `${publicValUrl}${route}`,
       valBuildUrl,
     };
