@@ -454,40 +454,46 @@ export function ValProvider({
 
     if (enabled) {
       if (authentication.status !== "authenticated") {
-        fetch(`${host}/session`).then(async (res) => {
-          if (res.status === 401) {
-            setAuthentication({
-              status: "unauthenticated",
-            });
-          } else if (res.ok) {
-            const data = await res.json();
-            if (data.mode === "local") {
-              setAuthentication({ status: "local" });
-            } else if (data.mode === "proxy") {
+        fetch(`${host}/session`)
+          .then(async (res) => {
+            if (res.status === 401) {
               setAuthentication({
-                status: "authenticated",
+                status: "unauthenticated",
               });
+            } else if (res.ok) {
+              const data = await res.json();
+              if (data.mode === "local") {
+                setAuthentication({ status: "local" });
+              } else if (data.mode === "proxy") {
+                setAuthentication({
+                  status: "authenticated",
+                });
+              } else {
+                setAuthentication({
+                  status: "error",
+                  message: "Unknown authentication mode",
+                });
+              }
             } else {
+              let message = "Unknown error";
+              try {
+                message = await res.text();
+              } catch {
+                // ignore
+              }
               setAuthentication({
                 status: "error",
-                message: "Unknown authentication mode",
+                message,
               });
             }
-          } else {
-            let message = "Unknown error";
-            try {
-              message = await res.text();
-            } catch {
-              // ignore
-            }
+          })
+          .catch((err) => {
+            console.error("Failed to fetch session", err);
             setAuthentication({
               status: "error",
-              message,
+              message: "Unknown authentication mode",
             });
-          }
-
-          console.log(res.status);
-        });
+          });
       }
     } else {
       if (authentication.status === "error") {
