@@ -5,6 +5,7 @@ import { PatchError } from "./patch/ops";
 import * as result from "./fp/result";
 import { getFileIdFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
+
 export type LocalValServerOptions = {
   service: Service;
 };

@@ -1,10 +1,10 @@
 import type { RequestListener } from "node:http";
 import express from "express";
 import { createService, ServiceOptions } from "./Service";
-import {
-  createRequestHandler,
-  RequestHandlerOptions,
-} from "./createRequestHandler";
+import { createRequestHandler } from "./createRequestHandler";
+import { ValServer } from "./ValServer";
+import { LocalValServer, LocalValServerOptions } from "./LocalValServer";
+import { ProxyValServer, ProxyValServerOptions } from "./ProxyValServer";
 
 type Opts = ValServerOverrides & ServiceOptions;
 
@@ -71,15 +71,24 @@ async function _createRequestListener(
   route: string,
   opts: Opts
 ): Promise<RequestListener> {
-  const handlerOpts = await initHandlerOptions(route, opts);
-  const reqHandler = createRequestHandler(handlerOpts);
+  const serverOpts = await initHandlerOptions(route, opts);
+  let valServer: ValServer;
+  if (serverOpts.mode === "proxy") {
+    valServer = new ProxyValServer(serverOpts);
+  } else {
+    valServer = new LocalValServer(serverOpts);
+  }
+  const reqHandler = createRequestHandler(valServer);
   return express().use(route, reqHandler);
 }
 
+type ValServerOptions =
+  | ({ mode: "proxy" } & ProxyValServerOptions)
+  | ({ mode: "local" } & LocalValServerOptions);
 async function initHandlerOptions(
   route: string,
   opts: ValServerOverrides & ServiceOptions
-): Promise<RequestHandlerOptions> {
+): Promise<ValServerOptions> {
   const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
   const maybeSessionKey = opts.valSecret || process.env.VAL_SECRET;
   const isProxyMode =
