@@ -67,7 +67,10 @@ export class LocalValServer implements ValServer {
       }
     }
   }
-  private async badRequest(req: express.Request, res: express.Response): Promise<void> {
+  private async badRequest(
+    req: express.Request,
+    res: express.Response
+  ): Promise<void> {
     console.debug("Local server does handle this request", req.url);
     res.sendStatus(400);
   }
