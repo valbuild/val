@@ -399,7 +399,7 @@ export function ValProvider({
     document.body.appendChild(styleElement);
 
     // capture event clicks on data-val-ids elements
-    const editButtonClickListener = (e: MouseEvent) => {
+    const openValFormListener = (e: MouseEvent) => {
       if (e.target instanceof Element) {
         const valId = e.target?.getAttribute("data-val-ids");
         if (valId) {
@@ -421,13 +421,13 @@ export function ValProvider({
     };
     document.addEventListener(
       "click",
-      editButtonClickListener,
+      openValFormListener,
       editButtonClickOptions
     );
     return () => {
       document.removeEventListener(
         "click",
-        editButtonClickListener,
+        openValFormListener,
         editButtonClickOptions
       );
       styleElement.remove();
