@@ -1,6 +1,6 @@
 import express from "express";
 import crypto from "crypto";
-import { decodeJwt, encodeJwt, getExpire, JwtPayload } from "./jwt";
+import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { parsePatch, PatchJSON } from "./patch/patch";
 import * as result from "./fp/result";
 import { getFileIdFromParams } from "./expressHelpers";
@@ -84,16 +84,18 @@ export class ProxyValServer implements ValServer {
   async withAuth<T>(
     req: express.Request,
     res: express.Response,
-    handler: (data: JwtPayload) => Promise<T>
+    handler: (data: IntegratedServerJwtPayload) => Promise<T>
   ): Promise<T | undefined> {
     const cookie = req.cookies[VAL_SESSION_COOKIE];
     if (typeof cookie === "string") {
-      const data = decodeJwt(cookie, this.options.sessionKey);
-      if (data === null) {
+      const verification = IntegratedServerJwtPayload.safeParse(
+        decodeJwt(cookie, this.options.sessionKey)
+      );
+      if (!verification.success) {
         res.sendStatus(401);
         return;
       }
-      return handler(data);
+      return handler(verification.data);
     } else {
       res.sendStatus(401);
     }
@@ -203,12 +205,12 @@ export class ProxyValServer implements ValServer {
       .then(async (res) => {
         if (res.status === 200) {
           const token = await res.text();
-          const decodedToken = decodeToken(token);
-          if (!decodedToken) {
+          const verification = ValAppJwtPayload.safeParse(decodeJwt(token));
+          if (!verification.success) {
             return null;
           }
           return {
-            ...decodedToken,
+            ...verification.data,
             token,
           };
         } else {
@@ -344,46 +346,21 @@ function createStateCookie(state: StateCookie): string {
   return Buffer.from(JSON.stringify(state), "utf8").toString("base64");
 }
 
-const ValToken = z.object({
+const ValAppJwtPayload = z.object({
   sub: z.string(),
   exp: z.number(),
   project: z.string(),
   org: z.string(),
 });
-type ValToken = z.infer<typeof ValToken>;
+type ValAppJwtPayload = z.infer<typeof ValAppJwtPayload>;
 
-/**
- * @returns valid data or null if invalid (forces user to re-auth)
- */
-function decodeToken(token: string): ValToken | null {
-  try {
-    const [headerBase64, payloadBase64, signatureBase64, ...rest] =
-      token.split(".");
-    if (
-      !headerBase64 ||
-      !payloadBase64 ||
-      !signatureBase64 ||
-      rest.length > 0
-    ) {
-      console.debug(
-        "Invalid token: token format is not exactly {header}.{payload}.{signature}",
-        token
-      );
-      return null;
-    }
-    const payload = Buffer.from(payloadBase64, "base64").toString("utf8");
-    const parsedPayload = JSON.parse(payload) as unknown;
-    const payloadVerification = ValToken.safeParse(parsedPayload);
-    if (!payloadVerification.success) {
-      console.debug(
-        "Invalid code jwt token payload",
-        payloadVerification.error
-      );
-      return null;
-    }
-    return payloadVerification.data;
-  } catch (err) {
-    console.debug("Failed to parse token", err);
-    return null;
-  }
-}
+const IntegratedServerJwtPayload = z.object({
+  sub: z.string(),
+  exp: z.number(),
+  token: z.string(),
+  org: z.string(),
+  project: z.string(),
+});
+export type IntegratedServerJwtPayload = z.infer<
+  typeof IntegratedServerJwtPayload
+>;
