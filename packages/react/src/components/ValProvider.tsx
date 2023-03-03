@@ -528,7 +528,7 @@ export function ValProvider({
         });
       }
     }
-  }, [enabled]);
+  }, [enabled, authentication.status]);
 
   return (
     <ValContext.Provider
