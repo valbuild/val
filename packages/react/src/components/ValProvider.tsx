@@ -386,53 +386,60 @@ export function ValProvider({
   });
 
   useEffect(() => {
-    // create style element on body
-    document.getElementById("val-edit-highlight")?.remove();
-    const styleElement = document.createElement("style");
-    styleElement.id = "val-edit-highlight";
-    styleElement.innerHTML = `
-        .val-edit-mode >* [data-val-ids] {
-          outline: black solid 2px;
-          outline-offset: 4px;
-        }
-      `;
-    document.body.appendChild(styleElement);
-
-    // capture event clicks on data-val-ids elements
-    const openValFormListener = (e: MouseEvent) => {
-      if (e.target instanceof Element) {
-        const valId = e.target?.getAttribute("data-val-ids");
-        if (valId) {
-          e.stopPropagation();
-          setSelectedIds(valId.split(","));
-          const rect = e.target.getBoundingClientRect();
-          setEditFormPosition({
-            left: rect.right,
-            top: rect.top - 1 /* outline */,
-          });
-        }
-      }
-    };
-
-    //
+    let openValFormListener: ((e: MouseEvent) => void) | undefined = undefined;
+    let styleElement: HTMLStyleElement | undefined = undefined;
     const editButtonClickOptions = {
       capture: true,
       passive: true,
     };
-    document.addEventListener(
-      "click",
-      openValFormListener,
-      editButtonClickOptions
-    );
-    return () => {
-      document.removeEventListener(
+    if (enabled) {
+      // highlight val element by appending a new style
+      styleElement = document.createElement("style");
+      styleElement.id = "val-edit-highlight";
+      styleElement.innerHTML = `
+        .val-edit-mode >* [data-val-ids] {
+          outline: black solid 2px;
+          outline-offset: 4px;
+          cursor: pointer;
+        }
+      `;
+      document.body.appendChild(styleElement);
+
+      // capture event clicks on data-val-ids elements
+      openValFormListener = (e: MouseEvent) => {
+        if (e.target instanceof Element) {
+          const valId = e.target?.getAttribute("data-val-ids");
+          if (valId) {
+            e.stopPropagation();
+            setSelectedIds(valId.split(","));
+            const rect = e.target.getBoundingClientRect();
+            setEditFormPosition({
+              left: rect.right,
+              top: rect.top - 1 /* outline */,
+            });
+          } else {
+            setEditFormPosition(null);
+            setSelectedIds([]);
+          }
+        }
+      };
+      document.addEventListener(
         "click",
         openValFormListener,
         editButtonClickOptions
       );
-      styleElement.remove();
+    }
+    return () => {
+      if (openValFormListener) {
+        document.removeEventListener(
+          "click",
+          openValFormListener,
+          editButtonClickOptions
+        );
+      }
+      styleElement?.remove();
     };
-  });
+  }, [enabled]);
 
   useEffect(() => {
     const requestAuth = !(
@@ -440,6 +447,11 @@ export function ValProvider({
       authentication.status === "local"
     );
     if (requestAuth) {
+      setSelectedIds([]);
+      setEditFormPosition(null);
+    }
+    if (!enabled) {
+      // reset state when disabled
       setSelectedIds([]);
       setEditFormPosition(null);
     }
