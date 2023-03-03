@@ -10,6 +10,10 @@ export function decodeJwt(token: string, secretKey?: string): unknown | null {
     );
     return null;
   }
+  if (headerBase64 !== jwtHeaderBase64) {
+    console.debug("Invalid JWT: invalid header");
+    return null;
+  }
   if (secretKey) {
     const signature = crypto
       .createHmac("sha256", secretKey)
