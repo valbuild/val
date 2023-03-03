@@ -72,11 +72,6 @@ async function _createRequestListener(
   opts: Opts
 ): Promise<RequestListener> {
   const handlerOpts = await initHandlerOptions(route, opts);
-  if (handlerOpts.mode === "local" && process.env.NODE_ENV === "production") {
-    throw new Error(
-      "Val server is running in local mode in production. This is not allowed."
-    );
-  }
   const reqHandler = createRequestHandler(handlerOpts);
   return express().use(route, reqHandler);
 }
