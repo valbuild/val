@@ -12,8 +12,8 @@ const VAL_STATE_COOKIE = "val_state";
 
 export type ProxyValServerOptions = {
   apiKey: string;
+  route: string;
   valSecret: string;
-  publicValApiRoute: string;
   valBuildUrl: string;
 };
 
@@ -30,7 +30,11 @@ export class ProxyValServer implements ValServer {
       return;
     }
     const token = crypto.randomUUID();
-    const appAuthorizeUrl = this.getAuthorizeUrl(token);
+    const redirectUrl = new URL(redirect_to);
+    const appAuthorizeUrl = this.getAuthorizeUrl(
+      `${redirectUrl.origin}/${this.options.route}`,
+      token
+    );
     res
       .cookie(VAL_STATE_COOKIE, createStateCookie({ redirect_to, token }), {
         httpOnly: true,
@@ -239,11 +243,11 @@ export class ProxyValServer implements ValServer {
       });
   }
 
-  private getAuthorizeUrl(token: string): string {
+  private getAuthorizeUrl(publicValApiRoute: string, token: string): string {
     const url = new URL("/authorize", this.options.valBuildUrl);
     url.searchParams.set(
       "redirect_uri",
-      encodeURIComponent(`${this.options.publicValApiRoute}/callback`)
+      encodeURIComponent(`${publicValApiRoute}/callback`)
     );
     url.searchParams.set("state", token);
     return url.toString();
