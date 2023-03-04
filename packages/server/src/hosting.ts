@@ -10,15 +10,6 @@ type Opts = ValServerOverrides & ServiceOptions;
 
 type ValServerOverrides = Partial<{
   /**
-   * The public url of this application.
-   *
-   * This value can also be set using the VAL_PUBLIC_URL env var.
-   * If this is not set, it will default to the value of the VERCEL_URL env var.
-   *
-   * @example "https://foo.vercel.app"
-   */
-  publicValUrl: string;
-  /**
    * Override the Val API key.
    *
    * Typically this is set using VAL_API_KEY env var.
@@ -96,12 +87,6 @@ async function initHandlerOptions(
     (opts.mode === undefined && (maybeApiKey || maybeValSecret));
 
   if (isProxyMode) {
-    const publicValUrl =
-      opts.publicValUrl ||
-      process.env.VAL_PUBLIC_URL ||
-      (process.env.VERCEL_URL
-        ? `https://${process.env.VERCEL_URL}`
-        : undefined);
     const valBuildUrl =
       opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://app.val.build";
     if (!maybeApiKey || !maybeValSecret) {
@@ -109,16 +94,11 @@ async function initHandlerOptions(
         "VAL_API_KEY and VAL_SECRET env vars must both be set in proxy mode"
       );
     }
-    if (!publicValUrl) {
-      throw new Error(
-        "VAL_PUBLIC_URL or VERCEL_URL env var must be set in proxy mode"
-      );
-    }
     return {
       mode: "proxy",
+      route,
       apiKey: maybeApiKey,
       valSecret: maybeValSecret,
-      publicValApiRoute: `${publicValUrl}${route}`,
       valBuildUrl,
     };
   } else {
