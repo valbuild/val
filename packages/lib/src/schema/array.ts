@@ -7,11 +7,11 @@ export type SerializedArraySchema = {
   schema: SerializedSchema;
 };
 
-export class ArraySchema<T extends Source> extends Schema<T[]> {
-  constructor(private readonly schema: Schema<T>) {
+export class ArraySchema<In extends Source, Out> extends Schema<In[], Out[]> {
+  constructor(private readonly schema: Schema<In, Out>) {
     super();
   }
-  validate(input: T[]): false | string[] {
+  validate(input: In[]): false | string[] {
     const errors: string[] = [];
     input.forEach((value, index) => {
       const result = this.schema.validate(value);
@@ -25,6 +25,10 @@ export class ArraySchema<T extends Source> extends Schema<T[]> {
     return false;
   }
 
+  apply(input: In[]): Out[] {
+    return input.map((item) => this.schema.apply(item));
+  }
+
   serialize(): SerializedArraySchema {
     return {
       type: "array",
@@ -32,10 +36,14 @@ export class ArraySchema<T extends Source> extends Schema<T[]> {
     };
   }
 
-  static deserialize(schema: SerializedArraySchema): ArraySchema<Source> {
+  static deserialize(
+    schema: SerializedArraySchema
+  ): ArraySchema<Source, unknown> {
     return new ArraySchema(deserializeSchema(schema.schema));
   }
 }
-export const array = <T extends Source>(schema: Schema<T>): Schema<T[]> => {
+export const array = <In extends Source, Out>(
+  schema: Schema<In, Out>
+): Schema<In[], Out[]> => {
   return new ArraySchema(schema);
 };

@@ -1,50 +1,51 @@
-import {
-  ValModule,
-  Val,
-  ValString,
-  SourceObject,
-  Source,
-  ValProps,
-} from "@valbuild/lib";
-import { useContext, useSyncExternalStore } from "react";
-import { useValStore, ValContext } from "../ValProvider";
+import { useSyncExternalStore } from "react";
+import { useValStore } from "../ValProvider";
+import { ValModule, Source } from "@valbuild/lib";
+import { ReactVal } from "../types";
 
-const idProp: keyof ValProps<unknown> /* type check to make sure idProp is, in fact, a prop of ValProps */ =
-  "valId";
-const valProp: keyof ValProps<unknown> /* type check to make sure valProps is, in fact, a prop of ValProps */ =
-  "val";
-
-function buildVal<T extends Source>(id: string, val: T): Val<T> {
-  if (typeof val === "string") {
-    return {
-      valId: id,
-      val,
-    } as ValString as Val<T>;
-  } else if (Array.isArray(val)) {
-    // Should this fall-through to object if-clause or use Proxy / lazy to be consistent with object (currently a Proxy)?
-    // NOTE: we want the methods on array here so probably not Proxy
-    return val.map((item, index) => buildVal(`${id}.${index}`, item)) as Val<T>;
-  } else if (typeof val === "object") {
-    // Should this be a Proxy / lazy or not? Is it serializable?
-    return new Proxy(val as SourceObject, {
-      get(target, prop: string) {
-        if (prop === idProp) {
-          return id;
-        }
-        if (prop === valProp) {
-          return val;
-        }
-        if (target[prop]) {
-          return buildVal(`${id}.${prop}`, target[prop]);
-        }
-        return undefined;
-      },
-    }) as Val<T>;
-  }
-  throw new Error("Not implemented");
+function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, prop);
 }
 
-export const useVal = <T extends Source>(mod: ValModule<T>): Val<T> => {
+function wrapVal<T>(id: string, val: T): ReactVal<T> {
+  switch (typeof val) {
+    case "function":
+    case "symbol":
+      throw Error("Invalid val type");
+    case "object":
+      if (val !== null) {
+        // Handles both objects and arrays!
+        return new Proxy(val, {
+          get(target, prop: string) {
+            if (prop === "valId") {
+              return id;
+            }
+            if (prop === "val") {
+              return target;
+            }
+            if (Array.isArray(target) && prop === "length") {
+              return target.length;
+            }
+            if (hasOwn(val, prop)) {
+              return wrapVal(`${id}.${prop}`, Reflect.get(target, prop));
+            }
+            return Reflect.get(target, prop);
+          },
+        }) as ReactVal<T>;
+      }
+    // intentional fallthrough
+    // eslint-disable-next-line no-fallthrough
+    default:
+      return {
+        valId: id,
+        val,
+      } as ReactVal<T>;
+  }
+}
+
+export const useVal = <In extends Source, Out>(
+  mod: ValModule<In, Out>
+): ReactVal<Out> => {
   const valStore = useValStore();
   const currentVal = useSyncExternalStore(
     valStore.subscribe(mod.id),
@@ -52,14 +53,15 @@ export const useVal = <T extends Source>(mod: ValModule<T>): Val<T> => {
     valStore.getServerSnapshot(mod.id)
   );
   if (currentVal) {
-    return buildVal(mod.id, currentVal.source as T);
+    return wrapVal(mod.id, currentVal.source as Out);
   }
-  const content = mod.content;
-  const validationError = content.schema.validate(content.get());
+  const source = mod.content;
+  const validationError = source.validate();
   if (validationError) {
     throw new Error(
-      `Invalid static value. Errors:\n${validationError.join("\n")}`
+      `Invalid source value. Errors:\n${validationError.join("\n")}`
     );
   }
-  return buildVal(mod.id, content.get());
+
+  return wrapVal(mod.id, source.get());
 };

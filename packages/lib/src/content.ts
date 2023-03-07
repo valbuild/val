@@ -1,23 +1,27 @@
-import { type Schema, SerializedSchema } from "./schema/Schema";
+import { type Schema, SerializedSchema, InOf, OutOf } from "./schema/Schema";
 import { deserializeSchema } from "./schema/serialization";
 import { Source } from "./Source";
 
-export class ModuleContent<T extends Source> {
+export class ModuleContent<T extends Schema<Source, unknown>> {
   constructor(
     /**
      * @internal
      */
-    public readonly source: T,
-    public readonly schema: Schema<T>
+    public readonly source: InOf<T>,
+    public readonly schema: T
   ) {}
+
+  validate() {
+    return this.schema.validate(this.source);
+  }
 
   /**
    * Get the source of this module
    *
    * @internal
    */
-  get(): T {
-    return this.source;
+  get(): OutOf<T> {
+    return this.schema.apply(this.source) as OutOf<T>;
   }
 
   serialize(): SerializedModuleContent {
@@ -30,7 +34,7 @@ export class ModuleContent<T extends Source> {
   static deserialize({
     source,
     schema,
-  }: SerializedModuleContent): ModuleContent<Source> {
+  }: SerializedModuleContent): ModuleContent<Schema<Source, unknown>> {
     return new ModuleContent(source, deserializeSchema(schema));
   }
 }

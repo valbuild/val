@@ -1,5 +1,5 @@
-import { SourceObject } from "../Source";
-import { Schema, type SerializedSchema } from "./Schema";
+import { Source } from "../Source";
+import { InOf, OutOf, Schema, type SerializedSchema } from "./Schema";
 import { deserializeSchema } from "./serialization";
 
 export type SerializedObjectSchema = {
@@ -7,11 +7,16 @@ export type SerializedObjectSchema = {
   schema: Record<string, SerializedSchema>;
 };
 
-export class ObjectSchema<T extends SourceObject> extends Schema<T> {
-  constructor(private readonly schema: { [key in keyof T]: Schema<T[key]> }) {
+export class ObjectSchema<
+  T extends { [key: string]: Schema<Source, unknown> }
+> extends Schema<
+  { [key in keyof T]: InOf<T[key]> },
+  { [key in keyof T]: OutOf<T[key]> }
+> {
+  constructor(private readonly schema: T) {
     super();
   }
-  validate(input: T): false | string[] {
+  validate(input: { [key in keyof T]: InOf<T[key]> }): false | string[] {
     const errors: string[] = [];
     for (const key in this.schema) {
       const value = input[key];
@@ -25,6 +30,17 @@ export class ObjectSchema<T extends SourceObject> extends Schema<T> {
       return errors;
     }
     return false;
+  }
+
+  apply(input: { [key in keyof T]: InOf<T[key]> }): {
+    [key in keyof T]: OutOf<T[key]>;
+  } {
+    return Object.fromEntries(
+      Object.entries(this.schema).map(([key, schema]) => [
+        key,
+        schema.apply(input[key]),
+      ])
+    ) as { [key in keyof T]: OutOf<T[key]> };
   }
 
   serialize(): SerializedObjectSchema {
@@ -41,7 +57,7 @@ export class ObjectSchema<T extends SourceObject> extends Schema<T> {
 
   static deserialize(
     schema: SerializedObjectSchema
-  ): ObjectSchema<SourceObject> {
+  ): ObjectSchema<{ [key in string]: Schema<Source, unknown> }> {
     return new ObjectSchema(
       Object.fromEntries(
         Object.entries(schema.schema).map(([key, schema]) => [
@@ -52,8 +68,11 @@ export class ObjectSchema<T extends SourceObject> extends Schema<T> {
     );
   }
 }
-export const object = <T extends SourceObject>(schema: {
-  [key in keyof T]: Schema<T[key]>;
-}): Schema<T> => {
+export const object = <T extends { [key: string]: Schema<Source, unknown> }>(
+  schema: T
+): Schema<
+  { [key in keyof T]: InOf<T[key]> },
+  { [key in keyof T]: OutOf<T[key]> }
+> => {
   return new ObjectSchema(schema);
 };

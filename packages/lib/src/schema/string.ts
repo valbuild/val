@@ -43,6 +43,10 @@ export class StringSchema extends Schema<string> {
     return false;
   }
 
+  apply(input: string): string {
+    return input;
+  }
+
   serialize(): SerializedStringSchema {
     return {
       type: "string",
@@ -54,6 +58,6 @@ export class StringSchema extends Schema<string> {
     return new StringSchema(schema.options);
   }
 }
-export const string = (options?: StringOptions): Schema<string> => {
+export const string = (options?: StringOptions): Schema<string, string> => {
   return new StringSchema(options);
 };

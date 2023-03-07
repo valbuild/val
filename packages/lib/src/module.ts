@@ -1,8 +1,8 @@
 import { ModuleContent } from "./content";
-import { Schema, SrcOf } from "./schema/Schema";
+import { InOf, Schema } from "./schema/Schema";
 import { Source } from "./Source";
 
-export class ValModule<T extends Source> {
+export class ValModule<T extends Schema<Source, unknown>> {
   constructor(
     public readonly id: string,
     public readonly content: ModuleContent<T>
@@ -16,7 +16,7 @@ export class ValModule<T extends Source> {
 export const content = <T extends Schema<Source>>(
   id: string,
   schema: T,
-  src: SrcOf<T>
-): ValModule<SrcOf<T>> => {
-  return new ValModule(id, new ModuleContent<SrcOf<T>>(src, schema));
+  src: InOf<T>
+): ValModule<T> => {
+  return new ValModule(id, new ModuleContent(src, schema));
 };
