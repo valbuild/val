@@ -13,7 +13,7 @@ export type SerializedStringSchema = {
   };
 };
 
-class StringSchema extends Schema<string> {
+export class StringSchema extends Schema<string> {
   constructor(private readonly options?: StringOptions) {
     super();
   }
@@ -45,6 +45,10 @@ class StringSchema extends Schema<string> {
         minLength: this.options?.minLength,
       },
     };
+  }
+
+  static deserialize(schema: SerializedStringSchema): StringSchema {
+    return new StringSchema(schema.options);
   }
 }
 export const string = (options?: StringOptions): Schema<string> => {
