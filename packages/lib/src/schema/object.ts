@@ -1,13 +1,13 @@
 import { ValidObject } from "../ValidTypes";
 import { Schema } from "./Schema";
-import type { SerializedSchema } from "./SerializedSchema";
+import { deserialize, SerializedSchema } from "./SerializedSchema";
 
 export type SerializedObjectSchema = {
   type: "object";
   schema: Record<string, SerializedSchema>;
 };
 
-class ObjectSchema<T extends ValidObject> extends Schema<T> {
+export class ObjectSchema<T extends ValidObject> extends Schema<T> {
   constructor(private readonly schema: { [key in keyof T]: Schema<T[key]> }) {
     super();
   }
@@ -37,6 +37,19 @@ class ObjectSchema<T extends ValidObject> extends Schema<T> {
         ])
       ),
     };
+  }
+
+  static deserialize(
+    schema: SerializedObjectSchema
+  ): ObjectSchema<ValidObject> {
+    return new ObjectSchema(
+      Object.fromEntries(
+        Object.entries(schema.schema).map(([key, schema]) => [
+          key,
+          deserialize(schema),
+        ])
+      )
+    );
   }
 }
 export const object = <T extends ValidObject>(schema: {

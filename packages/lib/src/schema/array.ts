@@ -1,13 +1,13 @@
 import { ValidTypes } from "../ValidTypes";
 import { Schema } from "./Schema";
-import type { SerializedSchema } from "./SerializedSchema";
+import { deserialize, SerializedSchema } from "./SerializedSchema";
 
 export type SerializedArraySchema = {
   type: "array";
   schema: SerializedSchema;
 };
 
-class ArraySchema<T extends ValidTypes> extends Schema<T[]> {
+export class ArraySchema<T extends ValidTypes> extends Schema<T[]> {
   constructor(private readonly schema: Schema<T>) {
     super();
   }
@@ -30,6 +30,10 @@ class ArraySchema<T extends ValidTypes> extends Schema<T[]> {
       type: "array",
       schema: this.schema.serialize(),
     };
+  }
+
+  static deserialize(schema: SerializedArraySchema): ArraySchema<ValidTypes> {
+    return new ArraySchema(deserialize(schema.schema));
   }
 }
 export const array = <T extends ValidTypes>(schema: Schema<T>): Schema<T[]> => {
