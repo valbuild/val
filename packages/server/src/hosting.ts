@@ -47,6 +47,14 @@ type ValServerOverrides = Partial<{
    */
   mode: "proxy" | "local";
   /**
+   * Current git commit.
+   *
+   * Required if mode is "proxy".
+   *
+   * @example "922403f04e8d57cdf4d10c0b195f0a0d7b6dbb6d"
+   */
+  gitCommit: string;
+  /**
    * The base url of Val.
    *
    * Typically this should not be set.
@@ -94,12 +102,17 @@ async function initHandlerOptions(
         "VAL_API_KEY and VAL_SECRET env vars must both be set in proxy mode"
       );
     }
+    const maybeGitCommit = opts.gitCommit || process.env.VAL_GIT_COMMIT;
+    if (!maybeGitCommit) {
+      throw new Error("VAL_GIT_COMMIT env var must be set in proxy mode");
+    }
     return {
       mode: "proxy",
       route,
       apiKey: maybeApiKey,
       valSecret: maybeValSecret,
       valBuildUrl,
+      gitCommit: maybeGitCommit,
     };
   } else {
     const service = await createService(process.cwd(), opts);
