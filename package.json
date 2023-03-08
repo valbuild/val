@@ -7,8 +7,8 @@
     "examples/*"
   ],
   "scripts": {
-    "build": "preconstruct build",
-    "postinstall": "preconstruct dev",
+    "build": "preconstruct build && npm run build -w packages/ui",
+    "postinstall": "patch-package && preconstruct dev",
     "format": "prettier --check .",
     "format:fix": "prettier --write .",
     "lint": "eslint .",
@@ -28,10 +28,12 @@
     "@typescript-eslint/eslint-plugin": "^5.48.1",
     "@typescript-eslint/parser": "^5.48.1",
     "babel-jest": "^29.4.2",
+    "babel-plugin-transform-import-meta": "^2.2.0",
     "eslint": "^8.31.0",
     "eslint-config-prettier": "^8.6.0",
     "eslint-plugin-react": "^7.31.11",
     "jest": "^29.4.2",
+    "patch-package": "^6.5.1",
     "prettier": "^2.8.2"
   },
   "preconstruct": {

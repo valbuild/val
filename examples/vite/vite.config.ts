@@ -9,4 +9,10 @@ export default defineConfig({
       jsxImportSource: "@valbuild/react",
     }),
   ],
+  optimizeDeps: {
+    /**
+     * NOTE: Only necessary when developing in this monorepo!
+     */
+    exclude: ["fsevents"],
+  },
 });
