@@ -1,8 +1,8 @@
 import express from "express";
 import { Service } from "./Service";
-import { PatchJSON, parsePatch } from "./patch/patch";
-import { PatchError } from "./patch/ops";
-import * as result from "./fp/result";
+import { PatchJSON } from "./patch/validation";
+import { result } from "@valbuild/lib/fp";
+import { parsePatch, PatchError } from "@valbuild/lib/patch";
 import { getFileIdFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
 

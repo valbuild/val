@@ -1,57 +1,8 @@
-import { isNonEmpty, NonEmptyArray } from "../fp/array";
-import * as result from "../fp/result";
+import { array, result } from "../fp";
+import { JSONValue, PatchError } from "./ops";
 
-export class PatchError {
-  constructor(public message: string) {}
-}
-
-export type JSONValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JSONValue[]
-  | {
-      [key: string]: JSONValue;
-    };
-
-/**
- * NOTE: MAY mutate the input document.
- */
-export interface Ops<T, E> {
-  add(
-    document: T,
-    path: string[],
-    value: JSONValue
-  ): result.Result<T, E | PatchError>;
-  remove(
-    document: T,
-    path: NonEmptyArray<string>
-  ): result.Result<T, E | PatchError>;
-  replace(
-    document: T,
-    path: string[],
-    value: JSONValue
-  ): result.Result<T, E | PatchError>;
-  move(
-    document: T,
-    from: NonEmptyArray<string>,
-    path: string[]
-  ): result.Result<T, E | PatchError>;
-  copy(
-    document: T,
-    from: string[],
-    path: string[]
-  ): result.Result<T, E | PatchError>;
-  test(
-    document: T,
-    path: string[],
-    value: JSONValue
-  ): result.Result<boolean, E | PatchError>;
-}
-
-export function isNotRoot(path: string[]): path is NonEmptyArray<string> {
-  return isNonEmpty(path);
+export function isNotRoot(path: string[]): path is array.NonEmptyArray<string> {
+  return array.isNonEmpty(path);
 }
 
 export function deepEqual(a: JSONValue, b: JSONValue) {

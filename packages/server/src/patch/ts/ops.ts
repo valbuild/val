@@ -1,6 +1,5 @@
 import ts from "typescript";
-import * as result from "../../fp/result";
-import { pipe } from "../../fp/util";
+import { result, array, pipe } from "@valbuild/lib/fp";
 import {
   validateInitializers,
   evaluateExpression,
@@ -15,8 +14,7 @@ import {
   PatchError,
   JSONValue,
   parseAndValidateArrayIndex,
-} from "../ops";
-import { NonEmptyArray } from "../../fp/array";
+} from "@valbuild/lib/patch";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
@@ -360,7 +358,7 @@ export function getFromNode(
 type Pointer = [node: ts.Expression, key: string];
 function getPointerFromPath(
   node: ts.Expression,
-  path: NonEmptyArray<string>
+  path: array.NonEmptyArray<string>
 ): TSOpsResult<Pointer> {
   let targetNode: ts.Expression = node;
   let key: string = path[0];
@@ -450,7 +448,7 @@ function removeFromNode(
 function removeAtPath(
   document: ts.SourceFile,
   rootNode: ts.Expression,
-  path: NonEmptyArray<string>
+  path: array.NonEmptyArray<string>
 ): TSOpsResult<[document: ts.SourceFile, removed: ts.Expression]> {
   return pipe(
     getPointerFromPath(rootNode, path),
@@ -550,7 +548,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
   }
   remove(
     document: ts.SourceFile,
-    path: NonEmptyArray<string>
+    path: array.NonEmptyArray<string>
   ): TSOpsResult<ts.SourceFile> {
     return pipe(
       document,
@@ -577,7 +575,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
   }
   move(
     document: ts.SourceFile,
-    from: NonEmptyArray<string>,
+    from: array.NonEmptyArray<string>,
     path: string[]
   ): TSOpsResult<ts.SourceFile> {
     return pipe(

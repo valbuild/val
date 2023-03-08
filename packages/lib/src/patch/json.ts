@@ -1,16 +1,11 @@
-import * as result from "../../fp/result";
-import { NonEmptyArray } from "../../fp/array";
-import { Result } from "../../fp/result";
+import { result, array, pipe } from "../fp/";
+import { JSONValue, Ops, PatchError } from "./ops";
 import {
   deepClone,
   deepEqual,
   isNotRoot,
-  JSONValue,
-  Ops,
   parseAndValidateArrayIndex,
-  PatchError,
-} from "../ops";
-import { pipe } from "../../fp/util";
+} from "./util";
 
 type JSONOpsResult<T> = result.Result<T, PatchError>;
 
@@ -120,7 +115,7 @@ function getFromNode(
 type Pointer = [node: JSONValue, key: string];
 function getPointerFromPath(
   node: JSONValue,
-  path: NonEmptyArray<string>
+  path: array.NonEmptyArray<string>
 ): JSONOpsResult<Pointer> {
   let targetNode: JSONValue = node;
   let key: string = path[0];
@@ -184,7 +179,7 @@ function removeFromNode(
 
 function removeAtPath(
   document: JSONValue,
-  path: NonEmptyArray<string>
+  path: array.NonEmptyArray<string>
 ): JSONOpsResult<JSONValue> {
   return pipe(
     getPointerFromPath(document, path),
@@ -245,13 +240,13 @@ export class JSONOps implements Ops<JSONValue, never> {
     document: JSONValue,
     path: string[],
     value: JSONValue
-  ): Result<JSONValue, PatchError> {
+  ): result.Result<JSONValue, PatchError> {
     return pipe(addAtPath(document, path, value), result.map(pickDocument));
   }
   remove(
     document: JSONValue,
-    path: NonEmptyArray<string>
-  ): Result<JSONValue, PatchError> {
+    path: array.NonEmptyArray<string>
+  ): result.Result<JSONValue, PatchError> {
     return pipe(
       removeAtPath(document, path),
       result.map(() => document)
@@ -261,14 +256,14 @@ export class JSONOps implements Ops<JSONValue, never> {
     document: JSONValue,
     path: string[],
     value: JSONValue
-  ): Result<JSONValue, PatchError> {
+  ): result.Result<JSONValue, PatchError> {
     return pipe(replaceAtPath(document, path, value), result.map(pickDocument));
   }
   move(
     document: JSONValue,
-    from: NonEmptyArray<string>,
+    from: array.NonEmptyArray<string>,
     path: string[]
-  ): Result<JSONValue, PatchError> {
+  ): result.Result<JSONValue, PatchError> {
     return pipe(
       removeAtPath(document, from),
       result.flatMap((removed: JSONValue) =>
@@ -281,7 +276,7 @@ export class JSONOps implements Ops<JSONValue, never> {
     document: JSONValue,
     from: string[],
     path: string[]
-  ): Result<JSONValue, PatchError> {
+  ): result.Result<JSONValue, PatchError> {
     return pipe(
       getAtPath(document, from),
       result.flatMap((value: JSONValue) =>
@@ -294,7 +289,7 @@ export class JSONOps implements Ops<JSONValue, never> {
     document: JSONValue,
     path: string[],
     value: JSONValue
-  ): Result<boolean, PatchError> {
+  ): result.Result<boolean, PatchError> {
     return pipe(
       getAtPath(document, path),
       result.map((documentValue: JSONValue) => deepEqual(value, documentValue))
