@@ -12,7 +12,23 @@
       "module": "./dist/valbuild-lib.esm.js",
       "default": "./dist/valbuild-lib.cjs.js"
     },
+    "./fp": {
+      "module": "./fp/dist/valbuild-lib-fp.esm.js",
+      "default": "./fp/dist/valbuild-lib-fp.cjs.js"
+    },
+    "./patch": {
+      "module": "./patch/dist/valbuild-lib-patch.esm.js",
+      "default": "./patch/dist/valbuild-lib-patch.cjs.js"
+    },
     "./package.json": "./package.json"
   },
-  "types": "dist/valbuild-lib.cjs.d.ts"
+  "types": "dist/valbuild-lib.cjs.d.ts",
+  "preconstruct": {
+    "entrypoints": [
+      "./index.ts",
+      "./fp/index.ts",
+      "./patch/index.ts"
+    ],
+    "exports": true
+  }
 }

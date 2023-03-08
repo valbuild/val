@@ -1,0 +1,11 @@
+export { JSONOps } from "./json";
+export { type OperationJSON, type Operation } from "./operation";
+export { parsePatch } from "./parse";
+export { type JSONValue, type Ops, PatchError } from "./ops";
+export { type PatchJSON, type Patch, applyPatch } from "./patch";
+export {
+  isNotRoot,
+  deepEqual,
+  deepClone,
+  parseAndValidateArrayIndex,
+} from "./util";

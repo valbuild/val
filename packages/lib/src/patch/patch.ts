@@ -1,37 +1,9 @@
-import * as result from "../fp/result";
-import { NonEmptyArray, flatten, map } from "../fp/array";
-import { pipe } from "../fp/util";
+import { result, pipe } from "../fp";
 import { Ops, PatchError } from "./ops";
-import {
-  StaticPatchIssue,
-  prefixIssuePath,
-  parseOperation,
-  Operation,
-  OperationJSON,
-} from "./operation";
-import { z } from "zod";
+import { Operation, OperationJSON } from "./operation";
 
-export const PatchJSON = z.array(OperationJSON);
-export type PatchJSON = z.infer<typeof PatchJSON>;
 export type Patch = Operation[];
-
-export function parsePatch(
-  patch: PatchJSON
-): result.Result<Patch, NonEmptyArray<StaticPatchIssue>> {
-  return pipe(
-    patch
-      .map(parseOperation)
-      .map(
-        result.mapErr(
-          map((error: StaticPatchIssue, index: number) =>
-            prefixIssuePath(index.toString(), error)
-          )
-        )
-      ),
-    result.all,
-    result.mapErr(flatten<StaticPatchIssue>)
-  );
-}
+export type PatchJSON = OperationJSON[];
 
 function apply<T, E>(
   document: T,

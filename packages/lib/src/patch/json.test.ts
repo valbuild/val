@@ -1,9 +1,10 @@
 import { describe, test, expect } from "@jest/globals";
-import { JSONOps } from "./ops";
-import * as result from "../../fp/result";
-import { PatchError, JSONValue, deepClone } from "../ops";
-import { pipe } from "../../fp/util";
-import { NonEmptyArray } from "../../fp/array";
+import { JSONOps } from "./json";
+import * as result from "../fp/result";
+import { PatchError, JSONValue } from "./ops";
+import { pipe } from "../fp/util";
+import { NonEmptyArray } from "../fp/array";
+import { deepClone } from "./util";
 
 describe("JSONOps", () => {
   test.each<{

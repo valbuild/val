@@ -1,13 +1,12 @@
 import {
   formatJSONPointer,
-  OperationJSON,
-  Operation,
   parseJSONPointer,
   parseOperation,
   StaticPatchIssue,
-} from "./operation";
+} from "./parse";
 import * as result from "../fp/result";
-import { NonEmptyArray } from "../fp/array";
+import { Operation, OperationJSON } from "./operation";
+import { array } from "../fp";
 
 describe("parseOperation", () => {
   test.each<{
@@ -99,7 +98,7 @@ describe("parseOperation", () => {
   test.each<{
     name: string;
     value: OperationJSON;
-    errors: NonEmptyArray<string[]>;
+    errors: array.NonEmptyArray<string[]>;
   }>([
     {
       name: "add operation with empty path",
@@ -139,7 +138,7 @@ describe("parseOperation", () => {
   ])("$name is invalid", ({ value, errors }) => {
     expect(parseOperation(value)).toEqual(
       result.err(
-        expect.arrayContaining<NonEmptyArray<StaticPatchIssue>>(
+        expect.arrayContaining<array.NonEmptyArray<StaticPatchIssue>>(
           errors.map((path) =>
             expect.objectContaining<StaticPatchIssue>({
               path,
