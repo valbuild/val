@@ -10,6 +10,7 @@
     "@valbuild/lib": "~0.7.0",
     "@valbuild/ui": "~0.7.0",
     "base64-arraybuffer": "^1.0.2",
+    "fast-json-patch": "^3.1.1",
     "react-shadow": "^20.0.0"
   },
   "devDependencies": {

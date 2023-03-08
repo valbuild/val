@@ -15,9 +15,9 @@ export type ProxyValServerOptions = {
   route: string;
   valSecret: string;
   valBuildUrl: string;
+  gitCommit: string;
 };
 
-const fakeGitRef = "main"; // TODO: get this from env vars
 export class ProxyValServer implements ValServer {
   constructor(readonly options: ProxyValServerOptions) {}
 
@@ -133,10 +133,9 @@ export class ProxyValServer implements ValServer {
     res: express.Response
   ): Promise<void> {
     return this.withAuth(req, res, async ({ token }) => {
-      const gitRef = fakeGitRef;
       const id = getFileIdFromParams(req.params);
       const url = new URL(
-        `/api/val/modules/${encodeURIComponent(gitRef)}${id}`,
+        `/api/val/modules/${encodeURIComponent(this.options.gitCommit)}${id}`,
         this.options.valBuildUrl
       );
       const fetchRes = await fetch(url, {
@@ -170,9 +169,8 @@ export class ProxyValServer implements ValServer {
         return;
       }
       const id = getFileIdFromParams(req.params);
-      const gitRef = fakeGitRef;
       const url = new URL(
-        `/api/val/modules/${encodeURIComponent(gitRef)}${id}`,
+        `/api/val/modules/${encodeURIComponent(this.options.gitCommit)}${id}`,
         this.options.valBuildUrl
       );
       // Proxy patch to val.build
