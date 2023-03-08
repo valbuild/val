@@ -7,11 +7,17 @@ export type SerializedObjectSchema = {
   schema: Record<string, SerializedSchema>;
 };
 
-export class ObjectSchema<
-  T extends { [key: string]: Schema<Source, unknown> }
-> extends Schema<
-  { [key in keyof T]: InOf<T[key]> },
-  { [key in keyof T]: OutOf<T[key]> }
+type SchemaObject = { [key: string]: Schema<Source, unknown> };
+type InObject<T extends SchemaObject> = {
+  [key in keyof T]: InOf<T[key]>;
+};
+type OutObject<T extends SchemaObject> = {
+  [key in keyof T]: OutOf<T[key]>;
+};
+
+export class ObjectSchema<T extends SchemaObject> extends Schema<
+  InObject<T>,
+  OutObject<T>
 > {
   constructor(private readonly schema: T) {
     super();
@@ -32,15 +38,13 @@ export class ObjectSchema<
     return false;
   }
 
-  apply(input: { [key in keyof T]: InOf<T[key]> }): {
-    [key in keyof T]: OutOf<T[key]>;
-  } {
+  apply(input: InObject<T>): OutObject<T> {
     return Object.fromEntries(
       Object.entries(this.schema).map(([key, schema]) => [
         key,
         schema.apply(input[key]),
       ])
-    ) as { [key in keyof T]: OutOf<T[key]> };
+    ) as OutObject<T>;
   }
 
   serialize(): SerializedObjectSchema {
@@ -68,11 +72,8 @@ export class ObjectSchema<
     );
   }
 }
-export const object = <T extends { [key: string]: Schema<Source, unknown> }>(
+export const object = <T extends SchemaObject>(
   schema: T
-): Schema<
-  { [key in keyof T]: InOf<T[key]> },
-  { [key in keyof T]: OutOf<T[key]> }
-> => {
+): Schema<InObject<T>, OutObject<T>> => {
   return new ObjectSchema(schema);
 };
