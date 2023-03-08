@@ -1,11 +1,12 @@
 import express from "express";
 import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
-import { parsePatch, PatchJSON } from "./patch/patch";
-import * as result from "./fp/result";
+import { PatchJSON } from "./patch/validation";
+import { result } from "@valbuild/lib/fp";
 import { getFileIdFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
 import { z } from "zod";
+import { parsePatch } from "@valbuild/lib/patch";
 
 const VAL_SESSION_COOKIE = "val_session";
 const VAL_STATE_COOKIE = "val_state";

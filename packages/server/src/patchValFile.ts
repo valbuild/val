@@ -1,10 +1,8 @@
 import { analyzeValModule } from "./patch/ts/valModule";
-import { applyPatch, Patch } from "./patch/patch";
+import { applyPatch, Patch, PatchError } from "@valbuild/lib/patch";
 import { TSOps } from "./patch/ts/ops";
-import * as result from "./fp/result";
-import { PatchError } from "./patch/ops";
+import { result, pipe } from "@valbuild/lib/fp";
 import { flatMapErrors, formatSyntaxError } from "./patch/ts/syntax";
-import { pipe } from "./fp/util";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
 
 export const patchValFile = async (

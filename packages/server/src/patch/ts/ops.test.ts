@@ -1,11 +1,9 @@
 import { describe, test, expect } from "@jest/globals";
 import ts from "typescript";
 import { TSOps } from "./ops";
-import * as result from "../../fp/result";
-import { PatchError, JSONValue } from "../ops";
-import { pipe } from "../../fp/util";
+import { result, array, pipe } from "@valbuild/lib/fp";
+import { PatchError, JSONValue } from "@valbuild/lib/patch";
 import { ValSyntaxError } from "./syntax";
-import { NonEmptyArray } from "../../fp/array";
 
 function testSourceFile(expression: string): ts.SourceFile {
   return ts.createSourceFile(
@@ -158,7 +156,7 @@ describe("TSOps", () => {
   test.each<{
     name: string;
     input: string;
-    path: NonEmptyArray<string>;
+    path: array.NonEmptyArray<string>;
     expected: result.Result<string, typeof PatchError | typeof ValSyntaxError>;
   }>([
     {
@@ -325,7 +323,7 @@ describe("TSOps", () => {
   test.each<{
     name: string;
     input: string;
-    from: NonEmptyArray<string>;
+    from: array.NonEmptyArray<string>;
     path: string[];
     expected: result.Result<string, typeof PatchError | typeof ValSyntaxError>;
   }>([
