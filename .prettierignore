@@ -1,9 +1,9 @@
 # next.js
-examples/next/.next/
-examples/next/out/
+examples/next*/.next/
+examples/next*/out/
 
 # production
-examples/next/build
+examples/next*/build
 
 trials
 
