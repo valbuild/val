@@ -1,0 +1,4 @@
+{
+  "main": "dist/valbuild-lib-fp.cjs.js",
+  "module": "dist/valbuild-lib-fp.esm.js"
+}
