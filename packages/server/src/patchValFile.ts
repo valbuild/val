@@ -6,13 +6,17 @@ import { PatchError } from "./patch/ops";
 import { flatMapErrors, formatSyntaxError } from "./patch/ts/syntax";
 import { pipe } from "./fp/util";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
+import { SerializedVal } from "@valbuild/lib";
+import { readValFile } from "./readValFile";
+import { QuickJSRuntime } from "quickjs-emscripten";
 
 export const patchValFile = async (
   id: string,
   valConfigPath: string,
   patch: Patch,
-  sourceFileHandler: ValSourceFileHandler
-): Promise<void> => {
+  sourceFileHandler: ValSourceFileHandler,
+  runtime: QuickJSRuntime
+): Promise<SerializedVal> => {
   const filePath = sourceFileHandler.resolveSourceModulePath(
     valConfigPath,
     `.${id}.val`
@@ -44,4 +48,6 @@ export const patchValFile = async (
   }
 
   sourceFileHandler.writeSourceFile(newSourceFile.value);
+
+  return readValFile(id, valConfigPath, runtime);
 };
