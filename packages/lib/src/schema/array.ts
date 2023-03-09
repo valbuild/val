@@ -1,6 +1,6 @@
 import { ValidTypes } from "../ValidTypes";
-import { Schema } from "./Schema";
-import { deserialize, SerializedSchema } from "./SerializedSchema";
+import { Schema, type SerializedSchema } from "./Schema";
+import { deserializeSchema } from "./serialization";
 
 export type SerializedArraySchema = {
   type: "array";
@@ -33,7 +33,7 @@ export class ArraySchema<T extends ValidTypes> extends Schema<T[]> {
   }
 
   static deserialize(schema: SerializedArraySchema): ArraySchema<ValidTypes> {
-    return new ArraySchema(deserialize(schema.schema));
+    return new ArraySchema(deserializeSchema(schema.schema));
   }
 }
 export const array = <T extends ValidTypes>(schema: Schema<T>): Schema<T[]> => {
