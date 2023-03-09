@@ -48,6 +48,13 @@ export function formatSyntaxError(
   return `${pos.line}:${pos.character} ${error.message}`;
 }
 
+export function formatSyntaxErrorTree(
+  tree: ValSyntaxErrorTree,
+  sourceFile: ts.SourceFile
+): string[] {
+  return flatMapErrors(tree, (error) => formatSyntaxError(error, sourceFile));
+}
+
 type LiteralPropertyName = (
   | ts.Identifier
   | ts.StringLiteral
