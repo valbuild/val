@@ -2,11 +2,16 @@ import { analyzeValModule } from "./patch/ts/valModule";
 import { applyPatch, Patch, PatchError } from "@valbuild/lib/patch";
 import { TSOps } from "./patch/ts/ops";
 import { result, pipe } from "@valbuild/lib/fp";
-import { flatMapErrors, formatSyntaxError } from "./patch/ts/syntax";
+import {
+  flatMapErrors,
+  formatSyntaxError,
+  type ValSyntaxErrorTree,
+} from "./patch/ts/syntax";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
 import { SerializedVal } from "@valbuild/lib";
 import { readValFile } from "./readValFile";
 import { QuickJSRuntime } from "quickjs-emscripten";
+import ts from "typescript";
 
 export const patchValFile = async (
   id: string,
@@ -26,13 +31,7 @@ export const patchValFile = async (
     throw Error(`Source file ${filePath} not found`);
   }
 
-  const ops = new TSOps((document) => {
-    return pipe(
-      analyzeValModule(document),
-      result.map(({ fixedContent }) => fixedContent)
-    );
-  });
-  const newSourceFile = applyPatch(sourceFile, ops, patch);
+  const newSourceFile = patchSourceFile(sourceFile, patch);
   if (result.isErr(newSourceFile)) {
     if (newSourceFile.error instanceof PatchError) {
       throw newSourceFile.error;
@@ -48,4 +47,17 @@ export const patchValFile = async (
   sourceFileHandler.writeSourceFile(newSourceFile.value);
 
   return readValFile(id, valConfigPath, runtime);
+};
+
+export const patchSourceFile = (
+  sourceFile: ts.SourceFile,
+  patch: Patch
+): result.Result<ts.SourceFile, ValSyntaxErrorTree | PatchError> => {
+  const ops = new TSOps((document) => {
+    return pipe(
+      analyzeValModule(document),
+      result.map(({ fixedContent }) => fixedContent)
+    );
+  });
+  return applyPatch(sourceFile, ops, patch);
 };
