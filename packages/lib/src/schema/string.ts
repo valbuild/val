@@ -7,7 +7,7 @@ type StringOptions = {
 
 export type SerializedStringSchema = {
   type: "string";
-  options: {
+  options?: {
     maxLength?: number;
     minLength?: number;
   };
@@ -20,12 +20,18 @@ export class StringSchema extends Schema<string> {
 
   validate(input: string): false | string[] {
     const errors: string[] = [];
-    if (this.options?.maxLength && input.length > this.options.maxLength) {
+    if (
+      this.options?.maxLength !== undefined &&
+      input.length > this.options.maxLength
+    ) {
       errors.push(
         `String '${input}' is too long. Length: ${input.length}. Max ${this.options.maxLength}`
       );
     }
-    if (this.options?.minLength && input.length < this.options.minLength) {
+    if (
+      this.options?.minLength !== undefined &&
+      input.length < this.options.minLength
+    ) {
       errors.push(
         `String '${input}' is too short. Length: ${input.length}.Min ${this.options.minLength}.`
       );
@@ -40,10 +46,7 @@ export class StringSchema extends Schema<string> {
   serialize(): SerializedStringSchema {
     return {
       type: "string",
-      options: {
-        maxLength: this.options?.maxLength,
-        minLength: this.options?.minLength,
-      },
+      options: this.options,
     };
   }
 

@@ -1,6 +1,6 @@
 import { ValidObject } from "../ValidTypes";
-import { Schema } from "./Schema";
-import { deserialize, SerializedSchema } from "./SerializedSchema";
+import { Schema, type SerializedSchema } from "./Schema";
+import { deserializeSchema } from "./serialization";
 
 export type SerializedObjectSchema = {
   type: "object";
@@ -46,7 +46,7 @@ export class ObjectSchema<T extends ValidObject> extends Schema<T> {
       Object.fromEntries(
         Object.entries(schema.schema).map(([key, schema]) => [
           key,
-          deserialize(schema),
+          deserializeSchema(schema),
         ])
       )
     );

@@ -1,6 +1,13 @@
 import { StaticVal } from "../StaticVal";
 import { ValidTypes } from "../ValidTypes";
-import { SerializedSchema } from "./SerializedSchema";
+import { type SerializedArraySchema } from "./array";
+import { type SerializedObjectSchema } from "./object";
+import { type SerializedStringSchema } from "./string";
+
+export type SerializedSchema =
+  | SerializedStringSchema
+  | SerializedObjectSchema
+  | SerializedArraySchema;
 
 export abstract class Schema<T extends ValidTypes> {
   /**
