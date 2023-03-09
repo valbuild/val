@@ -9,3 +9,4 @@ export { ValFSHost } from "./ValFSHost";
 export type { IValFSHost } from "./ValFSHost";
 export type { ValFS } from "./ValFS";
 export { patchSourceFile } from "./patchValFile";
+export { formatSyntaxErrorTree } from "./patch/ts/syntax";
