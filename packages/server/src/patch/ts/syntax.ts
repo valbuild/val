@@ -1,7 +1,6 @@
 import ts from "typescript";
-import { pipe } from "../../fp/util";
-import * as result from "../../fp/result";
-import { JSONValue } from "../ops";
+import { result, pipe } from "@valbuild/lib/fp";
+import { JSONValue } from "@valbuild/lib/patch";
 
 export class ValSyntaxError {
   constructor(public message: string, public node: ts.Node) {}
@@ -47,6 +46,13 @@ export function formatSyntaxError(
 ): string {
   const pos = sourceFile.getLineAndCharacterOfPosition(error.node.pos);
   return `${pos.line}:${pos.character} ${error.message}`;
+}
+
+export function formatSyntaxErrorTree(
+  tree: ValSyntaxErrorTree,
+  sourceFile: ts.SourceFile
+): string[] {
+  return flatMapErrors(tree, (error) => formatSyntaxError(error, sourceFile));
 }
 
 type LiteralPropertyName = (
