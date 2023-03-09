@@ -53,7 +53,7 @@ describe("Schema", () => {
   });
 
   test.each(testCases)(
-    "cancellation of $name serialization/deserialization",
+    "serialization/deserialization of $name is isomorphic",
     ({ deserialized }) => {
       expect(deserializeSchema(deserialized.serialize())).toEqual(deserialized);
     }
