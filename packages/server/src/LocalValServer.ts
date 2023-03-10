@@ -1,8 +1,8 @@
 import express from "express";
 import { Service } from "./Service";
-import { PatchJSON, parsePatch } from "./patch/patch";
-import { PatchError } from "./patch/ops";
-import * as result from "./fp/result";
+import { PatchJSON } from "./patch/validation";
+import { result } from "@valbuild/lib/fp";
+import { parsePatch, PatchError } from "@valbuild/lib/patch";
 import { getFileIdFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
 
@@ -25,11 +25,10 @@ export class LocalValServer implements ValServer {
   ): Promise<void> {
     try {
       console.log(req.params);
-      const valContent = await this.options.service.get(
+      const valModule = await this.options.service.get(
         getFileIdFromParams(req.params)
       );
-      console.log(JSON.stringify(valContent, null, 2));
-      res.json(valContent);
+      res.json(valModule);
     } catch (err) {
       console.error(err);
       res.sendStatus(500);
@@ -54,8 +53,8 @@ export class LocalValServer implements ValServer {
     }
     const id = getFileIdFromParams(req.params);
     try {
-      await this.options.service.patch(id, patch.value);
-      res.send("OK");
+      const valModule = await this.options.service.patch(id, patch.value);
+      res.json(valModule);
     } catch (err) {
       if (err instanceof PatchError) {
         res.status(401).send(err.message);

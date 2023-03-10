@@ -1,0 +1,29 @@
+.main {
+  background: #fffcb6;
+  color: #272d2a;
+  font-size: 20px;
+  min-height: 100vh;
+}
+
+.article {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 auto;
+}
+
+.blog {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 20px;
+}
+
+.blog h1 {
+  margin-block: 1em;
+}
+.blog p {
+  margin-block: 1em;
+}

@@ -1,5 +1,4 @@
-import { Schema } from "./schema/Schema";
-import { SerializedSchema } from "./schema/SerializedSchema";
+import { Schema, SerializedSchema } from "./schema/Schema";
 import { ValidTypes } from "./ValidTypes";
 
 /**
