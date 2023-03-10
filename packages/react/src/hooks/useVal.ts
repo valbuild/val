@@ -6,6 +6,8 @@ import {
   ValidTypes,
   ValProps,
 } from "@valbuild/lib";
+import { useContext, useSyncExternalStore } from "react";
+import { useValStore, ValContext } from "../ValProvider";
 
 const idProp: keyof ValProps<unknown> /* type check to make sure idProp is, in fact, a prop of ValProps */ =
   "valId";
@@ -45,6 +47,15 @@ function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
 export const useVal = <T extends ValidTypes>(
   content: ValContent<T>
 ): Val<T> => {
+  const valStore = useValStore();
+  const currentVal = useSyncExternalStore(
+    valStore.subscribe(content.id),
+    valStore.getSnapshot(content.id),
+    valStore.getServerSnapshot(content.id)
+  );
+  if (currentVal) {
+    return buildVal(content.id, currentVal.val as T);
+  }
   const staticVal = content.val;
   const validationError = staticVal.schema.validate(staticVal.get());
   if (validationError) {

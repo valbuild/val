@@ -1,15 +1,26 @@
-import { SerializedVal } from "@valbuild/lib";
 import { ValidObject, ValidPrimitive, ValidTypes } from "@valbuild/lib";
+import { applyPatch } from "fast-json-patch";
 import React, {
   CSSProperties,
   forwardRef,
   MouseEventHandler,
+  useContext,
   useEffect,
+  useMemo,
   useState,
 } from "react";
-import { editIcon, valcmsLogo } from "../assets";
+import { editIcon, valcmsLogo } from "./assets";
+import { ValApi } from "./ValApi";
+import { ValStore } from "./ValStore";
 
 const baseZIndex = 8500; // Next uses 9000 highest z-index so keep us below that
+
+export function useValStore() {
+  return useContext(ValContext).valStore;
+}
+export function useValApi() {
+  return useContext(ValContext).valApi;
+}
 
 // TODO: Use me!
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -160,29 +171,12 @@ const getValFromModule = (paths: string[], valContent: ValidTypes) => {
     } else {
       throw Error(
         `Cannot descend into non-object. Path: ${path}. Content: ${JSON.stringify(
-          module
+          valContent
         )}`
       );
     }
   }
   return val;
-};
-
-const getModuleContent = async (
-  host: string,
-  moduleId: string
-): Promise<SerializedVal> => {
-  const res = await fetch(`${host}/ids${moduleId}`);
-  if (res.ok) {
-    const serializedVal = await res.json();
-    return serializedVal;
-  } else {
-    throw Error(
-      `Failed to get content of module "${moduleId}". Status: ${
-        res.status
-      }. Error: ${await res.text()}`
-    );
-  }
 };
 
 type Operation = {
@@ -191,26 +185,6 @@ type Operation = {
   value: ValidTypes;
 };
 
-const patchModuleContent = async (
-  host: string,
-  moduleId: string,
-  patch: Operation[]
-): Promise<void> => {
-  const res = await fetch(`${host}/ids${moduleId}`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json-patch+json",
-    },
-    body: JSON.stringify(patch),
-  });
-  if (res.ok) {
-    return;
-  } else {
-    throw Error(
-      `Failed to patch content of module "${moduleId}". Error: ${await res.text()}`
-    );
-  }
-};
 const ValFontFamily = "Arial, Verdana, Tahoma, Cantarell, sans-serif";
 
 const ValEditForm: React.FC<{
@@ -223,9 +197,11 @@ const ValEditForm: React.FC<{
     (
       | { id: string; status: "loading" }
       | { id: string; status: "error"; error: string }
-      | { id: string; status: "ready"; data: ValidTypes }
+      | { id: string; status: "ready"; data: ValidTypes; path: string[] }
     )[]
   >([]);
+  const valStore = useValStore();
+  const valApi = useValApi();
 
   const [submission, setSubmission] = useState<
     | { status: "submitting" }
@@ -240,12 +216,14 @@ const ValEditForm: React.FC<{
       selectedIds.map(async (id) => {
         try {
           const [moduleId, path] = parseValPath(id);
-          const serializedVal = await getModuleContent(host, moduleId);
-          const val = getValFromModule(path, serializedVal.val);
+          const serializedVal = await valApi.getModule(moduleId);
+          valStore.set(moduleId, serializedVal);
+          valStore.emitChange();
           return {
             id,
             status: "ready",
-            data: val,
+            data: serializedVal.val,
+            path,
           } as const;
         } catch (err) {
           return {
@@ -303,9 +281,18 @@ const ValEditForm: React.FC<{
           }
           await Promise.all(
             Object.entries(modulePatches).map(async ([moduleId, patch]) => {
-              await patchModuleContent(host, moduleId, patch);
+              await valApi.patchModuleContent(moduleId, patch);
+              const currentVal = valStore.get(moduleId);
+              if (!currentVal) {
+                throw Error(`No val for module ${moduleId}`);
+              }
+              valStore.set(moduleId, {
+                ...currentVal,
+                val: applyPatch(currentVal.val, patch, true, false).newDocument,
+              });
             })
           );
+          valStore.emitChange();
           setSubmission({
             status: "ready",
           });
@@ -338,7 +325,12 @@ const ValEditForm: React.FC<{
                     minHeight: "200px",
                   }}
                   name={resolvedId.id}
-                  defaultValue={resolvedId.data as ValidPrimitive}
+                  defaultValue={
+                    getValFromModule(
+                      resolvedId.path,
+                      resolvedId.data
+                    ) as ValidPrimitive
+                  }
                 ></textarea>
               )}
             </label>
@@ -349,11 +341,17 @@ const ValEditForm: React.FC<{
 };
 
 export type ValContext = {
-  readonly host: string;
+  readonly valStore: ValStore;
+  readonly valApi: ValApi;
 };
 
 export const ValContext = React.createContext<ValContext>({
-  get host(): never {
+  get valStore(): never {
+    throw Error(
+      "Val context not found. Ensure components are wrapped by ValProvider!"
+    );
+  },
+  get valApi(): never {
     throw Error(
       "Val context not found. Ensure components are wrapped by ValProvider!"
     );
@@ -398,7 +396,14 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
   const [authentication, setAuthentication] = useState<AuthStatus>({
     status: "not-asked",
   });
+  const valApi = useMemo(() => new ValApi(host), [host]);
+  const valStore = useMemo(() => new ValStore(valApi), [valApi]);
 
+  useEffect(() => {
+    if (enabled) {
+      valStore.updateAll();
+    }
+  }, [enabled]);
   useEffect(() => {
     let openValFormListener: ((e: MouseEvent) => void) | undefined = undefined;
     let styleElement: HTMLStyleElement | undefined = undefined;
@@ -479,7 +484,8 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
 
     if (enabled) {
       if (authentication.status !== "authenticated") {
-        fetch(`${host}/session`)
+        valApi
+          .getSession()
           .then(async (res) => {
             if (res.status === 401) {
               setAuthentication({
@@ -532,7 +538,8 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
   return (
     <ValContext.Provider
       value={{
-        host,
+        valApi,
+        valStore,
       }}
     >
       {children}
@@ -549,9 +556,7 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
       )}
       {authentication.status === "authenticated" && (
         <>
-          {enabled && (
-            <ValLogout host={host} setAuthentication={setAuthentication} />
-          )}
+          {enabled && <ValLogout setAuthentication={setAuthentication} />}
           <ValEditForm
             host={host}
             selectedIds={selectedIds}
@@ -564,7 +569,7 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
         </>
       )}
       {enabled && authentication.status === "unauthenticated" && (
-        <ValLoginPrompt host={host} />
+        <ValLoginPrompt />
       )}
       {authentication.status === "error" && (
         <div
@@ -611,12 +616,11 @@ function Menu({ children }: { children: React.ReactNode }) {
 }
 
 function ValLogout({
-  host,
   setAuthentication,
 }: {
-  host: string;
   setAuthentication: (auth: AuthStatus) => void;
 }) {
+  const valApi = useValApi();
   return (
     <Menu>
       <button
@@ -631,7 +635,7 @@ function ValLogout({
           fontSize: "16px",
         }}
         onClick={() => {
-          fetch(`${host}/logout`).then((res) => {
+          valApi.logout().then((res) => {
             if (res.ok) {
               setAuthentication({
                 status: "unauthenticated",
@@ -648,7 +652,8 @@ function ValLogout({
   );
 }
 
-function ValLoginPrompt({ host }: { host: string }) {
+function ValLoginPrompt() {
+  const valApi = useValApi();
   return (
     <Menu>
       <a
@@ -658,9 +663,7 @@ function ValLoginPrompt({ host }: { host: string }) {
           fontWeight: "normal",
           fontSize: "16px",
         }}
-        href={`${host}/authorize?redirect_to=${encodeURIComponent(
-          location.href
-        )}`}
+        href={valApi.loginUrl()}
       >
         Login
       </a>
