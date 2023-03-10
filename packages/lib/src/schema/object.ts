@@ -1,5 +1,4 @@
 import * as lens from "../lens";
-import { newObjectSelector, ObjectSelector } from "../selector/object";
 import { Source } from "../Source";
 import { Schema, type SerializedSchema } from "./Schema";
 import { deserializeSchema } from "./serialization";
@@ -9,11 +8,11 @@ export type SerializedObjectSchema = {
   schema: Record<string, SerializedSchema>;
 };
 
-export type SchemaObject = { [key: string]: Schema<Source, unknown> };
-export type InObject<T extends SchemaObject> = {
+type SchemaObject = { [key: string]: Schema<Source, unknown> };
+type InObject<T extends SchemaObject> = {
   [key in keyof T]: lens.InOf<T[key]>;
 };
-export type OutObject<T extends SchemaObject> = {
+type OutObject<T extends SchemaObject> = {
   [key in keyof T]: lens.OutOf<T[key]>;
 };
 
@@ -21,17 +20,14 @@ export class ObjectSchema<T extends SchemaObject> extends Schema<
   InObject<T>,
   OutObject<T>
 > {
-  constructor(
-    /** @internal */
-    readonly schema: T
-  ) {
+  constructor(private readonly props: T) {
     super();
   }
   validate(input: { [key in keyof T]: lens.InOf<T[key]> }): false | string[] {
     const errors: string[] = [];
-    for (const key in this.schema) {
+    for (const key in this.props) {
       const value = input[key];
-      const schema = this.schema[key];
+      const schema = this.props[key];
       const result = schema.validate(value);
       if (result) {
         errors.push(...result.map((error) => `[${key}]: ${error}`));
@@ -45,7 +41,7 @@ export class ObjectSchema<T extends SchemaObject> extends Schema<
 
   apply(input: InObject<T>): OutObject<T> {
     return Object.fromEntries(
-      Object.entries(this.schema).map(([key, schema]) => [
+      Object.entries(this.props).map(([key, schema]) => [
         key,
         schema.apply(input[key]),
       ])
@@ -61,7 +57,7 @@ export class ObjectSchema<T extends SchemaObject> extends Schema<
     return {
       type: "object",
       props: Object.fromEntries(
-        Object.entries(this.schema).map(([key, schema]) => [
+        Object.entries(this.props).map(([key, schema]) => [
           key,
           schema.descriptor(),
         ])
@@ -69,15 +65,11 @@ export class ObjectSchema<T extends SchemaObject> extends Schema<
     };
   }
 
-  select(): ObjectSelector<InObject<T>, T> {
-    return newObjectSelector(lens.identity(), this.schema);
-  }
-
   serialize(): SerializedObjectSchema {
     return {
       type: "object",
       schema: Object.fromEntries(
-        Object.entries(this.schema).map(([key, schema]) => [
+        Object.entries(this.props).map(([key, schema]) => [
           key,
           schema.serialize(),
         ])

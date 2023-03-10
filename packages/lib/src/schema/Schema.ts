@@ -3,7 +3,6 @@ import { type SerializedObjectSchema } from "./object";
 import { type SerializedStringSchema } from "./string";
 import { Lens } from "../lens";
 import { Source } from "../Source";
-import { Selector } from "../selector/selector";
 import { Descriptor } from "../lens/descriptor";
 
 export type SerializedSchema =
@@ -23,8 +22,6 @@ export abstract class Schema<In extends Source, Out> implements Lens<In, Out> {
   abstract apply(input: In): Out;
 
   abstract descriptor(): Descriptor;
-
-  abstract select(): Selector<In, Out>;
 
   abstract serialize(): SerializedSchema;
 }

@@ -1,3 +1,5 @@
+import * as lens from "../lens";
+import { getSelector } from ".";
 import { array } from "../schema/array";
 import { object } from "../schema/object";
 import { string } from "../schema/string";
@@ -7,6 +9,12 @@ test("selector", () => {
   const source = {
     foo: {
       bar: [
+        {
+          baz: "foo",
+        },
+        {
+          baz: "bar",
+        },
         {
           baz: "baz",
         },
@@ -23,8 +31,11 @@ test("selector", () => {
     }),
   });
 
-  const rootSelector = schema.select();
+  const rootSelector = getSelector(
+    lens.identity<typeof source>(),
+    schema.descriptor()
+  );
   const selector = rootSelector.foo.bar[0].baz;
   const selectedValue = selector[LENS]().apply(source);
-  expect(selectedValue).toEqual("baz");
+  expect(selectedValue).toEqual("foo");
 });

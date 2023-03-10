@@ -27,7 +27,6 @@ class PropLens<
     return input[this.key];
   }
 }
-
 export function prop<P extends PropertyKey, T extends { [key in P]: unknown }>(
   key: P
 ): Lens<T, T[P]> {
@@ -40,7 +39,6 @@ class FilterLens<T> implements Lens<readonly T[], T[]> {
     return input.filter((item) => this.predicate.apply(item));
   }
 }
-
 export function filter<T>(predicate: Lens<T, unknown>): Lens<T[], T[]> {
   return new FilterLens(predicate);
 }
@@ -51,9 +49,18 @@ class FindLens<T> implements Lens<T[], T | undefined> {
     return input.find((item) => this.predicate.apply(item));
   }
 }
-
 export function find<T>(predicate: Lens<T, unknown>): Lens<T[], T | undefined> {
   return new FindLens(predicate);
+}
+
+class SliceLens<T> implements Lens<T[], T[]> {
+  constructor(private readonly start: number, private readonly end?: number) {}
+  apply(input: T[]): T[] {
+    return input.slice(this.start, this.end);
+  }
+}
+export function slice<T>(start: number, end?: number): Lens<T[], T[]> {
+  return new SliceLens(start, end);
 }
 
 class ComposeLens implements Lens<unknown, unknown> {
@@ -84,4 +91,15 @@ export function compose(
   } else {
     return new ComposeLens(lenses);
   }
+}
+
+class EqLens<T> implements Lens<T, boolean> {
+  constructor(private readonly value: T) {}
+  apply(input: T): boolean {
+    // TODO: Implement deep equality
+    return input === this.value;
+  }
+}
+export function eq<T>(value: T): Lens<T, boolean> {
+  return new EqLens(value);
 }

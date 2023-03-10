@@ -1,60 +1,47 @@
 import * as lens from "../lens";
 import { getSelector, SelectorOf } from ".";
-import type { InObject, OutObject, SchemaObject } from "../schema/object";
 import { BaseSelector, LENS, Selector } from "./selector";
+import { ObjectDescriptor, ValueOf } from "../lens/descriptor";
 
-export type ObjectSelector<Src, T extends SchemaObject> = Selector<
+export type ObjectSelector<Src, D extends ObjectDescriptor> = Selector<
   Src,
-  OutObject<T>
+  D
 > & {
-  readonly [P in keyof T]: SelectorOf<Src, T[P]>;
-  // readonly [P in keyof T]: ReturnType<T[P]["select"]>;
+  readonly [P in keyof D["props"]]: SelectorOf<Src, D["props"][P]>;
 };
 
-class ObjectSelectorC<Src, T extends SchemaObject> extends BaseSelector<
+class ObjectSelectorC<Src, D extends ObjectDescriptor> extends BaseSelector<
   Src,
-  OutObject<T>
+  D
 > {
-  constructor(
-    readonly fromSrc: lens.Lens<Src, InObject<T>>,
-    readonly schema: T
-  ) {
+  constructor(readonly fromSrc: lens.Lens<Src, ValueOf<D>>, readonly desc: D) {
     super();
   }
 
-  [LENS](): lens.Lens<Src, OutObject<T>> {
-    return lens.compose(this.fromSrc, {
-      apply: (input: InObject<T>): OutObject<T> => {
-        return Object.fromEntries(
-          Object.entries(this.schema).map(([key, schema]) => [
-            key,
-            schema.apply(input[key]),
-          ])
-        ) as OutObject<T>;
-      },
-    });
+  [LENS](): lens.Lens<Src, ValueOf<D>> {
+    return this.fromSrc;
   }
 }
 
-const proxyHandler: ProxyHandler<ObjectSelectorC<unknown, SchemaObject>> = {
-  get(target, p, receiver) {
+const proxyHandler: ProxyHandler<ObjectSelectorC<unknown, ObjectDescriptor>> = {
+  get(target, p) {
     if (
       typeof p === "string" &&
-      Object.prototype.hasOwnProperty.call(target.schema, p)
+      Object.prototype.hasOwnProperty.call(target.desc.props, p)
     ) {
       return getSelector(
         lens.compose(target.fromSrc, lens.prop(p)),
-        target.schema[p]
+        target.desc.props[p]
       );
     }
-    return Reflect.get(ObjectSelectorC, p, receiver);
+    return Reflect.get(ObjectSelectorC, p, target);
   },
 };
 
-export function newObjectSelector<Src, T extends SchemaObject>(
-  fromSrc: lens.Lens<Src, InObject<T>>,
-  schema: T
-): ObjectSelector<Src, T> {
-  const proxy = new Proxy(new ObjectSelectorC(fromSrc, schema), proxyHandler);
-  return proxy as unknown as ObjectSelector<Src, T>;
+export function newObjectSelector<Src, D extends ObjectDescriptor>(
+  fromSrc: lens.Lens<Src, ValueOf<D>>,
+  desc: D
+): ObjectSelector<Src, D> {
+  const proxy = new Proxy(new ObjectSelectorC(fromSrc, desc), proxyHandler);
+  return proxy as unknown as ObjectSelector<Src, D>;
 }
