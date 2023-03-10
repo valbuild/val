@@ -1,8 +1,8 @@
-import { SerializedSchema, ValidTypes } from "@valbuild/lib";
+import { SerializedVal } from "@valbuild/lib";
 import { newQuickJSWASMModule, QuickJSRuntime } from "quickjs-emscripten";
 import { patchValFile } from "./patchValFile";
 import { readValFile } from "./readValFile";
-import { Patch } from "./patch/patch";
+import { Patch } from "@valbuild/lib/patch";
 import { ValModuleLoader } from "./ValModuleLoader";
 import { newValQuickJSRuntime } from "./ValQuickJSRuntime";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
@@ -52,18 +52,17 @@ export class Service {
     this.valConfigPath = valConfigPath;
   }
 
-  async get(
-    moduleId: string
-  ): Promise<{ val: ValidTypes; schema: SerializedSchema }> {
+  async get(moduleId: string): Promise<SerializedVal> {
     return readValFile(moduleId, this.valConfigPath, this.runtime);
   }
 
-  async patch(moduleId: string, patch: Patch): Promise<void> {
+  async patch(moduleId: string, patch: Patch): Promise<SerializedVal> {
     return patchValFile(
       moduleId,
       this.valConfigPath,
       patch,
-      this.sourceFileHandler
+      this.sourceFileHandler,
+      this.runtime
     );
   }
 

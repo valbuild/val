@@ -1,6 +1,5 @@
 import ts from "typescript";
-import * as result from "../../fp/result";
-import { pipe } from "../../fp/util";
+import { result, array, pipe } from "@valbuild/lib/fp";
 import {
   validateInitializers,
   evaluateExpression,
@@ -8,8 +7,14 @@ import {
   ValSyntaxErrorTree,
   shallowValidateExpression,
 } from "./syntax";
-import { deepEqual, isNotRoot, Ops, PatchError, JSONValue } from "../ops";
-import { NonEmptyArray } from "../../fp/array";
+import {
+  deepEqual,
+  isNotRoot,
+  Ops,
+  PatchError,
+  JSONValue,
+  parseAndValidateArrayIndex,
+} from "@valbuild/lib/patch";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
@@ -217,15 +222,6 @@ function removeAt<T extends ts.Node>(
   return [document.update(newText, ts.createTextChangeRange(span, 0)), node];
 }
 
-function parseAndValidateArrayIndex(
-  value: string
-): result.Result<number, PatchError> {
-  if (!/^(0|[1-9][0-9]*)$/g.test(value)) {
-    return result.err(new PatchError(`Invalid array index "${value}"`));
-  }
-  return result.ok(Number(value));
-}
-
 function parseAndValidateArrayInsertIndex(
   key: string,
   nodes: ReadonlyArray<ts.Expression>
@@ -249,7 +245,7 @@ function parseAndValidateArrayInsertIndex(
       if (err) {
         return result.err(err);
       }
-      if (index < 0 || index > nodes.length) {
+      if (index > nodes.length) {
         return result.err(new PatchError("Array index out of bounds"));
       } else {
         return result.ok(index);
@@ -271,7 +267,7 @@ function parseAndValidateArrayInboundsIndex(
       if (err) {
         return result.err(err);
       }
-      if (index < 0 || index >= nodes.length) {
+      if (index >= nodes.length) {
         return result.err(new PatchError("Array index out of bounds"));
       } else {
         return result.ok(index);
@@ -311,7 +307,7 @@ function replaceInNode(
   } else {
     return result.err(
       shallowValidateExpression(node) ??
-        new PatchError("Cannot add to non-object/array")
+        new PatchError("Cannot replace in non-object/array")
     );
   }
 }
@@ -362,7 +358,7 @@ export function getFromNode(
 type Pointer = [node: ts.Expression, key: string];
 function getPointerFromPath(
   node: ts.Expression,
-  path: NonEmptyArray<string>
+  path: array.NonEmptyArray<string>
 ): TSOpsResult<Pointer> {
   let targetNode: ts.Expression = node;
   let key: string = path[0];
@@ -392,15 +388,13 @@ function getAtPath(
       (node: ts.Expression, key: string) =>
         pipe(
           getFromNode(node, key),
-          result.flatMap((childNode: ts.Expression | undefined) => {
-            if (childNode) {
-              return result.ok(childNode);
-            } else {
-              return result.err(
-                new PatchError("Path refers to non-existing object/array")
-              );
-            }
-          })
+          result.filterOrElse(
+            (
+              childNode: ts.Expression | undefined
+            ): childNode is ts.Expression => childNode !== undefined,
+            (): PatchError | ValSyntaxErrorTree =>
+              new PatchError("Path refers to non-existing object/array")
+          )
         ),
       rootNode
     )
@@ -454,7 +448,7 @@ function removeFromNode(
 function removeAtPath(
   document: ts.SourceFile,
   rootNode: ts.Expression,
-  path: NonEmptyArray<string>
+  path: array.NonEmptyArray<string>
 ): TSOpsResult<[document: ts.SourceFile, removed: ts.Expression]> {
   return pipe(
     getPointerFromPath(rootNode, path),
@@ -527,8 +521,8 @@ function addAtPath(
 
 function pickDocument<
   T extends readonly [document: ts.SourceFile, ...rest: unknown[]]
->([sourceFile]: T) {
-  return sourceFile;
+>([document]: T) {
+  return document;
 }
 
 export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
@@ -554,7 +548,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
   }
   remove(
     document: ts.SourceFile,
-    path: NonEmptyArray<string>
+    path: array.NonEmptyArray<string>
   ): TSOpsResult<ts.SourceFile> {
     return pipe(
       document,
@@ -581,7 +575,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
   }
   move(
     document: ts.SourceFile,
-    from: NonEmptyArray<string>,
+    from: array.NonEmptyArray<string>,
     path: string[]
   ): TSOpsResult<ts.SourceFile> {
     return pipe(
@@ -591,7 +585,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
         removeAtPath(document, rootNode, from)
       ),
       result.flatMap(
-        ([doc, removedNode]: [
+        ([document, removedNode]: [
           doc: ts.SourceFile,
           removedNode: ts.Expression
         ]) =>
@@ -601,7 +595,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
               (
                 removedValue: JSONValue
               ): [doc: ts.SourceFile, removedValue: JSONValue] => [
-                doc,
+                document,
                 removedValue,
               ]
             )
