@@ -1,17 +1,17 @@
 import { type SerializedArraySchema } from "./array";
 import { type SerializedObjectSchema } from "./object";
 import { type SerializedStringSchema } from "./string";
+import { Lens } from "../lens";
 import { Source } from "../Source";
+import { Selector } from "../selector/selector";
+import { Descriptor } from "../lens/descriptor";
 
 export type SerializedSchema =
   | SerializedStringSchema
   | SerializedObjectSchema
   | SerializedArraySchema;
 
-export type InOf<T> = T extends Schema<infer In, unknown> ? In : never;
-export type OutOf<T> = T extends Schema<Source, infer Out> ? Out : never;
-
-export abstract class Schema<In extends Source, Out = In> {
+export abstract class Schema<In extends Source, Out> implements Lens<In, Out> {
   /**
    * Validate a value against this schema
    *
@@ -21,6 +21,10 @@ export abstract class Schema<In extends Source, Out = In> {
   abstract validate(input: In): false | string[];
 
   abstract apply(input: In): Out;
+
+  abstract descriptor(): Descriptor;
+
+  abstract select(): Selector<In, Out>;
 
   abstract serialize(): SerializedSchema;
 }

@@ -1,3 +1,7 @@
+import * as lens from "../lens";
+import { StringDescriptor } from "../lens/descriptor";
+import { newPrimitiveSelector } from "../selector/primitive";
+import { Selector } from "../selector/selector";
 import { Schema } from "./Schema";
 
 type StringOptions = {
@@ -13,7 +17,7 @@ export type SerializedStringSchema = {
   };
 };
 
-export class StringSchema extends Schema<string> {
+export class StringSchema extends Schema<string, string> {
   constructor(private readonly options?: StringOptions) {
     super();
   }
@@ -45,6 +49,14 @@ export class StringSchema extends Schema<string> {
 
   apply(input: string): string {
     return input;
+  }
+
+  descriptor(): StringDescriptor {
+    return StringDescriptor;
+  }
+
+  select(): Selector<string, string> {
+    return newPrimitiveSelector(lens.identity());
   }
 
   serialize(): SerializedStringSchema {

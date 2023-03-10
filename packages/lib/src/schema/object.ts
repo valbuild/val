@@ -1,5 +1,7 @@
+import * as lens from "../lens";
+import { newObjectSelector, ObjectSelector } from "../selector/object";
 import { Source } from "../Source";
-import { InOf, OutOf, Schema, type SerializedSchema } from "./Schema";
+import { Schema, type SerializedSchema } from "./Schema";
 import { deserializeSchema } from "./serialization";
 
 export type SerializedObjectSchema = {
@@ -7,22 +9,25 @@ export type SerializedObjectSchema = {
   schema: Record<string, SerializedSchema>;
 };
 
-type SchemaObject = { [key: string]: Schema<Source, unknown> };
-type InObject<T extends SchemaObject> = {
-  [key in keyof T]: InOf<T[key]>;
+export type SchemaObject = { [key: string]: Schema<Source, unknown> };
+export type InObject<T extends SchemaObject> = {
+  [key in keyof T]: lens.InOf<T[key]>;
 };
-type OutObject<T extends SchemaObject> = {
-  [key in keyof T]: OutOf<T[key]>;
+export type OutObject<T extends SchemaObject> = {
+  [key in keyof T]: lens.OutOf<T[key]>;
 };
 
 export class ObjectSchema<T extends SchemaObject> extends Schema<
   InObject<T>,
   OutObject<T>
 > {
-  constructor(private readonly schema: T) {
+  constructor(
+    /** @internal */
+    readonly schema: T
+  ) {
     super();
   }
-  validate(input: { [key in keyof T]: InOf<T[key]> }): false | string[] {
+  validate(input: { [key in keyof T]: lens.InOf<T[key]> }): false | string[] {
     const errors: string[] = [];
     for (const key in this.schema) {
       const value = input[key];
@@ -45,6 +50,27 @@ export class ObjectSchema<T extends SchemaObject> extends Schema<
         schema.apply(input[key]),
       ])
     ) as OutObject<T>;
+  }
+
+  descriptor(): {
+    type: "object";
+    props: {
+      [P in keyof T]: ReturnType<T[P]["descriptor"]>;
+    };
+  } {
+    return {
+      type: "object",
+      props: Object.fromEntries(
+        Object.entries(this.schema).map(([key, schema]) => [
+          key,
+          schema.descriptor(),
+        ])
+      ) as { [P in keyof T]: ReturnType<T[P]["descriptor"]> },
+    };
+  }
+
+  select(): ObjectSelector<InObject<T>, T> {
+    return newObjectSelector(lens.identity(), this.schema);
   }
 
   serialize(): SerializedObjectSchema {
@@ -72,8 +98,6 @@ export class ObjectSchema<T extends SchemaObject> extends Schema<
     );
   }
 }
-export const object = <T extends SchemaObject>(
-  schema: T
-): Schema<InObject<T>, OutObject<T>> => {
+export const object = <T extends SchemaObject>(schema: T): ObjectSchema<T> => {
   return new ObjectSchema(schema);
 };

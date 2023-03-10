@@ -1,4 +1,5 @@
-import { type Schema, SerializedSchema, InOf, OutOf } from "./schema/Schema";
+import { InOf, OutOf } from "./lens";
+import { type Schema, SerializedSchema } from "./schema/Schema";
 import { deserializeSchema } from "./schema/serialization";
 import { Source } from "./Source";
 

@@ -1,3 +1,5 @@
+import * as lens from "../lens";
+import { ArraySelector, newArraySelector } from "../selector/array";
 import { Source } from "../Source";
 import { Schema, type SerializedSchema } from "./Schema";
 import { deserializeSchema } from "./serialization";
@@ -7,11 +9,17 @@ export type SerializedArraySchema = {
   schema: SerializedSchema;
 };
 
-export class ArraySchema<In extends Source, Out> extends Schema<In[], Out[]> {
-  constructor(private readonly schema: Schema<In, Out>) {
+export class ArraySchema<T extends Schema<Source, unknown>> extends Schema<
+  lens.InOf<T>[],
+  lens.OutOf<T>[]
+> {
+  constructor(
+    /** @internal */
+    readonly schema: T
+  ) {
     super();
   }
-  validate(input: In[]): false | string[] {
+  validate(input: lens.InOf<T>[]): false | string[] {
     const errors: string[] = [];
     input.forEach((value, index) => {
       const result = this.schema.validate(value);
@@ -25,8 +33,22 @@ export class ArraySchema<In extends Source, Out> extends Schema<In[], Out[]> {
     return false;
   }
 
-  apply(input: In[]): Out[] {
-    return input.map((item) => this.schema.apply(item));
+  apply(input: lens.InOf<T>[]): lens.OutOf<T>[] {
+    return input.map((item) => this.schema.apply(item)) as lens.OutOf<T>[];
+  }
+
+  descriptor(): {
+    type: "array";
+    item: ReturnType<T["descriptor"]>;
+  } {
+    return {
+      type: "array",
+      item: this.schema.descriptor() as ReturnType<T["descriptor"]>,
+    };
+  }
+
+  select(): ArraySelector<lens.InOf<T>[], T> {
+    return newArraySelector(lens.identity(), this.schema);
   }
 
   serialize(): SerializedArraySchema {
@@ -38,12 +60,12 @@ export class ArraySchema<In extends Source, Out> extends Schema<In[], Out[]> {
 
   static deserialize(
     schema: SerializedArraySchema
-  ): ArraySchema<Source, unknown> {
+  ): ArraySchema<Schema<Source, unknown>> {
     return new ArraySchema(deserializeSchema(schema.schema));
   }
 }
-export const array = <In extends Source, Out>(
-  schema: Schema<In, Out>
-): Schema<In[], Out[]> => {
+export const array = <T extends Schema<Source, unknown>>(
+  schema: T
+): ArraySchema<T> => {
   return new ArraySchema(schema);
 };

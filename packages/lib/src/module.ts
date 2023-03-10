@@ -1,5 +1,6 @@
 import { ModuleContent } from "./content";
-import { InOf, Schema } from "./schema/Schema";
+import { InOf } from "./lens";
+import { Schema } from "./schema/Schema";
 import { Source } from "./Source";
 
 export class ValModule<T extends Schema<Source, unknown>> {
@@ -13,7 +14,7 @@ export class ValModule<T extends Schema<Source, unknown>> {
  *
  * @deprecated Uncertain about the name of this
  */
-export const content = <T extends Schema<Source>>(
+export const content = <T extends Schema<Source, unknown>>(
   id: string,
   schema: T,
   src: InOf<T>
