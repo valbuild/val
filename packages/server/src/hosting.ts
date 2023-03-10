@@ -51,9 +51,18 @@ type ValServerOverrides = Partial<{
    *
    * Required if mode is "proxy".
    *
-   * @example "922403f04e8d57cdf4d10c0b195f0a0d7b6dbb6d"
+   * @example "e83c5163316f89bfbde7d9ab23ca2e25604af290"
    */
   gitCommit: string;
+
+  /**
+   * Current git branch.
+   *
+   * Required if mode is "proxy".
+   *
+   * @example "main"
+   */
+  gitBranch: string;
   /**
    * The base url of Val.
    *
@@ -106,6 +115,10 @@ async function initHandlerOptions(
     if (!maybeGitCommit) {
       throw new Error("VAL_GIT_COMMIT env var must be set in proxy mode");
     }
+    const maybeGitBranch = opts.gitBranch || process.env.VAL_GIT_BRANCH;
+    if (!maybeGitBranch) {
+      throw new Error("VAL_GIT_BRANCH env var must be set in proxy mode");
+    }
     return {
       mode: "proxy",
       route,
@@ -113,6 +126,7 @@ async function initHandlerOptions(
       valSecret: maybeValSecret,
       valBuildUrl,
       gitCommit: maybeGitCommit,
+      gitBranch: maybeGitBranch,
     };
   } else {
     const service = await createService(process.cwd(), opts);

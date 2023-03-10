@@ -556,7 +556,7 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
       )}
       {authentication.status === "authenticated" && (
         <>
-          {enabled && <ValLogout setAuthentication={setAuthentication} />}
+          {enabled && <ValProxyActions setAuthentication={setAuthentication} />}
           <ValEditForm
             host={host}
             selectedIds={selectedIds}
@@ -599,12 +599,12 @@ function Menu({ children }: { children: React.ReactNode }) {
         position: "fixed",
         minHeight: "2em",
         width: "10rem",
-        background: "black",
-        color: "white",
+        background: "transparent",
         zIndex: baseZIndex,
         bottom: 68,
         left: 10,
         display: "flex",
+        flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         border: "1px solid white",
@@ -615,7 +615,7 @@ function Menu({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ValLogout({
+function ValProxyActions({
   setAuthentication,
 }: {
   setAuthentication: (auth: AuthStatus) => void;
@@ -625,14 +625,36 @@ function ValLogout({
     <Menu>
       <button
         style={{
+          display: "block",
           color: "white",
-          background: "transparent",
+          background: "black",
           border: "none",
           cursor: "pointer",
           width: "100%",
           fontFamily: ValFontFamily,
           fontWeight: "normal",
           fontSize: "16px",
+          marginBottom: "1em",
+          padding: "8px 16px",
+        }}
+        onClick={() => {
+          valApi.commit();
+        }}
+      >
+        Commit
+      </button>
+      <button
+        style={{
+          display: "block",
+          color: "white",
+          background: "black",
+          border: "none",
+          cursor: "pointer",
+          width: "100%",
+          fontFamily: ValFontFamily,
+          fontWeight: "normal",
+          fontSize: "16px",
+          padding: "8px 16px",
         }}
         onClick={() => {
           valApi.logout().then((res) => {
@@ -658,6 +680,7 @@ function ValLoginPrompt() {
     <Menu>
       <a
         style={{
+          background: "black",
           color: "white",
           fontFamily: ValFontFamily,
           fontWeight: "normal",

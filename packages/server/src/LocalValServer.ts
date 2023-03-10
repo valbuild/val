@@ -74,6 +74,10 @@ export class LocalValServer implements ValServer {
     res.sendStatus(400);
   }
 
+  commit(req: express.Request, res: express.Response): Promise<void> {
+    return this.badRequest(req, res);
+  }
+
   authorize(req: express.Request, res: express.Response): Promise<void> {
     return this.badRequest(req, res);
   }

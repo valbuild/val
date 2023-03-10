@@ -17,6 +17,7 @@ export type ProxyValServerOptions = {
   valSecret: string;
   valBuildUrl: string;
   gitCommit: string;
+  gitBranch: string;
 };
 
 export class ProxyValServer implements ValServer {
@@ -187,6 +188,24 @@ export class ProxyValServer implements ValServer {
       }
     }).catch((e) => {
       res.status(500).send({ error: { message: e?.message, status: 500 } });
+    });
+  }
+
+  async commit(req: express.Request, res: express.Response): Promise<void> {
+    this.withAuth(req, res, async ({ token }) => {
+      const url = new URL(
+        `/api/val/commit/${encodeURIComponent(this.options.gitBranch)}`,
+        this.options.valBuildUrl
+      );
+      const fetchRes = await fetch(url, {
+        method: "POST",
+        headers: this.getAuthHeaders(token),
+      });
+      if (fetchRes.ok) {
+        res.status(fetchRes.status).json(await fetchRes.json());
+      } else {
+        res.sendStatus(fetchRes.status);
+      }
     });
   }
 
