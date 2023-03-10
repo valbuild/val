@@ -38,6 +38,17 @@ export class ValApi {
     }
   }
 
+  async commit(): Promise<void> {
+    const res = await fetch(`${this.host}/commit`, {
+      method: "POST",
+    });
+    if (res.ok) {
+      return;
+    } else {
+      throw Error(`Failed to commit. Error: ${await res.text()}`);
+    }
+  }
+
   getSession() {
     return fetch(`${this.host}/session`);
   }

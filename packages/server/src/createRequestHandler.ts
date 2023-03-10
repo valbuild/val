@@ -18,5 +18,6 @@ export function createRequestHandler(valServer: ValServer): RequestHandler {
     }),
     valServer.patchIds.bind(valServer)
   );
+  router.post("/commit", valServer.commit.bind(valServer));
   return router;
 }
