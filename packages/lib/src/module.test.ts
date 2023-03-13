@@ -1,4 +1,4 @@
-import { content } from "./content";
+import { content } from "./module";
 import { object } from "./schema/object";
 import { string } from "./schema/string";
 
@@ -11,7 +11,7 @@ describe("content function", () => {
         }).fixed({
           foo: "bar",
         })
-      ).val.get()
+      ).content.get()
     ).toStrictEqual({
       foo: "bar",
     });

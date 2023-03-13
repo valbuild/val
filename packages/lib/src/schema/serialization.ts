@@ -1,12 +1,10 @@
-import { ValidTypes } from "../ValidTypes";
+import { Source } from "../Source";
 import { ArraySchema } from "./array";
 import { ObjectSchema } from "./object";
 import { Schema, SerializedSchema } from "./Schema";
 import { StringSchema } from "./string";
 
-export function deserializeSchema(
-  schema: SerializedSchema
-): Schema<ValidTypes> {
+export function deserializeSchema(schema: SerializedSchema): Schema<Source> {
   switch (schema.type) {
     case "string":
       return StringSchema.deserialize(schema);
