@@ -12,8 +12,8 @@ const reservedKeysObj: { [key in ReservedKeys]: true } = {
 
 export const reservedKeys = Object.keys(reservedKeysObj) as ReservedKeys[];
 
-export type ValidObject = { [key: string]: ValidTypes } & {
+export type SourceObject = { [key: string]: Source } & {
   [key in ReservedKeys]?: never;
 };
-export type ValidPrimitive = string;
-export type ValidTypes = ValidPrimitive | ValidObject | ValidTypes[];
+export type SourcePrimitive = string;
+export type Source = SourcePrimitive | SourceObject | Source[];

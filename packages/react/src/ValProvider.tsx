@@ -1,4 +1,4 @@
-import { ValidObject, ValidPrimitive, ValidTypes } from "@valbuild/lib";
+import { SourceObject, SourcePrimitive, Source } from "@valbuild/lib";
 import { applyPatch } from "fast-json-patch";
 import React, {
   CSSProperties,
@@ -163,11 +163,11 @@ const parseValPath = (path: string): [moduleId: string, path: string[]] => {
   return [moduleId, pathInModule];
 };
 
-const getValFromModule = (paths: string[], valContent: ValidTypes) => {
-  let val: ValidTypes = valContent;
+const getValFromModule = (paths: string[], valContent: Source) => {
+  let val: Source = valContent;
   for (const path of paths) {
     if (typeof val === "object" && val) {
-      val = (val as ValidObject)[path];
+      val = (val as SourceObject)[path];
     } else {
       throw Error(
         `Cannot descend into non-object. Path: ${path}. Content: ${JSON.stringify(
@@ -182,7 +182,7 @@ const getValFromModule = (paths: string[], valContent: ValidTypes) => {
 type Operation = {
   op: "replace";
   path: string;
-  value: ValidTypes;
+  value: Source;
 };
 
 const ValFontFamily = "Arial, Verdana, Tahoma, Cantarell, sans-serif";
@@ -197,7 +197,7 @@ const ValEditForm: React.FC<{
     (
       | { id: string; status: "loading" }
       | { id: string; status: "error"; error: string }
-      | { id: string; status: "ready"; data: ValidTypes; path: string[] }
+      | { id: string; status: "ready"; data: Source; path: string[] }
     )[]
   >([]);
   const valStore = useValStore();
@@ -222,7 +222,7 @@ const ValEditForm: React.FC<{
           return {
             id,
             status: "ready",
-            data: serializedVal.val,
+            data: serializedVal.source,
             path,
           } as const;
         } catch (err) {
@@ -288,7 +288,8 @@ const ValEditForm: React.FC<{
               }
               valStore.set(moduleId, {
                 ...currentVal,
-                val: applyPatch(currentVal.val, patch, true, false).newDocument,
+                source: applyPatch(currentVal.source, patch, true, false)
+                  .newDocument,
               });
             })
           );
@@ -329,7 +330,7 @@ const ValEditForm: React.FC<{
                     getValFromModule(
                       resolvedId.path,
                       resolvedId.data
-                    ) as ValidPrimitive
+                    ) as SourcePrimitive
                   }
                 ></textarea>
               )}

@@ -1,4 +1,4 @@
-import { ValidObject } from "../ValidTypes";
+import { SourceObject } from "../Source";
 import { Schema, type SerializedSchema } from "./Schema";
 import { deserializeSchema } from "./serialization";
 
@@ -7,7 +7,7 @@ export type SerializedObjectSchema = {
   schema: Record<string, SerializedSchema>;
 };
 
-export class ObjectSchema<T extends ValidObject> extends Schema<T> {
+export class ObjectSchema<T extends SourceObject> extends Schema<T> {
   constructor(private readonly schema: { [key in keyof T]: Schema<T[key]> }) {
     super();
   }
@@ -41,7 +41,7 @@ export class ObjectSchema<T extends ValidObject> extends Schema<T> {
 
   static deserialize(
     schema: SerializedObjectSchema
-  ): ObjectSchema<ValidObject> {
+  ): ObjectSchema<SourceObject> {
     return new ObjectSchema(
       Object.fromEntries(
         Object.entries(schema.schema).map(([key, schema]) => [
@@ -52,7 +52,7 @@ export class ObjectSchema<T extends ValidObject> extends Schema<T> {
     );
   }
 }
-export const object = <T extends ValidObject>(schema: {
+export const object = <T extends SourceObject>(schema: {
   [key in keyof T]: Schema<T[key]>;
 }): Schema<T> => {
   return new ObjectSchema(schema);

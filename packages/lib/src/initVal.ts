@@ -1,4 +1,4 @@
-import { content } from "./content";
+import { content } from "./module";
 import { array } from "./schema/array";
 import { object } from "./schema/object";
 import { string } from "./schema/string";

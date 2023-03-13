@@ -1,17 +1,17 @@
 import path from "path";
-import { SerializedVal } from "@valbuild/lib";
+import { SerializedModuleContent } from "@valbuild/lib";
 import { QuickJSRuntime } from "quickjs-emscripten";
 
 export const readValFile = async (
   id: string,
   valConfigPath: string,
   runtime: QuickJSRuntime
-): Promise<SerializedVal> => {
+): Promise<SerializedModuleContent> => {
   const context = runtime.newContext();
   try {
     const modulePath = `.${id}.val`;
     const code = `import * as valModule from ${JSON.stringify(modulePath)};
-globalThis.valModule = { id: valModule?.default?.id, ...valModule?.default?.val?.serialize() };
+globalThis.valModule = { id: valModule?.default?.id, ...valModule?.default?.content?.serialize() };
 `;
     const result = context.evalCode(
       code,
@@ -46,8 +46,8 @@ globalThis.valModule = { id: valModule?.default?.id, ...valModule?.default?.val?
         if (!valModule?.schema) {
           errors.push(`Expected val id: '${id}' to have a schema`);
         }
-        if (!valModule?.val) {
-          errors.push(`Expected val id: '${id}' to have a val`);
+        if (!valModule?.source) {
+          errors.push(`Expected val id: '${id}' to have a source`);
         }
       }
 
@@ -59,7 +59,7 @@ globalThis.valModule = { id: valModule?.default?.id, ...valModule?.default?.val?
         );
       }
       return {
-        val: valModule.val,
+        source: valModule.source,
         schema: valModule.schema,
       };
     }
