@@ -63,6 +63,6 @@ export class StringSchema extends Schema<string, string> {
     return new StringSchema(schema.options);
   }
 }
-export const string = (options?: StringOptions): Schema<string, string> => {
+export const string = (options?: StringOptions): StringSchema => {
   return new StringSchema(options);
 };

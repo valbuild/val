@@ -16,13 +16,16 @@ interface ArraySelectorMethods<Src, D extends ArrayDescriptor> {
   slice(begin: number, end?: number): ArraySelector<Src, D>;
 }
 
-export type ArraySelector<Src, D extends ArrayDescriptor> = Selector<Src, D> &
+export type ArraySelector<Src, D extends ArrayDescriptor> = Selector<
+  Src,
+  ValueOf<D>
+> &
   ArraySelectorMethods<Src, D> & {
     readonly [index: number]: SelectorOf<Src, D["item"]>;
   };
 
 class ArraySelectorC<Src, D extends ArrayDescriptor>
-  extends BaseSelector<Src, D>
+  extends BaseSelector<Src, ValueOf<D>>
   implements ArraySelectorMethods<Src, D>
 {
   constructor(readonly fromSrc: lens.Lens<Src, ValueOf<D>>, readonly desc: D) {

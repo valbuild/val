@@ -1,41 +1,43 @@
-import * as lens from "../lens";
-import { getSelector } from ".";
 import { array } from "../schema/array";
 import { object } from "../schema/object";
 import { string } from "../schema/string";
-import { LENS } from "./selector";
+import { i18n } from "../schema/i18n";
+import { ModuleContent } from "../content";
 
 test("selector", () => {
-  const source = {
-    foo: {
-      bar: [
-        {
-          baz: "foo",
-        },
-        {
-          baz: "bar",
-        },
-        {
-          baz: "baz",
-        },
-      ],
+  const content = new ModuleContent(
+    {
+      foo: {
+        bar: [
+          {
+            baz: {
+              en_US: "foo",
+            },
+          },
+          {
+            baz: {
+              en_US: "bar",
+            },
+          },
+          {
+            baz: {
+              en_US: "baz",
+            },
+          },
+        ],
+      },
     },
-  };
-  const schema = object({
-    foo: object({
-      bar: array(
-        object({
-          baz: string(),
-        })
-      ),
-    }),
-  });
-
-  const rootSelector = getSelector(
-    lens.identity<typeof source>(),
-    schema.descriptor()
+    object({
+      foo: object({
+        bar: array(
+          object({
+            baz: i18n(string()),
+          })
+        ),
+      }),
+    })
   );
-  const selector = rootSelector.foo.bar[0].baz;
-  const selectedValue = selector[LENS]().apply(source);
-  expect(selectedValue).toEqual("foo");
+
+  const baz = content.select((root) => root.foo.bar[0].baz);
+  expect(baz).toEqual("foo");
 });

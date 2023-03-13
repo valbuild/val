@@ -1,6 +1,9 @@
-import { InOf, OutOf } from "./lens";
-import { type Schema, SerializedSchema } from "./schema/Schema";
 import { deserializeSchema } from "./schema/serialization";
+import * as lens from "./lens";
+import { ValueOf } from "./lens/descriptor";
+import { Schema, SerializedSchema } from "./schema/Schema";
+import { getSelector, SelectorOf } from "./selector";
+import { LENS, Selector } from "./selector/selector";
 import { Source } from "./Source";
 
 export class ModuleContent<T extends Schema<Source, unknown>> {
@@ -8,7 +11,7 @@ export class ModuleContent<T extends Schema<Source, unknown>> {
     /**
      * @internal
      */
-    public readonly source: InOf<T>,
+    public readonly source: lens.InOf<T>,
     public readonly schema: T
   ) {}
 
@@ -16,13 +19,29 @@ export class ModuleContent<T extends Schema<Source, unknown>> {
     return this.schema.validate(this.source);
   }
 
+  select<Out>(
+    callback: <Src>(
+      selector: SelectorOf<Src, ReturnType<T["descriptor"]>>
+    ) => Selector<Src, Out>
+  ): Out {
+    const rootSelector = getSelector(
+      lens.identity(),
+      this.schema.descriptor()
+    ) as SelectorOf<
+      ValueOf<ReturnType<T["descriptor"]>>,
+      ReturnType<T["descriptor"]>
+    >;
+    const l = lens.compose(this.schema, callback(rootSelector)[LENS]());
+    return l.apply(this.source);
+  }
+
   /**
    * Get the source of this module
    *
    * @internal
    */
-  get(): OutOf<T> {
-    return this.schema.apply(this.source) as OutOf<T>;
+  get(): lens.OutOf<T> {
+    return this.schema.apply(this.source) as lens.OutOf<T>;
   }
 
   serialize(): SerializedModuleContent {

@@ -5,14 +5,14 @@ import { ObjectDescriptor, ValueOf } from "../lens/descriptor";
 
 export type ObjectSelector<Src, D extends ObjectDescriptor> = Selector<
   Src,
-  D
+  ValueOf<D>
 > & {
   readonly [P in keyof D["props"]]: SelectorOf<Src, D["props"][P]>;
 };
 
 class ObjectSelectorC<Src, D extends ObjectDescriptor> extends BaseSelector<
   Src,
-  D
+  ValueOf<D>
 > {
   constructor(readonly fromSrc: lens.Lens<Src, ValueOf<D>>, readonly desc: D) {
     super();

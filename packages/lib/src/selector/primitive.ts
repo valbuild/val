@@ -1,22 +1,21 @@
 import * as lens from "../lens";
-import { Descriptor, ValueOf } from "../lens/descriptor";
 import { BaseSelector, LENS, Selector } from "./selector";
 
-export class PrimitiveSelector<Src, D extends Descriptor>
-  extends BaseSelector<Src, D>
-  implements Selector<Src, D>
+export class PrimitiveSelector<Src, Out>
+  extends BaseSelector<Src, Out>
+  implements Selector<Src, Out>
 {
-  constructor(private readonly fromSrc: lens.Lens<Src, ValueOf<D>>) {
+  constructor(private readonly fromSrc: lens.Lens<Src, Out>) {
     super();
   }
 
-  [LENS](): lens.Lens<Src, ValueOf<D>> {
+  [LENS](): lens.Lens<Src, Out> {
     return this.fromSrc;
   }
 }
 
-export function newPrimitiveSelector<Src, D extends Descriptor>(
-  fromSrc: lens.Lens<Src, ValueOf<D>>
-): Selector<Src, D> {
+export function newPrimitiveSelector<Src, Out>(
+  fromSrc: lens.Lens<Src, Out>
+): Selector<Src, Out> {
   return new PrimitiveSelector(fromSrc);
 }

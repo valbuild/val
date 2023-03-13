@@ -1,4 +1,5 @@
 import { type SerializedArraySchema } from "./array";
+import { type SerializedI18nSchema } from "./i18n";
 import { type SerializedObjectSchema } from "./object";
 import { type SerializedStringSchema } from "./string";
 import { Lens } from "../lens";
@@ -7,6 +8,7 @@ import { Descriptor } from "../lens/descriptor";
 
 export type SerializedSchema =
   | SerializedStringSchema
+  | SerializedI18nSchema
   | SerializedObjectSchema
   | SerializedArraySchema;
 

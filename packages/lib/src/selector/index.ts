@@ -14,9 +14,7 @@ export type SelectorOf<Src, D extends Descriptor> = D extends ObjectDescriptor
   ? ObjectSelector<Src, D>
   : D extends ArrayDescriptor
   ? ArraySelector<Src, D>
-  : D extends Descriptor
-  ? Selector<Src, D>
-  : Selector<Src, Descriptor>;
+  : Selector<Src, ValueOf<D>>;
 
 export function getSelector<Src, D extends Descriptor>(
   fromSrc: lens.Lens<Src, ValueOf<D>>,

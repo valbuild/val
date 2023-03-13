@@ -1,5 +1,6 @@
 import { content } from "./module";
 import { array } from "./schema/array";
+import { i18n } from "./schema/i18n";
 import { object } from "./schema/object";
 import { string } from "./schema/string";
 
@@ -8,9 +9,10 @@ const defaultVal = {
     content,
   },
   s: {
-    string,
-    object,
     array,
+    i18n,
+    object,
+    string,
   },
 };
 
