@@ -1,4 +1,4 @@
-import { ValidTypes } from "../ValidTypes";
+import { Source } from "../Source";
 import { ArraySchema } from "./array";
 import { ObjectSchema } from "./object";
 import { Schema, SerializedSchema } from "./Schema";
@@ -9,7 +9,7 @@ describe("Schema", () => {
   const testCases: {
     name: string;
     serialized: SerializedSchema;
-    deserialized: Schema<ValidTypes>;
+    deserialized: Schema<Source>;
   }[] = [
     {
       name: "array",

@@ -1,21 +1,27 @@
-import { StaticVal } from "./StaticVal";
-import { ValidTypes } from "./ValidTypes";
+import { Schema, SerializedSchema } from "./schema/Schema";
+import { Source } from "./Source";
 
-/**
- *
- * @deprecated Uncertain about the name of this
- */
-export class ValContent<T extends ValidTypes> {
-  constructor(public readonly id: string, public readonly val: StaticVal<T>) {}
+export class ModuleContent<T extends Source> {
+  constructor(private readonly source: T, public readonly schema: Schema<T>) {}
+
+  /**
+   * Get the source of this module
+   *
+   * @internal
+   */
+  get(): T {
+    return this.source;
+  }
+
+  serialize(): SerializedModuleContent {
+    return {
+      source: this.source,
+      schema: this.schema.serialize(),
+    };
+  }
 }
 
-/**
- *
- * @deprecated Uncertain about the name of this
- */
-export const content = <T extends ValidTypes>(
-  id: string,
-  f: () => StaticVal<T>
-): ValContent<T> => {
-  return new ValContent(id, f());
+export type SerializedModuleContent = {
+  source: Source;
+  schema: SerializedSchema;
 };

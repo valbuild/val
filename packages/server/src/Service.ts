@@ -1,4 +1,4 @@
-import { SerializedVal } from "@valbuild/lib";
+import { SerializedModuleContent } from "@valbuild/lib";
 import { newQuickJSWASMModule, QuickJSRuntime } from "quickjs-emscripten";
 import { patchValFile } from "./patchValFile";
 import { readValFile } from "./readValFile";
@@ -52,11 +52,14 @@ export class Service {
     this.valConfigPath = valConfigPath;
   }
 
-  async get(moduleId: string): Promise<SerializedVal> {
+  async get(moduleId: string): Promise<SerializedModuleContent> {
     return readValFile(moduleId, this.valConfigPath, this.runtime);
   }
 
-  async patch(moduleId: string, patch: Patch): Promise<SerializedVal> {
+  async patch(
+    moduleId: string,
+    patch: Patch
+  ): Promise<SerializedModuleContent> {
     return patchValFile(
       moduleId,
       this.valConfigPath,

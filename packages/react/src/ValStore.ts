@@ -1,8 +1,8 @@
-import { SerializedVal } from "@valbuild/lib";
+import { SerializedModuleContent } from "@valbuild/lib";
 import { ValApi } from "./ValApi";
 
 export class ValStore {
-  private readonly vals: Map<string, SerializedVal>;
+  private readonly vals: Map<string, SerializedModuleContent>;
   private listeners: (() => void)[];
   private readonly subscribedModulesIds: { [moduleId: string]: number };
 
@@ -36,7 +36,7 @@ export class ValStore {
     };
   };
 
-  set(id: string, val: SerializedVal) {
+  set(id: string, val: SerializedModuleContent) {
     this.vals.set(id, val);
   }
 

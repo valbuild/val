@@ -43,7 +43,7 @@ describe("read val file", () => {
       testCase.valConfigPath,
       testRuntime
     );
-    expect(result).toHaveProperty("val");
+    expect(result).toHaveProperty("source");
     expect(result).toHaveProperty("schema");
   });
 });

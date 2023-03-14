@@ -8,7 +8,7 @@ import {
   type ValSyntaxErrorTree,
 } from "./patch/ts/syntax";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
-import { SerializedVal } from "@valbuild/lib";
+import { SerializedModuleContent } from "@valbuild/lib";
 import { readValFile } from "./readValFile";
 import { QuickJSRuntime } from "quickjs-emscripten";
 import ts from "typescript";
@@ -19,7 +19,7 @@ export const patchValFile = async (
   patch: Patch,
   sourceFileHandler: ValSourceFileHandler,
   runtime: QuickJSRuntime
-): Promise<SerializedVal> => {
+): Promise<SerializedModuleContent> => {
   const filePath = sourceFileHandler.resolveSourceModulePath(
     valConfigPath,
     `.${id}.val`
