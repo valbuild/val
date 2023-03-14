@@ -1,17 +1,12 @@
 import * as lens from "../lens";
 import { getSelector, SelectorOf } from ".";
 import { Descriptor, ValueOf } from "../lens/descriptor";
-import { Selector } from "./selector";
 
 interface I18nSelectorMethods<Src, D extends Descriptor> {
   localize(locale: "en_US"): SelectorOf<Src, D>;
 }
 
-// TODO: How to get SelectorOf to work on this?
-export type I18nSelector<Src, D extends Descriptor> = Selector<
-  Src,
-  ValueOf<D>
-> &
+export type I18nSelector<Src, D extends Descriptor> = SelectorOf<Src, D> &
   I18nSelectorMethods<Src, D>;
 
 export function newI18nSelector<Src, D extends Descriptor>(

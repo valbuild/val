@@ -13,11 +13,13 @@ import {
 } from "../lens/descriptor";
 import { I18nSelector, newI18nSelector } from "./i18n";
 
-export type SelectorOf<Src, D extends Descriptor> = D extends ObjectDescriptor
+export type SelectorOf<Src, D extends Descriptor> = [D] extends [
+  ObjectDescriptor
+]
   ? ObjectSelector<Src, D["props"]>
-  : D extends ArrayDescriptor
+  : [D] extends [ArrayDescriptor]
   ? ArraySelector<Src, D["item"]>
-  : D extends I18nDescriptor
+  : [D] extends [I18nDescriptor]
   ? I18nSelector<Src, D["desc"]>
   : Selector<Src, ValueOf<D>>;
 
@@ -32,7 +34,10 @@ export function getSelector<Src, D extends Descriptor>(
         desc.item
       ) as SelectorOf<Src, D>;
     case "i18n":
-      return newI18nSelector(fromSrc, desc.desc) as SelectorOf<Src, D>;
+      return newI18nSelector(
+        fromSrc as lens.Lens<Src, Record<"en_US", ValueOf<Descriptor>>>,
+        desc.desc
+      ) as SelectorOf<Src, D>;
     case "object":
       return newObjectSelector<Src, ObjectDescriptorProps>(
         fromSrc as lens.Lens<Src, ValueOf<ObjectDescriptor>>,

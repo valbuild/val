@@ -53,14 +53,14 @@ export type Descriptor =
   | StringDescriptor
   | BooleanDescriptor;
 
-export type ValueOf<D> = D extends ArrayDescriptor
+export type ValueOf<D> = [D] extends [ArrayDescriptor]
   ? ValueOf<D["item"]>[]
-  : D extends I18nDescriptor
+  : [D] extends [I18nDescriptor]
   ? ValueOf<D["desc"]>
-  : D extends ObjectDescriptor
+  : [D] extends [ObjectDescriptor]
   ? { [P in keyof D["props"]]: ValueOf<D["props"][P]> }
-  : D extends StringDescriptor
+  : [D] extends [StringDescriptor]
   ? string
-  : D extends BooleanDescriptor
+  : [D] extends [BooleanDescriptor]
   ? boolean
   : unknown;

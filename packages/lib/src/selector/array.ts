@@ -1,7 +1,7 @@
 import * as lens from "../lens";
 import { getSelector, SelectorOf } from ".";
 import { BaseSelector, LENS, Selector } from "./selector";
-import { ArrayDescriptor, Descriptor, ValueOf } from "../lens/descriptor";
+import { Descriptor, ValueOf } from "../lens/descriptor";
 
 interface ArraySelectorMethods<Src, D extends Descriptor> {
   filter(

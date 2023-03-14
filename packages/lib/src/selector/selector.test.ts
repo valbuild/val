@@ -40,6 +40,6 @@ test("selector", () => {
     })
   );
 
-  const baz = content.select((root) => root.foo.bar[0].localize("en_US").baz);
+  const baz = content.select((root) => root.foo.bar[0].baz);
   expect(baz).toEqual("foo");
 });
