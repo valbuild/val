@@ -1,6 +1,5 @@
-import * as lens from "../lens";
 import { Source } from "../Source";
-import { Schema, type SerializedSchema } from "./Schema";
+import { Schema, SourceOf, type SerializedSchema } from "./Schema";
 import { deserializeSchema } from "./serialization";
 
 export type SerializedArraySchema = {
@@ -8,14 +7,13 @@ export type SerializedArraySchema = {
   schema: SerializedSchema;
 };
 
-export class ArraySchema<T extends Schema<Source, unknown>> extends Schema<
-  lens.InOf<T>[],
-  lens.OutOf<T>[]
+export class ArraySchema<T extends Schema<Source>> extends Schema<
+  SourceOf<T>[]
 > {
   constructor(private readonly item: T) {
     super();
   }
-  validate(input: lens.InOf<T>[]): false | string[] {
+  validate(input: SourceOf<T>[]): false | string[] {
     const errors: string[] = [];
     input.forEach((value, index) => {
       const result = this.item.validate(value);
@@ -27,10 +25,6 @@ export class ArraySchema<T extends Schema<Source, unknown>> extends Schema<
       return errors;
     }
     return false;
-  }
-
-  apply(input: lens.InOf<T>[]): lens.OutOf<T>[] {
-    return input.map((item) => this.item.apply(item)) as lens.OutOf<T>[];
   }
 
   descriptor(): {
@@ -52,12 +46,10 @@ export class ArraySchema<T extends Schema<Source, unknown>> extends Schema<
 
   static deserialize(
     schema: SerializedArraySchema
-  ): ArraySchema<Schema<Source, unknown>> {
+  ): ArraySchema<Schema<Source>> {
     return new ArraySchema(deserializeSchema(schema.schema));
   }
 }
-export const array = <T extends Schema<Source, unknown>>(
-  schema: T
-): ArraySchema<T> => {
+export const array = <T extends Schema<Source>>(schema: T): ArraySchema<T> => {
   return new ArraySchema(schema);
 };

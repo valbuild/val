@@ -1,6 +1,5 @@
-import * as lens from "../lens";
 import { Source } from "../Source";
-import { Schema, type SerializedSchema } from "./Schema";
+import { Schema, SourceOf, type SerializedSchema } from "./Schema";
 import { deserializeSchema } from "./serialization";
 
 export type SerializedI18nSchema = {
@@ -8,14 +7,13 @@ export type SerializedI18nSchema = {
   schema: SerializedSchema;
 };
 
-export class I18nSchema<T extends Schema<Source, unknown>> extends Schema<
-  Record<"en_US", lens.InOf<T>>,
-  lens.OutOf<T>
+export class I18nSchema<T extends Schema<Source>> extends Schema<
+  Record<"en_US", SourceOf<T>>
 > {
   constructor(private readonly schema: T) {
     super();
   }
-  validate(input: Record<"en_US", lens.InOf<T>>): false | string[] {
+  validate(input: Record<"en_US", SourceOf<T>>): false | string[] {
     const errors: string[] = [];
     for (const key in input) {
       const value = input[key as "en_US"];
@@ -30,12 +28,14 @@ export class I18nSchema<T extends Schema<Source, unknown>> extends Schema<
     return false;
   }
 
-  apply(input: Record<"en_US", lens.InOf<T>>): lens.OutOf<T> {
-    return this.schema.apply(input["en_US"]) as lens.OutOf<T>;
-  }
-
-  descriptor(): ReturnType<T["descriptor"]> {
-    return this.schema.descriptor() as ReturnType<T["descriptor"]>;
+  descriptor(): {
+    type: "i18n";
+    desc: ReturnType<T["descriptor"]>;
+  } {
+    return {
+      type: "i18n",
+      desc: this.schema.descriptor() as ReturnType<T["descriptor"]>,
+    };
   }
 
   serialize(): SerializedI18nSchema {
@@ -45,14 +45,10 @@ export class I18nSchema<T extends Schema<Source, unknown>> extends Schema<
     };
   }
 
-  static deserialize(
-    schema: SerializedI18nSchema
-  ): I18nSchema<Schema<Source, unknown>> {
+  static deserialize(schema: SerializedI18nSchema): I18nSchema<Schema<Source>> {
     return new I18nSchema(deserializeSchema(schema.schema));
   }
 }
-export const i18n = <T extends Schema<Source, unknown>>(
-  schema: T
-): I18nSchema<T> => {
+export const i18n = <T extends Schema<Source>>(schema: T): I18nSchema<T> => {
   return new I18nSchema(schema);
 };

@@ -103,3 +103,14 @@ class EqLens<T> implements Lens<T, boolean> {
 export function eq<T>(value: T): Lens<T, boolean> {
   return new EqLens(value);
 }
+
+class LocalizeLens<T> implements Lens<Record<"en_US", T>, T> {
+  constructor(private readonly locale?: "en_US") {}
+  apply(input: Record<"en_US", T>): T {
+    return input[this.locale ?? "en_US"];
+  }
+}
+
+export function localize<T>(locale?: "en_US") {
+  return new LocalizeLens<T>(locale);
+}

@@ -10,18 +10,18 @@ test("selector", () => {
       foo: {
         bar: [
           {
-            baz: {
-              en_US: "foo",
+            en_US: {
+              baz: "foo",
             },
           },
           {
-            baz: {
-              en_US: "bar",
+            en_US: {
+              baz: "bar",
             },
           },
           {
-            baz: {
-              en_US: "baz",
+            en_US: {
+              baz: "baz",
             },
           },
         ],
@@ -30,14 +30,16 @@ test("selector", () => {
     object({
       foo: object({
         bar: array(
-          object({
-            baz: i18n(string()),
-          })
+          i18n(
+            object({
+              baz: string(),
+            })
+          )
         ),
       }),
     })
   );
 
-  const baz = content.select((root) => root.foo.bar[0].baz);
+  const baz = content.select((root) => root.foo.bar[0].localize("en_US").baz);
   expect(baz).toEqual("foo");
 });

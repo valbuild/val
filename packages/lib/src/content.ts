@@ -1,21 +1,20 @@
 import { deserializeSchema } from "./schema/serialization";
 import * as lens from "./lens";
-import { ValueOf } from "./lens/descriptor";
-import { Schema, SerializedSchema } from "./schema/Schema";
+import { Schema, SerializedSchema, SourceOf } from "./schema/Schema";
 import { getSelector, SelectorOf } from "./selector";
 import { LENS, Selector } from "./selector/selector";
 import { Source } from "./Source";
 
-export class ModuleContent<T extends Schema<Source, unknown>> {
+export class ModuleContent<T extends Schema<Source>> {
   constructor(
     /**
      * @internal
      */
-    public readonly source: lens.InOf<T>,
+    public readonly source: SourceOf<T>,
     public readonly schema: T
   ) {}
 
-  validate() {
+  validate(): false | string[] {
     return this.schema.validate(this.source);
   }
 
@@ -25,13 +24,12 @@ export class ModuleContent<T extends Schema<Source, unknown>> {
     ) => Selector<Src, Out>
   ): Out {
     const rootSelector = getSelector(
-      lens.identity(),
+      lens.identity<SourceOf<T>>(),
       this.schema.descriptor()
-    ) as SelectorOf<
-      ValueOf<ReturnType<T["descriptor"]>>,
-      ReturnType<T["descriptor"]>
-    >;
-    const l = lens.compose(this.schema, callback(rootSelector)[LENS]());
+    );
+    const l = callback(
+      rootSelector as SelectorOf<unknown, ReturnType<T["descriptor"]>>
+    )[LENS]();
     return l.apply(this.source);
   }
 
@@ -40,8 +38,8 @@ export class ModuleContent<T extends Schema<Source, unknown>> {
    *
    * @internal
    */
-  get(): lens.OutOf<T> {
-    return this.schema.apply(this.source) as lens.OutOf<T>;
+  get(): Source {
+    return this.source;
   }
 
   serialize(): SerializedModuleContent {
@@ -54,7 +52,7 @@ export class ModuleContent<T extends Schema<Source, unknown>> {
   static deserialize({
     source,
     schema,
-  }: SerializedModuleContent): ModuleContent<Schema<Source, unknown>> {
+  }: SerializedModuleContent): ModuleContent<Schema<Source>> {
     return new ModuleContent(source, deserializeSchema(schema));
   }
 }

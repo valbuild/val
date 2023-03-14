@@ -1,6 +1,5 @@
-import * as lens from "../lens";
 import { Source } from "../Source";
-import { Schema, type SerializedSchema } from "./Schema";
+import { Schema, SourceOf, type SerializedSchema } from "./Schema";
 import { deserializeSchema } from "./serialization";
 
 export type SerializedObjectSchema = {
@@ -8,22 +7,16 @@ export type SerializedObjectSchema = {
   schema: Record<string, SerializedSchema>;
 };
 
-type SchemaObject = { [key: string]: Schema<Source, unknown> };
-type InObject<T extends SchemaObject> = {
-  [key in keyof T]: lens.InOf<T[key]>;
-};
-type OutObject<T extends SchemaObject> = {
-  [key in keyof T]: lens.OutOf<T[key]>;
+type SchemaObject = { [key: string]: Schema<Source> };
+type SrcObject<T extends SchemaObject> = {
+  [key in keyof T]: SourceOf<T[key]>;
 };
 
-export class ObjectSchema<T extends SchemaObject> extends Schema<
-  InObject<T>,
-  OutObject<T>
-> {
+export class ObjectSchema<T extends SchemaObject> extends Schema<SrcObject<T>> {
   constructor(private readonly props: T) {
     super();
   }
-  validate(input: { [key in keyof T]: lens.InOf<T[key]> }): false | string[] {
+  validate(input: SrcObject<T>): false | string[] {
     const errors: string[] = [];
     for (const key in this.props) {
       const value = input[key];
@@ -37,15 +30,6 @@ export class ObjectSchema<T extends SchemaObject> extends Schema<
       return errors;
     }
     return false;
-  }
-
-  apply(input: InObject<T>): OutObject<T> {
-    return Object.fromEntries(
-      Object.entries(this.props).map(([key, schema]) => [
-        key,
-        schema.apply(input[key]),
-      ])
-    ) as OutObject<T>;
   }
 
   descriptor(): {
@@ -79,7 +63,7 @@ export class ObjectSchema<T extends SchemaObject> extends Schema<
 
   static deserialize(
     schema: SerializedObjectSchema
-  ): ObjectSchema<{ [key in string]: Schema<Source, unknown> }> {
+  ): ObjectSchema<SchemaObject> {
     return new ObjectSchema(
       Object.fromEntries(
         Object.entries(schema.schema).map(([key, schema]) => [

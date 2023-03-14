@@ -14,7 +14,7 @@ export type SerializedStringSchema = {
   };
 };
 
-export class StringSchema extends Schema<string, string> {
+export class StringSchema extends Schema<string> {
   constructor(private readonly options?: StringOptions) {
     super();
   }

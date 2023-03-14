@@ -5,9 +5,7 @@ import { ObjectSchema } from "./object";
 import type { Schema, SerializedSchema } from "./Schema";
 import { StringSchema } from "./string";
 
-export function deserializeSchema(
-  schema: SerializedSchema
-): Schema<Source, unknown> {
+export function deserializeSchema(schema: SerializedSchema): Schema<Source> {
   switch (schema.type) {
     case "array":
       return ArraySchema.deserialize(schema);
