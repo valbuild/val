@@ -1,1 +1,5 @@
-module.exports = require("../../jest.config.base");
+/** @type {import("jest").Config} */
+module.exports = {
+  preset: "../../jest.preset",
+  testEnvironment: "./jest-environment.mjs",
+};
