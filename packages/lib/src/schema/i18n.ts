@@ -1,3 +1,4 @@
+import { DetailedI18nDescriptor } from "../lens/descriptor";
 import { Source } from "../Source";
 import { Schema, SourceOf, type SerializedSchema } from "./Schema";
 import { deserializeSchema } from "./serialization";
@@ -28,10 +29,7 @@ export class I18nSchema<T extends Schema<Source>> extends Schema<
     return false;
   }
 
-  descriptor(): {
-    type: "i18n";
-    desc: ReturnType<T["descriptor"]>;
-  } {
+  descriptor(): DetailedI18nDescriptor<ReturnType<T["descriptor"]>> {
     return {
       type: "i18n",
       desc: this.schema.descriptor() as ReturnType<T["descriptor"]>,

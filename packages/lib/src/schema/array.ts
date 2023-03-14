@@ -1,3 +1,4 @@
+import { DetailedArrayDescriptor } from "../lens/descriptor";
 import { Source } from "../Source";
 import { Schema, SourceOf, type SerializedSchema } from "./Schema";
 import { deserializeSchema } from "./serialization";
@@ -27,10 +28,7 @@ export class ArraySchema<T extends Schema<Source>> extends Schema<
     return false;
   }
 
-  descriptor(): {
-    type: "array";
-    item: ReturnType<T["descriptor"]>;
-  } {
+  descriptor(): DetailedArrayDescriptor<ReturnType<T["descriptor"]>> {
     return {
       type: "array",
       item: this.item.descriptor() as ReturnType<T["descriptor"]>,

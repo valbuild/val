@@ -1,3 +1,4 @@
+import { DetailedObjectDescriptor } from "../lens/descriptor";
 import { Source } from "../Source";
 import { Schema, SourceOf, type SerializedSchema } from "./Schema";
 import { deserializeSchema } from "./serialization";
@@ -32,12 +33,9 @@ export class ObjectSchema<T extends SchemaObject> extends Schema<SrcObject<T>> {
     return false;
   }
 
-  descriptor(): {
-    type: "object";
-    props: {
-      [P in keyof T]: ReturnType<T[P]["descriptor"]>;
-    };
-  } {
+  descriptor(): DetailedObjectDescriptor<{
+    [P in keyof T]: ReturnType<T[P]["descriptor"]>;
+  }> {
     return {
       type: "object",
       props: Object.fromEntries(

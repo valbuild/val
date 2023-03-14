@@ -1,31 +1,31 @@
 import * as lens from "../lens";
 import { getSelector, SelectorOf } from ".";
+import { Descriptor, ValueOf } from "../lens/descriptor";
 import { Selector } from "./selector";
-import { I18nDescriptor, ValueOf } from "../lens/descriptor";
 
-interface I18nSelectorMethods<Src, D extends I18nDescriptor> {
-  localize(locale: "en_US"): SelectorOf<Src, D["desc"]>;
+interface I18nSelectorMethods<Src, D extends Descriptor> {
+  localize(locale: "en_US"): SelectorOf<Src, D>;
 }
 
 // TODO: How to get SelectorOf to work on this?
-export type I18nSelector<Src, D extends I18nDescriptor> = Selector<
+export type I18nSelector<Src, D extends Descriptor> = Selector<
   Src,
-  ValueOf<D["desc"]>
+  ValueOf<D>
 > &
   I18nSelectorMethods<Src, D>;
 
-export function newI18nSelector<Src, D extends I18nDescriptor>(
-  fromSrc: lens.Lens<Src, ValueOf<D>>,
+export function newI18nSelector<Src, D extends Descriptor>(
+  fromSrc: lens.Lens<Src, Record<"en_US", ValueOf<D>>>,
   desc: D
 ): I18nSelector<Src, D> {
   const methods: I18nSelectorMethods<Src, D> = {
-    localize(locale: "en_US"): SelectorOf<Src, D["desc"]> {
+    localize(locale: "en_US"): SelectorOf<Src, D> {
       const l = lens.compose(fromSrc, lens.localize<ValueOf<D>>(locale));
-      return getSelector(l, desc.desc) as SelectorOf<Src, D["desc"]>;
+      return getSelector(l, desc);
     },
   };
   const l = lens.compose(fromSrc, lens.localize<ValueOf<D>>());
-  return Object.create(getSelector(l, desc.desc), {
+  return Object.create(getSelector(l, desc), {
     localize: {
       value: methods.localize,
     },

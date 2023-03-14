@@ -3,14 +3,33 @@ export type ArrayDescriptor = {
   readonly item: Descriptor;
 };
 
+export type DetailedArrayDescriptor<D extends Descriptor> = {
+  readonly type: "array";
+  readonly item: D;
+};
+
 export type I18nDescriptor = {
   readonly type: "i18n";
   readonly desc: Descriptor;
 };
 
+export type DetailedI18nDescriptor<D extends Descriptor> = {
+  readonly type: "i18n";
+  readonly desc: D;
+};
+
+export type ObjectDescriptorProps = {
+  [P in string]: Descriptor;
+};
+
 export type ObjectDescriptor = {
   readonly type: "object";
-  readonly props: { [P in string]: Descriptor };
+  readonly props: ObjectDescriptorProps;
+};
+
+export type DetailedObjectDescriptor<D extends ObjectDescriptorProps> = {
+  readonly type: "object";
+  readonly props: D;
 };
 
 export type StringDescriptor = {

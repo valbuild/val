@@ -64,7 +64,7 @@ export function slice<T>(start: number, end?: number): Lens<T[], T[]> {
 }
 
 class ComposeLens implements Lens<unknown, unknown> {
-  constructor(private readonly lenses: Lens<unknown, unknown>[]) {}
+  constructor(readonly lenses: Lens<unknown, unknown>[]) {}
   apply(input: unknown): unknown {
     let current = input;
     for (const lens of this.lenses) {
@@ -83,7 +83,9 @@ export function compose<A, B, C, D>(
 export function compose(
   ...lenses: Lens<unknown, unknown>[]
 ): Lens<unknown, unknown> {
-  const filtered = lenses.filter((lens) => lens !== _identity);
+  const filtered = lenses
+    .filter((lens) => lens !== _identity)
+    .flatMap((lens) => (lens instanceof ComposeLens ? lens.lenses : [lens]));
   if (filtered.length === 0) {
     return _identity;
   } else if (filtered.length === 1) {
