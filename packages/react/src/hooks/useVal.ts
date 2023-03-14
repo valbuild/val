@@ -1,9 +1,9 @@
 import {
-  ValContent,
+  ValModule,
   Val,
   ValString,
-  ValidObject,
-  ValidTypes,
+  SourceObject,
+  Source,
   ValProps,
 } from "@valbuild/lib";
 import { useContext, useSyncExternalStore } from "react";
@@ -14,7 +14,7 @@ const idProp: keyof ValProps<unknown> /* type check to make sure idProp is, in f
 const valProp: keyof ValProps<unknown> /* type check to make sure valProps is, in fact, a prop of ValProps */ =
   "val";
 
-function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
+function buildVal<T extends Source>(id: string, val: T): Val<T> {
   if (typeof val === "string") {
     return {
       valId: id,
@@ -26,7 +26,7 @@ function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
     return val.map((item, index) => buildVal(`${id}.${index}`, item)) as Val<T>;
   } else if (typeof val === "object") {
     // Should this be a Proxy / lazy or not? Is it serializable?
-    return new Proxy(val as ValidObject, {
+    return new Proxy(val as SourceObject, {
       get(target, prop: string) {
         if (prop === idProp) {
           return id;
@@ -44,24 +44,22 @@ function buildVal<T extends ValidTypes>(id: string, val: T): Val<T> {
   throw new Error("Not implemented");
 }
 
-export const useVal = <T extends ValidTypes>(
-  content: ValContent<T>
-): Val<T> => {
+export const useVal = <T extends Source>(mod: ValModule<T>): Val<T> => {
   const valStore = useValStore();
   const currentVal = useSyncExternalStore(
-    valStore.subscribe(content.id),
-    valStore.getSnapshot(content.id),
-    valStore.getServerSnapshot(content.id)
+    valStore.subscribe(mod.id),
+    valStore.getSnapshot(mod.id),
+    valStore.getServerSnapshot(mod.id)
   );
   if (currentVal) {
-    return buildVal(content.id, currentVal.val as T);
+    return buildVal(mod.id, currentVal.source as T);
   }
-  const staticVal = content.val;
-  const validationError = staticVal.schema.validate(staticVal.get());
+  const content = mod.content;
+  const validationError = content.schema.validate(content.get());
   if (validationError) {
     throw new Error(
       `Invalid static value. Errors:\n${validationError.join("\n")}`
     );
   }
-  return buildVal(content.id, staticVal.get());
+  return buildVal(mod.id, content.get());
 };

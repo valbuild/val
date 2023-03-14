@@ -1,10 +1,10 @@
-import { SerializedVal } from "@valbuild/lib";
+import { SerializedModuleContent } from "@valbuild/lib";
 import { Operation } from "fast-json-patch";
 
 export class ValApi {
   constructor(readonly host: string) {}
 
-  async getModule(moduleId: string): Promise<SerializedVal> {
+  async getModule(moduleId: string): Promise<SerializedModuleContent> {
     const res = await fetch(`${this.host}/ids${moduleId}`);
     if (res.ok) {
       const serializedVal = await res.json(); // TODO: validate
