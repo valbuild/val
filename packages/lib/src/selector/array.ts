@@ -1,7 +1,7 @@
-import * as lens from "../lens";
+import * as op from "../op";
 import { getSelector, SelectorOf } from ".";
-import { BaseSelector, LENS, Selector } from "./selector";
-import { Descriptor, ValueOf } from "../lens/descriptor";
+import { BaseSelector, OP, Selector } from "./selector";
+import { Descriptor, ValueOf } from "../descriptor";
 
 interface ArraySelectorMethods<Src, D extends Descriptor> {
   filter(
@@ -28,42 +28,39 @@ class ArraySelectorC<Src, D extends Descriptor>
   extends BaseSelector<Src, ValueOf<D>[]>
   implements ArraySelectorMethods<Src, D>
 {
-  constructor(
-    readonly fromSrc: lens.Lens<Src, ValueOf<D>[]>,
-    readonly item: D
-  ) {
+  constructor(readonly fromSrc: op.Op<Src, ValueOf<D>[]>, readonly item: D) {
     super();
   }
 
-  [LENS](): lens.Lens<Src, ValueOf<D>[]> {
+  [OP](): op.Op<Src, ValueOf<D>[]> {
     return this.fromSrc;
   }
 
   filter(
     predicate: <T>(item: SelectorOf<T, D>) => Selector<T, Descriptor>
   ): ArraySelector<Src, D> {
-    const itemSelector = getSelector(lens.identity<ValueOf<D>>(), this.item);
-    const predicateLens = predicate(itemSelector)[LENS]();
-    const filter = lens.filter(predicateLens);
-    return newArraySelector(lens.compose(this.fromSrc, filter), this.item);
+    const itemSelector = getSelector(op.identity<ValueOf<D>>(), this.item);
+    const predicateOp = predicate(itemSelector)[OP]();
+    const filter = op.filter(predicateOp);
+    return newArraySelector(op.compose(this.fromSrc, filter), this.item);
   }
 
   find(
     predicate: <T>(item: SelectorOf<T, D>) => Selector<T, Descriptor>
   ): SelectorOf<Src, D> {
-    const itemSelector = getSelector(lens.identity<ValueOf<D>>(), this.item);
-    const predicateLens = predicate(itemSelector)[LENS]();
-    const find = lens.find(predicateLens) as lens.Lens<
+    const itemSelector = getSelector(op.identity<ValueOf<D>>(), this.item);
+    const predicateOp = predicate(itemSelector)[OP]();
+    const find = op.find(predicateOp) as op.Op<
       ValueOf<D>[],
-      // TODO: This ignores optionality of lens output
+      // TODO: This ignores optionality of op output
       ValueOf<D>
     >;
-    return getSelector(lens.compose(this.fromSrc, find), this.item);
+    return getSelector(op.compose(this.fromSrc, find), this.item);
   }
 
   slice(start: number, end?: number | undefined): ArraySelector<Src, D> {
     return newArraySelector(
-      lens.compose(this.fromSrc, lens.slice(start, end)),
+      op.compose(this.fromSrc, op.slice(start, end)),
       this.item
     );
   }
@@ -73,7 +70,7 @@ const proxyHandler: ProxyHandler<ArraySelectorC<unknown, Descriptor>> = {
   get(target, p) {
     if (typeof p === "string" && /^(0|[1-9][0-9]*)$/g.test(p)) {
       return getSelector(
-        lens.compose(target.fromSrc, lens.prop(Number(p))),
+        op.compose(target.fromSrc, op.prop(Number(p))),
         target.item
       );
     }
@@ -82,7 +79,7 @@ const proxyHandler: ProxyHandler<ArraySelectorC<unknown, Descriptor>> = {
 };
 
 export function newArraySelector<Src, D extends Descriptor>(
-  fromSrc: lens.Lens<Src, ValueOf<D>[]>,
+  fromSrc: op.Op<Src, ValueOf<D>[]>,
   item: D
 ): ArraySelector<Src, D> {
   const proxy = new Proxy(new ArraySelectorC(fromSrc, item), proxyHandler);

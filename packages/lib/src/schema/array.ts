@@ -1,4 +1,4 @@
-import { DetailedArrayDescriptor } from "../lens/descriptor";
+import { DetailedArrayDescriptor } from "../descriptor";
 import { Source } from "../Source";
 import { Schema, SourceOf, type SerializedSchema } from "./Schema";
 import { deserializeSchema } from "./serialization";

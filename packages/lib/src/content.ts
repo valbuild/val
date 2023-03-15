@@ -1,8 +1,8 @@
 import { deserializeSchema } from "./schema/serialization";
-import * as lens from "./lens";
+import * as op from "./op";
 import { Schema, SerializedSchema, SourceOf } from "./schema/Schema";
 import { getSelector, SelectorOf } from "./selector";
-import { LENS, Selector } from "./selector/selector";
+import { OP, Selector } from "./selector/selector";
 import { Source } from "./Source";
 
 export class ModuleContent<T extends Schema<Source>> {
@@ -24,12 +24,12 @@ export class ModuleContent<T extends Schema<Source>> {
     ) => Selector<Src, Out>
   ): Out {
     const rootSelector = getSelector(
-      lens.identity<SourceOf<T>>(),
+      op.identity<SourceOf<T>>(),
       this.schema.descriptor()
     );
     const l = callback(
       rootSelector as SelectorOf<unknown, ReturnType<T["descriptor"]>>
-    )[LENS]();
+    )[OP]();
     return l.apply(this.source);
   }
 

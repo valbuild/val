@@ -3,7 +3,7 @@ import { type SerializedI18nSchema } from "./i18n";
 import { type SerializedObjectSchema } from "./object";
 import { type SerializedStringSchema } from "./string";
 import { Source } from "../Source";
-import { Descriptor } from "../lens/descriptor";
+import { Descriptor } from "../descriptor";
 
 export type SerializedSchema =
   | SerializedStringSchema

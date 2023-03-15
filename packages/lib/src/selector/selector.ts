@@ -1,26 +1,23 @@
 import { getSelector } from ".";
-import * as lens from "../lens";
-import { BooleanDescriptor } from "../lens/descriptor";
+import * as op from "../op";
+import { BooleanDescriptor } from "../descriptor";
 
 /**
  * @internal
  */
-export const LENS: unique symbol = Symbol("lens");
+export const OP: unique symbol = Symbol("op");
 
 export interface Selector<Src, Out> {
   eq(value: unknown): Selector<Src, boolean>;
   /**
    * @internal
    */
-  [LENS](): lens.Lens<Src, Out>;
+  [OP](): op.Op<Src, Out>;
 }
 
 export abstract class BaseSelector<Src, Out> implements Selector<Src, Out> {
-  abstract [LENS](): lens.Lens<Src, Out>;
+  abstract [OP](): op.Op<Src, Out>;
   eq(value: unknown): Selector<Src, boolean> {
-    return getSelector(
-      lens.compose(this[LENS](), lens.eq(value)),
-      BooleanDescriptor
-    );
+    return getSelector(op.compose(this[OP](), op.eq(value)), BooleanDescriptor);
   }
 }

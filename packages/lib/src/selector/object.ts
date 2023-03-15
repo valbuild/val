@@ -1,7 +1,7 @@
-import * as lens from "../lens";
+import * as op from "../op";
 import { getSelector, SelectorOf } from ".";
-import { BaseSelector, LENS, Selector } from "./selector";
-import { ObjectDescriptorProps, ValueOf } from "../lens/descriptor";
+import { BaseSelector, OP, Selector } from "./selector";
+import { ObjectDescriptorProps, ValueOf } from "../descriptor";
 
 type ValuesOf<D extends ObjectDescriptorProps> = {
   [P in keyof D]: ValueOf<D[P]>;
@@ -18,14 +18,11 @@ class ObjectSelectorC<
   Src,
   D extends ObjectDescriptorProps
 > extends BaseSelector<Src, ValuesOf<D>> {
-  constructor(
-    readonly fromSrc: lens.Lens<Src, ValuesOf<D>>,
-    readonly props: D
-  ) {
+  constructor(readonly fromSrc: op.Op<Src, ValuesOf<D>>, readonly props: D) {
     super();
   }
 
-  [LENS](): lens.Lens<Src, ValuesOf<D>> {
+  [OP](): op.Op<Src, ValuesOf<D>> {
     return this.fromSrc;
   }
 }
@@ -39,7 +36,7 @@ const proxyHandler: ProxyHandler<
       Object.prototype.hasOwnProperty.call(target.props, p)
     ) {
       return getSelector(
-        lens.compose(target.fromSrc, lens.prop(p)),
+        op.compose(target.fromSrc, op.prop(p)),
         target.props[p]
       );
     }
@@ -48,7 +45,7 @@ const proxyHandler: ProxyHandler<
 };
 
 export function newObjectSelector<Src, D extends ObjectDescriptorProps>(
-  fromSrc: lens.Lens<Src, ValuesOf<D>>,
+  fromSrc: op.Op<Src, ValuesOf<D>>,
   props: D
 ): ObjectSelector<Src, D> {
   const proxy = new Proxy(new ObjectSelectorC(fromSrc, props), proxyHandler);

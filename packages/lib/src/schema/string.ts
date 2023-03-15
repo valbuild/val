@@ -1,4 +1,4 @@
-import { StringDescriptor } from "../lens/descriptor";
+import { StringDescriptor } from "../descriptor";
 import { Schema } from "./Schema";
 
 type StringOptions = {

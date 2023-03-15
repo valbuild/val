@@ -1,4 +1,4 @@
-import * as lens from "../lens";
+import * as op from "../op";
 import { ArraySelector, newArraySelector } from "./array";
 import { PrimitiveSelector } from "./primitive";
 import { newObjectSelector, ObjectSelector } from "./object";
@@ -10,7 +10,7 @@ import {
   ObjectDescriptor,
   ObjectDescriptorProps,
   ValueOf,
-} from "../lens/descriptor";
+} from "../descriptor";
 import { I18nSelector, newI18nSelector } from "./i18n";
 
 export type SelectorOf<Src, D extends Descriptor> = [D] extends [
@@ -24,23 +24,23 @@ export type SelectorOf<Src, D extends Descriptor> = [D] extends [
   : Selector<Src, ValueOf<D>>;
 
 export function getSelector<Src, D extends Descriptor>(
-  fromSrc: lens.Lens<Src, ValueOf<D>>,
+  fromSrc: op.Op<Src, ValueOf<D>>,
   desc: D
 ): SelectorOf<Src, D> {
   switch (desc.type) {
     case "array":
       return newArraySelector<Src, Descriptor>(
-        fromSrc as lens.Lens<Src, ValueOf<Descriptor>[]>,
+        fromSrc as op.Op<Src, ValueOf<Descriptor>[]>,
         desc.item
       ) as SelectorOf<Src, D>;
     case "i18n":
       return newI18nSelector(
-        fromSrc as lens.Lens<Src, Record<"en_US", ValueOf<Descriptor>>>,
+        fromSrc as op.Op<Src, Record<"en_US", ValueOf<Descriptor>>>,
         desc.desc
       ) as SelectorOf<Src, D>;
     case "object":
       return newObjectSelector<Src, ObjectDescriptorProps>(
-        fromSrc as lens.Lens<Src, ValueOf<ObjectDescriptor>>,
+        fromSrc as op.Op<Src, ValueOf<ObjectDescriptor>>,
         desc.props
       ) as unknown as SelectorOf<Src, D>;
     case "string":

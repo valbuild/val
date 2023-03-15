@@ -1,4 +1,4 @@
-import { DetailedI18nDescriptor } from "../lens/descriptor";
+import { DetailedI18nDescriptor } from "../descriptor";
 import { Source } from "../Source";
 import { Schema, SourceOf, type SerializedSchema } from "./Schema";
 import { deserializeSchema } from "./serialization";
