@@ -17,19 +17,14 @@ export class ValModule<T extends Schema<Source>> {
       selector: SelectorOf<Ctx, ReturnType<T["descriptor"]>>
     ) => Selector<Ctx, Out>
   ): Val<Out> {
-    type Ctx = {
-      readonly [expr.MOD]: Source;
-    };
-    const ctx: Ctx = {
-      [expr.MOD]: this.content.source,
-    };
-    const rootExpr: expr.Expr<Ctx, Source> = expr.mod;
+    const ctx = [this.content.source] as const;
+    const rootExpr = expr.fromCtx<0, SourceOf<T>>(0);
     const rootSelector = getSelector(
       rootExpr,
       this.content.schema.descriptor()
-    ) as SelectorOf<{ [expr.MOD]: Source }, ReturnType<T["descriptor"]>>;
+    ) as SelectorOf<typeof ctx, ReturnType<T["descriptor"]>>;
     const result = callback(rootSelector)[EXPR]();
-    return newVal(result.toString({ [expr.MOD]: "" }), result.evaluate(ctx));
+    return newVal(result.toString([""]), result.evaluate(ctx));
   }
 }
 

@@ -9,9 +9,9 @@ interface ArraySelectorMethods<Ctx, D extends Descriptor> {
   ): ArraySelector<Ctx, D>;
 
   // TODO: Optionals!
-  /* find(
+  find(
     predicate: <T>(item: SelectorOf<T, D>) => Selector<T, Descriptor>
-  ): SelectorOf<Ctx, D>; */
+  ): SelectorOf<Ctx, D>;
 
   slice(begin: number, end?: number): ArraySelector<Ctx, D>;
 
@@ -50,27 +50,20 @@ class ArraySelectorC<Ctx, D extends Descriptor>
   filter(
     predicate: <Ctx>(v: SelectorOf<Ctx, D>) => Selector<Ctx, unknown>
   ): ArraySelector<Ctx, D> {
-    const vSym = Symbol("v");
-    const vExpr = expr.fromCtx<typeof vSym, ValueOf<D>>(vSym);
+    const vExpr = expr.fromCtx<0, ValueOf<D>>(0);
     const predicateExpr = predicate(getSelector(vExpr, this.item))[EXPR]();
-    return newArraySelector(
-      expr.filter(this.expr, vSym, predicateExpr),
-      this.item
-    );
+    return newArraySelector(expr.filter(this.expr, predicateExpr), this.item);
   }
 
-  /* find(
+  find(
     predicate: <T>(item: SelectorOf<T, D>) => Selector<T, Descriptor>
   ): SelectorOf<Ctx, D> {
-    const itemSelector = getSelector(op.identity<ValueOf<D>>(), this.item);
-    const predicateOp = predicate(itemSelector)[EXPR]();
-    const find = op.find(predicateOp) as expr.Expr<
-      ValueOf<D>[],
-      // TODO: This ignores optionality of op output
-      ValueOf<D>
-    >;
-    return getSelector(op.compose(this.fromCtx, find), this.item);
-  } */
+    const vExpr = expr.fromCtx<0, ValueOf<D>>(0);
+    const predicateExpr = predicate(getSelector(vExpr, this.item))[EXPR]();
+    // TODO: This ignores optionality of value
+    const e = expr.find(this.expr, predicateExpr) as expr.Expr<Ctx, ValueOf<D>>;
+    return getSelector(e, this.item);
+  }
 
   slice(start: number, end?: number | undefined): ArraySelector<Ctx, D> {
     return newArraySelector(expr.slice(this.expr, start, end), this.item);
@@ -79,10 +72,9 @@ class ArraySelectorC<Ctx, D extends Descriptor>
   sortBy(
     keyFn: <Ctx>(v: SelectorOf<Ctx, D>) => Selector<Ctx, number>
   ): ArraySelector<Ctx, D> {
-    const vSym = Symbol("v");
-    const vExpr = expr.fromCtx<typeof vSym, ValueOf<D>>(vSym);
+    const vExpr = expr.fromCtx<0, ValueOf<D>>(0);
     const keyFnExpr = keyFn(getSelector(vExpr, this.item))[EXPR]();
-    return newArraySelector(expr.sortBy(this.expr, vSym, keyFnExpr), this.item);
+    return newArraySelector(expr.sortBy(this.expr, keyFnExpr), this.item);
   }
 
   sort(
@@ -91,18 +83,13 @@ class ArraySelectorC<Ctx, D extends Descriptor>
       b: SelectorOf<Ctx, D>
     ) => Selector<Ctx, number>
   ): ArraySelector<Ctx, D> {
-    const aSym = Symbol("a");
-    const aExpr = expr.fromCtx<typeof aSym, ValueOf<D>>(aSym);
-    const bSym = Symbol("b");
-    const bExpr = expr.fromCtx<typeof bSym, ValueOf<D>>(bSym);
-    const compareFnExpr = compareFn<{
-      [aSym]: ValueOf<D>;
-      [bSym]: ValueOf<D>;
-    }>(getSelector(aExpr, this.item), getSelector(bExpr, this.item))[EXPR]();
-    return newArraySelector(
-      expr.sort(this.expr, aSym, bSym, compareFnExpr),
-      this.item
-    );
+    const aExpr = expr.fromCtx<0, ValueOf<D>>(0);
+    const bExpr = expr.fromCtx<1, ValueOf<D>>(1);
+    const compareFnExpr = compareFn<readonly [ValueOf<D>, ValueOf<D>]>(
+      getSelector(aExpr, this.item),
+      getSelector(bExpr, this.item)
+    )[EXPR]();
+    return newArraySelector(expr.sort(this.expr, compareFnExpr), this.item);
   }
 }
 

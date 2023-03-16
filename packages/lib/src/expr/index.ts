@@ -16,7 +16,7 @@ export function literal<Ctx, T>(value: T): Expr<Ctx, T> {
   return new Literal(value);
 }
 
-class FromCtx<S extends symbol, T>
+class FromCtx<S extends PropertyKey, T>
   implements Expr<{ readonly [s in S]: T }, T>
 {
   constructor(private readonly symbol: S) {}
@@ -27,17 +27,11 @@ class FromCtx<S extends symbol, T>
     return ctx[this.symbol];
   }
 }
-export function fromCtx<S extends symbol, T>(
+export function fromCtx<S extends PropertyKey, T>(
   sym: S
 ): Expr<{ readonly [s in S]: T }, T> {
   return new FromCtx(sym);
 }
-
-export const MOD = Symbol("MOD");
-export type ModContext<T> = {
-  [MOD]: T;
-};
-export const mod = fromCtx<typeof MOD, never>(MOD);
 
 class Prop<
   Ctx,
@@ -61,45 +55,51 @@ export function prop<
   return new Prop(expr, key);
 }
 
-class Filter<Ctx, vSYm extends symbol, T> implements Expr<Ctx, T[]> {
+class Filter<Ctx, T> implements Expr<Ctx, T[]> {
   constructor(
     private readonly expr: Expr<Ctx, T[]>,
-    private readonly vSym: vSYm,
-    private readonly predicate: Expr<{ [s in vSYm]: T }, unknown>
+    private readonly predicate: Expr<readonly [T], unknown>
   ) {}
   evaluate(ctx: Ctx): T[] {
     return this.expr.evaluate(ctx).filter((item) => {
-      return this.predicate.evaluate({
-        [this.vSym]: item,
-      });
+      return this.predicate.evaluate([item]);
     });
   }
   toString(ctx: { readonly [s in keyof Ctx]: string }): string {
-    return `${this.expr.toString(ctx)}.filter((v) => ${this.predicate.toString({
-      [this.vSym]: "v",
-    })})`;
+    return `${this.expr.toString(ctx)}.filter((v) => ${this.predicate.toString([
+      "v",
+    ])})`;
   }
 }
-export function filter<Ctx, VSym extends symbol, T>(
+export function filter<Ctx, T>(
   expr: Expr<Ctx, T[]>,
-  vSym: VSym,
-  predicate: Expr<{ [s in VSym]: T }, unknown>
+  predicate: Expr<readonly [T], unknown>
 ): Expr<Ctx, T[]> {
-  return new Filter(expr, vSym, predicate);
+  return new Filter(expr, predicate);
 }
 
-/* class Find<T> implements Op<T[], T | undefined> {
-  constructor(private readonly predicate: Op<T, unknown>) {}
-  apply(input: T[]): T | undefined {
-    return input.find((item) => this.predicate.apply(item));
+class Find<Ctx, T> implements Expr<Ctx, T | undefined> {
+  constructor(
+    private readonly expr: Expr<Ctx, T[]>,
+    private readonly predicate: Expr<readonly [T], unknown>
+  ) {}
+  evaluate(ctx: Ctx): T | undefined {
+    return this.expr
+      .evaluate(ctx)
+      .find((item) => this.predicate.evaluate([item] as const));
   }
-  toString(input: string): string {
-    return `${input}.find((i) => ${this.predicate.toString("i")})`;
+  toString(ctx: { readonly [s in keyof Ctx]: string }): string {
+    return `${this.expr.toString(ctx)}.find((v) => ${this.predicate.toString([
+      "v",
+    ])})`;
   }
 }
-export function find<T>(predicate: Op<T, unknown>): Op<T[], T | undefined> {
-  return new Find(predicate);
-} */
+export function find<Ctx, T>(
+  expr: Expr<Ctx, T[]>,
+  predicate: Expr<readonly [T], unknown>
+): Expr<Ctx, T | undefined> {
+  return new Find(expr, predicate);
+}
 
 class Slice<Ctx, T> implements Expr<Ctx, T[]> {
   constructor(
@@ -124,71 +124,50 @@ export function slice<Ctx, T>(
   return new Slice(expr, start, end);
 }
 
-class SortBy<Ctx, VSym extends symbol, T> implements Expr<Ctx, T[]> {
+class SortBy<Ctx, T> implements Expr<Ctx, T[]> {
   constructor(
     private readonly expr: Expr<Ctx, T[]>,
-    private readonly vSym: VSym,
-    private readonly keyFn: Expr<{ [s in VSym]: T }, number>
+    private readonly keyFn: Expr<readonly [T], number>
   ) {}
   evaluate(ctx: Ctx): T[] {
     return this.expr
       .evaluate(ctx)
-      .sort(
-        (a, b) =>
-          this.keyFn.evaluate({ [this.vSym]: a }) -
-          this.keyFn.evaluate({ [this.vSym]: b })
-      );
+      .sort((a, b) => this.keyFn.evaluate([a]) - this.keyFn.evaluate([b]));
   }
   toString(ctx: { readonly [s in keyof Ctx]: string }): string {
-    return `${this.expr.toString(ctx)}.sortBy((v) => ${this.keyFn.toString({
-      [this.vSym]: "v",
-    })})`;
+    return `${this.expr.toString(ctx)}.sortBy((v) => ${this.keyFn.toString([
+      "v",
+    ])})`;
   }
 }
-export function sortBy<Ctx, VSym extends symbol, T>(
+export function sortBy<Ctx, T>(
   expr: Expr<Ctx, T[]>,
-  vSym: VSym,
-  keyFn: Expr<{ [s in VSym]: T }, number>
+  keyFn: Expr<readonly [T], number>
 ): Expr<Ctx, T[]> {
-  return new SortBy(expr, vSym, keyFn);
+  return new SortBy(expr, keyFn);
 }
 
-class Sort<Ctx, ASym extends symbol, BSym extends symbol, T>
-  implements Expr<Ctx, T[]>
-{
+class Sort<Ctx, T> implements Expr<Ctx, T[]> {
   constructor(
     private readonly expr: Expr<Ctx, T[]>,
-    private readonly aSym: ASym,
-    private readonly bSym: BSym,
-    private readonly compareFn: Expr<
-      { [s in ASym]: T } & { [s in BSym]: T },
-      number
-    >
+    private readonly compareFn: Expr<readonly [T, T], number>
   ) {}
   evaluate(ctx: Ctx): T[] {
-    return this.expr.evaluate(ctx).sort((a, b) =>
-      this.compareFn.evaluate({
-        [this.aSym]: a,
-        [this.bSym]: b,
-      })
-    );
+    return this.expr
+      .evaluate(ctx)
+      .sort((a, b) => this.compareFn.evaluate([a, b]));
   }
   toString(ctx: { readonly [s in keyof Ctx]: string }): string {
     return `${this.expr.toString(ctx)}.sort((a, b) => ${this.compareFn.toString(
-      {
-        [this.aSym]: "a",
-        [this.bSym]: "b",
-      }
+      ["a", "b"]
     )})`;
   }
 }
-export function sort<Ctx, ASym extends symbol, BSym extends symbol, T>(
+export function sort<Ctx, T>(
   expr: Expr<Ctx, T[]>,
-  aSym: ASym,
-  bSym: BSym,
-  compareFn: Expr<{ [s in ASym]: T } & { [s in BSym]: T }, number>
+  compareFn: Expr<readonly [T, T], number>
 ): Expr<Ctx, T[]> {
-  return new Sort(expr, aSym, bSym, compareFn);
+  return new Sort(expr, compareFn);
 }
 
 class Eq<Ctx, T> implements Expr<Ctx, boolean> {
@@ -290,10 +269,10 @@ function lastIndexOf(str: string, needle: ",", start: number): number {
   return -1;
 }
 
-export function fromString<Ctx extends { [s in string]: symbol }>(
-  ctx: Ctx,
+export function parse<Ctx>(
+  ctx: { [s in string]: keyof Ctx },
   str: string
-): Expr<{ [s in Ctx[keyof Ctx]]: never }, never> {
+): Expr<Ctx, never> {
   // TODO: Fully implement this
   if (str.endsWith("]")) {
     const bracketStart = findMatching(str, "[]", str.length - 2);
@@ -302,7 +281,7 @@ export function fromString<Ctx extends { [s in string]: symbol }>(
     }
 
     const key = JSON.parse(str.slice(bracketStart + 1, str.length - 1));
-    const expr = fromString(ctx, str.slice(0, bracketStart));
+    const expr = parse(ctx, str.slice(0, bracketStart));
     return prop(expr, key);
   } else if (str.endsWith(")")) {
     const parenStart = findMatching(str, "()", str.length - 2);
@@ -316,22 +295,41 @@ export function fromString<Ctx extends { [s in string]: symbol }>(
       if (!args.startsWith("(v) => ")) {
         throw Error("invalid sortBy lambda");
       }
-      const expr = fromString(
-        ctx,
-        func.slice(0, func.length - ".sortBy".length)
-      );
+      const expr = parse(ctx, func.slice(0, func.length - ".sortBy".length));
 
-      const vSym = Symbol("v");
-      const lambdaExpr = fromString(
+      const keyFn = parse<readonly [never]>(
         {
-          v: vSym,
+          v: 0,
         },
         args.slice("(v) => ".length)
       );
-      return sortBy(expr, vSym, lambdaExpr) as Expr<
-        { [s in Ctx[keyof Ctx]]: never },
-        never
-      >;
+      return sortBy(expr, keyFn) as Expr<Ctx, never>;
+    } else if (func.endsWith(".filter")) {
+      if (!args.startsWith("(v) => ")) {
+        throw Error("invalid filter lambda");
+      }
+      const expr = parse(ctx, func.slice(0, func.length - ".filter".length));
+
+      const predicate = parse<readonly [never]>(
+        {
+          v: 0,
+        },
+        args.slice("(v) => ".length)
+      );
+      return filter(expr, predicate) as Expr<Ctx, never>;
+    } else if (func.endsWith(".find")) {
+      if (!args.startsWith("(v) => ")) {
+        throw Error("invalid find lambda");
+      }
+
+      const expr = parse(ctx, func.slice(0, func.length - ".find".length));
+      const predicate = parse<readonly [never]>(
+        {
+          v: 0,
+        },
+        args.slice("(v) => ".length)
+      );
+      return find(expr, predicate) as Expr<Ctx, never>;
     }
   } else if (str in ctx) {
     return fromCtx(ctx[str]);

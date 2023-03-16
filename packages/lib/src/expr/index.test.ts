@@ -1,48 +1,48 @@
-import {
-  fromString,
-  Expr,
-  prop,
-  mod,
-  ModContext,
-  MOD,
-  sortBy,
-  fromCtx,
-} from ".";
+import { parse, Expr, prop, sortBy, fromCtx, filter, find } from ".";
 
 const serializationTestCases: {
   str: string;
-  expr: Expr<ModContext<"">, unknown>;
+  expr: Expr<readonly [never], unknown>;
 }[] = [
   {
     str: `["prop"]`,
-    expr: prop(mod, "prop"),
+    expr: prop(fromCtx<0, never>(0), "prop"),
   },
   {
     str: `[0]`,
-    expr: prop(mod, 0),
+    expr: prop(fromCtx<0, never>(0), 0),
   },
   {
     str: `["foo"]["bar"]`,
-    expr: prop(prop(mod, "foo"), "bar"),
+    expr: prop(prop(fromCtx<0, never>(0), "foo"), "bar"),
   },
   {
     str: `.sortBy((v) => v)`,
-    expr: (() => {
-      const vSym = Symbol("v");
-      return sortBy(mod, vSym, fromCtx(vSym));
-    })(),
+    expr: sortBy(fromCtx<0, never>(0), fromCtx<0, never>(0)),
+  },
+  {
+    str: `.filter((v) => v)`,
+    expr: filter(fromCtx<0, never>(0), fromCtx<0, never>(0)),
+  },
+  {
+    str: `.find((v) => v)`,
+    expr: find(fromCtx<0, never>(0), fromCtx<0, never>(0)),
+  },
+  {
+    str: `["foo"].find((v) => v["bar"])`,
+    expr: find(
+      prop(fromCtx<0, never>(0), "foo"),
+      prop(fromCtx<0, never>(0), "bar")
+    ),
   },
 ];
 
-test("fromString", () => {});
-
-test.each(serializationTestCases)("fromString $str", ({ str, expr }) => {
-  const result = fromString({ "": MOD }, str);
-  // TODO: Need some kind of "symbol equivalency" for toEqual to work with lambdas
+test.each(serializationTestCases)("parse $str", ({ str, expr }) => {
+  const result = parse<readonly [never]>({ "": 0 }, str);
   expect(result).toEqual(expr);
 });
 
 test.each(serializationTestCases)("toString $str", ({ str, expr }) => {
-  const result = expr.toString({ [MOD]: "" });
+  const result = expr.toString([""]);
   expect(result).toEqual(str);
 });

@@ -23,14 +23,12 @@ export class ModuleContent<T extends Schema<Source>> {
       selector: SelectorOf<Ctx, ReturnType<T["descriptor"]>>
     ) => Selector<Ctx, Out>
   ): Out {
-    const ctx = {
-      [expr.MOD]: this.source,
-    } as const;
-    const rootExpr: expr.Expr<typeof ctx, Source> = expr.mod;
+    const ctx = [this.source] as const;
+    const rootExpr = expr.fromCtx(0);
     const rootSelector = getSelector(
       rootExpr,
       this.schema.descriptor()
-    ) as SelectorOf<{ [expr.MOD]: Source }, ReturnType<T["descriptor"]>>;
+    ) as SelectorOf<typeof ctx, ReturnType<T["descriptor"]>>;
     const result = callback(rootSelector)[EXPR]();
     return result.evaluate(ctx);
   }
