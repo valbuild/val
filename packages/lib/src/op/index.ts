@@ -80,6 +80,34 @@ export function slice<T>(start: number, end?: number): Op<T[], T[]> {
   return new Slice(start, end);
 }
 
+class SortBy<T> implements Op<T[], T[]> {
+  constructor(private readonly keyFn: Op<T, number>) {}
+  apply(input: T[]): T[] {
+    return input.sort((a, b) => this.keyFn.apply(a) - this.keyFn.apply(b));
+  }
+  toString(input: string): string {
+    return `${input}.sortBy((i) => ${this.keyFn.toString("i")})`;
+  }
+}
+export function sortBy<T>(keyFn: Op<T, number>) {
+  return new SortBy(keyFn);
+}
+
+/* class Sort<T> implements Op<T[], T[]> {
+  constructor(private readonly compareFn: Op<[T, T], number>) {}
+  apply(input: T[]): T[] {
+    return input.sort((a, b) => this.compareFn.apply([a, b]));
+  }
+  toString(input: string): string {
+    return `${input}.sort((a, b) => ${this.a.toString(
+      "a"
+    )}) - ${this.b.toString("b")}`;
+  }
+}
+export function sort<T>(compareFn: Op<[T, T], number>) {
+  return new Sort(a, b);
+} */
+
 class Compose implements Op<unknown, unknown> {
   constructor(readonly ops: Op<unknown, unknown>[]) {}
   apply(input: unknown): unknown {
@@ -93,7 +121,6 @@ class Compose implements Op<unknown, unknown> {
     return this.ops.reduce((input, op) => op.toString(input), input);
   }
 }
-
 export function compose<A, B, C>(ab: Op<A, B>, bc: Op<B, C>): Op<A, C>;
 export function compose<A, B, C, D>(
   ab: Op<A, B>,
@@ -138,9 +165,21 @@ class Localize<T> implements Op<Record<"en_US", T>, T> {
     })`;
   }
 }
-
 export function localize<T>(locale?: "en_US") {
   return new Localize<T>(locale);
+}
+
+class Cmp<T> implements Op<T, number> {
+  constructor(
+    private readonly left: Op<T, number>,
+    private readonly right: Op<T, number>
+  ) {}
+  apply(input: T): number {
+    return this.left.apply(input) - this.right.apply(input);
+  }
+}
+export function cmp<T>(a: Op<T, number>, b: Op<T, number>) {
+  return new Cmp(a, b);
 }
 
 function findMatching(str: string, pair: "[]" | "()", start: number): number {

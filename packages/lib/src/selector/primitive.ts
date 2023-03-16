@@ -1,21 +1,21 @@
-import * as op from "../op";
-import { BaseSelector, OP, Selector } from "./selector";
+import * as expr from "../expr";
+import { BaseSelector, EXPR, Selector } from "./selector";
 
-export class PrimitiveSelector<Src, Out>
-  extends BaseSelector<Src, Out>
-  implements Selector<Src, Out>
+export class PrimitiveSelector<Ctx, Out>
+  extends BaseSelector<Ctx, Out>
+  implements Selector<Ctx, Out>
 {
-  constructor(private readonly fromSrc: op.Op<Src, Out>) {
+  constructor(private readonly expr: expr.Expr<Ctx, Out>) {
     super();
   }
 
-  [OP](): op.Op<Src, Out> {
-    return this.fromSrc;
+  [EXPR](): expr.Expr<Ctx, Out> {
+    return this.expr;
   }
 }
 
-export function newPrimitiveSelector<Src, Out>(
-  fromSrc: op.Op<Src, Out>
-): Selector<Src, Out> {
-  return new PrimitiveSelector(fromSrc);
+export function newPrimitiveSelector<Ctx, Out>(
+  expr: expr.Expr<Ctx, Out>
+): Selector<Ctx, Out> {
+  return new PrimitiveSelector(expr);
 }

@@ -4,9 +4,11 @@ import { type SerializedObjectSchema } from "./object";
 import { type SerializedStringSchema } from "./string";
 import { Source } from "../Source";
 import { Descriptor } from "../descriptor";
+import { SerializedNumberSchema } from "./number";
 
 export type SerializedSchema =
   | SerializedStringSchema
+  | SerializedNumberSchema
   | SerializedI18nSchema
   | SerializedObjectSchema
   | SerializedArraySchema;

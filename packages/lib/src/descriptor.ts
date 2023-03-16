@@ -39,6 +39,13 @@ export const StringDescriptor: StringDescriptor = Object.freeze({
   type: "string",
 });
 
+export type NumberDescriptor = {
+  readonly type: "number";
+};
+export const NumberDescriptor: NumberDescriptor = Object.freeze({
+  type: "number",
+});
+
 export type BooleanDescriptor = {
   readonly type: "boolean";
 };
@@ -51,6 +58,7 @@ export type Descriptor =
   | I18nDescriptor
   | ObjectDescriptor
   | StringDescriptor
+  | NumberDescriptor
   | BooleanDescriptor;
 
 export type ValueOf<D> = [D] extends [ArrayDescriptor]
@@ -61,6 +69,8 @@ export type ValueOf<D> = [D] extends [ArrayDescriptor]
   ? { [P in keyof D["props"]]: ValueOf<D["props"][P]> }
   : [D] extends [StringDescriptor]
   ? string
+  : [D] extends [NumberDescriptor]
+  ? number
   : [D] extends [BooleanDescriptor]
   ? boolean
   : unknown;

@@ -1,23 +1,26 @@
 import { getSelector } from ".";
-import * as op from "../op";
+import * as expr from "../expr";
 import { BooleanDescriptor } from "../descriptor";
 
 /**
  * @internal
  */
-export const OP: unique symbol = Symbol("op");
+export const EXPR = Symbol("expr");
 
-export interface Selector<Src, Out> {
-  eq(value: unknown): Selector<Src, boolean>;
+export interface Selector<Ctx, Out> {
+  eq(value: unknown): Selector<Ctx, boolean>;
   /**
    * @internal
    */
-  [OP](): op.Op<Src, Out>;
+  [EXPR](): expr.Expr<Ctx, Out>;
 }
 
-export abstract class BaseSelector<Src, Out> implements Selector<Src, Out> {
-  abstract [OP](): op.Op<Src, Out>;
-  eq(value: unknown): Selector<Src, boolean> {
-    return getSelector(op.compose(this[OP](), op.eq(value)), BooleanDescriptor);
+export abstract class BaseSelector<Ctx, Out> implements Selector<Ctx, Out> {
+  abstract [EXPR](): expr.Expr<Ctx, Out>;
+  eq(value: unknown): Selector<Ctx, boolean> {
+    return getSelector(
+      expr.eq(this[EXPR](), expr.literal(value)),
+      BooleanDescriptor
+    );
   }
 }

@@ -1,8 +1,8 @@
 import { deserializeSchema } from "./schema/serialization";
-import * as op from "./op";
+import * as expr from "./expr";
 import { Schema, SerializedSchema, SourceOf } from "./schema/Schema";
 import { getSelector, SelectorOf } from "./selector";
-import { OP, Selector } from "./selector/selector";
+import { EXPR, Selector } from "./selector/selector";
 import { Source } from "./Source";
 
 export class ModuleContent<T extends Schema<Source>> {
@@ -19,18 +19,20 @@ export class ModuleContent<T extends Schema<Source>> {
   }
 
   select<Out>(
-    callback: <Src>(
-      selector: SelectorOf<Src, ReturnType<T["descriptor"]>>
-    ) => Selector<Src, Out>
+    callback: <Ctx>(
+      selector: SelectorOf<Ctx, ReturnType<T["descriptor"]>>
+    ) => Selector<Ctx, Out>
   ): Out {
+    const ctx = {
+      [expr.MOD]: this.source,
+    } as const;
+    const rootExpr: expr.Expr<typeof ctx, Source> = expr.mod;
     const rootSelector = getSelector(
-      op.identity<SourceOf<T>>(),
+      rootExpr,
       this.schema.descriptor()
-    );
-    const l = callback(
-      rootSelector as SelectorOf<unknown, ReturnType<T["descriptor"]>>
-    )[OP]();
-    return l.apply(this.source);
+    ) as SelectorOf<{ [expr.MOD]: Source }, ReturnType<T["descriptor"]>>;
+    const result = callback(rootSelector)[EXPR]();
+    return result.evaluate(ctx);
   }
 
   /**

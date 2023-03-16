@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { useValStore } from "../ValProvider";
-import { ValModule, Source } from "@valbuild/lib";
+import { Source, Val } from "@valbuild/lib";
 import { ReactVal } from "../types";
 
 function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
@@ -43,9 +43,7 @@ function wrapVal<T>(id: string, val: T): ReactVal<T> {
   }
 }
 
-export const useVal = <In extends Source, Out>(
-  mod: ValModule<In, Out>
-): ReactVal<Out> => {
+export const useVal = <T>(val: Val<T>): Val<T> => {
   const valStore = useValStore();
   const currentVal = useSyncExternalStore(
     valStore.subscribe(mod.id),
@@ -53,7 +51,7 @@ export const useVal = <In extends Source, Out>(
     valStore.getServerSnapshot(mod.id)
   );
   if (currentVal) {
-    return wrapVal(mod.id, currentVal.source as Out);
+    return wrapVal(mod.id, currentVal.source as SourceOf<T>);
   }
   const source = mod.content;
   const validationError = source.validate();

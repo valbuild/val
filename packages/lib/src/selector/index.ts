@@ -1,4 +1,4 @@
-import * as op from "../op";
+import * as expr from "../expr";
 import { ArraySelector, newArraySelector } from "./array";
 import { PrimitiveSelector } from "./primitive";
 import { newObjectSelector, ObjectSelector } from "./object";
@@ -7,44 +7,53 @@ import {
   ArrayDescriptor,
   Descriptor,
   I18nDescriptor,
+  NumberDescriptor,
   ObjectDescriptor,
   ObjectDescriptorProps,
   ValueOf,
 } from "../descriptor";
 import { I18nSelector, newI18nSelector } from "./i18n";
+import { newNumberSelector, NumberSelector } from "./number";
 
-export type SelectorOf<Src, D extends Descriptor> = [D] extends [
+export type SelectorOf<Ctx, D extends Descriptor> = [D] extends [
   ObjectDescriptor
 ]
-  ? ObjectSelector<Src, D["props"]>
+  ? ObjectSelector<Ctx, D["props"]>
   : [D] extends [ArrayDescriptor]
-  ? ArraySelector<Src, D["item"]>
+  ? ArraySelector<Ctx, D["item"]>
   : [D] extends [I18nDescriptor]
-  ? I18nSelector<Src, D["desc"]>
-  : Selector<Src, ValueOf<D>>;
+  ? I18nSelector<Ctx, D["desc"]>
+  : [D] extends [NumberDescriptor]
+  ? NumberSelector<Ctx>
+  : Selector<Ctx, ValueOf<D>>;
 
-export function getSelector<Src, D extends Descriptor>(
-  fromSrc: op.Op<Src, ValueOf<D>>,
+export function getSelector<Ctx, D extends Descriptor>(
+  expr: expr.Expr<Ctx, ValueOf<D>>,
   desc: D
-): SelectorOf<Src, D> {
+): SelectorOf<Ctx, D> {
   switch (desc.type) {
     case "array":
-      return newArraySelector<Src, Descriptor>(
-        fromSrc as op.Op<Src, ValueOf<Descriptor>[]>,
+      return newArraySelector<Ctx, Descriptor>(
+        expr as expr.Expr<Ctx, ValueOf<Descriptor>[]>,
         desc.item
-      ) as SelectorOf<Src, D>;
+      ) as SelectorOf<Ctx, D>;
     case "i18n":
       return newI18nSelector(
-        fromSrc as op.Op<Src, Record<"en_US", ValueOf<Descriptor>>>,
+        expr as expr.Expr<Ctx, Record<"en_US", ValueOf<Descriptor>>>,
         desc.desc
-      ) as SelectorOf<Src, D>;
+      ) as SelectorOf<Ctx, D>;
     case "object":
-      return newObjectSelector<Src, ObjectDescriptorProps>(
-        fromSrc as op.Op<Src, ValueOf<ObjectDescriptor>>,
+      return newObjectSelector<Ctx, ObjectDescriptorProps>(
+        expr as expr.Expr<Ctx, ValueOf<ObjectDescriptor>>,
         desc.props
-      ) as unknown as SelectorOf<Src, D>;
+      ) as unknown as SelectorOf<Ctx, D>;
+    case "number":
+      return newNumberSelector(expr as expr.Expr<Ctx, number>) as SelectorOf<
+        Ctx,
+        D
+      >;
     case "string":
     case "boolean":
-      return new PrimitiveSelector(fromSrc) as unknown as SelectorOf<Src, D>;
+      return new PrimitiveSelector(expr) as unknown as SelectorOf<Ctx, D>;
   }
 }
