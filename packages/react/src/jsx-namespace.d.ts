@@ -1,4 +1,4 @@
-import { ReactVal } from "./types";
+import { Val } from "@valbuild/lib";
 
 // unpack all here to avoid infinite self-referencing when defining our own JSX namespace
 type ReactJSXElement = JSX.Element;
@@ -13,7 +13,7 @@ type ReactJSXIntrinsicAttributes = JSX.IntrinsicAttributes;
 type ReactJSXIntrinsicClassAttributes<T> = JSX.IntrinsicClassAttributes<T>;
 type ReactJSXIntrinsicElements = JSX.IntrinsicElements;
 
-type MaybeVal<T> = ReactVal<T> | T;
+type MaybeVal<T> = Val<T> | T;
 type WithVal<T extends object> = {
   [K in keyof T]: K extends "style"
     ? WithVal<React.CSSProperties>

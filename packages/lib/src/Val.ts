@@ -2,33 +2,33 @@ export type CompositeVal<T> = Omit<
   {
     [key in keyof T]: Val<T[key]>;
   },
-  "valId" | "val"
+  "valSource" | "val"
 > & {
-  readonly valId: string;
+  readonly valSource: string;
   readonly val: T;
 };
 export type PrimitiveVal<T> = {
-  valId: string;
+  valSource: string;
   val: T;
 };
-export type Val<T> = [T] extends [object] ? CompositeVal<T> : PrimitiveVal<T>;
+export type Val<T> = T extends object ? CompositeVal<T> : PrimitiveVal<T>;
 
 function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
   return Object.prototype.hasOwnProperty.call(obj, prop);
 }
 
-export function newVal<T>(id: string, val: T): Val<T> {
-  switch (typeof val) {
+export function newVal<T>(source: string, value: T): Val<T> {
+  switch (typeof value) {
     case "function":
     case "symbol":
       throw Error("Invalid val type");
     case "object":
-      if (val !== null) {
+      if (value !== null) {
         // Handles both objects and arrays!
-        return new Proxy(val, {
+        return new Proxy(value, {
           get(target, prop: string) {
-            if (prop === "valId") {
-              return id;
+            if (prop === "valSource") {
+              return source;
             }
             if (prop === "val") {
               return target;
@@ -36,8 +36,11 @@ export function newVal<T>(id: string, val: T): Val<T> {
             if (Array.isArray(target) && prop === "length") {
               return target.length;
             }
-            if (hasOwn(val, prop)) {
-              return newVal(`${id}.${prop}`, Reflect.get(target, prop));
+            if (hasOwn(value, prop)) {
+              return newVal<T[keyof T]>(
+                `${source}[${JSON.stringify(prop)}]`,
+                Reflect.get(target, prop)
+              );
             }
             return Reflect.get(target, prop);
           },
@@ -47,8 +50,8 @@ export function newVal<T>(id: string, val: T): Val<T> {
     // eslint-disable-next-line no-fallthrough
     default:
       return {
-        valId: id,
-        val,
+        valSource: source,
+        val: value,
       } as Val<T>;
   }
 }

@@ -36,21 +36,24 @@ export type ArraySelector<Ctx, D extends Descriptor> = Selector<
   };
 
 class ArraySelectorC<Ctx, D extends Descriptor>
-  extends BaseSelector<Ctx, ValueOf<D>[]>
+  extends BaseSelector<Ctx, readonly ValueOf<D>[]>
   implements ArraySelectorMethods<Ctx, D>
 {
-  constructor(readonly expr: expr.Expr<Ctx, ValueOf<D>[]>, readonly item: D) {
+  constructor(
+    readonly expr: expr.Expr<Ctx, readonly ValueOf<D>[]>,
+    readonly item: D
+  ) {
     super();
   }
 
-  [EXPR](): expr.Expr<Ctx, ValueOf<D>[]> {
+  [EXPR](): expr.Expr<Ctx, readonly ValueOf<D>[]> {
     return this.expr;
   }
 
   filter(
     predicate: <Ctx>(v: SelectorOf<Ctx, D>) => Selector<Ctx, unknown>
   ): ArraySelector<Ctx, D> {
-    const vExpr = expr.fromCtx<0, ValueOf<D>>(0);
+    const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
     const predicateExpr = predicate(getSelector(vExpr, this.item))[EXPR]();
     return newArraySelector(expr.filter(this.expr, predicateExpr), this.item);
   }
@@ -58,7 +61,7 @@ class ArraySelectorC<Ctx, D extends Descriptor>
   find(
     predicate: <T>(item: SelectorOf<T, D>) => Selector<T, Descriptor>
   ): SelectorOf<Ctx, D> {
-    const vExpr = expr.fromCtx<0, ValueOf<D>>(0);
+    const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
     const predicateExpr = predicate(getSelector(vExpr, this.item))[EXPR]();
     // TODO: This ignores optionality of value
     const e = expr.find(this.expr, predicateExpr) as expr.Expr<Ctx, ValueOf<D>>;
@@ -72,7 +75,7 @@ class ArraySelectorC<Ctx, D extends Descriptor>
   sortBy(
     keyFn: <Ctx>(v: SelectorOf<Ctx, D>) => Selector<Ctx, number>
   ): ArraySelector<Ctx, D> {
-    const vExpr = expr.fromCtx<0, ValueOf<D>>(0);
+    const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
     const keyFnExpr = keyFn(getSelector(vExpr, this.item))[EXPR]();
     return newArraySelector(expr.sortBy(this.expr, keyFnExpr), this.item);
   }
@@ -83,8 +86,8 @@ class ArraySelectorC<Ctx, D extends Descriptor>
       b: SelectorOf<Ctx, D>
     ) => Selector<Ctx, number>
   ): ArraySelector<Ctx, D> {
-    const aExpr = expr.fromCtx<0, ValueOf<D>>(0);
-    const bExpr = expr.fromCtx<1, ValueOf<D>>(1);
+    const aExpr = expr.fromCtx<readonly [ValueOf<D>, ValueOf<D>], 0>(0);
+    const bExpr = expr.fromCtx<readonly [ValueOf<D>, ValueOf<D>], 1>(1);
     const compareFnExpr = compareFn<readonly [ValueOf<D>, ValueOf<D>]>(
       getSelector(aExpr, this.item),
       getSelector(bExpr, this.item)
@@ -96,7 +99,7 @@ class ArraySelectorC<Ctx, D extends Descriptor>
 const proxyHandler: ProxyHandler<ArraySelectorC<unknown, Descriptor>> = {
   get(target, p) {
     if (typeof p === "string" && /^(0|[1-9][0-9]*)$/g.test(p)) {
-      return getSelector(expr.prop(target.expr, Number(p)), target.item);
+      return getSelector(expr.item(target.expr, Number(p)), target.item);
     }
     // Exclude own properties of target for public access, but bind methods such
     // that they may access own properties

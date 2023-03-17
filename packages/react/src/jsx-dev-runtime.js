@@ -7,12 +7,12 @@ const isIntrinsicElement = (type) => {
 };
 
 const devalProps = (type, props) => {
-  const valIds = [];
+  const valSources = [];
 
   if (isIntrinsicElement(type)) {
     for (const [key, value] of Object.entries(props)) {
-      if (value && value.val && value.valId) {
-        valIds.push(value.valId);
+      if (value && value.val && value.valSource) {
+        valSources.push(value.valSource);
         if (typeof value.val === "string") {
           props[key] = value.val;
         } else {
@@ -22,8 +22,8 @@ const devalProps = (type, props) => {
     }
   }
 
-  if (valIds.length > 0) {
-    props["data-val-ids"] = valIds.join(",");
+  if (valSources.length > 0) {
+    props["data-val-source"] = valSources.join(",");
   }
 };
 

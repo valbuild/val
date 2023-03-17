@@ -18,13 +18,13 @@ export class ValModule<T extends Schema<Source>> {
     ) => Selector<Ctx, Out>
   ): Val<Out> {
     const ctx = [this.content.source] as const;
-    const rootExpr = expr.fromCtx<0, SourceOf<T>>(0);
+    const rootExpr = expr.fromCtx<typeof ctx, 0>(0);
     const rootSelector = getSelector(
       rootExpr,
       this.content.schema.descriptor()
     ) as SelectorOf<typeof ctx, ReturnType<T["descriptor"]>>;
     const result = callback(rootSelector)[EXPR]();
-    return newVal(result.toString([""]), result.evaluate(ctx));
+    return newVal(`${this.id}?${result.toString([""])}`, result.evaluate(ctx));
   }
 }
 

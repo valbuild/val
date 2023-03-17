@@ -1,6 +1,5 @@
 import { useVal } from "./useVal";
-import { initVal } from "@valbuild/lib";
-import { CompositeVal, PrimitiveVal } from "../types";
+import { CompositeVal, initVal, PrimitiveVal } from "@valbuild/lib";
 import { renderHook } from "@testing-library/react";
 import { ValContext } from "../ValProvider";
 import { ReactElement } from "react";
@@ -26,10 +25,12 @@ const { s, val } = initVal();
 describe("useVal", () => {
   test("extracts ValString from string", () => {
     const mod = val.content("foo", s.string(), "bar");
-    const { result } = renderHook(() => useVal(mod), { wrapper: Providers });
+    const { result } = renderHook(() => useVal(mod.select((mod) => mod)), {
+      wrapper: Providers,
+    });
     expect(result.current).toStrictEqual<PrimitiveVal<string>>({
       val: "bar",
-      valId: "foo",
+      valSource: "foo?",
     });
   });
 
@@ -43,7 +44,7 @@ describe("useVal", () => {
     });
     const vo: CompositeVal<{ foo: string }> = result.current;
     expect(vo.foo).toStrictEqual<PrimitiveVal<string>>({
-      valId: "baz.foo",
+      valSource: `baz?["foo"]`,
       val: "bar",
     });
     // expect(val).toStrictEqual<ValObject<{ foo: string }>>({
