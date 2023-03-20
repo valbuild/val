@@ -12,6 +12,7 @@ export {
   sortBy,
   sort,
   eq,
+  sub,
   localize,
   parse,
 } from "./expr";

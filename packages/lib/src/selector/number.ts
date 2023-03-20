@@ -11,7 +11,7 @@ class NumberSelectorC<Ctx>
   implements NumberSelector<Ctx>
 {
   sub(b: Selector<Ctx, number>): Selector<Ctx, number> {
-    return newNumberSelector(expr.cmp(this[EXPR](), b[EXPR]()));
+    return newNumberSelector(expr.sub(this[EXPR](), b[EXPR]()));
   }
 }
 

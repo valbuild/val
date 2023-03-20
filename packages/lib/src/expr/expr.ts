@@ -328,6 +328,28 @@ export function eq<Ctx, T>(
   return new Eq(lhs, rhs);
 }
 
+class Sub<Ctx> implements Expr<Ctx, number> {
+  constructor(
+    private readonly lhs: Expr<Ctx, number>,
+    private readonly rhs: Expr<Ctx, number>
+  ) {}
+  evaluate(ctx: Ctx): number {
+    return this.lhs.evaluate(ctx) - this.rhs.evaluate(ctx);
+  }
+  evaluateRef(ctx: Ctx): [number, null] {
+    return [this.evaluate(ctx), null];
+  }
+  toString(ctx: { readonly [s in keyof Ctx]: string }): string {
+    return `${this.lhs.toString(ctx)} - ${this.rhs.toString(ctx)}`;
+  }
+}
+export function sub<Ctx>(
+  lhs: Expr<Ctx, number>,
+  rhs: Expr<Ctx, number>
+): Expr<Ctx, number> {
+  return new Sub(lhs, rhs);
+}
+
 class Localize<Ctx, T> implements Expr<Ctx, T> {
   constructor(
     private readonly expr: Expr<Ctx, Record<"en_US", T>>,
