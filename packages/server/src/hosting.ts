@@ -30,6 +30,18 @@ type ValServerOverrides = Partial<{
    */
   valSecret: string;
   /**
+   * Override the Val project.
+   *
+   * Required if mode is "proxy".
+   *
+   * This is the full name of the project found in the https://app.val.build/projects page.
+   *
+   * Typically this is set using VAL_PROJECT env var.
+   *
+   * @example "my-org/my-project"
+   */
+  valProject: string;
+  /**
    * Override the default the mode of operation.
    *
    * Typically this should not be set.
@@ -119,6 +131,10 @@ async function initHandlerOptions(
     if (!maybeGitBranch) {
       throw new Error("VAL_GIT_BRANCH env var must be set in proxy mode");
     }
+    const maybeValProject = opts.valProject || process.env.VAL_PROJECT;
+    if (!maybeValProject) {
+      throw new Error("VAL_PROJECT env var must be set in proxy mode");
+    }
     return {
       mode: "proxy",
       route,
@@ -127,6 +143,7 @@ async function initHandlerOptions(
       valBuildUrl,
       gitCommit: maybeGitCommit,
       gitBranch: maybeGitBranch,
+      valProject: maybeValProject,
     };
   } else {
     const service = await createService(process.cwd(), opts);

@@ -18,6 +18,7 @@ export type ProxyValServerOptions = {
   valBuildUrl: string;
   gitCommit: string;
   gitBranch: string;
+  valProject: string;
 };
 
 export class ProxyValServer implements ValServer {
@@ -114,7 +115,7 @@ export class ProxyValServer implements ValServer {
   async session(req: express.Request, res: express.Response): Promise<void> {
     return this.withAuth(req, res, async (data) => {
       const url = new URL(
-        "/api/val/auth/user/session",
+        `/api/val/${this.options.valProject}/auth/session`,
         this.options.valBuildUrl
       );
       const fetchRes = await fetch(url, {
@@ -137,7 +138,9 @@ export class ProxyValServer implements ValServer {
     return this.withAuth(req, res, async ({ token }) => {
       const id = getFileIdFromParams(req.params);
       const url = new URL(
-        `/api/val/modules/${encodeURIComponent(this.options.gitCommit)}${id}`,
+        `/api/val/${this.options.valProject}/modules/heads/${encodeURIComponent(
+          this.options.gitBranch
+        )}${id}`,
         this.options.valBuildUrl
       );
       const fetchRes = await fetch(url, {
@@ -172,7 +175,9 @@ export class ProxyValServer implements ValServer {
       }
       const id = getFileIdFromParams(req.params);
       const url = new URL(
-        `/api/val/modules/${encodeURIComponent(this.options.gitCommit)}${id}`,
+        `/api/val/${this.options.valProject}/modules/heads/${encodeURIComponent(
+          this.options.gitBranch
+        )}${id}`,
         this.options.valBuildUrl
       );
       // Proxy patch to val.build
@@ -194,7 +199,9 @@ export class ProxyValServer implements ValServer {
   async commit(req: express.Request, res: express.Response): Promise<void> {
     this.withAuth(req, res, async ({ token }) => {
       const url = new URL(
-        `/api/val/commit/${encodeURIComponent(this.options.gitBranch)}`,
+        `/api/val/${this.options.valProject}/commit/heads/${encodeURIComponent(
+          this.options.gitBranch
+        )}`,
         this.options.valBuildUrl
       );
       const fetchRes = await fetch(url, {
