@@ -1,5 +1,5 @@
 import { SerializedModuleContent } from "@valbuild/lib";
-import { Operation } from "fast-json-patch";
+import { PatchJSON } from "@valbuild/lib/patch";
 
 export class ValApi {
   constructor(readonly host: string) {}
@@ -20,8 +20,8 @@ export class ValApi {
 
   async patchModuleContent(
     moduleId: string,
-    patch: Operation[]
-  ): Promise<void> {
+    patch: PatchJSON
+  ): Promise<SerializedModuleContent> {
     const res = await fetch(`${this.host}/ids${moduleId}`, {
       method: "PATCH",
       headers: {
@@ -30,7 +30,7 @@ export class ValApi {
       body: JSON.stringify(patch),
     });
     if (res.ok) {
-      return;
+      return res.json(); // TODO: validate
     } else {
       throw Error(
         `Failed to patch content of module "${moduleId}". Error: ${await res.text()}`

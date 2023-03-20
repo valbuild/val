@@ -3,7 +3,13 @@ import { deserializeSchema } from "./schema/serialization";
 import { Source } from "./Source";
 
 export class ModuleContent<T extends Source> {
-  constructor(private readonly source: T, public readonly schema: Schema<T>) {}
+  constructor(
+    /**
+     * @internal
+     */
+    public readonly source: T,
+    public readonly schema: Schema<T>
+  ) {}
 
   /**
    * Get the source of this module
