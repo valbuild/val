@@ -1,4 +1,5 @@
-import { Schema, SerializedSchema } from "./schema/Schema";
+import { type Schema, SerializedSchema } from "./schema/Schema";
+import { deserializeSchema } from "./schema/serialization";
 import { Source } from "./Source";
 
 export class ModuleContent<T extends Source> {
@@ -18,6 +19,13 @@ export class ModuleContent<T extends Source> {
       source: this.source,
       schema: this.schema.serialize(),
     };
+  }
+
+  static deserialize({
+    source,
+    schema,
+  }: SerializedModuleContent): ModuleContent<Source> {
+    return new ModuleContent(source, deserializeSchema(schema));
   }
 }
 
