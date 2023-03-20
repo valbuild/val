@@ -8,14 +8,14 @@ export type DetailedArrayDescriptor<D extends Descriptor> = {
   readonly item: D;
 };
 
-export type I18nDescriptor = {
-  readonly type: "i18n";
-  readonly desc: Descriptor;
+export type RecordDescriptor = {
+  readonly type: "record";
+  readonly item: Descriptor;
 };
 
-export type DetailedI18nDescriptor<D extends Descriptor> = {
-  readonly type: "i18n";
-  readonly desc: D;
+export type DetailedRecordDescriptor<D extends Descriptor> = {
+  readonly type: "record";
+  readonly item: Descriptor;
 };
 
 export type ObjectDescriptorProps = {
@@ -55,7 +55,7 @@ export const BooleanDescriptor: BooleanDescriptor = Object.freeze({
 
 export type Descriptor =
   | ArrayDescriptor
-  | I18nDescriptor
+  | RecordDescriptor
   | ObjectDescriptor
   | StringDescriptor
   | NumberDescriptor
@@ -63,8 +63,8 @@ export type Descriptor =
 
 export type ValueOf<D> = [D] extends [ArrayDescriptor]
   ? ValueOf<D["item"]>[]
-  : [D] extends [I18nDescriptor]
-  ? ValueOf<D["desc"]>
+  : [D] extends [RecordDescriptor]
+  ? Record<string, ValueOf<D["item"]>>
   : [D] extends [ObjectDescriptor]
   ? { [P in keyof D["props"]]: ValueOf<D["props"][P]> }
   : [D] extends [StringDescriptor]

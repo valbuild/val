@@ -13,11 +13,21 @@ export type SerializedSchema =
   | SerializedObjectSchema
   | SerializedArraySchema;
 
-export type SourceOf<T extends Schema<Source>> = T extends Schema<infer Src>
+export type SrcOf<T extends Schema<Source, Source>> = T extends Schema<
+  infer Src,
+  Source
+>
   ? Src
   : Source;
 
-export abstract class Schema<Src extends Source> {
+export type LocalOf<T extends Schema<Source, Source>> = T extends Schema<
+  Source,
+  infer Out
+>
+  ? Out
+  : Source;
+
+export abstract class Schema<Src extends Source, Local extends Source> {
   /**
    * Validate a value against this schema
    *
@@ -26,7 +36,22 @@ export abstract class Schema<Src extends Source> {
    */
   abstract validate(input: Src): false | string[];
 
-  abstract descriptor(): Descriptor;
+  /**
+   * Check if this schema or any of its ancestors has i18n capabilities.
+   *
+   * @internal
+   */
+  abstract hasI18n(): boolean;
+
+  abstract localize(src: Src, locale: "en_US"): Local;
+
+  // NOTE: src is currently unused in localizePath, but may eventually be
+  // required for more complex schemas
+  abstract localizePath(src: Src, path: string[], locale: "en_US"): string[];
+
+  abstract localDescriptor(): Descriptor;
+
+  abstract rawDescriptor(): Descriptor;
 
   abstract serialize(): SerializedSchema;
 }

@@ -5,16 +5,28 @@ export type SerializedNumberSchema = {
   type: "number";
 };
 
-export class NumberSchema extends Schema<number> {
+export class NumberSchema extends Schema<number, number> {
   validate(): false | string[] {
     return false;
   }
 
-  apply(input: string): string {
-    return input;
+  hasI18n(): false {
+    return false;
   }
 
-  descriptor(): NumberDescriptor {
+  localize(src: number): number {
+    return src;
+  }
+
+  localizePath(_src: number, path: string[]): string[] {
+    return path;
+  }
+
+  localDescriptor(): NumberDescriptor {
+    return NumberDescriptor;
+  }
+
+  rawDescriptor(): NumberDescriptor {
     return NumberDescriptor;
   }
 

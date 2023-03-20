@@ -54,7 +54,7 @@ export interface Expr<Ctx, T> {
    */
   evaluate(ctx: Ctx): T;
   /**
-   * Evaluate the value of the expression, optionally as an assignable value.
+   * Evaluate the value of the expression as an optinally assignable value.
    */
   evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T>;
   toString(ctx: ToStringCtx<Ctx>): string;
@@ -348,34 +348,6 @@ export function sub<Ctx>(
   rhs: Expr<Ctx, number>
 ): Expr<Ctx, number> {
   return new Sub(lhs, rhs);
-}
-
-class Localize<Ctx, T> implements Expr<Ctx, T> {
-  constructor(
-    private readonly expr: Expr<Ctx, Record<"en_US", T>>,
-    private readonly locale?: "en_US"
-  ) {}
-  evaluate(ctx: Ctx): T {
-    return this.expr.evaluate(ctx)[this.locale ?? "en_US"];
-  }
-  evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T> {
-    const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
-    return [
-      value[this.locale ?? "en_US"],
-      refProp(ref, this.locale ?? "en_US"),
-    ];
-  }
-  toString(ctx: ToStringCtx<Ctx>): string {
-    return `${this.expr.toString(ctx)}.localize(${
-      this.locale !== undefined ? JSON.stringify(this.locale) : ""
-    })`;
-  }
-}
-export function localize<Ctx, T>(
-  expr: Expr<Ctx, Record<"en_US", T>>,
-  locale?: "en_US"
-): Expr<Ctx, T> {
-  return new Localize(expr, locale);
 }
 
 export function parse<Ctx>(

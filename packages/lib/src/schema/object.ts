@@ -1,6 +1,6 @@
 import { DetailedObjectDescriptor } from "../descriptor";
 import { Source } from "../Source";
-import { Schema, SourceOf, type SerializedSchema } from "./Schema";
+import { LocalOf, Schema, SrcOf, type SerializedSchema } from "./Schema";
 import { deserializeSchema } from "./serialization";
 
 export type SerializedObjectSchema = {
@@ -8,12 +8,26 @@ export type SerializedObjectSchema = {
   schema: Record<string, SerializedSchema>;
 };
 
-type SchemaObject = { [key: string]: Schema<Source> };
+type SchemaObject = { [key: string]: Schema<Source, Source> };
 type SrcObject<T extends SchemaObject> = {
-  [key in keyof T]: SourceOf<T[key]>;
+  [key in keyof T]: SrcOf<T[key]>;
+};
+type OutObject<T extends SchemaObject> = {
+  [key in keyof T]: LocalOf<T[key]>;
 };
 
-export class ObjectSchema<T extends SchemaObject> extends Schema<SrcObject<T>> {
+type Some<
+  T extends { readonly [str in PropertyKey]: boolean } | readonly boolean[]
+> = {
+  [P in keyof T]: T[P] extends true ? true : never;
+}[keyof T] extends never
+  ? T[keyof T]
+  : true;
+
+export class ObjectSchema<T extends SchemaObject> extends Schema<
+  SrcObject<T>,
+  OutObject<T>
+> {
   constructor(private readonly props: T) {
     super();
   }
@@ -33,17 +47,55 @@ export class ObjectSchema<T extends SchemaObject> extends Schema<SrcObject<T>> {
     return false;
   }
 
-  descriptor(): DetailedObjectDescriptor<{
-    [P in keyof T]: ReturnType<T[P]["descriptor"]>;
+  hasI18n(): Some<{ [P in keyof T]: ReturnType<T[P]["hasI18n"]> }> {
+    return Object.values(this.props).some((schema) =>
+      schema.hasI18n()
+    ) as Some<{ [P in keyof T]: ReturnType<T[P]["hasI18n"]> }>;
+  }
+
+  localize(src: SrcObject<T>, locale: "en_US"): OutObject<T> {
+    return Object.fromEntries(
+      Object.entries(this.props).map(([key, schema]) => [
+        key,
+        schema.localize(src[key], locale),
+      ])
+    ) as OutObject<T>;
+  }
+
+  localizePath(src: SrcObject<T>, path: string[], locale: "en_US"): string[] {
+    if (path.length === 0) return path;
+    const [key, ...tail] = path;
+    if (!(key in this.props)) {
+      throw Error(`${key} is not in schema`);
+    }
+    return [key, ...this.props[key].localizePath(src[key], tail, locale)];
+  }
+
+  localDescriptor(): DetailedObjectDescriptor<{
+    [P in keyof T]: ReturnType<T[P]["localDescriptor"]>;
   }> {
     return {
       type: "object",
       props: Object.fromEntries(
         Object.entries(this.props).map(([key, schema]) => [
           key,
-          schema.descriptor(),
+          schema.localDescriptor(),
         ])
-      ) as { [P in keyof T]: ReturnType<T[P]["descriptor"]> },
+      ) as { [P in keyof T]: ReturnType<T[P]["localDescriptor"]> },
+    };
+  }
+
+  rawDescriptor(): DetailedObjectDescriptor<{
+    [P in keyof T]: ReturnType<T[P]["rawDescriptor"]>;
+  }> {
+    return {
+      type: "object",
+      props: Object.fromEntries(
+        Object.entries(this.props).map(([key, schema]) => [
+          key,
+          schema.rawDescriptor(),
+        ])
+      ) as { [P in keyof T]: ReturnType<T[P]["rawDescriptor"]> },
     };
   }
 

@@ -160,10 +160,14 @@ type FormPosition = {
 
 function parseValSource(
   source: string
-): [moduleId: string, sourceExpr: expr.Expr<readonly [unknown], unknown>] {
-  const [moduleId, exprStr] = expr.strings.split(source, "?");
+): [
+  moduleId: string,
+  locale: "en_US",
+  sourceExpr: expr.Expr<readonly [unknown], unknown>
+] {
+  const [moduleId, locale, exprStr] = expr.strings.split(source, "?");
   const sourceExpr = expr.parse<readonly [unknown]>({ "": 0 }, exprStr);
-  return [moduleId, sourceExpr];
+  return [moduleId, locale as "en_US", sourceExpr];
 }
 
 type Operation = {
@@ -194,6 +198,7 @@ const ValEditForm: React.FC<{
         source: string;
         status: "ready";
         moduleId: string;
+        locale: "en_US";
         value: string;
         path: string;
       };
@@ -215,7 +220,7 @@ const ValEditForm: React.FC<{
     Promise.all(
       selectedSources.map(async (source): Promise<Entry> => {
         try {
-          const [moduleId, sourceExpr] = parseValSource(source);
+          const [moduleId, locale, sourceExpr] = parseValSource(source);
           const serializedVal = await valApi.getModule(moduleId);
           valStore.set(moduleId, ModuleContent.deserialize(serializedVal));
 
@@ -241,6 +246,7 @@ const ValEditForm: React.FC<{
             source,
             status: "ready",
             moduleId,
+            locale,
             value,
             path: ref,
           };
@@ -330,7 +336,7 @@ const ValEditForm: React.FC<{
                 entry.error
               ) : (
                 <>
-                  {entry.moduleId}?{entry.path}
+                  {entry.moduleId}?{entry.locale}?{entry.path}
                   <textarea
                     style={{
                       display: "block",

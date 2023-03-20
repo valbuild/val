@@ -13,7 +13,6 @@ export {
   sort,
   eq,
   sub,
-  localize,
   parse,
 } from "./expr";
 export * as strings from "./strings";

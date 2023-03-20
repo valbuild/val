@@ -1,6 +1,6 @@
 import { DetailedArrayDescriptor } from "../descriptor";
 import { Source } from "../Source";
-import { Schema, SourceOf, type SerializedSchema } from "./Schema";
+import { LocalOf, Schema, SrcOf, type SerializedSchema } from "./Schema";
 import { deserializeSchema } from "./serialization";
 
 export type SerializedArraySchema = {
@@ -8,13 +8,14 @@ export type SerializedArraySchema = {
   schema: SerializedSchema;
 };
 
-export class ArraySchema<T extends Schema<Source>> extends Schema<
-  SourceOf<T>[]
+export class ArraySchema<T extends Schema<Source, Source>> extends Schema<
+  SrcOf<T>[],
+  LocalOf<T>[]
 > {
   constructor(private readonly item: T) {
     super();
   }
-  validate(input: SourceOf<T>[]): false | string[] {
+  validate(input: SrcOf<T>[]): false | string[] {
     const errors: string[] = [];
     input.forEach((value, index) => {
       const result = this.item.validate(value);
@@ -28,10 +29,31 @@ export class ArraySchema<T extends Schema<Source>> extends Schema<
     return false;
   }
 
-  descriptor(): DetailedArrayDescriptor<ReturnType<T["descriptor"]>> {
+  hasI18n(): ReturnType<T["hasI18n"]> {
+    return this.item.hasI18n() as ReturnType<T["hasI18n"]>;
+  }
+
+  localize(src: SrcOf<T>[], locale: "en_US"): LocalOf<T>[] {
+    return src.map((item) => this.item.localize(item, locale) as LocalOf<T>);
+  }
+
+  localizePath(src: SrcOf<T>[], path: string[], locale: "en_US"): string[] {
+    if (path.length === 0) return path;
+    const [idx, ...tail] = path;
+    return [idx, ...this.item.localizePath(src[Number(idx)], tail, locale)];
+  }
+
+  localDescriptor(): DetailedArrayDescriptor<ReturnType<T["localDescriptor"]>> {
     return {
       type: "array",
-      item: this.item.descriptor() as ReturnType<T["descriptor"]>,
+      item: this.item.rawDescriptor() as ReturnType<T["localDescriptor"]>,
+    };
+  }
+
+  rawDescriptor(): DetailedArrayDescriptor<ReturnType<T["rawDescriptor"]>> {
+    return {
+      type: "array",
+      item: this.item.rawDescriptor() as ReturnType<T["rawDescriptor"]>,
     };
   }
 
@@ -44,10 +66,12 @@ export class ArraySchema<T extends Schema<Source>> extends Schema<
 
   static deserialize(
     schema: SerializedArraySchema
-  ): ArraySchema<Schema<Source>> {
+  ): ArraySchema<Schema<Source, Source>> {
     return new ArraySchema(deserializeSchema(schema.schema));
   }
 }
-export const array = <T extends Schema<Source>>(schema: T): ArraySchema<T> => {
+export const array = <T extends Schema<Source, Source>>(
+  schema: T
+): ArraySchema<T> => {
   return new ArraySchema(schema);
 };

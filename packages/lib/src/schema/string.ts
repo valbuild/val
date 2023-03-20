@@ -14,7 +14,7 @@ export type SerializedStringSchema = {
   };
 };
 
-export class StringSchema extends Schema<string> {
+export class StringSchema extends Schema<string, string> {
   constructor(private readonly options?: StringOptions) {
     super();
   }
@@ -44,11 +44,23 @@ export class StringSchema extends Schema<string> {
     return false;
   }
 
-  apply(input: string): string {
-    return input;
+  hasI18n(): false {
+    return false;
   }
 
-  descriptor(): StringDescriptor {
+  localize(src: string): string {
+    return src;
+  }
+
+  localizePath(_src: string, path: string[]): string[] {
+    return path;
+  }
+
+  localDescriptor(): StringDescriptor {
+    return StringDescriptor;
+  }
+
+  rawDescriptor(): StringDescriptor {
     return StringDescriptor;
   }
 

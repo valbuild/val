@@ -1,6 +1,6 @@
-import { DetailedI18nDescriptor } from "../descriptor";
+import { DetailedRecordDescriptor } from "../descriptor";
 import { Source } from "../Source";
-import { Schema, SourceOf, type SerializedSchema } from "./Schema";
+import { LocalOf, Schema, SrcOf, type SerializedSchema } from "./Schema";
 import { deserializeSchema } from "./serialization";
 
 export type SerializedI18nSchema = {
@@ -8,13 +8,18 @@ export type SerializedI18nSchema = {
   schema: SerializedSchema;
 };
 
-export class I18nSchema<T extends Schema<Source>> extends Schema<
-  Record<"en_US", SourceOf<T>>
+export class I18nSchema<T extends Schema<Source, Source>> extends Schema<
+  Record<"en_US", SrcOf<T>>,
+  LocalOf<T>
 > {
   constructor(private readonly schema: T) {
     super();
+
+    if (schema.hasI18n()) {
+      console.warn("Nested i18n detected. ");
+    }
   }
-  validate(input: Record<"en_US", SourceOf<T>>): false | string[] {
+  validate(input: Record<"en_US", SrcOf<T>>): false | string[] {
     const errors: string[] = [];
     for (const key in input) {
       const value = input[key as "en_US"];
@@ -29,10 +34,30 @@ export class I18nSchema<T extends Schema<Source>> extends Schema<
     return false;
   }
 
-  descriptor(): DetailedI18nDescriptor<ReturnType<T["descriptor"]>> {
+  hasI18n(): true {
+    return true;
+  }
+
+  localize(src: Record<"en_US", SrcOf<T>>, locale: "en_US"): LocalOf<T> {
+    return this.schema.localize(src[locale], locale) as LocalOf<T>;
+  }
+
+  localizePath(
+    src: Record<"en_US", SrcOf<T>>,
+    path: string[],
+    locale: "en_US"
+  ): string[] {
+    return [locale, ...this.schema.localizePath(src[locale], path, locale)];
+  }
+
+  localDescriptor(): ReturnType<T["rawDescriptor"]> {
+    return this.schema.localDescriptor() as ReturnType<T["localDescriptor"]>;
+  }
+
+  rawDescriptor(): DetailedRecordDescriptor<ReturnType<T["rawDescriptor"]>> {
     return {
-      type: "i18n",
-      desc: this.schema.descriptor() as ReturnType<T["descriptor"]>,
+      type: "record",
+      item: this.schema.rawDescriptor(),
     };
   }
 
@@ -43,10 +68,14 @@ export class I18nSchema<T extends Schema<Source>> extends Schema<
     };
   }
 
-  static deserialize(schema: SerializedI18nSchema): I18nSchema<Schema<Source>> {
+  static deserialize(
+    schema: SerializedI18nSchema
+  ): I18nSchema<Schema<Source, Source>> {
     return new I18nSchema(deserializeSchema(schema.schema));
   }
 }
-export const i18n = <T extends Schema<Source>>(schema: T): I18nSchema<T> => {
+export const i18n = <T extends Schema<Source, Source>>(
+  schema: T
+): I18nSchema<T> => {
   return new I18nSchema(schema);
 };
