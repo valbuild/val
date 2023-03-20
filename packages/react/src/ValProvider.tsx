@@ -222,7 +222,6 @@ const ValEditForm: React.FC<{
           const [moduleId, path] = parseValPath(id);
           const serializedVal = await valApi.getModule(moduleId);
           valStore.set(moduleId, ModuleContent.deserialize(serializedVal));
-          valStore.emitChange(moduleId);
           return {
             id,
             status: "ready",
