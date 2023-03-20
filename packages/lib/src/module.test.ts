@@ -5,12 +5,14 @@ import { string } from "./schema/string";
 describe("content function", () => {
   test("content initialization", () => {
     expect(
-      content("/id", () =>
+      content(
+        "/id",
         object({
           foo: string(),
-        }).fixed({
+        }),
+        {
           foo: "bar",
-        })
+        }
       ).content.get()
     ).toStrictEqual({
       foo: "bar",

@@ -1,4 +1,4 @@
-declare const _default: import("@valbuild/lib").ValContent<
+declare const _default: import("@valbuild/lib").ValModule<
   {
     title: string;
     text: string;
