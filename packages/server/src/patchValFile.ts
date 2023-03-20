@@ -56,7 +56,7 @@ export const patchSourceFile = (
   const ops = new TSOps((document) => {
     return pipe(
       analyzeValModule(document),
-      result.map(({ fixedContent }) => fixedContent)
+      result.map(({ source }) => source)
     );
   });
   return applyPatch(sourceFile, ops, patch);
