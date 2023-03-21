@@ -62,13 +62,17 @@ export class ObjectSchema<T extends SchemaObject> extends Schema<
     ) as OutObject<T>;
   }
 
-  localizePath(src: SrcObject<T>, path: string[], locale: "en_US"): string[] {
-    if (path.length === 0) return path;
-    const [key, ...tail] = path;
+  delocalizePath(
+    src: SrcObject<T>,
+    localPath: string[],
+    locale: "en_US"
+  ): string[] {
+    if (localPath.length === 0) return localPath;
+    const [key, ...tail] = localPath;
     if (!(key in this.props)) {
       throw Error(`${key} is not in schema`);
     }
-    return [key, ...this.props[key].localizePath(src[key], tail, locale)];
+    return [key, ...this.props[key].delocalizePath(src[key], tail, locale)];
   }
 
   localDescriptor(): DetailedObjectDescriptor<{

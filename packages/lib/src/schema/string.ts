@@ -52,7 +52,7 @@ export class StringSchema extends Schema<string, string> {
     return src;
   }
 
-  localizePath(_src: string, path: string[]): string[] {
+  delocalizePath(_src: string, path: string[]): string[] {
     return path;
   }
 

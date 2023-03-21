@@ -45,9 +45,19 @@ export abstract class Schema<Src extends Source, Local extends Source> {
 
   abstract localize(src: Src, locale: "en_US"): Local;
 
-  // NOTE: src is currently unused in localizePath, but may eventually be
-  // required for more complex schemas
-  abstract localizePath(src: Src, path: string[], locale: "en_US"): string[];
+  /**
+   * Transforms a {@link Local} path to a {@link Src} path.
+   * @param src The source value of the Schema.
+   * @param localPath {@link Local} path.
+   * @param locale The locale of localPath.
+   */
+  // NOTE: src is currently unused, but may eventually be required for more
+  // complex schemas
+  abstract delocalizePath(
+    src: Src,
+    localPath: string[],
+    locale: "en_US"
+  ): string[];
 
   abstract localDescriptor(): Descriptor;
 

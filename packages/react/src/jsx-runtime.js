@@ -23,7 +23,7 @@ const devalProps = (type, props) => {
   }
 
   if (valSources.length > 0) {
-    props["data-val-source"] = valSources.join(",");
+    props["data-val-src"] = valSources.join(",");
   }
 };
 

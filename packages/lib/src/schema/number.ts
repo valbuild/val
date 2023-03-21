@@ -18,8 +18,8 @@ export class NumberSchema extends Schema<number, number> {
     return src;
   }
 
-  localizePath(_src: number, path: string[]): string[] {
-    return path;
+  delocalizePath(_src: number, localPath: string[]): string[] {
+    return localPath;
   }
 
   localDescriptor(): NumberDescriptor {

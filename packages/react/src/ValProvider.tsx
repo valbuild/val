@@ -1,5 +1,7 @@
 import { Source, ModuleContent } from "@valbuild/lib";
 import * as expr from "@valbuild/lib/expr";
+import { formatJSONPointer, parseJSONPointer } from "@valbuild/lib/patch";
+import { result } from "@valbuild/lib/fp";
 import React, {
   CSSProperties,
   forwardRef,
@@ -221,11 +223,13 @@ const ValEditForm: React.FC<{
       selectedSources.map(async (source): Promise<Entry> => {
         try {
           const [moduleId, locale, sourceExpr] = parseValSource(source);
-          const serializedVal = await valApi.getModule(moduleId);
-          valStore.set(moduleId, ModuleContent.deserialize(serializedVal));
+          const mod = ModuleContent.deserialize(
+            await valApi.getModule(moduleId)
+          );
+          valStore.set(moduleId, mod);
 
           const [value, ref] = sourceExpr.evaluateRef(
-            [serializedVal.source],
+            [mod.schema.localize(mod.source, locale)],
             [""]
           );
           if (!expr.isSingular(ref)) {
@@ -290,7 +294,8 @@ const ValEditForm: React.FC<{
           const modulePatches: Record<string, Operation[]> = {};
           for (const entry of entries) {
             if (entry.status === "ready") {
-              const { moduleId, path } = entry;
+              const { moduleId, locale } = entry;
+              let { path } = entry;
               if (!modulePatches[moduleId]) {
                 modulePatches[moduleId] = [];
               }
@@ -298,6 +303,17 @@ const ValEditForm: React.FC<{
               if (typeof value !== "string") {
                 throw Error("Invalid non-string value in form");
               }
+              const mod = valStore.get(moduleId);
+              if (!mod) {
+                throw Error(`${moduleId} is not in store`);
+              }
+              const parsedPath = parseJSONPointer(path);
+              if (result.isErr(parsedPath)) {
+                throw Error(`${JSON.stringify(path)} is invalid JSON pointer`);
+              }
+              path = formatJSONPointer(
+                mod.schema.delocalizePath(mod.source, parsedPath.value, locale)
+              );
               modulePatches[moduleId].push({
                 op: "replace",
                 path,
@@ -433,7 +449,7 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
       styleElement = document.createElement("style");
       styleElement.id = "val-edit-highlight";
       styleElement.innerHTML = `
-        .val-edit-mode >* [data-val-source] {
+        .val-edit-mode >* [data-val-src] {
           outline: black solid 2px;
           outline-offset: 4px;
           cursor: pointer;
@@ -441,10 +457,10 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
       `;
       document.body.appendChild(styleElement);
 
-      // capture event clicks on data-val-source elements
+      // capture event clicks on data-val-src elements
       openValFormListener = (e: MouseEvent) => {
         if (e.target instanceof Element) {
-          const valSources = e.target?.getAttribute("data-val-source");
+          const valSources = e.target?.getAttribute("data-val-src");
           if (valSources) {
             e.stopPropagation();
             setSelectedSources(expr.strings.split(valSources, ","));

@@ -42,12 +42,15 @@ export class I18nSchema<T extends Schema<Source, Source>> extends Schema<
     return this.schema.localize(src[locale], locale) as LocalOf<T>;
   }
 
-  localizePath(
+  delocalizePath(
     src: Record<"en_US", SrcOf<T>>,
-    path: string[],
+    localPath: string[],
     locale: "en_US"
   ): string[] {
-    return [locale, ...this.schema.localizePath(src[locale], path, locale)];
+    return [
+      locale,
+      ...this.schema.delocalizePath(src[locale], localPath, locale),
+    ];
   }
 
   localDescriptor(): ReturnType<T["rawDescriptor"]> {

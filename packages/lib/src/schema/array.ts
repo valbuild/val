@@ -37,10 +37,14 @@ export class ArraySchema<T extends Schema<Source, Source>> extends Schema<
     return src.map((item) => this.item.localize(item, locale) as LocalOf<T>);
   }
 
-  localizePath(src: SrcOf<T>[], path: string[], locale: "en_US"): string[] {
-    if (path.length === 0) return path;
-    const [idx, ...tail] = path;
-    return [idx, ...this.item.localizePath(src[Number(idx)], tail, locale)];
+  delocalizePath(
+    src: SrcOf<T>[],
+    localPath: string[],
+    locale: "en_US"
+  ): string[] {
+    if (localPath.length === 0) return localPath;
+    const [idx, ...tail] = localPath;
+    return [idx, ...this.item.delocalizePath(src[Number(idx)], tail, locale)];
   }
 
   localDescriptor(): DetailedArrayDescriptor<ReturnType<T["localDescriptor"]>> {
