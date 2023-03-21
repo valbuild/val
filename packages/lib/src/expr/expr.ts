@@ -2,51 +2,45 @@ import { formatJSONPointerReferenceToken } from "../patch/parse";
 import { lastIndexOf, split } from "./strings";
 export * as strings from "./strings";
 
-type ToStringCtx<Ctx> = { readonly [s in keyof Ctx]: string };
-
 /**
- * A Ref is a JSON pointer that represents the source of the value of an
- * expression. If the value is a derived array, the Ref may be an array of JSON
- * pointers. A Ref may also be null, meaning that the value of the expression is
- * not assignable.
+ * A Ref represents the (possibly) assignable source of an expression's value.
+ *
+ * For simple expressions such as those accessing object properties or array
+ * items, the Ref is a simple JSON pointer string and the value is assignable.
+ *
+ * For derived array values such as those produced by sorting/filtering/slicing,
+ * the Ref may be an array of Refs describing the source of each value in the
+ * array. In this case, the array itself is not assignable, but values derived
+ * from the array may be.
+ *
+ * For other expressions such as literals and those consisting of arithmetic
+ * operations, the Ref is null and its value is not assignable.
  */
-export type Ref<T> = (T extends (infer U)[] ? Ref<U>[] : never) | string | null;
+export type Ref<T> = { readonly [P in keyof T]: Ref<T[P]> } | string | null;
 export type ValueAndRef<T> = readonly [value: T, ref: Ref<T>];
-type RefCtx<Ctx> = {
-  readonly [s in keyof Ctx]: Ref<Ctx[s]>;
-};
 
-export function isSingular(ref: Ref<unknown>): ref is string {
+export function isAssignable<T>(ref: Ref<T>): ref is string {
   return typeof ref === "string";
 }
 
-function refIndex<T>(ref: Ref<T[]>, i: number): Ref<T> {
+function propRef<T, P extends keyof T>(ref: Ref<T>, prop: P): Ref<T[P]> {
   if (ref === null) {
     return null;
-  }
-  if (Array.isArray(ref)) {
-    return ref[i];
-  } else {
-    return `${ref}/${i}`;
-  }
-}
-function refProp<P extends string | number, T>(
-  ref: Ref<{ [p in P]: T }>,
-  prop: P
-): Ref<T> {
-  if (ref === null) {
-    return null;
-  }
-  if (Array.isArray(ref)) {
-    return ref[prop as number];
-  } else {
+  } else if (typeof ref === "string") {
     return `${ref}/${formatJSONPointerReferenceToken(prop.toString())}`;
+  } else {
+    return ref[prop];
   }
 }
 
+type RefCtx<Ctx> = {
+  readonly [s in keyof Ctx]: Ref<Ctx[s]>;
+};
+type ToStringCtx<Ctx> = { readonly [s in keyof Ctx]: string };
+
 /**
- * An Expr is an expression which can be evaluated to a value. The value may
- * optionally be assignable.
+ * An Expr is an expression which can be evaluated to a value. The expression's
+ * value may be assignable.
  */
 export interface Expr<Ctx, T> {
   /**
@@ -54,7 +48,7 @@ export interface Expr<Ctx, T> {
    */
   evaluate(ctx: Ctx): T;
   /**
-   * Evaluate the value of the expression as an optinally assignable value.
+   * Evaluate the value and Ref of the expression.
    */
   evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T>;
   toString(ctx: ToStringCtx<Ctx>): string;
@@ -109,7 +103,7 @@ class Prop<
   }
   evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T[P]> {
     const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
-    return [value[this.key], refProp(ref, this.key)];
+    return [value[this.key], propRef(ref, this.key)];
   }
   toString(ctx: { readonly [s in keyof Ctx]: string }): string {
     return `${this.expr.toString(ctx)}[${JSON.stringify(this.key)}]`;
@@ -153,7 +147,7 @@ class Filter<Ctx, T> implements Expr<Ctx, T[]> {
       const item = value[i];
       if (this.predicate.evaluate([item])) {
         resValue.push(item);
-        resRef.push(refIndex(ref, i));
+        resRef.push(propRef(ref, i));
       }
     }
     return [resValue, resRef];
@@ -187,7 +181,7 @@ class Find<Ctx, T> implements Expr<Ctx, T | undefined> {
     if (idx === -1) {
       return [undefined, null];
     }
-    return [value[idx], refIndex(ref, idx)];
+    return [value[idx], propRef(ref, idx)];
   }
   toString(ctx: ToStringCtx<Ctx>): string {
     return `${this.expr.toString(ctx)}.find((v) => ${this.predicate.toString([
@@ -214,7 +208,7 @@ class Slice<Ctx, T> implements Expr<Ctx, T[]> {
   evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T[]> {
     const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
     const retValue = value.slice(this.start, this.end);
-    const retRef = retValue.map((_item, i) => refIndex(ref, this.start + i));
+    const retRef = retValue.map((_item, i) => propRef(ref, this.start + i));
     return [retValue, retRef];
   }
   toString(ctx: ToStringCtx<Ctx>): string {
@@ -251,7 +245,7 @@ class SortBy<Ctx, T> implements Expr<Ctx, T[]> {
       .sort(([a], [b]) => this.keyFn.evaluate([a]) - this.keyFn.evaluate([b]))
       .forEach(([item, i]) => {
         resValue.push(item);
-        resRef.push(refIndex(ref, i));
+        resRef.push(propRef(ref, i));
       });
     return [resValue, resRef];
   }
@@ -288,7 +282,7 @@ class Sort<Ctx, T> implements Expr<Ctx, T[]> {
       .sort(([a], [b]) => this.compareFn.evaluate([a, b]))
       .forEach(([item, i]) => {
         resValue.push(item);
-        resRef.push(refIndex(ref, i));
+        resRef.push(propRef(ref, i));
       });
     return [resValue, resRef];
   }
@@ -318,7 +312,7 @@ class Eq<Ctx, T> implements Expr<Ctx, boolean> {
     return [this.evaluate(ctx), null];
   }
   toString(ctx: { readonly [s in keyof Ctx]: string }): string {
-    return `eq(${this.lhs.toString(ctx)}, ${this.rhs.toString(ctx)})`;
+    return `${this.lhs.toString(ctx)}.eq(${this.rhs.toString(ctx)})`;
   }
 }
 export function eq<Ctx, T>(
@@ -340,7 +334,7 @@ class Sub<Ctx> implements Expr<Ctx, number> {
     return [this.evaluate(ctx), null];
   }
   toString(ctx: { readonly [s in keyof Ctx]: string }): string {
-    return `${this.lhs.toString(ctx)} - ${this.rhs.toString(ctx)}`;
+    return `${this.lhs.toString(ctx)}.sub(${this.rhs.toString(ctx)})`;
   }
 }
 export function sub<Ctx>(
@@ -355,6 +349,7 @@ export function parse<Ctx>(
   str: string
 ): Expr<Ctx, unknown> {
   // TODO: Fully implement this
+  // Currently missing: literal, eq, sub
   if (str.endsWith("]")) {
     const bracketStart = lastIndexOf(str, "[");
     if (bracketStart === -1) {

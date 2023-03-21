@@ -5,6 +5,7 @@ import { getSelector, SelectorOf } from "./selector";
 import { EXPR, Selector } from "./selector/selector";
 import { Source } from "./Source";
 import { newVal, Val } from "./Val";
+import { encodeValSrc } from "./expr/strings";
 
 export class ValModule<T extends Schema<Source, Source>> {
   constructor(
@@ -27,10 +28,7 @@ export class ValModule<T extends Schema<Source, Source>> {
       this.content.schema.localDescriptor()
     ) as SelectorOf<typeof ctx, ReturnType<T["localDescriptor"]>>;
     const result = callback(rootSelector)[EXPR]();
-    return newVal(
-      `${this.id}?${locale}?${result.toString([""])}`,
-      result.evaluate(ctx)
-    );
+    return newVal(encodeValSrc(this.id, locale, result), result.evaluate(ctx));
   }
 }
 

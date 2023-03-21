@@ -1,10 +1,14 @@
+import { Expr, parse } from "./expr";
+
 /**
  * Like {@link String.prototype.lastIndexOf}, but with respect to expression
  * syntax.
  *
  * The search will ignore the contents of string literals and only return a match
  * if the match is at the same nesting level as the starting character. During
- * traversal, it will assert that the nesting is correct.
+ * traversal, it will assert that there are no mismatched parens or square
+ * brackets.
+ *
  * @param str The string to search in.
  * @param searchString The substring to search for.
  * @param position The index at which to begin searching. If omitted, the search
@@ -63,7 +67,9 @@ export function lastIndexOf(
  *
  * The search will ignore the contents of string literals and only return a match
  * if the match is at the same nesting level as the starting character. During
- * traversal, it will assert that the nesting is correct.
+ * traversal, it will assert that there are no mismatched parens or square
+ * brackets.
+ *
  * @param str The string to search in.
  * @param searchString The substring to search for.
  * @param position The index at which to begin searching the String object. If
@@ -120,9 +126,11 @@ export function indexOf(
  *
  * The split will ignore the contents of string literals and only split if the
  * separator occurs at the same nesting level as the starting character. It will
- * also assert that the nesting is correct.
+ * also assert that there are no mismatched parens or square brackets.
+ *
  * @param str The string to split.
- * @param separator The substring to search for.
+ * @param separator A string that identifies character or characters to use in
+ * separating the string.
  */
 export function split(str: string, separator: string) {
   const res: string[] = [];
@@ -138,4 +146,24 @@ export function split(str: string, separator: string) {
     }
   }
   return res;
+}
+
+export function encodeValSrc(
+  moduleId: string,
+  locale: "en_US",
+  expr: Expr<readonly [never], unknown>
+): string {
+  return `${moduleId}?${locale}?${expr.toString([""])}`;
+}
+
+export function parseValSrc(
+  source: string
+): [
+  moduleId: string,
+  locale: "en_US",
+  sourceExpr: Expr<readonly [never], unknown>
+] {
+  const [moduleId, locale, exprStr] = split(source, "?");
+  const sourceExpr = parse<readonly [unknown]>({ "": 0 }, exprStr);
+  return [moduleId, locale as "en_US", sourceExpr];
 }

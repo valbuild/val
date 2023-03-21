@@ -160,18 +160,6 @@ type FormPosition = {
   top: number;
 };
 
-function parseValSource(
-  source: string
-): [
-  moduleId: string,
-  locale: "en_US",
-  sourceExpr: expr.Expr<readonly [unknown], unknown>
-] {
-  const [moduleId, locale, exprStr] = expr.strings.split(source, "?");
-  const sourceExpr = expr.parse<readonly [unknown]>({ "": 0 }, exprStr);
-  return [moduleId, locale as "en_US", sourceExpr];
-}
-
 type Operation = {
   op: "replace";
   path: string;
@@ -222,17 +210,17 @@ const ValEditForm: React.FC<{
     Promise.all(
       selectedSources.map(async (source): Promise<Entry> => {
         try {
-          const [moduleId, locale, sourceExpr] = parseValSource(source);
+          const [moduleId, locale, sourceExpr] =
+            expr.strings.parseValSrc(source);
           const mod = ModuleContent.deserialize(
             await valApi.getModule(moduleId)
           );
           valStore.set(moduleId, mod);
 
-          const [value, ref] = sourceExpr.evaluateRef(
-            [mod.schema.localize(mod.source, locale)],
-            [""]
-          );
-          if (!expr.isSingular(ref)) {
+          const [value, ref] = (
+            sourceExpr as expr.Expr<readonly [Source], Source>
+          ).evaluateRef([mod.schema.localize(mod.source, locale)], [""]);
+          if (!expr.isAssignable(ref)) {
             return {
               source,
               status: "error",

@@ -1,7 +1,7 @@
 export {
   type Ref,
   type Expr,
-  isSingular,
+  isAssignable,
   literal,
   fromCtx,
   prop,
