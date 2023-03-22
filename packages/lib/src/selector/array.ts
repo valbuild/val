@@ -10,7 +10,7 @@ interface ArraySelectorMethods<Ctx, D extends Descriptor> {
 
   // TODO: Optionals!
   find(
-    predicate: <T>(item: SelectorOf<T, D>) => Selector<T, Descriptor>
+    predicate: <T>(item: SelectorOf<T, D>) => Selector<T, unknown>
   ): SelectorOf<Ctx, D>;
 
   slice(begin: number, end?: number): ArraySelector<Ctx, D>;
@@ -59,7 +59,7 @@ class ArraySelectorC<Ctx, D extends Descriptor>
   }
 
   find(
-    predicate: <T>(item: SelectorOf<T, D>) => Selector<T, Descriptor>
+    predicate: <T>(item: SelectorOf<T, D>) => Selector<T, unknown>
   ): SelectorOf<Ctx, D> {
     const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
     const predicateExpr = predicate(getSelector(vExpr, this.item))[EXPR]();
