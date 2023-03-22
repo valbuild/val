@@ -9,6 +9,8 @@ import {
   ValueAndRef,
   slice,
   item,
+  eq,
+  literal,
 } from "./expr";
 
 const serializationTestCases: {
@@ -26,6 +28,10 @@ const serializationTestCases: {
   {
     expr: prop(prop(fromCtx(0), "foo"), "bar"),
     str: `["foo"]["bar"]`,
+  },
+  {
+    expr: eq(fromCtx(0), literal("foo")),
+    str: `.eq("foo")`,
   },
   {
     expr: sortBy(fromCtx(0), fromCtx<never, 0>(0)),

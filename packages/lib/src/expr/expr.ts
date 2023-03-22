@@ -369,7 +369,14 @@ export function parse<Ctx>(
 
     const argsStr = str.slice(parenStart + 1, str.length - 1);
     const funcStr = str.slice(0, parenStart);
-    if (funcStr.endsWith(".sortBy")) {
+    if (funcStr.endsWith(".eq")) {
+      const lhs = parse(
+        ctx,
+        funcStr.slice(0, funcStr.length - ".eq".length)
+      ) as Expr<Ctx, readonly unknown[]>;
+      const rhs = JSON.parse(argsStr);
+      return eq(lhs, literal(rhs));
+    } else if (funcStr.endsWith(".sortBy")) {
       if (!argsStr.startsWith("(v) => ")) {
         throw Error("invalid sortBy lambda");
       }
