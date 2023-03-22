@@ -2,13 +2,13 @@ export type CompositeVal<T> = Omit<
   {
     [key in keyof T]: Val<T[key]>;
   },
-  "valSource" | "val"
+  "valSrc" | "val"
 > & {
-  readonly valSource: string;
+  readonly valSrc: string;
   readonly val: T;
 };
 export type PrimitiveVal<T> = {
-  valSource: string;
+  valSrc: string;
   val: T;
 };
 export type Val<T> = T extends object ? CompositeVal<T> : PrimitiveVal<T>;
@@ -27,7 +27,7 @@ export function newVal<T>(source: string, value: T): Val<T> {
         // Handles both objects and arrays!
         return new Proxy(value, {
           get(target, prop: string) {
-            if (prop === "valSource") {
+            if (prop === "valSrc") {
               return source;
             }
             if (prop === "val") {
@@ -50,7 +50,7 @@ export function newVal<T>(source: string, value: T): Val<T> {
     // eslint-disable-next-line no-fallthrough
     default:
       return {
-        valSource: source,
+        valSrc: source,
         val: value,
       } as Val<T>;
   }

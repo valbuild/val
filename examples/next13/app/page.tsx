@@ -10,7 +10,7 @@ export default function Home() {
     <main className={styles.main}>
       <article className={styles.article}>
         {blogs.map((blog) => (
-          <section key={blog.valSource} className={styles.blog}>
+          <section key={blog.valSrc} className={styles.blog}>
             <h1>{blog.title}</h1>
             <p>{blog.text}</p>
           </section>
