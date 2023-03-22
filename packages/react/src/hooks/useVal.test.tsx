@@ -25,7 +25,7 @@ const { s, val } = initVal();
 describe("useVal", () => {
   test("extracts ValString from string", () => {
     const { result } = renderHook(
-      () => useVal(val.content("foo", () => s.string().fixed("bar"))),
+      () => useVal(val.content("foo", s.string(), "bar")),
       { wrapper: Providers }
     );
     expect(result.current).toStrictEqual<ValString>({
@@ -38,9 +38,7 @@ describe("useVal", () => {
     const { result } = renderHook(
       () =>
         useVal(
-          val.content("baz", () =>
-            s.object({ foo: s.string() }).fixed({ foo: "bar" })
-          )
+          val.content("baz", s.object({ foo: s.string() }), { foo: "bar" })
         ),
       { wrapper: Providers }
     );

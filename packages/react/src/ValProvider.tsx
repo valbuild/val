@@ -1,5 +1,9 @@
-import { SourceObject, SourcePrimitive, Source } from "@valbuild/lib";
-import { applyPatch } from "fast-json-patch";
+import {
+  SourceObject,
+  SourcePrimitive,
+  Source,
+  ModuleContent,
+} from "@valbuild/lib";
 import React, {
   CSSProperties,
   forwardRef,
@@ -217,8 +221,7 @@ const ValEditForm: React.FC<{
         try {
           const [moduleId, path] = parseValPath(id);
           const serializedVal = await valApi.getModule(moduleId);
-          valStore.set(moduleId, serializedVal);
-          valStore.emitChange();
+          valStore.set(moduleId, ModuleContent.deserialize(serializedVal));
           return {
             id,
             status: "ready",
@@ -281,19 +284,12 @@ const ValEditForm: React.FC<{
           }
           await Promise.all(
             Object.entries(modulePatches).map(async ([moduleId, patch]) => {
-              await valApi.patchModuleContent(moduleId, patch);
-              const currentVal = valStore.get(moduleId);
-              if (!currentVal) {
-                throw Error(`No val for module ${moduleId}`);
-              }
-              valStore.set(moduleId, {
-                ...currentVal,
-                source: applyPatch(currentVal.source, patch, true, false)
-                  .newDocument,
-              });
+              const moduleContent = ModuleContent.deserialize(
+                await valApi.patchModuleContent(moduleId, patch)
+              );
+              valStore.set(moduleId, moduleContent);
             })
           );
-          valStore.emitChange();
           setSubmission({
             status: "ready",
           });

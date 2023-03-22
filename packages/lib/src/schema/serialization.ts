@@ -1,7 +1,7 @@
 import { Source } from "../Source";
 import { ArraySchema } from "./array";
 import { ObjectSchema } from "./object";
-import { Schema, SerializedSchema } from "./Schema";
+import type { Schema, SerializedSchema } from "./Schema";
 import { StringSchema } from "./string";
 
 export function deserializeSchema(schema: SerializedSchema): Schema<Source> {

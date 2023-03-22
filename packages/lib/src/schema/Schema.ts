@@ -1,4 +1,3 @@
-import { ModuleContent } from "../content";
 import { Source } from "../Source";
 import { type SerializedArraySchema } from "./array";
 import { type SerializedObjectSchema } from "./object";
@@ -9,6 +8,10 @@ export type SerializedSchema =
   | SerializedObjectSchema
   | SerializedArraySchema;
 
+export type SrcOf<T extends Schema<Source>> = T extends Schema<infer U>
+  ? U
+  : never;
+
 export abstract class Schema<T extends Source> {
   /**
    * Validate a value against this schema
@@ -17,10 +20,6 @@ export abstract class Schema<T extends Source> {
    * @internal
    */
   abstract validate(input: T): false | string[];
-
-  fixed(val: T): ModuleContent<T> {
-    return new ModuleContent(val, this);
-  }
 
   abstract serialize(): SerializedSchema;
 }
