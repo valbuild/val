@@ -7,7 +7,7 @@ import content from "./content.val";
 function App() {
   const [count, setCount] = useState(0);
 
-  const theContent = useVal(content);
+  const theContent = useVal(content.select((content) => content));
 
   return (
     <div className="App">
