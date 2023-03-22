@@ -15,7 +15,7 @@ export type RecordDescriptor = {
 
 export type DetailedRecordDescriptor<D extends Descriptor> = {
   readonly type: "record";
-  readonly item: Descriptor;
+  readonly item: D;
 };
 
 export type ObjectDescriptorProps = {

@@ -60,7 +60,7 @@ export class I18nSchema<T extends Schema<Source, Source>> extends Schema<
   rawDescriptor(): DetailedRecordDescriptor<ReturnType<T["rawDescriptor"]>> {
     return {
       type: "record",
-      item: this.schema.rawDescriptor(),
+      item: this.schema.rawDescriptor() as ReturnType<T["rawDescriptor"]>,
     };
   }
 
