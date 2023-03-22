@@ -4,50 +4,8 @@ import { ValSyntaxError, ValSyntaxErrorTree } from "./syntax";
 
 export type ValModuleAnalysis = {
   schema: ts.Expression;
-  fixedContent: ts.Expression;
+  source: ts.Expression;
 };
-
-function findContent(
-  node: ts.Node
-): result.Result<ValModuleAnalysis, ValSyntaxErrorTree> {
-  if (!ts.isCallExpression(node)) {
-    return result.err(
-      new ValSyntaxError(
-        "Expected body of val.content callback to be a call expression",
-        node
-      )
-    );
-  }
-
-  // Validate that .fixed is called on a Schema
-  const schemaFixed = node.expression;
-  if (!ts.isPropertyAccessExpression(schemaFixed)) {
-    return result.err(
-      new ValSyntaxError("Expected val.content to call Schema.fixed", node)
-    );
-  }
-  const fixed = schemaFixed.name;
-  if (!ts.isIdentifier(fixed) || fixed.text !== "fixed") {
-    return result.err(
-      new ValSyntaxError("Expected val.content to call Schema.fixed", fixed)
-    );
-  }
-  const schema = schemaFixed.expression;
-
-  if (node.arguments.length !== 1) {
-    return result.err(
-      new ValSyntaxError(
-        "Expected Schema.fixed call to have a single argument",
-        node
-      )
-    );
-  }
-  const [fixedContent] = node.arguments;
-  return result.ok({
-    schema,
-    fixedContent,
-  });
-}
 
 function isPath(
   node: ts.Expression,
@@ -121,22 +79,16 @@ function analyzeDefaultExport(
         }
         return result.voidOk;
       },
-      (callback: ts.Node) => {
-        if (!ts.isArrowFunction(callback)) {
-          return result.err(
-            new ValSyntaxError(
-              "Expected second argument to val.content to be an arrow function",
-              callback
-            )
-          );
-        }
+      () => {
+        return result.voidOk;
+      },
+      () => {
         return result.voidOk;
       },
     ]),
-    result.flatMap(() => {
-      const [, callback] = valContentCall.arguments;
-      // as asserted above, callback must be an arrow function
-      return findContent((callback as ts.ArrowFunction).body);
+    result.map(() => {
+      const [, schema, source] = valContentCall.arguments;
+      return { schema, source };
     })
   );
 }
