@@ -16,25 +16,25 @@ export * as strings from "./strings";
  * For other expressions such as literals and those consisting of arithmetic
  * operations, the Ref is null and its value is not assignable.
  */
-export type Ref<T> = { readonly [P in keyof T]: Ref<T[P]> } | string | null;
-export type ValueAndRef<T> = readonly [value: T, ref: Ref<T>];
+export type Ref = Ref[] | string | null;
+export type ValueAndRef<T> = readonly [value: T, ref: Ref];
 
-export function isAssignable<T>(ref: Ref<T>): ref is string {
+export function isAssignable(ref: Ref): ref is string {
   return typeof ref === "string";
 }
 
-function propRef<T, P extends keyof T>(ref: Ref<T>, prop: P): Ref<T[P]> {
+function propRef<T, P extends keyof T>(ref: Ref, prop: P): Ref {
   if (ref === null) {
     return null;
   } else if (typeof ref === "string") {
     return `${ref}/${formatJSONPointerReferenceToken(prop.toString())}`;
   } else {
-    return ref[prop];
+    return (ref as { [p in P]: Ref })[prop];
   }
 }
 
 type RefCtx<Ctx> = {
-  readonly [s in keyof Ctx]: Ref<Ctx[s]>;
+  readonly [s in keyof Ctx]: Ref;
 };
 type ToStringCtx<Ctx> = { readonly [s in keyof Ctx]: string };
 
@@ -91,19 +91,14 @@ export function fromCtx<
   return new FromCtx(sym);
 }
 
-class Prop<
-  Ctx,
-  P extends string | number,
-  T extends { readonly [key in P]: unknown }
-> implements Expr<Ctx, T[P]>
-{
+class Prop<Ctx, T, P extends keyof T> implements Expr<Ctx, T[P]> {
   constructor(private readonly expr: Expr<Ctx, T>, private readonly key: P) {}
   evaluate(ctx: Ctx): T[P] {
     return this.expr.evaluate(ctx)[this.key];
   }
   evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T[P]> {
     const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
-    return [value[this.key], propRef(ref, this.key)];
+    return [value[this.key], propRef<T, P>(ref, this.key)];
   }
   toString(ctx: { readonly [s in keyof Ctx]: string }): string {
     return `${this.expr.toString(ctx)}[${JSON.stringify(this.key)}]`;
@@ -142,12 +137,12 @@ class Filter<Ctx, T> implements Expr<Ctx, T[]> {
       return [this.evaluate(ctx), null];
     }
     const resValue: T[] = [];
-    const resRef: Ref<T>[] = [];
+    const resRef: Ref[] = [];
     for (let i = 0; i < value.length; ++i) {
       const item = value[i];
       if (this.predicate.evaluate([item])) {
         resValue.push(item);
-        resRef.push(propRef(ref, i));
+        resRef.push(propRef<T[], number>(ref, i));
       }
     }
     return [resValue, resRef];
@@ -181,7 +176,7 @@ class Find<Ctx, T> implements Expr<Ctx, T | undefined> {
     if (idx === -1) {
       return [undefined, null];
     }
-    return [value[idx], propRef(ref, idx)];
+    return [value[idx], propRef<T[], number>(ref, idx)];
   }
   toString(ctx: ToStringCtx<Ctx>): string {
     return `${this.expr.toString(ctx)}.find((v) => ${this.predicate.toString([
@@ -208,7 +203,9 @@ class Slice<Ctx, T> implements Expr<Ctx, T[]> {
   evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T[]> {
     const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
     const retValue = value.slice(this.start, this.end);
-    const retRef = retValue.map((_item, i) => propRef(ref, this.start + i));
+    const retRef = retValue.map((_item, i) =>
+      propRef<T[], number>(ref, this.start + i)
+    );
     return [retValue, retRef];
   }
   toString(ctx: ToStringCtx<Ctx>): string {
@@ -239,13 +236,13 @@ class SortBy<Ctx, T> implements Expr<Ctx, T[]> {
   evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T[]> {
     const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
     const resValue: T[] = [];
-    const resRef: Ref<T>[] = [];
+    const resRef: Ref[] = [];
     value
       .map((item, i) => [item, i] as const)
       .sort(([a], [b]) => this.keyFn.evaluate([a]) - this.keyFn.evaluate([b]))
       .forEach(([item, i]) => {
         resValue.push(item);
-        resRef.push(propRef(ref, i));
+        resRef.push(propRef<T[], number>(ref, i));
       });
     return [resValue, resRef];
   }
@@ -276,13 +273,13 @@ class Sort<Ctx, T> implements Expr<Ctx, T[]> {
   evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T[]> {
     const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
     const resValue: T[] = [];
-    const resRef: Ref<T>[] = [];
+    const resRef: Ref[] = [];
     value
       .map((item, i) => [item, i] as const)
       .sort(([a], [b]) => this.compareFn.evaluate([a, b]))
       .forEach(([item, i]) => {
         resValue.push(item);
-        resRef.push(propRef(ref, i));
+        resRef.push(propRef<T[], number>(ref, i));
       });
     return [resValue, resRef];
   }
