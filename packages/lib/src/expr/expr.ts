@@ -243,43 +243,6 @@ export function sortBy<Ctx, T>(
   return new SortBy(expr, keyFn);
 }
 
-class Sort<Ctx, T> implements Expr<Ctx, T[]> {
-  constructor(
-    private readonly expr: Expr<Ctx, readonly T[]>,
-    private readonly compareFn: Expr<readonly [T, T], number>
-  ) {}
-  evaluate(ctx: Ctx): T[] {
-    return this.expr
-      .evaluate(ctx)
-      .slice()
-      .sort((a, b) => this.compareFn.evaluate([a, b]));
-  }
-  evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T[]> {
-    const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
-    const resValue: T[] = [];
-    const resRef: Ref[] = [];
-    value
-      .map((item, i) => [item, i] as const)
-      .sort(([a], [b]) => this.compareFn.evaluate([a, b]))
-      .forEach(([item, i]) => {
-        resValue.push(item);
-        resRef.push(propRef<T[], number>(ref, i));
-      });
-    return [resValue, resRef];
-  }
-  toString(ctx: ToStringCtx<Ctx>): string {
-    return `${this.expr.toString(ctx)}.sort((a, b) => ${this.compareFn.toString(
-      ["a", "b"]
-    )})`;
-  }
-}
-export function sort<Ctx, T>(
-  expr: Expr<Ctx, readonly T[]>,
-  compareFn: Expr<readonly [T, T], number>
-): Expr<Ctx, T[]> {
-  return new Sort(expr, compareFn);
-}
-
 class Eq<Ctx, T> implements Expr<Ctx, boolean> {
   constructor(private readonly lhs: Expr<Ctx, T>, private readonly rhs: T) {}
   evaluate(ctx: Ctx): boolean {
@@ -295,28 +258,6 @@ class Eq<Ctx, T> implements Expr<Ctx, boolean> {
 }
 export function eq<Ctx, T>(lhs: Expr<Ctx, T>, rhs: T): Expr<Ctx, boolean> {
   return new Eq(lhs, rhs);
-}
-
-class Sub<Ctx> implements Expr<Ctx, number> {
-  constructor(
-    private readonly lhs: Expr<Ctx, number>,
-    private readonly rhs: Expr<Ctx, number>
-  ) {}
-  evaluate(ctx: Ctx): number {
-    return this.lhs.evaluate(ctx) - this.rhs.evaluate(ctx);
-  }
-  evaluateRef(ctx: Ctx): [number, null] {
-    return [this.evaluate(ctx), null];
-  }
-  toString(ctx: { readonly [s in keyof Ctx]: string }): string {
-    return `${this.lhs.toString(ctx)}.sub(${this.rhs.toString(ctx)})`;
-  }
-}
-export function sub<Ctx>(
-  lhs: Expr<Ctx, number>,
-  rhs: Expr<Ctx, number>
-): Expr<Ctx, number> {
-  return new Sub(lhs, rhs);
 }
 
 export function parse<Ctx>(
@@ -370,23 +311,6 @@ export function parse<Ctx>(
         argsStr.slice("(v) => ".length)
       ) as Expr<readonly [unknown], number>;
       return sortBy(expr, keyFn);
-    } else if (funcStr.endsWith(".sort")) {
-      if (!argsStr.startsWith("(a, b) => ")) {
-        throw Error("invalid sort lambda");
-      }
-
-      const expr = parse(
-        ctx,
-        funcStr.slice(0, funcStr.length - ".sort".length)
-      ) as Expr<Ctx, readonly unknown[]>;
-      const compareFn = parse<readonly [unknown, unknown]>(
-        {
-          a: 0,
-          b: 1,
-        },
-        argsStr.slice("(a, b) => ".length)
-      ) as Expr<readonly [unknown, unknown], number>;
-      return sort(expr, compareFn);
     } else if (funcStr.endsWith(".filter")) {
       if (!argsStr.startsWith("(v) => ")) {
         throw Error("invalid filter lambda");

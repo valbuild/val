@@ -9,9 +9,7 @@ export {
   find,
   slice,
   sortBy,
-  sort,
   eq,
-  sub,
   parse,
 } from "./expr";
 export * as strings from "./strings";

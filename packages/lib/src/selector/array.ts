@@ -18,13 +18,6 @@ interface ArraySelectorMethods<Ctx, D extends Descriptor> {
   sortBy(
     keyFn: <A>(v: SelectorOf<A, D>) => Selector<A, number>
   ): ArraySelector<Ctx, D>;
-
-  sort(
-    compareFn: <Ctx>(
-      a: SelectorOf<Ctx, D>,
-      b: SelectorOf<Ctx, D>
-    ) => Selector<Ctx, number>
-  ): ArraySelector<Ctx, D>;
 }
 
 export type ArraySelector<Ctx, D extends Descriptor> = Selector<
@@ -78,21 +71,6 @@ class ArraySelectorC<Ctx, D extends Descriptor>
     const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
     const keyFnExpr = keyFn(getSelector(vExpr, this.item))[EXPR]();
     return newArraySelector(expr.sortBy(this.expr, keyFnExpr), this.item);
-  }
-
-  sort(
-    compareFn: <Ctx>(
-      a: SelectorOf<Ctx, D>,
-      b: SelectorOf<Ctx, D>
-    ) => Selector<Ctx, number>
-  ): ArraySelector<Ctx, D> {
-    const aExpr = expr.fromCtx<readonly [ValueOf<D>, ValueOf<D>], 0>(0);
-    const bExpr = expr.fromCtx<readonly [ValueOf<D>, ValueOf<D>], 1>(1);
-    const compareFnExpr = compareFn<readonly [ValueOf<D>, ValueOf<D>]>(
-      getSelector(aExpr, this.item),
-      getSelector(bExpr, this.item)
-    )[EXPR]();
-    return newArraySelector(expr.sort(this.expr, compareFnExpr), this.item);
   }
 }
 
