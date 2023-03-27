@@ -10,7 +10,6 @@ import {
   slice,
   item,
   eq,
-  literal,
 } from "./expr";
 
 const serializationTestCases: {
@@ -30,7 +29,7 @@ const serializationTestCases: {
     str: `["foo"]["bar"]`,
   },
   {
-    expr: eq(fromCtx(0), literal("foo")),
+    expr: eq(fromCtx(0), "foo"),
     str: `.eq("foo")`,
   },
   {

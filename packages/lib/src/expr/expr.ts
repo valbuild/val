@@ -297,25 +297,19 @@ export function sort<Ctx, T>(
 }
 
 class Eq<Ctx, T> implements Expr<Ctx, boolean> {
-  constructor(
-    private readonly lhs: Expr<Ctx, T>,
-    private readonly rhs: Expr<Ctx, T>
-  ) {}
+  constructor(private readonly lhs: Expr<Ctx, T>, private readonly rhs: T) {}
   evaluate(ctx: Ctx): boolean {
     // TODO: Implement deep equality
-    return this.lhs.evaluate(ctx) === this.rhs.evaluate(ctx);
+    return this.lhs.evaluate(ctx) === this.rhs;
   }
   evaluateRef(ctx: Ctx): [boolean, null] {
     return [this.evaluate(ctx), null];
   }
   toString(ctx: { readonly [s in keyof Ctx]: string }): string {
-    return `${this.lhs.toString(ctx)}.eq(${this.rhs.toString(ctx)})`;
+    return `${this.lhs.toString(ctx)}.eq(${JSON.stringify(this.rhs)})`;
   }
 }
-export function eq<Ctx, T>(
-  lhs: Expr<Ctx, T>,
-  rhs: Expr<Ctx, T>
-): Expr<Ctx, boolean> {
+export function eq<Ctx, T>(lhs: Expr<Ctx, T>, rhs: T): Expr<Ctx, boolean> {
   return new Eq(lhs, rhs);
 }
 
@@ -346,7 +340,7 @@ export function parse<Ctx>(
   str: string
 ): Expr<Ctx, unknown> {
   // TODO: Fully implement this
-  // Currently missing: literal, eq, sub
+  // Currently missing: literal, sub
   if (str.endsWith("]")) {
     const bracketStart = lastIndexOf(str, "[");
     if (bracketStart === -1) {
@@ -375,7 +369,7 @@ export function parse<Ctx>(
         funcStr.slice(0, funcStr.length - ".eq".length)
       ) as Expr<Ctx, readonly unknown[]>;
       const rhs = JSON.parse(argsStr);
-      return eq(lhs, literal(rhs));
+      return eq(lhs, rhs);
     } else if (funcStr.endsWith(".sortBy")) {
       if (!argsStr.startsWith("(v) => ")) {
         throw Error("invalid sortBy lambda");

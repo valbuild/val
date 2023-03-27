@@ -18,9 +18,6 @@ export interface Selector<Ctx, Out> {
 export abstract class BaseSelector<Ctx, Out> implements Selector<Ctx, Out> {
   abstract [EXPR](): expr.Expr<Ctx, Out>;
   eq(value: Out): Selector<Ctx, boolean> {
-    return getSelector(
-      expr.eq(this[EXPR](), expr.literal(value)),
-      BooleanDescriptor
-    );
+    return getSelector(expr.eq(this[EXPR](), value), BooleanDescriptor);
   }
 }
