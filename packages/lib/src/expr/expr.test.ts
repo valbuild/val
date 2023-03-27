@@ -10,6 +10,7 @@ import {
   slice,
   item,
   eq,
+  reverse,
 } from "./expr";
 
 const serializationTestCases: {
@@ -35,6 +36,10 @@ const serializationTestCases: {
   {
     expr: sortBy(fromCtx(0), fromCtx<never, 0>(0)),
     str: `.sortBy((v) => v)`,
+  },
+  {
+    expr: reverse(fromCtx(0)),
+    str: `.reverse()`,
   },
   {
     expr: filter(fromCtx(0), fromCtx(0)),
@@ -85,6 +90,23 @@ describe("evaluateRef", () => {
       ["bar", "baz"],
       ["/1", "/2"],
     ]);
+  });
+
+  test("reverse yields multiple paths", () => {
+    const ctx = [[3, 2, 1]] as const;
+    const rootExpr = fromCtx<typeof ctx, 0>(0);
+    const expr = reverse(rootExpr);
+    expect(expr.evaluateRef(ctx, [""])).toEqual<ValueAndRef<number[]>>([
+      [1, 2, 3],
+      ["/2", "/1", "/0"],
+    ]);
+  });
+
+  test("reverse item yields singular path", () => {
+    const ctx = [[3, 2, 1]] as const;
+    const rootExpr = fromCtx<typeof ctx, 0>(0);
+    const expr = item(reverse(rootExpr), 0);
+    expect(expr.evaluateRef(ctx, [""])).toEqual<ValueAndRef<number>>([1, "/2"]);
   });
 
   test("sortBy yields multiple paths", () => {

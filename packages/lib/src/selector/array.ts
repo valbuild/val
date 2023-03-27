@@ -18,6 +18,8 @@ interface ArraySelectorMethods<Ctx, D extends Descriptor> {
   sortBy(
     keyFn: <A>(v: SelectorOf<A, D>) => Selector<A, number>
   ): ArraySelector<Ctx, D>;
+
+  reverse(): ArraySelector<Ctx, D>;
 }
 
 export type ArraySelector<Ctx, D extends Descriptor> = Selector<
@@ -71,6 +73,10 @@ class ArraySelectorC<Ctx, D extends Descriptor>
     const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
     const keyFnExpr = keyFn(getSelector(vExpr, this.item))[EXPR]();
     return newArraySelector(expr.sortBy(this.expr, keyFnExpr), this.item);
+  }
+
+  reverse(): ArraySelector<Ctx, D> {
+    return newArraySelector(expr.reverse(this.expr), this.item);
   }
 }
 

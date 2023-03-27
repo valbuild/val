@@ -243,6 +243,32 @@ export function sortBy<Ctx, T>(
   return new SortBy(expr, keyFn);
 }
 
+class Reverse<Ctx, T> implements Expr<Ctx, T[]> {
+  constructor(private readonly expr: Expr<Ctx, readonly T[]>) {}
+  evaluate(ctx: Ctx): T[] {
+    return this.expr.evaluate(ctx).slice().reverse();
+  }
+  evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T[]> {
+    const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
+    const resValue: T[] = [];
+    const resRef: Ref[] = [];
+    value
+      .map((item, i) => [item, i] as const)
+      .reverse()
+      .forEach(([item, i]) => {
+        resValue.push(item);
+        resRef.push(propRef<T[], number>(ref, i));
+      });
+    return [resValue, resRef];
+  }
+  toString(ctx: ToStringCtx<Ctx>): string {
+    return `${this.expr.toString(ctx)}.reverse()`;
+  }
+}
+export function reverse<Ctx, T>(expr: Expr<Ctx, readonly T[]>): Expr<Ctx, T[]> {
+  return new Reverse(expr);
+}
+
 class Eq<Ctx, T> implements Expr<Ctx, boolean> {
   constructor(private readonly lhs: Expr<Ctx, T>, private readonly rhs: T) {}
   evaluate(ctx: Ctx): boolean {
@@ -311,6 +337,12 @@ export function parse<Ctx>(
         argsStr.slice("(v) => ".length)
       ) as Expr<readonly [unknown], number>;
       return sortBy(expr, keyFn);
+    } else if (funcStr.endsWith(".reverse")) {
+      const expr = parse(
+        ctx,
+        funcStr.slice(0, funcStr.length - ".reverse".length)
+      ) as Expr<Ctx, readonly unknown[]>;
+      return reverse(expr);
     } else if (funcStr.endsWith(".filter")) {
       if (!argsStr.startsWith("(v) => ")) {
         throw Error("invalid filter lambda");

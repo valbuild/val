@@ -4,7 +4,9 @@ import blogsVal from "./blogs.val";
 import { useVal } from "@valbuild/react";
 
 export default function Home() {
-  const blogs = useVal(blogsVal.select((it) => it.sortBy((v) => v.rank)));
+  const blogs = useVal(
+    blogsVal.select((it) => it.sortBy((v) => v.rank).reverse())
+  );
 
   return (
     <main className={styles.main}>

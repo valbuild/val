@@ -9,6 +9,7 @@ export {
   find,
   slice,
   sortBy,
+  reverse,
   eq,
   parse,
 } from "./expr";
