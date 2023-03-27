@@ -9,18 +9,22 @@ import { encodeValSrc } from "./expr/strings";
 import { Selectable } from "./selectable";
 
 export class ValModule<T extends Schema<Source, Source>>
-  implements Selectable<LocalOf<T>>
+  implements Selectable<SrcOf<T>, LocalOf<T>>
 {
   constructor(
     public readonly id: string,
     public readonly content: ModuleContent<T>
   ) {}
 
-  getVal(locale: "en_US"): Val<LocalOf<T>> {
+  getModule(): ValModule<Schema<SrcOf<T>, LocalOf<T>>> {
+    return this as unknown as ValModule<Schema<SrcOf<T>, LocalOf<T>>>;
+  }
+
+  getVal(source: SrcOf<T>, locale: "en_US"): Val<LocalOf<T>> {
     const rootExpr = expr.fromCtx<readonly [LocalOf<T>], 0>(0);
     return newVal(
       encodeValSrc(this.id, locale, rootExpr),
-      this.content.localize(locale)
+      this.content.schema.localize(source, locale) as LocalOf<T>
     );
   }
 
@@ -28,13 +32,18 @@ export class ValModule<T extends Schema<Source, Source>>
     callback: <Ctx>(
       selector: SelectorOf<Ctx, ReturnType<T["localDescriptor"]>>
     ) => Selector<Ctx, Out>
-  ): Selectable<Out> {
+  ): Selectable<SrcOf<T>, Out> {
     const resultExpr = this.content.select(callback);
     return {
-      getVal: (locale) => {
+      getModule: () => {
+        return this;
+      },
+      getVal: (source, locale) => {
         return newVal(
           encodeValSrc(this.id, locale, resultExpr),
-          resultExpr.evaluate([this.content.localize(locale)])
+          resultExpr.evaluate([
+            this.content.schema.localize(source, locale) as LocalOf<T>,
+          ])
         );
       },
     };

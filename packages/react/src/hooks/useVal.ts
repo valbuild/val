@@ -3,31 +3,27 @@ import { useValStore } from "../ValProvider";
 import { Source, Val } from "@valbuild/lib";
 import { Selectable } from "@valbuild/lib/src/selectable";
 
-function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
-  return Object.prototype.hasOwnProperty.call(obj, prop);
-}
-
-export const useVal = <T>(
-  selectable: Selectable<T>,
+export const useVal = <Src extends Source, Localized extends Source>(
+  selectable: Selectable<Src, Localized>,
   locale: "en_US" = "en_US"
-): Val<T> => {
-  return selectable.getVal(locale);
-  /* const valStore = useValStore();
-  const currentVal = useSyncExternalStore(
+): Val<Localized> => {
+  const mod = selectable.getModule();
+  const valStore = useValStore();
+  const remoteContent = useSyncExternalStore(
     valStore.subscribe(mod.id),
     valStore.getSnapshot(mod.id),
     valStore.getServerSnapshot(mod.id)
   );
-  if (currentVal) {
-    return wrapVal(mod.id, currentVal.source as SourceOf<T>);
+  if (remoteContent) {
+    return selectable.getVal(remoteContent.source as Src, locale);
   }
-  const source = mod.content;
-  const validationError = source.validate();
+  const content = mod.content;
+  const validationError = content.validate();
   if (validationError) {
     throw new Error(
       `Invalid source value. Errors:\n${validationError.join("\n")}`
     );
   }
 
-  return wrapVal(mod.id, source.get()); */
+  return selectable.getVal(content.source as Src, locale);
 };
