@@ -53,7 +53,7 @@ export class I18nSchema<T extends Schema<Source, Source>> extends Schema<
     ];
   }
 
-  localDescriptor(): ReturnType<T["rawDescriptor"]> {
+  localDescriptor(): ReturnType<T["localDescriptor"]> {
     return this.schema.localDescriptor() as ReturnType<T["localDescriptor"]>;
   }
 
