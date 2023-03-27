@@ -1,8 +1,6 @@
 import { array } from "../schema/array";
 import { object } from "../schema/object";
 import { string } from "../schema/string";
-import { i18n } from "../schema/i18n";
-import { number } from "../schema/number";
 import { ModuleContent } from "../content";
 
 test("selector", () => {
