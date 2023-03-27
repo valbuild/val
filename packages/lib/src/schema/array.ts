@@ -50,7 +50,7 @@ export class ArraySchema<T extends Schema<Source, Source>> extends Schema<
   localDescriptor(): DetailedArrayDescriptor<ReturnType<T["localDescriptor"]>> {
     return {
       type: "array",
-      item: this.item.rawDescriptor() as ReturnType<T["localDescriptor"]>,
+      item: this.item.localDescriptor() as ReturnType<T["localDescriptor"]>,
     };
   }
 
