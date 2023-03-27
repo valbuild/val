@@ -1,11 +1,19 @@
 import { DetailedObjectDescriptor } from "../descriptor";
 import { Source } from "../Source";
-import { LocalOf, Schema, SrcOf, type SerializedSchema } from "./Schema";
+import {
+  LocalOf,
+  OptIn,
+  OptOut,
+  Schema,
+  SrcOf,
+  type SerializedSchema,
+} from "./Schema";
 import { deserializeSchema } from "./serialization";
 
 export type SerializedObjectSchema = {
   type: "object";
   schema: Record<string, SerializedSchema>;
+  opt: boolean;
 };
 
 type SchemaObject = { [key: string]: Schema<Source, Source> };
@@ -24,17 +32,21 @@ type Some<
   ? T[keyof T]
   : true;
 
-export class ObjectSchema<T extends SchemaObject> extends Schema<
-  SrcObject<T>,
-  OutObject<T>
-> {
-  constructor(private readonly props: T) {
-    super();
+export class ObjectSchema<
+  T extends SchemaObject,
+  Opt extends boolean
+> extends Schema<OptIn<SrcObject<T>, Opt>, OptOut<OutObject<T>, Opt>> {
+  constructor(private readonly props: T, opt: boolean) {
+    super(opt);
   }
-  validate(input: SrcObject<T>): false | string[] {
+  validate(src: OptIn<SrcObject<T>, Opt>): false | string[] {
+    if (src === null) {
+      if (!this.opt) return ["Non-optional object cannot be null"];
+      return false;
+    }
     const errors: string[] = [];
     for (const key in this.props) {
-      const value = input[key];
+      const value = src[key];
       const schema = this.props[key];
       const result = schema.validate(value);
       if (result) {
@@ -53,7 +65,15 @@ export class ObjectSchema<T extends SchemaObject> extends Schema<
     ) as Some<{ [P in keyof T]: ReturnType<T[P]["hasI18n"]> }>;
   }
 
-  localize(src: SrcObject<T>, locale: "en_US"): OutObject<T> {
+  localize(
+    src: OptIn<SrcObject<T>, Opt>,
+    locale: "en_US"
+  ): OptOut<OutObject<T>, Opt> {
+    if (src === null) {
+      if (!this.opt) throw Error("Non-optional object cannot be null");
+      return null as OptOut<OutObject<T>, Opt>;
+    }
+
     return Object.fromEntries(
       Object.entries(this.props).map(([key, schema]) => [
         key,
@@ -63,7 +83,7 @@ export class ObjectSchema<T extends SchemaObject> extends Schema<
   }
 
   delocalizePath(
-    src: SrcObject<T>,
+    src: SrcObject<T> | null,
     localPath: string[],
     locale: "en_US"
   ): string[] {
@@ -72,7 +92,10 @@ export class ObjectSchema<T extends SchemaObject> extends Schema<
     if (!(key in this.props)) {
       throw Error(`${key} is not in schema`);
     }
-    return [key, ...this.props[key].delocalizePath(src[key], tail, locale)];
+    return [
+      key,
+      ...this.props[key].delocalizePath(src?.[key] ?? null, tail, locale),
+    ];
   }
 
   localDescriptor(): DetailedObjectDescriptor<{
@@ -112,22 +135,31 @@ export class ObjectSchema<T extends SchemaObject> extends Schema<
           schema.serialize(),
         ])
       ),
+      opt: this.opt,
     };
+  }
+
+  optional(): ObjectSchema<T, true> {
+    if (this.opt) console.warn("Schema is already optional");
+    return new ObjectSchema(this.props, true);
   }
 
   static deserialize(
     schema: SerializedObjectSchema
-  ): ObjectSchema<SchemaObject> {
+  ): ObjectSchema<SchemaObject, boolean> {
     return new ObjectSchema(
       Object.fromEntries(
         Object.entries(schema.schema).map(([key, schema]) => [
           key,
           deserializeSchema(schema),
         ])
-      )
+      ),
+      schema.opt
     );
   }
 }
-export const object = <T extends SchemaObject>(schema: T): ObjectSchema<T> => {
-  return new ObjectSchema(schema);
+export const object = <T extends SchemaObject>(
+  schema: T
+): ObjectSchema<T, false> => {
+  return new ObjectSchema(schema, false);
 };

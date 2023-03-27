@@ -3,7 +3,11 @@ import { s, val } from "../val.config";
 export default val.content(
   "/app/blogs",
   s.array(
-    s.object({ title: s.i18n(s.string()), text: s.string(), rank: s.number() })
+    s.object({
+      title: s.i18n(s.string()),
+      text: s.string().optional(),
+      rank: s.number(),
+    })
   ),
   [
     {
@@ -26,6 +30,13 @@ export default val.content(
       },
       text: "Vi startet Blank fordi vi \u00F8nsket oss et konsulentselskap hvor vi kan l\u00E6re og utfordre oss selv, et selskap hvor det er veldig fint \u00E5 jobbe - og kanskje aller mest fordi vi liker \u00E5 bygge ting.\n  test\n      I tillegg \u00F8nsket vi \u00E5 forandre bransjen og hvordan et konsulentselskap kan fungere. Mer om det senere..\n      \n      ",
       rank: 1,
+    },
+    {
+      title: {
+        en_US: "TEST!",
+      },
+      text: null,
+      rank: 0,
     },
   ]
 );

@@ -1,28 +1,43 @@
 import { DetailedRecordDescriptor } from "../descriptor";
 import { Source } from "../Source";
-import { LocalOf, Schema, SrcOf, type SerializedSchema } from "./Schema";
+import {
+  LocalOf,
+  OptIn,
+  OptOut,
+  Schema,
+  SrcOf,
+  type SerializedSchema,
+} from "./Schema";
 import { deserializeSchema } from "./serialization";
 
 export type SerializedI18nSchema = {
   type: "i18n";
   schema: SerializedSchema;
+  opt: boolean;
 };
 
-export class I18nSchema<T extends Schema<Source, Source>> extends Schema<
-  Record<"en_US", SrcOf<T>>,
-  LocalOf<T>
+export class I18nSchema<
+  T extends Schema<Source, Source>,
+  Opt extends boolean
+> extends Schema<
+  OptIn<Record<"en_US", SrcOf<T>>, Opt>,
+  OptOut<LocalOf<T>, Opt>
 > {
-  constructor(private readonly schema: T) {
-    super();
+  constructor(private readonly schema: T, opt: boolean) {
+    super(opt);
 
     if (schema.hasI18n()) {
       console.warn("Nested i18n detected. ");
     }
   }
-  validate(input: Record<"en_US", SrcOf<T>>): false | string[] {
+  validate(src: OptIn<Record<"en_US", SrcOf<T>>, Opt>): false | string[] {
+    if (src === null) {
+      if (!this.opt) return ["Non-optional i18n cannot be null"];
+      return false;
+    }
     const errors: string[] = [];
-    for (const key in input) {
-      const value = input[key as "en_US"];
+    for (const key in src) {
+      const value = src[key as "en_US"];
       const result = this.schema.validate(value);
       if (result) {
         errors.push(...result.map((error) => `[${key}]: ${error}`));
@@ -38,18 +53,25 @@ export class I18nSchema<T extends Schema<Source, Source>> extends Schema<
     return true;
   }
 
-  localize(src: Record<"en_US", SrcOf<T>>, locale: "en_US"): LocalOf<T> {
+  localize(
+    src: OptIn<Record<"en_US", SrcOf<T>>, Opt>,
+    locale: "en_US"
+  ): OptOut<LocalOf<T>, Opt> {
+    if (src === null) {
+      if (!this.opt) throw Error("Non-optional i18n cannot be null");
+      return null as OptOut<LocalOf<T>, Opt>;
+    }
     return this.schema.localize(src[locale], locale) as LocalOf<T>;
   }
 
   delocalizePath(
-    src: Record<"en_US", SrcOf<T>>,
+    src: Record<"en_US", SrcOf<T>> | null,
     localPath: string[],
     locale: "en_US"
   ): string[] {
     return [
       locale,
-      ...this.schema.delocalizePath(src[locale], localPath, locale),
+      ...this.schema.delocalizePath(src?.[locale] ?? null, localPath, locale),
     ];
   }
 
@@ -68,17 +90,23 @@ export class I18nSchema<T extends Schema<Source, Source>> extends Schema<
     return {
       type: "i18n",
       schema: this.schema.serialize(),
+      opt: this.opt,
     };
+  }
+
+  optional(): I18nSchema<T, true> {
+    if (this.opt) console.warn("Schema is already optional");
+    return new I18nSchema(this.schema, true);
   }
 
   static deserialize(
     schema: SerializedI18nSchema
-  ): I18nSchema<Schema<Source, Source>> {
-    return new I18nSchema(deserializeSchema(schema.schema));
+  ): I18nSchema<Schema<Source, Source>, boolean> {
+    return new I18nSchema(deserializeSchema(schema.schema), schema.opt);
   }
 }
 export const i18n = <T extends Schema<Source, Source>>(
   schema: T
-): I18nSchema<T> => {
-  return new I18nSchema(schema);
+): I18nSchema<T, false> => {
+  return new I18nSchema(schema, false);
 };

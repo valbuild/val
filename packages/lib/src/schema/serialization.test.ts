@@ -17,9 +17,11 @@ describe("Schema", () => {
         type: "array",
         schema: {
           type: "string",
+          opt: false,
         },
+        opt: false,
       },
-      deserialized: new ArraySchema(new StringSchema()),
+      deserialized: new ArraySchema(new StringSchema(undefined, false), false),
     },
     {
       name: "object",
@@ -28,19 +30,25 @@ describe("Schema", () => {
         schema: {
           foo: {
             type: "string",
+            opt: false,
           },
         },
+        opt: false,
       },
-      deserialized: new ObjectSchema({
-        foo: new StringSchema(),
-      }),
+      deserialized: new ObjectSchema(
+        {
+          foo: new StringSchema(undefined, false),
+        },
+        false
+      ),
     },
     {
       name: "string",
       serialized: {
         type: "string",
+        opt: false,
       },
-      deserialized: new StringSchema(),
+      deserialized: new StringSchema(undefined, false),
     },
   ];
 

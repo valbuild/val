@@ -27,14 +27,40 @@ export type LocalOf<T extends Schema<Source, Source>> = T extends Schema<
   ? Out
   : Source;
 
+/**
+ * Makes a value of type {@link T} potentially optional based on {@link Opt}.
+ * Unlike {@link OptOut}, OptIn defalts to non-null if the optionality is
+ * unknown, making it suitable for function parameters.
+ *
+ * - If {@link Opt} is true, the value is T | null.
+ * - If {@link Opt} is false or boolean (unknown), the value is T.
+ */
+export type OptIn<T extends Source, Opt extends boolean> = [Opt] extends [true]
+  ? T | null
+  : T;
+
+/**
+ * Makes a value of type {@link T} potentially optional based on {@link Opt}.
+ * Unlike {@link OptIn}, OptOut defalts to nullable if the optionality is
+ * unknown, making it suitable for function return values.
+ *
+ * - If {@link Opt} is true or boolean (unknown), the value is T | null.
+ * - If {@link Opt} is false, the value is T.
+ */
+export type OptOut<T extends Source, Opt extends boolean> = [Opt] extends [true]
+  ? T | null
+  : T;
+
 export abstract class Schema<Src extends Source, Local extends Source> {
+  constructor(protected readonly opt: boolean) {}
+
   /**
    * Validate a value against this schema
    *
-   * @param input
+   * @param src
    * @internal
    */
-  abstract validate(input: Src): false | string[];
+  abstract validate(src: Src): false | string[];
 
   /**
    * Check if this schema or any of its ancestors has i18n capabilities.
@@ -54,7 +80,7 @@ export abstract class Schema<Src extends Source, Local extends Source> {
   // NOTE: src is currently unused, but may eventually be required for more
   // complex schemas
   abstract delocalizePath(
-    src: Src,
+    src: Src | null,
     localPath: string[],
     locale: "en_US"
   ): string[];

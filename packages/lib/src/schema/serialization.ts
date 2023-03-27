@@ -15,7 +15,7 @@ export function deserializeSchema(
     case "i18n":
       return I18nSchema.deserialize(schema);
     case "number":
-      return NumberSchema.deserialize();
+      return NumberSchema.deserialize(schema);
     case "object":
       return ObjectSchema.deserialize(schema);
     case "string":

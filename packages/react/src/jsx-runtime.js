@@ -11,12 +11,17 @@ const devalProps = (type, props) => {
 
   if (isIntrinsicElement(type)) {
     for (const [key, value] of Object.entries(props)) {
-      if (value && value.val && value.valSrc) {
+      if (
+        typeof value === "object" &&
+        value !== null &&
+        "val" in value &&
+        "valSrc" in value
+      ) {
         valSources.push(value.valSrc);
-        if (typeof value.val === "string") {
+        if (typeof value.val === "string" || value.val === null) {
           props[key] = value.val;
         } else {
-          throw Error("TODO: handle non-string values");
+          throw Error("TODO: unhandled value type");
         }
       }
     }
