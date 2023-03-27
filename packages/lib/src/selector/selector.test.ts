@@ -34,12 +34,11 @@ test("selector", () => {
   );
 
   const baz = content.select((root) => root.foo.bar[0].baz);
-  expect(baz).toEqual("foo");
+  expect(baz.evaluate([content.source])).toEqual("foo");
 
   expect(
-    content.select((root) => {
-      const bar = root.foo.bar;
-      return bar.filter((i) => i.baz.eq("foo"));
-    })
+    content
+      .select((root) => root.foo.bar.filter((i) => i.baz.eq("foo")))
+      .evaluate([content.source])
   ).toEqual([{ baz: "foo" }]);
 });

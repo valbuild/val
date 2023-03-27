@@ -25,12 +25,9 @@ const { s, val } = initVal();
 describe("useVal", () => {
   test("extracts ValString from string", () => {
     const mod = val.content("foo", s.string(), "bar");
-    const { result } = renderHook(
-      () => useVal(mod.select((mod) => mod, "en_US")),
-      {
-        wrapper: Providers,
-      }
-    );
+    const { result } = renderHook(() => useVal(mod, "en_US"), {
+      wrapper: Providers,
+    });
     expect(result.current).toStrictEqual<PrimitiveVal<string>>({
       val: "bar",
       valSrc: "foo?en_US?",
@@ -42,12 +39,9 @@ describe("useVal", () => {
       foo: "bar",
     });
 
-    const { result } = renderHook(
-      () => useVal(mod.select((baz) => baz, "en_US")),
-      {
-        wrapper: Providers,
-      }
-    );
+    const { result } = renderHook(() => useVal(mod, "en_US"), {
+      wrapper: Providers,
+    });
     const vo: CompositeVal<{ foo: string }> = result.current;
     expect(vo.foo).toStrictEqual<PrimitiveVal<string>>({
       valSrc: `baz?en_US?["foo"]`,

@@ -1,34 +1,43 @@
 import * as expr from "./expr";
 import { ModuleContent } from "./content";
-import { Schema, SrcOf } from "./schema/Schema";
-import { getSelector, SelectorOf } from "./selector";
-import { EXPR, Selector } from "./selector/selector";
+import { LocalOf, Schema, SrcOf } from "./schema/Schema";
+import { SelectorOf } from "./selector";
+import { Selector } from "./selector/selector";
 import { Source } from "./Source";
 import { newVal, Val } from "./Val";
 import { encodeValSrc } from "./expr/strings";
+import { Selectable } from "./selectable";
 
-export class ValModule<T extends Schema<Source, Source>> {
+export class ValModule<T extends Schema<Source, Source>>
+  implements Selectable<LocalOf<T>>
+{
   constructor(
     public readonly id: string,
     public readonly content: ModuleContent<T>
   ) {}
 
+  getVal(locale: "en_US"): Val<LocalOf<T>> {
+    const rootExpr = expr.fromCtx<readonly [LocalOf<T>], 0>(0);
+    return newVal(
+      encodeValSrc(this.id, locale, rootExpr),
+      this.content.localize(locale)
+    );
+  }
+
   select<Out>(
     callback: <Ctx>(
       selector: SelectorOf<Ctx, ReturnType<T["localDescriptor"]>>
-    ) => Selector<Ctx, Out>,
-    locale: "en_US" = "en_US"
-  ): Val<Out> {
-    const ctx = [
-      this.content.schema.localize(this.content.source, locale),
-    ] as const;
-    const rootExpr = expr.fromCtx<typeof ctx, 0>(0);
-    const rootSelector = getSelector(
-      rootExpr,
-      this.content.schema.localDescriptor()
-    ) as SelectorOf<typeof ctx, ReturnType<T["localDescriptor"]>>;
-    const result = callback(rootSelector)[EXPR]();
-    return newVal(encodeValSrc(this.id, locale, result), result.evaluate(ctx));
+    ) => Selector<Ctx, Out>
+  ): Selectable<Out> {
+    const resultExpr = this.content.select(callback);
+    return {
+      getVal: (locale) => {
+        return newVal(
+          encodeValSrc(this.id, locale, resultExpr),
+          resultExpr.evaluate([this.content.localize(locale)])
+        );
+      },
+    };
   }
 }
 

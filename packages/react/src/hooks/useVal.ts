@@ -1,13 +1,17 @@
 import { useSyncExternalStore } from "react";
 import { useValStore } from "../ValProvider";
 import { Source, Val } from "@valbuild/lib";
+import { Selectable } from "@valbuild/lib/src/selectable";
 
 function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
   return Object.prototype.hasOwnProperty.call(obj, prop);
 }
 
-export const useVal = <T>(val: Val<T>): Val<T> => {
-  return val;
+export const useVal = <T>(
+  selectable: Selectable<T>,
+  locale: "en_US" = "en_US"
+): Val<T> => {
+  return selectable.getVal(locale);
   /* const valStore = useValStore();
   const currentVal = useSyncExternalStore(
     valStore.subscribe(mod.id),
