@@ -54,22 +54,6 @@ export interface Expr<Ctx, T> {
   toString(ctx: ToStringCtx<Ctx>): string;
 }
 
-class Literal<Ctx, T> implements Expr<Ctx, T> {
-  constructor(private readonly value: T) {}
-  evaluate(): T {
-    return this.value;
-  }
-  evaluateRef(): [T, null] {
-    return [this.value, null];
-  }
-  toString(): string {
-    return JSON.stringify(this.value);
-  }
-}
-export function literal<Ctx, T>(value: T): Expr<Ctx, T> {
-  return new Literal(value);
-}
-
 class FromCtx<Ctx extends { readonly [s in S]: unknown }, S extends PropertyKey>
   implements Expr<Ctx, Ctx[S]>
 {
@@ -340,7 +324,7 @@ export function parse<Ctx>(
   str: string
 ): Expr<Ctx, unknown> {
   // TODO: Fully implement this
-  // Currently missing: literal, sub
+  // Currently missing: sub
   if (str.endsWith("]")) {
     const bracketStart = lastIndexOf(str, "[");
     if (bracketStart === -1) {

@@ -2,7 +2,6 @@ export {
   type Ref,
   type Expr,
   isAssignable,
-  literal,
   fromCtx,
   prop,
   item,
