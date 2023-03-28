@@ -61,3 +61,6 @@ export class NumberSchema<Opt extends boolean> extends Schema<
 export const number = (): NumberSchema<false> => {
   return new NumberSchema(false);
 };
+number.optional = (): NumberSchema<true> => {
+  return new NumberSchema(true);
+};

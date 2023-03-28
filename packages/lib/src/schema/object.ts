@@ -177,3 +177,8 @@ export const object = <T extends SchemaObject>(
 ): ObjectSchema<T, false> => {
   return new ObjectSchema(schema, false);
 };
+object.optional = <T extends SchemaObject>(
+  schema: T
+): ObjectSchema<T, true> => {
+  return new ObjectSchema(schema, true);
+};

@@ -121,3 +121,8 @@ export const i18n = <T extends Schema<Source, Source>>(
 ): I18nSchema<T, false> => {
   return new I18nSchema(schema, false);
 };
+i18n.optional = <T extends Schema<Source, Source>>(
+  schema: T
+): I18nSchema<T, true> => {
+  return new I18nSchema(schema, true);
+};

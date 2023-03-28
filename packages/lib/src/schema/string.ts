@@ -95,3 +95,6 @@ export class StringSchema<Opt extends boolean> extends Schema<
 export const string = (options?: StringOptions): StringSchema<false> => {
   return new StringSchema(options, false);
 };
+string.optional = (options?: StringOptions): StringSchema<true> => {
+  return new StringSchema(options, true);
+};

@@ -121,3 +121,8 @@ export const array = <T extends Schema<Source, Source>>(
 ): ArraySchema<T, false> => {
   return new ArraySchema(schema, false);
 };
+array.optional = <T extends Schema<Source, Source>>(
+  schema: T
+): ArraySchema<T, true> => {
+  return new ArraySchema(schema, true);
+};
