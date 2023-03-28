@@ -1,9 +1,13 @@
 import * as expr from "../expr";
 import { getSelector, SelectorOf } from ".";
-import { BaseSelector, EXPR, Selector } from "./selector";
-import { ObjectDescriptorProps, ValueOf } from "../descriptor";
+import { BaseSelector, DESC, EXPR, Selector } from "./selector";
+import {
+  DetailedObjectDescriptor,
+  ObjectDescriptorProps,
+  ValueOf,
+} from "../descriptor";
 
-type ValuesOf<D extends ObjectDescriptorProps> = {
+export type ValuesOf<D extends ObjectDescriptorProps> = {
   [P in keyof D]: ValueOf<D[P]>;
 };
 
@@ -24,6 +28,12 @@ class ObjectSelectorC<
 
   [EXPR](): expr.Expr<Ctx, ValuesOf<D>> {
     return this.expr;
+  }
+  [DESC](): DetailedObjectDescriptor<D> {
+    return {
+      type: "object",
+      props: this.props,
+    };
   }
 }
 

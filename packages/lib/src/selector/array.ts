@@ -1,7 +1,13 @@
 import * as expr from "../expr";
 import { getSelector, SelectorOf } from ".";
-import { BaseSelector, EXPR, Selector } from "./selector";
-import { asOptional, AsOptional, Descriptor, ValueOf } from "../descriptor";
+import { BaseSelector, DESC, EXPR, Selector } from "./selector";
+import {
+  asOptional,
+  AsOptional,
+  Descriptor,
+  DetailedArrayDescriptor,
+  ValueOf,
+} from "../descriptor";
 
 interface ArraySelectorMethods<Ctx, D extends Descriptor> {
   filter(
@@ -42,6 +48,12 @@ class ArraySelectorC<Ctx, D extends Descriptor>
 
   [EXPR](): expr.Expr<Ctx, readonly ValueOf<D>[]> {
     return this.expr;
+  }
+  [DESC](): DetailedArrayDescriptor<D> {
+    return {
+      type: "array",
+      item: this.item,
+    };
   }
 
   filter(

@@ -58,6 +58,15 @@ export function asOptional<D extends Descriptor>(desc: D): AsOptional<D> {
   ) as AsOptional<D>;
 }
 
+export type AsRequired<D extends Descriptor> = [D] extends [OptionalDescriptor]
+  ? D["item"]
+  : [D] extends [NNDescriptor]
+  ? D
+  : never;
+export function asRequired<D extends Descriptor>(desc: D): AsRequired<D> {
+  return (desc.type === "optional" ? desc.item : desc) as AsRequired<D>;
+}
+
 export type StringDescriptor = {
   readonly type: "string";
 };

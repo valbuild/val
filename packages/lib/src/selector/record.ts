@@ -1,7 +1,7 @@
 import * as expr from "../expr";
 import { getSelector, SelectorOf } from ".";
-import { BaseSelector, EXPR, Selector } from "./selector";
-import { Descriptor, ValueOf } from "../descriptor";
+import { BaseSelector, DESC, EXPR, Selector } from "./selector";
+import { Descriptor, DetailedRecordDescriptor, ValueOf } from "../descriptor";
 
 export type RecordSelector<Ctx, D extends Descriptor> = Selector<
   Ctx,
@@ -23,6 +23,12 @@ class RecordSelectorC<Ctx, D extends Descriptor> extends BaseSelector<
 
   [EXPR](): expr.Expr<Ctx, Record<string, ValueOf<D>>> {
     return this.expr;
+  }
+  [DESC](): DetailedRecordDescriptor<D> {
+    return {
+      type: "record",
+      item: this.item,
+    };
   }
 }
 

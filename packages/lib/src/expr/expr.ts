@@ -287,6 +287,40 @@ export function eq<Ctx, T>(lhs: Expr<Ctx, T>, rhs: T): Expr<Ctx, boolean> {
   return new Eq(lhs, rhs);
 }
 
+class AndThen<Ctx, T, U> implements Expr<Ctx, U | null> {
+  constructor(
+    private readonly expr: Expr<Ctx, T | null>,
+    private readonly callback: Expr<readonly [T], U | null>
+  ) {}
+  evaluate(ctx: Ctx): U | null {
+    const value = this.expr.evaluate(ctx);
+    if (value === null) {
+      return null;
+    }
+    return this.callback.evaluate([value]);
+  }
+  evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<U | null> {
+    const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
+    if (value === null) {
+      // TODO: Figure out if it makes sense to return the underlying ref in case
+      // the value is null
+      return [null, ref];
+    }
+    return this.callback.evaluateRef([value], [ref]);
+  }
+  toString(ctx: ToStringCtx<Ctx>): string {
+    return `${this.expr.toString(ctx)}.andThen((v) => ${this.callback.toString([
+      "v",
+    ])})`;
+  }
+}
+export function andThen<Ctx, T, U>(
+  expr: Expr<Ctx, T | null>,
+  callback: Expr<readonly [T], U | null>
+): Expr<Ctx, U | null> {
+  return new AndThen(expr, callback);
+}
+
 export function parse<Ctx>(
   ctx: { readonly [s in string]: keyof Ctx },
   str: string

@@ -11,6 +11,7 @@ export {
   sortBy,
   reverse,
   eq,
+  andThen,
   parse,
 } from "./expr";
 export * as strings from "./strings";
