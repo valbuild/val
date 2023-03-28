@@ -2,6 +2,8 @@ import { DetailedRecordDescriptor } from "../descriptor";
 import { Source } from "../Source";
 import {
   LocalOf,
+  maybeOptDesc,
+  MaybeOptDesc,
   OptIn,
   OptOut,
   Schema,
@@ -23,7 +25,7 @@ export class I18nSchema<
   OptIn<Record<"en_US", SrcOf<T>>, Opt>,
   OptOut<LocalOf<T>, Opt>
 > {
-  constructor(private readonly schema: T, opt: boolean) {
+  constructor(private readonly schema: T, protected readonly opt: Opt) {
     super(opt);
 
     if (schema.hasI18n()) {
@@ -75,15 +77,24 @@ export class I18nSchema<
     ];
   }
 
-  localDescriptor(): ReturnType<T["localDescriptor"]> {
-    return this.schema.localDescriptor() as ReturnType<T["localDescriptor"]>;
+  localDescriptor(): MaybeOptDesc<ReturnType<T["localDescriptor"]>, Opt> {
+    return maybeOptDesc(
+      this.schema.localDescriptor() as ReturnType<T["localDescriptor"]>,
+      this.opt
+    );
   }
 
-  rawDescriptor(): DetailedRecordDescriptor<ReturnType<T["rawDescriptor"]>> {
-    return {
-      type: "record",
-      item: this.schema.rawDescriptor() as ReturnType<T["rawDescriptor"]>,
-    };
+  rawDescriptor(): MaybeOptDesc<
+    DetailedRecordDescriptor<ReturnType<T["rawDescriptor"]>>,
+    Opt
+  > {
+    return maybeOptDesc(
+      {
+        type: "record",
+        item: this.schema.rawDescriptor() as ReturnType<T["rawDescriptor"]>,
+      },
+      this.opt
+    );
   }
 
   serialize(): SerializedI18nSchema {

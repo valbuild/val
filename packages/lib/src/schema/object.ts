@@ -2,6 +2,8 @@ import { DetailedObjectDescriptor } from "../descriptor";
 import { Source } from "../Source";
 import {
   LocalOf,
+  maybeOptDesc,
+  MaybeOptDesc,
   OptIn,
   OptOut,
   Schema,
@@ -36,7 +38,7 @@ export class ObjectSchema<
   T extends SchemaObject,
   Opt extends boolean
 > extends Schema<OptIn<SrcObject<T>, Opt>, OptOut<OutObject<T>, Opt>> {
-  constructor(private readonly props: T, opt: boolean) {
+  constructor(private readonly props: T, protected readonly opt: Opt) {
     super(opt);
   }
   validate(src: OptIn<SrcObject<T>, Opt>): false | string[] {
@@ -98,32 +100,44 @@ export class ObjectSchema<
     ];
   }
 
-  localDescriptor(): DetailedObjectDescriptor<{
-    [P in keyof T]: ReturnType<T[P]["localDescriptor"]>;
-  }> {
-    return {
-      type: "object",
-      props: Object.fromEntries(
-        Object.entries(this.props).map(([key, schema]) => [
-          key,
-          schema.localDescriptor(),
-        ])
-      ) as { [P in keyof T]: ReturnType<T[P]["localDescriptor"]> },
-    };
+  localDescriptor(): MaybeOptDesc<
+    DetailedObjectDescriptor<{
+      [P in keyof T]: ReturnType<T[P]["localDescriptor"]>;
+    }>,
+    Opt
+  > {
+    return maybeOptDesc(
+      {
+        type: "object",
+        props: Object.fromEntries(
+          Object.entries(this.props).map(([key, schema]) => [
+            key,
+            schema.localDescriptor(),
+          ])
+        ) as { [P in keyof T]: ReturnType<T[P]["localDescriptor"]> },
+      },
+      this.opt
+    );
   }
 
-  rawDescriptor(): DetailedObjectDescriptor<{
-    [P in keyof T]: ReturnType<T[P]["rawDescriptor"]>;
-  }> {
-    return {
-      type: "object",
-      props: Object.fromEntries(
-        Object.entries(this.props).map(([key, schema]) => [
-          key,
-          schema.rawDescriptor(),
-        ])
-      ) as { [P in keyof T]: ReturnType<T[P]["rawDescriptor"]> },
-    };
+  rawDescriptor(): MaybeOptDesc<
+    DetailedObjectDescriptor<{
+      [P in keyof T]: ReturnType<T[P]["rawDescriptor"]>;
+    }>,
+    Opt
+  > {
+    return maybeOptDesc(
+      {
+        type: "object",
+        props: Object.fromEntries(
+          Object.entries(this.props).map(([key, schema]) => [
+            key,
+            schema.rawDescriptor(),
+          ])
+        ) as { [P in keyof T]: ReturnType<T[P]["rawDescriptor"]> },
+      },
+      this.opt
+    );
   }
 
   serialize(): SerializedObjectSchema {

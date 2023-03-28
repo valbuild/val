@@ -1,17 +1,16 @@
 import * as expr from "../expr";
 import { getSelector, SelectorOf } from ".";
 import { BaseSelector, EXPR, Selector } from "./selector";
-import { Descriptor, ValueOf } from "../descriptor";
+import { asOptional, AsOptional, Descriptor, ValueOf } from "../descriptor";
 
 interface ArraySelectorMethods<Ctx, D extends Descriptor> {
   filter(
     predicate: <T>(v: SelectorOf<T, D>) => Selector<T, unknown>
   ): ArraySelector<Ctx, D>;
 
-  // TODO: Optionals!
   find(
     predicate: <T>(item: SelectorOf<T, D>) => Selector<T, unknown>
-  ): SelectorOf<Ctx, D>;
+  ): SelectorOf<Ctx, AsOptional<D>>;
 
   slice(begin: number, end?: number): ArraySelector<Ctx, D>;
 
@@ -55,12 +54,15 @@ class ArraySelectorC<Ctx, D extends Descriptor>
 
   find(
     predicate: <T>(item: SelectorOf<T, D>) => Selector<T, unknown>
-  ): SelectorOf<Ctx, D> {
+  ): SelectorOf<Ctx, AsOptional<D>> {
     const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
     const predicateExpr = predicate(getSelector(vExpr, this.item))[EXPR]();
-    // TODO: This ignores optionality of value
-    const e = expr.find(this.expr, predicateExpr) as expr.Expr<Ctx, ValueOf<D>>;
-    return getSelector(e, this.item);
+    // TODO: Change expr.find to return null instead of undefined
+    const e = expr.find(this.expr, predicateExpr) as expr.Expr<
+      Ctx,
+      ValueOf<AsOptional<D>>
+    >;
+    return getSelector<Ctx, AsOptional<D>>(e, asOptional(this.item));
   }
 
   slice(start: number, end?: number | undefined): ArraySelector<Ctx, D> {

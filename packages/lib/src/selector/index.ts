@@ -6,9 +6,11 @@ import { Selector } from "./selector";
 import {
   ArrayDescriptor,
   Descriptor,
+  NNDescriptor,
   NumberDescriptor,
   ObjectDescriptor,
   ObjectDescriptorProps,
+  OptionalDescriptor,
   RecordDescriptor,
   ValueOf,
 } from "../descriptor";
@@ -23,6 +25,9 @@ export type SelectorOf<Ctx, D extends Descriptor> = [D] extends [
   ? ArraySelector<Ctx, D["item"]>
   : [D] extends [RecordDescriptor]
   ? RecordSelector<Ctx, D["item"]>
+  : // TODO: Use optional for something
+  [D] extends [OptionalDescriptor]
+  ? SelectorOf<Ctx, D["item"]>
   : [D] extends [NumberDescriptor]
   ? NumberSelector<Ctx>
   : Selector<Ctx, ValueOf<D>>;
@@ -47,6 +52,12 @@ export function getSelector<Ctx, D extends Descriptor>(
         expr as expr.Expr<Ctx, ValueOf<ObjectDescriptor>>,
         desc.props
       ) as unknown as SelectorOf<Ctx, D>;
+    case "optional":
+      // TODO: Use optional for something
+      return getSelector(
+        expr as expr.Expr<Ctx, ValueOf<NNDescriptor>>,
+        desc.item
+      ) as SelectorOf<Ctx, D>;
     case "string":
     case "boolean":
       return new PrimitiveSelector(expr) as unknown as SelectorOf<Ctx, D>;

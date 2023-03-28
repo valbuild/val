@@ -2,6 +2,8 @@ import { DetailedArrayDescriptor } from "../descriptor";
 import { Source } from "../Source";
 import {
   LocalOf,
+  MaybeOptDesc,
+  maybeOptDesc,
   OptIn,
   OptOut,
   Schema,
@@ -69,18 +71,30 @@ export class ArraySchema<
     ];
   }
 
-  localDescriptor(): DetailedArrayDescriptor<ReturnType<T["localDescriptor"]>> {
-    return {
-      type: "array",
-      item: this.item.localDescriptor() as ReturnType<T["localDescriptor"]>,
-    };
+  localDescriptor(): MaybeOptDesc<
+    DetailedArrayDescriptor<ReturnType<T["localDescriptor"]>>,
+    Opt
+  > {
+    return maybeOptDesc(
+      {
+        type: "array",
+        item: this.item.localDescriptor() as ReturnType<T["localDescriptor"]>,
+      },
+      this.opt
+    );
   }
 
-  rawDescriptor(): DetailedArrayDescriptor<ReturnType<T["rawDescriptor"]>> {
-    return {
-      type: "array",
-      item: this.item.rawDescriptor() as ReturnType<T["rawDescriptor"]>,
-    };
+  rawDescriptor(): MaybeOptDesc<
+    DetailedArrayDescriptor<ReturnType<T["rawDescriptor"]>>,
+    Opt
+  > {
+    return maybeOptDesc(
+      {
+        type: "array",
+        item: this.item.rawDescriptor() as ReturnType<T["rawDescriptor"]>,
+      },
+      this.opt
+    );
   }
 
   serialize(): SerializedArraySchema {

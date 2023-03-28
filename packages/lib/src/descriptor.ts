@@ -32,6 +32,32 @@ export type DetailedObjectDescriptor<D extends ObjectDescriptorProps> = {
   readonly props: D;
 };
 
+export type OptionalDescriptor = {
+  readonly type: "optional";
+  readonly item: NNDescriptor;
+};
+
+export type DetailedOptionalDescriptor<D extends NNDescriptor> = {
+  readonly type: "optional";
+  readonly item: D;
+};
+
+export type AsOptional<D extends Descriptor> = [D] extends [OptionalDescriptor]
+  ? D
+  : [D] extends [NNDescriptor]
+  ? DetailedOptionalDescriptor<D>
+  : never;
+export function asOptional<D extends Descriptor>(desc: D): AsOptional<D> {
+  return (
+    desc.type === "optional"
+      ? desc
+      : {
+          type: "optional",
+          item: desc,
+        }
+  ) as AsOptional<D>;
+}
+
 export type StringDescriptor = {
   readonly type: "string";
 };
@@ -53,7 +79,7 @@ export const BooleanDescriptor: BooleanDescriptor = Object.freeze({
   type: "boolean",
 });
 
-export type Descriptor =
+export type NNDescriptor =
   | ArrayDescriptor
   | RecordDescriptor
   | ObjectDescriptor
@@ -61,12 +87,16 @@ export type Descriptor =
   | NumberDescriptor
   | BooleanDescriptor;
 
+export type Descriptor = NNDescriptor | OptionalDescriptor;
+
 export type ValueOf<D> = [D] extends [ArrayDescriptor]
   ? ValueOf<D["item"]>[]
   : [D] extends [RecordDescriptor]
   ? Record<string, ValueOf<D["item"]>>
   : [D] extends [ObjectDescriptor]
   ? { [P in keyof D["props"]]: ValueOf<D["props"][P]> }
+  : [D] extends [OptionalDescriptor]
+  ? ValueOf<D["item"]> | null
   : [D] extends [StringDescriptor]
   ? string
   : [D] extends [NumberDescriptor]
