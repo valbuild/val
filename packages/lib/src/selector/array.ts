@@ -57,7 +57,6 @@ class ArraySelectorC<Ctx, D extends Descriptor>
   ): SelectorOf<Ctx, AsOptional<D>> {
     const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
     const predicateExpr = predicate(getSelector(vExpr, this.item))[EXPR]();
-    // TODO: Change expr.find to return null instead of undefined
     const e = expr.find(this.expr, predicateExpr) as expr.Expr<
       Ctx,
       ValueOf<AsOptional<D>>

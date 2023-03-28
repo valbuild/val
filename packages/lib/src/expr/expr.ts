@@ -144,21 +144,22 @@ export function filter<Ctx, T>(
   return new Filter(expr, predicate);
 }
 
-class Find<Ctx, T> implements Expr<Ctx, T | undefined> {
+class Find<Ctx, T> implements Expr<Ctx, T | null> {
   constructor(
     private readonly expr: Expr<Ctx, readonly T[]>,
     private readonly predicate: Expr<readonly [T], unknown>
   ) {}
-  evaluate(ctx: Ctx): T | undefined {
-    return this.expr
-      .evaluate(ctx)
-      .find((item) => this.predicate.evaluate([item]));
+  evaluate(ctx: Ctx): T | null {
+    return (
+      this.expr.evaluate(ctx).find((item) => this.predicate.evaluate([item])) ??
+      null
+    );
   }
-  evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T | undefined> {
+  evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T | null> {
     const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
     const idx = value.findIndex((item) => this.predicate.evaluate([item]));
     if (idx === -1) {
-      return [undefined, null];
+      return [null, null];
     }
     return [value[idx], propRef<T[], number>(ref, idx)];
   }
@@ -171,7 +172,7 @@ class Find<Ctx, T> implements Expr<Ctx, T | undefined> {
 export function find<Ctx, T>(
   expr: Expr<Ctx, readonly T[]>,
   predicate: Expr<readonly [T], unknown>
-): Expr<Ctx, T | undefined> {
+): Expr<Ctx, T | null> {
   return new Find(expr, predicate);
 }
 
