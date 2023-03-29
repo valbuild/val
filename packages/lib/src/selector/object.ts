@@ -1,6 +1,6 @@
 import * as expr from "../expr";
 import { getSelector, SelectorOf } from ".";
-import { BaseSelector, DESC, EXPR, Selector } from "./selector";
+import { Selector, DESC, EXPR } from "./selector";
 import {
   DetailedObjectDescriptor,
   ObjectDescriptorProps,
@@ -18,10 +18,10 @@ export type ObjectSelector<Ctx, D extends ObjectDescriptorProps> = Selector<
   readonly [P in keyof D]: SelectorOf<Ctx, D[P]>;
 };
 
-class ObjectSelectorC<
+class ObjectSelectorC<Ctx, D extends ObjectDescriptorProps> extends Selector<
   Ctx,
-  D extends ObjectDescriptorProps
-> extends BaseSelector<Ctx, ValuesOf<D>> {
+  ValuesOf<D>
+> {
   constructor(readonly expr: expr.Expr<Ctx, ValuesOf<D>>, readonly props: D) {
     super();
   }

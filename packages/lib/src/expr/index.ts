@@ -12,6 +12,8 @@ export {
   reverse,
   eq,
   andThen,
+  objectLiteral,
+  arrayLiteral,
   parse,
 } from "./expr";
 export * as strings from "./strings";

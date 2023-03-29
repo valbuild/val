@@ -16,7 +16,7 @@ export * as strings from "./strings";
  * For other expressions such as literals and those consisting of arithmetic
  * operations, the Ref is null and its value is not assignable.
  */
-export type Ref = Ref[] | string | null;
+export type Ref = { [p in string]: Ref } | Ref[] | string | null;
 export type ValueAndRef<T> = readonly [value: T, ref: Ref];
 
 export function isAssignable(ref: Ref): ref is string {
@@ -319,6 +319,78 @@ export function andThen<Ctx, T, U>(
   callback: Expr<readonly [T], U | null>
 ): Expr<Ctx, U | null> {
   return new AndThen(expr, callback);
+}
+
+class ObjectLiteral<Ctx, T extends { [p in string]: unknown }>
+  implements Expr<Ctx, T>
+{
+  constructor(private readonly props: { [p in keyof T]: Expr<Ctx, T[p]> }) {}
+  evaluate(ctx: Ctx): T {
+    return Object.fromEntries(
+      Object.entries(this.props).map(
+        ([prop, expr]: [string, Expr<Ctx, T[string]>]) => [
+          prop,
+          expr.evaluate(ctx),
+        ]
+      )
+    ) as T;
+  }
+  evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T> {
+    const valueEntries: [prop: string, value: T[string]][] = [];
+    const refEntries: [prop: string, ref: Ref][] = [];
+
+    Object.entries(this.props).forEach(
+      ([prop, expr]: [string, Expr<Ctx, T[string]>]) => {
+        const [value, ref] = expr.evaluateRef(ctx, refCtx);
+        valueEntries.push([prop, value]);
+        refEntries.push([prop, ref]);
+      }
+    );
+
+    return [
+      Object.fromEntries(valueEntries) as T,
+      Object.fromEntries(refEntries),
+    ];
+  }
+  toString(ctx: ToStringCtx<Ctx>): string {
+    return `{${Object.entries(this.props)
+      .map(
+        ([prop, expr]: [string, Expr<Ctx, T[string]>]) =>
+          `${JSON.stringify(prop)}: ${expr.toString(ctx)}`
+      )
+      .join(", ")}}`;
+  }
+}
+export function objectLiteral<
+  Ctx,
+  T extends { [p in string]: unknown }
+>(props: { [p in keyof T]: Expr<Ctx, T[p]> }): Expr<Ctx, T> {
+  return new ObjectLiteral(props);
+}
+
+class ArrayLiteral<Ctx, T extends readonly unknown[]> implements Expr<Ctx, T> {
+  constructor(private readonly items: { [i in keyof T]: Expr<Ctx, T[i]> }) {}
+  evaluate(ctx: Ctx): T {
+    return this.items.map((expr) => expr.evaluate(ctx)) as unknown as T;
+  }
+  evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T> {
+    const value: T[number][] = [];
+    const ref: Ref[] = [];
+    for (const expr of this.items) {
+      const [itemValue, itemRef] = expr.evaluateRef(ctx, refCtx);
+      value.push(itemValue);
+      ref.push(itemRef);
+    }
+    return [value as unknown as T, ref];
+  }
+  toString(ctx: ToStringCtx<Ctx>): string {
+    return `[${this.items.map((item) => item.toString(ctx)).join(", ")}}`;
+  }
+}
+export function arrayLiteral<Ctx, T extends readonly unknown[]>(items: {
+  [p in keyof T]: Expr<Ctx, T[p]>;
+}): Expr<Ctx, T> {
+  return new ArrayLiteral<Ctx, T>(items);
 }
 
 export function parse<Ctx>(

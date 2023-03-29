@@ -1,6 +1,6 @@
 import * as expr from "../expr";
 import { getSelector, SelectorOf } from ".";
-import { BaseSelector, DESC, EXPR, Selector } from "./selector";
+import { Selector, DESC, EXPR } from "./selector";
 import {
   asOptional,
   AsOptional,
@@ -36,7 +36,7 @@ export type ArraySelector<Ctx, D extends Descriptor> = Selector<
   };
 
 class ArraySelectorC<Ctx, D extends Descriptor>
-  extends BaseSelector<Ctx, readonly ValueOf<D>[]>
+  extends Selector<Ctx, readonly ValueOf<D>[]>
   implements ArraySelectorMethods<Ctx, D>
 {
   constructor(

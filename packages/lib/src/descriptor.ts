@@ -67,6 +67,15 @@ export function asRequired<D extends Descriptor>(desc: D): AsRequired<D> {
   return (desc.type === "optional" ? desc.item : desc) as AsRequired<D>;
 }
 
+export type TupleDescriptor = {
+  readonly type: "tuple";
+  readonly items: readonly Descriptor[];
+};
+export type DetailedTupleDescriptor<T extends readonly Descriptor[]> = {
+  readonly type: "tuple";
+  readonly items: T;
+};
+
 export type StringDescriptor = {
   readonly type: "string";
 };
@@ -92,11 +101,16 @@ export type NNDescriptor =
   | ArrayDescriptor
   | RecordDescriptor
   | ObjectDescriptor
+  | TupleDescriptor
   | StringDescriptor
   | NumberDescriptor
   | BooleanDescriptor;
 
 export type Descriptor = NNDescriptor | OptionalDescriptor;
+
+type ValuesOf<T extends readonly Descriptor[]> = {
+  [I in keyof T]: ValueOf<T[I]>;
+};
 
 export type ValueOf<D> = [D] extends [ArrayDescriptor]
   ? ValueOf<D["item"]>[]
@@ -106,6 +120,8 @@ export type ValueOf<D> = [D] extends [ArrayDescriptor]
   ? { [P in keyof D["props"]]: ValueOf<D["props"][P]> }
   : [D] extends [OptionalDescriptor]
   ? ValueOf<D["item"]> | null
+  : [D] extends [TupleDescriptor]
+  ? ValuesOf<D["items"]>
   : [D] extends [StringDescriptor]
   ? string
   : [D] extends [NumberDescriptor]

@@ -1,6 +1,6 @@
 import * as expr from "../expr";
 import { getSelector, SelectorOf } from ".";
-import { BaseSelector, DESC, EXPR, Selector } from "./selector";
+import { Selector, DESC, EXPR } from "./selector";
 import { Descriptor, DetailedRecordDescriptor, ValueOf } from "../descriptor";
 
 export type RecordSelector<Ctx, D extends Descriptor> = Selector<
@@ -10,7 +10,7 @@ export type RecordSelector<Ctx, D extends Descriptor> = Selector<
   readonly [P in string]: SelectorOf<Ctx, D>;
 };
 
-class RecordSelectorC<Ctx, D extends Descriptor> extends BaseSelector<
+class RecordSelectorC<Ctx, D extends Descriptor> extends Selector<
   Ctx,
   Record<string, ValueOf<D>>
 > {

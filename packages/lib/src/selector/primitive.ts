@@ -1,8 +1,8 @@
 import { Descriptor, ValueOf } from "../descriptor";
 import * as expr from "../expr";
-import { BaseSelector, DESC, EXPR } from "./selector";
+import { Selector, DESC, EXPR } from "./selector";
 
-export class PrimitiveSelector<Ctx, D extends Descriptor> extends BaseSelector<
+export class PrimitiveSelector<Ctx, D extends Descriptor> extends Selector<
   Ctx,
   ValueOf<D>
 > {

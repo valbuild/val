@@ -12,20 +12,14 @@ export const EXPR = Symbol("expr");
  */
 export const DESC = Symbol("desc");
 
-export interface Selector<Ctx, Out> {
-  eq(value: Out): PrimitiveSelector<Ctx, BooleanDescriptor>;
+export abstract class Selector<Ctx, Out> {
   /**
    * @internal
    */
-  [EXPR](): expr.Expr<Ctx, Out>;
-  /**
-   * @internal
-   */
-  [DESC](): Descriptor;
-}
-
-export abstract class BaseSelector<Ctx, Out> implements Selector<Ctx, Out> {
   abstract [EXPR](): expr.Expr<Ctx, Out>;
+  /**
+   * @internal
+   */
   abstract [DESC](): Descriptor;
   eq(value: Out): PrimitiveSelector<Ctx, BooleanDescriptor> {
     return getSelector(expr.eq(this[EXPR](), value), BooleanDescriptor);
