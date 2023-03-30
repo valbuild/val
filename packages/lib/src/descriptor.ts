@@ -113,7 +113,7 @@ type ValuesOf<T extends readonly Descriptor[]> = {
 };
 
 export type ValueOf<D> = [D] extends [ArrayDescriptor]
-  ? ValueOf<D["item"]>[]
+  ? readonly ValueOf<D["item"]>[]
   : [D] extends [RecordDescriptor]
   ? Record<string, ValueOf<D["item"]>>
   : [D] extends [ObjectDescriptor]

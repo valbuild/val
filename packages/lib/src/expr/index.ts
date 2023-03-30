@@ -10,6 +10,7 @@ export {
   slice,
   sortBy,
   reverse,
+  map,
   eq,
   andThen,
   objectLiteral,

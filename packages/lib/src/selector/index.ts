@@ -1,14 +1,11 @@
 import * as expr from "../expr";
 import { ArraySelector, newArraySelector } from "./array";
-import { newObjectSelector, ObjectSelector, ValuesOf } from "./object";
+import { newObjectSelector, ObjectSelector } from "./object";
 import { DESC, EXPR, Selector } from "./selector";
 import {
   ArrayDescriptor,
   Descriptor,
-  DetailedArrayDescriptor,
   DetailedObjectDescriptor,
-  DetailedOptionalDescriptor,
-  DetailedRecordDescriptor,
   DetailedTupleDescriptor,
   NumberDescriptor,
   ObjectDescriptor,
@@ -84,7 +81,7 @@ export function getSelector<Ctx, D extends Descriptor>(
 export type Selected<Ctx> =
   | { readonly [P in string]: Selected<Ctx> }
   | readonly Selected<Ctx>[]
-  | Selector<Ctx, unknown>;
+  | Selector<Ctx, Descriptor>;
 
 type TupleDescriptorOf<
   Ctx,
@@ -95,16 +92,8 @@ type TupleDescriptorOf<
   Descriptor;
 
 export type DescriptorOf<Ctx, S extends Selected<unknown>> = [S] extends [
-  ObjectSelector<unknown, infer D>
+  Selector<unknown, infer D>
 ]
-  ? DetailedObjectDescriptor<D>
-  : [S] extends [ArraySelector<Ctx, infer D>]
-  ? DetailedArrayDescriptor<D>
-  : [S] extends [RecordSelector<Ctx, infer D>]
-  ? DetailedRecordDescriptor<D>
-  : [S] extends [OptionalSelector<Ctx, infer D>]
-  ? DetailedOptionalDescriptor<D>
-  : [S] extends [PrimitiveSelector<Ctx, infer D>]
   ? D
   : [S] extends [readonly Selected<Ctx>[]]
   ? TupleDescriptorOf<Ctx, S>
@@ -141,23 +130,10 @@ export function descriptorOf<Ctx, S extends Selected<Ctx>>(
   }
 }
 
-export type ExprOf<Ctx, S extends Selected<Ctx>> = [S] extends [
-  ObjectSelector<Ctx, infer D>
-]
-  ? expr.Expr<Ctx, ValuesOf<D>>
-  : [S] extends [ArraySelector<Ctx, infer D>]
-  ? expr.Expr<Ctx, ValueOf<D>[]>
-  : [S] extends [RecordSelector<Ctx, infer D>]
-  ? expr.Expr<Ctx, Record<string, ValueOf<D>>>
-  : [S] extends [OptionalSelector<Ctx, infer D>]
-  ? expr.Expr<Ctx, ValueOf<D> | null>
-  : [S] extends [PrimitiveSelector<Ctx, infer D>]
-  ? expr.Expr<Ctx, ValueOf<D>>
-  : [S] extends [readonly Selected<Ctx>[]]
-  ? expr.Expr<Ctx, ValueOf<DescriptorOf<Ctx, S>>>
-  : [S] extends [{ [P in string]: Selected<Ctx> }]
-  ? expr.Expr<Ctx, ValueOf<DescriptorOf<Ctx, S>>>
-  : expr.Expr<Ctx, unknown>;
+export type ExprOf<Ctx, S extends Selected<Ctx>> = expr.Expr<
+  Ctx,
+  ValueOf<DescriptorOf<Ctx, S>>
+>;
 export function exprOf<Ctx, S extends Selected<Ctx>>(
   selected: S
 ): ExprOf<Ctx, S> {
@@ -175,25 +151,3 @@ export function exprOf<Ctx, S extends Selected<Ctx>>(
     return expr.objectLiteral(props) as ExprOf<Ctx, S>;
   }
 }
-
-type SelectedsOf<Ctx, D extends readonly Descriptor[]> = {
-  readonly [I in keyof D]: SelectedOf<Ctx, D[I]>;
-};
-
-export type SelectedOf<Ctx, D extends Descriptor> = [D] extends [
-  ObjectDescriptor
-]
-  ?
-      | ObjectSelector<Ctx, D["props"]>
-      | { readonly [P in keyof D["props"]]: SelectedOf<Ctx, D["props"][P]> }
-  : [D] extends [ArrayDescriptor]
-  ? ArraySelector<Ctx, D["item"]> | readonly SelectedOf<Ctx, D["item"]>[]
-  : [D] extends [RecordDescriptor]
-  ? RecordSelector<Ctx, D["item"]> | Record<string, SelectedOf<Ctx, D["item"]>>
-  : [D] extends [OptionalDescriptor]
-  ? OptionalSelector<Ctx, D["item"]>
-  : [D] extends [TupleDescriptor]
-  ? TupleSelector<Ctx, D["items"]> | SelectedsOf<Ctx, D["items"]>
-  : [D] extends [NumberDescriptor]
-  ? NumberSelector<Ctx>
-  : Selector<Ctx, D>;

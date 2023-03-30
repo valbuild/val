@@ -4,13 +4,11 @@ import {
   exprOf,
   getSelector,
   Selected,
-  SelectedOf,
   SelectorOf,
 } from ".";
 import {
   asRequired,
   AsRequired,
-  Descriptor,
   DetailedOptionalDescriptor,
   NNDescriptor,
   ValueOf,
@@ -20,16 +18,19 @@ import { Selector, DESC, EXPR } from "./selector";
 
 export class OptionalSelector<Ctx, D extends NNDescriptor> extends Selector<
   Ctx,
-  ValueOf<D> | null
+  DetailedOptionalDescriptor<D>
 > {
   constructor(
-    private readonly expr: expr.Expr<Ctx, ValueOf<D> | null>,
+    private readonly expr: expr.Expr<
+      Ctx,
+      ValueOf<DetailedOptionalDescriptor<D>>
+    >,
     private readonly item: D
   ) {
     super();
   }
 
-  [EXPR]() {
+  [EXPR](): expr.Expr<Ctx, ValueOf<DetailedOptionalDescriptor<D>>> {
     return this.expr;
   }
   [DESC](): DetailedOptionalDescriptor<D> {
@@ -55,20 +56,6 @@ export class OptionalSelector<Ctx, D extends NNDescriptor> extends Selector<
         Ctx,
         ValueOf<AsRequired<DescriptorOf<readonly [ValueOf<D>], S>>> | null
       >,
-      asRequired(descriptorOf<readonly [ValueOf<D>], S>(selected))
-    );
-  }
-
-  andThenAlt<E extends Descriptor>(
-    callback: (v: SelectorOf<readonly [ValueOf<D>], D>) => SelectedOf<Ctx, E>
-  ): OptionalSelector<Ctx, AsRequired<E>> {
-    const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
-    const selected = callback(getSelector(vExpr, this.item));
-    return newOptionalSelector<Ctx, AsRequired<E>>(
-      expr.andThen(
-        this.expr,
-        exprOf<readonly [ValueOf<D>], SelectedOf<Ctx, E>>(selected)
-      ) as expr.Expr<Ctx, ValueOf<AsRequired<E>> | null>,
       asRequired(descriptorOf<readonly [ValueOf<D>], S>(selected))
     );
   }

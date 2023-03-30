@@ -13,6 +13,9 @@ export * as strings from "./strings";
  * array. In this case, the array itself is not assignable, but values derived
  * from the array may be.
  *
+ * For derived object values such as those produced by mapping, the Ref may be an
+ * object of Refs describing the value of each property of the object.
+ *
  * For other expressions such as literals and those consisting of arithmetic
  * operations, the Ref is null and its value is not assignable.
  */
@@ -23,7 +26,7 @@ export function isAssignable(ref: Ref): ref is string {
   return typeof ref === "string";
 }
 
-function propRef<T, P extends keyof T>(ref: Ref, prop: P): Ref {
+function propRef<P extends PropertyKey>(ref: Ref, prop: P): Ref {
   if (ref === null) {
     return null;
   } else if (typeof ref === "string") {
@@ -82,7 +85,7 @@ class Prop<Ctx, T, P extends keyof T> implements Expr<Ctx, T[P]> {
   }
   evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T[P]> {
     const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
-    return [value[this.key], propRef<T, P>(ref, this.key)];
+    return [value[this.key], propRef(ref, this.key)];
   }
   toString(ctx: { readonly [s in keyof Ctx]: string }): string {
     return `${this.expr.toString(ctx)}[${JSON.stringify(this.key)}]`;
@@ -126,7 +129,7 @@ class Filter<Ctx, T> implements Expr<Ctx, T[]> {
       const item = value[i];
       if (this.predicate.evaluate([item])) {
         resValue.push(item);
-        resRef.push(propRef<T[], number>(ref, i));
+        resRef.push(propRef(ref, i));
       }
     }
     return [resValue, resRef];
@@ -161,7 +164,7 @@ class Find<Ctx, T> implements Expr<Ctx, T | null> {
     if (idx === -1) {
       return [null, null];
     }
-    return [value[idx], propRef<T[], number>(ref, idx)];
+    return [value[idx], propRef(ref, idx)];
   }
   toString(ctx: ToStringCtx<Ctx>): string {
     return `${this.expr.toString(ctx)}.find((v) => ${this.predicate.toString([
@@ -188,9 +191,7 @@ class Slice<Ctx, T> implements Expr<Ctx, T[]> {
   evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T[]> {
     const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
     const retValue = value.slice(this.start, this.end);
-    const retRef = retValue.map((_item, i) =>
-      propRef<T[], number>(ref, this.start + i)
-    );
+    const retRef = retValue.map((_item, i) => propRef(ref, this.start + i));
     return [retValue, retRef];
   }
   toString(ctx: ToStringCtx<Ctx>): string {
@@ -227,7 +228,7 @@ class SortBy<Ctx, T> implements Expr<Ctx, T[]> {
       .sort(([a], [b]) => this.keyFn.evaluate([a]) - this.keyFn.evaluate([b]))
       .forEach(([item, i]) => {
         resValue.push(item);
-        resRef.push(propRef<T[], number>(ref, i));
+        resRef.push(propRef(ref, i));
       });
     return [resValue, resRef];
   }
@@ -258,7 +259,7 @@ class Reverse<Ctx, T> implements Expr<Ctx, T[]> {
       .reverse()
       .forEach(([item, i]) => {
         resValue.push(item);
-        resRef.push(propRef<T[], number>(ref, i));
+        resRef.push(propRef(ref, i));
       });
     return [resValue, resRef];
   }
@@ -268,6 +269,38 @@ class Reverse<Ctx, T> implements Expr<Ctx, T[]> {
 }
 export function reverse<Ctx, T>(expr: Expr<Ctx, readonly T[]>): Expr<Ctx, T[]> {
   return new Reverse(expr);
+}
+
+class Map<Ctx, T, U> implements Expr<Ctx, U[]> {
+  constructor(
+    private readonly expr: Expr<Ctx, readonly T[]>,
+    private readonly callback: Expr<readonly [T, number], U>
+  ) {}
+  evaluate(ctx: Ctx): U[] {
+    return this.expr
+      .evaluate(ctx)
+      .map((v, i) => this.callback.evaluate([v, i]));
+  }
+  evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<U[]> {
+    const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
+    const resValue: U[] = [];
+    const resRef: Ref[] = [];
+    value.forEach((v, i) => {
+      const [itemValue, itemRef] = this.callback.evaluateRef(
+        [v, i],
+        [propRef(ref, i), null]
+      );
+      resValue.push(itemValue);
+      resRef.push(itemRef);
+    });
+    return [resValue, resRef];
+  }
+}
+export function map<Ctx, T, U>(
+  expr: Expr<Ctx, readonly T[]>,
+  callback: Expr<readonly [T, number], U>
+): Expr<Ctx, U[]> {
+  return new Map(expr, callback);
 }
 
 class Eq<Ctx, T> implements Expr<Ctx, boolean> {
@@ -398,7 +431,7 @@ export function parse<Ctx>(
   str: string
 ): Expr<Ctx, unknown> {
   // TODO: Fully implement this
-  // Currently missing: sub
+  // Currently missing: sub, map, object/array literals
   if (str.endsWith("]")) {
     const bracketStart = lastIndexOf(str, "[");
     if (bracketStart === -1) {

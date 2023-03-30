@@ -9,14 +9,14 @@ export type ValuesOf<D extends readonly Descriptor[]> = {
 
 export type TupleSelector<Ctx, D extends readonly Descriptor[]> = Selector<
   Ctx,
-  ValuesOf<D>
+  DetailedTupleDescriptor<D>
 > & {
   readonly [Index in keyof D]: SelectorOf<Ctx, D[Index]>;
 };
 
 class TupleSelectorC<Ctx, D extends readonly Descriptor[]> extends Selector<
   Ctx,
-  ValuesOf<D>
+  DetailedTupleDescriptor<D>
 > {
   constructor(readonly expr: expr.Expr<Ctx, ValuesOf<D>>, readonly items: D) {
     super();

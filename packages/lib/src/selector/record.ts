@@ -5,23 +5,23 @@ import { Descriptor, DetailedRecordDescriptor, ValueOf } from "../descriptor";
 
 export type RecordSelector<Ctx, D extends Descriptor> = Selector<
   Ctx,
-  Record<string, ValueOf<D>>
+  DetailedRecordDescriptor<D>
 > & {
   readonly [P in string]: SelectorOf<Ctx, D>;
 };
 
 class RecordSelectorC<Ctx, D extends Descriptor> extends Selector<
   Ctx,
-  Record<string, ValueOf<D>>
+  DetailedRecordDescriptor<D>
 > {
   constructor(
-    readonly expr: expr.Expr<Ctx, Record<string, ValueOf<D>>>,
+    readonly expr: expr.Expr<Ctx, ValueOf<DetailedRecordDescriptor<D>>>,
     readonly item: D
   ) {
     super();
   }
 
-  [EXPR](): expr.Expr<Ctx, Record<string, ValueOf<D>>> {
+  [EXPR](): expr.Expr<Ctx, ValueOf<DetailedRecordDescriptor<D>>> {
     return this.expr;
   }
   [DESC](): DetailedRecordDescriptor<D> {

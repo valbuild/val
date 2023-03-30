@@ -1,42 +1,57 @@
 import * as expr from "../expr";
-import { getSelector, SelectorOf } from ".";
+import {
+  descriptorOf,
+  DescriptorOf,
+  exprOf,
+  getSelector,
+  Selected,
+  SelectorOf,
+} from ".";
 import { Selector, DESC, EXPR } from "./selector";
 import {
   asOptional,
   AsOptional,
   Descriptor,
   DetailedArrayDescriptor,
+  NumberDescriptor,
   ValueOf,
 } from "../descriptor";
 
 interface ArraySelectorMethods<Ctx, D extends Descriptor> {
   filter(
-    predicate: <T>(v: SelectorOf<T, D>) => Selector<T, unknown>
+    predicate: <T>(v: SelectorOf<T, D>) => Selector<T, Descriptor>
   ): ArraySelector<Ctx, D>;
 
   find(
-    predicate: <T>(item: SelectorOf<T, D>) => Selector<T, unknown>
+    predicate: <T>(item: SelectorOf<T, D>) => Selector<T, Descriptor>
   ): SelectorOf<Ctx, AsOptional<D>>;
 
   slice(begin: number, end?: number): ArraySelector<Ctx, D>;
 
   sortBy(
-    keyFn: <A>(v: SelectorOf<A, D>) => Selector<A, number>
+    keyFn: <A>(v: SelectorOf<A, D>) => Selector<A, NumberDescriptor>
   ): ArraySelector<Ctx, D>;
 
   reverse(): ArraySelector<Ctx, D>;
+
+  map<S extends Selected<readonly [ValueOf<D>, number]>>(
+    callback: (
+      v: SelectorOf<readonly [ValueOf<D>, number], D>,
+      i: SelectorOf<readonly [ValueOf<D>, number], NumberDescriptor>
+    ) => S
+  ): ArraySelector<Ctx, DescriptorOf<readonly [ValueOf<D>, number], S>>;
 }
 
 export type ArraySelector<Ctx, D extends Descriptor> = Selector<
   Ctx,
-  ValueOf<D>[]
+  DetailedArrayDescriptor<D>
 > &
   ArraySelectorMethods<Ctx, D> & {
     readonly [index: number]: SelectorOf<Ctx, D>;
   };
 
 class ArraySelectorC<Ctx, D extends Descriptor>
-  extends Selector<Ctx, readonly ValueOf<D>[]>
+  extends Selector<Ctx, DetailedArrayDescriptor<D>>
   implements ArraySelectorMethods<Ctx, D>
 {
   constructor(
@@ -46,7 +61,7 @@ class ArraySelectorC<Ctx, D extends Descriptor>
     super();
   }
 
-  [EXPR](): expr.Expr<Ctx, readonly ValueOf<D>[]> {
+  [EXPR](): expr.Expr<Ctx, ValueOf<DetailedArrayDescriptor<D>>> {
     return this.expr;
   }
   [DESC](): DetailedArrayDescriptor<D> {
@@ -57,7 +72,7 @@ class ArraySelectorC<Ctx, D extends Descriptor>
   }
 
   filter(
-    predicate: <Ctx>(v: SelectorOf<Ctx, D>) => Selector<Ctx, unknown>
+    predicate: <Ctx>(v: SelectorOf<Ctx, D>) => Selector<Ctx, Descriptor>
   ): ArraySelector<Ctx, D> {
     const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
     const predicateExpr = predicate(getSelector(vExpr, this.item))[EXPR]();
@@ -65,7 +80,7 @@ class ArraySelectorC<Ctx, D extends Descriptor>
   }
 
   find(
-    predicate: <T>(item: SelectorOf<T, D>) => Selector<T, unknown>
+    predicate: <T>(item: SelectorOf<T, D>) => Selector<T, Descriptor>
   ): SelectorOf<Ctx, AsOptional<D>> {
     const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
     const predicateExpr = predicate(getSelector(vExpr, this.item))[EXPR]();
@@ -81,7 +96,7 @@ class ArraySelectorC<Ctx, D extends Descriptor>
   }
 
   sortBy(
-    keyFn: <Ctx>(v: SelectorOf<Ctx, D>) => Selector<Ctx, number>
+    keyFn: <Ctx>(v: SelectorOf<Ctx, D>) => Selector<Ctx, NumberDescriptor>
   ): ArraySelector<Ctx, D> {
     const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
     const keyFnExpr = keyFn(getSelector(vExpr, this.item))[EXPR]();
@@ -90,6 +105,24 @@ class ArraySelectorC<Ctx, D extends Descriptor>
 
   reverse(): ArraySelector<Ctx, D> {
     return newArraySelector(expr.reverse(this.expr), this.item);
+  }
+
+  map<S extends Selected<readonly [ValueOf<D>, number]>>(
+    callback: (
+      v: SelectorOf<readonly [ValueOf<D>, number], D>,
+      i: SelectorOf<readonly [ValueOf<D>, number], NumberDescriptor>
+    ) => S
+  ): ArraySelector<Ctx, DescriptorOf<readonly [ValueOf<D>, number], S>> {
+    const vExpr = expr.fromCtx<readonly [ValueOf<D>, number], 0>(0);
+    const iExpr = expr.fromCtx<readonly [ValueOf<D>, number], 1>(1);
+    const selected = callback(
+      getSelector(vExpr, this.item),
+      getSelector(iExpr, NumberDescriptor)
+    );
+    return newArraySelector(
+      expr.map(this.expr, exprOf(selected)),
+      descriptorOf(selected)
+    );
   }
 }
 

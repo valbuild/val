@@ -1,12 +1,12 @@
 import * as expr from "./expr";
 import { ModuleContent } from "./content";
 import { LocalOf, Schema, SrcOf } from "./schema/Schema";
-import { SelectorOf } from "./selector";
-import { Selector } from "./selector/selector";
-import { Source } from "./Source";
+import { DescriptorOf, Selected, SelectorOf } from "./selector";
 import { newVal, Val } from "./Val";
 import { encodeValSrc } from "./expr/strings";
 import { Selectable } from "./selectable";
+import { ValueOf } from "./descriptor";
+import { Source } from "./Source";
 
 export class ValModule<T extends Schema<Source, Source>>
   implements Selectable<SrcOf<T>, LocalOf<T>>
@@ -28,11 +28,14 @@ export class ValModule<T extends Schema<Source, Source>>
     );
   }
 
-  select<Out>(
-    callback: <Ctx>(
-      selector: SelectorOf<Ctx, ReturnType<T["localDescriptor"]>>
-    ) => Selector<Ctx, Out>
-  ): Selectable<SrcOf<T>, Out> {
+  select<S extends Selected<readonly [LocalOf<T>]>>(
+    callback: (
+      selector: SelectorOf<
+        readonly [LocalOf<T>],
+        ReturnType<T["localDescriptor"]>
+      >
+    ) => S
+  ): Selectable<SrcOf<T>, ValueOf<DescriptorOf<readonly [LocalOf<T>], S>>> {
     const resultExpr = this.content.select(callback);
     return {
       getModule: () => {

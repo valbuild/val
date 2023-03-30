@@ -4,7 +4,7 @@ import { Selector, DESC, EXPR } from "./selector";
 
 export class PrimitiveSelector<Ctx, D extends Descriptor> extends Selector<
   Ctx,
-  ValueOf<D>
+  D
 > {
   constructor(
     protected readonly expr: expr.Expr<Ctx, ValueOf<D>>,
@@ -16,7 +16,7 @@ export class PrimitiveSelector<Ctx, D extends Descriptor> extends Selector<
   [EXPR](): expr.Expr<Ctx, ValueOf<D>> {
     return this.expr;
   }
-  [DESC](): Descriptor {
+  [DESC](): D {
     return this.desc;
   }
 }

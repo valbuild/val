@@ -13,20 +13,23 @@ export type ValuesOf<D extends ObjectDescriptorProps> = {
 
 export type ObjectSelector<Ctx, D extends ObjectDescriptorProps> = Selector<
   Ctx,
-  ValuesOf<D>
+  DetailedObjectDescriptor<D>
 > & {
   readonly [P in keyof D]: SelectorOf<Ctx, D[P]>;
 };
 
 class ObjectSelectorC<Ctx, D extends ObjectDescriptorProps> extends Selector<
   Ctx,
-  ValuesOf<D>
+  DetailedObjectDescriptor<D>
 > {
-  constructor(readonly expr: expr.Expr<Ctx, ValuesOf<D>>, readonly props: D) {
+  constructor(
+    readonly expr: expr.Expr<Ctx, ValueOf<DetailedObjectDescriptor<D>>>,
+    readonly props: D
+  ) {
     super();
   }
 
-  [EXPR](): expr.Expr<Ctx, ValuesOf<D>> {
+  [EXPR](): expr.Expr<Ctx, ValueOf<DetailedObjectDescriptor<D>>> {
     return this.expr;
   }
   [DESC](): DetailedObjectDescriptor<D> {
