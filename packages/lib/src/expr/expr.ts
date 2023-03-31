@@ -1,5 +1,5 @@
 import { formatJSONPointerReferenceToken } from "../patch/parse";
-import { lastIndexOf, split } from "./strings";
+import { lastIndexOf, split, lastIntegerOf, isDigit } from "./strings";
 export * as strings from "./strings";
 
 /**
@@ -88,14 +88,13 @@ class Prop<Ctx, T, P extends keyof T> implements Expr<Ctx, T[P]> {
     return [value[this.key], propRef(ref, this.key)];
   }
   toString(ctx: { readonly [s in keyof Ctx]: string }): string {
-    return `${this.expr.toString(ctx)}[${JSON.stringify(this.key)}]`;
+    return `${this.expr.toString(ctx)}.${JSON.stringify(this.key)}`;
   }
 }
-export function prop<
-  Ctx,
-  P extends string | number,
-  T extends { readonly [key in P]: unknown }
->(expr: Expr<Ctx, T>, key: P): Expr<Ctx, T[P]> {
+export function prop<Ctx, T extends Record<string, unknown>, P extends keyof T>(
+  expr: Expr<Ctx, T>,
+  key: P
+): Expr<Ctx, T[P]> {
   return new Prop(expr, key);
 }
 /**
@@ -105,7 +104,14 @@ export function item<Ctx, T>(
   expr: Expr<Ctx, readonly T[]>,
   key: number
 ): Expr<Ctx, T> {
-  return new Prop(expr, key);
+  if (!Number.isInteger(key) || key < 0) {
+    throw Error("Key must be a positive integer");
+  }
+  return new Prop(
+    expr,
+    key +
+      0 /* -0 is possible, but we do not want to parse -0, so we transform -0 => 0 by adding 0 */
+  );
 }
 
 class Filter<Ctx, T> implements Expr<Ctx, T[]> {
@@ -354,6 +360,31 @@ export function andThen<Ctx, T, U>(
   return new AndThen(expr, callback);
 }
 
+class PrimitiveLiteral<Ctx, T extends string | number | boolean | null>
+  implements Expr<Ctx, T>
+{
+  constructor(private readonly value: T) {}
+  evaluate(): T {
+    return this.value;
+  }
+  evaluateRef(): ValueAndRef<T> {
+    return [this.value, null];
+  }
+  toString(): string {
+    if (typeof this.value === "string") {
+      return JSON.stringify(this.value);
+    }
+    return `<${JSON.stringify(this.value)}>`;
+  }
+}
+
+export function primitiveLiteral<
+  Ctx,
+  T extends string | number | boolean | null
+>(value: T): Expr<Ctx, T> {
+  return new PrimitiveLiteral(value);
+}
+
 class ObjectLiteral<Ctx, T extends { [p in string]: unknown }>
   implements Expr<Ctx, T>
 {
@@ -417,7 +448,7 @@ class ArrayLiteral<Ctx, T extends readonly unknown[]> implements Expr<Ctx, T> {
     return [value as unknown as T, ref];
   }
   toString(ctx: ToStringCtx<Ctx>): string {
-    return `[${this.items.map((item) => item.toString(ctx)).join(", ")}}`;
+    return `[${this.items.map((item) => item.toString(ctx)).join(", ")}]`;
   }
 }
 export function arrayLiteral<Ctx, T extends readonly unknown[]>(items: {
@@ -425,31 +456,120 @@ export function arrayLiteral<Ctx, T extends readonly unknown[]>(items: {
 }): Expr<Ctx, T> {
   return new ArrayLiteral<Ctx, T>(items);
 }
-
 export function parse<Ctx>(
   ctx: { readonly [s in string]: keyof Ctx },
   str: string
 ): Expr<Ctx, unknown> {
   // TODO: Fully implement this
   // Currently missing: sub, map, object/array literals
-  if (str.endsWith("]")) {
-    const bracketStart = lastIndexOf(str, "[");
+  if (str.endsWith("}")) {
+    const bracketStart = lastIndexOf(str, "{");
     if (bracketStart === -1) {
-      throw Error("Matching bracket not found");
+      throw Error(`Matching opening bracket ('{') not found in object: ${str}`);
+    }
+    if (bracketStart !== 0) {
+      throw Error("Object literal must be an isolated expression");
     }
 
-    const key: string | number = JSON.parse(
-      str.slice(bracketStart + 1, str.length - 1)
+    if (str === "{}") {
+      return objectLiteral({});
+    }
+
+    const entries = split(str.slice(1, str.length - 1), ", ").map(
+      (entryStr) => {
+        const parts = split(entryStr, ": ");
+        if (parts.length !== 2) {
+          throw Error(`Invalid object literal entry: ${entryStr}`);
+        }
+        const [keyStr, valueStr] = parts;
+
+        const key = JSON.parse(keyStr);
+        if (typeof key !== "string") {
+          throw Error(
+            `Object literal key must be a string literal, got: ${keyStr}`
+          );
+        }
+        const value = parse(ctx, valueStr);
+        return [key, value] as const;
+      }
     );
-    const expr = parse(ctx, str.slice(0, bracketStart)) as Expr<
+    return objectLiteral(Object.fromEntries(entries));
+  } else if (str.endsWith("]")) {
+    const bracketStart = lastIndexOf(str, "[");
+    if (bracketStart === -1) {
+      throw Error(
+        `Matching opening square bracket ('[') not found in array: ${str}`
+      );
+    }
+    if (bracketStart !== 0) {
+      throw Error("Array literal must be an isolated expression");
+    }
+
+    if (str === "[]") {
+      return arrayLiteral([]);
+    }
+
+    const items = split(str.slice(1, str.length - 1), ", ").flatMap((item) =>
+      parse(ctx, item)
+    );
+    return arrayLiteral(items);
+  } else if (str.endsWith('"')) {
+    const stringLiteralStart = lastIndexOf(str, '"');
+    if (stringLiteralStart === -1) {
+      throw Error(`Matching opening quote (") not found in string: ${str}`);
+    }
+    const stringLiteral = JSON.parse(str.slice(stringLiteralStart, str.length));
+    if (typeof stringLiteral !== "string") {
+      throw Error(
+        `Expected string literal (${stringLiteral}) to be of type string, but found: ${typeof stringLiteral}`
+      );
+    }
+    const isPropertyAccess = str[stringLiteralStart - 1] === ".";
+    if (isPropertyAccess) {
+      const expr = parse(ctx, str.slice(0, stringLiteralStart - 1)) as Expr<
+        Ctx,
+        { [s in typeof stringLiteral]: unknown }
+      >;
+      return prop(expr, stringLiteral);
+    } else {
+      if (stringLiteralStart === 0) {
+        return primitiveLiteral(JSON.parse(str));
+      } else {
+        throw Error(
+          `String literal must be an isolated expression. Got: ${str}`
+        );
+      }
+    }
+  } else if (str.endsWith(">")) {
+    const primitiveLiteralStart = str.lastIndexOf("<");
+    if (primitiveLiteralStart === -1) {
+      throw Error(`Matching start of literal (<) not found in value: ${str}`);
+    } else if (primitiveLiteralStart !== 0) {
+      throw Error("Primitive literal must be an isolated expression");
+    }
+    const value = JSON.parse(str.slice(1, str.length - 1));
+    if (typeof value === "string") {
+      throw Error(
+        "Unexpected string literal inside a primitive literal of non-string type"
+      );
+    }
+    return primitiveLiteral(value);
+  } else if (isDigit(str.slice(-1))) {
+    const integerLiteralStart = lastIntegerOf(str);
+    const integerLiteral = Number(str.slice(integerLiteralStart, str.length));
+    const isPropertyAccess = str[integerLiteralStart - 1] === ".";
+    if (!isPropertyAccess) {
+      throw Error("Found a integer literal ");
+    }
+    const expr = parse(ctx, str.slice(0, integerLiteralStart - 1)) as Expr<
       Ctx,
-      { [s in typeof key]: unknown }
+      { [s in typeof integerLiteral]: unknown }
     >;
-    return prop(expr, key);
+    return prop(expr, integerLiteral);
   } else if (str.endsWith(")")) {
     const parenStart = lastIndexOf(str, "(");
     if (parenStart === -1) {
-      throw Error("Matching parenthesis not found");
+      throw Error("Matching opening parenthesis ('(') not found");
     }
 
     const argsStr = str.slice(parenStart + 1, str.length - 1);
@@ -533,9 +653,25 @@ export function parse<Ctx>(
       }
 
       return slice(expr, start, end);
+    } else if (funcStr.endsWith(".andThen")) {
+      if (!argsStr.startsWith("(v) => ")) {
+        throw Error("invalid find lambda");
+      }
+
+      const expr = parse(
+        ctx,
+        funcStr.slice(0, funcStr.length - ".andThen".length)
+      ) as Expr<Ctx, readonly unknown[]>;
+      const callback = parse<readonly [unknown]>(
+        {
+          v: 0,
+        },
+        argsStr.slice("(v) => ".length)
+      );
+      return andThen(expr, callback);
     }
   } else if (str in ctx) {
     return fromCtx(ctx[str]);
   }
-  throw TypeError("Not implemented");
+  throw TypeError(`Not implemented, unable to parse: ${str}`);
 }

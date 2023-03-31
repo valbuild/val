@@ -13,6 +13,9 @@ import {
   OptionalDescriptor,
   RecordDescriptor,
   TupleDescriptor,
+  StringDescriptor,
+  BooleanDescriptor,
+  NullDescriptor,
   ValueOf,
 } from "../descriptor";
 import { newNumberSelector, NumberSelector } from "./number";
@@ -69,6 +72,7 @@ export function getSelector<Ctx, D extends Descriptor>(
       ) as SelectorOf<Ctx, D>;
     case "string":
     case "boolean":
+    case "null":
       return new PrimitiveSelector(expr, desc) as unknown as SelectorOf<Ctx, D>;
     case "record":
       return newRecordSelector(
@@ -79,6 +83,10 @@ export function getSelector<Ctx, D extends Descriptor>(
 }
 
 export type Selected<Ctx> =
+  | string
+  | number
+  | boolean
+  | null
   | { readonly [P in string]: Selected<Ctx> }
   | readonly Selected<Ctx>[]
   | Selector<Ctx, Descriptor>;
@@ -88,8 +96,12 @@ type TupleDescriptorOf<
   S extends readonly Selected<Ctx>[]
 > = DetailedTupleDescriptor<{
   [P in keyof S]: DescriptorOf<Ctx, S[P]>;
-}> &
-  Descriptor;
+}>;
+
+type A = DescriptorOf<unknown, readonly number[]>;
+type B = ValueOf<DetailedTupleDescriptor<readonly NumberDescriptor[]>>;
+type C = ValueOf<A>;
+// type D = DescriptorOf<unknown, DetailedObjectDescriptor<{}>>;
 
 export type DescriptorOf<Ctx, S extends Selected<unknown>> = [S] extends [
   Selector<unknown, infer D>
@@ -99,8 +111,16 @@ export type DescriptorOf<Ctx, S extends Selected<unknown>> = [S] extends [
   ? TupleDescriptorOf<Ctx, S>
   : [S] extends [{ [P in string]: Selected<Ctx> }]
   ? DetailedObjectDescriptor<{
-      [P in keyof S]: DescriptorOf<Ctx, S[P]>;
+      [P in keyof S]: DescriptorOf<Ctx, S>;
     }>
+  : [S] extends [string]
+  ? StringDescriptor
+  : [S] extends [boolean]
+  ? BooleanDescriptor
+  : [S] extends [number]
+  ? NumberDescriptor
+  : [S] extends [null]
+  ? NullDescriptor
   : Descriptor;
 export function descriptorOf<Ctx, S extends Selected<Ctx>>(
   selected: S
@@ -141,6 +161,13 @@ export function exprOf<Ctx, S extends Selected<Ctx>>(
     return selected[EXPR]() as ExprOf<Ctx, S>;
   } else if (Array.isArray(selected)) {
     return expr.arrayLiteral(selected.map(exprOf)) as ExprOf<Ctx, S>;
+  } else if (
+    typeof selected === "number" ||
+    selected === null ||
+    typeof selected === "string" ||
+    typeof selected === "boolean"
+  ) {
+    return expr.primitiveLiteral(selected) as ExprOf<Ctx, S>;
   } else {
     const props = Object.fromEntries(
       Object.entries(selected).map(([prop, value]) => [

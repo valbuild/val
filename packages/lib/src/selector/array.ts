@@ -128,7 +128,7 @@ class ArraySelectorC<Ctx, D extends Descriptor>
 
 const proxyHandler: ProxyHandler<ArraySelectorC<unknown, Descriptor>> = {
   get(target, p) {
-    if (typeof p === "string" && /^(0|[1-9][0-9]*)$/g.test(p)) {
+    if (typeof p === "string" && /^(-?0|[1-9][0-9]*)$/g.test(p)) {
       return getSelector(expr.item(target.expr, Number(p)), target.item);
     }
     // Exclude own properties of target for public access, but bind methods such

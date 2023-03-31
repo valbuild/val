@@ -97,6 +97,13 @@ export const BooleanDescriptor: BooleanDescriptor = Object.freeze({
   type: "boolean",
 });
 
+export type NullDescriptor = {
+  readonly type: "null";
+};
+export const NullDescriptor: NullDescriptor = Object.freeze({
+  type: "null",
+});
+
 export type NNDescriptor =
   | ArrayDescriptor
   | RecordDescriptor
@@ -104,7 +111,8 @@ export type NNDescriptor =
   | TupleDescriptor
   | StringDescriptor
   | NumberDescriptor
-  | BooleanDescriptor;
+  | BooleanDescriptor
+  | NullDescriptor;
 
 export type Descriptor = NNDescriptor | OptionalDescriptor;
 
@@ -128,4 +136,6 @@ export type ValueOf<D> = [D] extends [ArrayDescriptor]
   ? number
   : [D] extends [BooleanDescriptor]
   ? boolean
+  : [D] extends [NullDescriptor]
+  ? null
   : unknown;

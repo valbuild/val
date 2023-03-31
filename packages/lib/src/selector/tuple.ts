@@ -37,7 +37,7 @@ const proxyHandler: ProxyHandler<
   TupleSelectorC<unknown, readonly Descriptor[]>
 > = {
   get(target, p) {
-    if (typeof p === "string" && /^(0|[1-9][0-9]*)$/g.test(p)) {
+    if (typeof p === "string" && /^(-?0|[1-9][0-9]*)$/g.test(p)) {
       return getSelector(
         expr.item(target.expr, Number(p)),
         target.items[Number(p)]
