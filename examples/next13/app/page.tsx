@@ -2,24 +2,22 @@
 import styles from "./page.module.css";
 import blogsVal from "./blogs.val";
 import { useVal } from "@valbuild/react";
-import {
-  Descriptor,
-  DetailedObjectDescriptor,
-} from "@valbuild/lib/src/descriptor";
 
 export default function Home() {
-  const a = blogsVal.select((it) =>
-    it.andThenAlt<DetailedObjectDescriptor<{ first: Descriptor }>>((it) => ({
-      first: it[0],
-    }))
+  const a = blogsVal.select((blogs) =>
+    blogs.andThen((blogs) =>
+      blogs
+        .filter((blog) => blog.text.eq(null))
+        .map(({ title: title, text }) => ({ title, text }))
+    )
   );
   const b = a.getVal(a.getModule().content.source, "en_US");
-  const c = b.val && b.first;
-  if (c !== null) {
-    const d = c.title;
+  if (b.val) {
+    const d = b[0].title;
   }
-  const blog = useVal(blogsVal.select((it) => it.andThen((it) => it[0])));
-  const blogs = blog.val === null ? [] : [blog];
+  const c = blogsVal.select((it) => it.andThen((it) => [it[0]]));
+  const blog = useVal(c);
+  const blogs = blog;
   return (
     <main className={styles.main}>
       <article className={styles.article}>

@@ -1,9 +1,6 @@
-import { DetailedArrayDescriptor } from "../descriptor";
 import { Source } from "../Source";
 import {
   LocalOf,
-  MaybeOptDesc,
-  maybeOptDesc,
   OptIn,
   OptOut,
   Schema,
@@ -21,8 +18,11 @@ export type SerializedArraySchema = {
 export class ArraySchema<
   T extends Schema<Source, Source>,
   Opt extends boolean
-> extends Schema<OptIn<SrcOf<T>[], Opt>, OptOut<LocalOf<T>[], Opt>> {
-  constructor(private readonly item: T, protected readonly opt: Opt) {
+> extends Schema<
+  OptIn<readonly SrcOf<T>[], Opt>,
+  OptOut<readonly LocalOf<T>[], Opt>
+> {
+  constructor(public readonly item: T, public readonly opt: Opt) {
     super(opt);
   }
   validate(src: OptIn<SrcOf<T>[], Opt>): false | string[] {
@@ -69,32 +69,6 @@ export class ArraySchema<
       idx,
       ...this.item.delocalizePath(src?.[Number(idx)] ?? null, tail, locale),
     ];
-  }
-
-  localDescriptor(): MaybeOptDesc<
-    DetailedArrayDescriptor<ReturnType<T["localDescriptor"]>>,
-    Opt
-  > {
-    return maybeOptDesc(
-      {
-        type: "array",
-        item: this.item.localDescriptor() as ReturnType<T["localDescriptor"]>,
-      },
-      this.opt
-    );
-  }
-
-  rawDescriptor(): MaybeOptDesc<
-    DetailedArrayDescriptor<ReturnType<T["rawDescriptor"]>>,
-    Opt
-  > {
-    return maybeOptDesc(
-      {
-        type: "array",
-        item: this.item.rawDescriptor() as ReturnType<T["rawDescriptor"]>,
-      },
-      this.opt
-    );
   }
 
   serialize(): SerializedArraySchema {

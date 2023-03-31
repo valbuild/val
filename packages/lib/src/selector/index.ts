@@ -5,8 +5,6 @@ import { DESC, EXPR, Selector } from "./selector";
 import {
   ArrayDescriptor,
   Descriptor,
-  DetailedObjectDescriptor,
-  DetailedTupleDescriptor,
   NumberDescriptor,
   ObjectDescriptor,
   ObjectDescriptorProps,
@@ -17,69 +15,101 @@ import {
   BooleanDescriptor,
   NullDescriptor,
   ValueOf,
+  PrimitiveDescriptor,
+  NonOptionalDescriptor,
 } from "../descriptor";
 import { newNumberSelector, NumberSelector } from "./number";
 import { newRecordSelector, RecordSelector } from "./record";
 import { newOptionalSelector, OptionalSelector } from "./optional";
 import { newTupleSelector, TupleSelector } from "./tuple";
-import { PrimitiveSelector } from "./primitive";
+import { newPrimitiveSelector, PrimitiveSelector } from "./primitive";
 
-export type SelectorOf<Ctx, D extends Descriptor> = [D] extends [
-  ObjectDescriptor
+export type SelectorOfA<Ctx, D extends Descriptor<unknown>> = [D] extends [
+  ObjectDescriptor<infer E>
 ]
-  ? ObjectSelector<Ctx, D["props"]>
-  : [D] extends [ArrayDescriptor]
-  ? ArraySelector<Ctx, D["item"]>
-  : [D] extends [RecordDescriptor]
-  ? RecordSelector<Ctx, D["item"]>
-  : [D] extends [OptionalDescriptor]
-  ? OptionalSelector<Ctx, D["item"]>
-  : [D] extends [TupleDescriptor]
-  ? TupleSelector<Ctx, D["items"]>
+  ? ObjectSelector<Ctx, E>
+  : [D] extends [ArrayDescriptor<infer E>]
+  ? ArraySelector<Ctx, E>
+  : [D] extends [RecordDescriptor<infer K, infer E>]
+  ? RecordSelector<Ctx, K, E>
+  : [D] extends [OptionalDescriptor<infer E>]
+  ? OptionalSelector<Ctx, E>
+  : [D] extends [TupleDescriptor<infer E>]
+  ? TupleSelector<Ctx, E>
   : [D] extends [NumberDescriptor]
   ? NumberSelector<Ctx>
-  : PrimitiveSelector<Ctx, D>;
+  : [D] extends [PrimitiveDescriptor<unknown>]
+  ? PrimitiveSelector<Ctx, D>
+  : Selector<Ctx, D>;
 
-export function getSelector<Ctx, D extends Descriptor>(
+export type SelectorOf<
+  Ctx,
+  D extends Descriptor<unknown>
+> = Descriptor<unknown> extends D
+  ? Selector<Ctx, D>
+  : D extends ObjectDescriptor<infer E>
+  ? ObjectSelector<Ctx, E>
+  : D extends ArrayDescriptor<infer E>
+  ? ArraySelector<Ctx, E>
+  : D extends RecordDescriptor<infer K, infer E>
+  ? RecordSelector<Ctx, K, E>
+  : D extends OptionalDescriptor<infer E>
+  ? OptionalSelector<Ctx, E>
+  : D extends TupleDescriptor<infer E>
+  ? TupleSelector<Ctx, E>
+  : D extends NumberDescriptor
+  ? NumberSelector<Ctx>
+  : D extends PrimitiveDescriptor<unknown>
+  ? PrimitiveSelector<Ctx, D>
+  : never;
+
+export function getSelector<Ctx, D extends Descriptor<unknown>>(
   expr: expr.Expr<Ctx, ValueOf<D>>,
   desc: D
 ): SelectorOf<Ctx, D> {
-  switch (desc.type) {
-    case "tuple":
-      return newTupleSelector<Ctx, readonly Descriptor[]>(
-        expr as expr.Expr<Ctx, ValueOf<TupleDescriptor>>,
-        desc.items
-      ) as unknown as SelectorOf<Ctx, D>;
-    case "array":
-      return newArraySelector<Ctx, Descriptor>(
-        expr as expr.Expr<Ctx, ValueOf<Descriptor>[]>,
-        desc.item
-      ) as SelectorOf<Ctx, D>;
-    case "number":
-      return newNumberSelector(expr as expr.Expr<Ctx, number>) as SelectorOf<
+  if (desc instanceof ObjectDescriptor) {
+    return newObjectSelector<Ctx, ObjectDescriptorProps>(
+      expr as expr.Expr<Ctx, ValueOf<ObjectDescriptor<ObjectDescriptorProps>>>,
+      desc.props
+    ) as SelectorOf<Ctx, D>;
+  } else if (desc instanceof ArrayDescriptor) {
+    return newArraySelector<Ctx, Descriptor<unknown>>(
+      expr as expr.Expr<Ctx, ValueOf<ArrayDescriptor<Descriptor<unknown>>>>,
+      desc.item
+    ) as SelectorOf<Ctx, D>;
+  } else if (desc instanceof RecordDescriptor) {
+    return newRecordSelector<Ctx, string, Descriptor<unknown>>(
+      expr as expr.Expr<
         Ctx,
-        D
-      >;
-    case "object":
-      return newObjectSelector<Ctx, ObjectDescriptorProps>(
-        expr as expr.Expr<Ctx, ValueOf<ObjectDescriptor>>,
-        desc.props
-      ) as unknown as SelectorOf<Ctx, D>;
-    case "optional":
-      return newOptionalSelector(
-        expr as expr.Expr<Ctx, ValueOf<OptionalDescriptor>>,
-        desc.item
-      ) as SelectorOf<Ctx, D>;
-    case "string":
-    case "boolean":
-    case "null":
-      return new PrimitiveSelector(expr, desc) as unknown as SelectorOf<Ctx, D>;
-    case "record":
-      return newRecordSelector(
-        expr as expr.Expr<Ctx, Record<string, unknown>>,
-        desc.item
-      ) as SelectorOf<Ctx, D>;
+        ValueOf<RecordDescriptor<string, Descriptor<unknown>>>
+      >,
+      desc.item
+    ) as SelectorOf<Ctx, D>;
+  } else if (desc instanceof OptionalDescriptor) {
+    return newOptionalSelector<Ctx, NonOptionalDescriptor<unknown>>(
+      expr as expr.Expr<Ctx, ValueOf<NonOptionalDescriptor<unknown>>>,
+      desc.item
+    ) as SelectorOf<Ctx, D>;
+  } else if (desc instanceof TupleDescriptor) {
+    return newTupleSelector<Ctx, readonly Descriptor<unknown>[]>(
+      expr as expr.Expr<
+        Ctx,
+        ValueOf<TupleDescriptor<readonly Descriptor<unknown>[]>>
+      >,
+      desc.items
+    ) as SelectorOf<Ctx, D>;
+  } else if (desc === NumberDescriptor) {
+    return newNumberSelector<Ctx>(
+      expr as expr.Expr<Ctx, ValueOf<NumberDescriptor>>
+    ) as SelectorOf<Ctx, D>;
+  } else if (desc instanceof PrimitiveDescriptor) {
+    return newPrimitiveSelector<Ctx, PrimitiveDescriptor<unknown>>(
+      expr as expr.Expr<Ctx, ValueOf<PrimitiveDescriptor<unknown>>>,
+      desc
+    ) as SelectorOf<Ctx, D>;
   }
+
+  throw Error("Unknown descriptor type");
 }
 
 export type Selected<Ctx> =
@@ -89,28 +119,46 @@ export type Selected<Ctx> =
   | null
   | { readonly [P in string]: Selected<Ctx> }
   | readonly Selected<Ctx>[]
-  | Selector<Ctx, Descriptor>;
+  | Selector<Ctx, Descriptor<unknown>>;
 
 type TupleDescriptorOf<
   Ctx,
   S extends readonly Selected<Ctx>[]
-> = DetailedTupleDescriptor<{
+> = TupleDescriptor<{
   [P in keyof S]: DescriptorOf<Ctx, S[P]>;
 }>;
 
-type A = DescriptorOf<unknown, readonly number[]>;
-type B = ValueOf<DetailedTupleDescriptor<readonly NumberDescriptor[]>>;
-type C = ValueOf<A>;
-// type D = DescriptorOf<unknown, DetailedObjectDescriptor<{}>>;
+export type DescriptorOf<
+  Ctx,
+  S extends Selected<unknown>
+> = Selected<unknown> extends S
+  ? Descriptor<unknown>
+  : S extends Selector<unknown, infer D>
+  ? D
+  : S extends readonly Selected<Ctx>[]
+  ? TupleDescriptorOf<Ctx, S>
+  : S extends { [P in string]: Selected<Ctx> }
+  ? ObjectDescriptor<{
+      [P in keyof S]: DescriptorOf<Ctx, S>;
+    }>
+  : S extends string
+  ? StringDescriptor
+  : S extends boolean
+  ? BooleanDescriptor
+  : S extends number
+  ? NumberDescriptor
+  : S extends null
+  ? NullDescriptor
+  : never;
 
-export type DescriptorOf<Ctx, S extends Selected<unknown>> = [S] extends [
+export type DescriptorOfA<Ctx, S extends Selected<unknown>> = [S] extends [
   Selector<unknown, infer D>
 ]
   ? D
   : [S] extends [readonly Selected<Ctx>[]]
   ? TupleDescriptorOf<Ctx, S>
   : [S] extends [{ [P in string]: Selected<Ctx> }]
-  ? DetailedObjectDescriptor<{
+  ? ObjectDescriptor<{
       [P in keyof S]: DescriptorOf<Ctx, S>;
     }>
   : [S] extends [string]
@@ -121,7 +169,7 @@ export type DescriptorOf<Ctx, S extends Selected<unknown>> = [S] extends [
   ? NumberDescriptor
   : [S] extends [null]
   ? NullDescriptor
-  : Descriptor;
+  : Descriptor<unknown>;
 export function descriptorOf<Ctx, S extends Selected<Ctx>>(
   selected: S
 ): DescriptorOf<Ctx, S> {
@@ -129,10 +177,7 @@ export function descriptorOf<Ctx, S extends Selected<Ctx>>(
     return selected[DESC]() as DescriptorOf<Ctx, S>;
   } else if (Array.isArray(selected)) {
     const items = (selected as readonly Selected<Ctx>[]).map(descriptorOf);
-    return {
-      type: "tuple",
-      items,
-    } as unknown as DescriptorOf<Ctx, S>;
+    return new TupleDescriptor(items) as unknown as DescriptorOf<Ctx, S>;
   } else {
     const props = Object.fromEntries(
       Object.entries(
@@ -143,10 +188,7 @@ export function descriptorOf<Ctx, S extends Selected<Ctx>>(
         return [prop, descriptorOf<Ctx, Selected<Ctx>>(value)];
       })
     );
-    return {
-      type: "object",
-      props,
-    } as DescriptorOf<Ctx, S>;
+    return new ObjectDescriptor(props) as DescriptorOf<Ctx, S>;
   }
 }
 

@@ -1,23 +1,23 @@
 import * as expr from "../expr";
 import { getSelector, SelectorOf } from ".";
 import { Selector, DESC, EXPR } from "./selector";
-import { Descriptor, DetailedTupleDescriptor, ValueOf } from "../descriptor";
+import { Descriptor, TupleDescriptor, ValueOf } from "../descriptor";
 
-export type ValuesOf<D extends readonly Descriptor[]> = {
-  [P in keyof D]: ValueOf<D[P]>;
+export type ValuesOf<D extends readonly Descriptor<unknown>[]> = {
+  readonly [I in keyof D]: ValueOf<D[I]>;
 };
 
-export type TupleSelector<Ctx, D extends readonly Descriptor[]> = Selector<
+export type TupleSelector<
   Ctx,
-  DetailedTupleDescriptor<D>
-> & {
+  D extends readonly Descriptor<unknown>[]
+> = Selector<Ctx, TupleDescriptor<D>> & {
   readonly [Index in keyof D]: SelectorOf<Ctx, D[Index]>;
 };
 
-class TupleSelectorC<Ctx, D extends readonly Descriptor[]> extends Selector<
+class TupleSelectorC<
   Ctx,
-  DetailedTupleDescriptor<D>
-> {
+  D extends readonly Descriptor<unknown>[]
+> extends Selector<Ctx, TupleDescriptor<D>> {
   constructor(readonly expr: expr.Expr<Ctx, ValuesOf<D>>, readonly items: D) {
     super();
   }
@@ -25,16 +25,13 @@ class TupleSelectorC<Ctx, D extends readonly Descriptor[]> extends Selector<
   [EXPR](): expr.Expr<Ctx, ValuesOf<D>> {
     return this.expr;
   }
-  [DESC](): DetailedTupleDescriptor<D> {
-    return {
-      type: "tuple",
-      items: this.items,
-    };
+  [DESC](): TupleDescriptor<D> {
+    return new TupleDescriptor(this.items);
   }
 }
 
 const proxyHandler: ProxyHandler<
-  TupleSelectorC<unknown, readonly Descriptor[]>
+  TupleSelectorC<unknown, readonly Descriptor<unknown>[]>
 > = {
   get(target, p) {
     if (typeof p === "string" && /^(-?0|[1-9][0-9]*)$/g.test(p)) {
@@ -51,10 +48,10 @@ const proxyHandler: ProxyHandler<
   },
 };
 
-export function newTupleSelector<Ctx, DS extends readonly Descriptor[]>(
-  expr: expr.Expr<Ctx, ValuesOf<DS>>,
-  items: DS
-): TupleSelector<Ctx, DS> {
+export function newTupleSelector<Ctx, D extends readonly Descriptor<unknown>[]>(
+  expr: expr.Expr<Ctx, ValuesOf<D>>,
+  items: D
+): TupleSelector<Ctx, D> {
   const proxy = new Proxy(new TupleSelectorC(expr, items), proxyHandler);
-  return proxy as unknown as TupleSelector<Ctx, DS>;
+  return proxy as unknown as TupleSelector<Ctx, D>;
 }

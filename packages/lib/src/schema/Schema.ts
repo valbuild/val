@@ -3,7 +3,6 @@ import { type SerializedI18nSchema } from "./i18n";
 import { type SerializedObjectSchema } from "./object";
 import { type SerializedStringSchema } from "./string";
 import { Source } from "../Source";
-import { asOptional, AsOptional, Descriptor } from "../descriptor";
 import { SerializedNumberSchema } from "./number";
 
 export type SerializedSchema =
@@ -51,19 +50,8 @@ export type OptOut<T extends Source, Opt extends boolean> = [Opt] extends [true]
   ? T | null
   : T;
 
-export type MaybeOptDesc<D extends Descriptor, Opt extends boolean> =
-  | (Opt extends true ? AsOptional<D> : never)
-  | (Opt extends false ? D : never);
-
-export function maybeOptDesc<D extends Descriptor, Opt extends boolean>(
-  desc: Descriptor,
-  opt: Opt
-): MaybeOptDesc<D, Opt> {
-  return (opt ? asOptional(desc) : desc) as MaybeOptDesc<D, Opt>;
-}
-
 export abstract class Schema<Src extends Source, Local extends Source> {
-  constructor(protected readonly opt: boolean) {}
+  constructor(public readonly opt: boolean) {}
 
   /**
    * Validate a value against this schema
@@ -95,10 +83,6 @@ export abstract class Schema<Src extends Source, Local extends Source> {
     localPath: string[],
     locale: "en_US"
   ): string[];
-
-  abstract localDescriptor(): Descriptor;
-
-  abstract rawDescriptor(): Descriptor;
 
   abstract serialize(): SerializedSchema;
 }

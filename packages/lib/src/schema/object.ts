@@ -1,9 +1,7 @@
-import { DetailedObjectDescriptor } from "../descriptor";
+import { Descriptor, ValueOf } from "../descriptor";
 import { Source } from "../Source";
 import {
   LocalOf,
-  maybeOptDesc,
-  MaybeOptDesc,
   OptIn,
   OptOut,
   Schema,
@@ -18,13 +16,25 @@ export type SerializedObjectSchema = {
   opt: boolean;
 };
 
-type SchemaObject = { [key: string]: Schema<Source, Source> };
+export type SchemaObject = { [key: string]: Schema<Source, Source> };
 type SrcObject<T extends SchemaObject> = {
-  [key in keyof T]: SrcOf<T[key]>;
+  readonly [key in keyof T]: SrcOf<T[key]>;
 };
-type OutObject<T extends SchemaObject> = {
-  [key in keyof T]: LocalOf<T[key]>;
+type LocalObject<T extends SchemaObject> = {
+  readonly [key in keyof T]: LocalOf<T[key]>;
 };
+
+type A<T extends Schema<Source, Source>> = ValueOf<
+  Descriptor<LocalOf<T>>
+> extends LocalOf<T>
+  ? true
+  : false;
+type B = A<ObjectSchema<SchemaObject, boolean>>;
+
+type T = Schema<{ readonly t: string }, { readonly t: string }>;
+type C = A<T>;
+type D = ValueOf<Descriptor<LocalOf<T>>>;
+type E = LocalOf<T>;
 
 type Some<
   T extends { readonly [str in PropertyKey]: boolean } | readonly boolean[]
@@ -37,8 +47,8 @@ type Some<
 export class ObjectSchema<
   T extends SchemaObject,
   Opt extends boolean
-> extends Schema<OptIn<SrcObject<T>, Opt>, OptOut<OutObject<T>, Opt>> {
-  constructor(private readonly props: T, protected readonly opt: Opt) {
+> extends Schema<OptIn<SrcObject<T>, Opt>, OptOut<LocalObject<T>, Opt>> {
+  constructor(public readonly props: T, public readonly opt: Opt) {
     super(opt);
   }
   validate(src: OptIn<SrcObject<T>, Opt>): false | string[] {
@@ -70,10 +80,10 @@ export class ObjectSchema<
   localize(
     src: OptIn<SrcObject<T>, Opt>,
     locale: "en_US"
-  ): OptOut<OutObject<T>, Opt> {
+  ): OptOut<LocalObject<T>, Opt> {
     if (src === null) {
       if (!this.opt) throw Error("Non-optional object cannot be null");
-      return null as OptOut<OutObject<T>, Opt>;
+      return null as OptOut<LocalObject<T>, Opt>;
     }
 
     return Object.fromEntries(
@@ -81,7 +91,7 @@ export class ObjectSchema<
         key,
         schema.localize(src[key], locale),
       ])
-    ) as OutObject<T>;
+    ) as LocalObject<T>;
   }
 
   delocalizePath(
@@ -98,46 +108,6 @@ export class ObjectSchema<
       key,
       ...this.props[key].delocalizePath(src?.[key] ?? null, tail, locale),
     ];
-  }
-
-  localDescriptor(): MaybeOptDesc<
-    DetailedObjectDescriptor<{
-      [P in keyof T]: ReturnType<T[P]["localDescriptor"]>;
-    }>,
-    Opt
-  > {
-    return maybeOptDesc(
-      {
-        type: "object",
-        props: Object.fromEntries(
-          Object.entries(this.props).map(([key, schema]) => [
-            key,
-            schema.localDescriptor(),
-          ])
-        ) as { [P in keyof T]: ReturnType<T[P]["localDescriptor"]> },
-      },
-      this.opt
-    );
-  }
-
-  rawDescriptor(): MaybeOptDesc<
-    DetailedObjectDescriptor<{
-      [P in keyof T]: ReturnType<T[P]["rawDescriptor"]>;
-    }>,
-    Opt
-  > {
-    return maybeOptDesc(
-      {
-        type: "object",
-        props: Object.fromEntries(
-          Object.entries(this.props).map(([key, schema]) => [
-            key,
-            schema.rawDescriptor(),
-          ])
-        ) as { [P in keyof T]: ReturnType<T[P]["rawDescriptor"]> },
-      },
-      this.opt
-    );
   }
 
   serialize(): SerializedObjectSchema {

@@ -1,141 +1,124 @@
-export type ArrayDescriptor = {
-  readonly type: "array";
-  readonly item: Descriptor;
-};
+export abstract class Descriptor<V> {
+  abstract readonly optional: boolean;
 
-export type DetailedArrayDescriptor<D extends Descriptor> = {
-  readonly type: "array";
-  readonly item: D;
-};
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  validate(_value: V): never {
+    throw TypeError("Not implemented");
+  }
+}
+export abstract class NonOptionalDescriptor<V> extends Descriptor<V> {
+  readonly optional!: false;
 
-export type RecordDescriptor = {
-  readonly type: "record";
-  readonly item: Descriptor;
-};
+  static {
+    Object.defineProperty(this.prototype, "optional", {
+      value: false,
+      writable: false,
+    });
+  }
+}
 
-export type DetailedRecordDescriptor<D extends Descriptor> = {
-  readonly type: "record";
-  readonly item: D;
-};
+export class ArrayDescriptor<
+  D extends Descriptor<unknown>
+> extends NonOptionalDescriptor<readonly ValueOf<D>[]> {
+  constructor(public readonly item: D) {
+    super();
+  }
+}
+
+export class RecordDescriptor<
+  K extends string,
+  D extends Descriptor<unknown>
+> extends NonOptionalDescriptor<{ readonly [P in K]: ValueOf<D> }> {
+  constructor(public readonly item: D) {
+    super();
+  }
+}
 
 export type ObjectDescriptorProps = {
-  [P in string]: Descriptor;
+  readonly [P in string]: Descriptor<unknown>;
 };
+export class ObjectDescriptor<
+  D extends ObjectDescriptorProps
+> extends NonOptionalDescriptor<{ readonly [P in keyof D]: ValueOf<D[P]> }> {
+  constructor(public readonly props: D) {
+    super();
+  }
+}
 
-export type ObjectDescriptor = {
-  readonly type: "object";
-  readonly props: ObjectDescriptorProps;
-};
+export class TupleDescriptor<
+  D extends readonly Descriptor<unknown>[]
+> extends NonOptionalDescriptor<{ [I in keyof D]: ValueOf<D[I]> }> {
+  constructor(public readonly items: D) {
+    super();
+  }
+}
 
-export type DetailedObjectDescriptor<D extends ObjectDescriptorProps> = {
-  readonly type: "object";
-  readonly props: D;
-};
+export class PrimitiveDescriptor<V> extends NonOptionalDescriptor<V> {}
 
-export type OptionalDescriptor = {
-  readonly type: "optional";
-  readonly item: NNDescriptor;
-};
+export const StringDescriptor =
+  new (class StringDescriptor extends PrimitiveDescriptor<string> {})();
+export type StringDescriptor = typeof StringDescriptor;
+export const NumberDescriptor =
+  new (class NumberDescriptor extends PrimitiveDescriptor<number> {})();
+export type NumberDescriptor = typeof NumberDescriptor;
+export const BooleanDescriptor =
+  new (class BooleanDescriptor extends PrimitiveDescriptor<boolean> {})();
+export type BooleanDescriptor = typeof BooleanDescriptor;
+export const NullDescriptor =
+  new (class NullDescriptor extends PrimitiveDescriptor<null> {})();
+export type NullDescriptor = typeof NullDescriptor;
 
-export type DetailedOptionalDescriptor<D extends NNDescriptor> = {
-  readonly type: "optional";
-  readonly item: D;
-};
+export class OptionalDescriptor<
+  D extends NonOptionalDescriptor<unknown>
+> extends Descriptor<ValueOf<D> | null> {
+  optional!: true;
+  constructor(public readonly item: D) {
+    super();
+  }
 
-export type AsOptional<D extends Descriptor> = [D] extends [OptionalDescriptor]
-  ? D
-  : [D] extends [NNDescriptor]
-  ? DetailedOptionalDescriptor<D>
-  : never;
-export function asOptional<D extends Descriptor>(desc: D): AsOptional<D> {
+  static {
+    Object.defineProperty(this.prototype, "optional", {
+      value: true,
+      writable: false,
+    });
+  }
+}
+
+export type AsOptional<D extends Descriptor<unknown>> =
+  D extends NonOptionalDescriptor<unknown>
+    ? OptionalDescriptor<D>
+    : D extends OptionalDescriptor<NonOptionalDescriptor<unknown>>
+    ? D
+    : never;
+export function asOptional<D extends Descriptor<unknown>>(
+  desc: D
+): AsOptional<D> {
+  if (desc instanceof OptionalDescriptor) {
+    return desc as AsOptional<D>;
+  } else if (desc instanceof NonOptionalDescriptor) {
+    return new OptionalDescriptor(desc) as AsOptional<D>;
+  }
+  throw Error(
+    "Invalid descriptor: Descriptor is neither optional nor non-optional"
+  );
+}
+
+export type AsRequired<D extends Descriptor<unknown>> =
+  D extends OptionalDescriptor<infer E>
+    ? E
+    : D extends NonOptionalDescriptor<unknown>
+    ? D
+    : never;
+export function asRequired<D extends Descriptor<unknown>>(
+  desc: D
+): AsRequired<D> {
   return (
-    desc.type === "optional"
-      ? desc
-      : {
-          type: "optional",
-          item: desc,
-        }
-  ) as AsOptional<D>;
+    desc instanceof OptionalDescriptor ? desc.item : desc
+  ) as AsRequired<D>;
 }
 
-export type AsRequired<D extends Descriptor> = [D] extends [OptionalDescriptor]
-  ? D["item"]
-  : [D] extends [NNDescriptor]
-  ? D
+export type ValueOf<D extends Descriptor<unknown>> = D extends Descriptor<
+  infer V
+>
+  ? V
   : never;
-export function asRequired<D extends Descriptor>(desc: D): AsRequired<D> {
-  return (desc.type === "optional" ? desc.item : desc) as AsRequired<D>;
-}
-
-export type TupleDescriptor = {
-  readonly type: "tuple";
-  readonly items: readonly Descriptor[];
-};
-export type DetailedTupleDescriptor<T extends readonly Descriptor[]> = {
-  readonly type: "tuple";
-  readonly items: T;
-};
-
-export type StringDescriptor = {
-  readonly type: "string";
-};
-export const StringDescriptor: StringDescriptor = Object.freeze({
-  type: "string",
-});
-
-export type NumberDescriptor = {
-  readonly type: "number";
-};
-export const NumberDescriptor: NumberDescriptor = Object.freeze({
-  type: "number",
-});
-
-export type BooleanDescriptor = {
-  readonly type: "boolean";
-};
-export const BooleanDescriptor: BooleanDescriptor = Object.freeze({
-  type: "boolean",
-});
-
-export type NullDescriptor = {
-  readonly type: "null";
-};
-export const NullDescriptor: NullDescriptor = Object.freeze({
-  type: "null",
-});
-
-export type NNDescriptor =
-  | ArrayDescriptor
-  | RecordDescriptor
-  | ObjectDescriptor
-  | TupleDescriptor
-  | StringDescriptor
-  | NumberDescriptor
-  | BooleanDescriptor
-  | NullDescriptor;
-
-export type Descriptor = NNDescriptor | OptionalDescriptor;
-
-type ValuesOf<T extends readonly Descriptor[]> = {
-  [I in keyof T]: ValueOf<T[I]>;
-};
-
-export type ValueOf<D> = [D] extends [ArrayDescriptor]
-  ? readonly ValueOf<D["item"]>[]
-  : [D] extends [RecordDescriptor]
-  ? Record<string, ValueOf<D["item"]>>
-  : [D] extends [ObjectDescriptor]
-  ? { [P in keyof D["props"]]: ValueOf<D["props"][P]> }
-  : [D] extends [OptionalDescriptor]
-  ? ValueOf<D["item"]> | null
-  : [D] extends [TupleDescriptor]
-  ? ValuesOf<D["items"]>
-  : [D] extends [StringDescriptor]
-  ? string
-  : [D] extends [NumberDescriptor]
-  ? number
-  : [D] extends [BooleanDescriptor]
-  ? boolean
-  : [D] extends [NullDescriptor]
-  ? null
-  : unknown;

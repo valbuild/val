@@ -1,9 +1,6 @@
-import { DetailedRecordDescriptor } from "../descriptor";
 import { Source } from "../Source";
 import {
   LocalOf,
-  maybeOptDesc,
-  MaybeOptDesc,
   OptIn,
   OptOut,
   Schema,
@@ -22,17 +19,17 @@ export class I18nSchema<
   T extends Schema<Source, Source>,
   Opt extends boolean
 > extends Schema<
-  OptIn<Record<"en_US", SrcOf<T>>, Opt>,
+  OptIn<{ readonly en_US: SrcOf<T> }, Opt>,
   OptOut<LocalOf<T>, Opt>
 > {
-  constructor(private readonly schema: T, protected readonly opt: Opt) {
+  constructor(public readonly schema: T, public readonly opt: Opt) {
     super(opt);
 
     if (schema.hasI18n()) {
-      console.warn("Nested i18n detected. ");
+      console.warn("Nested i18n detected.");
     }
   }
-  validate(src: OptIn<Record<"en_US", SrcOf<T>>, Opt>): false | string[] {
+  validate(src: OptIn<{ readonly en_US: SrcOf<T> }, Opt>): false | string[] {
     if (src === null) {
       if (!this.opt) return ["Non-optional i18n cannot be null"];
       return false;
@@ -75,26 +72,6 @@ export class I18nSchema<
       locale,
       ...this.schema.delocalizePath(src?.[locale] ?? null, localPath, locale),
     ];
-  }
-
-  localDescriptor(): MaybeOptDesc<ReturnType<T["localDescriptor"]>, Opt> {
-    return maybeOptDesc(
-      this.schema.localDescriptor() as ReturnType<T["localDescriptor"]>,
-      this.opt
-    );
-  }
-
-  rawDescriptor(): MaybeOptDesc<
-    DetailedRecordDescriptor<ReturnType<T["rawDescriptor"]>>,
-    Opt
-  > {
-    return maybeOptDesc(
-      {
-        type: "record",
-        item: this.schema.rawDescriptor() as ReturnType<T["rawDescriptor"]>,
-      },
-      this.opt
-    );
   }
 
   serialize(): SerializedI18nSchema {

@@ -1,5 +1,4 @@
-import { NumberDescriptor } from "../descriptor";
-import { maybeOptDesc, MaybeOptDesc, OptIn, OptOut, Schema } from "./Schema";
+import { OptIn, OptOut, Schema } from "./Schema";
 
 export type SerializedNumberSchema = {
   type: "number";
@@ -10,7 +9,7 @@ export class NumberSchema<Opt extends boolean> extends Schema<
   OptIn<number, Opt>,
   OptOut<number, Opt>
 > {
-  constructor(protected readonly opt: Opt) {
+  constructor(public readonly opt: Opt) {
     super(opt);
   }
 
@@ -32,14 +31,6 @@ export class NumberSchema<Opt extends boolean> extends Schema<
 
   delocalizePath(_src: number | null, localPath: string[]): string[] {
     return localPath;
-  }
-
-  localDescriptor(): MaybeOptDesc<NumberDescriptor, Opt> {
-    return this.rawDescriptor();
-  }
-
-  rawDescriptor(): MaybeOptDesc<NumberDescriptor, Opt> {
-    return maybeOptDesc(NumberDescriptor, this.opt);
   }
 
   serialize(): SerializedNumberSchema {

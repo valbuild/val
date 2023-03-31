@@ -1,5 +1,4 @@
-import { StringDescriptor } from "../descriptor";
-import { MaybeOptDesc, maybeOptDesc, OptIn, OptOut, Schema } from "./Schema";
+import { OptIn, OptOut, Schema } from "./Schema";
 
 type StringOptions = {
   maxLength?: number;
@@ -21,7 +20,7 @@ export class StringSchema<Opt extends boolean> extends Schema<
 > {
   constructor(
     private readonly options: StringOptions | undefined,
-    protected readonly opt: Opt
+    public readonly opt: Opt
   ) {
     super(opt);
   }
@@ -65,14 +64,6 @@ export class StringSchema<Opt extends boolean> extends Schema<
 
   delocalizePath(_src: string | null, path: string[]): string[] {
     return path;
-  }
-
-  localDescriptor(): MaybeOptDesc<StringDescriptor, Opt> {
-    return this.rawDescriptor();
-  }
-
-  rawDescriptor(): MaybeOptDesc<StringDescriptor, Opt> {
-    return maybeOptDesc(StringDescriptor, this.opt);
   }
 
   serialize(): SerializedStringSchema {

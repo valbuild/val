@@ -9,35 +9,29 @@ import {
 import {
   asRequired,
   AsRequired,
-  DetailedOptionalDescriptor,
-  NNDescriptor,
+  OptionalDescriptor,
+  NonOptionalDescriptor,
   ValueOf,
 } from "../descriptor";
 import * as expr from "../expr";
 import { Selector, DESC, EXPR } from "./selector";
 
-export class OptionalSelector<Ctx, D extends NNDescriptor> extends Selector<
+export class OptionalSelector<
   Ctx,
-  DetailedOptionalDescriptor<D>
-> {
+  D extends NonOptionalDescriptor<unknown>
+> extends Selector<Ctx, OptionalDescriptor<D>> {
   constructor(
-    private readonly expr: expr.Expr<
-      Ctx,
-      ValueOf<DetailedOptionalDescriptor<D>>
-    >,
+    private readonly expr: expr.Expr<Ctx, ValueOf<OptionalDescriptor<D>>>,
     private readonly item: D
   ) {
     super();
   }
 
-  [EXPR](): expr.Expr<Ctx, ValueOf<DetailedOptionalDescriptor<D>>> {
+  [EXPR](): expr.Expr<Ctx, ValueOf<OptionalDescriptor<D>>> {
     return this.expr;
   }
-  [DESC](): DetailedOptionalDescriptor<D> {
-    return {
-      type: "optional",
-      item: this.item,
-    };
+  [DESC](): OptionalDescriptor<D> {
+    return new OptionalDescriptor(this.item);
   }
 
   andThen<S extends Selected<readonly [ValueOf<D>]>>(
@@ -61,9 +55,9 @@ export class OptionalSelector<Ctx, D extends NNDescriptor> extends Selector<
   }
 }
 
-export function newOptionalSelector<Ctx, D extends NNDescriptor>(
-  expr: expr.Expr<Ctx, ValueOf<D> | null>,
-  desc: D
-): OptionalSelector<Ctx, D> {
+export function newOptionalSelector<
+  Ctx,
+  D extends NonOptionalDescriptor<unknown>
+>(expr: expr.Expr<Ctx, ValueOf<D> | null>, desc: D): OptionalSelector<Ctx, D> {
   return new OptionalSelector(expr, desc);
 }

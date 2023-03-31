@@ -12,7 +12,7 @@ export const EXPR = Symbol("expr");
  */
 export const DESC = Symbol("desc");
 
-export abstract class Selector<Ctx, D extends Descriptor> {
+export abstract class Selector<Ctx, D extends Descriptor<unknown>> {
   /**
    * @internal
    */
