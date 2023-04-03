@@ -31,7 +31,7 @@ export class I18nSchema<
   }
   validate(src: OptIn<{ readonly en_US: SrcOf<T> }, Opt>): false | string[] {
     if (src === null) {
-      if (!this.opt) return ["Non-optional i18n cannot be null"];
+      if (!this.opt) return ["Required i18n record cannot be null"];
       return false;
     }
     const errors: string[] = [];
@@ -57,7 +57,7 @@ export class I18nSchema<
     locale: "en_US"
   ): OptOut<LocalOf<T>, Opt> {
     if (src === null) {
-      if (!this.opt) throw Error("Non-optional i18n cannot be null");
+      if (!this.opt) throw Error("Required i18n record cannot be null");
       return null as OptOut<LocalOf<T>, Opt>;
     }
     return Schema.localize(this.schema, src[locale], locale);
@@ -70,7 +70,7 @@ export class I18nSchema<
   ): string[] {
     if (src === null) {
       if (!this.opt) {
-        throw Error("Invalid value: Non-optional i18n record cannot be null");
+        throw Error("Invalid value: Required i18n record cannot be null");
       }
 
       if (localPath.length !== 0) {

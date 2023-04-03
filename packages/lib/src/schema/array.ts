@@ -27,7 +27,7 @@ export class ArraySchema<
   }
   validate(src: OptIn<readonly SrcOf<T>[], Opt>): false | string[] {
     if (src === null) {
-      if (!this.opt) return ["Non-optional array cannot be null"];
+      if (!this.opt) return ["Required array cannot be null"];
       return false;
     }
     const errors: string[] = [];
@@ -52,7 +52,7 @@ export class ArraySchema<
     locale: "en_US"
   ): OptOut<LocalOf<T>[], Opt> {
     if (src === null) {
-      if (!this.opt) throw Error("Non-optional array cannot be null");
+      if (!this.opt) throw Error("Required array cannot be null");
       return null as OptOut<LocalOf<T>[], Opt>;
     }
     return src.map((item) => Schema.localize(this.item, item, locale));
@@ -67,7 +67,7 @@ export class ArraySchema<
     const [idx, ...tail] = localPath;
     if (src === null) {
       if (!this.opt) {
-        throw Error("Invalid value: Non-optional array cannot be null");
+        throw Error("Invalid value: Required array cannot be null");
       }
 
       if (tail.length !== 0) {

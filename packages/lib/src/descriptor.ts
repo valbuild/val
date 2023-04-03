@@ -99,7 +99,7 @@ export function asOptional<D extends Descriptor<unknown>>(
     return new OptionalDescriptor(desc) as AsOptional<D>;
   }
   throw Error(
-    "Invalid descriptor: Descriptor is neither optional nor non-optional"
+    "Invalid descriptor: Descriptor is neither optional nor required"
   );
 }
 

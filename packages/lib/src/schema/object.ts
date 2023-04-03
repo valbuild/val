@@ -49,7 +49,7 @@ export class ObjectSchema<
   }
   validate(src: OptIn<SrcObject<T>, Opt>): false | string[] {
     if (src === null) {
-      if (!this.opt) return ["Non-optional object cannot be null"];
+      if (!this.opt) return ["Required object cannot be null"];
       return false;
     }
     const errors: string[] = [];
@@ -57,7 +57,7 @@ export class ObjectSchema<
       const schema = this.props[key];
       if (!(key in src)) {
         if (!schema.opt) {
-          errors.push(`[${key}]: Non-optional property is missing`);
+          errors.push(`[${key}]: Required property is missing`);
         }
         continue;
       }
@@ -90,7 +90,7 @@ export class ObjectSchema<
     locale: "en_US"
   ): OptOut<LocalObject<T>, Opt> {
     if (src === null) {
-      if (!this.opt) throw Error("Non-optional object cannot be null");
+      if (!this.opt) throw Error("Required object cannot be null");
       return null as OptOut<LocalObject<T>, Opt>;
     }
 
@@ -114,7 +114,7 @@ export class ObjectSchema<
     }
     if (src === null) {
       if (!this.opt) {
-        throw Error("Invalid value: Non-optional object cannot be null");
+        throw Error("Invalid value: Required object cannot be null");
       }
 
       if (tail.length !== 0) {

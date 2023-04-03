@@ -27,7 +27,7 @@ export class StringSchema<Opt extends boolean> extends Schema<
 
   validate(src: OptIn<string, Opt>): false | string[] {
     if (src === null) {
-      if (!this.opt) return ["Non-optional string cannot be null"];
+      if (!this.opt) return ["Required string cannot be null"];
       return false;
     }
     const errors: string[] = [];

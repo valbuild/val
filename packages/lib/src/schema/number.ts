@@ -15,7 +15,7 @@ export class NumberSchema<Opt extends boolean> extends Schema<
 
   validate(src: OptIn<number, Opt>): false | string[] {
     if (src === null) {
-      if (!this.opt) return ["Non-optional number cannot be null"];
+      if (!this.opt) return ["Required number cannot be null"];
       return false;
     }
     return false;
