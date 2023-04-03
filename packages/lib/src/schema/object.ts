@@ -55,7 +55,7 @@ export class ObjectSchema<
     const errors: string[] = [];
     for (const key in this.props) {
       const schema = this.props[key];
-      if (!(key in src)) {
+      if (!(key in (src as SrcObject<T>))) {
         if (!schema.opt) {
           errors.push(`[${key}]: Required property is missing`);
         }
