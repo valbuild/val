@@ -1,4 +1,3 @@
-import { Descriptor, ValueOf } from "../descriptor";
 import { Source } from "../Source";
 import {
   LocalOf,
@@ -23,18 +22,6 @@ type SrcObject<T extends SchemaObject> = {
 type LocalObject<T extends SchemaObject> = {
   readonly [key in keyof T]: LocalOf<T[key]>;
 };
-
-type A<T extends Schema<Source, Source>> = ValueOf<
-  Descriptor<LocalOf<T>>
-> extends LocalOf<T>
-  ? true
-  : false;
-type B = A<ObjectSchema<SchemaObject, boolean>>;
-
-type T = Schema<{ readonly t: string }, { readonly t: string }>;
-type C = A<T>;
-type D = ValueOf<Descriptor<LocalOf<T>>>;
-type E = LocalOf<T>;
 
 type Some<
   T extends { readonly [str in PropertyKey]: boolean } | readonly boolean[]
