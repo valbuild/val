@@ -8,7 +8,7 @@ import { StringSchema } from "./string";
 
 export function deserializeSchema(
   schema: SerializedSchema
-): Schema<Source, Source> {
+): Schema<never, Source> {
   switch (schema.type) {
     case "array":
       return ArraySchema.deserialize(schema);

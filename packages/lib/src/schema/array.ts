@@ -16,7 +16,7 @@ export type SerializedArraySchema = {
 };
 
 export class ArraySchema<
-  T extends Schema<Source, Source>,
+  T extends Schema<never, Source>,
   Opt extends boolean
 > extends Schema<
   OptIn<readonly SrcOf<T>[], Opt>,
@@ -25,14 +25,14 @@ export class ArraySchema<
   constructor(public readonly item: T, public readonly opt: Opt) {
     super(opt);
   }
-  validate(src: OptIn<SrcOf<T>[], Opt>): false | string[] {
+  validate(src: OptIn<readonly SrcOf<T>[], Opt>): false | string[] {
     if (src === null) {
       if (!this.opt) return ["Non-optional array cannot be null"];
       return false;
     }
     const errors: string[] = [];
     src.forEach((value, index) => {
-      const result = this.item.validate(value);
+      const result = Schema.validate(this.item, value);
       if (result) {
         errors.push(...result.map((error) => `[${index}]: ${error}`));
       }
@@ -48,18 +48,18 @@ export class ArraySchema<
   }
 
   localize(
-    src: OptIn<SrcOf<T>[], Opt>,
+    src: OptIn<readonly SrcOf<T>[], Opt>,
     locale: "en_US"
   ): OptOut<LocalOf<T>[], Opt> {
     if (src === null) {
       if (!this.opt) throw Error("Non-optional array cannot be null");
       return null as OptOut<LocalOf<T>[], Opt>;
     }
-    return src.map((item) => this.item.localize(item, locale) as LocalOf<T>);
+    return src.map((item) => Schema.localize(this.item, item, locale));
   }
 
   delocalizePath(
-    src: OptIn<SrcOf<T>[], Opt>,
+    src: OptIn<readonly SrcOf<T>[], Opt>,
     localPath: string[],
     locale: "en_US"
   ): string[] {
@@ -79,7 +79,10 @@ export class ArraySchema<
       return [idx];
     }
 
-    return [idx, ...this.item.delocalizePath(src[Number(idx)], tail, locale)];
+    return [
+      idx,
+      ...Schema.delocalizePath(this.item, src[Number(idx)], tail, locale),
+    ];
   }
 
   serialize(): SerializedArraySchema {
@@ -97,16 +100,16 @@ export class ArraySchema<
 
   static deserialize(
     schema: SerializedArraySchema
-  ): ArraySchema<Schema<Source, Source>, boolean> {
+  ): ArraySchema<Schema<never, Source>, boolean> {
     return new ArraySchema(deserializeSchema(schema.schema), schema.opt);
   }
 }
-export const array = <T extends Schema<Source, Source>>(
+export const array = <T extends Schema<never, Source>>(
   schema: T
 ): ArraySchema<T, false> => {
   return new ArraySchema(schema, false);
 };
-array.optional = <T extends Schema<Source, Source>>(
+array.optional = <T extends Schema<never, Source>>(
   schema: T
 ): ArraySchema<T, true> => {
   return new ArraySchema(schema, true);

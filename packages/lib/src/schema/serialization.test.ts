@@ -9,7 +9,7 @@ describe("Schema", () => {
   const testCases: {
     name: string;
     serialized: SerializedSchema;
-    deserialized: Schema<Source, Source>;
+    deserialized: Schema<never, Source>;
   }[] = [
     {
       name: "array",

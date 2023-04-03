@@ -5,7 +5,7 @@ import { LocalOf, Schema, SerializedSchema, SrcOf } from "./schema/Schema";
 import { exprOf, ExprOf, getSelector, Selected, SelectorOf } from "./selector";
 import { Source } from "./Source";
 
-export class ModuleContent<T extends Schema<Source, Source>> {
+export class ModuleContent<T extends Schema<never, Source>> {
   constructor(
     /**
      * @internal
@@ -15,7 +15,7 @@ export class ModuleContent<T extends Schema<Source, Source>> {
   ) {}
 
   validate(): false | string[] {
-    return this.schema.validate(this.source);
+    return Schema.validate(this.schema, this.source);
   }
 
   select<S extends Selected<readonly [LocalOf<T>]>>(
@@ -32,7 +32,7 @@ export class ModuleContent<T extends Schema<Source, Source>> {
   }
 
   localize(locale: "en_US"): LocalOf<T> {
-    return this.schema.localize(this.source, locale) as LocalOf<T>;
+    return Schema.localize(this.schema, this.source, locale);
   }
 
   /**
@@ -54,8 +54,8 @@ export class ModuleContent<T extends Schema<Source, Source>> {
   static deserialize({
     source,
     schema,
-  }: SerializedModuleContent): ModuleContent<Schema<Source, Source>> {
-    return new ModuleContent(source, deserializeSchema(schema));
+  }: SerializedModuleContent): ModuleContent<Schema<never, Source>> {
+    return new ModuleContent(source as never, deserializeSchema(schema));
   }
 }
 

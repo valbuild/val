@@ -9,7 +9,7 @@ import { Selectable } from "./selectable";
 import { ValueOf } from "./descriptor";
 import { Source } from "./Source";
 
-export class ValModule<T extends Schema<Source, Source>>
+export class ValModule<T extends Schema<never, Source>>
   implements Selectable<SrcOf<T>, LocalOf<T>>
 {
   constructor(
@@ -17,15 +17,16 @@ export class ValModule<T extends Schema<Source, Source>>
     public readonly content: ModuleContent<T>
   ) {}
 
-  getModule(): ValModule<Schema<SrcOf<T>, LocalOf<T>>> {
-    return this as unknown as ValModule<Schema<SrcOf<T>, LocalOf<T>>>;
+  getModule(): ValModule<Schema<SrcOf<T>, Source>> {
+    // TODO: Is this type assertion actually OK?
+    return this as unknown as ValModule<Schema<SrcOf<T>, Source>>;
   }
 
   getVal(source: SrcOf<T>, locale: "en_US"): Val<LocalOf<T>> {
     const rootExpr = expr.fromCtx<readonly [LocalOf<T>], 0>(0);
     return newVal(
       encodeValSrc(this.id, locale, rootExpr),
-      this.content.schema.localize(source, locale) as LocalOf<T>
+      Schema.localize(this.content.schema, source, locale)
     );
   }
 
@@ -36,14 +37,14 @@ export class ValModule<T extends Schema<Source, Source>>
   ): Selectable<SrcOf<T>, ValueOf<DescriptorOf<readonly [LocalOf<T>], S>>> {
     const resultExpr = this.content.select(callback);
     return {
-      getModule: () => {
-        return this;
+      getModule: (): ValModule<Schema<SrcOf<T>, Source>> => {
+        return this.getModule();
       },
       getVal: (source, locale) => {
         return newVal(
           encodeValSrc(this.id, locale, resultExpr),
           resultExpr.evaluate([
-            this.content.schema.localize(source, locale) as LocalOf<T>,
+            Schema.localize(this.content.schema, source, locale),
           ])
         );
       },
@@ -55,7 +56,7 @@ export class ValModule<T extends Schema<Source, Source>>
  *
  * @deprecated Uncertain about the name of this
  */
-export const content = <T extends Schema<Source, Source>>(
+export const content = <T extends Schema<never, Source>>(
   id: string,
   schema: T,
   src: SrcOf<T>

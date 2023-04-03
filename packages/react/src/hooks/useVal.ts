@@ -3,10 +3,10 @@ import { useValStore } from "../ValProvider";
 import { Source, Val } from "@valbuild/lib";
 import { Selectable } from "@valbuild/lib/src/selectable";
 
-export const useVal = <Src extends Source, Localized extends Source>(
-  selectable: Selectable<Src, Localized>,
+export const useVal = <S extends Source, Out extends Source>(
+  selectable: Selectable<S, Out>,
   locale: "en_US" = "en_US"
-): Val<Localized> => {
+): Val<Out> => {
   const mod = selectable.getModule();
   const valStore = useValStore();
   const remoteContent = useSyncExternalStore(
@@ -15,7 +15,7 @@ export const useVal = <Src extends Source, Localized extends Source>(
     valStore.getServerSnapshot(mod.id)
   );
   if (remoteContent) {
-    return selectable.getVal(remoteContent.source as Src, locale);
+    return selectable.getVal(remoteContent.source as S, locale);
   }
   const content = mod.content;
   const validationError = content.validate();
@@ -25,5 +25,5 @@ export const useVal = <Src extends Source, Localized extends Source>(
     );
   }
 
-  return selectable.getVal(content.source as Src, locale);
+  return selectable.getVal(content.source, locale);
 };

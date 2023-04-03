@@ -27,7 +27,7 @@ export function maybeOptDesc<
   return (opt ? asOptional(desc) : desc) as MaybeOptDesc<D, Opt>;
 }
 
-export type LocalDescriptorOf<S extends Schema<Source, Source>> = Schema<
+export type LocalDescriptorOf<S extends Schema<never, Source>> = Schema<
   Source,
   Source
 > extends S
@@ -47,7 +47,7 @@ export type LocalDescriptorOf<S extends Schema<Source, Source>> = Schema<
   ? MaybeOptDesc<NumberDescriptor, Opt>
   : MaybeOptDesc<Descriptor<unknown>, boolean>;
 
-export type RawDescriptorOf<S extends Schema<Source, Source>> = Schema<
+export type RawDescriptorOf<S extends Schema<never, Source>> = Schema<
   Source,
   Source
 > extends S
@@ -67,7 +67,7 @@ export type RawDescriptorOf<S extends Schema<Source, Source>> = Schema<
   ? MaybeOptDesc<NumberDescriptor, Opt>
   : MaybeOptDesc<Descriptor<unknown>, boolean>;
 
-export function localDescriptorOf<S extends Schema<Source, Source>>(
+export function localDescriptorOf<S extends Schema<never, Source>>(
   s: S
 ): LocalDescriptorOf<S> {
   if (s instanceof ArraySchema) {
@@ -92,7 +92,7 @@ export function localDescriptorOf<S extends Schema<Source, Source>>(
   }
   throw Error("Unsupported schema");
 }
-export function rawDescriptorOf<S extends Schema<Source, Source>>(
+export function rawDescriptorOf<S extends Schema<never, Source>>(
   s: S
 ): RawDescriptorOf<S> {
   if (s instanceof ArraySchema) {

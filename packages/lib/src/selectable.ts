@@ -3,8 +3,8 @@ import { Schema } from "./schema/Schema";
 import { Source } from "./Source";
 import { Val } from "./Val";
 
-export interface Selectable<Src extends Source, Localized> {
-  getModule(): ValModule<Schema<Src, Source>>;
+export interface Selectable<S extends Source, Out> {
+  getModule(): ValModule<Schema<S, Source>>;
 
-  getVal(source: Src, locale: "en_US"): Val<Localized>;
+  getVal(source: S, locale: "en_US"): Val<Out>;
 }

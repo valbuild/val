@@ -15,7 +15,7 @@ export type SerializedObjectSchema = {
   opt: boolean;
 };
 
-export type SchemaObject = { [key: string]: Schema<Source, Source> };
+export type SchemaObject = { [key: string]: Schema<never, Source> };
 type SrcObject<T extends SchemaObject> = {
   readonly [key in keyof T]: SrcOf<T[key]>;
 };
@@ -47,7 +47,7 @@ export class ObjectSchema<
     for (const key in this.props) {
       const value = src[key];
       const schema = this.props[key];
-      const result = schema.validate(value);
+      const result = Schema.validate(schema, value);
       if (result) {
         errors.push(...result.map((error) => `[${key}]: ${error}`));
       }
@@ -76,7 +76,7 @@ export class ObjectSchema<
     return Object.fromEntries(
       Object.entries(this.props).map(([key, schema]) => [
         key,
-        schema.localize(src[key], locale),
+        Schema.localize(schema, src[key] as SrcOf<typeof schema>, locale),
       ])
     ) as LocalObject<T>;
   }
@@ -105,7 +105,15 @@ export class ObjectSchema<
       return [key];
     }
 
-    return [key, ...this.props[key].delocalizePath(src[key], tail, locale)];
+    return [
+      key,
+      ...Schema.delocalizePath(
+        this.props[key],
+        src[key] as SrcOf<Schema<never, Source>>,
+        tail,
+        locale
+      ),
+    ];
   }
 
   serialize(): SerializedObjectSchema {
