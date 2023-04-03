@@ -2,7 +2,7 @@ import { ModuleContent, Source, Schema } from "@valbuild/lib";
 import { ValApi } from "./ValApi";
 
 export class ValStore {
-  private readonly vals: Map<string, ModuleContent<Schema<Source, Source>>>;
+  private readonly vals: Map<string, ModuleContent<Schema<never, Source>>>;
   private readonly listeners: { [moduleId: string]: (() => void)[] };
 
   constructor(private readonly api: ValApi) {
@@ -33,7 +33,7 @@ export class ValStore {
     };
   };
 
-  set(moduleId: string, val: ModuleContent<Schema<Source, Source>>) {
+  set(moduleId: string, val: ModuleContent<Schema<never, Source>>) {
     this.vals.set(moduleId, val);
     this.emitChange(moduleId);
   }

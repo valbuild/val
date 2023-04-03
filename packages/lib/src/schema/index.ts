@@ -76,7 +76,10 @@ export function localDescriptorOf<S extends Schema<never, Source>>(
       s.opt
     ) as LocalDescriptorOf<S>;
   } else if (s instanceof I18nSchema) {
-    return maybeOptDesc(localDescriptorOf(s), s.opt) as LocalDescriptorOf<S>;
+    return maybeOptDesc(
+      localDescriptorOf(s.schema),
+      s.opt
+    ) as LocalDescriptorOf<S>;
   } else if (s instanceof ObjectSchema) {
     const entries = Object.entries(s.props as SchemaObject).map(
       ([prop, s]) => [prop, localDescriptorOf(s)] as const

@@ -158,7 +158,16 @@ export function descriptorOf<Ctx, S extends Selected<Ctx>>(
   } else if (Array.isArray(selected)) {
     const items = (selected as readonly Selected<Ctx>[]).map(descriptorOf);
     return new TupleDescriptor(items) as unknown as DescriptorOf<Ctx, S>;
-  } else {
+  } else if (typeof selected === "string") {
+    return StringDescriptor as DescriptorOf<Ctx, S>;
+  } else if (typeof selected === "number") {
+    return NumberDescriptor as DescriptorOf<Ctx, S>;
+  } else if (typeof selected === "boolean") {
+    return BooleanDescriptor as DescriptorOf<Ctx, S>;
+  } else if (typeof selected === "object") {
+    if (selected === null) {
+      return NullDescriptor as DescriptorOf<Ctx, S>;
+    }
     const props = Object.fromEntries(
       Object.entries(
         selected as {
@@ -170,6 +179,7 @@ export function descriptorOf<Ctx, S extends Selected<Ctx>>(
     );
     return new ObjectDescriptor(props) as DescriptorOf<Ctx, S>;
   }
+  throw Error("Invalid selector result");
 }
 
 export type ExprOf<Ctx, S extends Selected<Ctx>> = expr.Expr<

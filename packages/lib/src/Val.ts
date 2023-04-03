@@ -38,7 +38,7 @@ export function newVal<T>(source: string, value: T): Val<T> {
             }
             if (hasOwn(value, prop)) {
               return newVal<T[keyof T]>(
-                `${source}[${JSON.stringify(prop)}]`,
+                `${source}.${JSON.stringify(prop)}`,
                 Reflect.get(target, prop)
               );
             }

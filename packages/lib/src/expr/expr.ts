@@ -301,6 +301,12 @@ class Map<Ctx, T, U> implements Expr<Ctx, U[]> {
     });
     return [resValue, resRef];
   }
+  toString(ctx: ToStringCtx<Ctx>): string {
+    return `${this.expr.toString(ctx)}.map((v, i) => ${this.callback.toString([
+      "v",
+      "i",
+    ])})`;
+  }
 }
 export function map<Ctx, T, U>(
   expr: Expr<Ctx, readonly T[]>,
@@ -348,6 +354,7 @@ class AndThen<Ctx, T, U> implements Expr<Ctx, U | null> {
     return this.callback.evaluateRef([value], [ref]);
   }
   toString(ctx: ToStringCtx<Ctx>): string {
+    console.log(this.callback);
     return `${this.expr.toString(ctx)}.andThen((v) => ${this.callback.toString([
       "v",
     ])})`;
@@ -461,7 +468,7 @@ export function parse<Ctx>(
   str: string
 ): Expr<Ctx, unknown> {
   // TODO: Fully implement this
-  // Currently missing: sub, map, object/array literals
+  // Currently missing: sub, map
   if (str.endsWith("}")) {
     const bracketStart = lastIndexOf(str, "{");
     if (bracketStart === -1) {
@@ -653,6 +660,24 @@ export function parse<Ctx>(
       }
 
       return slice(expr, start, end);
+    } else if (funcStr.endsWith(".map")) {
+      if (!argsStr.startsWith("(v, i) => ")) {
+        throw Error("invalid map lambda");
+      }
+
+      const expr = parse(
+        ctx,
+        funcStr.slice(0, funcStr.length - ".map".length)
+      ) as Expr<Ctx, readonly unknown[]>;
+      const callbackFn = parse<readonly [unknown, number]>(
+        {
+          v: 0,
+          i: 1,
+        },
+        argsStr.slice("(v, i) => ".length)
+      ) as Expr<readonly [unknown, number], number>;
+
+      return map(expr, callbackFn);
     } else if (funcStr.endsWith(".andThen")) {
       if (!argsStr.startsWith("(v) => ")) {
         throw Error("invalid find lambda");
