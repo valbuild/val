@@ -139,7 +139,7 @@ export type DescriptorOf<
   ? TupleDescriptorOf<Ctx, S>
   : S extends { [P in string]: Selected<Ctx> }
   ? ObjectDescriptor<{
-      [P in keyof S]: DescriptorOf<Ctx, S>;
+      [P in keyof S]: DescriptorOf<Ctx, S[P]>;
     }>
   : S extends string
   ? StringDescriptor
@@ -150,26 +150,6 @@ export type DescriptorOf<
   : S extends null
   ? NullDescriptor
   : never;
-
-export type DescriptorOfA<Ctx, S extends Selected<unknown>> = [S] extends [
-  Selector<unknown, infer D>
-]
-  ? D
-  : [S] extends [readonly Selected<Ctx>[]]
-  ? TupleDescriptorOf<Ctx, S>
-  : [S] extends [{ [P in string]: Selected<Ctx> }]
-  ? ObjectDescriptor<{
-      [P in keyof S]: DescriptorOf<Ctx, S>;
-    }>
-  : [S] extends [string]
-  ? StringDescriptor
-  : [S] extends [boolean]
-  ? BooleanDescriptor
-  : [S] extends [number]
-  ? NumberDescriptor
-  : [S] extends [null]
-  ? NullDescriptor
-  : Descriptor<unknown>;
 export function descriptorOf<Ctx, S extends Selected<Ctx>>(
   selected: S
 ): DescriptorOf<Ctx, S> {
