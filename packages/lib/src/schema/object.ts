@@ -1,4 +1,4 @@
-import { Source } from "../Source";
+import { Source, SourceObject } from "../Source";
 import {
   LocalOf,
   OptIn,
@@ -15,10 +15,19 @@ export type SerializedObjectSchema = {
   opt: boolean;
 };
 
-export type SchemaObject = { [key: string]: Schema<never, Source> };
-type SrcObject<T extends SchemaObject> = {
+type RawSrcObject<T extends SchemaObject> = {
   readonly [key in keyof T]: SrcOf<T[key]>;
 };
+
+export type SchemaObject = { [key: string]: Schema<never, Source> };
+type SrcObjectOptionals<T extends SourceObject> = {
+  readonly [P in keyof T]?: T[P];
+};
+type SrcObjectNonOptionals<T extends SourceObject> = {
+  readonly [P in keyof T as null extends T[P] ? never : P]: T[P];
+};
+type SrcObject<T extends SchemaObject> = SrcObjectOptionals<RawSrcObject<T>> &
+  SrcObjectNonOptionals<RawSrcObject<T>>;
 type LocalObject<T extends SchemaObject> = {
   readonly [key in keyof T]: LocalOf<T[key]>;
 };
@@ -45,8 +54,20 @@ export class ObjectSchema<
     }
     const errors: string[] = [];
     for (const key in this.props) {
-      const value = src[key];
       const schema = this.props[key];
+      if (!(key in src)) {
+        if (!schema.opt) {
+          errors.push(`[${key}]: Non-optional property is missing`);
+        }
+        continue;
+      }
+      const value = src[key];
+      if (value === undefined) {
+        errors.push(
+          `[${key}]: Property cannot have the value 'undefined'. Optional properties must be either omitted or have the value 'null'`
+        );
+      }
+
       const result = Schema.validate(schema, value);
       if (result) {
         errors.push(...result.map((error) => `[${key}]: ${error}`));
@@ -109,7 +130,7 @@ export class ObjectSchema<
       key,
       ...Schema.delocalizePath(
         this.props[key],
-        src[key] as SrcOf<Schema<never, Source>>,
+        (src[key] ?? null) as SrcOf<Schema<never, Source>>,
         tail,
         locale
       ),
