@@ -82,19 +82,30 @@ export class ObjectSchema<
   }
 
   delocalizePath(
-    src: SrcObject<T> | null,
+    src: OptIn<SrcObject<T>, Opt>,
     localPath: string[],
     locale: "en_US"
   ): string[] {
     if (localPath.length === 0) return localPath;
     const [key, ...tail] = localPath;
     if (!(key in this.props)) {
-      throw Error(`${key} is not in schema`);
+      throw Error(`Invalid path: ${key} is not in schema`);
     }
-    return [
-      key,
-      ...this.props[key].delocalizePath(src?.[key] ?? null, tail, locale),
-    ];
+    if (src === null) {
+      if (!this.opt) {
+        throw Error("Invalid value: Non-optional object cannot be null");
+      }
+
+      if (tail.length !== 0) {
+        throw Error(
+          "Invalid path: Cannot access property of optional object whose value is null"
+        );
+      }
+
+      return [key];
+    }
+
+    return [key, ...this.props[key].delocalizePath(src[key], tail, locale)];
   }
 
   serialize(): SerializedObjectSchema {

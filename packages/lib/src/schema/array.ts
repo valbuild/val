@@ -59,16 +59,27 @@ export class ArraySchema<
   }
 
   delocalizePath(
-    src: SrcOf<T>[] | null,
+    src: OptIn<SrcOf<T>[], Opt>,
     localPath: string[],
     locale: "en_US"
   ): string[] {
     if (localPath.length === 0) return localPath;
     const [idx, ...tail] = localPath;
-    return [
-      idx,
-      ...this.item.delocalizePath(src?.[Number(idx)] ?? null, tail, locale),
-    ];
+    if (src === null) {
+      if (!this.opt) {
+        throw Error("Invalid value: Non-optional array cannot be null");
+      }
+
+      if (tail.length !== 0) {
+        throw Error(
+          "Invalid path: Cannot access item of optional array whose value is null"
+        );
+      }
+
+      return [idx];
+    }
+
+    return [idx, ...this.item.delocalizePath(src[Number(idx)], tail, locale)];
   }
 
   serialize(): SerializedArraySchema {

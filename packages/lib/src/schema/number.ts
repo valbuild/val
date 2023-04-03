@@ -29,7 +29,10 @@ export class NumberSchema<Opt extends boolean> extends Schema<
     return src;
   }
 
-  delocalizePath(_src: number | null, localPath: string[]): string[] {
+  delocalizePath(_src: OptIn<number, Opt>, localPath: string[]): string[] {
+    if (localPath.length !== 0) {
+      throw Error("Invalid path: Cannot access property of number value");
+    }
     return localPath;
   }
 

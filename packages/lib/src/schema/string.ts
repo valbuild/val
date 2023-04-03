@@ -62,8 +62,11 @@ export class StringSchema<Opt extends boolean> extends Schema<
     return src;
   }
 
-  delocalizePath(_src: string | null, path: string[]): string[] {
-    return path;
+  delocalizePath(_src: OptIn<string, Opt>, localPath: string[]): string[] {
+    if (localPath.length !== 0) {
+      throw Error("Invalid path: Cannot access property of string value");
+    }
+    return localPath;
   }
 
   serialize(): SerializedStringSchema {
