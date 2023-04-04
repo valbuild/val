@@ -6,8 +6,8 @@ import { Expr, parse } from "./expr";
  *
  * The search will ignore the contents of string literals and only return a match
  * if the match is at the same nesting level as the starting character. During
- * traversal, it will assert that there are no mismatched parens or square
- * brackets.
+ * traversal, it will assert that there are no mismatched parens, square brackets
+ * or curly brackets.
  *
  * @param str The string to search in.
  * @param searchString The substring to search for.
@@ -85,8 +85,8 @@ export function lastIntegerOf(str: string, position = str.length - 1) {
  *
  * The search will ignore the contents of string literals and only return a match
  * if the match is at the same nesting level as the starting character. During
- * traversal, it will assert that there are no mismatched parens or square
- * brackets.
+ * traversal, it will assert that there are no mismatched parens, square brackets
+ *  or curly brackets.
  *
  * @param str The string to search in.
  * @param searchString The substring to search for.
@@ -150,7 +150,8 @@ export function indexOf(
  *
  * The split will ignore the contents of string literals and only split if the
  * separator occurs at the same nesting level as the starting character. It will
- * also assert that there are no mismatched parens or square brackets.
+ * also assert that there are no mismatched parens, square brackets or curly
+ * brackets.
  *
  * @param str The string to split.
  * @param separator A string that identifies character or characters to use in
