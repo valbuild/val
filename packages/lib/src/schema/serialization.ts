@@ -8,14 +8,14 @@ import { StringSchema } from "./string";
 
 export function deserializeSchema(
   schema: SerializedSchema
-): Schema<Source, Source> {
+): Schema<never, Source> {
   switch (schema.type) {
     case "array":
       return ArraySchema.deserialize(schema);
     case "i18n":
       return I18nSchema.deserialize(schema);
     case "number":
-      return NumberSchema.deserialize();
+      return NumberSchema.deserialize(schema);
     case "object":
       return ObjectSchema.deserialize(schema);
     case "string":

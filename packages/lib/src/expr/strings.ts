@@ -22,7 +22,7 @@ export function lastIndexOf(
   if (searchString.length !== 1)
     throw Error("searchString must be single character");
   let stringExpr = false;
-  const stack: (")" | "]")[] = [];
+  const stack: (")" | "]" | "}")[] = [];
   for (let i = position; i >= 0; --i) {
     const char = str[i];
     switch (char) {
@@ -37,6 +37,7 @@ export function lastIndexOf(
         break;
       case ")":
       case "]":
+      case "}":
         stack.push(char);
         break;
       case "(":
@@ -49,6 +50,11 @@ export function lastIndexOf(
           throw Error("Invalid square brackets");
         }
         break;
+      case "{":
+        if (stack.pop() !== "}") {
+          throw Error("Invalid curly brackets");
+        }
+        break;
     }
     if (
       !stringExpr &&
@@ -59,6 +65,18 @@ export function lastIndexOf(
     }
   }
   return -1;
+}
+
+const DIGITS = "0123456789";
+export function isDigit(str: string) {
+  return str !== "" && DIGITS.includes(str);
+}
+
+export function lastIntegerOf(str: string, position = str.length - 1) {
+  for (let i = position; i >= 0; --i) {
+    if (!isDigit(str[i])) return i + 1;
+  }
+  return 0;
 }
 
 /**
@@ -81,7 +99,7 @@ export function indexOf(
   position = 0
 ): number {
   let stringExpr = false;
-  const stack: ("(" | "[")[] = [];
+  const stack: ("(" | "[" | "{")[] = [];
   for (let i = position; i < str.length; ++i) {
     const char = str[i];
     switch (char) {
@@ -96,6 +114,7 @@ export function indexOf(
         break;
       case "(":
       case "[":
+      case "{":
         stack.push(char);
         break;
       case ")":
@@ -106,6 +125,11 @@ export function indexOf(
       case "]":
         if (stack.pop() !== "[") {
           throw Error("Invalid square brackets");
+        }
+        break;
+      case "}":
+        if (stack.pop() !== "{") {
+          throw Error("Invalid curly brackets");
         }
         break;
     }

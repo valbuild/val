@@ -1,29 +1,43 @@
-import { DetailedRecordDescriptor } from "../descriptor";
 import { Source } from "../Source";
-import { LocalOf, Schema, SrcOf, type SerializedSchema } from "./Schema";
+import {
+  LocalOf,
+  OptIn,
+  OptOut,
+  Schema,
+  SrcOf,
+  type SerializedSchema,
+} from "./Schema";
 import { deserializeSchema } from "./serialization";
 
 export type SerializedI18nSchema = {
   type: "i18n";
   schema: SerializedSchema;
+  opt: boolean;
 };
 
-export class I18nSchema<T extends Schema<Source, Source>> extends Schema<
-  Record<"en_US", SrcOf<T>>,
-  LocalOf<T>
+export class I18nSchema<
+  T extends Schema<never, Source>,
+  Opt extends boolean
+> extends Schema<
+  OptIn<{ readonly en_US: SrcOf<T> }, Opt>,
+  OptOut<LocalOf<T>, Opt>
 > {
-  constructor(private readonly schema: T) {
-    super();
+  constructor(public readonly schema: T, public readonly opt: Opt) {
+    super(opt);
 
     if (schema.hasI18n()) {
-      console.warn("Nested i18n detected. ");
+      console.warn("Nested i18n detected.");
     }
   }
-  validate(input: Record<"en_US", SrcOf<T>>): false | string[] {
+  validate(src: OptIn<{ readonly en_US: SrcOf<T> }, Opt>): false | string[] {
+    if (src === null) {
+      if (!this.opt) return ["Required i18n record cannot be null"];
+      return false;
+    }
     const errors: string[] = [];
-    for (const key in input) {
-      const value = input[key as "en_US"];
-      const result = this.schema.validate(value);
+    for (const key in src) {
+      const value = src[key as "en_US"];
+      const result = Schema.validate(this.schema, value);
       if (result) {
         errors.push(...result.map((error) => `[${key}]: ${error}`));
       }
@@ -38,47 +52,67 @@ export class I18nSchema<T extends Schema<Source, Source>> extends Schema<
     return true;
   }
 
-  localize(src: Record<"en_US", SrcOf<T>>, locale: "en_US"): LocalOf<T> {
-    return this.schema.localize(src[locale], locale) as LocalOf<T>;
+  localize(
+    src: OptIn<{ readonly en_US: SrcOf<T> }, Opt>,
+    locale: "en_US"
+  ): OptOut<LocalOf<T>, Opt> {
+    if (src === null) {
+      if (!this.opt) throw Error("Required i18n record cannot be null");
+      return null as OptOut<LocalOf<T>, Opt>;
+    }
+    return Schema.localize(this.schema, src[locale], locale);
   }
 
   delocalizePath(
-    src: Record<"en_US", SrcOf<T>>,
+    src: OptIn<{ readonly en_US: SrcOf<T> }, Opt>,
     localPath: string[],
     locale: "en_US"
   ): string[] {
+    if (src === null) {
+      if (!this.opt) {
+        throw Error("Invalid value: Required i18n record cannot be null");
+      }
+
+      if (localPath.length !== 0) {
+        throw Error(
+          "Invalid path: Cannot access item of i18n record whose value is null"
+        );
+      }
+
+      return localPath;
+    }
     return [
       locale,
-      ...this.schema.delocalizePath(src[locale], localPath, locale),
+      ...Schema.delocalizePath(this.schema, src[locale], localPath, locale),
     ];
-  }
-
-  localDescriptor(): ReturnType<T["localDescriptor"]> {
-    return this.schema.localDescriptor() as ReturnType<T["localDescriptor"]>;
-  }
-
-  rawDescriptor(): DetailedRecordDescriptor<ReturnType<T["rawDescriptor"]>> {
-    return {
-      type: "record",
-      item: this.schema.rawDescriptor() as ReturnType<T["rawDescriptor"]>,
-    };
   }
 
   serialize(): SerializedI18nSchema {
     return {
       type: "i18n",
       schema: this.schema.serialize(),
+      opt: this.opt,
     };
+  }
+
+  optional(): I18nSchema<T, true> {
+    if (this.opt) console.warn("Schema is already optional");
+    return new I18nSchema(this.schema, true);
   }
 
   static deserialize(
     schema: SerializedI18nSchema
-  ): I18nSchema<Schema<Source, Source>> {
-    return new I18nSchema(deserializeSchema(schema.schema));
+  ): I18nSchema<Schema<never, Source>, boolean> {
+    return new I18nSchema(deserializeSchema(schema.schema), schema.opt);
   }
 }
-export const i18n = <T extends Schema<Source, Source>>(
+export const i18n = <T extends Schema<never, Source>>(
   schema: T
-): I18nSchema<T> => {
-  return new I18nSchema(schema);
+): I18nSchema<T, false> => {
+  return new I18nSchema(schema, false);
+};
+i18n.optional = <T extends Schema<never, Source>>(
+  schema: T
+): I18nSchema<T, true> => {
+  return new I18nSchema(schema, true);
 };

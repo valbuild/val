@@ -1,11 +1,11 @@
 import { deserializeSchema } from "./schema/serialization";
 import * as expr from "./expr";
+import { localDescriptorOf, LocalDescriptorOf } from "./schema";
 import { LocalOf, Schema, SerializedSchema, SrcOf } from "./schema/Schema";
-import { getSelector, SelectorOf } from "./selector";
-import { EXPR, Selector } from "./selector/selector";
+import { exprOf, ExprOf, getSelector, Selected, SelectorOf } from "./selector";
 import { Source } from "./Source";
 
-export class ModuleContent<T extends Schema<Source, Source>> {
+export class ModuleContent<T extends Schema<never, Source>> {
   constructor(
     /**
      * @internal
@@ -15,24 +15,24 @@ export class ModuleContent<T extends Schema<Source, Source>> {
   ) {}
 
   validate(): false | string[] {
-    return this.schema.validate(this.source);
+    return Schema.validate(this.schema, this.source);
   }
 
-  select<Out>(
-    callback: <Ctx>(
-      selector: SelectorOf<Ctx, ReturnType<T["localDescriptor"]>>
-    ) => Selector<Ctx, Out>
-  ): expr.Expr<readonly [LocalOf<T>], Out> {
-    const rootExpr = expr.fromCtx(0);
+  select<S extends Selected<readonly [LocalOf<T>]>>(
+    callback: (
+      selector: SelectorOf<readonly [LocalOf<T>], LocalDescriptorOf<T>>
+    ) => S
+  ): ExprOf<readonly [LocalOf<T>], S> {
+    const rootExpr = expr.fromCtx<readonly [LocalOf<T>], 0>(0);
     const rootSelector = getSelector(
       rootExpr,
-      this.schema.localDescriptor()
-    ) as SelectorOf<readonly [LocalOf<T>], ReturnType<T["localDescriptor"]>>;
-    return callback(rootSelector)[EXPR]();
+      localDescriptorOf(this.schema)
+    ) as SelectorOf<readonly [LocalOf<T>], LocalDescriptorOf<T>>;
+    return exprOf(callback(rootSelector));
   }
 
   localize(locale: "en_US"): LocalOf<T> {
-    return this.schema.localize(this.source, locale) as LocalOf<T>;
+    return Schema.localize(this.schema, this.source, locale);
   }
 
   /**
@@ -54,8 +54,8 @@ export class ModuleContent<T extends Schema<Source, Source>> {
   static deserialize({
     source,
     schema,
-  }: SerializedModuleContent): ModuleContent<Schema<Source, Source>> {
-    return new ModuleContent(source, deserializeSchema(schema));
+  }: SerializedModuleContent): ModuleContent<Schema<never, Source>> {
+    return new ModuleContent(source as never, deserializeSchema(schema));
   }
 }
 

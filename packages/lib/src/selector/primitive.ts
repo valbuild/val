@@ -1,21 +1,29 @@
+import { Descriptor, PrimitiveDescriptor, ValueOf } from "../descriptor";
 import * as expr from "../expr";
-import { BaseSelector, EXPR, Selector } from "./selector";
+import { Selector, DESC, EXPR } from "./selector";
 
-export class PrimitiveSelector<Ctx, Out>
-  extends BaseSelector<Ctx, Out>
-  implements Selector<Ctx, Out>
-{
-  constructor(private readonly expr: expr.Expr<Ctx, Out>) {
+export class PrimitiveSelector<
+  Ctx,
+  D extends PrimitiveDescriptor<unknown>
+> extends Selector<Ctx, D> {
+  constructor(
+    protected readonly expr: expr.Expr<Ctx, ValueOf<D>>,
+    private readonly desc: D
+  ) {
     super();
   }
 
-  [EXPR](): expr.Expr<Ctx, Out> {
+  [EXPR](): expr.Expr<Ctx, ValueOf<D>> {
     return this.expr;
+  }
+  [DESC](): D {
+    return this.desc;
   }
 }
 
-export function newPrimitiveSelector<Ctx, Out>(
-  expr: expr.Expr<Ctx, Out>
-): Selector<Ctx, Out> {
-  return new PrimitiveSelector(expr);
+export function newPrimitiveSelector<
+  Ctx,
+  D extends PrimitiveDescriptor<unknown>
+>(expr: expr.Expr<Ctx, ValueOf<D>>, desc: D): PrimitiveSelector<Ctx, D> {
+  return new PrimitiveSelector(expr, desc);
 }

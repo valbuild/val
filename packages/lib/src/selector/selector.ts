@@ -1,23 +1,27 @@
-import { getSelector } from ".";
 import * as expr from "../expr";
-import { BooleanDescriptor } from "../descriptor";
+import { BooleanDescriptor, Descriptor, ValueOf } from "../descriptor";
+import { type PrimitiveSelector } from "./primitive";
+import { getSelector } from ".";
 
 /**
  * @internal
  */
 export const EXPR = Symbol("expr");
+/**
+ * @internal
+ */
+export const DESC = Symbol("desc");
 
-export interface Selector<Ctx, Out> {
-  eq(value: Out): Selector<Ctx, boolean>;
+export abstract class Selector<Ctx, D extends Descriptor<unknown>> {
   /**
    * @internal
    */
-  [EXPR](): expr.Expr<Ctx, Out>;
-}
-
-export abstract class BaseSelector<Ctx, Out> implements Selector<Ctx, Out> {
-  abstract [EXPR](): expr.Expr<Ctx, Out>;
-  eq(value: Out): Selector<Ctx, boolean> {
+  abstract [EXPR](): expr.Expr<Ctx, ValueOf<D>>;
+  /**
+   * @internal
+   */
+  abstract [DESC](): D;
+  eq(value: ValueOf<D>): PrimitiveSelector<Ctx, BooleanDescriptor> {
     return getSelector(expr.eq(this[EXPR](), value), BooleanDescriptor);
   }
 }

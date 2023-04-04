@@ -10,7 +10,12 @@ export {
   slice,
   sortBy,
   reverse,
+  map,
   eq,
+  andThen,
+  objectLiteral,
+  arrayLiteral,
+  primitiveLiteral,
   parse,
 } from "./expr";
 export * as strings from "./strings";

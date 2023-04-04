@@ -1,12 +1,23 @@
-import { NumberDescriptor } from "../descriptor";
-import { Schema } from "./Schema";
+import { OptIn, OptOut, Schema } from "./Schema";
 
 export type SerializedNumberSchema = {
   type: "number";
+  opt: boolean;
 };
 
-export class NumberSchema extends Schema<number, number> {
-  validate(): false | string[] {
+export class NumberSchema<Opt extends boolean> extends Schema<
+  OptIn<number, Opt>,
+  OptOut<number, Opt>
+> {
+  constructor(public readonly opt: Opt) {
+    super(opt);
+  }
+
+  validate(src: OptIn<number, Opt>): false | string[] {
+    if (src === null) {
+      if (!this.opt) return ["Required number cannot be null"];
+      return false;
+    }
     return false;
   }
 
@@ -14,32 +25,36 @@ export class NumberSchema extends Schema<number, number> {
     return false;
   }
 
-  localize(src: number): number {
+  localize(src: OptIn<number, Opt>): OptOut<number, Opt> {
     return src;
   }
 
-  delocalizePath(_src: number, localPath: string[]): string[] {
+  delocalizePath(_src: OptIn<number, Opt>, localPath: string[]): string[] {
+    if (localPath.length !== 0) {
+      throw Error("Invalid path: Cannot access property of number value");
+    }
     return localPath;
-  }
-
-  localDescriptor(): NumberDescriptor {
-    return NumberDescriptor;
-  }
-
-  rawDescriptor(): NumberDescriptor {
-    return NumberDescriptor;
   }
 
   serialize(): SerializedNumberSchema {
     return {
       type: "number",
+      opt: this.opt,
     };
   }
 
-  static deserialize(): NumberSchema {
-    return new NumberSchema();
+  optional(): NumberSchema<true> {
+    if (this.opt) console.warn("Schema is already optional");
+    return new NumberSchema(true);
+  }
+
+  static deserialize(schema: SerializedNumberSchema): NumberSchema<boolean> {
+    return new NumberSchema(schema.opt);
   }
 }
-export const number = (): NumberSchema => {
-  return new NumberSchema();
+export const number = (): NumberSchema<false> => {
+  return new NumberSchema(false);
+};
+number.optional = (): NumberSchema<true> => {
+  return new NumberSchema(true);
 };

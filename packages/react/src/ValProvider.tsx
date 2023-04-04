@@ -1,6 +1,10 @@
-import { Source, ModuleContent } from "@valbuild/lib";
+import { Source, ModuleContent, Schema } from "@valbuild/lib";
 import * as expr from "@valbuild/lib/expr";
-import { formatJSONPointer, parseJSONPointer } from "@valbuild/lib/patch";
+import {
+  formatJSONPointer,
+  parseJSONPointer,
+  PatchJSON,
+} from "@valbuild/lib/patch";
 import { result } from "@valbuild/lib/fp";
 import React, {
   CSSProperties,
@@ -219,12 +223,15 @@ const ValEditForm: React.FC<{
 
           const [value, ref] = (
             sourceExpr as expr.Expr<readonly [Source], Source>
-          ).evaluateRef([mod.schema.localize(mod.source, locale)], [""]);
+          ).evaluateRef(
+            [Schema.localize(mod.schema, mod.source, locale)],
+            [""]
+          );
           if (!expr.isAssignable(ref)) {
             return {
               source,
               status: "error",
-              error: "ref is not singular",
+              error: "ref is not assignable",
             };
           }
           if (typeof value !== "string") {
@@ -300,7 +307,12 @@ const ValEditForm: React.FC<{
                 throw Error(`${JSON.stringify(path)} is invalid JSON pointer`);
               }
               path = formatJSONPointer(
-                mod.schema.delocalizePath(mod.source, parsedPath.value, locale)
+                Schema.delocalizePath(
+                  mod.schema,
+                  mod.source,
+                  parsedPath.value,
+                  locale
+                )
               );
               modulePatches[moduleId].push({
                 op: "replace",
@@ -312,7 +324,7 @@ const ValEditForm: React.FC<{
           await Promise.all(
             Object.entries(modulePatches).map(async ([moduleId, patch]) => {
               const moduleContent = ModuleContent.deserialize(
-                await valApi.patchModuleContent(moduleId, patch)
+                await valApi.patchModuleContent(moduleId, patch as PatchJSON)
               );
               valStore.set(moduleId, moduleContent);
             })

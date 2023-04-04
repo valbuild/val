@@ -1,5 +1,4 @@
-import { StringDescriptor } from "../descriptor";
-import { Schema } from "./Schema";
+import { OptIn, OptOut, Schema } from "./Schema";
 
 type StringOptions = {
   maxLength?: number;
@@ -12,29 +11,40 @@ export type SerializedStringSchema = {
     maxLength?: number;
     minLength?: number;
   };
+  opt: boolean;
 };
 
-export class StringSchema extends Schema<string, string> {
-  constructor(private readonly options?: StringOptions) {
-    super();
+export class StringSchema<Opt extends boolean> extends Schema<
+  OptIn<string, Opt>,
+  OptOut<string, Opt>
+> {
+  constructor(
+    private readonly options: StringOptions | undefined,
+    public readonly opt: Opt
+  ) {
+    super(opt);
   }
 
-  validate(input: string): false | string[] {
+  validate(src: OptIn<string, Opt>): false | string[] {
+    if (src === null) {
+      if (!this.opt) return ["Required string cannot be null"];
+      return false;
+    }
     const errors: string[] = [];
     if (
       this.options?.maxLength !== undefined &&
-      input.length > this.options.maxLength
+      src.length > this.options.maxLength
     ) {
       errors.push(
-        `String '${input}' is too long. Length: ${input.length}. Max ${this.options.maxLength}`
+        `String '${src}' is too long. Length: ${src.length}. Max ${this.options.maxLength}`
       );
     }
     if (
       this.options?.minLength !== undefined &&
-      input.length < this.options.minLength
+      src.length < this.options.minLength
     ) {
       errors.push(
-        `String '${input}' is too short. Length: ${input.length}.Min ${this.options.minLength}.`
+        `String '${src}' is too short. Length: ${src.length}.Min ${this.options.minLength}.`
       );
     }
     if (errors.length > 0) {
@@ -48,33 +58,37 @@ export class StringSchema extends Schema<string, string> {
     return false;
   }
 
-  localize(src: string): string {
+  localize(src: OptIn<string, Opt>): OptOut<string, Opt> {
     return src;
   }
 
-  delocalizePath(_src: string, path: string[]): string[] {
-    return path;
-  }
-
-  localDescriptor(): StringDescriptor {
-    return StringDescriptor;
-  }
-
-  rawDescriptor(): StringDescriptor {
-    return StringDescriptor;
+  delocalizePath(_src: OptIn<string, Opt>, localPath: string[]): string[] {
+    if (localPath.length !== 0) {
+      throw Error("Invalid path: Cannot access property of string value");
+    }
+    return localPath;
   }
 
   serialize(): SerializedStringSchema {
     return {
       type: "string",
       options: this.options,
+      opt: this.opt,
     };
   }
 
-  static deserialize(schema: SerializedStringSchema): StringSchema {
-    return new StringSchema(schema.options);
+  optional(): StringSchema<true> {
+    if (this.opt) console.warn("Schema is already optional");
+    return new StringSchema(this.options, true);
+  }
+
+  static deserialize(schema: SerializedStringSchema): StringSchema<boolean> {
+    return new StringSchema(schema.options, schema.opt);
   }
 }
-export const string = (options?: StringOptions): StringSchema => {
-  return new StringSchema(options);
+export const string = (options?: StringOptions): StringSchema<false> => {
+  return new StringSchema(options, false);
+};
+string.optional = (options?: StringOptions): StringSchema<true> => {
+  return new StringSchema(options, true);
 };

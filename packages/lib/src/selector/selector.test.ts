@@ -30,6 +30,7 @@ test("selector", () => {
       }),
     })
   );
+  // const a = content.schema.localDescriptor();
 
   const baz = content.select((root) => root.foo.bar[0].baz);
   expect(baz.evaluate([content.source])).toEqual("foo");

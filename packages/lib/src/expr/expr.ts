@@ -1,5 +1,5 @@
 import { formatJSONPointerReferenceToken } from "../patch/parse";
-import { lastIndexOf, split } from "./strings";
+import { lastIndexOf, split, lastIntegerOf, isDigit } from "./strings";
 export * as strings from "./strings";
 
 /**
@@ -13,17 +13,20 @@ export * as strings from "./strings";
  * array. In this case, the array itself is not assignable, but values derived
  * from the array may be.
  *
+ * For derived object values such as those produced by mapping, the Ref may be an
+ * object of Refs describing the value of each property of the object.
+ *
  * For other expressions such as literals and those consisting of arithmetic
  * operations, the Ref is null and its value is not assignable.
  */
-export type Ref = Ref[] | string | null;
+export type Ref = { [p in string]: Ref } | Ref[] | string | null;
 export type ValueAndRef<T> = readonly [value: T, ref: Ref];
 
 export function isAssignable(ref: Ref): ref is string {
   return typeof ref === "string";
 }
 
-function propRef<T, P extends keyof T>(ref: Ref, prop: P): Ref {
+function propRef<P extends PropertyKey>(ref: Ref, prop: P): Ref {
   if (ref === null) {
     return null;
   } else if (typeof ref === "string") {
@@ -82,17 +85,16 @@ class Prop<Ctx, T, P extends keyof T> implements Expr<Ctx, T[P]> {
   }
   evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T[P]> {
     const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
-    return [value[this.key], propRef<T, P>(ref, this.key)];
+    return [value[this.key], propRef(ref, this.key)];
   }
   toString(ctx: { readonly [s in keyof Ctx]: string }): string {
-    return `${this.expr.toString(ctx)}[${JSON.stringify(this.key)}]`;
+    return `${this.expr.toString(ctx)}.${JSON.stringify(this.key)}`;
   }
 }
-export function prop<
-  Ctx,
-  P extends string | number,
-  T extends { readonly [key in P]: unknown }
->(expr: Expr<Ctx, T>, key: P): Expr<Ctx, T[P]> {
+export function prop<Ctx, T extends Record<string, unknown>, P extends keyof T>(
+  expr: Expr<Ctx, T>,
+  key: P
+): Expr<Ctx, T[P]> {
   return new Prop(expr, key);
 }
 /**
@@ -102,7 +104,14 @@ export function item<Ctx, T>(
   expr: Expr<Ctx, readonly T[]>,
   key: number
 ): Expr<Ctx, T> {
-  return new Prop(expr, key);
+  if (!Number.isInteger(key) || key < 0) {
+    throw Error("Key must be a positive integer");
+  }
+  return new Prop(
+    expr,
+    key +
+      0 /* -0 is possible, but we do not want to parse -0, so we transform -0 => 0 by adding 0 */
+  );
 }
 
 class Filter<Ctx, T> implements Expr<Ctx, T[]> {
@@ -126,7 +135,7 @@ class Filter<Ctx, T> implements Expr<Ctx, T[]> {
       const item = value[i];
       if (this.predicate.evaluate([item])) {
         resValue.push(item);
-        resRef.push(propRef<T[], number>(ref, i));
+        resRef.push(propRef(ref, i));
       }
     }
     return [resValue, resRef];
@@ -144,23 +153,24 @@ export function filter<Ctx, T>(
   return new Filter(expr, predicate);
 }
 
-class Find<Ctx, T> implements Expr<Ctx, T | undefined> {
+class Find<Ctx, T> implements Expr<Ctx, T | null> {
   constructor(
     private readonly expr: Expr<Ctx, readonly T[]>,
     private readonly predicate: Expr<readonly [T], unknown>
   ) {}
-  evaluate(ctx: Ctx): T | undefined {
-    return this.expr
-      .evaluate(ctx)
-      .find((item) => this.predicate.evaluate([item]));
+  evaluate(ctx: Ctx): T | null {
+    return (
+      this.expr.evaluate(ctx).find((item) => this.predicate.evaluate([item])) ??
+      null
+    );
   }
-  evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T | undefined> {
+  evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T | null> {
     const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
     const idx = value.findIndex((item) => this.predicate.evaluate([item]));
     if (idx === -1) {
-      return [undefined, null];
+      return [null, null];
     }
-    return [value[idx], propRef<T[], number>(ref, idx)];
+    return [value[idx], propRef(ref, idx)];
   }
   toString(ctx: ToStringCtx<Ctx>): string {
     return `${this.expr.toString(ctx)}.find((v) => ${this.predicate.toString([
@@ -171,7 +181,7 @@ class Find<Ctx, T> implements Expr<Ctx, T | undefined> {
 export function find<Ctx, T>(
   expr: Expr<Ctx, readonly T[]>,
   predicate: Expr<readonly [T], unknown>
-): Expr<Ctx, T | undefined> {
+): Expr<Ctx, T | null> {
   return new Find(expr, predicate);
 }
 
@@ -187,9 +197,7 @@ class Slice<Ctx, T> implements Expr<Ctx, T[]> {
   evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T[]> {
     const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
     const retValue = value.slice(this.start, this.end);
-    const retRef = retValue.map((_item, i) =>
-      propRef<T[], number>(ref, this.start + i)
-    );
+    const retRef = retValue.map((_item, i) => propRef(ref, this.start + i));
     return [retValue, retRef];
   }
   toString(ctx: ToStringCtx<Ctx>): string {
@@ -226,7 +234,7 @@ class SortBy<Ctx, T> implements Expr<Ctx, T[]> {
       .sort(([a], [b]) => this.keyFn.evaluate([a]) - this.keyFn.evaluate([b]))
       .forEach(([item, i]) => {
         resValue.push(item);
-        resRef.push(propRef<T[], number>(ref, i));
+        resRef.push(propRef(ref, i));
       });
     return [resValue, resRef];
   }
@@ -257,7 +265,7 @@ class Reverse<Ctx, T> implements Expr<Ctx, T[]> {
       .reverse()
       .forEach(([item, i]) => {
         resValue.push(item);
-        resRef.push(propRef<T[], number>(ref, i));
+        resRef.push(propRef(ref, i));
       });
     return [resValue, resRef];
   }
@@ -267,6 +275,44 @@ class Reverse<Ctx, T> implements Expr<Ctx, T[]> {
 }
 export function reverse<Ctx, T>(expr: Expr<Ctx, readonly T[]>): Expr<Ctx, T[]> {
   return new Reverse(expr);
+}
+
+class Map<Ctx, T, U> implements Expr<Ctx, U[]> {
+  constructor(
+    private readonly expr: Expr<Ctx, readonly T[]>,
+    private readonly callback: Expr<readonly [T, number], U>
+  ) {}
+  evaluate(ctx: Ctx): U[] {
+    return this.expr
+      .evaluate(ctx)
+      .map((v, i) => this.callback.evaluate([v, i]));
+  }
+  evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<U[]> {
+    const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
+    const resValue: U[] = [];
+    const resRef: Ref[] = [];
+    value.forEach((v, i) => {
+      const [itemValue, itemRef] = this.callback.evaluateRef(
+        [v, i],
+        [propRef(ref, i), null]
+      );
+      resValue.push(itemValue);
+      resRef.push(itemRef);
+    });
+    return [resValue, resRef];
+  }
+  toString(ctx: ToStringCtx<Ctx>): string {
+    return `${this.expr.toString(ctx)}.map((v, i) => ${this.callback.toString([
+      "v",
+      "i",
+    ])})`;
+  }
+}
+export function map<Ctx, T, U>(
+  expr: Expr<Ctx, readonly T[]>,
+  callback: Expr<readonly [T, number], U>
+): Expr<Ctx, U[]> {
+  return new Map(expr, callback);
 }
 
 class Eq<Ctx, T> implements Expr<Ctx, boolean> {
@@ -286,30 +332,249 @@ export function eq<Ctx, T>(lhs: Expr<Ctx, T>, rhs: T): Expr<Ctx, boolean> {
   return new Eq(lhs, rhs);
 }
 
+class AndThen<Ctx, T, U> implements Expr<Ctx, U | null> {
+  constructor(
+    private readonly expr: Expr<Ctx, T | null>,
+    private readonly callback: Expr<readonly [T], U | null>
+  ) {}
+  evaluate(ctx: Ctx): U | null {
+    const value = this.expr.evaluate(ctx);
+    if (value === null) {
+      return null;
+    }
+    return this.callback.evaluate([value]);
+  }
+  evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<U | null> {
+    const [value, ref] = this.expr.evaluateRef(ctx, refCtx);
+    if (value === null) {
+      // TODO: Figure out if it makes sense to return the underlying ref in case
+      // the value is null
+      return [null, ref];
+    }
+    return this.callback.evaluateRef([value], [ref]);
+  }
+  toString(ctx: ToStringCtx<Ctx>): string {
+    console.log(this.callback);
+    return `${this.expr.toString(ctx)}.andThen((v) => ${this.callback.toString([
+      "v",
+    ])})`;
+  }
+}
+export function andThen<Ctx, T, U>(
+  expr: Expr<Ctx, T | null>,
+  callback: Expr<readonly [T], U | null>
+): Expr<Ctx, U | null> {
+  return new AndThen(expr, callback);
+}
+
+class PrimitiveLiteral<Ctx, T extends string | number | boolean | null>
+  implements Expr<Ctx, T>
+{
+  constructor(private readonly value: T) {}
+  evaluate(): T {
+    return this.value;
+  }
+  evaluateRef(): ValueAndRef<T> {
+    return [this.value, null];
+  }
+  toString(): string {
+    if (typeof this.value === "string") {
+      return JSON.stringify(this.value);
+    }
+    return `<${JSON.stringify(this.value)}>`;
+  }
+}
+
+export function primitiveLiteral<
+  Ctx,
+  T extends string | number | boolean | null
+>(value: T): Expr<Ctx, T> {
+  return new PrimitiveLiteral(value);
+}
+
+class ObjectLiteral<Ctx, T extends { [p in string]: unknown }>
+  implements Expr<Ctx, T>
+{
+  constructor(private readonly props: { [p in keyof T]: Expr<Ctx, T[p]> }) {}
+  evaluate(ctx: Ctx): T {
+    return Object.fromEntries(
+      Object.entries(this.props).map(
+        ([prop, expr]: [string, Expr<Ctx, T[string]>]) => [
+          prop,
+          expr.evaluate(ctx),
+        ]
+      )
+    ) as T;
+  }
+  evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T> {
+    const valueEntries: [prop: string, value: T[string]][] = [];
+    const refEntries: [prop: string, ref: Ref][] = [];
+
+    Object.entries(this.props).forEach(
+      ([prop, expr]: [string, Expr<Ctx, T[string]>]) => {
+        const [value, ref] = expr.evaluateRef(ctx, refCtx);
+        valueEntries.push([prop, value]);
+        refEntries.push([prop, ref]);
+      }
+    );
+
+    return [
+      Object.fromEntries(valueEntries) as T,
+      Object.fromEntries(refEntries),
+    ];
+  }
+  toString(ctx: ToStringCtx<Ctx>): string {
+    return `{${Object.entries(this.props)
+      .map(
+        ([prop, expr]: [string, Expr<Ctx, T[string]>]) =>
+          `${JSON.stringify(prop)}: ${expr.toString(ctx)}`
+      )
+      .join(", ")}}`;
+  }
+}
+export function objectLiteral<
+  Ctx,
+  T extends { [p in string]: unknown }
+>(props: { [p in keyof T]: Expr<Ctx, T[p]> }): Expr<Ctx, T> {
+  return new ObjectLiteral(props);
+}
+
+class ArrayLiteral<Ctx, T extends readonly unknown[]> implements Expr<Ctx, T> {
+  constructor(private readonly items: { [i in keyof T]: Expr<Ctx, T[i]> }) {}
+  evaluate(ctx: Ctx): T {
+    return this.items.map((expr) => expr.evaluate(ctx)) as unknown as T;
+  }
+  evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<T> {
+    const value: T[number][] = [];
+    const ref: Ref[] = [];
+    for (const expr of this.items) {
+      const [itemValue, itemRef] = expr.evaluateRef(ctx, refCtx);
+      value.push(itemValue);
+      ref.push(itemRef);
+    }
+    return [value as unknown as T, ref];
+  }
+  toString(ctx: ToStringCtx<Ctx>): string {
+    return `[${this.items.map((item) => item.toString(ctx)).join(", ")}]`;
+  }
+}
+export function arrayLiteral<Ctx, T extends readonly unknown[]>(items: {
+  [p in keyof T]: Expr<Ctx, T[p]>;
+}): Expr<Ctx, T> {
+  return new ArrayLiteral<Ctx, T>(items);
+}
 export function parse<Ctx>(
   ctx: { readonly [s in string]: keyof Ctx },
   str: string
 ): Expr<Ctx, unknown> {
-  // TODO: Fully implement this
-  // Currently missing: sub
-  if (str.endsWith("]")) {
-    const bracketStart = lastIndexOf(str, "[");
+  if (str.endsWith("}")) {
+    const bracketStart = lastIndexOf(str, "{");
     if (bracketStart === -1) {
-      throw Error("Matching bracket not found");
+      throw Error(`Matching opening bracket ('{') not found in object: ${str}`);
+    }
+    if (bracketStart !== 0) {
+      throw Error("Object literal must be an isolated expression");
     }
 
-    const key: string | number = JSON.parse(
-      str.slice(bracketStart + 1, str.length - 1)
+    if (str === "{}") {
+      return objectLiteral({});
+    }
+
+    const entries = split(str.slice(1, str.length - 1), ", ").map(
+      (entryStr) => {
+        const parts = split(entryStr, ": ");
+        if (parts.length !== 2) {
+          throw Error(`Invalid object literal entry: ${entryStr}`);
+        }
+        const [keyStr, valueStr] = parts;
+
+        const key = JSON.parse(keyStr);
+        if (typeof key !== "string") {
+          throw Error(
+            `Object literal key must be a string literal, got: ${keyStr}`
+          );
+        }
+        const value = parse(ctx, valueStr);
+        return [key, value] as const;
+      }
     );
-    const expr = parse(ctx, str.slice(0, bracketStart)) as Expr<
+    return objectLiteral(Object.fromEntries(entries));
+  } else if (str.endsWith("]")) {
+    const bracketStart = lastIndexOf(str, "[");
+    if (bracketStart === -1) {
+      throw Error(
+        `Matching opening square bracket ('[') not found in array: ${str}`
+      );
+    }
+    if (bracketStart !== 0) {
+      throw Error("Array literal must be an isolated expression");
+    }
+
+    if (str === "[]") {
+      return arrayLiteral([]);
+    }
+
+    const items = split(str.slice(1, str.length - 1), ", ").flatMap((item) =>
+      parse(ctx, item)
+    );
+    return arrayLiteral(items);
+  } else if (str.endsWith('"')) {
+    const stringLiteralStart = lastIndexOf(str, '"');
+    if (stringLiteralStart === -1) {
+      throw Error(`Matching opening quote (") not found in string: ${str}`);
+    }
+    const stringLiteral = JSON.parse(str.slice(stringLiteralStart, str.length));
+    if (typeof stringLiteral !== "string") {
+      throw Error(
+        `Expected string literal (${stringLiteral}) to be of type string, but found: ${typeof stringLiteral}`
+      );
+    }
+    const isPropertyAccess = str[stringLiteralStart - 1] === ".";
+    if (isPropertyAccess) {
+      const expr = parse(ctx, str.slice(0, stringLiteralStart - 1)) as Expr<
+        Ctx,
+        { [s in typeof stringLiteral]: unknown }
+      >;
+      return prop(expr, stringLiteral);
+    } else {
+      if (stringLiteralStart === 0) {
+        return primitiveLiteral(JSON.parse(str));
+      } else {
+        throw Error(
+          `String literal must be an isolated expression. Got: ${str}`
+        );
+      }
+    }
+  } else if (str.endsWith(">")) {
+    const primitiveLiteralStart = str.lastIndexOf("<");
+    if (primitiveLiteralStart === -1) {
+      throw Error(`Matching start of literal (<) not found in value: ${str}`);
+    } else if (primitiveLiteralStart !== 0) {
+      throw Error("Primitive literal must be an isolated expression");
+    }
+    const value = JSON.parse(str.slice(1, str.length - 1));
+    if (typeof value === "string") {
+      throw Error(
+        "Unexpected string literal inside a primitive literal of non-string type"
+      );
+    }
+    return primitiveLiteral(value);
+  } else if (isDigit(str.slice(-1))) {
+    const integerLiteralStart = lastIntegerOf(str);
+    const integerLiteral = Number(str.slice(integerLiteralStart, str.length));
+    const isPropertyAccess = str[integerLiteralStart - 1] === ".";
+    if (!isPropertyAccess) {
+      throw Error("Found a integer literal ");
+    }
+    const expr = parse(ctx, str.slice(0, integerLiteralStart - 1)) as Expr<
       Ctx,
-      { [s in typeof key]: unknown }
+      { [s in typeof integerLiteral]: unknown }
     >;
-    return prop(expr, key);
+    return prop(expr, integerLiteral);
   } else if (str.endsWith(")")) {
     const parenStart = lastIndexOf(str, "(");
     if (parenStart === -1) {
-      throw Error("Matching parenthesis not found");
+      throw Error("Matching opening parenthesis ('(') not found");
     }
 
     const argsStr = str.slice(parenStart + 1, str.length - 1);
@@ -393,9 +658,43 @@ export function parse<Ctx>(
       }
 
       return slice(expr, start, end);
+    } else if (funcStr.endsWith(".map")) {
+      if (!argsStr.startsWith("(v, i) => ")) {
+        throw Error("invalid map lambda");
+      }
+
+      const expr = parse(
+        ctx,
+        funcStr.slice(0, funcStr.length - ".map".length)
+      ) as Expr<Ctx, readonly unknown[]>;
+      const callbackFn = parse<readonly [unknown, number]>(
+        {
+          v: 0,
+          i: 1,
+        },
+        argsStr.slice("(v, i) => ".length)
+      ) as Expr<readonly [unknown, number], number>;
+
+      return map(expr, callbackFn);
+    } else if (funcStr.endsWith(".andThen")) {
+      if (!argsStr.startsWith("(v) => ")) {
+        throw Error("invalid find lambda");
+      }
+
+      const expr = parse(
+        ctx,
+        funcStr.slice(0, funcStr.length - ".andThen".length)
+      ) as Expr<Ctx, readonly unknown[]>;
+      const callback = parse<readonly [unknown]>(
+        {
+          v: 0,
+        },
+        argsStr.slice("(v) => ".length)
+      );
+      return andThen(expr, callback);
     }
   } else if (str in ctx) {
     return fromCtx(ctx[str]);
   }
-  throw TypeError("Not implemented");
+  throw TypeError(`Not implemented, unable to parse: ${str}`);
 }
