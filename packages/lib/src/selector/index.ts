@@ -24,24 +24,6 @@ import { newOptionalSelector, OptionalSelector } from "./optional";
 import { newTupleSelector, TupleSelector } from "./tuple";
 import { newPrimitiveSelector, PrimitiveSelector } from "./primitive";
 
-export type SelectorOfA<Ctx, D extends Descriptor<unknown>> = [D] extends [
-  ObjectDescriptor<infer E>
-]
-  ? ObjectSelector<Ctx, E>
-  : [D] extends [ArrayDescriptor<infer E>]
-  ? ArraySelector<Ctx, E>
-  : [D] extends [RecordDescriptor<infer K, infer E>]
-  ? RecordSelector<Ctx, K, E>
-  : [D] extends [OptionalDescriptor<infer E>]
-  ? OptionalSelector<Ctx, E>
-  : [D] extends [TupleDescriptor<infer E>]
-  ? TupleSelector<Ctx, E>
-  : [D] extends [NumberDescriptor]
-  ? NumberSelector<Ctx>
-  : [D] extends [PrimitiveDescriptor<unknown>]
-  ? PrimitiveSelector<Ctx, D>
-  : Selector<Ctx, D>;
-
 export type SelectorOf<
   Ctx,
   D extends Descriptor<unknown>
