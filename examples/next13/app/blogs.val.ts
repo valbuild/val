@@ -1,11 +1,4 @@
-import { StringSchema } from "@valbuild/lib/src/schema/string";
 import { s, val } from "../val.config";
-import { NumberSchema } from "@valbuild/lib/src/schema/number";
-import { Schema, SrcOf } from "@valbuild/lib/src/schema/Schema";
-import { Source } from "@valbuild/lib";
-import { I18nSchema } from "@valbuild/lib/src/schema/i18n";
-
-type Unfortunate = StringSchema<boolean> | NumberSchema<boolean>;
 
 export default val.content(
   "/app/blogs",
