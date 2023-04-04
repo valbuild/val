@@ -1,27 +1,8 @@
-import { Source, SourceObject, SourcePrimitive } from "./Source";
+import { Source, SourceObject, SourcePrimitive } from "../Source";
+import { Val as ObjectVal } from "./object";
+import { Val as ArrayVal } from "./array";
+import { Val as PrimitiveVal } from "./primitive";
 
-export type ObjectVal<T extends SourceObject> = Omit<
-  {
-    [key in keyof T]: Val<T[key]>;
-  },
-  "valSrc" | "val"
-> & {
-  readonly valSrc: string;
-  readonly val: T;
-};
-export type ArrayVal<T extends readonly Source[]> = Omit<
-  {
-    [key in keyof T]: Val<T[key]>;
-  },
-  "valSrc" | "val"
-> & {
-  readonly valSrc: string;
-  readonly val: T;
-};
-export type PrimitiveVal<T extends SourcePrimitive> = {
-  valSrc: string;
-  val: T;
-};
 export type Val<T extends Source> = Source extends T
   ? {
       readonly valSrc: string;

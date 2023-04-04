@@ -3,7 +3,7 @@ import { ModuleContent } from "./content";
 import { LocalDescriptorOf } from "./schema";
 import { LocalOf, Schema, SrcOf } from "./schema/Schema";
 import { DescriptorOf, Selected, SelectorOf } from "./selector";
-import { newVal, Val } from "./Val";
+import { newVal, Val } from "./val";
 import { encodeValSrc } from "./expr/strings";
 import { Selectable } from "./selectable";
 import { ValueOf } from "./descriptor";

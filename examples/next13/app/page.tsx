@@ -2,9 +2,12 @@
 import styles from "./page.module.css";
 import blogsVal from "./blogs.val";
 import { useVal } from "@valbuild/react";
+import { Val } from "@valbuild/lib";
 
 export default function Home() {
-  const blogs = useVal(
+  const blogs: Val<
+    readonly { readonly title: string; readonly text: string | null }[] | null
+  > = useVal(
     blogsVal.select((blogs) =>
       blogs.andThen((blogs) =>
         blogs
