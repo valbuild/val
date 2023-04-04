@@ -6,3 +6,4 @@ export type { SourceObject, SourcePrimitive, Source } from "./Source";
 export { ModuleContent, type SerializedModuleContent } from "./content";
 export { type CompositeVal, type PrimitiveVal, type Val, newVal } from "./Val";
 export * as expr from "./expr";
+export type { Selectable } from "./selectable";

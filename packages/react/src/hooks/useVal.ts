@@ -1,7 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { useValStore } from "../ValProvider";
-import { Source, Val } from "@valbuild/lib";
-import { Selectable } from "@valbuild/lib/src/selectable";
+import { Source, Val, Selectable } from "@valbuild/lib";
 
 export const useVal = <S extends Source, Out extends Source>(
   selectable: Selectable<S, Out>,
