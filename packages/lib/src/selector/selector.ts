@@ -2,6 +2,7 @@ import * as expr from "../expr";
 import { BooleanDescriptor, Descriptor, ValueOf } from "../descriptor";
 import { type PrimitiveSelector } from "./primitive";
 import { getSelector } from ".";
+import { Source } from "../Source";
 
 /**
  * @internal
@@ -12,7 +13,7 @@ export const EXPR = Symbol("expr");
  */
 export const DESC = Symbol("desc");
 
-export abstract class Selector<Ctx, D extends Descriptor<unknown>> {
+export abstract class Selector<Ctx, D extends Descriptor<Source>> {
   /**
    * @internal
    */

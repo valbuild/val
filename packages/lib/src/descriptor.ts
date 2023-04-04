@@ -1,4 +1,6 @@
-export abstract class Descriptor<V> {
+import { Source, SourcePrimitive } from "./Source";
+
+export abstract class Descriptor<V extends Source> {
   abstract readonly optional: boolean;
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -6,7 +8,9 @@ export abstract class Descriptor<V> {
     throw TypeError("Not implemented");
   }
 }
-export abstract class NonOptionalDescriptor<V> extends Descriptor<V> {
+export abstract class NonOptionalDescriptor<
+  V extends Source
+> extends Descriptor<V> {
   readonly optional!: false;
 
   static {
@@ -18,7 +22,7 @@ export abstract class NonOptionalDescriptor<V> extends Descriptor<V> {
 }
 
 export class ArrayDescriptor<
-  D extends Descriptor<unknown>
+  D extends Descriptor<Source>
 > extends NonOptionalDescriptor<readonly ValueOf<D>[]> {
   constructor(public readonly item: D) {
     super();
@@ -27,7 +31,7 @@ export class ArrayDescriptor<
 
 export class RecordDescriptor<
   K extends string,
-  D extends Descriptor<unknown>
+  D extends Descriptor<Source>
 > extends NonOptionalDescriptor<{ readonly [P in K]: ValueOf<D> }> {
   constructor(public readonly item: D) {
     super();
@@ -35,7 +39,7 @@ export class RecordDescriptor<
 }
 
 export type ObjectDescriptorProps = {
-  readonly [P in string]: Descriptor<unknown>;
+  readonly [P in string]: Descriptor<Source>;
 };
 export class ObjectDescriptor<
   D extends ObjectDescriptorProps
@@ -46,14 +50,16 @@ export class ObjectDescriptor<
 }
 
 export class TupleDescriptor<
-  D extends readonly Descriptor<unknown>[]
+  D extends readonly Descriptor<Source>[]
 > extends NonOptionalDescriptor<{ [I in keyof D]: ValueOf<D[I]> }> {
   constructor(public readonly items: D) {
     super();
   }
 }
 
-export class PrimitiveDescriptor<V> extends NonOptionalDescriptor<V> {}
+export class PrimitiveDescriptor<
+  V extends SourcePrimitive
+> extends NonOptionalDescriptor<V> {}
 
 export const StringDescriptor =
   new (class StringDescriptor extends PrimitiveDescriptor<string> {})();
@@ -69,7 +75,7 @@ export const NullDescriptor =
 export type NullDescriptor = typeof NullDescriptor;
 
 export class OptionalDescriptor<
-  D extends NonOptionalDescriptor<unknown>
+  D extends NonOptionalDescriptor<Source>
 > extends Descriptor<ValueOf<D> | null> {
   optional!: true;
   constructor(public readonly item: D) {
@@ -84,13 +90,13 @@ export class OptionalDescriptor<
   }
 }
 
-export type AsOptional<D extends Descriptor<unknown>> =
-  D extends NonOptionalDescriptor<unknown>
+export type AsOptional<D extends Descriptor<Source>> =
+  D extends NonOptionalDescriptor<Source>
     ? OptionalDescriptor<D>
-    : D extends OptionalDescriptor<NonOptionalDescriptor<unknown>>
+    : D extends OptionalDescriptor<NonOptionalDescriptor<Source>>
     ? D
     : never;
-export function asOptional<D extends Descriptor<unknown>>(
+export function asOptional<D extends Descriptor<Source>>(
   desc: D
 ): AsOptional<D> {
   if (desc instanceof OptionalDescriptor) {
@@ -103,13 +109,13 @@ export function asOptional<D extends Descriptor<unknown>>(
   );
 }
 
-export type AsRequired<D extends Descriptor<unknown>> =
+export type AsRequired<D extends Descriptor<Source>> =
   D extends OptionalDescriptor<infer E>
     ? E
-    : D extends NonOptionalDescriptor<unknown>
+    : D extends NonOptionalDescriptor<Source>
     ? D
     : never;
-export function asRequired<D extends Descriptor<unknown>>(
+export function asRequired<D extends Descriptor<Source>>(
   desc: D
 ): AsRequired<D> {
   return (
@@ -117,7 +123,7 @@ export function asRequired<D extends Descriptor<unknown>>(
   ) as AsRequired<D>;
 }
 
-export type ValueOf<D extends Descriptor<unknown>> = D extends Descriptor<
+export type ValueOf<D extends Descriptor<Source>> = D extends Descriptor<
   infer V
 >
   ? V

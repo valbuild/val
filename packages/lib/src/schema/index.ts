@@ -16,14 +16,14 @@ import { ObjectSchema, SchemaObject } from "./object";
 import { Schema } from "./Schema";
 import { StringSchema } from "./string";
 
-export type MaybeOptDesc<D extends Descriptor<unknown>, Opt extends boolean> =
+export type MaybeOptDesc<D extends Descriptor<Source>, Opt extends boolean> =
   | (Opt extends true ? AsOptional<D> : never)
   | (Opt extends false ? D : never);
 
-export function maybeOptDesc<
-  D extends Descriptor<unknown>,
-  Opt extends boolean
->(desc: D, opt: Opt): MaybeOptDesc<D, Opt> {
+export function maybeOptDesc<D extends Descriptor<Source>, Opt extends boolean>(
+  desc: D,
+  opt: Opt
+): MaybeOptDesc<D, Opt> {
   return (opt ? asOptional(desc) : desc) as MaybeOptDesc<D, Opt>;
 }
 
@@ -31,7 +31,7 @@ export type LocalDescriptorOf<S extends Schema<never, Source>> = Schema<
   Source,
   Source
 > extends S
-  ? Descriptor<unknown>
+  ? Descriptor<Source>
   : S extends ArraySchema<infer T, infer Opt>
   ? MaybeOptDesc<ArrayDescriptor<LocalDescriptorOf<T>>, Opt>
   : S extends I18nSchema<infer T, infer Opt>
@@ -45,13 +45,13 @@ export type LocalDescriptorOf<S extends Schema<never, Source>> = Schema<
   ? MaybeOptDesc<StringDescriptor, Opt>
   : S extends NumberSchema<infer Opt>
   ? MaybeOptDesc<NumberDescriptor, Opt>
-  : MaybeOptDesc<Descriptor<unknown>, boolean>;
+  : MaybeOptDesc<Descriptor<Source>, boolean>;
 
 export type RawDescriptorOf<S extends Schema<never, Source>> = Schema<
   Source,
   Source
 > extends S
-  ? Descriptor<unknown>
+  ? Descriptor<Source>
   : S extends ArraySchema<infer T, infer Opt>
   ? MaybeOptDesc<ArrayDescriptor<RawDescriptorOf<T>>, Opt>
   : S extends I18nSchema<infer T, infer Opt>
@@ -65,7 +65,7 @@ export type RawDescriptorOf<S extends Schema<never, Source>> = Schema<
   ? MaybeOptDesc<StringDescriptor, Opt>
   : S extends NumberSchema<infer Opt>
   ? MaybeOptDesc<NumberDescriptor, Opt>
-  : MaybeOptDesc<Descriptor<unknown>, boolean>;
+  : MaybeOptDesc<Descriptor<Source>, boolean>;
 
 export function localDescriptorOf<S extends Schema<never, Source>>(
   s: S

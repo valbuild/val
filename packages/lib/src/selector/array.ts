@@ -16,14 +16,15 @@ import {
   NumberDescriptor,
   ValueOf,
 } from "../descriptor";
+import { Source } from "../Source";
 
-interface ArraySelectorMethods<Ctx, D extends Descriptor<unknown>> {
+interface ArraySelectorMethods<Ctx, D extends Descriptor<Source>> {
   filter(
-    predicate: <T>(v: SelectorOf<T, D>) => Selector<T, Descriptor<unknown>>
+    predicate: <T>(v: SelectorOf<T, D>) => Selector<T, Descriptor<Source>>
   ): ArraySelector<Ctx, D>;
 
   find(
-    predicate: <T>(item: SelectorOf<T, D>) => Selector<T, Descriptor<unknown>>
+    predicate: <T>(item: SelectorOf<T, D>) => Selector<T, Descriptor<Source>>
   ): SelectorOf<Ctx, AsOptional<D>>;
 
   slice(begin: number, end?: number): ArraySelector<Ctx, D>;
@@ -42,7 +43,7 @@ interface ArraySelectorMethods<Ctx, D extends Descriptor<unknown>> {
   ): ArraySelector<Ctx, DescriptorOf<readonly [ValueOf<D>, number], S>>;
 }
 
-export type ArraySelector<Ctx, D extends Descriptor<unknown>> = Selector<
+export type ArraySelector<Ctx, D extends Descriptor<Source>> = Selector<
   Ctx,
   ArrayDescriptor<D>
 > &
@@ -50,7 +51,7 @@ export type ArraySelector<Ctx, D extends Descriptor<unknown>> = Selector<
     readonly [index: number]: SelectorOf<Ctx, D>;
   };
 
-class ArraySelectorC<Ctx, D extends Descriptor<unknown>>
+class ArraySelectorC<Ctx, D extends Descriptor<Source>>
   extends Selector<Ctx, ArrayDescriptor<D>>
   implements ArraySelectorMethods<Ctx, D>
 {
@@ -69,9 +70,7 @@ class ArraySelectorC<Ctx, D extends Descriptor<unknown>>
   }
 
   filter(
-    predicate: <Ctx>(
-      v: SelectorOf<Ctx, D>
-    ) => Selector<Ctx, Descriptor<unknown>>
+    predicate: <Ctx>(v: SelectorOf<Ctx, D>) => Selector<Ctx, Descriptor<Source>>
   ): ArraySelector<Ctx, D> {
     const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
     const predicateExpr = predicate(getSelector(vExpr, this.item))[EXPR]();
@@ -79,7 +78,7 @@ class ArraySelectorC<Ctx, D extends Descriptor<unknown>>
   }
 
   find(
-    predicate: <T>(item: SelectorOf<T, D>) => Selector<T, Descriptor<unknown>>
+    predicate: <T>(item: SelectorOf<T, D>) => Selector<T, Descriptor<Source>>
   ): SelectorOf<Ctx, AsOptional<D>> {
     const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
     const predicateExpr = predicate(getSelector(vExpr, this.item))[EXPR]();
@@ -125,7 +124,7 @@ class ArraySelectorC<Ctx, D extends Descriptor<unknown>>
   }
 }
 
-const proxyHandler: ProxyHandler<ArraySelectorC<unknown, Descriptor<unknown>>> =
+const proxyHandler: ProxyHandler<ArraySelectorC<unknown, Descriptor<Source>>> =
   {
     get(target, p) {
       if (typeof p === "string" && /^(-?0|[1-9][0-9]*)$/g.test(p)) {
@@ -138,12 +137,12 @@ const proxyHandler: ProxyHandler<ArraySelectorC<unknown, Descriptor<unknown>>> =
     },
   };
 
-export function newArraySelector<Ctx, D extends Descriptor<unknown>>(
+export function newArraySelector<Ctx, D extends Descriptor<Source>>(
   expr: expr.Expr<Ctx, readonly ValueOf<D>[]>,
   item: D
 ): ArraySelector<Ctx, D> {
   const proxy = new Proxy(
-    new ArraySelectorC<unknown, Descriptor<unknown>>(expr, item),
+    new ArraySelectorC<unknown, Descriptor<Source>>(expr, item),
     proxyHandler
   );
   return proxy as unknown as ArraySelector<Ctx, D>;

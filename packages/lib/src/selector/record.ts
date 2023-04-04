@@ -2,11 +2,12 @@ import * as expr from "../expr";
 import { getSelector, SelectorOf } from ".";
 import { Selector, DESC, EXPR } from "./selector";
 import { Descriptor, RecordDescriptor, ValueOf } from "../descriptor";
+import { Source } from "../Source";
 
 export type RecordSelector<
   Ctx,
   K extends string,
-  D extends Descriptor<unknown>
+  D extends Descriptor<Source>
 > = Selector<Ctx, RecordDescriptor<K, D>> & {
   readonly [P in string]: SelectorOf<Ctx, D>;
 };
@@ -14,7 +15,7 @@ export type RecordSelector<
 class RecordSelectorC<
   Ctx,
   K extends string,
-  D extends Descriptor<unknown>
+  D extends Descriptor<Source>
 > extends Selector<Ctx, RecordDescriptor<K, D>> {
   constructor(
     readonly expr: expr.Expr<Ctx, ValueOf<RecordDescriptor<K, D>>>,
@@ -32,7 +33,7 @@ class RecordSelectorC<
 }
 
 const proxyHandler: ProxyHandler<
-  RecordSelectorC<unknown, string, Descriptor<unknown>>
+  RecordSelectorC<unknown, string, Descriptor<Source>>
 > = {
   get(target, p) {
     if (typeof p !== "string") {
@@ -45,7 +46,7 @@ const proxyHandler: ProxyHandler<
 export function newRecordSelector<
   Ctx,
   K extends string,
-  D extends Descriptor<unknown>
+  D extends Descriptor<Source>
 >(
   expr: expr.Expr<Ctx, Record<string, ValueOf<D>>>,
   item: D

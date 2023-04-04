@@ -14,11 +14,12 @@ import {
   ValueOf,
 } from "../descriptor";
 import * as expr from "../expr";
+import { Source } from "../Source";
 import { Selector, DESC, EXPR } from "./selector";
 
 export class OptionalSelector<
   Ctx,
-  D extends NonOptionalDescriptor<unknown>
+  D extends NonOptionalDescriptor<Source>
 > extends Selector<Ctx, OptionalDescriptor<D>> {
   constructor(
     private readonly expr: expr.Expr<Ctx, ValueOf<OptionalDescriptor<D>>>,
@@ -57,7 +58,7 @@ export class OptionalSelector<
 
 export function newOptionalSelector<
   Ctx,
-  D extends NonOptionalDescriptor<unknown>
+  D extends NonOptionalDescriptor<Source>
 >(expr: expr.Expr<Ctx, ValueOf<D> | null>, desc: D): OptionalSelector<Ctx, D> {
   return new OptionalSelector(expr, desc);
 }
