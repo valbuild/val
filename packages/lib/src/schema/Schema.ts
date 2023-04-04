@@ -12,17 +12,17 @@ export type SerializedSchema =
   | SerializedObjectSchema
   | SerializedArraySchema;
 
-export type SrcOf<T extends Schema<never, Source>> = /* [
-  Schema<never, Source>
-] extends [T]
-  ? never
-  : */ [T] extends [Schema<infer Src, Source>] ? Src : never;
+export type SrcOf<T extends Schema<never, Source>> = [T] extends [
+  Schema<infer Src, Source>
+]
+  ? Src
+  : never;
 
 export type LocalOf<T extends Schema<never, Source>> = T extends Schema<
-  Source,
-  infer Out
+  never,
+  infer Local
 >
-  ? Out
+  ? Local
   : Source;
 
 /**

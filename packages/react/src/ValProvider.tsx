@@ -1,6 +1,10 @@
 import { Source, ModuleContent, Schema } from "@valbuild/lib";
 import * as expr from "@valbuild/lib/expr";
-import { formatJSONPointer, parseJSONPointer } from "@valbuild/lib/patch";
+import {
+  formatJSONPointer,
+  parseJSONPointer,
+  PatchJSON,
+} from "@valbuild/lib/patch";
 import { result } from "@valbuild/lib/fp";
 import React, {
   CSSProperties,
@@ -303,7 +307,12 @@ const ValEditForm: React.FC<{
                 throw Error(`${JSON.stringify(path)} is invalid JSON pointer`);
               }
               path = formatJSONPointer(
-                mod.schema.delocalizePath(mod.source, parsedPath.value, locale)
+                Schema.delocalizePath(
+                  mod.schema,
+                  mod.source,
+                  parsedPath.value,
+                  locale
+                )
               );
               modulePatches[moduleId].push({
                 op: "replace",
@@ -315,7 +324,7 @@ const ValEditForm: React.FC<{
           await Promise.all(
             Object.entries(modulePatches).map(async ([moduleId, patch]) => {
               const moduleContent = ModuleContent.deserialize(
-                await valApi.patchModuleContent(moduleId, patch)
+                await valApi.patchModuleContent(moduleId, patch as PatchJSON)
               );
               valStore.set(moduleId, moduleContent);
             })

@@ -44,7 +44,7 @@ describe("useVal", () => {
     });
     const vo: CompositeVal<{ foo: string }> = result.current;
     expect(vo.foo).toStrictEqual<PrimitiveVal<string>>({
-      valSrc: `baz?en_US?["foo"]`,
+      valSrc: `baz?en_US?."foo"`,
       val: "bar",
     });
     // expect(val).toStrictEqual<ValObject<{ foo: string }>>({
