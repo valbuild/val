@@ -3,7 +3,7 @@ import { useVal } from "@valbuild/react";
 import blogsVal from "../blogs.val";
 
 const Home: NextPage = () => {
-  const blogs = useVal(blogsVal.select((blogs) => blogs));
+  const blogs = useVal(blogsVal);
   return (
     <main
       style={{
