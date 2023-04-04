@@ -1,6 +1,6 @@
 import { Source, SourceObject, SourcePrimitive } from "./Source";
 
-export type CompositeVal<T extends SourceObject> = Omit<
+export type ObjectVal<T extends SourceObject> = Omit<
   {
     [key in keyof T]: Val<T[key]>;
   },
@@ -28,7 +28,7 @@ export type Val<T extends Source> = Source extends T
       readonly val: Source;
     }
   : T extends SourceObject
-  ? CompositeVal<T>
+  ? ObjectVal<T>
   : T extends readonly Source[]
   ? ArrayVal<T>
   : T extends SourcePrimitive

@@ -1,5 +1,5 @@
 import { useVal } from "./useVal";
-import { CompositeVal, initVal, PrimitiveVal } from "@valbuild/lib";
+import { initVal, Val } from "@valbuild/lib";
 import { renderHook } from "@testing-library/react";
 import { ValContext } from "../ValProvider";
 import { ReactElement } from "react";
@@ -28,7 +28,7 @@ describe("useVal", () => {
     const { result } = renderHook(() => useVal(mod, "en_US"), {
       wrapper: Providers,
     });
-    expect(result.current).toStrictEqual<PrimitiveVal<string>>({
+    expect(result.current).toStrictEqual<Val<string>>({
       val: "bar",
       valSrc: "foo?en_US?",
     });
@@ -42,8 +42,8 @@ describe("useVal", () => {
     const { result } = renderHook(() => useVal(mod, "en_US"), {
       wrapper: Providers,
     });
-    const vo: CompositeVal<{ foo: string }> = result.current;
-    expect(vo.foo).toStrictEqual<PrimitiveVal<string>>({
+    const vo: Val<{ foo: string }> = result.current;
+    expect(vo.foo).toStrictEqual<Val<string>>({
       valSrc: `baz?en_US?."foo"`,
       val: "bar",
     });
