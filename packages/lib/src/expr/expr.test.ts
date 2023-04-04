@@ -14,6 +14,7 @@ import {
   primitiveLiteral,
   objectLiteral,
   arrayLiteral,
+  map,
 } from "./expr";
 
 const serializationTestCases: {
@@ -133,6 +134,10 @@ const serializationTestCases: {
       primitiveLiteral(2),
     ]),
     str: `[[<1>], <2>]`,
+  },
+  {
+    expr: map(fromCtx(0), arrayLiteral([fromCtx(0), fromCtx(1)])),
+    str: `.map((v, i) => [v, i])`,
   },
 ];
 

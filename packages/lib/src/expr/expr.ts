@@ -467,8 +467,6 @@ export function parse<Ctx>(
   ctx: { readonly [s in string]: keyof Ctx },
   str: string
 ): Expr<Ctx, unknown> {
-  // TODO: Fully implement this
-  // Currently missing: sub, map
   if (str.endsWith("}")) {
     const bracketStart = lastIndexOf(str, "{");
     if (bracketStart === -1) {
