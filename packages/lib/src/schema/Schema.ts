@@ -49,24 +49,8 @@ export type OptOut<T extends Source, Opt extends boolean> = [Opt] extends [true]
   ? T | null
   : T;
 
-export abstract class Schema<Src extends Source, Local extends Source> {
+export abstract class Schema<in Src extends Source, out Local extends Source> {
   constructor(public readonly opt: boolean) {}
-
-  /**
-   * This marker exists to ensure that Src is treated correctly by TypeScript.
-   *
-   * TODO: Write a message describing what the issue is if this property shows
-   * up in a type error.
-   */
-  public readonly _SrcIsContravariant!: (src: Src) => void;
-
-  /**
-   * This marker exists to ensure that Local is treated correctly by TypeScript.
-   *
-   * TODO: Write a message describing what the issue is if this property shows
-   * up in a type error.
-   */
-  public readonly _LocalIsCovariant!: () => Local;
 
   /**
    * Validate a value against this schema

@@ -34,12 +34,12 @@ test("selector", () => {
   // const a = content.schema.localDescriptor();
 
   const baz = content.select((root) => root.foo.bar[0].baz);
-  expect(baz.evaluate([content.source])).toEqual("foo");
+  expect(baz.evaluate([content.localize("en_US")])).toEqual("foo");
 
   expect(
     content
       .select((root) => root.foo.bar.filter((i) => i.baz.eq("foo")))
-      .evaluate([content.source])
+      .evaluate([content.localize("en_US")])
   ).toEqual([{ baz: "foo" }]);
 
   const exprString = baz.toString(["m"]);
