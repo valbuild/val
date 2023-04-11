@@ -20,14 +20,14 @@ export class ModuleContent<T extends Schema<never, Source>> {
 
   select<S extends Selected<readonly [LocalOf<T>]>>(
     callback: (
-      selector: SelectorOf<readonly [LocalOf<T>], LocalDescriptorOf<T>>
+      selector: SelectorOf<LocalDescriptorOf<T>, readonly [LocalOf<T>]>
     ) => S
-  ): ExprOf<readonly [LocalOf<T>], S> {
+  ): ExprOf<S, readonly [LocalOf<T>]> {
     const rootExpr = expr.fromCtx<readonly [LocalOf<T>], 0>(0);
     const rootSelector = getSelector(
       rootExpr,
       localDescriptorOf(this.schema)
-    ) as SelectorOf<readonly [LocalOf<T>], LocalDescriptorOf<T>>;
+    ) as SelectorOf<LocalDescriptorOf<T>, readonly [LocalOf<T>]>;
     return exprOf(callback(rootSelector));
   }
 

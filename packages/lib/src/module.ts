@@ -32,9 +32,9 @@ export class ValModule<T extends Schema<never, Source>>
 
   select<S extends Selected<readonly [LocalOf<T>]>>(
     callback: (
-      selector: SelectorOf<readonly [LocalOf<T>], LocalDescriptorOf<T>>
+      selector: SelectorOf<LocalDescriptorOf<T>, readonly [LocalOf<T>]>
     ) => S
-  ): Selectable<SrcOf<T>, ValueOf<DescriptorOf<readonly [LocalOf<T>], S>>> {
+  ): Selectable<SrcOf<T>, ValueOf<DescriptorOf<S, readonly [LocalOf<T>]>>> {
     const resultExpr = this.content.select(callback);
     return {
       getModule: (): ValModule<Schema<SrcOf<T>, Source>> => {

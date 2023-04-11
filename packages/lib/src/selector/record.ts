@@ -5,18 +5,18 @@ import { Descriptor, RecordDescriptor, ValueOf } from "../descriptor";
 import { Source } from "../Source";
 
 export type RecordSelector<
-  Ctx,
   K extends string,
-  D extends Descriptor<Source>
-> = Selector<Ctx, RecordDescriptor<K, D>> & {
-  readonly [P in string]: SelectorOf<Ctx, D>;
+  D extends Descriptor<Source>,
+  Ctx
+> = Selector<RecordDescriptor<K, D>, Ctx> & {
+  readonly [P in string]: SelectorOf<D, Ctx>;
 };
 
 class RecordSelectorC<
-  Ctx,
   K extends string,
-  D extends Descriptor<Source>
-> extends Selector<Ctx, RecordDescriptor<K, D>> {
+  D extends Descriptor<Source>,
+  Ctx
+> extends Selector<RecordDescriptor<K, D>, Ctx> {
   constructor(
     readonly expr: expr.Expr<Ctx, ValueOf<RecordDescriptor<K, D>>>,
     readonly item: D
@@ -33,7 +33,7 @@ class RecordSelectorC<
 }
 
 const proxyHandler: ProxyHandler<
-  RecordSelectorC<unknown, string, Descriptor<Source>>
+  RecordSelectorC<string, Descriptor<Source>, unknown>
 > = {
   get(target, p) {
     if (typeof p !== "string") {
@@ -44,13 +44,13 @@ const proxyHandler: ProxyHandler<
 };
 
 export function newRecordSelector<
-  Ctx,
   K extends string,
-  D extends Descriptor<Source>
+  D extends Descriptor<Source>,
+  Ctx
 >(
   expr: expr.Expr<Ctx, Record<string, ValueOf<D>>>,
   item: D
-): RecordSelector<Ctx, K, D> {
+): RecordSelector<K, D, Ctx> {
   const proxy = new Proxy(new RecordSelectorC(expr, item), proxyHandler);
-  return proxy as unknown as RecordSelector<Ctx, K, D>;
+  return proxy as unknown as RecordSelector<K, D, Ctx>;
 }

@@ -13,7 +13,7 @@ export const EXPR = Symbol("expr");
  */
 export const DESC = Symbol("desc");
 
-export abstract class Selector<Ctx, D extends Descriptor<Source>> {
+export abstract class Selector<D extends Descriptor<Source>, Ctx> {
   /**
    * @internal
    */
@@ -22,7 +22,7 @@ export abstract class Selector<Ctx, D extends Descriptor<Source>> {
    * @internal
    */
   abstract [DESC](): D;
-  eq(value: ValueOf<D>): PrimitiveSelector<Ctx, BooleanDescriptor> {
+  eq(value: ValueOf<D>): PrimitiveSelector<BooleanDescriptor, Ctx> {
     return getSelector(expr.eq(this[EXPR](), value), BooleanDescriptor);
   }
 }

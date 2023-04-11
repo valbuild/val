@@ -11,16 +11,16 @@ type ValuesOf<D extends ObjectDescriptorProps> = {
   [P in keyof D]: ValueOf<D[P]>;
 };
 
-export type ObjectSelector<Ctx, D extends ObjectDescriptorProps> = Selector<
-  Ctx,
-  ObjectDescriptor<D>
+export type ObjectSelector<D extends ObjectDescriptorProps, Ctx> = Selector<
+  ObjectDescriptor<D>,
+  Ctx
 > & {
-  readonly [P in keyof D]: SelectorOf<Ctx, D[P]>;
+  readonly [P in keyof D]: SelectorOf<D[P], Ctx>;
 };
 
-class ObjectSelectorC<Ctx, D extends ObjectDescriptorProps> extends Selector<
-  Ctx,
-  ObjectDescriptor<D>
+class ObjectSelectorC<D extends ObjectDescriptorProps, Ctx> extends Selector<
+  ObjectDescriptor<D>,
+  Ctx
 > {
   constructor(
     readonly expr: expr.Expr<Ctx, ValueOf<ObjectDescriptor<D>>>,
@@ -38,7 +38,7 @@ class ObjectSelectorC<Ctx, D extends ObjectDescriptorProps> extends Selector<
 }
 
 const proxyHandler: ProxyHandler<
-  ObjectSelectorC<unknown, ObjectDescriptorProps>
+  ObjectSelectorC<ObjectDescriptorProps, unknown>
 > = {
   get(target, p) {
     if (
@@ -54,10 +54,10 @@ const proxyHandler: ProxyHandler<
   },
 };
 
-export function newObjectSelector<Ctx, D extends ObjectDescriptorProps>(
+export function newObjectSelector<D extends ObjectDescriptorProps, Ctx>(
   expr: expr.Expr<Ctx, ValuesOf<D>>,
   props: D
-): ObjectSelector<Ctx, D> {
+): ObjectSelector<D, Ctx> {
   const proxy = new Proxy(new ObjectSelectorC(expr, props), proxyHandler);
-  return proxy as unknown as ObjectSelector<Ctx, D>;
+  return proxy as unknown as ObjectSelector<D, Ctx>;
 }

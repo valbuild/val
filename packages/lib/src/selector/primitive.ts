@@ -4,9 +4,9 @@ import { SourcePrimitive } from "../Source";
 import { Selector, DESC, EXPR } from "./selector";
 
 export class PrimitiveSelector<
-  Ctx,
-  D extends PrimitiveDescriptor<SourcePrimitive>
-> extends Selector<Ctx, D> {
+  D extends PrimitiveDescriptor<SourcePrimitive>,
+  Ctx
+> extends Selector<D, Ctx> {
   constructor(
     protected readonly expr: expr.Expr<Ctx, ValueOf<D>>,
     private readonly desc: D
@@ -23,8 +23,8 @@ export class PrimitiveSelector<
 }
 
 export function newPrimitiveSelector<
-  Ctx,
-  D extends PrimitiveDescriptor<SourcePrimitive>
->(expr: expr.Expr<Ctx, ValueOf<D>>, desc: D): PrimitiveSelector<Ctx, D> {
+  D extends PrimitiveDescriptor<SourcePrimitive>,
+  Ctx
+>(expr: expr.Expr<Ctx, ValueOf<D>>, desc: D): PrimitiveSelector<D, Ctx> {
   return new PrimitiveSelector(expr, desc);
 }

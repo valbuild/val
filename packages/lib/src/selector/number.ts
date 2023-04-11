@@ -3,8 +3,8 @@ import * as expr from "../expr";
 import { PrimitiveSelector } from "./primitive";
 
 export class NumberSelector<Ctx> extends PrimitiveSelector<
-  Ctx,
-  NumberDescriptor
+  NumberDescriptor,
+  Ctx
 > {
   constructor(expr: expr.Expr<Ctx, number>) {
     super(expr, NumberDescriptor);

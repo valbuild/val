@@ -9,16 +9,16 @@ export type ValuesOf<D extends readonly Descriptor<Source>[]> = {
 };
 
 export type TupleSelector<
-  Ctx,
-  D extends readonly Descriptor<Source>[]
-> = Selector<Ctx, TupleDescriptor<D>> & {
-  readonly [Index in keyof D]: SelectorOf<Ctx, D[Index]>;
+  D extends readonly Descriptor<Source>[],
+  Ctx
+> = Selector<TupleDescriptor<D>, Ctx> & {
+  readonly [Index in keyof D]: SelectorOf<D[Index], Ctx>;
 };
 
 class TupleSelectorC<
-  Ctx,
-  D extends readonly Descriptor<Source>[]
-> extends Selector<Ctx, TupleDescriptor<D>> {
+  D extends readonly Descriptor<Source>[],
+  Ctx
+> extends Selector<TupleDescriptor<D>, Ctx> {
   constructor(readonly expr: expr.Expr<Ctx, ValuesOf<D>>, readonly items: D) {
     super();
   }
@@ -32,7 +32,7 @@ class TupleSelectorC<
 }
 
 const proxyHandler: ProxyHandler<
-  TupleSelectorC<unknown, readonly Descriptor<Source>[]>
+  TupleSelectorC<readonly Descriptor<Source>[], unknown>
 > = {
   get(target, p) {
     if (typeof p === "string" && /^(-?0|[1-9][0-9]*)$/g.test(p)) {
@@ -49,10 +49,10 @@ const proxyHandler: ProxyHandler<
   },
 };
 
-export function newTupleSelector<Ctx, D extends readonly Descriptor<Source>[]>(
+export function newTupleSelector<D extends readonly Descriptor<Source>[], Ctx>(
   expr: expr.Expr<Ctx, ValuesOf<D>>,
   items: D
-): TupleSelector<Ctx, D> {
+): TupleSelector<D, Ctx> {
   const proxy = new Proxy(new TupleSelectorC(expr, items), proxyHandler);
-  return proxy as unknown as TupleSelector<Ctx, D>;
+  return proxy as unknown as TupleSelector<D, Ctx>;
 }

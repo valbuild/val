@@ -18,9 +18,9 @@ import { Source } from "../Source";
 import { Selector, DESC, EXPR } from "./selector";
 
 export class OptionalSelector<
-  Ctx,
-  D extends NonOptionalDescriptor<Source>
-> extends Selector<Ctx, OptionalDescriptor<D>> {
+  D extends NonOptionalDescriptor<Source>,
+  Ctx
+> extends Selector<OptionalDescriptor<D>, Ctx> {
   constructor(
     private readonly expr: expr.Expr<Ctx, ValueOf<OptionalDescriptor<D>>>,
     private readonly item: D
@@ -36,29 +36,29 @@ export class OptionalSelector<
   }
 
   andThen<S extends Selected<readonly [ValueOf<D>]>>(
-    callback: (v: SelectorOf<readonly [ValueOf<D>], D>) => S
-  ): OptionalSelector<Ctx, AsRequired<DescriptorOf<readonly [ValueOf<D>], S>>> {
+    callback: (v: SelectorOf<D, readonly [ValueOf<D>]>) => S
+  ): OptionalSelector<AsRequired<DescriptorOf<S, readonly [ValueOf<D>]>>, Ctx> {
     const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
     const selected = callback(getSelector(vExpr, this.item));
     return newOptionalSelector<
-      Ctx,
-      AsRequired<DescriptorOf<readonly [ValueOf<D>], S>>
+      AsRequired<DescriptorOf<S, readonly [ValueOf<D>]>>,
+      Ctx
     >(
       expr.andThen(
         this.expr,
         exprOf<readonly [ValueOf<D>], S>(selected)
       ) as expr.Expr<
         Ctx,
-        ValueOf<AsRequired<DescriptorOf<readonly [ValueOf<D>], S>>> | null
+        ValueOf<AsRequired<DescriptorOf<S, readonly [ValueOf<D>]>>> | null
       >,
-      asRequired(descriptorOf<readonly [ValueOf<D>], S>(selected))
+      asRequired(descriptorOf<S, readonly [ValueOf<D>]>(selected))
     );
   }
 }
 
 export function newOptionalSelector<
-  Ctx,
-  D extends NonOptionalDescriptor<Source>
->(expr: expr.Expr<Ctx, ValueOf<D> | null>, desc: D): OptionalSelector<Ctx, D> {
+  D extends NonOptionalDescriptor<Source>,
+  Ctx
+>(expr: expr.Expr<Ctx, ValueOf<D> | null>, desc: D): OptionalSelector<D, Ctx> {
   return new OptionalSelector(expr, desc);
 }
