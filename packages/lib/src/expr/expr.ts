@@ -1,4 +1,6 @@
+import { deepEqual } from "../patch";
 import { formatJSONPointerReferenceToken } from "../patch/parse";
+import { Source } from "../Source";
 import { lastIndexOf, split, lastIntegerOf, isDigit } from "./strings";
 export * as strings from "./strings";
 
@@ -315,11 +317,10 @@ export function map<Ctx, T, U>(
   return new Map(expr, callback);
 }
 
-class Eq<Ctx, T> implements Expr<Ctx, boolean> {
+class Eq<Ctx, T extends Source> implements Expr<Ctx, boolean> {
   constructor(private readonly lhs: Expr<Ctx, T>, private readonly rhs: T) {}
   evaluate(ctx: Ctx): boolean {
-    // TODO: Implement deep equality
-    return this.lhs.evaluate(ctx) === this.rhs;
+    return deepEqual(this.lhs.evaluate(ctx), this.rhs);
   }
   evaluateRef(ctx: Ctx): [boolean, null] {
     return [this.evaluate(ctx), null];
@@ -328,8 +329,11 @@ class Eq<Ctx, T> implements Expr<Ctx, boolean> {
     return `${this.lhs.toString(ctx)}.eq(${JSON.stringify(this.rhs)})`;
   }
 }
-export function eq<Ctx, T>(lhs: Expr<Ctx, T>, rhs: T): Expr<Ctx, boolean> {
-  return new Eq(lhs, rhs);
+export function eq<Ctx, T extends Source>(
+  lhs: Expr<Ctx, T>,
+  rhs: T
+): Expr<Ctx, boolean> {
+  return new Eq<Ctx, T>(lhs, rhs);
 }
 
 class AndThen<Ctx, T, U> implements Expr<Ctx, U | null> {
