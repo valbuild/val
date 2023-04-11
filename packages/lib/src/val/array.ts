@@ -1,12 +1,9 @@
-import { Source } from "../Source";
+import { Source, AsReadonlySource } from "../Source";
 import { Val as UnknownVal } from ".";
 
-export type Val<T extends readonly Source[]> = Omit<
-  {
-    readonly [key in keyof T]: UnknownVal<T[key]>;
-  },
-  "valSrc" | "val"
-> & {
+export type Val<T extends readonly Source[]> = {
+  readonly [key in keyof T]: UnknownVal<T[key]>;
+} & {
   readonly valSrc: string;
-  readonly val: T;
+  readonly val: AsReadonlySource<T>;
 };

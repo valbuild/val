@@ -5,9 +5,7 @@ import { useVal } from "@valbuild/react";
 import { Val } from "@valbuild/lib";
 
 export default function Home() {
-  const blogs: Val<
-    readonly { readonly title: string; readonly text: string | null }[] | null
-  > = useVal(
+  const blogs: Val<{ title: string; text: string | null }[] | null> = useVal(
     blogsVal.select((blogs) =>
       blogs.andThen((blogs) =>
         blogs
