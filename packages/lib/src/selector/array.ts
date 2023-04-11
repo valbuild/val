@@ -18,7 +18,12 @@ import {
 } from "../descriptor";
 import { Source } from "../Source";
 
-interface ArraySelectorMethods<Ctx, D extends Descriptor<Source>> {
+export type ArraySelector<Ctx, D extends Descriptor<Source>> = Selector<
+  Ctx,
+  ArrayDescriptor<D>
+> & {
+  readonly [index: number]: SelectorOf<Ctx, D>;
+
   filter(
     predicate: <T>(v: SelectorOf<T, D>) => Selector<T, Descriptor<Source>>
   ): ArraySelector<Ctx, D>;
@@ -41,19 +46,11 @@ interface ArraySelectorMethods<Ctx, D extends Descriptor<Source>> {
       i: SelectorOf<readonly [ValueOf<D>, number], NumberDescriptor>
     ) => S
   ): ArraySelector<Ctx, DescriptorOf<readonly [ValueOf<D>, number], S>>;
-}
-
-export type ArraySelector<Ctx, D extends Descriptor<Source>> = Selector<
-  Ctx,
-  ArrayDescriptor<D>
-> &
-  ArraySelectorMethods<Ctx, D> & {
-    readonly [index: number]: SelectorOf<Ctx, D>;
-  };
+};
 
 class ArraySelectorC<Ctx, D extends Descriptor<Source>>
   extends Selector<Ctx, ArrayDescriptor<D>>
-  implements ArraySelectorMethods<Ctx, D>
+  implements ArraySelector<Ctx, D>
 {
   constructor(
     readonly expr: expr.Expr<Ctx, readonly ValueOf<D>[]>,
@@ -61,6 +58,8 @@ class ArraySelectorC<Ctx, D extends Descriptor<Source>>
   ) {
     super();
   }
+
+  readonly [index: number]: never;
 
   [EXPR](): expr.Expr<Ctx, ValueOf<ArrayDescriptor<D>>> {
     return this.expr;
