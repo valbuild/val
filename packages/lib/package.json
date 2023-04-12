@@ -16,6 +16,10 @@
       "module": "./fp/dist/valbuild-lib-fp.esm.js",
       "default": "./fp/dist/valbuild-lib-fp.cjs.js"
     },
+    "./expr": {
+      "module": "./expr/dist/valbuild-lib-expr.esm.js",
+      "default": "./expr/dist/valbuild-lib-expr.cjs.js"
+    },
     "./patch": {
       "module": "./patch/dist/valbuild-lib-patch.esm.js",
       "default": "./patch/dist/valbuild-lib-patch.cjs.js"
@@ -27,7 +31,8 @@
     "entrypoints": [
       "./index.ts",
       "./fp/index.ts",
-      "./patch/index.ts"
+      "./patch/index.ts",
+      "./expr/index.ts"
     ],
     "exports": true
   }

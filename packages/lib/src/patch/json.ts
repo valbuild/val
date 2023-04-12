@@ -1,5 +1,5 @@
 import { result, array, pipe } from "../fp/";
-import { JSONValue, Ops, PatchError } from "./ops";
+import { JSONValue, Ops, PatchError, ReadonlyJSONValue } from "./ops";
 import {
   deepClone,
   deepEqual,
@@ -11,7 +11,7 @@ type JSONOpsResult<T> = result.Result<T, PatchError>;
 
 function parseAndValidateArrayInsertIndex(
   key: string,
-  nodes: JSONValue[]
+  nodes: ReadonlyJSONValue[]
 ): JSONOpsResult<number> {
   if (key === "-") {
     return result.ok(nodes.length);
@@ -28,7 +28,7 @@ function parseAndValidateArrayInsertIndex(
 
 function parseAndValidateArrayInboundsIndex(
   key: string,
-  nodes: JSONValue[]
+  nodes: ReadonlyJSONValue[]
 ): JSONOpsResult<number> {
   return pipe(
     parseAndValidateArrayIndex(key),
@@ -230,8 +230,8 @@ function addAtPath(
 }
 
 function pickDocument<
-  T extends readonly [document: JSONValue, ...result: unknown[]]
->([document]: T) {
+  T extends readonly [document: ReadonlyJSONValue, ...result: unknown[]]
+>([document]: T): T[0] {
   return document;
 }
 

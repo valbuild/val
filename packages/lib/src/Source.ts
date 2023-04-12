@@ -1,19 +1,14 @@
-export type ValProps<T> = {
-  val: T;
-  valId: string;
+export type SourceObject = { readonly [key: string]: Source };
+export type SourcePrimitive = string | number | boolean | null;
+export type Source = SourcePrimitive | SourceObject | readonly Source[];
+
+type ToReadonlySourceArray<T extends readonly Source[]> = {
+  readonly [P in keyof T]: AsReadonlySource<T[P]>;
 };
-
-type ReservedKeys = keyof ValProps<unknown>;
-
-const reservedKeysObj: { [key in ReservedKeys]: true } = {
-  val: true,
-  valId: true,
-};
-
-export const reservedKeys = Object.keys(reservedKeysObj) as ReservedKeys[];
-
-export type SourceObject = { [key: string]: Source } & {
-  [key in ReservedKeys]?: never;
-};
-export type SourcePrimitive = string;
-export type Source = SourcePrimitive | SourceObject | Source[];
+export type AsReadonlySource<T extends Source> = Source extends T
+  ? Source
+  : T extends SourceObject
+  ? { readonly [P in keyof T]: AsReadonlySource<T[P]> }
+  : T extends readonly Source[]
+  ? ToReadonlySourceArray<T>
+  : T;
