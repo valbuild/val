@@ -47,7 +47,7 @@ export class ObjectSchema<
   constructor(public readonly props: T, public readonly opt: Opt) {
     super(opt);
   }
-  validate(src: OptIn<SrcObject<T>, Opt>): false | string[] {
+  protected validate(src: OptIn<SrcObject<T>, Opt>): false | string[] {
     if (src === null) {
       if (!this.opt) return ["Required object cannot be null"];
       return false;
@@ -79,13 +79,13 @@ export class ObjectSchema<
     return false;
   }
 
-  hasI18n(): Some<{ [P in keyof T]: ReturnType<T[P]["hasI18n"]> }> {
+  hasI18n(): boolean {
     return Object.values(this.props).some((schema) =>
       schema.hasI18n()
     ) as Some<{ [P in keyof T]: ReturnType<T[P]["hasI18n"]> }>;
   }
 
-  localize(
+  protected localize(
     src: OptIn<SrcObject<T>, Opt>,
     locale: "en_US"
   ): OptOut<LocalObject<T>, Opt> {
@@ -102,7 +102,7 @@ export class ObjectSchema<
     ) as LocalObject<T>;
   }
 
-  delocalizePath(
+  protected delocalizePath(
     src: OptIn<SrcObject<T>, Opt>,
     localPath: string[],
     locale: "en_US"

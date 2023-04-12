@@ -29,7 +29,9 @@ export class I18nSchema<
       console.warn("Nested i18n detected.");
     }
   }
-  validate(src: OptIn<{ readonly en_US: SrcOf<T> }, Opt>): false | string[] {
+  protected validate(
+    src: OptIn<{ readonly en_US: SrcOf<T> }, Opt>
+  ): false | string[] {
     if (src === null) {
       if (!this.opt) return ["Required i18n record cannot be null"];
       return false;
@@ -52,7 +54,7 @@ export class I18nSchema<
     return true;
   }
 
-  localize(
+  protected localize(
     src: OptIn<{ readonly en_US: SrcOf<T> }, Opt>,
     locale: "en_US"
   ): OptOut<LocalOf<T>, Opt> {
@@ -63,7 +65,7 @@ export class I18nSchema<
     return Schema.localize(this.schema, src[locale], locale);
   }
 
-  delocalizePath(
+  protected delocalizePath(
     src: OptIn<{ readonly en_US: SrcOf<T> }, Opt>,
     localPath: string[],
     locale: "en_US"

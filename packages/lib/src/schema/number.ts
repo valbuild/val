@@ -13,7 +13,7 @@ export class NumberSchema<Opt extends boolean> extends Schema<
     super(opt);
   }
 
-  validate(src: OptIn<number, Opt>): false | string[] {
+  protected validate(src: OptIn<number, Opt>): false | string[] {
     if (src === null) {
       if (!this.opt) return ["Required number cannot be null"];
       return false;
@@ -25,11 +25,14 @@ export class NumberSchema<Opt extends boolean> extends Schema<
     return false;
   }
 
-  localize(src: OptIn<number, Opt>): OptOut<number, Opt> {
+  protected localize(src: OptIn<number, Opt>): OptOut<number, Opt> {
     return src;
   }
 
-  delocalizePath(_src: OptIn<number, Opt>, localPath: string[]): string[] {
+  protected delocalizePath(
+    _src: OptIn<number, Opt>,
+    localPath: string[]
+  ): string[] {
     if (localPath.length !== 0) {
       throw Error("Invalid path: Cannot access property of number value");
     }

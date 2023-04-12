@@ -25,7 +25,7 @@ export class ArraySchema<
   constructor(public readonly item: T, public readonly opt: Opt) {
     super(opt);
   }
-  validate(src: OptIn<readonly SrcOf<T>[], Opt>): false | string[] {
+  protected validate(src: OptIn<readonly SrcOf<T>[], Opt>): false | string[] {
     if (src === null) {
       if (!this.opt) return ["Required array cannot be null"];
       return false;
@@ -47,7 +47,7 @@ export class ArraySchema<
     return this.item.hasI18n() as ReturnType<T["hasI18n"]>;
   }
 
-  localize(
+  protected localize(
     src: OptIn<readonly SrcOf<T>[], Opt>,
     locale: "en_US"
   ): OptOut<LocalOf<T>[], Opt> {
@@ -58,7 +58,7 @@ export class ArraySchema<
     return src.map((item) => Schema.localize(this.item, item, locale));
   }
 
-  delocalizePath(
+  protected delocalizePath(
     src: OptIn<readonly SrcOf<T>[], Opt>,
     localPath: string[],
     locale: "en_US"

@@ -25,7 +25,7 @@ export class StringSchema<Opt extends boolean> extends Schema<
     super(opt);
   }
 
-  validate(src: OptIn<string, Opt>): false | string[] {
+  protected validate(src: OptIn<string, Opt>): false | string[] {
     if (src === null) {
       if (!this.opt) return ["Required string cannot be null"];
       return false;
@@ -58,11 +58,14 @@ export class StringSchema<Opt extends boolean> extends Schema<
     return false;
   }
 
-  localize(src: OptIn<string, Opt>): OptOut<string, Opt> {
+  protected localize(src: OptIn<string, Opt>): OptOut<string, Opt> {
     return src;
   }
 
-  delocalizePath(_src: OptIn<string, Opt>, localPath: string[]): string[] {
+  protected delocalizePath(
+    _src: OptIn<string, Opt>,
+    localPath: string[]
+  ): string[] {
     if (localPath.length !== 0) {
       throw Error("Invalid path: Cannot access property of string value");
     }
