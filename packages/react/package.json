@@ -1,13 +1,13 @@
 {
   "name": "@valbuild/react",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "sideEffects": false,
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest"
   },
   "dependencies": {
-    "@valbuild/lib": "~0.8.0",
+    "@valbuild/lib": "~0.9.0",
     "@valbuild/ui": "~0.8.0",
     "base64-arraybuffer": "^1.0.2",
     "react-shadow": "^20.0.0"
