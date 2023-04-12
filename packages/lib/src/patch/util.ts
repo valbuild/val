@@ -1,11 +1,11 @@
 import { array, result } from "../fp";
-import { JSONValue, PatchError } from "./ops";
+import { PatchError, ReadonlyJSONValue, ToMutable } from "./ops";
 
 export function isNotRoot(path: string[]): path is array.NonEmptyArray<string> {
   return array.isNonEmpty(path);
 }
 
-export function deepEqual(a: JSONValue, b: JSONValue) {
+export function deepEqual(a: ReadonlyJSONValue, b: ReadonlyJSONValue) {
   if (a === b) {
     return true;
   }
@@ -32,7 +32,9 @@ export function deepEqual(a: JSONValue, b: JSONValue) {
       for (const [key, aValue] of aEntries) {
         // b must be a JSON object, so the only way for the bValue to be
         // undefined is if the key is unset
-        const bValue: JSONValue | undefined = b[key];
+        const bValue: ReadonlyJSONValue | undefined = (
+          b as { readonly [P in string]: ReadonlyJSONValue }
+        )[key];
         if (bValue === undefined) return false;
         if (!deepEqual(aValue, bValue)) return false;
       }
@@ -43,15 +45,15 @@ export function deepEqual(a: JSONValue, b: JSONValue) {
   return false;
 }
 
-export function deepClone<T extends JSONValue>(value: T): T {
+export function deepClone<T extends ReadonlyJSONValue>(value: T): ToMutable<T> {
   if (Array.isArray(value)) {
-    return value.map(deepClone) as T;
+    return value.map(deepClone) as ToMutable<T>;
   } else if (typeof value === "object" && value !== null) {
     return Object.fromEntries(
       Object.entries(value).map(([key, value]) => [key, deepClone(value)])
-    ) as T;
+    ) as ToMutable<T>;
   } else {
-    return value;
+    return value as ToMutable<T>;
   }
 }
 

@@ -43,10 +43,12 @@ export function parseJSONPointer(
   }
 }
 
+export function formatJSONPointerReferenceToken(key: string): string {
+  return key.replace(/~/g, "~0").replace(/\//g, "~1");
+}
+
 export function formatJSONPointer(path: string[]): string {
-  return `/${path
-    .map((key) => key.replace(/~/g, "~0").replace(/\//g, "~1"))
-    .join("/")}`;
+  return `/${path.map(formatJSONPointerReferenceToken).join("/")}`;
 }
 
 /**

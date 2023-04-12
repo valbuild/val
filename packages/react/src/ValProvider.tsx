@@ -1,9 +1,11 @@
+import { Source, ModuleContent, Schema } from "@valbuild/lib";
+import * as expr from "@valbuild/lib/expr";
 import {
-  SourceObject,
-  SourcePrimitive,
-  Source,
-  ModuleContent,
-} from "@valbuild/lib";
+  formatJSONPointer,
+  parseJSONPointer,
+  PatchJSON,
+} from "@valbuild/lib/patch";
+import { result } from "@valbuild/lib/fp";
 import React, {
   CSSProperties,
   forwardRef,
@@ -162,27 +164,6 @@ type FormPosition = {
   top: number;
 };
 
-const parseValPath = (path: string): [moduleId: string, path: string[]] => {
-  const [moduleId, ...pathInModule] = path.split(".");
-  return [moduleId, pathInModule];
-};
-
-const getValFromModule = (paths: string[], valContent: Source) => {
-  let val: Source = valContent;
-  for (const path of paths) {
-    if (typeof val === "object" && val) {
-      val = (val as SourceObject)[path];
-    } else {
-      throw Error(
-        `Cannot descend into non-object. Path: ${path}. Content: ${JSON.stringify(
-          valContent
-        )}`
-      );
-    }
-  }
-  return val;
-};
-
 type Operation = {
   op: "replace";
   path: string;
@@ -194,16 +175,28 @@ const ValFontFamily = "Arial, Verdana, Tahoma, Cantarell, sans-serif";
 const ValEditForm: React.FC<{
   host: string;
   position: FormPosition | null;
-  selectedIds: string[];
+  selectedSources: string[];
   onClose: () => void;
-}> = ({ host, position, selectedIds, onClose }) => {
-  const [entries, setEntries] = useState<
-    (
-      | { id: string; status: "loading" }
-      | { id: string; status: "error"; error: string }
-      | { id: string; status: "ready"; data: Source; path: string[] }
-    )[]
-  >([]);
+}> = ({ host, position, selectedSources, onClose }) => {
+  type Entry =
+    | {
+        source: string;
+        status: "loading";
+      }
+    | {
+        source: string;
+        status: "error";
+        error: string;
+      }
+    | {
+        source: string;
+        status: "ready";
+        moduleId: string;
+        locale: "en_US";
+        value: string;
+        path: string;
+      };
+  const [entries, setEntries] = useState<Entry[]>([]);
   const valStore = useValStore();
   const valApi = useValApi();
 
@@ -214,32 +207,61 @@ const ValEditForm: React.FC<{
   >({ status: "ready" });
 
   useEffect(() => {
-    setEntries(selectedIds.map((id) => ({ id, status: "loading" })));
+    setEntries(
+      selectedSources.map((source) => ({ source, status: "loading" }))
+    );
 
     Promise.all(
-      selectedIds.map(async (id) => {
+      selectedSources.map(async (source): Promise<Entry> => {
         try {
-          const [moduleId, path] = parseValPath(id);
-          const serializedVal = await valApi.getModule(moduleId);
-          valStore.set(moduleId, ModuleContent.deserialize(serializedVal));
+          const [moduleId, locale, sourceExpr] =
+            expr.strings.parseValSrc(source);
+          const mod = ModuleContent.deserialize(
+            await valApi.getModule(moduleId)
+          );
+          valStore.set(moduleId, mod);
+
+          const [value, ref] = (
+            sourceExpr as expr.Expr<readonly [Source], Source>
+          ).evaluateRef(
+            [Schema.localize(mod.schema, mod.source, locale)],
+            [""]
+          );
+          if (!expr.isAssignable(ref)) {
+            return {
+              source,
+              status: "error",
+              error: "ref is not assignable",
+            };
+          }
+          if (typeof value !== "string") {
+            return {
+              source,
+              status: "error",
+              error: "value is not a string",
+            };
+          }
           return {
-            id,
+            source,
             status: "ready",
-            data: serializedVal.source,
-            path,
-          } as const;
+            moduleId,
+            locale,
+            value,
+            path: ref,
+          };
         } catch (err) {
+          console.error(err);
           return {
-            id,
+            source,
             status: "error",
             error: err instanceof Error ? err.message : "Unknown error",
-          } as const;
+          };
         }
       })
-    ).then((resolvedIds) => {
-      setEntries(resolvedIds);
+    ).then((resolvedEntries) => {
+      setEntries(resolvedEntries);
     });
-  }, [host, selectedIds.join(",")]);
+  }, [host, selectedSources.join(",")]);
 
   if (!position) {
     return null;
@@ -267,17 +289,34 @@ const ValEditForm: React.FC<{
           const modulePatches: Record<string, Operation[]> = {};
           for (const entry of entries) {
             if (entry.status === "ready") {
-              const [moduleId, path] = parseValPath(entry.id);
+              const { moduleId, locale } = entry;
+              let { path } = entry;
               if (!modulePatches[moduleId]) {
                 modulePatches[moduleId] = [];
               }
-              const value = data.get(entry.id);
+              const value = data.get(path);
               if (typeof value !== "string") {
                 throw Error("Invalid non-string value in form");
               }
+              const mod = valStore.get(moduleId);
+              if (!mod) {
+                throw Error(`${moduleId} is not in store`);
+              }
+              const parsedPath = parseJSONPointer(path);
+              if (result.isErr(parsedPath)) {
+                throw Error(`${JSON.stringify(path)} is invalid JSON pointer`);
+              }
+              path = formatJSONPointer(
+                Schema.delocalizePath(
+                  mod.schema,
+                  mod.source,
+                  parsedPath.value,
+                  locale
+                )
+              );
               modulePatches[moduleId].push({
                 op: "replace",
-                path: "/" + path.join("/"),
+                path,
                 value,
               });
             }
@@ -285,7 +324,7 @@ const ValEditForm: React.FC<{
           await Promise.all(
             Object.entries(modulePatches).map(async ([moduleId, patch]) => {
               const moduleContent = ModuleContent.deserialize(
-                await valApi.patchModuleContent(moduleId, patch)
+                await valApi.patchModuleContent(moduleId, patch as PatchJSON)
               );
               valStore.set(moduleId, moduleContent);
             })
@@ -305,30 +344,27 @@ const ValEditForm: React.FC<{
       {submission.status === "error" && submission.error}
       {entries === null
         ? "Loading..."
-        : entries.map((resolvedId) => (
-            <label key={resolvedId.id}>
-              {resolvedId.id}
-              {resolvedId.status === "loading" ? (
+        : entries.map((entry) => (
+            <label key={entry.source}>
+              {entry.status === "loading" ? (
                 "Loading..."
-              ) : resolvedId.status === "error" ? (
-                resolvedId.error
+              ) : entry.status === "error" ? (
+                entry.error
               ) : (
-                <textarea
-                  style={{
-                    display: "block",
-                    width: "100%",
-                    background: "black",
-                    color: "white",
-                    minHeight: "200px",
-                  }}
-                  name={resolvedId.id}
-                  defaultValue={
-                    getValFromModule(
-                      resolvedId.path,
-                      resolvedId.data
-                    ) as SourcePrimitive
-                  }
-                ></textarea>
+                <>
+                  {entry.moduleId}?{entry.locale}?{entry.path}
+                  <textarea
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      background: "black",
+                      color: "white",
+                      minHeight: "200px",
+                    }}
+                    name={entry.path}
+                    defaultValue={entry.value}
+                  />
+                </>
               )}
             </label>
           ))}
@@ -385,7 +421,7 @@ function isValElement(el: Element | null): boolean {
 }
 
 export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [enabled, setEnabled] = useState(false);
   const [editFormPosition, setEditFormPosition] = useState<FormPosition | null>(
     null
@@ -413,7 +449,7 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
       styleElement = document.createElement("style");
       styleElement.id = "val-edit-highlight";
       styleElement.innerHTML = `
-        .val-edit-mode >* [data-val-ids] {
+        .val-edit-mode >* [data-val-src] {
           outline: black solid 2px;
           outline-offset: 4px;
           cursor: pointer;
@@ -421,20 +457,20 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
       `;
       document.body.appendChild(styleElement);
 
-      // capture event clicks on data-val-ids elements
+      // capture event clicks on data-val-src elements
       openValFormListener = (e: MouseEvent) => {
         if (e.target instanceof Element) {
-          const valId = e.target?.getAttribute("data-val-ids");
-          if (valId) {
+          const valSources = e.target?.getAttribute("data-val-src");
+          if (valSources) {
             e.stopPropagation();
-            setSelectedIds(valId.split(","));
+            setSelectedSources(expr.strings.split(valSources, ","));
             setEditFormPosition({
               left: e.clientX,
               top: e.clientY,
             });
           } else if (!isValElement(e.target)) {
             setEditFormPosition(null);
-            setSelectedIds([]);
+            setSelectedSources([]);
           }
         }
       };
@@ -462,15 +498,15 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
       authentication.status === "local"
     );
     if (requestAuth) {
-      setSelectedIds([]);
+      setSelectedSources([]);
       setEditFormPosition(null);
     }
     if (!enabled) {
       // reset state when disabled
-      setSelectedIds([]);
+      setSelectedSources([]);
       setEditFormPosition(null);
     }
-  }, [enabled, selectedIds.length, authentication.status]);
+  }, [enabled, selectedSources.length, authentication.status]);
 
   useEffect(() => {
     if (enabled) {
@@ -543,11 +579,11 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
       {authentication.status === "local" && enabled && (
         <ValEditForm
           host={host}
-          selectedIds={selectedIds}
+          selectedSources={selectedSources}
           position={editFormPosition}
           onClose={() => {
             setEditFormPosition(null);
-            setSelectedIds([]);
+            setSelectedSources([]);
           }}
         />
       )}
@@ -556,11 +592,11 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
           {enabled && <ValProxyActions setAuthentication={setAuthentication} />}
           <ValEditForm
             host={host}
-            selectedIds={selectedIds}
+            selectedSources={selectedSources}
             position={editFormPosition}
             onClose={() => {
               setEditFormPosition(null);
-              setSelectedIds([]);
+              setSelectedSources([]);
             }}
           />
         </>

@@ -24,7 +24,7 @@ const Home: NextPage = () => {
       >
         {blogs.map((blog) => (
           <section
-            key={blog.valId}
+            key={blog.valSrc}
             style={{
               display: "flex",
               flexDirection: "column",
