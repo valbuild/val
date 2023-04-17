@@ -1,3 +1,4 @@
+import { ValImage } from "./schema/image";
 import { Source, SourcePrimitive } from "./Source";
 
 export abstract class Descriptor<V extends Source> {
@@ -73,6 +74,11 @@ export type BooleanDescriptor = typeof BooleanDescriptor;
 export const NullDescriptor =
   new (class NullDescriptor extends PrimitiveDescriptor<null> {})();
 export type NullDescriptor = typeof NullDescriptor;
+
+// Assets:
+export type ImageDescriptor = typeof ImageDescriptor;
+export const ImageDescriptor =
+  new (class ImageDescriptor extends NonOptionalDescriptor<ValImage> {})();
 
 export class OptionalDescriptor<
   D extends NonOptionalDescriptor<Source>

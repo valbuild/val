@@ -7,3 +7,4 @@ export { ModuleContent, type SerializedModuleContent } from "./content";
 export { type Val, newVal } from "./val";
 export * as expr from "./expr";
 export type { Selectable } from "./selectable";
+export type { ValImage } from "./schema/image";

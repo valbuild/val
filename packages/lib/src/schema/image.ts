@@ -39,6 +39,11 @@ export type SerializedImageSchema = {
   opt: boolean;
 };
 
+/**
+ *
+ * TODO:
+ * @deprecated name might change
+ */
 export type ValImage = {
   url: string;
 };

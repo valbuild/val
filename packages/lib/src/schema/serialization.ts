@@ -1,6 +1,7 @@
 import { Source } from "../Source";
 import { ArraySchema } from "./array";
 import { I18nSchema } from "./i18n";
+import { ImageSchema } from "./image";
 import { NumberSchema } from "./number";
 import { ObjectSchema } from "./object";
 import type { Schema, SerializedSchema } from "./Schema";
@@ -20,5 +21,7 @@ export function deserializeSchema(
       return ObjectSchema.deserialize(schema);
     case "string":
       return StringSchema.deserialize(schema);
+    case "image":
+      return ImageSchema.deserialize(schema);
   }
 }

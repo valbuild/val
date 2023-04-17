@@ -7,10 +7,12 @@ import {
   StringDescriptor,
   NumberDescriptor,
   RecordDescriptor,
+  ImageDescriptor,
 } from "../descriptor";
 import { Source } from "../Source";
 import { ArraySchema } from "./array";
 import { I18nSchema } from "./i18n";
+import { ImageSchema } from "./image";
 import { NumberSchema } from "./number";
 import { ObjectSchema, SchemaObject } from "./object";
 import { Schema } from "./Schema";
@@ -45,6 +47,8 @@ export type LocalDescriptorOf<S extends Schema<never, Source>> = Schema<
   ? MaybeOptDesc<StringDescriptor, Opt>
   : S extends NumberSchema<infer Opt>
   ? MaybeOptDesc<NumberDescriptor, Opt>
+  : S extends ImageSchema<infer Opt>
+  ? MaybeOptDesc<ImageDescriptor, Opt>
   : MaybeOptDesc<Descriptor<Source>, boolean>;
 
 export type RawDescriptorOf<S extends Schema<never, Source>> = Schema<
@@ -92,6 +96,8 @@ export function localDescriptorOf<S extends Schema<never, Source>>(
     return maybeOptDesc(StringDescriptor, s.opt) as LocalDescriptorOf<S>;
   } else if (s instanceof NumberSchema) {
     return maybeOptDesc(NumberDescriptor, s.opt) as LocalDescriptorOf<S>;
+  } else if (s instanceof ImageSchema) {
+    return maybeOptDesc(ImageDescriptor, s.opt) as LocalDescriptorOf<S>;
   }
   throw Error("Unsupported schema");
 }

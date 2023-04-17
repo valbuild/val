@@ -17,6 +17,7 @@ import {
   ValueOf,
   PrimitiveDescriptor,
   NonOptionalDescriptor,
+  ImageDescriptor,
 } from "../descriptor";
 import { newNumberSelector, NumberSelector } from "./number";
 import { newRecordSelector, RecordSelector } from "./record";
@@ -24,6 +25,7 @@ import { newOptionalSelector, OptionalSelector } from "./optional";
 import { newTupleSelector, TupleSelector } from "./tuple";
 import { newPrimitiveSelector, PrimitiveSelector } from "./primitive";
 import { Source, SourcePrimitive } from "../Source";
+import { ImageSelector, newImageSelector } from "./image";
 
 export type SelectorOf<
   D extends Descriptor<Source>,
@@ -42,6 +44,8 @@ export type SelectorOf<
   ? TupleSelector<E, Ctx>
   : D extends NumberDescriptor
   ? NumberSelector<Ctx>
+  : D extends ImageDescriptor
+  ? ImageSelector<Ctx>
   : D extends PrimitiveDescriptor<SourcePrimitive>
   ? PrimitiveSelector<D, Ctx>
   : never;
@@ -84,6 +88,13 @@ export function getSelector<D extends Descriptor<Source>, Ctx>(
   } else if (desc === NumberDescriptor) {
     return newNumberSelector<Ctx>(
       expr as expr.Expr<Ctx, ValueOf<NumberDescriptor>>
+    ) as SelectorOf<D, Ctx>;
+  } else if (desc === ImageDescriptor) {
+    return newImageSelector<Ctx>(
+      expr as unknown /* TODO: as unknown should not be necessary? */ as expr.Expr<
+        Ctx,
+        ValueOf<ImageDescriptor>
+      >
     ) as SelectorOf<D, Ctx>;
   } else if (desc instanceof PrimitiveDescriptor) {
     return newPrimitiveSelector<PrimitiveDescriptor<SourcePrimitive>, Ctx>(
