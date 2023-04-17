@@ -4,10 +4,13 @@ import { number } from "./schema/number";
 import { i18n } from "./schema/i18n";
 import { object } from "./schema/object";
 import { string } from "./schema/string";
+import { image } from "./schema/image";
+import { file } from "./file";
 
 const defaultVal = {
   val: {
     content,
+    file,
   },
   s: {
     array,
@@ -15,6 +18,7 @@ const defaultVal = {
     number,
     object,
     string,
+    image,
   },
 };
 

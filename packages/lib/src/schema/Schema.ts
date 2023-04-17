@@ -4,13 +4,15 @@ import { type SerializedObjectSchema } from "./object";
 import { type SerializedStringSchema } from "./string";
 import { Source } from "../Source";
 import { SerializedNumberSchema } from "./number";
+import { SerializedImageSchema } from "./image";
 
 export type SerializedSchema =
   | SerializedStringSchema
   | SerializedNumberSchema
   | SerializedI18nSchema
   | SerializedObjectSchema
-  | SerializedArraySchema;
+  | SerializedArraySchema
+  | SerializedImageSchema;
 
 export type SrcOf<T extends Schema<never, Source>> = [T] extends [
   Schema<infer Src, Source>
