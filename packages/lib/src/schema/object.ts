@@ -1,6 +1,6 @@
 import { Source, SourceObject } from "../Source";
 import {
-  LocalOf,
+  OutOf,
   OptIn,
   OptOut,
   Schema,
@@ -29,7 +29,7 @@ type SrcObjectNonOptionals<T extends SourceObject> = {
 type SrcObject<T extends SchemaObject> = SrcObjectOptionals<RawSrcObject<T>> &
   SrcObjectNonOptionals<RawSrcObject<T>>;
 type LocalObject<T extends SchemaObject> = {
-  readonly [key in keyof T]: LocalOf<T[key]>;
+  readonly [key in keyof T]: OutOf<T[key]>;
 };
 
 type Some<
@@ -85,7 +85,7 @@ export class ObjectSchema<
     ) as Some<{ [P in keyof T]: ReturnType<T[P]["hasI18n"]> }>;
   }
 
-  protected localize(
+  protected transform(
     src: OptIn<SrcObject<T>, Opt>,
     locale: "en_US"
   ): OptOut<LocalObject<T>, Opt> {
@@ -97,7 +97,7 @@ export class ObjectSchema<
     return Object.fromEntries(
       Object.entries(this.props).map(([key, schema]) => [
         key,
-        Schema.localize(schema, src[key] as SrcOf<typeof schema>, locale),
+        Schema.transform(schema, src[key] as SrcOf<typeof schema>, locale),
       ])
     ) as LocalObject<T>;
   }

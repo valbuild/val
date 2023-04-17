@@ -94,7 +94,7 @@ export class ImageSchema<Opt extends boolean> extends Schema<
     return false;
   }
 
-  protected localize(
+  protected transform(
     src: OptIn<FileSource<string>, Opt>
   ): OptOut<{ url: string }, Opt> {
     if (src === null) {

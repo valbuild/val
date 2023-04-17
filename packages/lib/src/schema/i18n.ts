@@ -1,6 +1,6 @@
 import { Source } from "../Source";
 import {
-  LocalOf,
+  OutOf,
   OptIn,
   OptOut,
   Schema,
@@ -20,7 +20,7 @@ export class I18nSchema<
   Opt extends boolean
 > extends Schema<
   OptIn<{ readonly en_US: SrcOf<T> }, Opt>,
-  OptOut<LocalOf<T>, Opt>
+  OptOut<OutOf<T>, Opt>
 > {
   constructor(public readonly schema: T, public readonly opt: Opt) {
     super(opt);
@@ -54,15 +54,15 @@ export class I18nSchema<
     return true;
   }
 
-  protected localize(
+  protected transform(
     src: OptIn<{ readonly en_US: SrcOf<T> }, Opt>,
     locale: "en_US"
-  ): OptOut<LocalOf<T>, Opt> {
+  ): OptOut<OutOf<T>, Opt> {
     if (src === null) {
       if (!this.opt) throw Error("Required i18n record cannot be null");
-      return null as OptOut<LocalOf<T>, Opt>;
+      return null as OptOut<OutOf<T>, Opt>;
     }
-    return Schema.localize(this.schema, src[locale], locale);
+    return Schema.transform(this.schema, src[locale], locale);
   }
 
   protected delocalizePath(

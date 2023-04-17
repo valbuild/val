@@ -1,7 +1,7 @@
 import { deserializeSchema } from "./schema/serialization";
 import * as expr from "./expr";
 import { localDescriptorOf, LocalDescriptorOf } from "./schema";
-import { LocalOf, Schema, SerializedSchema, SrcOf } from "./schema/Schema";
+import { OutOf, Schema, SerializedSchema, SrcOf } from "./schema/Schema";
 import { exprOf, ExprOf, getSelector, Selected, SelectorOf } from "./selector";
 import { Source } from "./Source";
 
@@ -18,21 +18,21 @@ export class ModuleContent<T extends Schema<never, Source>> {
     return Schema.validate(this.schema, this.source);
   }
 
-  select<S extends Selected<readonly [LocalOf<T>]>>(
+  select<S extends Selected<readonly [OutOf<T>]>>(
     callback: (
-      selector: SelectorOf<LocalDescriptorOf<T>, readonly [LocalOf<T>]>
+      selector: SelectorOf<LocalDescriptorOf<T>, readonly [OutOf<T>]>
     ) => S
-  ): ExprOf<S, readonly [LocalOf<T>]> {
-    const rootExpr = expr.fromCtx<readonly [LocalOf<T>], 0>(0);
+  ): ExprOf<S, readonly [OutOf<T>]> {
+    const rootExpr = expr.fromCtx<readonly [OutOf<T>], 0>(0);
     const rootSelector = getSelector(
       rootExpr,
       localDescriptorOf(this.schema)
-    ) as SelectorOf<LocalDescriptorOf<T>, readonly [LocalOf<T>]>;
+    ) as SelectorOf<LocalDescriptorOf<T>, readonly [OutOf<T>]>;
     return exprOf(callback(rootSelector));
   }
 
-  localize(locale: "en_US"): LocalOf<T> {
-    return Schema.localize(this.schema, this.source, locale);
+  localize(locale: "en_US"): OutOf<T> {
+    return Schema.transform(this.schema, this.source, locale);
   }
 
   /**

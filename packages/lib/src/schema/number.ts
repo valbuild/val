@@ -25,7 +25,7 @@ export class NumberSchema<Opt extends boolean> extends Schema<
     return false;
   }
 
-  protected localize(src: OptIn<number, Opt>): OptOut<number, Opt> {
+  protected transform(src: OptIn<number, Opt>): OptOut<number, Opt> {
     return src;
   }
 

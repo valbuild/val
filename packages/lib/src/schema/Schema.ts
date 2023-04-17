@@ -20,11 +20,11 @@ export type SrcOf<T extends Schema<never, Source>> = [T] extends [
   ? Src
   : never;
 
-export type LocalOf<T extends Schema<never, Source>> = T extends Schema<
+export type OutOf<T extends Schema<never, Source>> = T extends Schema<
   never,
-  infer Local
+  infer Out
 >
-  ? Local
+  ? Out
   : Source;
 
 /**
@@ -51,7 +51,7 @@ export type OptOut<T extends Source, Opt extends boolean> = [Opt] extends [true]
   ? T | null
   : T;
 
-export abstract class Schema<in Src extends Source, out Local extends Source> {
+export abstract class Schema<in Src extends Source, out Out extends Source> {
   constructor(public readonly opt: boolean) {}
 
   /**
@@ -69,12 +69,12 @@ export abstract class Schema<in Src extends Source, out Local extends Source> {
    */
   abstract hasI18n(): boolean;
 
-  protected abstract localize(src: Src, locale: "en_US"): Local;
+  protected abstract transform(src: Src, locale: "en_US"): Out;
 
   /**
-   * Transforms a {@link Local} path to a {@link Src} path.
+   * Transforms a {@link Out} path to a {@link Src} path.
    * @param src The source value of the Schema.
-   * @param localPath {@link Local} path.
+   * @param localPath {@link Out} path.
    * @param locale The locale of localPath.
    */
   protected abstract delocalizePath(
@@ -94,13 +94,13 @@ export abstract class Schema<in Src extends Source, out Local extends Source> {
     );
   }
 
-  static localize<S extends Schema<never, Source>>(
+  static transform<S extends Schema<never, Source>>(
     schema: S,
     src: SrcOf<S>,
     locale: "en_US"
-  ): LocalOf<S> {
+  ): OutOf<S> {
     return (
-      schema.localize as (this: S, src: SrcOf<S>, locale: "en_US") => LocalOf<S>
+      schema.transform as (this: S, src: SrcOf<S>, locale: "en_US") => OutOf<S>
     )(src, locale);
   }
 

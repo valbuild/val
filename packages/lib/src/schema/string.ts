@@ -58,7 +58,7 @@ export class StringSchema<Opt extends boolean> extends Schema<
     return false;
   }
 
-  protected localize(src: OptIn<string, Opt>): OptOut<string, Opt> {
+  protected transform(src: OptIn<string, Opt>): OptOut<string, Opt> {
     return src;
   }
 

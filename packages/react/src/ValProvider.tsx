@@ -224,7 +224,7 @@ const ValEditForm: React.FC<{
           const [value, ref] = (
             sourceExpr as expr.Expr<readonly [Source], Source>
           ).evaluateRef(
-            [Schema.localize(mod.schema, mod.source, locale)],
+            [Schema.transform(mod.schema, mod.source, locale)],
             [""]
           );
           if (!expr.isAssignable(ref)) {

@@ -1,7 +1,7 @@
 import * as expr from "./expr";
 import { ModuleContent } from "./content";
 import { LocalDescriptorOf } from "./schema";
-import { LocalOf, Schema, SrcOf } from "./schema/Schema";
+import { OutOf, Schema, SrcOf } from "./schema/Schema";
 import { DescriptorOf, Selected, SelectorOf } from "./selector";
 import { newVal, Val } from "./val";
 import { encodeValSrc } from "./expr/strings";
@@ -10,7 +10,7 @@ import { ValueOf } from "./descriptor";
 import { Source } from "./Source";
 
 export class ValModule<T extends Schema<never, Source>>
-  implements Selectable<SrcOf<T>, LocalOf<T>>
+  implements Selectable<SrcOf<T>, OutOf<T>>
 {
   constructor(
     public readonly id: string,
@@ -22,19 +22,19 @@ export class ValModule<T extends Schema<never, Source>>
     return this as unknown as ValModule<Schema<SrcOf<T>, Source>>;
   }
 
-  getVal(source: SrcOf<T>, locale: "en_US"): Val<LocalOf<T>> {
-    const rootExpr = expr.fromCtx<readonly [LocalOf<T>], 0>(0);
+  getVal(source: SrcOf<T>, locale: "en_US"): Val<OutOf<T>> {
+    const rootExpr = expr.fromCtx<readonly [OutOf<T>], 0>(0);
     return newVal(
       encodeValSrc(this.id, locale, rootExpr),
-      Schema.localize(this.content.schema, source, locale)
+      Schema.transform(this.content.schema, source, locale)
     );
   }
 
-  select<S extends Selected<readonly [LocalOf<T>]>>(
+  select<S extends Selected<readonly [OutOf<T>]>>(
     callback: (
-      selector: SelectorOf<LocalDescriptorOf<T>, readonly [LocalOf<T>]>
+      selector: SelectorOf<LocalDescriptorOf<T>, readonly [OutOf<T>]>
     ) => S
-  ): Selectable<SrcOf<T>, ValueOf<DescriptorOf<S, readonly [LocalOf<T>]>>> {
+  ): Selectable<SrcOf<T>, ValueOf<DescriptorOf<S, readonly [OutOf<T>]>>> {
     const resultExpr = this.content.select(callback);
     return {
       getModule: (): ValModule<Schema<SrcOf<T>, Source>> => {
@@ -44,7 +44,7 @@ export class ValModule<T extends Schema<never, Source>>
         return newVal(
           encodeValSrc(this.id, locale, resultExpr),
           resultExpr.evaluate([
-            Schema.localize(this.content.schema, source, locale),
+            Schema.transform(this.content.schema, source, locale),
           ])
         );
       },

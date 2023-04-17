@@ -1,6 +1,6 @@
 import { Source } from "../Source";
 import {
-  LocalOf,
+  OutOf,
   OptIn,
   OptOut,
   Schema,
@@ -20,7 +20,7 @@ export class ArraySchema<
   Opt extends boolean
 > extends Schema<
   OptIn<readonly SrcOf<T>[], Opt>,
-  OptOut<readonly LocalOf<T>[], Opt>
+  OptOut<readonly OutOf<T>[], Opt>
 > {
   constructor(public readonly item: T, public readonly opt: Opt) {
     super(opt);
@@ -47,15 +47,15 @@ export class ArraySchema<
     return this.item.hasI18n() as ReturnType<T["hasI18n"]>;
   }
 
-  protected localize(
+  protected transform(
     src: OptIn<readonly SrcOf<T>[], Opt>,
     locale: "en_US"
-  ): OptOut<LocalOf<T>[], Opt> {
+  ): OptOut<OutOf<T>[], Opt> {
     if (src === null) {
       if (!this.opt) throw Error("Required array cannot be null");
-      return null as OptOut<LocalOf<T>[], Opt>;
+      return null as OptOut<OutOf<T>[], Opt>;
     }
-    return src.map((item) => Schema.localize(this.item, item, locale));
+    return src.map((item) => Schema.transform(this.item, item, locale));
   }
 
   protected delocalizePath(
