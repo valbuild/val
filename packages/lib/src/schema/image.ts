@@ -1,6 +1,6 @@
-import { FileSrc } from "../file";
 import { OptIn, OptOut, Schema } from "./Schema";
 import * as path from "path";
+import { FileSource } from "../Source";
 
 /**
  * Common image types supported by the browser
@@ -51,7 +51,7 @@ export type ValImage = {
 const DEFAULT_STATIC_FILES_FOLDER = "/public";
 
 export class ImageSchema<Opt extends boolean> extends Schema<
-  OptIn<FileSrc<string>, Opt>,
+  OptIn<FileSource<string>, Opt>,
   OptOut<ValImage, Opt>
 > {
   private readonly staticFilesFolder;
@@ -65,7 +65,7 @@ export class ImageSchema<Opt extends boolean> extends Schema<
       this.options?.staticFilesFolder || DEFAULT_STATIC_FILES_FOLDER;
   }
 
-  protected validate(src: OptIn<FileSrc<string>, Opt>): false | string[] {
+  protected validate(src: OptIn<FileSource<string>, Opt>): false | string[] {
     if (!this.opt) {
       if (src === null) return ["Required image cannot be null"];
     }
@@ -95,7 +95,7 @@ export class ImageSchema<Opt extends boolean> extends Schema<
   }
 
   protected localize(
-    src: OptIn<FileSrc<string>, Opt>
+    src: OptIn<FileSource<string>, Opt>
   ): OptOut<{ url: string }, Opt> {
     if (src === null) {
       if (!this.opt) throw Error("Required object cannot be null");
@@ -107,7 +107,7 @@ export class ImageSchema<Opt extends boolean> extends Schema<
   }
 
   protected delocalizePath(
-    _src: OptIn<FileSrc<string>, Opt>,
+    _src: OptIn<FileSource<string>, Opt>,
     localPath: string[]
   ): string[] {
     if (localPath.length !== 0) {

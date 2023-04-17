@@ -1,10 +1,5 @@
-declare const brand: unique symbol;
+import { FileSource } from "./Source";
 
-export type FileSrc<Ref extends string> = {
-  ref: Ref;
-  [brand]: "ValFileSrc";
-};
-
-export function file<F extends string>(ref: F): FileSrc<F> {
-  return { ref } as FileSrc<F>;
+export function file<F extends string>(ref: F): FileSource<F> {
+  return { ref } as FileSource<F>;
 }
