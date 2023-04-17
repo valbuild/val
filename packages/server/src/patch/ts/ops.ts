@@ -6,6 +6,7 @@ import {
   findObjectPropertyAssignment,
   ValSyntaxErrorTree,
   shallowValidateExpression,
+  isValFileMethodCall,
 } from "./syntax";
 import {
   deepEqual,
@@ -347,6 +348,20 @@ export function getFromNode(
           assignment?.initializer
       )
     );
+  } else if (
+    key === "ref" && // requesting ref
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression)
+  ) {
+    if (isValFileMethodCall(node.expression)) {
+      const firstArg = node.arguments[0];
+      if (node.arguments.length === 1 && ts.isStringLiteral(firstArg)) {
+        return result.ok(firstArg);
+      }
+    }
+    return result.err(
+      new PatchError("Cannot call any other expression that val.file")
+    );
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -531,7 +546,14 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
       document: ts.SourceFile
     ) => result.Result<ts.Expression, ValSyntaxErrorTree>
   ) {}
-
+  get(document: ts.SourceFile, path: string[]): TSOpsResult<JSONValue> {
+    return pipe(
+      document,
+      this.findRoot,
+      result.flatMap((rootNode: ts.Expression) => getAtPath(rootNode, path)),
+      result.flatMap(evaluateExpression)
+    );
+  }
   add(
     document: ts.SourceFile,
     path: string[],

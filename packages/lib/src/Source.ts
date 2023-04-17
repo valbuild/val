@@ -4,8 +4,8 @@ export type SourcePrimitive = string | number | boolean | null;
 declare const brand: unique symbol;
 
 export type FileSource<Ref extends string> = {
-  ref: Ref;
-  [brand]: "ValFileSource";
+  readonly ref: Ref;
+  readonly [brand]: "ValFileSource";
 };
 
 export type Source =

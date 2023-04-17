@@ -606,6 +606,20 @@ describe("TSOps", () => {
       value: null,
       expected: result.err(PatchError),
     },
+    {
+      name: "file references",
+      input: `val.file("/public/val/foo/bar.jpg")`,
+      path: ["ref"],
+      value: "/public/val/foo/bar.jpg",
+      expected: result.ok(true),
+    },
+    {
+      name: "deep file references",
+      input: `{ foo: { bar: val.file("/public/val/foo/bar/zoo.jpg") } }`,
+      path: ["foo", "bar", "ref"],
+      value: "/public/val/foo/bar/zoo.jpg",
+      expected: result.ok(true),
+    },
   ])("test $name", ({ input, path, value, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);

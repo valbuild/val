@@ -1,5 +1,4 @@
 import { OptIn, OptOut, Schema } from "./Schema";
-import * as path from "path";
 import { FileSource } from "../Source";
 
 /**
@@ -28,6 +27,11 @@ export const ImageExtensions = [
 ] as const;
 export type ImageExtensions = (typeof ImageExtensions)[number];
 
+const extname = (filename: string) => {
+  const i = filename.lastIndexOf(".");
+  return i < 0 ? "" : filename.slice(i);
+};
+
 export type ImageOptions = {
   extensions: ImageExtensions[];
   staticFilesFolder?: string;
@@ -45,7 +49,7 @@ export type SerializedImageSchema = {
  * @deprecated name might change
  */
 export type ValImage = {
-  url: string;
+  readonly url: string;
 };
 
 const DEFAULT_STATIC_FILES_FOLDER = "/public";
@@ -72,10 +76,10 @@ export class ImageSchema<Opt extends boolean> extends Schema<
     if (
       src &&
       this.options?.extensions &&
-      (this.options.extensions as string[]).includes(path.extname(src.ref))
+      (this.options.extensions as string[]).includes(extname(src.ref))
     ) {
       return [
-        `Found image extension: ${path.extname(
+        `Found image extension: ${extname(
           src.ref
         )} which is not supported. Supported image extensions are: ${this.options.extensions.join(
           ", "

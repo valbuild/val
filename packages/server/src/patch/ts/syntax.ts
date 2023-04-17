@@ -233,6 +233,14 @@ export function findObjectPropertyAssignment(
   );
 }
 
+export function isValFileMethodCall(node: ts.PropertyAccessExpression) {
+  return (
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "val" &&
+    node.name.text === "file"
+  );
+}
+
 /**
  * Given a list of expressions, validates that all the expressions are not
  * spread elements. In other words, it ensures that the expressions are the
