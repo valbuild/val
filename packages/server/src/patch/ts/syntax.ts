@@ -209,7 +209,10 @@ export function evaluateExpression(
       result.map(Object.fromEntries)
     );
   } else if (isValFileMethodCall(value)) {
-    return evaluateValFileRef(value);
+    return pipe(
+      evaluateValFileRef(value),
+      result.map((ref) => ({ [FileSrcRef]: ref.text }))
+    );
   } else {
     return result.err(new ValSyntaxError("Value must be a literal", value));
   }
@@ -251,7 +254,7 @@ export function isValFileMethodCall(
 
 export function evaluateValFileRef(
   node: ts.CallExpression
-): result.Result<{ ref: string }, ValSyntaxErrorTree> {
+): result.Result<ts.StringLiteral, ValSyntaxErrorTree> {
   if (node.arguments.length === 0) {
     return result.err(
       new ValSyntaxError(`Invalid val.file() call: missing ref argument`, node)
@@ -271,10 +274,8 @@ export function evaluateValFileRef(
       )
     );
   }
-  const ref = node.arguments[0].text;
-  return result.ok({
-    ref,
-  });
+  const refNode = node.arguments[0];
+  return result.ok(refNode);
 }
 
 /**

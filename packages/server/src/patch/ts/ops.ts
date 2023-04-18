@@ -333,14 +333,10 @@ function replaceInNode(
         new PatchError("Cannot replace val.file reference with non-string")
       );
     }
-    const args = node.arguments;
-    if (args.length !== 1) {
-      return result.err(
-        new PatchError("Cannot replace file source reference with invalid args")
-      );
-    }
-    const fileRefArgNode = args[0];
-    return result.ok(replaceNodeValue(document, fileRefArgNode, value));
+    return pipe(
+      evaluateValFileRef(node),
+      result.map((refNode) => replaceNodeValue(document, refNode, value))
+    );
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -385,10 +381,7 @@ export function getFromNode(
       )
     );
   } else if (key === FileSrcRef && isValFileMethodCall(node)) {
-    return pipe(
-      evaluateValFileRef(node),
-      result.map((valFileRef) => ts.factory.createStringLiteral(valFileRef.ref))
-    );
+    return evaluateValFileRef(node);
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -696,7 +689,10 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
           getAtPath(rootNode, from),
           result.flatMap((node) => {
             if (isValFileMethodCall(node)) {
-              return evaluateValFileRef(node);
+              return pipe(
+                evaluateValFileRef(node),
+                result.map((refNode) => ({ [FileSrcRef]: refNode.text }))
+              );
             }
             return evaluateExpression(node);
           }),
