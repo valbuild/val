@@ -375,19 +375,10 @@ export function getFromNode(
           assignment?.initializer
       )
     );
-  } else if (
-    key === FileSrcRef &&
-    ts.isCallExpression(node) &&
-    ts.isPropertyAccessExpression(node.expression)
-  ) {
-    if (isValFileMethodCall(node.expression)) {
-      const firstArg = node.arguments[0];
-      if (node.arguments.length === 1 && ts.isStringLiteral(firstArg)) {
-        return result.ok(firstArg);
-      }
-    }
-    return result.err(
-      new PatchError("Cannot call any other expression that val.file")
+  } else if (key === FileSrcRef && isValFileMethodCall(node)) {
+    return pipe(
+      evaluateValFileRef(node),
+      result.map((valFileRef) => ts.factory.createStringLiteral(valFileRef.ref))
     );
   } else {
     return result.err(
@@ -575,6 +566,32 @@ function pickDocument<
   return document;
 }
 
+function evaluateValFileRef(
+  node: ts.CallExpression
+): TSOpsResult<{ ref: string }> {
+  if (node.arguments.length === 0) {
+    return result.err(
+      new PatchError(`Invalid val.file() call: missing ref argument`)
+    );
+  } else if (node.arguments.length > 1) {
+    return result.err(
+      new PatchError(
+        `Invalid val.file() call: too many arguments ${node.arguments.length}}`
+      )
+    );
+  } else if (!ts.isStringLiteral(node.arguments[0])) {
+    return result.err(
+      new PatchError(
+        `Invalid val.file() call: argument must be a string literal`
+      )
+    );
+  }
+  const ref = node.arguments[0].text;
+  return result.ok({
+    ref,
+  });
+}
+
 export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
   constructor(
     private findRoot: (
@@ -686,16 +703,8 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
         pipe(
           getAtPath(rootNode, from),
           result.flatMap((node) => {
-            if (
-              ts.isCallExpression(node) &&
-              ts.isPropertyAccessExpression(node.expression) &&
-              isValFileMethodCall(node.expression) &&
-              node.arguments.length === 1 &&
-              ts.isStringLiteral(node.arguments[0])
-            ) {
-              return result.ok({
-                ref: node.arguments[0].text,
-              });
+            if (isValFileMethodCall(node)) {
+              return evaluateValFileRef(node);
             }
             return evaluateExpression(node);
           }),

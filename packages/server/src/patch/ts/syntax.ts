@@ -235,11 +235,15 @@ export function findObjectPropertyAssignment(
   );
 }
 
-export function isValFileMethodCall(node: ts.PropertyAccessExpression) {
+export function isValFileMethodCall(
+  node: ts.Expression
+): node is ts.CallExpression {
   return (
-    ts.isIdentifier(node.expression) &&
-    node.expression.text === "val" &&
-    node.name.text === "file"
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    ts.isIdentifier(node.expression.expression) &&
+    node.expression.expression.text === "val" &&
+    node.expression.name.text === "file"
   );
 }
 
