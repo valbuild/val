@@ -110,7 +110,7 @@ export class ImageSchema<Opt extends boolean> extends Schema<
     };
   }
 
-  protected delocalizePath(
+  protected inverseTransformPath(
     _src: OptIn<FileSource<string>, Opt>,
     localPath: string[]
   ): string[] {

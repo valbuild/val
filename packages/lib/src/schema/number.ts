@@ -29,7 +29,7 @@ export class NumberSchema<Opt extends boolean> extends Schema<
     return src;
   }
 
-  protected delocalizePath(
+  protected inverseTransformPath(
     _src: OptIn<number, Opt>,
     localPath: string[]
   ): string[] {

@@ -102,7 +102,7 @@ export class ObjectSchema<
     ) as LocalObject<T>;
   }
 
-  protected delocalizePath(
+  protected inverseTransformPath(
     src: OptIn<SrcObject<T>, Opt>,
     localPath: string[],
     locale: "en_US"
@@ -128,7 +128,7 @@ export class ObjectSchema<
 
     return [
       key,
-      ...Schema.delocalizePath(
+      ...Schema.inverseTransformPath(
         this.props[key],
         (src[key] ?? null) as SrcOf<Schema<never, Source>>,
         tail,

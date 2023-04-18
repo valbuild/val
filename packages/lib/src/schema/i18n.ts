@@ -65,7 +65,7 @@ export class I18nSchema<
     return Schema.transform(this.schema, src[locale], locale);
   }
 
-  protected delocalizePath(
+  protected inverseTransformPath(
     src: OptIn<{ readonly en_US: SrcOf<T> }, Opt>,
     localPath: string[],
     locale: "en_US"
@@ -85,7 +85,12 @@ export class I18nSchema<
     }
     return [
       locale,
-      ...Schema.delocalizePath(this.schema, src[locale], localPath, locale),
+      ...Schema.inverseTransformPath(
+        this.schema,
+        src[locale],
+        localPath,
+        locale
+      ),
     ];
   }
 

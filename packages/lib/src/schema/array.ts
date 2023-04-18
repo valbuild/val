@@ -58,7 +58,7 @@ export class ArraySchema<
     return src.map((item) => Schema.transform(this.item, item, locale));
   }
 
-  protected delocalizePath(
+  protected inverseTransformPath(
     src: OptIn<readonly SrcOf<T>[], Opt>,
     localPath: string[],
     locale: "en_US"
@@ -81,7 +81,7 @@ export class ArraySchema<
 
     return [
       idx,
-      ...Schema.delocalizePath(this.item, src[Number(idx)], tail, locale),
+      ...Schema.inverseTransformPath(this.item, src[Number(idx)], tail, locale),
     ];
   }
 

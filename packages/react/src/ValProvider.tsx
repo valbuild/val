@@ -307,7 +307,7 @@ const ValEditForm: React.FC<{
                 throw Error(`${JSON.stringify(path)} is invalid JSON pointer`);
               }
               path = formatJSONPointer(
-                Schema.delocalizePath(
+                Schema.inverseTransformPath(
                   mod.schema,
                   mod.source,
                   parsedPath.value,

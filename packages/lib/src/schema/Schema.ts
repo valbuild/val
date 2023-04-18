@@ -77,7 +77,7 @@ export abstract class Schema<in Src extends Source, out Out extends Source> {
    * @param localPath {@link Out} path.
    * @param locale The locale of localPath.
    */
-  protected abstract delocalizePath(
+  protected abstract inverseTransformPath(
     src: Src,
     localPath: string[],
     locale: "en_US"
@@ -104,14 +104,14 @@ export abstract class Schema<in Src extends Source, out Out extends Source> {
     )(src, locale);
   }
 
-  static delocalizePath<S extends Schema<never, Source>>(
+  static inverseTransformPath<S extends Schema<never, Source>>(
     schema: S,
     src: SrcOf<S>,
     localPath: string[],
     locale: "en_US"
   ): string[] {
     return (
-      schema.delocalizePath as (
+      schema.inverseTransformPath as (
         this: S,
         src: SrcOf<S>,
         localPath: string[],

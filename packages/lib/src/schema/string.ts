@@ -62,7 +62,7 @@ export class StringSchema<Opt extends boolean> extends Schema<
     return src;
   }
 
-  protected delocalizePath(
+  protected inverseTransformPath(
     _src: OptIn<string, Opt>,
     localPath: string[]
   ): string[] {
