@@ -1,6 +1,7 @@
 import ts from "typescript";
 import { result, pipe } from "@valbuild/lib/fp";
-import { JSONValue, PatchError } from "@valbuild/lib/patch";
+import { JSONValue } from "@valbuild/lib/patch";
+import { FileRefProp } from "@valbuild/lib";
 
 export class ValSyntaxError {
   constructor(public message: string, public node: ts.Node) {}
@@ -165,8 +166,6 @@ export function deepValidateExpression(
   }
 }
 
-export const FileSrcRef = "ref";
-
 /**
  * Evaluates the expression as a JSON value
  */
@@ -211,7 +210,7 @@ export function evaluateExpression(
   } else if (isValFileMethodCall(value)) {
     return pipe(
       evaluateValFileRef(value),
-      result.map((ref) => ({ [FileSrcRef]: ref.text }))
+      result.map((ref) => ({ [FileRefProp]: ref.text }))
     );
   } else {
     return result.err(new ValSyntaxError("Value must be a literal", value));

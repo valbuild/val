@@ -1,7 +1,7 @@
 import { describe, test, expect } from "@jest/globals";
 import ts from "typescript";
 import { TSOps } from "./ops";
-import { result, array, pipe, tap } from "@valbuild/lib/fp";
+import { result, array, pipe } from "@valbuild/lib/fp";
 import { PatchError, JSONValue } from "@valbuild/lib/patch";
 import { ValSyntaxError } from "./syntax";
 

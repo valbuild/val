@@ -7,7 +7,6 @@ import {
   ValSyntaxErrorTree,
   shallowValidateExpression,
   isValFileMethodCall,
-  FileSrcRef,
   evaluateValFileRef,
 } from "./syntax";
 import {
@@ -18,7 +17,7 @@ import {
   JSONValue,
   parseAndValidateArrayIndex,
 } from "@valbuild/lib/patch";
-import { FileSource } from "@valbuild/lib/src/Source";
+import { FileRefProp, FileSource } from "@valbuild/lib";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
@@ -323,7 +322,7 @@ function replaceInNode(
       )
     );
   } else if (ts.isCallExpression(node)) {
-    if (key !== FileSrcRef) {
+    if (key !== FileRefProp) {
       return result.err(
         new PatchError("Cannot replace non-file source reference")
       );
@@ -380,7 +379,7 @@ export function getFromNode(
           assignment?.initializer
       )
     );
-  } else if (key === FileSrcRef && isValFileMethodCall(node)) {
+  } else if (key === FileRefProp && isValFileMethodCall(node)) {
     return evaluateValFileRef(node);
   } else {
     return result.err(
@@ -499,7 +498,7 @@ function isValFileValue(value: JSONValue): value is FileSource<string> {
   return !!(
     typeof value === "object" &&
     value &&
-    "ref" in value &&
+    FileRefProp in value &&
     typeof value.ref === "string"
   );
 }
@@ -510,7 +509,7 @@ function addToNode(
   key: string,
   value: JSONValue
 ): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Expression]> {
-  if (key === FileSrcRef && !isValFileValue(value)) {
+  if (key === FileRefProp && !isValFileValue(value)) {
     return result.err(
       new PatchError("Cannot add a non-val.file value to a val.file object")
     );
@@ -691,7 +690,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
             if (isValFileMethodCall(node)) {
               return pipe(
                 evaluateValFileRef(node),
-                result.map((refNode) => ({ [FileSrcRef]: refNode.text }))
+                result.map((refNode) => ({ [FileRefProp]: refNode.text }))
               );
             }
             return evaluateExpression(node);
