@@ -500,6 +500,19 @@ function removeAtPath(
 function isValFileValue(value: JSONValue): value is FileSource<string> {
   return !!(typeof value === "object" && value && "ref" in value);
 }
+
+/**
+ * Transforms a JSON value into a TypeScript expression.
+ * It will perform a transformation on FileSource values.
+ */
+function transformValueToExpression(value: JSONValue) {
+  if (isValFileValue(value)) {
+    return createValFileReference(value.ref);
+  } else {
+    return toExpression(value);
+  }
+}
+
 function addToNode(
   document: ts.SourceFile,
   node: ts.Expression,
@@ -520,43 +533,21 @@ function addToNode(
         (
           assignment: ts.PropertyAssignment | undefined
         ): [document: ts.SourceFile, replaced?: ts.Expression] => {
-          if (isValFileValue(value)) {
-            if (!assignment) {
-              return [
-                insertAt(
-                  document,
-                  node.properties,
-                  node.properties.length,
-                  createPropertyAssignment(
-                    key,
-                    createValFileReference(value.ref)
-                  )
-                ),
-              ];
-            } else {
-              return replaceNodeValue(
+          if (!assignment) {
+            return [
+              insertAt(
                 document,
-                assignment.initializer,
-                createValFileReference(value.ref)
-              );
-            }
+                node.properties,
+                node.properties.length,
+                createPropertyAssignment(key, transformValueToExpression(value))
+              ),
+            ];
           } else {
-            if (!assignment) {
-              return [
-                insertAt(
-                  document,
-                  node.properties,
-                  node.properties.length,
-                  createPropertyAssignment(key, toExpression(value))
-                ),
-              ];
-            } else {
-              return replaceNodeValue(
-                document,
-                assignment.initializer,
-                toExpression(value)
-              );
-            }
+            return replaceNodeValue(
+              document,
+              assignment.initializer,
+              transformValueToExpression(value)
+            );
           }
         }
       )
@@ -583,12 +574,9 @@ function addAtPath(
       )
     );
   } else {
-    if (isValFileValue(value)) {
-      return result.ok(
-        replaceNodeValue(document, rootNode, createValFileReference(value.ref))
-      );
-    }
-    return result.ok(replaceNodeValue(document, rootNode, toExpression(value)));
+    return result.ok(
+      replaceNodeValue(document, rootNode, transformValueToExpression(value))
+    );
   }
 }
 
