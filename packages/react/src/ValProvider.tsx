@@ -192,6 +192,7 @@ const ValEditForm: React.FC<{
         source: string;
         status: "ready";
         moduleId: string;
+        schemaType: "string" | "image";
         locale: "en_US";
         value: string;
         path: string;
@@ -227,6 +228,26 @@ const ValEditForm: React.FC<{
             [Schema.transform(mod.schema, mod.source, locale)],
             [""]
           );
+          let schemaType: "string" | "image" = "string";
+          // Temporary hack to get schema at ref
+          if (typeof ref === "string") {
+            let schema = mod.schema.serialize();
+            for (const part of ref?.toString().split("/") || []) {
+              if (part === "") {
+                continue;
+              }
+              if (schema.type === "object") {
+                schema = schema.schema[part];
+              } else if (schema.type === "array") {
+                schema = schema.schema;
+              } else {
+                console.error("TODO: ref is not an object or array", ref);
+              }
+            }
+            schemaType = schema.type === "image" ? "image" : "string";
+          } else {
+            console.error("TODO: ref is not a string", ref);
+          }
           if (!expr.isAssignable(ref)) {
             return {
               source,
@@ -246,6 +267,7 @@ const ValEditForm: React.FC<{
             status: "ready",
             moduleId,
             locale,
+            schemaType,
             value,
             path: ref,
           };
@@ -274,12 +296,16 @@ const ValEditForm: React.FC<{
         left: position.left,
         top: position.top,
         zIndex: 999999,
-        minWidth: "300px",
-        background: "black",
+        minWidth: "420px",
+        background: "#1A1A1A",
         color: "white",
-        padding: "10px",
-        border: "1px solid white",
+        objectFit: "contain",
+        padding: "32px",
         fontFamily: ValFontFamily,
+        filter: "drop-shadow(-10px 10px 24px rgba(0, 0, 0, 0.25))",
+        gap: "20px",
+        display: "flex",
+        flexDirection: "column",
       }}
       onSubmit={async (e) => {
         e.preventDefault();
@@ -345,30 +371,58 @@ const ValEditForm: React.FC<{
       {entries === null
         ? "Loading..."
         : entries.map((entry) => (
-            <label key={entry.source}>
+            <label
+              key={entry.source}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "10px",
+              }}
+            >
               {entry.status === "loading" ? (
                 "Loading..."
               ) : entry.status === "error" ? (
                 entry.error
               ) : (
                 <>
-                  {entry.moduleId}?{entry.locale}?{entry.path}
-                  <textarea
-                    style={{
-                      display: "block",
-                      width: "100%",
-                      background: "black",
-                      color: "white",
-                      minHeight: "200px",
-                    }}
-                    name={entry.path}
-                    defaultValue={entry.value}
-                  />
+                  <span>
+                    {entry.moduleId}?{entry.locale}?{entry.path}
+                  </span>
+                  {entry.schemaType === "image" ? (
+                    <img src={entry.value} style={{ maxWidth: "100%" }} />
+                  ) : (
+                    <textarea
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        background: "#575757",
+                        color: "white",
+                        minHeight: "200px",
+                        border: "none",
+                        padding: "4px",
+                        fontSize: "14px",
+                      }}
+                      name={entry.path}
+                      defaultValue={entry.value}
+                    />
+                  )}
                 </>
               )}
             </label>
           ))}
-      <input type="submit" value="Save" />
+      <input
+        type="submit"
+        value="Save"
+        style={{
+          alignSelf: "flex-end",
+          background: "#1A1A1A",
+          color: "#FCFCFC",
+
+          border: "#FCFCFC solid 1px",
+          borderRadius: "4px",
+          padding: "8px 16px",
+        }}
+      />
     </form>
   );
 };
