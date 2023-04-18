@@ -141,6 +141,15 @@ describe("TSOps", () => {
       value: null,
       expected: result.err(PatchError),
     },
+    {
+      name: "add file reference",
+      input: `{ foo: "bar" }`,
+      path: ["image"],
+      value: { ref: "/public/val/image.jpg" },
+      expected: result.ok(
+        `{ foo: "bar", image: val.file("/public/val/image.jpg") }`
+      ),
+    },
   ])("add $name", ({ input, path, value, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);

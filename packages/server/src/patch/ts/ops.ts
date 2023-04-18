@@ -17,6 +17,7 @@ import {
   JSONValue,
   parseAndValidateArrayIndex,
 } from "@valbuild/lib/patch";
+import { FileSource } from "@valbuild/lib/src/Source";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
@@ -48,12 +49,23 @@ function isValidIdentifier(text: string): boolean {
   return true;
 }
 
-function createPropertyAssignment(key: string, value: JSONValue) {
+function createPropertyAssignment(key: string, expression: ts.Expression) {
   return ts.factory.createPropertyAssignment(
     isValidIdentifier(key)
       ? ts.factory.createIdentifier(key)
       : ts.factory.createStringLiteral(key),
-    toExpression(value)
+    expression
+  );
+}
+
+function createValFileReference(ref: string) {
+  return ts.factory.createCallExpression(
+    ts.factory.createPropertyAccessExpression(
+      ts.factory.createIdentifier("val"),
+      ts.factory.createIdentifier("file")
+    ),
+    undefined,
+    [ts.factory.createStringLiteral(ref)]
   );
 }
 
@@ -72,7 +84,7 @@ function toExpression(value: JSONValue): ts.Expression {
   } else if (typeof value === "object") {
     return ts.factory.createObjectLiteralExpression(
       Object.entries(value).map(([key, value]) =>
-        createPropertyAssignment(key, value)
+        createPropertyAssignment(key, toExpression(value))
       )
     );
   } else {
@@ -483,6 +495,9 @@ function removeAtPath(
   );
 }
 
+function isValFileValue(value: JSONValue): value is FileSource<string> {
+  return !!(typeof value === "object" && value && "ref" in value);
+}
 function addToNode(
   document: ts.SourceFile,
   node: ts.Expression,
@@ -504,12 +519,25 @@ function addToNode(
           assignment: ts.PropertyAssignment | undefined
         ): [document: ts.SourceFile, replaced?: ts.Expression] => {
           if (!assignment) {
+            if (isValFileValue(value)) {
+              return [
+                insertAt(
+                  document,
+                  node.properties,
+                  node.properties.length,
+                  createPropertyAssignment(
+                    key,
+                    createValFileReference(value.ref)
+                  )
+                ),
+              ];
+            }
             return [
               insertAt(
                 document,
                 node.properties,
                 node.properties.length,
-                createPropertyAssignment(key, value)
+                createPropertyAssignment(key, toExpression(value))
               ),
             ];
           } else {
