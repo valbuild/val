@@ -358,6 +358,15 @@ describe("TSOps", () => {
       expected: result.ok(`{ baz: 1, bar: null }`),
     },
     {
+      name: "defined property with file ref to undefined property of object",
+      input: `{ foo: null, baz: val.file("/public/val/foo/bar.jpg") }`,
+      from: ["foo"],
+      path: ["bar"],
+      expected: result.ok(
+        `{ baz: val.file("/public/val/foo/bar.jpg"), bar: null }`
+      ),
+    },
+    {
       name: "defined property to defined property of object",
       input: `{ foo: null, bar: "baz" }`,
       from: ["foo"],
