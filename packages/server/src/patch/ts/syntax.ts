@@ -1,6 +1,6 @@
 import ts from "typescript";
 import { result, pipe } from "@valbuild/lib/fp";
-import { JSONValue } from "@valbuild/lib/patch";
+import { JSONValue, PatchError } from "@valbuild/lib/patch";
 
 export class ValSyntaxError {
   constructor(public message: string, public node: ts.Node) {}
@@ -208,6 +208,8 @@ export function evaluateExpression(
       ),
       result.map(Object.fromEntries)
     );
+  } else if (isValFileMethodCall(value)) {
+    return evaluateValFileRef(value);
   } else {
     return result.err(new ValSyntaxError("Value must be a literal", value));
   }
@@ -245,6 +247,34 @@ export function isValFileMethodCall(
     node.expression.expression.text === "val" &&
     node.expression.name.text === "file"
   );
+}
+
+export function evaluateValFileRef(
+  node: ts.CallExpression
+): result.Result<{ ref: string }, ValSyntaxErrorTree> {
+  if (node.arguments.length === 0) {
+    return result.err(
+      new ValSyntaxError(`Invalid val.file() call: missing ref argument`, node)
+    );
+  } else if (node.arguments.length > 1) {
+    return result.err(
+      new ValSyntaxError(
+        `Invalid val.file() call: too many arguments ${node.arguments.length}}`,
+        node
+      )
+    );
+  } else if (!ts.isStringLiteral(node.arguments[0])) {
+    return result.err(
+      new ValSyntaxError(
+        `Invalid val.file() call: argument must be a string literal`,
+        node
+      )
+    );
+  }
+  const ref = node.arguments[0].text;
+  return result.ok({
+    ref,
+  });
 }
 
 /**

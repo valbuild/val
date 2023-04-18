@@ -8,6 +8,7 @@ import {
   shallowValidateExpression,
   isValFileMethodCall,
   FileSrcRef,
+  evaluateValFileRef,
 } from "./syntax";
 import {
   deepEqual,
@@ -321,7 +322,17 @@ function replaceInNode(
         replaceNodeValue(document, assignment.initializer, value)
       )
     );
-  } else if (ts.isCallExpression(node) && key === FileSrcRef) {
+  } else if (ts.isCallExpression(node)) {
+    if (key !== FileSrcRef) {
+      return result.err(
+        new PatchError("Cannot replace non-file source reference")
+      );
+    }
+    if (typeof value !== "string") {
+      return result.err(
+        new PatchError("Cannot replace val.file reference with non-string")
+      );
+    }
     const args = node.arguments;
     if (args.length !== 1) {
       return result.err(
@@ -468,6 +479,8 @@ function removeFromNode(
         assignment.initializer,
       ])
     );
+  } else if (isValFileMethodCall(node)) {
+    return result.err(new PatchError("Cannot remove a key from val.file"));
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -490,7 +503,12 @@ function removeAtPath(
 }
 
 function isValFileValue(value: JSONValue): value is FileSource<string> {
-  return !!(typeof value === "object" && value && "ref" in value);
+  return !!(
+    typeof value === "object" &&
+    value &&
+    "ref" in value &&
+    typeof value.ref === "string"
+  );
 }
 
 function addToNode(
@@ -499,7 +517,11 @@ function addToNode(
   key: string,
   value: JSONValue
 ): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Expression]> {
-  if (ts.isArrayLiteralExpression(node)) {
+  if (key === FileSrcRef && !isValFileValue(value)) {
+    return result.err(
+      new PatchError("Cannot add a non-val.file value to a val.file object")
+    );
+  } else if (ts.isArrayLiteralExpression(node)) {
     return pipe(
       parseAndValidateArrayInsertIndex(key, node.elements),
       result.map((index: number): [document: ts.SourceFile] => [
@@ -528,6 +550,8 @@ function addToNode(
         }
       )
     );
+  } else if (isValFileMethodCall(node)) {
+    return result.err(new PatchError("Cannot add a key to val.file"));
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -558,32 +582,6 @@ function pickDocument<
   T extends readonly [document: ts.SourceFile, ...rest: unknown[]]
 >([document]: T) {
   return document;
-}
-
-function evaluateValFileRef(
-  node: ts.CallExpression
-): TSOpsResult<{ ref: string }> {
-  if (node.arguments.length === 0) {
-    return result.err(
-      new PatchError(`Invalid val.file() call: missing ref argument`)
-    );
-  } else if (node.arguments.length > 1) {
-    return result.err(
-      new PatchError(
-        `Invalid val.file() call: too many arguments ${node.arguments.length}}`
-      )
-    );
-  } else if (!ts.isStringLiteral(node.arguments[0])) {
-    return result.err(
-      new PatchError(
-        `Invalid val.file() call: argument must be a string literal`
-      )
-    );
-  }
-  const ref = node.arguments[0].text;
-  return result.ok({
-    ref,
-  });
 }
 
 export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
@@ -720,7 +718,9 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
       this.findRoot,
       result.flatMap((rootNode: ts.Expression) => getAtPath(rootNode, path)),
       result.flatMap(evaluateExpression),
-      result.map((documentValue: JSONValue) => deepEqual(value, documentValue))
+      result.map((documentValue: JSONValue) => {
+        return deepEqual(value, documentValue);
+      })
     );
   }
 }

@@ -1,7 +1,7 @@
 import { describe, test, expect } from "@jest/globals";
 import ts from "typescript";
 import { TSOps } from "./ops";
-import { result, array, pipe } from "@valbuild/lib/fp";
+import { result, array, pipe, tap } from "@valbuild/lib/fp";
 import { PatchError, JSONValue } from "@valbuild/lib/patch";
 import { ValSyntaxError } from "./syntax";
 
@@ -150,27 +150,26 @@ describe("TSOps", () => {
         `{ foo: "bar", image: val.file("/public/val/image.jpg") }`
       ),
     },
-    // TODO:
-    // {
-    //   name: "ref prop",
-    //   input: `{ foo: "bar", image: {} }`,
-    //   path: ["image", "ref"],
-    //   value: "/public/val/image.jpg",
-    //   expected: result.err(PatchError),
-    // },
+    {
+      name: "ref prop",
+      input: `{ foo: "bar", image: {} }`,
+      path: ["image", "ref"],
+      value: "/public/val/image.jpg",
+      expected: result.err(PatchError),
+    },
     {
       name: "prop on val.file",
       input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
       path: ["image", "zoo"],
       value: null,
-      expected: result.err(ValSyntaxError), // TODO: PatchError
+      expected: result.err(PatchError),
     },
     {
       name: "null prop of name ref on val.file",
       input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
       path: ["image", "ref"],
       value: null,
-      expected: result.err(ValSyntaxError), // TODO: PatchError
+      expected: result.err(PatchError),
     },
     {
       name: "to ref on val.file",
@@ -273,7 +272,7 @@ describe("TSOps", () => {
       name: "ref prop from val.file",
       input: `{ image: val.file("/public/val/image.jpg") }`,
       path: ["image", "ref"],
-      expected: result.err(ValSyntaxError), // TODO: PatchError
+      expected: result.err(PatchError),
     },
   ])("remove $name", ({ input, path, expected }) => {
     const src = testSourceFile(input);
@@ -385,23 +384,22 @@ describe("TSOps", () => {
       input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
       path: ["image", "zoo"],
       value: null,
-      expected: result.err(ValSyntaxError), // TODO: PatchError
+      expected: result.err(PatchError),
     },
-    // TODO: fix this
-    // {
-    //   name: "null prop of name ref on val.file",
-    //   input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
-    //   path: ["image", "ref"],
-    //   value: null,
-    //   expected: result.err(PatchError), // TODO: PatchError
-    // },
-    // {
-    //   name: "number prop of name ref on val.file",
-    //   input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
-    //   path: ["image", "ref"],
-    //   value: 1,
-    //   expected: result.err(ValSyntaxError), // TODO: PatchError
-    // },
+    {
+      name: "null prop of name ref on val.file",
+      input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
+      path: ["image", "ref"],
+      value: null,
+      expected: result.err(PatchError),
+    },
+    {
+      name: "number prop of name ref on val.file",
+      input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
+      path: ["image", "ref"],
+      value: 1,
+      expected: result.err(PatchError),
+    },
     {
       name: "to ref on val.file",
       input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
@@ -498,29 +496,29 @@ describe("TSOps", () => {
       path: ["2"],
       expected: result.err(PatchError),
     },
-    // {
-    //   name: "val.file to root of document",
-    //   input: `{ foo: null, baz: val.file("/public/val/foo/bar.jpg") }`,
-    //   from: ["baz"],
-    //   path: ["bar"],
-    //   expected: result.ok(
-    //     `{ foo: null, bar: val.file("/public/val/foo/bar.jpg")}`
-    //   ),
-    // },
-    // {
-    //   name: "ref out of val.file",
-    //   input: `{ foo: null, baz: val.file("/public/val/foo/bar.jpg") }`,
-    //   from: ["baz", "ref"],
-    //   path: ["bar"],
-    //   expected: result.err(PatchError)
-    // },
-    // {
-    //   name: "object into val.file",
-    //   input: `{ foo: { bar: "zoo" }, baz: val.file("/public/val/foo/bar.jpg") }`,
-    //   from: ["foo"],
-    //   path: ["baz", "loo"],
-    //   expected: result.err(PatchError)
-    // },
+    {
+      name: "val.file to root of document",
+      input: `{ foo: null, baz: val.file("/public/val/foo/bar.jpg") }`,
+      from: ["baz"],
+      path: ["bar"],
+      expected: result.ok(
+        `{ foo: null, bar: val.file("/public/val/foo/bar.jpg") }`
+      ),
+    },
+    {
+      name: "ref out of val.file",
+      input: `{ foo: null, baz: val.file("/public/val/foo/bar.jpg") }`,
+      from: ["baz", "ref"],
+      path: ["bar"],
+      expected: result.err(PatchError),
+    },
+    {
+      name: "object into val.file",
+      input: `{ foo: { bar: "zoo" }, baz: val.file("/public/val/foo/bar.jpg") }`,
+      from: ["foo"],
+      path: ["baz", "loo"],
+      expected: result.err(PatchError),
+    },
   ])("move $name", ({ input, from, path, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);
@@ -624,13 +622,13 @@ describe("TSOps", () => {
       path: [],
       expected: result.ok(`val.file("/public/val/image1.jpg")`),
     },
-    // {
-    //   name: "object into val.file",
-    //   input: `{ foo: val.file("/public/val/image1.jpg"), bar: null }`,
-    //   from: ["bar"],
-    //   path: ["foo", "loo"],
-    //   expected: result.err(PatchError),
-    // },
+    {
+      name: "object into val.file",
+      input: `{ foo: val.file("/public/val/image1.jpg"), bar: null }`,
+      from: ["bar"],
+      path: ["foo", "loo"],
+      expected: result.err(PatchError),
+    },
   ])("copy $name", ({ input, from, path, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);
@@ -751,14 +749,13 @@ describe("TSOps", () => {
       value: "/public/val/foo/bar.jpg",
       expected: result.ok(true),
     },
-    // TODO: fix this
-    // {
-    //   name: "val.file",
-    //   input: `val.file("/public/val/foo/bar.jpg")`,
-    //   path: [],
-    //   value: `val.file("/public/val/foo/bar.jpg")`,
-    //   expected: result.ok(true),
-    // },
+    {
+      name: "val.file",
+      input: `val.file("/public/val/foo/bar.jpg")`,
+      path: [],
+      value: { ref: "/public/val/foo/bar.jpg" },
+      expected: result.ok(true),
+    },
     {
       name: "nested val.file",
       input: `{ foo: { bar: val.file("/public/val/foo/bar/zoo.jpg") } }`,
