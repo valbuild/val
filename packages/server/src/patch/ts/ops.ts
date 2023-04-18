@@ -106,11 +106,11 @@ const printer = ts.createPrinter({
 function replaceNodeValue<T extends ts.Node>(
   document: ts.SourceFile,
   node: T,
-  value: ts.Expression
+  value: JSONValue
 ): [document: ts.SourceFile, replaced: T] {
   const replacementText = printer.printNode(
     ts.EmitHint.Unspecified,
-    value,
+    toExpression(value),
     document
   );
   const span = ts.createTextSpanFromBounds(
@@ -303,7 +303,7 @@ function replaceInNode(
     return pipe(
       parseAndValidateArrayInboundsIndex(key, node.elements),
       result.map((index: number) =>
-        replaceNodeValue(document, node.elements[index], toExpression(value))
+        replaceNodeValue(document, node.elements[index], value)
       )
     );
   } else if (ts.isObjectLiteralExpression(node)) {
@@ -318,7 +318,7 @@ function replaceInNode(
         return result.ok(assignment);
       }),
       result.map((assignment: ts.PropertyAssignment) =>
-        replaceNodeValue(document, assignment.initializer, toExpression(value))
+        replaceNodeValue(document, assignment.initializer, value)
       )
     );
   } else if (ts.isCallExpression(node) && key === FileSrcRef) {
@@ -329,9 +329,7 @@ function replaceInNode(
       );
     }
     const fileRefArgNode = args[0];
-    return result.ok(
-      replaceNodeValue(document, fileRefArgNode, toExpression(value))
-    );
+    return result.ok(replaceNodeValue(document, fileRefArgNode, value));
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -354,7 +352,7 @@ function replaceAtPath(
       )
     );
   } else {
-    return result.ok(replaceNodeValue(document, rootNode, toExpression(value)));
+    return result.ok(replaceNodeValue(document, rootNode, value));
   }
 }
 
@@ -525,11 +523,7 @@ function addToNode(
               ),
             ];
           } else {
-            return replaceNodeValue(
-              document,
-              assignment.initializer,
-              toExpression(value)
-            );
+            return replaceNodeValue(document, assignment.initializer, value);
           }
         }
       )
@@ -556,7 +550,7 @@ function addAtPath(
       )
     );
   } else {
-    return result.ok(replaceNodeValue(document, rootNode, toExpression(value)));
+    return result.ok(replaceNodeValue(document, rootNode, value));
   }
 }
 
