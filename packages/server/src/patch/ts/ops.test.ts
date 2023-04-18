@@ -228,6 +228,18 @@ describe("TSOps", () => {
       path: ["foo"],
       expected: result.err(PatchError),
     },
+    {
+      name: "file reference from array",
+      input: `[val.file("/public/val/image1.jpg"), val.file("/public/val/image2.jpg")]`,
+      path: ["0"],
+      expected: result.ok(`[val.file("/public/val/image2.jpg")]`),
+    },
+    {
+      name: "file reference from object",
+      input: `[{ foo: "bar", image: val.file("/public/val/image.jpg") }]`,
+      path: ["0", "image"],
+      expected: result.ok(`[{ foo: "bar" }]`),
+    },
   ])("remove $name", ({ input, path, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);
@@ -526,6 +538,13 @@ describe("TSOps", () => {
       from: ["0"],
       path: ["3"],
       expected: result.err(PatchError),
+    },
+    {
+      name: "val reference to root of object",
+      input: `{ foo: val.file("/public/val/image1.jpg") }`,
+      from: ["foo"],
+      path: [],
+      expected: result.ok(`val.file("/public/val/image1.jpg")`),
     },
   ])("copy $name", ({ input, from, path, expected }) => {
     const src = testSourceFile(input);

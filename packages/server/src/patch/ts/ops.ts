@@ -103,11 +103,11 @@ const printer = ts.createPrinter({
 function replaceNodeValue<T extends ts.Node>(
   document: ts.SourceFile,
   node: T,
-  value: JSONValue
+  value: ts.Expression
 ): [document: ts.SourceFile, replaced: T] {
   const replacementText = printer.printNode(
     ts.EmitHint.Unspecified,
-    toExpression(value),
+    value,
     document
   );
   const span = ts.createTextSpanFromBounds(
@@ -300,7 +300,7 @@ function replaceInNode(
     return pipe(
       parseAndValidateArrayInboundsIndex(key, node.elements),
       result.map((index: number) =>
-        replaceNodeValue(document, node.elements[index], value)
+        replaceNodeValue(document, node.elements[index], toExpression(value))
       )
     );
   } else if (ts.isObjectLiteralExpression(node)) {
@@ -315,7 +315,7 @@ function replaceInNode(
         return result.ok(assignment);
       }),
       result.map((assignment: ts.PropertyAssignment) =>
-        replaceNodeValue(document, assignment.initializer, value)
+        replaceNodeValue(document, assignment.initializer, toExpression(value))
       )
     );
   } else if (ts.isCallExpression(node) && key === FileSrcRef) {
@@ -326,7 +326,9 @@ function replaceInNode(
       );
     }
     const fileRefArgNode = args[0];
-    return result.ok(replaceNodeValue(document, fileRefArgNode, value));
+    return result.ok(
+      replaceNodeValue(document, fileRefArgNode, toExpression(value))
+    );
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -349,7 +351,7 @@ function replaceAtPath(
       )
     );
   } else {
-    return result.ok(replaceNodeValue(document, rootNode, value));
+    return result.ok(replaceNodeValue(document, rootNode, toExpression(value)));
   }
 }
 
@@ -518,8 +520,8 @@ function addToNode(
         (
           assignment: ts.PropertyAssignment | undefined
         ): [document: ts.SourceFile, replaced?: ts.Expression] => {
-          if (!assignment) {
-            if (isValFileValue(value)) {
+          if (isValFileValue(value)) {
+            if (!assignment) {
               return [
                 insertAt(
                   document,
@@ -531,17 +533,30 @@ function addToNode(
                   )
                 ),
               ];
-            }
-            return [
-              insertAt(
+            } else {
+              return replaceNodeValue(
                 document,
-                node.properties,
-                node.properties.length,
-                createPropertyAssignment(key, toExpression(value))
-              ),
-            ];
+                assignment.initializer,
+                createValFileReference(value.ref)
+              );
+            }
           } else {
-            return replaceNodeValue(document, assignment.initializer, value);
+            if (!assignment) {
+              return [
+                insertAt(
+                  document,
+                  node.properties,
+                  node.properties.length,
+                  createPropertyAssignment(key, toExpression(value))
+                ),
+              ];
+            } else {
+              return replaceNodeValue(
+                document,
+                assignment.initializer,
+                toExpression(value)
+              );
+            }
           }
         }
       )
@@ -568,7 +583,12 @@ function addAtPath(
       )
     );
   } else {
-    return result.ok(replaceNodeValue(document, rootNode, value));
+    if (isValFileValue(value)) {
+      return result.ok(
+        replaceNodeValue(document, rootNode, createValFileReference(value.ref))
+      );
+    }
+    return result.ok(replaceNodeValue(document, rootNode, toExpression(value)));
   }
 }
 
@@ -688,7 +708,20 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
       result.flatMap((rootNode: ts.Expression) =>
         pipe(
           getAtPath(rootNode, from),
-          result.flatMap(evaluateExpression),
+          result.flatMap((node) => {
+            if (
+              ts.isCallExpression(node) &&
+              ts.isPropertyAccessExpression(node.expression) &&
+              isValFileMethodCall(node.expression) &&
+              node.arguments.length === 1 &&
+              ts.isStringLiteral(node.arguments[0])
+            ) {
+              return result.ok({
+                ref: node.arguments[0].text,
+              });
+            }
+            return evaluateExpression(node);
+          }),
           result.flatMap((value: JSONValue) =>
             addAtPath(document, rootNode, path, value)
           )
