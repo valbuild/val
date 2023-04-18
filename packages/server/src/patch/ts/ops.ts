@@ -82,6 +82,9 @@ function toExpression(value: JSONValue): ts.Expression {
   } else if (Array.isArray(value)) {
     return ts.factory.createArrayLiteralExpression(value.map(toExpression));
   } else if (typeof value === "object") {
+    if (isValFileValue(value)) {
+      return createValFileReference(value.ref);
+    }
     return ts.factory.createObjectLiteralExpression(
       Object.entries(value).map(([key, value]) =>
         createPropertyAssignment(key, toExpression(value))
@@ -501,18 +504,6 @@ function isValFileValue(value: JSONValue): value is FileSource<string> {
   return !!(typeof value === "object" && value && "ref" in value);
 }
 
-/**
- * Transforms a JSON value into a TypeScript expression.
- * It will perform a transformation on FileSource values.
- */
-function transformValueToExpression(value: JSONValue) {
-  if (isValFileValue(value)) {
-    return createValFileReference(value.ref);
-  } else {
-    return toExpression(value);
-  }
-}
-
 function addToNode(
   document: ts.SourceFile,
   node: ts.Expression,
@@ -539,14 +530,14 @@ function addToNode(
                 document,
                 node.properties,
                 node.properties.length,
-                createPropertyAssignment(key, transformValueToExpression(value))
+                createPropertyAssignment(key, toExpression(value))
               ),
             ];
           } else {
             return replaceNodeValue(
               document,
               assignment.initializer,
-              transformValueToExpression(value)
+              toExpression(value)
             );
           }
         }
@@ -574,9 +565,7 @@ function addAtPath(
       )
     );
   } else {
-    return result.ok(
-      replaceNodeValue(document, rootNode, transformValueToExpression(value))
-    );
+    return result.ok(replaceNodeValue(document, rootNode, toExpression(value)));
   }
 }
 
