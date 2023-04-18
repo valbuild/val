@@ -13,6 +13,7 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { editIcon, valcmsLogo } from "./assets";
@@ -293,17 +294,21 @@ const ValEditForm: React.FC<{
       setPosition(initPosition);
     }
   }, [initPosition]);
+  const ref = useRef<HTMLFormElement>(null);
   useEffect(() => {
     const onMouseUp = () => {
       setMouseDown(false);
     };
     const onMouseMove = (e: MouseEvent) => {
       if (mouseDown) {
-        console.log("mousemove", e.movementX, e.movementY);
-        setPosition((position) => ({
-          left: (position?.left || 0) + e.movementX,
-          top: (position?.top || 0) + e.movementY,
-        }));
+        setPosition({
+          left:
+            -((ref?.current?.getBoundingClientRect()?.width || 0) / 2) +
+            e.clientX,
+          top:
+            -((ref?.current?.getBoundingClientRect()?.height || 0) / 2) +
+            +e.clientY,
+        });
       }
     };
 
@@ -396,6 +401,7 @@ const ValEditForm: React.FC<{
       }}
     >
       <div
+        ref={ref}
         style={{
           width: "100%",
           textAlign: "center",
