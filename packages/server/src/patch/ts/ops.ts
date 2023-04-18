@@ -49,12 +49,12 @@ function isValidIdentifier(text: string): boolean {
   return true;
 }
 
-function createPropertyAssignment(key: string, expression: ts.Expression) {
+function createPropertyAssignment(key: string, value: JSONValue) {
   return ts.factory.createPropertyAssignment(
     isValidIdentifier(key)
       ? ts.factory.createIdentifier(key)
       : ts.factory.createStringLiteral(key),
-    expression
+    toExpression(value)
   );
 }
 
@@ -87,7 +87,7 @@ function toExpression(value: JSONValue): ts.Expression {
     }
     return ts.factory.createObjectLiteralExpression(
       Object.entries(value).map(([key, value]) =>
-        createPropertyAssignment(key, toExpression(value))
+        createPropertyAssignment(key, value)
       )
     );
   } else {
@@ -519,7 +519,7 @@ function addToNode(
                 document,
                 node.properties,
                 node.properties.length,
-                createPropertyAssignment(key, toExpression(value))
+                createPropertyAssignment(key, value)
               ),
             ];
           } else {
