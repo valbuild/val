@@ -177,7 +177,7 @@ const ValEditForm: React.FC<{
   position: FormPosition | null;
   selectedSources: string[];
   onClose: () => void;
-}> = ({ host, position, selectedSources, onClose }) => {
+}> = ({ host, position: initPosition, selectedSources, onClose }) => {
   type Entry =
     | {
         source: string;
@@ -285,7 +285,39 @@ const ValEditForm: React.FC<{
     });
   }, [host, selectedSources.join(",")]);
 
-  if (!position) {
+  // dragging
+  const [mouseDown, setMouseDown] = useState(false);
+  const [position, setPosition] = useState<FormPosition | null>();
+  useEffect(() => {
+    if (initPosition) {
+      setPosition(initPosition);
+    }
+  }, [initPosition]);
+  useEffect(() => {
+    const onMouseUp = () => {
+      setMouseDown(false);
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      if (mouseDown) {
+        console.log("mousemove", e.movementX, e.movementY);
+        setPosition((position) => ({
+          left: (position?.left || 0) + e.movementX,
+          top: (position?.top || 0) + e.movementY,
+        }));
+      }
+    };
+
+    document.addEventListener("mouseup", onMouseUp);
+    document.addEventListener("mousemove", onMouseMove);
+    return () => {
+      document.removeEventListener("mouseup", onMouseUp);
+      document.removeEventListener("mousemove", onMouseMove);
+    };
+  }, [mouseDown]);
+
+  const handleMouseDown = () => setMouseDown(true);
+
+  if (!initPosition) {
     return null;
   }
   return (
@@ -293,19 +325,15 @@ const ValEditForm: React.FC<{
       data-val-element={true}
       style={{
         position: "absolute",
-        left: position.left,
-        top: position.top,
+        left: position?.left,
+        top: position?.top,
         zIndex: 999999,
         minWidth: "420px",
         background: "#1A1A1A",
         color: "white",
         objectFit: "contain",
-        padding: "32px",
         fontFamily: ValFontFamily,
         filter: "drop-shadow(-10px 10px 24px rgba(0, 0, 0, 0.25))",
-        gap: "20px",
-        display: "flex",
-        flexDirection: "column",
       }}
       onSubmit={async (e) => {
         e.preventDefault();
@@ -367,62 +395,115 @@ const ValEditForm: React.FC<{
         }
       }}
     >
-      {submission.status === "error" && submission.error}
-      {entries === null
-        ? "Loading..."
-        : entries.map((entry) => (
-            <label
-              key={entry.source}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "10px",
-              }}
-            >
-              {entry.status === "loading" ? (
-                "Loading..."
-              ) : entry.status === "error" ? (
-                entry.error
-              ) : (
-                <>
-                  <span>
-                    {entry.moduleId}?{entry.locale}?{entry.path}
-                  </span>
-                  {entry.schemaType === "image" ? (
-                    <img src={entry.value} style={{ maxWidth: "100%" }} />
-                  ) : (
-                    <textarea
-                      style={{
-                        display: "block",
-                        width: "100%",
-                        background: "#575757",
-                        color: "white",
-                        minHeight: "200px",
-                        border: "none",
-                        padding: "4px",
-                        fontSize: "14px",
-                      }}
-                      name={entry.path}
-                      defaultValue={entry.value}
-                    />
-                  )}
-                </>
-              )}
-            </label>
-          ))}
-      <input
-        type="submit"
-        value="Save"
+      <div
         style={{
-          alignSelf: "flex-end",
-          background: "#1A1A1A",
-          color: "#FCFCFC",
-
-          border: "#FCFCFC solid 1px",
-          borderRadius: "4px",
-          padding: "8px 16px",
+          width: "100%",
+          textAlign: "center",
+          userSelect: "none",
+          cursor: "grab",
+          padding: "4px",
         }}
-      />
+        onMouseDown={handleMouseDown}
+      >
+        <svg
+          width={10}
+          height={9}
+          viewBox="0 0 10 9"
+          style={{
+            color: "white",
+          }}
+        >
+          <line
+            x1="0"
+            x2="10"
+            y1="1"
+            y2="1"
+            strokeWidth={1}
+            stroke="currentColor"
+          />
+          <line
+            x1="0"
+            x2="10"
+            y1="4"
+            y2="4"
+            strokeWidth={1}
+            stroke="currentColor"
+          />
+          <line
+            x1="0"
+            x2="10"
+            y1="7"
+            y2="7"
+            strokeWidth={1}
+            stroke="currentColor"
+          />
+        </svg>
+      </div>
+      <div
+        style={{
+          gap: "20px",
+          display: "flex",
+          flexDirection: "column",
+          padding: "32px",
+        }}
+      >
+        {submission.status === "error" && submission.error}
+        {entries === null
+          ? "Loading..."
+          : entries.map((entry) => (
+              <label
+                key={entry.source}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "10px",
+                }}
+              >
+                {entry.status === "loading" ? (
+                  "Loading..."
+                ) : entry.status === "error" ? (
+                  entry.error
+                ) : (
+                  <>
+                    <span>
+                      {entry.moduleId}?{entry.locale}?{entry.path}
+                    </span>
+                    {entry.schemaType === "image" ? (
+                      <img src={entry.value} style={{ maxWidth: "100%" }} />
+                    ) : (
+                      <textarea
+                        style={{
+                          display: "block",
+                          width: "100%",
+                          background: "#575757",
+                          color: "white",
+                          minHeight: "200px",
+                          border: "none",
+                          padding: "4px",
+                          fontSize: "14px",
+                        }}
+                        name={entry.path}
+                        defaultValue={entry.value}
+                      />
+                    )}
+                  </>
+                )}
+              </label>
+            ))}
+        <input
+          type="submit"
+          value="Save"
+          style={{
+            alignSelf: "flex-end",
+            background: "#1A1A1A",
+            color: "#FCFCFC",
+
+            border: "#FCFCFC solid 1px",
+            borderRadius: "4px",
+            padding: "8px 16px",
+          }}
+        />
+      </div>
     </form>
   );
 };
