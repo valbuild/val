@@ -7,6 +7,7 @@ import {
   ValSyntaxErrorTree,
   shallowValidateExpression,
   isValFileMethodCall,
+  FileSrcRef,
 } from "./syntax";
 import {
   deepEqual,
@@ -305,6 +306,15 @@ function replaceInNode(
         replaceNodeValue(document, assignment.initializer, value)
       )
     );
+  } else if (ts.isCallExpression(node) && key === FileSrcRef) {
+    const args = node.arguments;
+    if (args.length !== 1) {
+      return result.err(
+        new PatchError("Cannot replace file source reference with invalid args")
+      );
+    }
+    const fileRefArgNode = args[0];
+    return result.ok(replaceNodeValue(document, fileRefArgNode, value));
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -349,7 +359,7 @@ export function getFromNode(
       )
     );
   } else if (
-    key === "ref" && // requesting ref
+    key === FileSrcRef &&
     ts.isCallExpression(node) &&
     ts.isPropertyAccessExpression(node.expression)
   ) {

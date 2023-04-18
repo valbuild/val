@@ -308,6 +308,22 @@ describe("TSOps", () => {
       value: null,
       expected: result.err(PatchError),
     },
+    {
+      name: "file references",
+      input: `val.file("/public/val/foo/bar.jpg")`,
+      path: ["ref"],
+      value: "/public/val/foo/bar2.jpg",
+      expected: result.ok(`val.file("/public/val/foo/bar2.jpg")`),
+    },
+    {
+      name: "deep file references",
+      input: `{ foo: { bar: val.file("/public/val/foo/bar/zoo.jpg") } }`,
+      path: ["foo", "bar", "ref"],
+      value: "/public/val/foo/bar/zoo2.jpg",
+      expected: result.ok(
+        `{ foo: { bar: val.file("/public/val/foo/bar/zoo2.jpg") } }`
+      ),
+    },
   ])("replace $name", ({ input, path, value, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);

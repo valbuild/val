@@ -165,6 +165,8 @@ export function deepValidateExpression(
   }
 }
 
+export const FileSrcRef = "ref";
+
 /**
  * Evaluates the expression as a JSON value
  */
