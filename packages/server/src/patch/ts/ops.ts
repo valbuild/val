@@ -324,12 +324,14 @@ function replaceInNode(
   } else if (isValFileMethodCall(node)) {
     if (key !== FILE_REF_PROP) {
       return result.err(
-        new PatchError("Cannot replace non-ref key of val.file")
+        new PatchError(`Cannot replace non-${FILE_REF_PROP} key of val.file`)
       );
     }
     if (typeof value !== "string") {
       return result.err(
-        new PatchError("Cannot replace val.file reference with non-string")
+        new PatchError(
+          "Cannot replace val.file reference with non-string value"
+        )
       );
     }
     return pipe(
@@ -379,8 +381,13 @@ export function getFromNode(
           assignment?.initializer
       )
     );
-  } else if (key === FILE_REF_PROP && isValFileMethodCall(node)) {
-    return findValFileNodeArg(node);
+  } else if (isValFileMethodCall(node)) {
+    if (key === FILE_REF_PROP) {
+      return findValFileNodeArg(node);
+    }
+    return result.err(
+      new PatchError(`Cannot access non-${FILE_REF_PROP} key of val.file`)
+    );
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -516,7 +523,10 @@ function addToNode(
         insertAt(document, node.elements, index, toExpression(value)),
       ])
     );
-  } else if (ts.isObjectLiteralExpression(node) && key !== FILE_REF_PROP) {
+  } else if (ts.isObjectLiteralExpression(node)) {
+    if (key === FILE_REF_PROP) {
+      return result.err(new PatchError("Cannot add a key ref to object"));
+    }
     return pipe(
       findObjectPropertyAssignment(node, key),
       result.map(
@@ -538,25 +548,22 @@ function addToNode(
         }
       )
     );
-  } else if (
-    key === FILE_REF_PROP ||
-    isValFileMethodCall(node) ||
-    isValFileValue(value)
-  ) {
-    if (
-      key === FILE_REF_PROP &&
-      isValFileMethodCall(node) &&
-      typeof value === "string"
-    ) {
-      return pipe(
-        findValFileNodeArg(node),
-        result.map((arg: ts.Expression) =>
-          replaceNodeValue(document, arg, value)
+  } else if (isValFileMethodCall(node)) {
+    if (key !== FILE_REF_PROP) {
+      return result.err(
+        new PatchError(`Cannot add non-${FILE_REF_PROP} key to val.file`)
+      );
+    }
+    if (typeof value !== "string") {
+      return result.err(
+        new PatchError(
+          `Cannot add ${FILE_REF_PROP} key to val.file with non-string value`
         )
       );
     }
-    return result.err(
-      new PatchError(`Cannot add ${typeof value} to val.file function`)
+    return pipe(
+      findValFileNodeArg(node),
+      result.map((arg: ts.Expression) => replaceNodeValue(document, arg, value))
     );
   } else {
     return result.err(
