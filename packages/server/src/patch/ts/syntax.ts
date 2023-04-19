@@ -126,9 +126,13 @@ export function shallowValidateExpression(
     value.kind === ts.SyntaxKind.FalseKeyword ||
     value.kind === ts.SyntaxKind.NullKeyword ||
     ts.isArrayLiteralExpression(value) ||
-    ts.isObjectLiteralExpression(value)
+    ts.isObjectLiteralExpression(value) ||
+    isValFileMethodCall(value)
     ? undefined
-    : new ValSyntaxError("Value must be a literal", value);
+    : new ValSyntaxError(
+        "Expression must be a literal or call val.file",
+        value
+      );
 }
 
 /**
@@ -161,8 +165,12 @@ export function deepValidateExpression(
         )
       )
     );
+  } else if (isValFileMethodCall(value)) {
+    return result.voidOk;
   } else {
-    return result.err(new ValSyntaxError("Value must be a literal", value));
+    return result.err(
+      new ValSyntaxError("Expression must be a literal or call val.file", value)
+    );
   }
 }
 
@@ -213,7 +221,9 @@ export function evaluateExpression(
       result.map((ref) => ({ [FILE_REF_PROP]: ref.text }))
     );
   } else {
-    return result.err(new ValSyntaxError("Value must be a literal", value));
+    return result.err(
+      new ValSyntaxError("Expression must be a literal or call val.file", value)
+    );
   }
 }
 
