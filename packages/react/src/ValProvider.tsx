@@ -294,20 +294,22 @@ const ValEditForm: React.FC<{
       setPosition(initPosition);
     }
   }, [initPosition]);
-  const ref = useRef<HTMLFormElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onMouseUp = () => {
       setMouseDown(false);
     };
     const onMouseMove = (e: MouseEvent) => {
       if (mouseDown) {
+        const top =
+          -((ref?.current?.getBoundingClientRect()?.height || 0) / 2) +
+          +e.clientY;
+
         setPosition({
           left:
             -((ref?.current?.getBoundingClientRect()?.width || 0) / 2) +
             e.clientX,
-          top:
-            -((ref?.current?.getBoundingClientRect()?.height || 0) / 2) +
-            +e.clientY,
+          top: top < 0 ? 0 : top,
         });
       }
     };
