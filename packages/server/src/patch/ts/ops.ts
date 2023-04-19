@@ -719,9 +719,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
       this.findRoot,
       result.flatMap((rootNode: ts.Expression) => getAtPath(rootNode, path)),
       result.flatMap(evaluateExpression),
-      result.map((documentValue: JSONValue) => {
-        return deepEqual(value, documentValue);
-      })
+      result.map((documentValue: JSONValue) => deepEqual(value, documentValue))
     );
   }
 }
