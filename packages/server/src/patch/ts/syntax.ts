@@ -166,7 +166,26 @@ export function deepValidateExpression(
       )
     );
   } else if (isValFileMethodCall(value)) {
-    return result.voidOk;
+    if (value.arguments.length === 1) {
+      const arg = value.arguments[0];
+      if (ts.isStringLiteralLike(arg)) {
+        return result.voidOk;
+      } else {
+        return result.err(
+          new ValSyntaxError(
+            "Argument to val.file must be a string literal",
+            arg
+          )
+        );
+      }
+    } else {
+      return result.err(
+        new ValSyntaxError(
+          "val.file must be called with a single argument",
+          value
+        )
+      );
+    }
   } else {
     return result.err(
       new ValSyntaxError("Expression must be a literal or call val.file", value)
