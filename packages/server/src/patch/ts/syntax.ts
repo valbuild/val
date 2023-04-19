@@ -209,7 +209,7 @@ export function evaluateExpression(
     );
   } else if (isValFileMethodCall(value)) {
     return pipe(
-      evaluateValFileRef(value),
+      findValFileNodeArg(value),
       result.map((ref) => ({ [FILE_REF_PROP]: ref.text }))
     );
   } else {
@@ -251,7 +251,7 @@ export function isValFileMethodCall(
   );
 }
 
-export function evaluateValFileRef(
+export function findValFileNodeArg(
   node: ts.CallExpression
 ): result.Result<ts.StringLiteral, ValSyntaxErrorTree> {
   if (node.arguments.length === 0) {

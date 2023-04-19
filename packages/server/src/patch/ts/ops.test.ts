@@ -151,6 +151,13 @@ describe("TSOps", () => {
       ),
     },
     {
+      name: "ref prop to val.file",
+      input: `val.file("/public/val/foo.jpg")`,
+      path: ["ref"],
+      value: "/public/val/bar.jpg",
+      expected: result.ok(`val.file("/public/val/bar.jpg")`),
+    },
+    {
       name: "ref prop",
       input: `{ foo: "bar", image: {} }`,
       path: ["image", "ref"],

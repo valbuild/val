@@ -7,7 +7,7 @@ import {
   ValSyntaxErrorTree,
   shallowValidateExpression,
   isValFileMethodCall,
-  evaluateValFileRef,
+  findValFileNodeArg,
 } from "./syntax";
 import {
   deepEqual,
@@ -321,7 +321,7 @@ function replaceInNode(
         replaceNodeValue(document, assignment.initializer, value)
       )
     );
-  } else if (ts.isCallExpression(node)) {
+  } else if (isValFileMethodCall(node)) {
     if (key !== FILE_REF_PROP) {
       return result.err(
         new PatchError("Cannot replace non-ref key of val.file")
@@ -333,7 +333,7 @@ function replaceInNode(
       );
     }
     return pipe(
-      evaluateValFileRef(node),
+      findValFileNodeArg(node),
       result.map((refNode) => replaceNodeValue(document, refNode, value))
     );
   } else {
@@ -380,7 +380,7 @@ export function getFromNode(
       )
     );
   } else if (key === FILE_REF_PROP && isValFileMethodCall(node)) {
-    return evaluateValFileRef(node);
+    return findValFileNodeArg(node);
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -509,18 +509,14 @@ function addToNode(
   key: string,
   value: JSONValue
 ): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Expression]> {
-  if (key === FILE_REF_PROP && !isValFileValue(value)) {
-    return result.err(
-      new PatchError("Cannot add a non-val.file value to a val.file object")
-    );
-  } else if (ts.isArrayLiteralExpression(node)) {
+  if (ts.isArrayLiteralExpression(node)) {
     return pipe(
       parseAndValidateArrayInsertIndex(key, node.elements),
       result.map((index: number): [document: ts.SourceFile] => [
         insertAt(document, node.elements, index, toExpression(value)),
       ])
     );
-  } else if (ts.isObjectLiteralExpression(node)) {
+  } else if (ts.isObjectLiteralExpression(node) && key !== FILE_REF_PROP) {
     return pipe(
       findObjectPropertyAssignment(node, key),
       result.map(
@@ -542,8 +538,26 @@ function addToNode(
         }
       )
     );
-  } else if (isValFileMethodCall(node)) {
-    return result.err(new PatchError("Cannot add a key to val.file"));
+  } else if (
+    key === FILE_REF_PROP ||
+    isValFileMethodCall(node) ||
+    isValFileValue(value)
+  ) {
+    if (
+      key === FILE_REF_PROP &&
+      isValFileMethodCall(node) &&
+      typeof value === "string"
+    ) {
+      return pipe(
+        findValFileNodeArg(node),
+        result.map((arg: ts.Expression) =>
+          replaceNodeValue(document, arg, value)
+        )
+      );
+    }
+    return result.err(
+      new PatchError(`Cannot add ${typeof value} to val.file function`)
+    );
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -689,7 +703,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
           result.flatMap((node) => {
             if (isValFileMethodCall(node)) {
               return pipe(
-                evaluateValFileRef(node),
+                findValFileNodeArg(node),
                 result.map((refNode) => ({ [FILE_REF_PROP]: refNode.text }))
               );
             }
