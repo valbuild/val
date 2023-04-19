@@ -700,15 +700,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
       result.flatMap((rootNode: ts.Expression) =>
         pipe(
           getAtPath(rootNode, from),
-          result.flatMap((node) => {
-            if (isValFileMethodCall(node)) {
-              return pipe(
-                findValFileNodeArg(node),
-                result.map((refNode) => ({ [FILE_REF_PROP]: refNode.text }))
-              );
-            }
-            return evaluateExpression(node);
-          }),
+          result.flatMap(evaluateExpression),
           result.flatMap((value: JSONValue) =>
             addAtPath(document, rootNode, path, value)
           )

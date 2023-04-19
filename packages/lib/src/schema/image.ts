@@ -141,3 +141,6 @@ export class ImageSchema<Opt extends boolean> extends Schema<
 export const image = (options?: ImageOptions): ImageSchema<false> => {
   return new ImageSchema(options, false);
 };
+image.optional = (options?: ImageOptions): ImageSchema<true> => {
+  return new ImageSchema(options, true);
+};
