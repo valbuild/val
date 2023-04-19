@@ -69,6 +69,8 @@ export type RawDescriptorOf<S extends Schema<never, Source>> = Schema<
   ? MaybeOptDesc<StringDescriptor, Opt>
   : S extends NumberSchema<infer Opt>
   ? MaybeOptDesc<NumberDescriptor, Opt>
+  : S extends ImageSchema<infer Opt>
+  ? MaybeOptDesc<ImageDescriptor, Opt>
   : MaybeOptDesc<Descriptor<Source>, boolean>;
 
 export function localDescriptorOf<S extends Schema<never, Source>>(
