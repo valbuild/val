@@ -3,7 +3,7 @@ export type SourcePrimitive = string | number | boolean | null;
 
 declare const brand: unique symbol;
 
-export const FileRefProp = "ref" as const;
+export const FILE_REF_PROP = "ref" as const;
 export type FileSource<Ref extends string> = {
   readonly [FileRefProp]: Ref;
   readonly [brand]: "ValFileSource";

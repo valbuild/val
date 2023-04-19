@@ -324,7 +324,7 @@ function replaceInNode(
   } else if (ts.isCallExpression(node)) {
     if (key !== FileRefProp) {
       return result.err(
-        new PatchError("Cannot replace non-file source reference")
+        new PatchError("Cannot replace non-ref key of val.file")
       );
     }
     if (typeof value !== "string") {

@@ -7,7 +7,7 @@ import { FileSource } from "../Source";
  *
  * Currently this is what we support.
  */
-export const ImageExtensions = [
+export const IMAGE_EXTENSIONS = [
   // "apng",
   // "avif",
   "gif",
@@ -58,7 +58,7 @@ export class ImageSchema<Opt extends boolean> extends Schema<
   OptIn<FileSource<string>, Opt>,
   OptOut<ValImage, Opt>
 > {
-  private readonly staticFilesFolder;
+  private readonly staticFilesFolder: string;
 
   constructor(
     private readonly options: ImageOptions | undefined,
@@ -70,8 +70,9 @@ export class ImageSchema<Opt extends boolean> extends Schema<
   }
 
   protected validate(src: OptIn<FileSource<string>, Opt>): false | string[] {
-    if (!this.opt) {
-      if (src === null) return ["Required image cannot be null"];
+    if (src === null) {
+      if (!this.opt) return ["Required image cannot be null"];
+      return false;
     }
     if (
       src &&
