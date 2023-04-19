@@ -13,4 +13,4 @@ export { type Val, newVal } from "./val";
 export * as expr from "./expr";
 export type { Selectable } from "./selectable";
 export type { ValImage } from "./schema/image";
-export { FileRefProp } from "./Source";
+export { FILE_REF_PROP } from "./Source";

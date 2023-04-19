@@ -5,7 +5,7 @@ declare const brand: unique symbol;
 
 export const FILE_REF_PROP = "ref" as const;
 export type FileSource<Ref extends string> = {
-  readonly [FileRefProp]: Ref;
+  readonly [FILE_REF_PROP]: Ref;
   readonly [brand]: "ValFileSource";
 };
 

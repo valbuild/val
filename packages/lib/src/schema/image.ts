@@ -25,7 +25,7 @@ export const IMAGE_EXTENSIONS = [
   // "tif",
   // "tiff",
 ] as const;
-export type ImageExtensions = (typeof ImageExtensions)[number];
+export type ImageExtensions = (typeof IMAGE_EXTENSIONS)[number];
 
 const extname = (filename: string) => {
   const i = filename.lastIndexOf(".");

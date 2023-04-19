@@ -17,7 +17,7 @@ import {
   JSONValue,
   parseAndValidateArrayIndex,
 } from "@valbuild/lib/patch";
-import { FileRefProp, FileSource } from "@valbuild/lib";
+import { FILE_REF_PROP, FileSource } from "@valbuild/lib";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
@@ -322,7 +322,7 @@ function replaceInNode(
       )
     );
   } else if (ts.isCallExpression(node)) {
-    if (key !== FileRefProp) {
+    if (key !== FILE_REF_PROP) {
       return result.err(
         new PatchError("Cannot replace non-ref key of val.file")
       );
@@ -379,7 +379,7 @@ export function getFromNode(
           assignment?.initializer
       )
     );
-  } else if (key === FileRefProp && isValFileMethodCall(node)) {
+  } else if (key === FILE_REF_PROP && isValFileMethodCall(node)) {
     return evaluateValFileRef(node);
   } else {
     return result.err(
@@ -498,7 +498,7 @@ function isValFileValue(value: JSONValue): value is FileSource<string> {
   return !!(
     typeof value === "object" &&
     value &&
-    FileRefProp in value &&
+    FILE_REF_PROP in value &&
     typeof value.ref === "string"
   );
 }
@@ -509,7 +509,7 @@ function addToNode(
   key: string,
   value: JSONValue
 ): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Expression]> {
-  if (key === FileRefProp && !isValFileValue(value)) {
+  if (key === FILE_REF_PROP && !isValFileValue(value)) {
     return result.err(
       new PatchError("Cannot add a non-val.file value to a val.file object")
     );
@@ -690,7 +690,7 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
             if (isValFileMethodCall(node)) {
               return pipe(
                 evaluateValFileRef(node),
-                result.map((refNode) => ({ [FileRefProp]: refNode.text }))
+                result.map((refNode) => ({ [FILE_REF_PROP]: refNode.text }))
               );
             }
             return evaluateExpression(node);
