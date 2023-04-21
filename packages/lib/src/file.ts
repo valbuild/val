@@ -1,7 +1,7 @@
-import { FileSource } from "./Source";
+import { FileSource, FILE_REF_PROP } from "./Source";
 
 export function file<F extends string>(ref: F): FileSource<F> {
-  return { type: "file", ref } as FileSource<F>;
+  return { type: "file", [FILE_REF_PROP]: ref } as FileSource<F>;
 }
 
 export function isFileRef(refObject: unknown): refObject is FileSource<string> {
@@ -10,6 +10,6 @@ export function isFileRef(refObject: unknown): refObject is FileSource<string> {
     refObject !== null &&
     "type" in refObject &&
     refObject["type"] === "file" &&
-    "ref" in refObject
+    FILE_REF_PROP in refObject
   );
 }
