@@ -107,7 +107,18 @@ export class ImageSchema<Opt extends boolean> extends Schema<
       return null as OptOut<{ url: string }, Opt>;
     }
     return {
-      url: src.ref.slice(this.staticFilesFolder.length, src.ref.length),
+      url:
+        src.ref.slice(this.staticFilesFolder.length, src.ref.length) +
+        "?version=" +
+        // TODO: the reason we do this HACK (!) is to force a
+        // reload of the image when it is saved.
+        // Using a random value here is obviously not  correct.
+        // We can determine a version of an asset by the patches that
+        // are applied or by the commit we are on or a combination of both. The
+        // reason we DEFINITELY do NOT want to do this is that we will break
+        // ANY possible client side caching opportunities on images which is
+        // UNACCEPTABLE. There are sure to be other reasons as well...
+        Buffer.from(Date.now().toString(), "ascii").toString("hex"),
     };
   }
 
