@@ -4,7 +4,9 @@ import { isRemoteRef } from "../remote";
 import { Ops, PatchError } from "./ops";
 import { Patch } from "./patch";
 
-function derefPath(path: string[]): [string[], string[] | null] {
+function derefPath(
+  path: string[]
+): result.Result<[string[], string[] | null], PatchError> {
   const dereffedPath: string[] = [];
   let referencedPath: string[] | null = null;
   for (const segment of path) {
@@ -13,6 +15,15 @@ function derefPath(path: string[]): [string[], string[] | null] {
       dereffedPath.push(dereffedSegment);
       referencedPath = [];
       for (const segment of path.slice(dereffedPath.length)) {
+        if (segment.startsWith("$")) {
+          return result.err(
+            new PatchError(
+              `Cannot reference within reference: ${segment}. Path: ${path.join(
+                "/"
+              )}`
+            )
+          );
+        }
         referencedPath.push(segment);
       }
       break;
@@ -20,7 +31,7 @@ function derefPath(path: string[]): [string[], string[] | null] {
       dereffedPath.push(segment);
     }
   }
-  return [dereffedPath, referencedPath];
+  return result.ok([dereffedPath, referencedPath]);
 }
 
 export type DerefPatchResult = {
@@ -43,7 +54,11 @@ export function derefPatch<D, E>(
   const dereferencedPatch: Patch = [];
   for (const op of patch) {
     if (op.op === "replace") {
-      const [dereffedPath, referencedPath] = derefPath(op.path);
+      const maybeDerefRes = derefPath(op.path);
+      if (result.isErr(maybeDerefRes)) {
+        return maybeDerefRes;
+      }
+      const [dereffedPath, referencedPath] = maybeDerefRes.value;
       if (referencedPath) {
         const maybeValue = ops.get(document, dereffedPath);
         if (result.isOk(maybeValue)) {
