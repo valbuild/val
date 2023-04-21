@@ -18,7 +18,11 @@ export class ValSourceFileHandler {
   }
 
   writeSourceFile(sourceFile: ts.SourceFile) {
-    this.host.writeFile(sourceFile.fileName, sourceFile.text, false);
+    return this.writeFile(sourceFile.fileName, sourceFile.text);
+  }
+
+  writeFile(filePath: string, content: string) {
+    this.host.writeFile(filePath, content, false);
   }
 
   resolveSourceModulePath(
