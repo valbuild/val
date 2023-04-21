@@ -47,7 +47,7 @@ type ToStringCtx<Ctx> = { readonly [s in keyof Ctx]: string };
  * An Expr is an expression which can be evaluated to a value. The expression's
  * value may be assignable.
  */
-export interface Expr<Ctx, T> {
+export interface Expr<in Ctx, out T> {
   /**
    * Evaluate the value of the expression.
    */
@@ -467,6 +467,36 @@ export function arrayLiteral<Ctx, T extends readonly unknown[]>(items: {
 }): Expr<Ctx, T> {
   return new ArrayLiteral<Ctx, T>(items);
 }
+
+class Match<Ctx, K extends string, V extends { [k in K]: string }, O>
+  implements Expr<Ctx, O>
+{
+  constructor(
+    private readonly expr: Expr<Ctx, V>,
+    private readonly key: K,
+    private readonly matcher: { [U in V as U[K]]: Expr<readonly [U], O> }
+  ) {}
+  evaluate(ctx: Ctx): O {
+    const value = this.expr.evaluate(ctx);
+    const discriminatorValue = value[this.key];
+    const _case = this.matcher[discriminatorValue] as Expr<readonly [V], O>;
+    return _case.evaluate([value]);
+  }
+  evaluateRef(ctx: Ctx, refCtx: RefCtx<Ctx>): ValueAndRef<O> {
+    throw TypeError("Not implemented");
+  }
+  toString(ctx: ToStringCtx<Ctx>): string {
+    throw TypeError("Not implemented");
+  }
+}
+export function match<Ctx, K extends string, V extends { [k in K]: string }, O>(
+  expr: Expr<Ctx, V>,
+  key: K,
+  matcher: { [U in V as U[K]]: Expr<readonly [U], O> }
+): Expr<Ctx, O> {
+  return new Match(expr, key, matcher);
+}
+
 export function parse<Ctx>(
   ctx: { readonly [s in string]: keyof Ctx },
   str: string

@@ -4,6 +4,7 @@ import { number } from "./schema/number";
 import { i18n } from "./schema/i18n";
 import { object } from "./schema/object";
 import { string } from "./schema/string";
+import { taggedUnion, literal } from "./schema/taggedUnion";
 
 const defaultVal = {
   val: {
@@ -15,6 +16,8 @@ const defaultVal = {
     number,
     object,
     string,
+    taggedUnion,
+    literal,
   },
 };
 

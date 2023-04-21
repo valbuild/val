@@ -15,6 +15,7 @@ export {
   andThen,
   objectLiteral,
   arrayLiteral,
+  match,
   primitiveLiteral,
   parse,
 } from "./expr";
