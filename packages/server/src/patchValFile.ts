@@ -70,7 +70,8 @@ export const patchValFile = async (
     // sourceFileHandler.moveFile(tempFilePath, "." + filePath);
     sourceFileHandler.writeFile(
       "." + filePath,
-      Buffer.from(content, "base64").toString("binary")
+      convertDataUrlToBase64(content).toString("binary"),
+      "binary"
     );
   }
 
@@ -86,6 +87,11 @@ export const patchValFile = async (
 
   return readValFile(id, valConfigPath, runtime);
 };
+
+function convertDataUrlToBase64(dataUrl: string): Buffer {
+  const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  return Buffer.from(base64, "base64");
+}
 
 export const patchSourceFile = (
   sourceFile: ts.SourceFile,

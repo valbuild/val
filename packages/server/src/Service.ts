@@ -9,6 +9,7 @@ import { ValSourceFileHandler } from "./ValSourceFileHandler";
 import ts from "typescript";
 import { getCompilerOptions } from "./getCompilerOptions";
 import { IValFSHost } from "./ValFSHost";
+import fs from "fs";
 
 export type ServiceOptions = {
   /**
@@ -22,7 +23,10 @@ export type ServiceOptions = {
 export async function createService(
   projectRoot: string,
   opts: ServiceOptions,
-  host: IValFSHost = ts.sys
+  host: IValFSHost = {
+    ...ts.sys,
+    writeFile: fs.writeFileSync,
+  }
 ): Promise<Service> {
   const compilerOptions = getCompilerOptions(projectRoot, host);
   const sourceFileHandler = new ValSourceFileHandler(
