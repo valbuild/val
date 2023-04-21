@@ -33,7 +33,7 @@ const extname = (filename: string) => {
 };
 
 export type ImageOptions = {
-  extensions: ImageExtensions[];
+  exts: ImageExtensions[];
   staticFilesFolder?: string;
 };
 
@@ -76,13 +76,13 @@ export class ImageSchema<Opt extends boolean> extends Schema<
     }
     if (
       src &&
-      this.options?.extensions &&
-      (this.options.extensions as string[]).includes(extname(src.ref))
+      this.options?.exts &&
+      (this.options.exts as string[]).includes(extname(src.ref))
     ) {
       return [
         `Found image extension: ${extname(
           src.ref
-        )} which is not supported. Supported image extensions are: ${this.options.extensions.join(
+        )} which is not supported. Supported image extensions are: ${this.options.exts.join(
           ", "
         )}`,
       ];
