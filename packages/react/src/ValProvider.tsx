@@ -15,6 +15,7 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useTransition,
 } from "react";
 import { editIcon, valcmsLogo } from "./assets";
 import { ValApi } from "./ValApi";
@@ -194,6 +195,7 @@ const ValEditForm: React.FC<{
         status: "ready";
         moduleId: string;
         schemaType: "string" | "image";
+        primitivePath: string;
         locale: "en_US";
         value: string;
         path: string;
@@ -230,10 +232,11 @@ const ValEditForm: React.FC<{
             [""]
           );
           let schemaType: "string" | "image" = "string";
+          const primitivePath = [];
           // Temporary hack to get schema at ref
           if (typeof ref === "string") {
             let schema = mod.schema.serialize();
-            for (const part of ref?.toString().split("/") || []) {
+            for (const part of ref.split("/") || []) {
               if (part === "") {
                 continue;
               }
@@ -242,10 +245,20 @@ const ValEditForm: React.FC<{
               } else if (schema.type === "array") {
                 schema = schema.schema;
               } else {
-                console.error("TODO: ref is not an object or array", ref);
+                if (schema.type !== "string" && schema.type !== "image") {
+                  throw Error(
+                    "Schema type " + schema.type + " not implemented"
+                  );
+                }
+                schemaType = schema.type;
+                break;
               }
+              primitivePath.push(part);
             }
-            schemaType = schema.type === "image" ? "image" : "string";
+            // console.log(ref, primitiveRef.join("/"), schemaType);
+            if (!schemaType) {
+              throw Error('Could not find schema for ref "' + ref + '"');
+            }
           } else {
             console.error("TODO: ref is not a string", ref);
           }
@@ -270,6 +283,7 @@ const ValEditForm: React.FC<{
             locale,
             schemaType,
             value,
+            primitivePath: "/" + primitivePath.join("/"),
             path: ref,
           };
         } catch (err) {
@@ -322,6 +336,10 @@ const ValEditForm: React.FC<{
     };
   }, [mouseDown]);
 
+  const [imagePreviews, setImagePreviews] = useState<{
+    [primitivePath: string]: string;
+  }>({});
+
   const handleMouseDown = () => setMouseDown(true);
 
   if (!initPosition) {
@@ -350,36 +368,58 @@ const ValEditForm: React.FC<{
           const modulePatches: Record<string, Operation[]> = {};
           for (const entry of entries) {
             if (entry.status === "ready") {
-              const { moduleId, locale } = entry;
+              const { moduleId, locale, schemaType, primitivePath } = entry;
               let { path } = entry;
               if (!modulePatches[moduleId]) {
                 modulePatches[moduleId] = [];
               }
-              const value = data.get(path);
-              if (typeof value !== "string") {
-                throw Error("Invalid non-string value in form");
+              if (schemaType === "image") {
+                if (imagePreviews[primitivePath]) {
+                  const base64Image = imagePreviews[primitivePath];
+
+                  const parts = primitivePath
+                    .slice(1) // removes leading slash
+                    .split("/");
+                  modulePatches[moduleId].push({
+                    op: "replace",
+                    path:
+                      // TODO: this leaves room for... improvement
+                      "/" +
+                      parts.slice(0, parts.length - 1).join("/") +
+                      "/$" +
+                      parts.slice(-1)[0],
+                    value: base64Image,
+                  });
+                }
+              } else {
+                const value = data.get(path);
+                if (typeof value !== "string") {
+                  throw Error("Invalid non-string value in form");
+                }
+                const mod = valStore.get(moduleId);
+                if (!mod) {
+                  throw Error(`${moduleId} is not in store`);
+                }
+                const parsedPath = parseJSONPointer(path);
+                if (result.isErr(parsedPath)) {
+                  throw Error(
+                    `${JSON.stringify(path)} is invalid JSON pointer`
+                  );
+                }
+                path = formatJSONPointer(
+                  Schema.inverseTransformPath(
+                    mod.schema,
+                    mod.source,
+                    parsedPath.value,
+                    locale
+                  )
+                );
+                modulePatches[moduleId].push({
+                  op: "replace",
+                  path,
+                  value,
+                });
               }
-              const mod = valStore.get(moduleId);
-              if (!mod) {
-                throw Error(`${moduleId} is not in store`);
-              }
-              const parsedPath = parseJSONPointer(path);
-              if (result.isErr(parsedPath)) {
-                throw Error(`${JSON.stringify(path)} is invalid JSON pointer`);
-              }
-              path = formatJSONPointer(
-                Schema.inverseTransformPath(
-                  mod.schema,
-                  mod.source,
-                  parsedPath.value,
-                  locale
-                )
-              );
-              modulePatches[moduleId].push({
-                op: "replace",
-                path,
-                value,
-              });
             }
           }
           await Promise.all(
@@ -474,10 +514,40 @@ const ValEditForm: React.FC<{
                 ) : (
                   <>
                     <span>
-                      {entry.moduleId}?{entry.locale}?{entry.path}
+                      {entry.moduleId}?{entry.locale}?{entry.primitivePath}
                     </span>
                     {entry.schemaType === "image" ? (
-                      <img src={entry.value} style={{ maxWidth: "100%" }} />
+                      <>
+                        <img
+                          src={
+                            imagePreviews[entry.primitivePath] || entry.value
+                          }
+                          style={{ maxWidth: "50vw" }}
+                        />
+                        <input
+                          hidden
+                          type="file"
+                          name={entry.primitivePath}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.addEventListener("load", () => {
+                                const result = reader.result;
+                                if (typeof result === "string") {
+                                  setImagePreviews({
+                                    ...imagePreviews,
+                                    [entry.primitivePath]: result,
+                                  });
+                                } else {
+                                  throw Error("Invalid reader result");
+                                }
+                              });
+                              reader.readAsDataURL(file);
+                            }
+                          }}
+                        />
+                      </>
                     ) : (
                       <textarea
                         style={{
@@ -490,7 +560,7 @@ const ValEditForm: React.FC<{
                           padding: "4px",
                           fontSize: "14px",
                         }}
-                        name={entry.path}
+                        name={entry.primitivePath}
                         defaultValue={entry.value}
                       />
                     )}
