@@ -14,3 +14,4 @@ export * as expr from "./expr";
 export type { Selectable } from "./selectable";
 export type { ValImage } from "./schema/image";
 export { FILE_REF_PROP } from "./Source";
+export { derefPatch } from "./patch/deref";

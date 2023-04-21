@@ -1,5 +1,5 @@
 import { analyzeValModule } from "./patch/ts/valModule";
-import { applyPatch, Patch, PatchError } from "@valbuild/lib/patch";
+import { applyPatch, Ops, Patch, PatchError } from "@valbuild/lib/patch";
 import { TSOps } from "./patch/ts/ops";
 import { result, pipe } from "@valbuild/lib/fp";
 import {
