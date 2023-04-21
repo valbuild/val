@@ -1,7 +1,7 @@
 import ts from "typescript";
 import { result, pipe } from "@valbuild/lib/fp";
 import { JSONValue } from "@valbuild/lib/patch";
-import { FILE_REF_PROP } from "@valbuild/lib";
+import { FileSource, FILE_REF_PROP } from "@valbuild/lib";
 
 export class ValSyntaxError {
   constructor(public message: string, public node: ts.Node) {}
@@ -237,7 +237,13 @@ export function evaluateExpression(
   } else if (isValFileMethodCall(value)) {
     return pipe(
       findValFileNodeArg(value),
-      result.map((ref) => ({ [FILE_REF_PROP]: ref.text }))
+      result.map(
+        (ref) =>
+          ({
+            [FILE_REF_PROP]: ref.text,
+            type: "file",
+          } as FileSource<string>)
+      )
     );
   } else {
     return result.err(
