@@ -1,53 +1,79 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
-import { I18nDescriptor, I18nSelector } from "./i18n";
-import { Selector as ObjectSelector } from "./object";
-import { Selector as ArraySelector } from "./array";
+import { I18n, I18nSelector } from "./i18n";
+import { UndistributedSourceObject as ObjectSelector } from "./object";
+import { UndistributedSourceArray as ArraySelector } from "./array";
 import { Selector as PrimitiveSelector } from "./primitive";
 import { AssetSelector } from "./asset";
 
-export type SourceObject = { readonly [key: string]: Source };
-export type SourcePrimitive = string | number | boolean | null;
+export type SourceObject = { [key: string]: Source };
+export type SourceArray = Source[];
+export type SourcePrimitive = string | number | boolean | undefined;
 
 declare const brand: unique symbol;
 
-export const FILE_REF_PROP = "ref" as const;
+export const FILE_REF_PROP = "_ref" as const;
 export type FileSource<Ref extends string> = {
   readonly [FILE_REF_PROP]: Ref;
-  readonly type: "file"; // TODO: type is a very common property name, does that matter here?
+  readonly _type: "file"; // TODO: type is a very common property name, does that matter here?
   readonly [brand]: "ValFileSource";
 };
 
-export const REMOTE_REF_PROP = "ref" as const; // TODO: same as FILE_REF_PROP so use same prop?
+export const REMOTE_REF_PROP = "_ref" as const; // TODO: same as FILE_REF_PROP so use same prop?
 export type RemoteSource<Ref extends string> = {
   readonly [REMOTE_REF_PROP]: Ref;
-  readonly type: "remote"; // TODO: type is a very common property name, does that matter here?
+  readonly _type: "remote"; // TODO: type is a very common property name, does that matter here?
   readonly [brand]: "ValRemoteSource";
 };
 
 export type Source =
   | SourcePrimitive
   | SourceObject
-  | readonly Source[]
+  | SourceArray
   | FileSource<string>;
+
+export type SelectorSource =
+  | {
+      [key: string]: SelectorSource;
+    }
+  | SelectorSource[]
+  | SourcePrimitive
+  | PrimitiveSelector<SourcePrimitive>
+  | SelectorC<SelectorSource>;
 
 export class SelectorC<T> {
   constructor(public readonly value: T) {}
 }
 
-export type Selector<T> = T extends I18nDescriptor<infer S>
+export type Selector<T> = [T] extends [I18n<infer S>]
   ? I18nSelector<S>
-  : T extends SourceObject
+  : [T] extends [FileSource<string>]
+  ? AssetSelector
+  : [T] extends [SourceObject]
   ? ObjectSelector<T>
-  : T extends readonly Source[]
+  : [T] extends [SourceArray]
   ? ArraySelector<T>
-  : T extends string | boolean | number
+  : [T] extends [string | boolean | number]
   ? PrimitiveSelector<T>
   : never;
 
-// NOTE: the distribution of the conditional type is important here:
+// export type Selector<T> = T extends I18n<infer S>
+//   ? I18nSelector<S>
+//   : T extends FileSource<string>
+//   ? AssetSelector
+//   : T extends SourceObject
+//   ? ObjectSelector<T>
+//   : T extends SourceArray
+//   ? ArraySelector<T>
+//   : T extends string | boolean | number
+//   ? PrimitiveSelector<T>
+//   : never;
+
+// NOTE: the "un-distribution of the conditional type is important here:
 // https://www.typescriptlang.org/docs/handbook/2/conditional-types.html#distributive-conditional-types
 // Without it we get: Type instantiation is excessively deep and possibly infinite.
+// Although we believe we understand this pattern, we do not really understand why it helps here.
+// We believe it is the infer that is helping here: https://github.com/microsoft/TypeScript/issues/30188#issuecomment-478938437
 export type SourceOf<T> = [T] extends [SelectorC<infer S>]
   ? S
   : [T] extends [unknown[]]
@@ -58,54 +84,33 @@ export type SourceOf<T> = [T] extends [SelectorC<infer S>]
     }
   : T;
 
-export type SelectorOf<U> = Selector<SourceOf<U>>;
-
-// type A = SourceOf<Selector<{ foo: { bar: string } }[]>>;
-// type B = SourceOf<Selector<string>>;
-// type C = SourceOf<string>;
-// type D = SourceOf<{ foo: { bar: string } }[]>;
-// //
-// type DS1 = Selector<D>;
-// type DS2 = Selector<{ foo: { bar: string } }[]>;
-// type E = Selector<B>;
-// type F = Selector<C>;
-
-// type G = SelectorOf<
-//   ObjectSelector<{
-//     readonly title: string;
-//     readonly bar: string;
-//   }>
-// >;
+export type SelectorOf<U extends SelectorSource> = Selector<SourceOf<U>>;
 
 {
   const ex = "" as unknown as Selector<string>;
   ex.eq("");
 }
 
-// {
-//   const ex = "" as unknown as Selector<FileSource<string>>;
-//   ex.url.eq("");
-// }
+{
+  const ex = "" as unknown as Selector<FileSource<string>>;
+  ex.url.eq("");
+}
 
 {
-  const ex = "" as unknown as Selector<
-    readonly { readonly title: string; readonly bar: string }[]
-  >;
+  const ex = "" as unknown as Selector<{ title: string; bar: string }[]>;
   const out = ex.map((v) => v);
   out[0].title;
   out[0].title.eq("");
 }
 
 {
-  const ex = "" as unknown as Selector<readonly { readonly title: string }[]>;
+  const ex = "" as unknown as Selector<{ title: string }[]>;
   const out = ex.filter((v) => v.title.eq(""));
   out[0].title;
 }
 
 {
-  const ex = "" as unknown as Selector<
-    readonly { readonly title: string; readonly bar: string }[]
-  >;
+  const ex = "" as unknown as Selector<{ title: string; bar: string }[]>;
   type A = Selector<
     SourceOf<
       ObjectSelector<{
@@ -120,9 +125,7 @@ export type SelectorOf<U> = Selector<SourceOf<U>>;
 }
 
 {
-  const ex = "" as unknown as Selector<
-    readonly { readonly title: string; readonly bar: string }[]
-  >;
+  const ex = "" as unknown as Selector<{ title: string; bar: string }[]>;
   type A = SourceOf<{
     subTitle: PrimitiveSelector<string>;
   }>;
@@ -134,17 +137,13 @@ export type SelectorOf<U> = Selector<SourceOf<U>>;
 }
 
 {
-  const ex = "" as unknown as Selector<
-    readonly { readonly title: string; readonly bar: string }[]
-  >;
+  const ex = "" as unknown as Selector<{ title: string; bar: string }[]>;
   const out = ex.map((v) => [v.title, v.title]);
   out[0][0].eq("");
 }
 
 {
-  const ex = "" as unknown as Selector<
-    readonly { readonly title: string; readonly bar: string }[]
-  >;
+  const ex = "" as unknown as Selector<{ title: string; bar: string }[]>;
 
   type A = SourceOf<{
     title: {
@@ -163,45 +162,86 @@ export type SelectorOf<U> = Selector<SourceOf<U>>;
   out[0].title.foo.eq("fdso");
 }
 
-// {
-//   const ex = "" as unknown as Selector<
-//     readonly { readonly title: string; readonly bar: string }[]
-//   >;
-//   const out = ex.map((v) => ({ title: "" }));
-// }
+{
+  const ex = "" as unknown as Selector<
+    {
+      title: {
+        foo: {
+          inner: { innerInnerTitle: { even: { more: string } } }[];
+        };
+      };
+      bar: string;
+      many: string[];
+      props: string;
+      are: string;
+      here: { even: { more: string } };
+      for: string;
+      testing: string;
+      purposes: string;
+      and: string;
+      to: string;
+      make: string;
+      sure: string;
+      that: {
+        even: {
+          more: {
+            even: { more: { even: { more: { even: { more: string } } } } };
+          };
+        };
+      };
+      the: string;
+      type: string;
+      system: string;
+      works: string;
+      as: string;
+      expected: string;
+    }[]
+  >;
+  const out = ex.map((v) => ({
+    title: {
+      foo: "string",
+    },
+    subTitle: { bar: v },
+  }));
+  out[0].subTitle.bar.that.even.more.even.more.even.more.even.more.eq("");
+}
 
-// {
-//   const ex = "" as unknown as Selector<
-//     readonly { readonly title: string; readonly bar: string }[]
-//   >;
-//   const out = ex.map((v) => ({ title1: v.title }));
-// }
+{
+  const ex = "" as unknown as Selector<{ title: string; bar: string }[]>;
+  const out = ex.map((v) => ({ title: { foo: undefined } }));
+}
 
-// {
-//   const ex = "" as unknown as Selector<I18nDescriptor<string>>;
-//   ex.eq("");
-// }
+{
+  const ex = "" as unknown as Selector<{ title: string; bar: string }[]>;
+  const out = ex.map((v) => ({ title1: v.title }));
+}
 
-// {
-//   const ex = "" as unknown as Selector<{
-//     readonly title: I18nDescriptor<string>;
-//   }>;
-//   ex.title.eq("");
-// }
+{
+  const ex = "" as unknown as Selector<I18n<string>>;
+  ex.eq("");
+}
 
-// {
-//   const ex = "" as unknown as Selector<
-//     I18nDescriptor<{ readonly title: string }>
-//   >;
-//   ex.title.eq("");
-// }
+{
+  const ex = "" as unknown as Selector<{
+    title: I18n<string>;
+  }>;
+  ex.title.eq("");
+}
 
-// {
-//   const ex = "" as unknown as Selector<
-//     { readonly d: "foo"; foo: string } | { readonly d: "bar"; bar: number }
-//   >;
-//   ex.d.eq("foo");
-// }
+{
+  const ex = "" as unknown as Selector<I18n<{ title: string }>>;
+  ex.title.eq("");
+}
+
+{
+  const ex = "" as unknown as Selector<
+    { d: "foo"; foo: string } | { d: "bar"; bar: number }
+  >;
+  const out = ex.match("d", {
+    foo: (v) => v.foo, // TODO: ({ foo: v.foo }) gives us never
+    bar: (v) => v.bar,
+  });
+}
 
 // {
 //   const ex = "" as unknown as Selector<null | {
