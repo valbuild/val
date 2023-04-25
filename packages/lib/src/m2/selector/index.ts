@@ -5,10 +5,11 @@ import { UndistributedSourceObject as ObjectSelector } from "./object";
 import { UndistributedSourceArray as ArraySelector } from "./array";
 import { Selector as PrimitiveSelector } from "./primitive";
 import { AssetSelector } from "./asset";
+import { Val } from "../../val";
 
-export type SourceObject = { [key: string]: Source };
+export type SourceObject = { [key in string]: Source };
 export type SourceArray = Source[];
-export type SourcePrimitive = string | number | boolean | undefined;
+export type SourcePrimitive = string | number | boolean | null; // TODO: replace null with undefined in Val as well
 
 declare const brand: unique symbol;
 
@@ -38,7 +39,6 @@ export type SelectorSource =
     }
   | SelectorSource[]
   | SourcePrimitive
-  | PrimitiveSelector<SourcePrimitive>
   | SelectorC<SelectorSource>;
 
 export class SelectorC<T> {
@@ -185,7 +185,7 @@ export type SelectorOf<U extends SelectorSource> = Selector<SourceOf<U>>;
       that: {
         even: {
           more: {
-            even: { more: { even: { more: { even: { more: string } } } } };
+            even: { more: { even: { more: { even: { more: string } } } } }[];
           };
         };
       };
@@ -203,17 +203,20 @@ export type SelectorOf<U extends SelectorSource> = Selector<SourceOf<U>>;
     },
     subTitle: { bar: v },
   }));
-  out[0].subTitle.bar.that.even.more.even.more.even.more.even.more.eq("");
+  out[0].subTitle.bar.that.even.more.even[0].more.even.more.even.more.eq("");
+  const v = useVal(out);
 }
 
 {
   const ex = "" as unknown as Selector<{ title: string; bar: string }[]>;
-  const out = ex.map((v) => ({ title: { foo: undefined } }));
+  // const out = ex.map((v) => ({ title: { foo: undefined } }));
 }
 
 {
   const ex = "" as unknown as Selector<{ title: string; bar: string }[]>;
   const out = ex.map((v) => ({ title1: v.title }));
+  const v = useVal(out);
+  v[0].title1.val;
 }
 
 {
@@ -234,13 +237,28 @@ export type SelectorOf<U extends SelectorSource> = Selector<SourceOf<U>>;
 }
 
 {
+  const ex = "" as unknown as Selector<I18n<{ title: string }>>;
+  ex.title.eq("");
+}
+
+{
   const ex = "" as unknown as Selector<
-    { d: "foo"; foo: string } | { d: "bar"; bar: number }
+    { type: "foo"; foo: string } | { type: "bar"; bar: number }
   >;
-  const out = ex.match("d", {
-    foo: (v) => v.foo, // TODO: ({ foo: v.foo }) gives us never
+  const out = ex.match("type", {
+    foo: (v) => ({ foo: v.foo }), // TODO: ({ foo: v.foo }) gives us never
     bar: (v) => v.bar,
   });
+}
+
+function useVal<Sel extends SelectorC<Source>>(
+  selector: Sel
+): Sel extends SelectorC<infer S>
+  ? S extends Source
+    ? Val<S>
+    : never
+  : never {
+  throw new Error("TODO");
 }
 
 // {
