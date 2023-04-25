@@ -5,8 +5,3 @@ export type Selector<T extends SourcePrimitive> = SelectorC<T> & {
   eq(other: SourcePrimitive): Selector<boolean>;
   readonly [brand]: "PrimitiveSelector";
 };
-
-{
-  const a = "" as unknown as Selector<string | number>;
-  a.eq(1);
-}

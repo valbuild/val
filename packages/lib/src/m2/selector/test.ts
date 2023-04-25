@@ -5,6 +5,8 @@
 //   [brand]: "PrimitiveSelector";
 // };
 
+import { Selector } from ".";
+
 // export type ObjectSelector<T extends SourceObject> = {
 //   readonly [key in keyof T]: PrimitiveSelector<T[key]>;
 // };
@@ -45,4 +47,9 @@ export type ObjectSelector<T extends SourceObject> = {
       return v.bar;
     },
   });
+}
+
+{
+  const ex = "" as unknown as Selector<string | undefined>;
+  ex;
 }

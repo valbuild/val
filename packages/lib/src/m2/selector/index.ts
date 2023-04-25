@@ -4,12 +4,12 @@ import { I18n, I18nSelector } from "./i18n";
 import { UndistributedSourceObject as ObjectSelector } from "./object";
 import { UndistributedSourceArray as ArraySelector } from "./array";
 import { Selector as PrimitiveSelector } from "./primitive";
+import { OptionalSelector as OptionalSelector } from "./optional";
 import { AssetSelector } from "./asset";
-import { Val } from "../../val";
 
 export type SourceObject = { [key in string]: Source };
 export type SourceArray = Source[];
-export type SourcePrimitive = string | number | boolean | null; // TODO: replace null with undefined in Val as well
+export type SourcePrimitive = string | number | boolean | undefined;
 
 declare const brand: unique symbol;
 
@@ -41,39 +41,28 @@ export type SelectorSource =
   | SourcePrimitive
   | SelectorC<SelectorSource>;
 
-export class SelectorC<T> {
-  constructor(public readonly value: T) {}
-}
-
-export type Selector<T> = [T] extends [I18n<infer S>]
-  ? I18nSelector<S>
-  : [T] extends [FileSource<string>]
-  ? AssetSelector
-  : [T] extends [SourceObject]
-  ? ObjectSelector<T>
-  : [T] extends [SourceArray]
-  ? ArraySelector<T>
-  : [T] extends [string | boolean | number]
-  ? PrimitiveSelector<T>
-  : never;
-
-// export type Selector<T> = T extends I18n<infer S>
-//   ? I18nSelector<S>
-//   : T extends FileSource<string>
-//   ? AssetSelector
-//   : T extends SourceObject
-//   ? ObjectSelector<T>
-//   : T extends SourceArray
-//   ? ArraySelector<T>
-//   : T extends string | boolean | number
-//   ? PrimitiveSelector<T>
-//   : never;
-
 // NOTE: the "un-distribution of the conditional type is important here:
 // https://www.typescriptlang.org/docs/handbook/2/conditional-types.html#distributive-conditional-types
 // Without it we get: Type instantiation is excessively deep and possibly infinite.
 // Although we believe we understand this pattern, we do not really understand why it helps here.
 // We believe it is the infer that is helping here: https://github.com/microsoft/TypeScript/issues/30188#issuecomment-478938437
+
+export class SelectorC<T> {
+  constructor(public readonly value: T) {}
+}
+
+export type Selector<T> = [T] extends [I18n<infer S> | undefined]
+  ? I18nSelector<NonNullable<S>> | OptionalSelector<T>
+  : [T] extends [FileSource<string> | undefined]
+  ? AssetSelector | OptionalSelector<T>
+  : [T] extends [SourceObject | undefined]
+  ? ObjectSelector<NonNullable<T>> | OptionalSelector<T>
+  : [T] extends [SourceArray | undefined]
+  ? ArraySelector<NonNullable<T>> | OptionalSelector<T>
+  : [T] extends [string | boolean | number | undefined]
+  ? PrimitiveSelector<NonNullable<T>> | OptionalSelector<T>
+  : never;
+
 export type SourceOf<T> = [T] extends [SelectorC<infer S>]
   ? S
   : [T] extends [unknown[]]
@@ -88,7 +77,44 @@ export type SelectorOf<U extends SelectorSource> = Selector<SourceOf<U>>;
 
 {
   const ex = "" as unknown as Selector<string>;
+  ex.andThen((v) => v);
   ex.eq("");
+}
+
+{
+  const ex = "" as unknown as Selector<string | undefined>;
+  const a = ex.andThen((v) => v);
+  ex.eq("");
+}
+
+{
+  const ex = "" as unknown as Selector<{ bar: string } | undefined>;
+  ex;
+}
+
+{
+  const ex = "" as unknown as Selector<
+    { title: string; bar: string | undefined }[]
+  >;
+  const out = ex.map((v) => v);
+  out[0].bar;
+}
+
+{
+  const ex = "" as unknown as Selector<
+    ({ title: string; bar: string } | undefined)[]
+  >;
+  const out = ex.map((v) => v);
+  out[0];
+}
+
+{
+  const ex = "" as unknown as Selector<
+    { title: string; bar: { foo: string } | undefined }[]
+  >;
+  type A = SourceOf<{ title: string; bar: { foo: string } | undefined }[]>;
+  const out = ex.map((v) => v);
+  const a = out[0].bar;
 }
 
 {
@@ -204,19 +230,16 @@ export type SelectorOf<U extends SelectorSource> = Selector<SourceOf<U>>;
     subTitle: { bar: v },
   }));
   out[0].subTitle.bar.that.even.more.even[0].more.even.more.even.more.eq("");
-  const v = useVal(out);
 }
 
 {
   const ex = "" as unknown as Selector<{ title: string; bar: string }[]>;
-  // const out = ex.map((v) => ({ title: { foo: undefined } }));
+  const out = ex.map((v) => ({ title: { foo: undefined } }));
 }
 
 {
   const ex = "" as unknown as Selector<{ title: string; bar: string }[]>;
   const out = ex.map((v) => ({ title1: v.title }));
-  const v = useVal(out);
-  v[0].title1.val;
 }
 
 {
@@ -225,10 +248,10 @@ export type SelectorOf<U extends SelectorSource> = Selector<SourceOf<U>>;
 }
 
 {
-  const ex = "" as unknown as Selector<{
+  const { title } = "" as unknown as Selector<{
     title: I18n<string>;
   }>;
-  ex.title.eq("");
+  title.eq("");
 }
 
 {
@@ -251,15 +274,15 @@ export type SelectorOf<U extends SelectorSource> = Selector<SourceOf<U>>;
   });
 }
 
-function useVal<Sel extends SelectorC<Source>>(
-  selector: Sel
-): Sel extends SelectorC<infer S>
-  ? S extends Source
-    ? Val<S>
-    : never
-  : never {
-  throw new Error("TODO");
-}
+// function useVal<Sel extends SelectorC<Source>>(
+//   selector: Sel
+// ): Sel extends SelectorC<infer S>
+//   ? S extends Source
+//     ? Val<S>
+//     : never
+//   : never {
+//   throw new Error("TODO");
+// }
 
 // {
 //   const ex = "" as unknown as Selector<null | {
