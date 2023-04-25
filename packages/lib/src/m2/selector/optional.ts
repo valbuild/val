@@ -8,12 +8,16 @@ import {
 
 declare const brand: unique symbol;
 
-export type OptionalSelector<T> = T extends undefined ? Selector<T> : never;
+export type OptionalSelector<T> = T extends undefined
+  ? Selector<NonNullable<T>>
+  : never;
 
-type Selector<T extends undefined> = SelectorC<undefined> & {
+type Selector<T> = SelectorC<undefined> & {
   readonly [brand]: "OptionalSelector";
   eq: (other: SourcePrimitive) => UnknownSelector<boolean>;
-  andThen<V extends SelectorSource>(
-    f: (v: UnknownSelector<NonNullable<T>>) => V
-  ): SelectorOf<V[]>;
+  andThen<U extends SelectorSource>(
+    f: (v: UnknownSelector<T>) => U
+  ): [T] extends [never]
+    ? Selector<undefined>
+    : SelectorOf<U> | Selector<undefined>;
 };

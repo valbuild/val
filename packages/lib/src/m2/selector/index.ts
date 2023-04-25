@@ -6,6 +6,7 @@ import { UndistributedSourceArray as ArraySelector } from "./array";
 import { Selector as PrimitiveSelector } from "./primitive";
 import { OptionalSelector as OptionalSelector } from "./optional";
 import { AssetSelector } from "./asset";
+import { expr } from "../..";
 
 export type SourceObject = { [key in string]: Source };
 export type SourceArray = Source[];
@@ -47,11 +48,20 @@ export type SelectorSource =
 // Although we believe we understand this pattern, we do not really understand why it helps here.
 // We believe it is the infer that is helping here: https://github.com/microsoft/TypeScript/issues/30188#issuecomment-478938437
 
-export class SelectorC<T> {
-  constructor(public readonly value: T) {}
+/**
+ * @internal
+ */
+export const EXPR = Symbol("expr");
+export abstract class SelectorC<out T> {
+  /**
+   * @internal
+   */
+  abstract [EXPR](): expr.Expr<[], T>;
 }
 
-export type Selector<T> = [T] extends [I18n<infer S> | undefined]
+export type Selector<T> = [T] extends [never]
+  ? never
+  : [T] extends [I18n<infer S> | undefined]
   ? I18nSelector<NonNullable<S>> | OptionalSelector<T>
   : [T] extends [FileSource<string> | undefined]
   ? AssetSelector | OptionalSelector<T>
@@ -77,19 +87,25 @@ export type SelectorOf<U extends SelectorSource> = Selector<SourceOf<U>>;
 
 {
   const ex = "" as unknown as Selector<string>;
-  ex.andThen((v) => v);
-  ex.eq("");
-}
-
-{
-  const ex = "" as unknown as Selector<string | undefined>;
   const a = ex.andThen((v) => v);
   ex.eq("");
 }
 
 {
+  const ex = "" as unknown as Selector<undefined>;
+  const a = ex.andThen((v) => "");
+  ex.eq("");
+}
+
+{
+  const ex = "" as unknown as Selector<undefined | string>;
+  const a = ex.andThen((v) => v.eq(""));
+  ex.eq("");
+}
+
+{
   const ex = "" as unknown as Selector<{ bar: string } | undefined>;
-  ex;
+  const a = ex.andThen((v) => v.bar);
 }
 
 {
@@ -97,7 +113,6 @@ export type SelectorOf<U extends SelectorSource> = Selector<SourceOf<U>>;
     { title: string; bar: string | undefined }[]
   >;
   const out = ex.map((v) => v);
-  out[0].bar;
 }
 
 {

@@ -17,7 +17,7 @@ type Selector<T extends SourceObject> = SelectorC<T> & {
   readonly [key in keyof T]: UnknownSelector<T[key]>;
 } & {
   readonly [brand]: "ObjectSelector";
-  readonly match: <
+  match<
     Tag extends keyof T,
     R extends SelectorSource,
     Cases extends {
@@ -29,9 +29,12 @@ type Selector<T extends SourceObject> = SelectorC<T> & {
     key: Tag,
     cases: Cases
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ) => Cases[T[Tag] & string] extends (v: any) => infer R
+  ): Cases[T[Tag] & string] extends (v: any) => infer R
     ? R extends SelectorSource
       ? SelectorOf<R>
       : never
     : never;
+  andThen<U extends SelectorSource>(
+    f: (v: UnknownSelector<T>) => U
+  ): SelectorOf<U>;
 };

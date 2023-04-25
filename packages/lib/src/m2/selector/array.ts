@@ -27,4 +27,7 @@ type Selector<T extends SourceArray> = SelectorC<T> & {
   map<U extends SelectorSource>(
     f: (v: UnknownSelector<T[number]>) => U
   ): SelectorOf<U[]>;
+  andThen<U extends SelectorSource>(
+    f: (v: UnknownSelector<NonNullable<T>>) => U
+  ): SelectorOf<U>;
 };
