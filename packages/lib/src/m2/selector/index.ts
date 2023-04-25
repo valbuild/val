@@ -289,6 +289,18 @@ export type SelectorOf<U extends SelectorSource> = Selector<SourceOf<U>>;
   });
 }
 
+{
+  const ex = "" as unknown as Selector<
+    ({ type: "foo"; foo: string } | { type: "bar"; bar: number })[]
+  >;
+  const out = ex.map((v) =>
+    v.match("type", {
+      foo: (v) => ({ foo2: v.foo }), // TODO: ({ foo: v.foo }) gives us never
+      bar: (v) => v.bar,
+    })
+  );
+}
+
 // function useVal<Sel extends SelectorC<Source>>(
 //   selector: Sel
 // ): Sel extends SelectorC<infer S>
