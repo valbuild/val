@@ -7,6 +7,14 @@ import {
 } from ".";
 
 declare const brand: unique symbol;
+
+/**
+ * TODO: improve docs
+ *
+ * @example
+ * const isEquals: Val<boolean> = useVal(titleVal.eq("something"));
+ *
+ */
 export type Selector<T extends SourcePrimitive> = SelectorC<T> & {
   eq(other: SourcePrimitive): Selector<boolean>;
   readonly [brand]: "PrimitiveSelector";

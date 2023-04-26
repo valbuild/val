@@ -51,5 +51,5 @@ export type ObjectSelector<T extends SourceObject> = {
 
 {
   const ex = "" as unknown as Selector<string | undefined>;
-  ex;
+  ex.andThen((v) => v);
 }

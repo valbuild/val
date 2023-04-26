@@ -1,8 +1,13 @@
-import { Selector as UnknownSelector, SelectorOf, SelectorSource } from ".";
+import {
+  Selector as UnknownSelector,
+  SelectorC,
+  SelectorOf,
+  SelectorSource,
+} from ".";
 
 declare const brand: unique symbol;
 
-export type AssetSelector = {
+export type AssetSelector = SelectorC<{ url: string }> & {
   readonly url: UnknownSelector<string>;
   readonly [brand]: "AssetSelector";
 
