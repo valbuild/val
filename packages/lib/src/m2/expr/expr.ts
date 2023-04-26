@@ -153,7 +153,6 @@ export type Token = {
   readonly value?: string;
 };
 
-const RESERVED_CHARS = ["!", "(", ")", "'", ":", "@"];
 export function tokenize(input: string): [tokens: Token[], endCursor: number] {
   const tokens: Token[] = [];
   let cursor = 0;
@@ -206,10 +205,6 @@ export function tokenize(input: string): [tokens: Token[], endCursor: number] {
           tokens.push({ type: "${", span: [cursor, cursor + 1] });
         }
       }
-      if (cursor === input.length && peek !== "'") {
-        // means we reached the end of the input in a string without finding a closing quote
-        return [tokens, start - 1]; // this error must be caught by the parser where we can give a better error message
-      }
       if (value) {
         tokens.push({
           type: "string",
@@ -237,9 +232,6 @@ export function tokenize(input: string): [tokens: Token[], endCursor: number] {
       ) {
         char = input[cursor];
         peek = input[cursor + 1];
-        if (RESERVED_CHARS.includes(char)) {
-          return [tokens, start]; // this error must be caught by the parser where we can give a better error message
-        }
         value += char;
         cursor++;
       }

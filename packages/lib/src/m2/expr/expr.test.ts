@@ -101,48 +101,33 @@ const TokenizerTestCases: {
       },
     ],
   },
-  // this is the JS equivalent: 'f\\'oo'
+  // lenient tokenization (errors must handled by the parser)
+  // this is the JS equivalent: 'f\\'oofail'
   {
-    input: "'f\\\\'oo'",
+    input: "'f\\\\'oo'fail",
     expected: [
-      {
-        type: "'",
-        span: [0, 0],
-      },
-      {
-        type: "string",
-        span: [1, 3],
-        value: "f\\",
-      },
-      {
-        type: "'",
-        span: [4, 4],
-      },
-      {
-        type: "token",
-        span: [5, 6],
-        value: "oo",
-      },
-      {
-        type: "'",
-        span: [7, 7],
-      },
+      { type: "'", span: [0, 0] },
+      { type: "string", span: [1, 3], value: "f\\" },
+      { type: "'", span: [4, 4] },
+      { type: "token", span: [5, 6], value: "oo" },
+      { type: "'", span: [7, 7] },
+      { type: "string", span: [8, 10], value: "fail" },
     ],
-    endCursor: 6,
+    endCursor: 12,
   },
-  // fails on reserved chars
   {
-    input: "(fo( (fail zoo))",
+    input: "(fo() (fail zoo))",
     expected: [
       { type: "(", span: [0, 0] },
-      { type: "token", span: [1, 3], value: "fo@" },
-      { type: "ws", span: [4, 4] },
-      { type: "(", span: [5, 5] },
-      { type: "token", span: [6, 9], value: "fail" },
-      { type: "ws", span: [10, 10] },
-      { type: "token", span: [11, 13], value: "zoo" },
-      { type: ")", span: [14, 14] },
+      { type: "token", span: [1, 3], value: "fo(" }, // tokenizer tries it best, even though ( is not allowed in tokens
+      { type: ")", span: [4, 4] },
+      { type: "ws", span: [5, 5] },
+      { type: "(", span: [6, 6] },
+      { type: "token", span: [7, 10], value: "fail" },
+      { type: "ws", span: [11, 11] },
+      { type: "token", span: [12, 14], value: "zoo" },
       { type: ")", span: [15, 15] },
+      { type: ")", span: [16, 16] },
     ],
   },
   // this is the JS equivalent: 'f\\\'oo'
@@ -464,7 +449,6 @@ const TokenizerTestCases: {
 describe("expr", () => {
   test.each(TokenizerTestCases)('tokens: "$input"', ({ input, expected }) => {
     const [tokens] = tokenize(input);
-    console.log(tokens);
     expect(tokens).toStrictEqual(expected);
   });
   test.each(TokenizerTestCases)(
@@ -478,17 +462,14 @@ describe("expr", () => {
   test.each(TokenizerTestCases)(
     'expected spans overlap: "$input"', // checks if the EXPECTED spans in the test cases, not the code, to avoid PEBKAC test cases
     ({ input, expected, endCursor }) => {
-      let [start, stop] = expected[0].span;
+      let [, stop] = expected[0].span;
       for (let i = 1; i < expected.length; i++) {
         const [nextStart, nextStop] = expected[i].span;
         expect(nextStop).toBeGreaterThanOrEqual(nextStart);
         expect(stop + 1).toBe(nextStart);
-        start = nextStart;
         stop = nextStop;
       }
-      if (endCursor) {
-        expect(input.length).not.toBe(endCursor);
-      } else {
+      if (endCursor === undefined) {
         expect(stop + 1).toBe(input.length);
       }
     }
