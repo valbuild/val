@@ -145,10 +145,9 @@ export type Token = {
 };
 
 const RESERVED_CHARS = ["!", "(", ")", "'", ":", "@"];
-export function tokenize(input: string) {
+export function tokenize(input: string): [tokens: Token[], endCursor: number] {
   const tokens: Token[] = [];
   let cursor = 0;
-  const tokenStack: Token[][] = [];
   while (cursor < input.length) {
     let char = input[cursor];
     let peek = input[cursor + 1];
@@ -162,25 +161,46 @@ export function tokenize(input: string) {
       tokens.push({ type: ")", span: [cursor, cursor] });
       cursor++;
     } else if (char === "'" || char === "}") {
+      const start = cursor;
       let value = "";
+      let escaped = false;
+      if (char === "}") {
+        tokens.push({ type: "}", span: [cursor, cursor] });
+      }
       while (cursor < input.length) {
-        if (peek === "'") {
+        if (char === "\\") {
+          escaped = !escaped;
+        } else {
+          escaped = false;
+        }
+        if (peek === "'" && !escaped) {
           cursor += 2;
           break;
         } else if (char === "$" && peek === "{") {
+          tokens.push({ type: "${", span: [cursor, cursor + 1] });
           cursor += 2;
           break;
         }
         cursor++;
         char = input[cursor];
         peek = input[cursor + 1];
-        if (!(char === "$" && peek === "{")) {
+        if (
+          !(char === "$" && peek === "{") &&
+          !(
+            (char === "\\" && !escaped) // counter-intuitive, but escape just became false if this was a backslash we want to escape
+          ) &&
+          cursor < input.length
+        ) {
           value += char;
         }
       }
+      if (cursor === input.length && peek !== "'") {
+        // means we reached the end of the input in a string without finding a closing quote
+        return [tokens, start]; // this error must be caught by the parser where we can give a better error message
+      }
       tokens.push({
         type: "string",
-        span: [cursor - value.length, cursor],
+        span: [start, cursor],
         value: value,
       });
     } else if (char === " ") {
@@ -199,10 +219,7 @@ export function tokenize(input: string) {
         cursor < input.length
       ) {
         if (RESERVED_CHARS.includes(char)) {
-          throw new ParseError(
-            `Unexpected token: found a reserved character ${char}`,
-            [start, cursor]
-          );
+          return [tokens, cursor]; // this error must be caught by the parser where we can give a better error message
         }
         char = input[cursor];
         peek = input[cursor + 1];
@@ -216,7 +233,7 @@ export function tokenize(input: string) {
       });
     }
   }
-  return tokens;
+  return [tokens, cursor];
 }
 
 export function parse(input: string) {
