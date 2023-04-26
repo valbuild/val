@@ -129,14 +129,14 @@ export class ParseError {
   ) {}
 }
 
-export function interpret(
-  expr: SExpr,
-  moduleId: string,
-  schemas: {
-    [moduleId: string]: Schema<Source>;
-  },
-  getSource: (moduleId: string) => Promise<Source>
-) {}
+// export function interpret(
+//   expr: SExpr,
+//   moduleId: string,
+//   schemas: {
+//     [moduleId: string]: Schema<Source>;
+//   },
+//   getSource: (moduleId: string) => Promise<Source>
+// ) {}
 
 export type Token = {
   readonly type: "!(" | "(" | ")" | "string" | "token" | "ws" | "${" | "}";
@@ -165,17 +165,18 @@ export function tokenize(input: string) {
       let value = "";
       while (cursor < input.length) {
         if (peek === "'") {
-          value += char;
           cursor += 2;
           break;
         } else if (char === "$" && peek === "{") {
           cursor += 2;
           break;
         }
-        value += char;
         cursor++;
         char = input[cursor];
         peek = input[cursor + 1];
+        if (!(char === "$" && peek === "{")) {
+          value += char;
+        }
       }
       tokens.push({
         type: "string",
