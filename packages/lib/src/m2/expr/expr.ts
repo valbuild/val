@@ -146,9 +146,9 @@ export type Token = {
 
 const RESERVED_CHARS = ["!", "(", ")", "'", ":", "@"];
 export function tokenize(input: string) {
-  let tokens: Token[] = [];
+  const tokens: Token[] = [];
   let cursor = 0;
-  const interpolationStack: Token[][] = [];
+  const tokenStack: Token[][] = [];
   while (cursor < input.length) {
     let char = input[cursor];
     let peek = input[cursor + 1];
@@ -162,73 +162,26 @@ export function tokenize(input: string) {
       tokens.push({ type: ")", span: [cursor, cursor] });
       cursor++;
     } else if (char === "'" || char === "}") {
-      if (char === "}") {
-        tokens.push({ type: "}", span: [cursor, cursor] });
-        const maybeTokens = interpolationStack.pop();
-        if (!maybeTokens) {
-          throw new ParseError(
-            `Unexpected token: found a } with no matching '\${'`,
-            [cursor, cursor]
-          );
-        }
-        tokens = maybeTokens.concat(tokens);
-        cursor++;
-      }
       let value = "";
-      const start = cursor;
-      let escape = false;
-      let didPush = false;
-      while (((peek !== "'" && !escape) || escape) && cursor < input.length) {
+      while (cursor < input.length) {
+        if (peek === "'") {
+          value += char;
+          cursor += 2;
+          break;
+        } else if (char === "$" && peek === "{") {
+          cursor += 2;
+          break;
+        }
+        value += char;
         cursor++;
         char = input[cursor];
         peek = input[cursor + 1];
-
-        if (char === "$" && peek === "{") {
-          didPush = true;
-          interpolationStack.push(tokens);
-          tokens = [];
-          break;
-        }
-
-        if (char === "\\" && !escape) {
-          escape = true;
-        } else {
-          escape = false;
-          if (char) {
-            value += char;
-          } else {
-            throw new ParseError(
-              `Char is undefined: "${value}". Cursor: ${cursor}. Length: ${input.length}`,
-              [cursor, cursor]
-            );
-          }
-        }
       }
-      if (peek !== "'" && !(char === "$" && peek === "{")) {
-        throw new ParseError(
-          `Non-terminated string from: "${input.slice(
-            start,
-            cursor
-          )}":${start}:${cursor}, length: ${
-            input.length
-          }. Value: ${value}. Char: ${char}. Peek: ${peek}. Input: "${input}". Tokens: ${JSON.stringify(
-            tokens
-          )}. Stack: ${JSON.stringify(interpolationStack)}`,
-          [start, cursor]
-        );
-      }
-      tokens.push({ type: "string", span: [start, cursor], value: value });
-      if (didPush) {
-        tokens.push({
-          type: "${",
-          span: [cursor, cursor + 1],
-        });
-      }
-      if (char === "$" && peek === "{") {
-        cursor += 2;
-      } else {
-        cursor += 2;
-      }
+      tokens.push({
+        type: "string",
+        span: [cursor - value.length, cursor],
+        value: value,
+      });
     } else if (char === " ") {
       const start = cursor;
       while (input[cursor] === " " && cursor < input.length) {
