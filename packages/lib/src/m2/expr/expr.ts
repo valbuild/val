@@ -139,7 +139,16 @@ export class ParseError {
 // ) {}
 
 export type Token = {
-  readonly type: "!(" | "(" | ")" | "string" | "token" | "ws" | "${" | "}";
+  readonly type:
+    | "!("
+    | "("
+    | ")"
+    | "string"
+    | "token"
+    | "ws"
+    | "${"
+    | "}"
+    | "'";
   readonly span: [number, number];
   readonly value?: string;
 };
@@ -166,6 +175,8 @@ export function tokenize(input: string): [tokens: Token[], endCursor: number] {
       let escaped = false;
       if (char === "}") {
         tokens.push({ type: "}", span: [cursor, cursor] });
+      } else if (char === "'") {
+        tokens.push({ type: "'", span: [cursor, cursor] });
       }
       while (cursor < input.length) {
         if (char === "\\") {
@@ -177,7 +188,6 @@ export function tokenize(input: string): [tokens: Token[], endCursor: number] {
           cursor += 2;
           break;
         } else if (char === "$" && peek === "{") {
-          tokens.push({ type: "${", span: [cursor, cursor + 1] });
           cursor += 2;
           break;
         }
@@ -192,23 +202,30 @@ export function tokenize(input: string): [tokens: Token[], endCursor: number] {
           cursor < input.length
         ) {
           value += char;
+        } else if (char === "$" && peek === "{") {
+          tokens.push({ type: "${", span: [cursor, cursor + 1] });
         }
       }
       if (cursor === input.length && peek !== "'") {
         // means we reached the end of the input in a string without finding a closing quote
-        return [tokens, start]; // this error must be caught by the parser where we can give a better error message
+        return [tokens, start - 1]; // this error must be caught by the parser where we can give a better error message
       }
-      tokens.push({
-        type: "string",
-        span: [start, cursor],
-        value: value,
-      });
+      if (value) {
+        tokens.push({
+          type: "string",
+          span: [start + 1, cursor - 2],
+          value: value,
+        });
+      }
+      if (peek === "'" && !escaped) {
+        tokens.push({ type: "'", span: [cursor - 1, cursor - 1] });
+      }
     } else if (char === " ") {
       const start = cursor;
       while (input[cursor] === " " && cursor < input.length) {
         cursor++;
       }
-      tokens.push({ type: "ws", span: [start, cursor] });
+      tokens.push({ type: "ws", span: [start, cursor - 1] });
     } else {
       let value = "";
       const start = cursor;
@@ -218,17 +235,17 @@ export function tokenize(input: string): [tokens: Token[], endCursor: number] {
         peek !== "'" &&
         cursor < input.length
       ) {
-        if (RESERVED_CHARS.includes(char)) {
-          return [tokens, cursor]; // this error must be caught by the parser where we can give a better error message
-        }
         char = input[cursor];
         peek = input[cursor + 1];
+        if (RESERVED_CHARS.includes(char)) {
+          return [tokens, start]; // this error must be caught by the parser where we can give a better error message
+        }
         value += char;
         cursor++;
       }
       tokens.push({
         type: "token",
-        span: [start, cursor],
+        span: [start, cursor - 1],
         value,
       });
     }
