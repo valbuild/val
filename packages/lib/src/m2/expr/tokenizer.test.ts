@@ -1,5 +1,4 @@
-import { type Token, tokenize } from "./expr";
-import { promises as fs } from "fs";
+import { type Token, tokenize } from "./tokenizer";
 
 const TokenizerTestCases: {
   input: string;
@@ -450,7 +449,7 @@ const TokenizerTestCases: {
   },
 ];
 
-describe("expr", () => {
+describe("tokenizer", () => {
   test.each(TokenizerTestCases)('tokens: "$input"', ({ input, expected }) => {
     const [tokens] = tokenize(input);
     console.log(input, input.length, tokens);
