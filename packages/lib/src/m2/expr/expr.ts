@@ -1,29 +1,24 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
-interface Serializable {
+export interface Expr {
   serialize(): string;
   span: [start: number, stop: number];
 }
 
-interface Literal extends Serializable {
-  type: string;
-}
-
-class StringLiteral implements Literal {
-  public type = "string";
-
+export class StringLiteral implements Expr {
   constructor(
     public readonly value: string,
     public readonly span: [start: number, stop: number]
   ) {}
+
   serialize() {
-    return `"${escapeString(this.value)}"`;
+    return `'${this.value}'`;
   }
 }
 
-class Sym implements Serializable {
+export class Sym implements Expr {
   constructor(
-    public value: string,
+    public readonly value: string,
     public readonly span: [start: number, stop: number]
   ) {}
 
@@ -32,16 +27,33 @@ class Sym implements Serializable {
   }
 }
 
-type SExpr = Fn | Literal | Sym;
-
-export class Fn implements Serializable {
+export class StringTemplate implements Expr {
   constructor(
-    public readonly children: readonly SExpr[],
+    public readonly children: readonly Expr[],
     public readonly span: [number, number]
   ) {}
 
-  serialize(): string {
-    return `(${this.children.map((child) => child.serialize()).join(" ")}`;
+  serialize() {
+    return `'${this.children
+      .map((child) => {
+        if (child instanceof StringLiteral) {
+          return child.value;
+        } else {
+          return `\${${child.serialize()}}`;
+        }
+      })
+      .join("")}'`;
+  }
+}
+
+export class Call implements Expr {
+  constructor(
+    public readonly children: readonly Expr[],
+    public readonly span: [number, number]
+  ) {}
+
+  serialize() {
+    return `(${this.children.map((child) => child.serialize()).join(" ")})`;
   }
 }
 
@@ -55,5 +67,5 @@ export class Fn implements Serializable {
 // ) {}
 
 function escapeString(str: string) {
-  return str.replace(/'/g, "\\'");
+  return str.replace(/\\/g, "\\\\");
 }
