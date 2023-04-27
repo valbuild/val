@@ -149,8 +149,9 @@ export type Token = {
     | "${"
     | "}"
     | "'";
-  readonly span: [number, number];
+  readonly span: [start: number, stop: number]; // inclusive start, inclusive stop
   readonly value?: string;
+  readonly unescapedValue?: string;
 };
 
 export function tokenize(input: string): [tokens: Token[], endCursor: number] {
@@ -171,6 +172,7 @@ export function tokenize(input: string): [tokens: Token[], endCursor: number] {
     } else if (char === "'" || char === "}") {
       const start = cursor;
       let value = "";
+      let unescapedValue = "";
       let escaped = false;
       if (char === "}") {
         tokens.push({ type: "}", span: [cursor, cursor] });
@@ -193,23 +195,25 @@ export function tokenize(input: string): [tokens: Token[], endCursor: number] {
         cursor++;
         char = input[cursor];
         peek = input[cursor + 1];
-        if (
-          !(char === "$" && peek === "{") &&
-          !(
-            (char === "\\" && !escaped) // counter-intuitive, but escape just became false if this was a backslash we want to escape
-          ) &&
-          cursor < input.length
-        ) {
-          value += char;
+        if (!(char === "$" && peek === "{") && cursor < input.length) {
+          if (
+            !(
+              (char === "\\" && !escaped) // counter-intuitive, but escape just became false if this was a backslash we want to escape
+            )
+          ) {
+            value += char;
+          }
+          unescapedValue += char;
         }
       }
       const cursorOffset =
-        peek === "'" && !escaped ? 2 : char === "$" && peek === "{" ? 3 : 0;
+        peek === "'" && !escaped ? 2 : char === "$" && peek === "{" ? 3 : 1;
       if (value) {
         tokens.push({
           type: "string",
           span: [start + 1, cursor - cursorOffset],
-          value: value,
+          value,
+          ...(unescapedValue !== value && { unescapedValue }),
         });
       }
       if (peek === "'" && !escaped) {

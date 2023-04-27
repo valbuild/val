@@ -94,6 +94,7 @@ const TokenizerTestCases: {
         type: "string",
         span: [1, 5],
         value: "f'oo",
+        unescapedValue: "f\\'oo",
       },
       {
         type: "'",
@@ -107,11 +108,11 @@ const TokenizerTestCases: {
     input: "'f\\\\'oo'fail",
     expected: [
       { type: "'", span: [0, 0] },
-      { type: "string", span: [1, 3], value: "f\\" },
+      { type: "string", span: [1, 3], value: "f\\", unescapedValue: "f\\\\" },
       { type: "'", span: [4, 4] },
       { type: "token", span: [5, 6], value: "oo" },
       { type: "'", span: [7, 7] },
-      { type: "string", span: [8, 12], value: "fail" },
+      { type: "string", span: [8, 11], value: "fail" },
     ],
     endCursor: 12,
   },
@@ -142,6 +143,7 @@ const TokenizerTestCases: {
         type: "string",
         span: [1, 7],
         value: "f\\'oo",
+        unescapedValue: "f\\\\\\'oo",
       },
       {
         type: "'",
@@ -234,6 +236,7 @@ const TokenizerTestCases: {
         type: "string",
         span: [13, 18],
         value: "he'pp",
+        unescapedValue: "he\\'pp",
       },
       {
         type: "'",
@@ -468,5 +471,15 @@ describe("expr", () => {
     }
   );
 
-  // TODO: check if spans indeed are correct input.slice(start, stop + 1) should be the type or value...
+  test.each(TokenizerTestCases)(
+    'expected span equals input at span positions: "$input"',
+    ({ input, expected }) => {
+      for (const token of expected) {
+        if (token.type === "ws") continue;
+        expect(input.slice(token.span[0], token.span[1] + 1)).toBe(
+          token.unescapedValue || token.value || token.type
+        );
+      }
+    }
+  );
 });
