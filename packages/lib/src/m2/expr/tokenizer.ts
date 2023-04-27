@@ -20,6 +20,7 @@ export function tokenize(input: string): [tokens: Token[], endCursor: number] {
   while (cursor < input.length) {
     let char = input[cursor];
     let peek = input[cursor + 1];
+    // TODO: remove this not used any more
     if (char === "!" && peek === "(") {
       tokens.push({ type: "!(", span: [cursor, cursor + 1] });
       cursor += 2;
@@ -93,17 +94,17 @@ export function tokenize(input: string): [tokens: Token[], endCursor: number] {
     } else {
       let value = "";
       const start = cursor;
-      while (
-        peek !== " " &&
-        peek !== ")" &&
-        peek !== "'" &&
-        cursor < input.length
-      ) {
+      do {
         char = input[cursor];
         peek = input[cursor + 1];
         value += char;
         cursor++;
-      }
+      } while (
+        peek !== " " &&
+        peek !== ")" &&
+        peek !== "'" &&
+        cursor < input.length
+      );
       tokens.push({
         type: "token",
         span: [start, cursor - 1],

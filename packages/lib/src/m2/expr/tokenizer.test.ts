@@ -51,13 +51,13 @@ const TokenizerTestCases: {
     ],
   },
   {
-    input: "(map fn)",
+    input: "(b ab)", // single character tokens
     expected: [
       { type: "(", span: [0, 0] },
-      { type: "token", span: [1, 3], value: "map" },
-      { type: "ws", span: [4, 4] },
-      { type: "token", span: [5, 6], value: "fn" },
-      { type: ")", span: [7, 7] },
+      { type: "token", span: [1, 1], value: "b" },
+      { type: "ws", span: [2, 2] },
+      { type: "token", span: [3, 4], value: "ab" },
+      { type: ")", span: [5, 5] },
     ],
   },
   {
@@ -70,6 +70,24 @@ const TokenizerTestCases: {
       { type: "ws", span: [7, 7] },
       { type: "token", span: [8, 12], value: "value" },
       { type: ")", span: [13, 13] },
+    ],
+  },
+  {
+    input: "(map (map foo bar) value)",
+    expected: [
+      { type: "(", span: [0, 0] },
+      { type: "token", span: [1, 3], value: "map" },
+      { type: "ws", span: [4, 4] },
+      { type: "(", span: [5, 5] },
+      { type: "token", span: [6, 8], value: "map" },
+      { type: "ws", span: [9, 9] },
+      { type: "token", span: [10, 12], value: "foo" },
+      { type: "ws", span: [13, 13] },
+      { type: "token", span: [14, 16], value: "bar" },
+      { type: ")", span: [17, 17] },
+      { type: "ws", span: [18, 18] },
+      { type: "token", span: [19, 23], value: "value" },
+      { type: ")", span: [24, 24] },
     ],
   },
   {
