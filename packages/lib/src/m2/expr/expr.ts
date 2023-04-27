@@ -78,18 +78,6 @@ class UndefinedLiteral implements Literal {
   }
 }
 
-class SetLiteral implements Literal {
-  public type = "set";
-
-  constructor(public value: [SymbolLiteral, SExpr | Literal][]) {}
-
-  serialize() {
-    return `{${this.value
-      .map(([lhs, rhs]) => `(${lhs.serialize()} ${rhs.serialize()})`)
-      .join(" ")}}`;
-  }
-}
-
 class SForm implements Serializable {
   constructor(public readonly name: string) {}
 
@@ -255,7 +243,7 @@ export function tokenize(input: string): [tokens: Token[], endCursor: number] {
 }
 
 export function parse(input: string) {
-  return tokenize(input);
+  const [tokens, cursor] = tokenize(input);
 }
 
 function escapeString(str: string) {

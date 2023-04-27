@@ -52,16 +52,25 @@ const TokenizerTestCases: {
     ],
   },
   {
-    input: "()",
+    input: "(map fn)",
     expected: [
-      {
-        type: "(",
-        span: [0, 0],
-      },
-      {
-        type: ")",
-        span: [1, 1],
-      },
+      { type: "(", span: [0, 0] },
+      { type: "token", span: [1, 3], value: "map" },
+      { type: "ws", span: [4, 4] },
+      { type: "token", span: [5, 6], value: "fn" },
+      { type: ")", span: [7, 7] },
+    ],
+  },
+  {
+    input: "(map fn value)",
+    expected: [
+      { type: "(", span: [0, 0] },
+      { type: "token", span: [1, 3], value: "map" },
+      { type: "ws", span: [4, 4] },
+      { type: "token", span: [5, 6], value: "fn" },
+      { type: "ws", span: [7, 7] },
+      { type: "token", span: [8, 12], value: "value" },
+      { type: ")", span: [13, 13] },
     ],
   },
   {
