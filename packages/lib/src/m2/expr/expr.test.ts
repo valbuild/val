@@ -111,7 +111,7 @@ const TokenizerTestCases: {
       { type: "'", span: [4, 4] },
       { type: "token", span: [5, 6], value: "oo" },
       { type: "'", span: [7, 7] },
-      { type: "string", span: [8, 10], value: "fail" },
+      { type: "string", span: [8, 12], value: "fail" },
     ],
     endCursor: 12,
   },
@@ -313,135 +313,127 @@ const TokenizerTestCases: {
   {
     input: "'${'${(foo bar)}'}'",
     expected: [
-      {
-        type: "'",
-        span: [0, 0],
-      },
-      {
-        type: "${",
-        span: [1, 2],
-      },
-      {
-        type: "'",
-        span: [3, 3],
-      },
-      {
-        type: "${",
-        span: [4, 5],
-      },
-      {
-        type: "(",
-        span: [6, 6],
-      },
-      {
-        type: "token",
-        span: [7, 9],
-        value: "foo",
-      },
-      {
-        type: "ws",
-        span: [10, 10],
-      },
-      {
-        type: "token",
-        span: [11, 13],
-        value: "bar",
-      },
-      {
-        type: ")",
-        span: [14, 14],
-      },
-      {
-        type: "}",
-        span: [15, 15],
-      },
-      {
-        type: "'",
-        span: [16, 16],
-      },
-      {
-        type: "}",
-        span: [17, 17],
-      },
-      {
-        type: "'",
-        span: [18, 18],
-      },
+      { type: "'", span: [0, 0] },
+      { type: "${", span: [1, 2] },
+      { type: "'", span: [3, 3] },
+      { type: "${", span: [4, 5] },
+      { type: "(", span: [6, 6] },
+      { type: "token", span: [7, 9], value: "foo" },
+      { type: "ws", span: [10, 10] },
+      { type: "token", span: [11, 13], value: "bar" },
+      { type: ")", span: [14, 14] },
+      { type: "}", span: [15, 15] },
+      { type: "'", span: [16, 16] },
+      { type: "}", span: [17, 17] },
+      { type: "'", span: [18, 18] },
+    ],
+  },
+  {
+    input: "'foo${(bar baz)}'",
+    expected: [
+      { type: "'", span: [0, 0] },
+      { type: "string", span: [1, 3], value: "foo" },
+      { type: "${", span: [4, 5] },
+      { type: "(", span: [6, 6] },
+      { type: "token", span: [7, 9], value: "bar" },
+      { type: "ws", span: [10, 10] },
+      { type: "token", span: [11, 13], value: "baz" },
+      { type: ")", span: [14, 14] },
+      { type: "}", span: [15, 15] },
+      { type: "'", span: [16, 16] },
+    ],
+  },
+  {
+    input: "'${'foo ${(foo bar)}'}'",
+    expected: [
+      { type: "'", span: [0, 0] },
+      { type: "${", span: [1, 2] },
+      { type: "'", span: [3, 3] },
+      { type: "string", span: [4, 7], value: "foo " },
+      { type: "${", span: [8, 9] },
+      { type: "(", span: [10, 10] },
+      { type: "token", span: [11, 13], value: "foo" },
+      { type: "ws", span: [14, 14] },
+      { type: "token", span: [15, 17], value: "bar" },
+      { type: ")", span: [18, 18] },
+      { type: "}", span: [19, 19] },
+      { type: "'", span: [20, 20] },
+      { type: "}", span: [21, 21] },
+      { type: "'", span: [22, 22] },
     ],
   },
   {
     input: "'${'${'${(foo bar)}'}'}'",
     expected: [
-      {
-        type: "'",
-        span: [0, 0],
-      },
-      {
-        type: "${",
-        span: [1, 2],
-      },
-      {
-        type: "'",
-        span: [3, 3],
-      },
-      {
-        type: "${",
-        span: [4, 5],
-      },
-      {
-        type: "'",
-        span: [6, 6],
-      },
-      {
-        type: "${",
-        span: [7, 8],
-      },
-      {
-        type: "(",
-        span: [9, 9],
-      },
-      {
-        type: "token",
-        span: [10, 12],
-        value: "foo",
-      },
-      {
-        type: "ws",
-        span: [13, 13],
-      },
-      {
-        type: "token",
-        span: [14, 16],
-        value: "bar",
-      },
-      {
-        type: ")",
-        span: [17, 17],
-      },
-      {
-        type: "}",
-        span: [18, 18],
-      },
-      {
-        type: "'",
-        span: [19, 19],
-      },
-      {
-        type: "}",
-        span: [20, 20],
-      },
-      {
-        type: "'",
-        span: [21, 21],
-      },
-      {
-        type: "}",
-        span: [22, 22],
-      },
-      {
-        type: "'",
-        span: [23, 23],
-      },
+      { type: "'", span: [0, 0] },
+      { type: "${", span: [1, 2] },
+      { type: "'", span: [3, 3] },
+      { type: "${", span: [4, 5] },
+      { type: "'", span: [6, 6] },
+      { type: "${", span: [7, 8] },
+      { type: "(", span: [9, 9] },
+      { type: "token", span: [10, 12], value: "foo" },
+      { type: "ws", span: [13, 13] },
+      { type: "token", span: [14, 16], value: "bar" },
+      { type: ")", span: [17, 17] },
+      { type: "}", span: [18, 18] },
+      { type: "'", span: [19, 19] },
+      { type: "}", span: [20, 20] },
+      { type: "'", span: [21, 21] },
+      { type: "}", span: [22, 22] },
+      { type: "'", span: [23, 23] },
+    ],
+  },
+  {
+    input: `(json '{"foo": "bar"}')`,
+    expected: [
+      { type: "(", span: [0, 0] },
+      { type: "token", span: [1, 4], value: "json" },
+      { type: "ws", span: [5, 5] },
+      { type: "'", span: [6, 6] },
+      { type: "string", span: [7, 20], value: '{"foo": "bar"}' },
+      { type: "'", span: [21, 21] },
+      { type: ")", span: [22, 22] },
+    ],
+  },
+  {
+    input: `(json '{"foo": \${(foo bar)}}')`,
+    expected: [
+      { type: "(", span: [0, 0] },
+      { type: "token", span: [1, 4], value: "json" },
+      { type: "ws", span: [5, 5] },
+      { type: "'", span: [6, 6] },
+      { type: "string", span: [7, 14], value: '{"foo": ' },
+      { type: "${", span: [15, 16] },
+      { type: "(", span: [17, 17] },
+      { type: "token", span: [18, 20], value: "foo" },
+      { type: "ws", span: [21, 21] },
+      { type: "token", span: [22, 24], value: "bar" },
+      { type: ")", span: [25, 25] },
+      { type: "}", span: [26, 26] },
+      { type: "string", span: [27, 27], value: "}" },
+      { type: "'", span: [28, 28] },
+      { type: ")", span: [29, 29] },
+    ],
+  },
+  {
+    input: `(json '{"foo": \${(foo bar)}, "baz": "baz"}')`,
+    expected: [
+      { type: "(", span: [0, 0] },
+      { type: "token", span: [1, 4], value: "json" },
+      { type: "ws", span: [5, 5] },
+      { type: "'", span: [6, 6] },
+      { type: "string", span: [7, 14], value: '{"foo": ' },
+      { type: "${", span: [15, 16] },
+      { type: "(", span: [17, 17] },
+      { type: "token", span: [18, 20], value: "foo" },
+      { type: "ws", span: [21, 21] },
+      { type: "token", span: [22, 24], value: "bar" },
+      { type: ")", span: [25, 25] },
+      { type: "}", span: [26, 26] },
+      { type: "string", span: [27, 41], value: ', "baz": "baz"}' },
+      { type: "'", span: [42, 42] },
+      { type: ")", span: [43, 43] },
     ],
   },
 ];
@@ -449,6 +441,7 @@ const TokenizerTestCases: {
 describe("expr", () => {
   test.each(TokenizerTestCases)('tokens: "$input"', ({ input, expected }) => {
     const [tokens] = tokenize(input);
+    console.log(input, input.length, tokens);
     expect(tokens).toStrictEqual(expected);
   });
   test.each(TokenizerTestCases)(
@@ -474,4 +467,6 @@ describe("expr", () => {
       }
     }
   );
+
+  // TODO: check if spans indeed are correct input.slice(start, stop + 1) should be the type or value...
 });

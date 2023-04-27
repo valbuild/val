@@ -201,19 +201,24 @@ export function tokenize(input: string): [tokens: Token[], endCursor: number] {
           cursor < input.length
         ) {
           value += char;
-        } else if (char === "$" && peek === "{") {
-          tokens.push({ type: "${", span: [cursor, cursor + 1] });
         }
       }
+      const cursorOffset =
+        peek === "'" && !escaped ? 2 : char === "$" && peek === "{" ? 3 : 0;
       if (value) {
         tokens.push({
           type: "string",
-          span: [start + 1, cursor - 2],
+          span: [start + 1, cursor - cursorOffset],
           value: value,
         });
       }
       if (peek === "'" && !escaped) {
         tokens.push({ type: "'", span: [cursor - 1, cursor - 1] });
+      } else if (char === "$" && peek === "{") {
+        tokens.push({
+          type: "${",
+          span: [cursor - cursorOffset + 1, cursor - 1],
+        });
       }
     } else if (char === " ") {
       const start = cursor;
