@@ -81,6 +81,14 @@ function evaluateSync(
       }
       const args = expr.children.slice(2);
       if (args.length > 0) {
+        if (typeof obj[prop] !== "function") {
+          throw new EvalError(
+            `cannot access property ${JSON.stringify(prop)} of ${JSON.stringify(
+              obj
+            )}: required function got ${typeof obj[prop]}`,
+            expr
+          );
+        }
         return obj[prop](
           ...args.map((arg) => evaluateSync(arg, source, stack))
         );
