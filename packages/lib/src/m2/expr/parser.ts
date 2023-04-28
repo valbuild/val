@@ -141,12 +141,10 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
 
   function slurp(): result.Result<Expr, ParserError> {
     slurpWs();
-    // ranodm id
-    const id = Date.now();
     const first = tokens.shift();
     if (!first) {
       return result.err(
-        new ParserError("expected '(', string or literal", [0, 0])
+        new ParserError("expected '(', '!(', string or literal", [0, 0])
       );
     }
     if (first.type === "(" || first.type === "!(") {
@@ -190,7 +188,7 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
     } else {
       return result.err(
         new ParserError(
-          `expected '(' or literal or token${
+          `expected '(', '!(' or literal or token${
             first.value || first.type
               ? `, got: '${first.value || first.type}'`
               : ""
