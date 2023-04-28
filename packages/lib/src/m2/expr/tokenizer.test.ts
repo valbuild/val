@@ -1,6 +1,6 @@
 import { type Token, tokenize } from "./tokenizer";
 
-const TokenizerTestCases1: {
+const TokenizerTestCases: {
   input: string;
   expected: Token[];
   endCursor?: number;
@@ -465,9 +465,6 @@ const TokenizerTestCases1: {
       { type: ")", span: [43, 43] },
     ],
   },
-];
-
-const TokenizerTestCases = [
   {
     input: `(map
   (ref '/foo/bar')
@@ -501,7 +498,6 @@ const TokenizerTestCases = [
 describe("tokenizer", () => {
   test.each(TokenizerTestCases)('tokens: "$input"', ({ input, expected }) => {
     const [tokens] = tokenize(input);
-    console.log(input, input.length, tokens);
     expect(tokens).toStrictEqual(expected);
   });
 
