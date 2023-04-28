@@ -15,7 +15,16 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
   function slurpCall(
     first: Token,
     isAnon: boolean
-  ): result.Result<Call, ParserError> {
+  ): result.Result<Call | Sym, ParserError> {
+    // peek
+    if (
+      (tokens[0]?.type === "ws" && tokens[1]?.type === ")") ||
+      tokens[0]?.type === ")"
+    ) {
+      slurpWs();
+      tokens.shift();
+      return result.ok(new Sym("()", [first.span[0], first.span[1] + 1]));
+    }
     const args: Expr[] = [];
     let completed = false;
     while (!completed) {

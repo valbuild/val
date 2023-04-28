@@ -12,7 +12,7 @@ const ParserTestCases: {
   {
     input: "!(",
     error: {
-      span: [0, 2], // TODO:
+      span: [0, 0],
     },
   },
   {
@@ -23,6 +23,16 @@ const ParserTestCases: {
     error: {
       span: [0, 0],
     },
+  },
+  {
+    input: "()",
+  },
+  {
+    input: " (  ) ",
+    overrideTest: "()",
+  },
+  {
+    input: "(reverse foo ())",
   },
   {
     input: "(b ab)", // single character tokens
