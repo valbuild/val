@@ -5,7 +5,7 @@ import { parse } from "./parser";
 
 const sources = {
   "/numbers": [1, 2, 3],
-  "/articles": [{ title: "title1" }],
+  "/articles": [{ title: "title1" }, { title: "title2" }],
 } as const;
 
 const EvalTestCases = [
@@ -22,8 +22,12 @@ const EvalTestCases = [
     expected: result.ok(sources["/articles"][0]),
   },
   {
-    expr: `(map (val '/articles') @0)`,
+    expr: `!(map (val '/articles') @[0,0])`,
     expected: result.ok(sources["/articles"].map((v) => v)),
+  },
+  {
+    expr: `!(map (val '/articles') ('title' @[0,0]))`,
+    expected: result.ok(sources["/articles"].map((v) => v["title"])),
   },
 ];
 
@@ -37,7 +41,8 @@ describe("eval", () => {
     expect(
       evaluate(
         parseRes.value,
-        (ref) => sources[ref as keyof typeof sources] as unknown as Source
+        (ref) => sources[ref as keyof typeof sources] as unknown as Source,
+        []
       )
     ).toStrictEqual(expected);
   });
