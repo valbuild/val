@@ -97,11 +97,11 @@ function evaluateSync(
     }
   } else if (expr instanceof Sym) {
     if (expr.value.startsWith("@")) {
-      const [a, b, rest] = expr.value.slice(2, -1).split(",");
+      const [i, j, rest] = expr.value.slice(2, -1).split(",");
       if (rest) {
         throw new EvalError(`cannot access stack: too many indices`, expr);
       }
-      const stackValue = stack[Number(a)]?.[Number(b)];
+      const stackValue = stack[Number(i)]?.[Number(j)];
       if (stackValue === undefined) {
         throw new EvalError(`cannot access stack: out of bounds`, expr);
       }
