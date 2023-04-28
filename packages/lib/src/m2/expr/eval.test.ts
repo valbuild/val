@@ -1,5 +1,4 @@
 import { result } from "../../fp";
-import { Source } from "../selector";
 import { evaluate } from "./eval";
 import { parse } from "./parser";
 
@@ -67,7 +66,7 @@ describe("eval", () => {
     expect(
       evaluate(
         parseRes.value,
-        (ref) => sources[ref as keyof typeof sources] as unknown as Source,
+        (ref) => sources[ref as keyof typeof sources],
         []
       )
     ).toStrictEqual(expected);
