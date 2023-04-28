@@ -19,6 +19,10 @@ const EvalTestCases = [
     expected: result.ok(sources["/numbers"].slice(0, 2)),
   },
   {
+    expr: `(reverse (val '/numbers') ())`,
+    expected: result.ok(sources["/numbers"].slice().reverse()), // reverse is mutable so slice / copy before reverse
+  },
+  {
     expr: `('0' (val '/articles'))`,
     expected: result.ok(sources["/articles"][0]),
   },
@@ -31,6 +35,15 @@ const EvalTestCases = [
     expected: result.ok(sources["/articles"].map((v) => v["title"])),
   },
   {
+    expr: `!(map (val '/articles') 
+                 (slice ('title' @[0,0])
+                        0
+                        2))`,
+    expected: result.ok(
+      sources["/articles"].map((v) => v["title"].slice(0, 2))
+    ),
+  },
+  {
     expr: `!(map (val '/articles')
                  !(map (val '/numbers')
                        (slice ('title' @[0,0])
@@ -41,19 +54,6 @@ const EvalTestCases = [
         sources["/numbers"].map((_, i) => v["title"].slice(0, i))
       )
     ),
-  },
-  {
-    expr: `!(map (val '/articles') 
-                 (slice ('title' @[0,0])
-                        0
-                        2))`,
-    expected: result.ok(
-      sources["/articles"].map((v) => v["title"].slice(0, 2))
-    ),
-  },
-  {
-    expr: `(reverse (val '/numbers') ())`,
-    expected: result.ok(sources["/numbers"].slice().reverse()), // reverse is mutable so slice / copy before reverse
   },
 ];
 
