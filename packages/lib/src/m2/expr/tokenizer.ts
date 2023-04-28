@@ -14,6 +14,7 @@ export type Token = {
   readonly unescapedValue?: string;
 };
 
+const WHITE_SPACE = ["\n", "\r", "\t", " "];
 export function tokenize(input: string): [tokens: Token[], endCursor: number] {
   const tokens: Token[] = [];
   let cursor = 0;
@@ -85,9 +86,9 @@ export function tokenize(input: string): [tokens: Token[], endCursor: number] {
           span: [cursor - cursorOffset + 1, cursor - 1],
         });
       }
-    } else if (char === " ") {
+    } else if (WHITE_SPACE.includes(char)) {
       const start = cursor;
-      while (input[cursor] === " " && cursor < input.length) {
+      while (WHITE_SPACE.includes(input[cursor]) && cursor < input.length) {
         cursor++;
       }
       tokens.push({ type: "ws", span: [start, cursor - 1] });
@@ -100,7 +101,7 @@ export function tokenize(input: string): [tokens: Token[], endCursor: number] {
         value += char;
         cursor++;
       } while (
-        peek !== " " &&
+        !WHITE_SPACE.includes(peek) &&
         peek !== ")" &&
         peek !== "'" &&
         cursor < input.length

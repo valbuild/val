@@ -3,55 +3,43 @@ import { Source } from "../selector";
 import { evaluate } from "./eval";
 import { parse } from "./parser";
 
-function createCase<S extends Source>(testCase: {
-  expr: string;
-  source: S;
-  expected: (source: S) => unknown;
-}) {
-  return testCase;
-}
+const sources = {
+  "/numbers": [1, 2, 3],
+  "/articles": [{ title: "title1" }],
+} as const;
 
 const EvalTestCases = [
-  createCase({
-    expr: `(length)`,
-    source: [1, 2, 3],
-    expected: (source) => source.length,
-  }),
-  // createCase({
-  //   expr: `(map (: 'title' @0[1]) (ref '/app/blogs'))`,
-  //   source: [{ title: "test" }],
-  //   expected: (source) => source.map((v) => v.title),
-  // }),
-  // createCase({
-  //   expr: `(map (map (: 'name' @0) (: 'tags' @0)))`,
-  //   source: [{ title: "test", tags: [{ name: "foo" }] }],
-  //   expected: (source) => source.map((v) => v.tags.map((v) => v.name)),
-  // }),
-  // createCase({
-  //   expr: `(map (map (+ (: 'name' @1) (: 'title' @0)) (: 'tags' @0)))`,
-  //   source: [{ title: "test", tags: [{ name: "foo" }] }],
-  //   expected: (source) =>
-  //     source.map((blog) => blog.tags.map((tag) => tag.name + blog.title)),
-  // }),
-  // createCase({
-  //   expr: `(map (:title) )`,
-  //   source: [{ title: "test", tags: [{ name: "foo" }] }],
-  //   expected: (source) =>
-  //     source.map((blog) => blog.tags.map((tag) => tag.name + blog.title)),
-  // }),
+  // {
+  //   expr: `(length (val '/numbers'))`,
+  //   expected: result.ok(sources["/numbers"].length),
+  // },
+  // {
+  //   expr: `(slice (val '/numbers') 0 2)`,
+  //   expected: result.ok(sources["/numbers"].slice(0, 2)),
+  // },
+  {
+    expr: `('0' (val '/articles'))`,
+    expected: result.ok(sources["/articles"][0]),
+  },
+  {
+    expr: `(map (val '/articles') @0)`,
+    expected: result.ok(sources["/articles"].map((v) => v)),
+  },
 ];
 
 describe("eval", () => {
-  test.each(EvalTestCases)(
-    'evaluate: "$expr"',
-    ({ expr, expected, source }) => {
-      const parseRes = parse(expr);
-      if (result.isErr(parseRes)) {
-        return expect(parseRes).toHaveProperty("value");
-      }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect(evaluate(parseRes.value, source)).toBe(expected(source as any));
+  test.each(EvalTestCases)('evaluate: "$expr"', ({ expr, expected }) => {
+    const parseRes = parse(expr);
+    if (result.isErr(parseRes)) {
+      return expect(parseRes).toHaveProperty("value");
     }
-  );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(
+      evaluate(
+        parseRes.value,
+        (ref) => sources[ref as keyof typeof sources] as unknown as Source
+      )
+    ).toStrictEqual(expected);
+  });
   //
 });

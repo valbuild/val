@@ -12,17 +12,25 @@ export class ParserError {
 function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
   const tokens = inputTokens.slice();
 
-  function slurpCall(first: Token): result.Result<Call, ParserError> {
+  function slurpCall(
+    first: Token,
+    isAnon: boolean
+  ): result.Result<Call, ParserError> {
     const args: Expr[] = [];
     let completed = false;
     while (!completed) {
       const res = slurp();
       if (result.isOk(res)) {
         args.push(res.value);
-        completed = (tokens[0]?.type as string) !== "ws";
+        completed =
+          tokens[0]?.type !== "ws" ||
+          (tokens[0]?.type === "ws" && tokens[1]?.type === ")");
       } else {
         return res;
       }
+    }
+    if (tokens[0]?.type === "ws" && tokens[1]?.type === ")") {
+      tokens.shift();
     }
     const last = tokens.shift();
     if (last?.type !== ")") {
@@ -34,7 +42,7 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
       );
     }
     return result.ok(
-      new Call(args, [first.span[0], args.slice(-1)[0].span[1]])
+      new Call(args, [first.span[0], args.slice(-1)[0].span[1]], isAnon)
     );
   }
 
@@ -133,17 +141,16 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
 
   function slurp(): result.Result<Expr, ParserError> {
     slurpWs();
+    // ranodm id
+    const id = Date.now();
     const first = tokens.shift();
     if (!first) {
       return result.err(
-        new ParserError(
-          "no non-whitespace tokens, expected '(', string or literal",
-          [0, 0]
-        )
+        new ParserError("expected '(', string or literal", [0, 0])
       );
     }
-    if (first.type === "(") {
-      return slurpCall(first);
+    if (first.type === "(" || first.type === "!(") {
+      return slurpCall(first, first.type === "!(");
     } else if (first.type === "'") {
       return slurpString(first);
     } else if (first.type === "token") {
@@ -163,6 +170,14 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
           )
         );
       }
+      if (first.value?.includes(".")) {
+        return result.err(
+          new ParserError(
+            'unexpected token: "." is not allowed in tokens',
+            first.span
+          )
+        );
+      }
       if (first.value?.includes("{") || first.value?.includes("}")) {
         return result.err(
           new ParserError(
@@ -174,7 +189,14 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
       return result.ok(new Sym(first.value || "", first.span));
     } else {
       return result.err(
-        new ParserError("expected '(' or literal or token", first.span)
+        new ParserError(
+          `expected '(' or literal or token${
+            first.value || first.type
+              ? `, got: '${first.value || first.type}'`
+              : ""
+          }`,
+          first.span
+        )
       );
     }
   }

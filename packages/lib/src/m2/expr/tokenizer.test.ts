@@ -1,6 +1,6 @@
 import { type Token, tokenize } from "./tokenizer";
 
-const TokenizerTestCases: {
+const TokenizerTestCases1: {
   input: string;
   expected: Token[];
   endCursor?: number;
@@ -467,12 +467,44 @@ const TokenizerTestCases: {
   },
 ];
 
+const TokenizerTestCases = [
+  {
+    input: `(map
+  (ref '/foo/bar')
+  ('title' @0)
+)`,
+    expected: [
+      { type: "(", span: [0, 0] },
+      { type: "token", span: [1, 3], value: "map" },
+      { type: "ws", span: [4, 6] },
+      { type: "(", span: [7, 7] },
+      { type: "token", span: [8, 10], value: "ref" },
+      { type: "ws", span: [11, 11] },
+      { type: "'", span: [12, 12] },
+      { type: "string", span: [13, 20], value: "/foo/bar" },
+      { type: "'", span: [21, 21] },
+      { type: ")", span: [22, 22] },
+      { type: "ws", span: [23, 25] },
+      { type: "(", span: [26, 26] },
+      { type: "'", span: [27, 27] },
+      { type: "string", span: [28, 32], value: "title" },
+      { type: "'", span: [33, 33] },
+      { type: "ws", span: [34, 34] },
+      { type: "token", span: [35, 36], value: "@0" },
+      { type: ")", span: [37, 37] },
+      { type: "ws", span: [38, 38] },
+      { type: ")", span: [39, 39] },
+    ],
+  },
+];
+
 describe("tokenizer", () => {
   test.each(TokenizerTestCases)('tokens: "$input"', ({ input, expected }) => {
     const [tokens] = tokenize(input);
     console.log(input, input.length, tokens);
     expect(tokens).toStrictEqual(expected);
   });
+
   test.each(TokenizerTestCases)(
     'end cursor: "$input"',
     ({ input, endCursor }) => {

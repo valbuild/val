@@ -11,24 +11,27 @@ const ParserTestCases: {
 }[] = [
   {
     input: "!(",
+    error: {
+      span: [0, 2], // TODO:
+    },
   },
   {
     input: "')'",
   },
   {
-    input: "!(",
-  },
-  {
     input: "(",
+    error: {
+      span: [0, 0],
+    },
   },
   {
     input: "(b ab)", // single character tokens
   },
   {
-    input: "(map fn value)",
+    input: "!(map fn value)",
   },
   {
-    input: "(map (map foo bar) value)",
+    input: "!(map (map foo bar) value)",
   },
   {
     input: "'foo'",
@@ -41,9 +44,15 @@ const ParserTestCases: {
   // this is the JS equivalent: 'f\\'oofail'
   {
     input: "'f\\\\'oo'fail",
+    error: {
+      span: [5, 11],
+    },
   },
   {
     input: "(fo() (fail zoo))",
+    error: {
+      span: [1, 3], // this would preferably be [1, 4]
+    },
   },
   // this is the JS equivalent: 'f\\\'oo'
   {
@@ -85,6 +94,17 @@ const ParserTestCases: {
   {
     input: `(json '{"foo": \${(foo bar)}, "baz": "baz"}')`,
   },
+  {
+    input: `!(map 'title' )`,
+    overrideTest: `!(map 'title')`,
+  },
+  {
+    input: `!(map
+      (ref '/foo/bar')
+      ('title' @0)
+    )`,
+    overrideTest: `!(map (ref '/foo/bar') ('title' @0))`,
+  },
 ];
 
 describe("parser", () => {
@@ -106,10 +126,17 @@ describe("parser", () => {
           if (i >= res.error.span[0] && i <= res.error.span[1]) {
             underline += "^";
           } else {
-            underline += " ";
+            if (input[i] === "\n") {
+              if (!underline.includes("^")) {
+                underline = "";
+              }
+            } else {
+              underline += " ";
+            }
           }
         }
         process.stderr.write(underline + "\n");
+        expect(res).toHaveProperty("value");
       } else {
         expect(res.value.serialize()).toBe(overrideTest || input);
       }
