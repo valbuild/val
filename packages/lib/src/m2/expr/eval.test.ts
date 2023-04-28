@@ -10,6 +10,7 @@ const sources = {
 
 const EvalTestCases = [
   {
+    // TODO: should we do ('numbers' val) instead?
     expr: `(length (val '/numbers'))`,
     expected: result.ok(sources["/numbers"].length),
   },
@@ -28,6 +29,27 @@ const EvalTestCases = [
   {
     expr: `!(map (val '/articles') ('title' @[0,0]))`,
     expected: result.ok(sources["/articles"].map((v) => v["title"])),
+  },
+  {
+    expr: `!(map (val '/articles')
+                 !(map (val '/numbers')
+                       (slice ('title' @[0,0])
+                              0
+                              @[1,1])))`,
+    expected: result.ok(
+      sources["/articles"].map((v) =>
+        sources["/numbers"].map((_, i) => v["title"].slice(0, i))
+      )
+    ),
+  },
+  {
+    expr: `!(map (val '/articles') 
+                 (slice ('title' @[0,0])
+                        0
+                        2))`,
+    expected: result.ok(
+      sources["/articles"].map((v) => v["title"].slice(0, 2))
+    ),
   },
 ];
 

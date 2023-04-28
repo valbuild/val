@@ -5,19 +5,37 @@ import { result } from "../../fp";
 export class EvalError {
   constructor(public readonly message: string) {}
 }
+const MAX_STACK_SIZE = 100; // an arbitrary semi-large number
 export function evaluate(
   expr: Expr,
   source: (ref: string) => Source,
   stack: Source[][]
 ): any {
+  // TODO: amount of evaluates should be limited?
+  if (stack.length > MAX_STACK_SIZE) {
+    return result.err(
+      new EvalError(
+        `Stack overflow. Expr: "${expr.serialize()}". Final frames: ${stack
+          .slice(-10)
+          .map((frame, i) =>
+            frame.map((s, j) => `@[${i},${j}]: ${JSON.stringify(s)}`).join(", ")
+          )
+          .join(" -> ")}`
+      )
+    );
+  }
+  // console.log(expr?.serialize(), stack);
   if (expr instanceof Call) {
     if (expr.isAnon) {
       if (expr.children[0] instanceof Sym) {
         const propRes = evaluate(expr.children[0], source, stack);
         const objRes = evaluate(expr.children[1], source, stack);
         const x = objRes.value[propRes.value!]((...args) => {
-          return evaluate(expr.children[2], source, stack.concat([args]))
-            .value!;
+          const res = evaluate(expr.children[2], source, stack.concat([args]));
+          if (result.isErr(res)) {
+            throw res.error;
+          }
+          return res.value!;
         });
         return result.ok(x);
       } else {
@@ -49,15 +67,16 @@ export function evaluate(
         return objRes;
       }
       const obj = objRes.value as Record<string | number, Source>;
-      if (typeof obj !== "object") {
-        return result.err(
-          new EvalError(
-            `cannot get property ${
-              propRes.value
-            } from non-object ${JSON.stringify(objRes.value)}`
-          )
-        );
-      }
+      // TODO: we cannot do this on strings, should do more dynamic type checking
+      // if (typeof obj !== "object") {
+      //   return result.err(
+      //     new EvalError(
+      //       `cannot get property ${
+      //         propRes.value
+      //       } from non-object ${JSON.stringify(objRes.value)}`
+      //     )
+      //   );
+      // }
       const prop = propRes.value;
       if (typeof prop !== "string" && typeof prop !== "number") {
         return result.err(
@@ -68,15 +87,16 @@ export function evaluate(
           )
         );
       }
-      if (!(prop in obj)) {
-        return result.err(
-          new EvalError(
-            `property ${propRes.value} not found in object ${JSON.stringify(
-              objRes.value
-            )}`
-          )
-        );
-      }
+      // TODO: cannot do this on string, same as above, more dynamic type checking
+      // if (!(prop in obj)) {
+      //   return result.err(
+      //     new EvalError(
+      //       `property ${propRes.value} not found in object ${JSON.stringify(
+      //         objRes.value
+      //       )}`
+      //     )
+      //   );
+      // }
       const args = expr.children.slice(2);
       if (args.length > 0) {
         try {
