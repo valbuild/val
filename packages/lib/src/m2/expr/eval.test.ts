@@ -26,6 +26,10 @@ const EvalTestCases = [
     expected: result.ok(sources["/articles"][0]),
   },
   {
+    expr: `'\${('0' (val '/articles'))}'`,
+    expected: result.ok(`${sources["/articles"][0]}`),
+  },
+  {
     expr: `!(map (val '/articles') @[0,0])`,
     expected: result.ok(sources["/articles"].map((v) => v)),
   },

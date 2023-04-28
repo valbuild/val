@@ -105,7 +105,9 @@ function evaluateSync(
   } else if (expr instanceof StringLiteral) {
     return expr.value;
   } else if (expr instanceof StringTemplate) {
-    throw new Error("not implemented");
+    return expr.children
+      .map((child) => evaluateSync(child, source, stack))
+      .join("");
   }
   throw new EvalError(`could not evaluate`, expr);
 }
