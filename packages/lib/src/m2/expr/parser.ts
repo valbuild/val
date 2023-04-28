@@ -147,6 +147,30 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
     } else if (first.type === "'") {
       return slurpString(first);
     } else if (first.type === "token") {
+      if (first.value?.includes("(") || first.value?.includes(")")) {
+        return result.err(
+          new ParserError(
+            "unexpected token: '(' and ')' are not allowed in tokens",
+            first.span
+          )
+        );
+      }
+      if (first.value?.includes("'")) {
+        return result.err(
+          new ParserError(
+            'unexpected token: "\'" is not allowed in tokens',
+            first.span
+          )
+        );
+      }
+      if (first.value?.includes("{") || first.value?.includes("}")) {
+        return result.err(
+          new ParserError(
+            "unexpected token: '{' and '}' are not allowed in tokens",
+            first.span
+          )
+        );
+      }
       return result.ok(new Sym(first.value || "", first.span));
     } else {
       return result.err(
