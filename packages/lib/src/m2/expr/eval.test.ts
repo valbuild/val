@@ -6,11 +6,11 @@ import { parse } from "./parser";
 const sources = {
   "/numbers": [1, 2, 3],
   "/articles": [{ title: "title1" }, { title: "title2" }],
-} as const;
+};
 
 const EvalTestCases = [
   {
-    // TODO: should we do ('numbers' val) instead?
+    // TODO: should we do ('numbers' val) to be more consistent?
     expr: `(length (val '/numbers'))`,
     expected: result.ok(sources["/numbers"].length),
   },
@@ -50,6 +50,10 @@ const EvalTestCases = [
     expected: result.ok(
       sources["/articles"].map((v) => v["title"].slice(0, 2))
     ),
+  },
+  {
+    expr: `(reverse (val '/numbers') ())`,
+    expected: result.ok(sources["/numbers"].slice().reverse()), // reverse is mutable so slice / copy before reverse
   },
 ];
 

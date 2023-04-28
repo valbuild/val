@@ -106,6 +106,8 @@ function evaluateSync(
         throw new EvalError(`cannot access stack: out of bounds`, expr);
       }
       return stackValue;
+    } else if (expr.value === "()") {
+      return undefined;
     }
     return expr.value;
   } else if (expr instanceof StringLiteral) {
