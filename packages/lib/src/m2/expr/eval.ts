@@ -81,17 +81,9 @@ function evaluateSync(
       }
       const args = expr.children.slice(2);
       if (args.length > 0) {
-        try {
-          return obj[prop](
-            ...args.map((arg) => evaluateSync(arg, source, stack))
-          ) as Source;
-        } catch (err) {
-          console.error(err);
-          throw new EvalError(
-            `could not evaluate children ${JSON.stringify(expr)}`,
-            expr
-          );
-        }
+        return obj[prop](
+          ...args.map((arg) => evaluateSync(arg, source, stack))
+        );
       }
       return obj[prop];
     }
