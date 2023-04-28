@@ -75,6 +75,7 @@ export class Call implements Expr {
 //   getSource: (moduleId: string) => Promise<Source>
 // ) {}
 
+// TODO: use this instead of including the unescaped strings in the parser
 function escapeString(str: string) {
   return str.replace(/\\/g, "\\\\");
 }
