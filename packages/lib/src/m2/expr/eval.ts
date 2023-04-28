@@ -10,19 +10,15 @@ export function evaluate(
   source: (ref: string) => Source,
   stack: Source[][]
 ): any {
-  // console.log("evaluate", expr.serialize());
-
   if (expr instanceof Call) {
     if (expr.isAnon) {
       if (expr.children[0] instanceof Sym) {
         const propRes = evaluate(expr.children[0], source, stack);
         const objRes = evaluate(expr.children[1], source, stack);
-
         const x = objRes.value[propRes.value!]((...args) => {
           return evaluate(expr.children[2], source, stack.concat([args]))
             .value!;
         });
-        console.log("x", x, "obj", objRes.value!, "prop", expr.serialize());
         return result.ok(x);
       } else {
         return result.err(

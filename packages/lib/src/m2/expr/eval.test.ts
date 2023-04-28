@@ -9,14 +9,14 @@ const sources = {
 } as const;
 
 const EvalTestCases = [
-  // {
-  //   expr: `(length (val '/numbers'))`,
-  //   expected: result.ok(sources["/numbers"].length),
-  // },
-  // {
-  //   expr: `(slice (val '/numbers') 0 2)`,
-  //   expected: result.ok(sources["/numbers"].slice(0, 2)),
-  // },
+  {
+    expr: `(length (val '/numbers'))`,
+    expected: result.ok(sources["/numbers"].length),
+  },
+  {
+    expr: `(slice (val '/numbers') 0 2)`,
+    expected: result.ok(sources["/numbers"].slice(0, 2)),
+  },
   {
     expr: `('0' (val '/articles'))`,
     expected: result.ok(sources["/articles"][0]),
