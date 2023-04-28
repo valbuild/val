@@ -18,9 +18,9 @@ The non-goals are:
 
 ## Syntax
 
-To make VISP easy to evaluate the "normal" way of accessing properties / calling functions in lisps is different.
+VISP is a lisp which only can evaluate one expression at a time.
 
-Read more about this in the sections that follows.
+Read more about how it works in sections that follows.
 
 ### Property access
 
@@ -43,12 +43,12 @@ There are no numbers in VISP, so arrays are indexed in the same way:
 corresponds to:
 
 ```js
-foo['0'] // or foo[0]
+foo['0'] // same as foo[0]
 ```
 
 ### Function calls
 
-Function calls are similar to property access, but with arguments separated with a whitespace:
+Function calls are similar to property access, but with arguments separated by whitespace:
 
 ```visp
 (fnname foo arg1 arg2)
@@ -57,13 +57,13 @@ Function calls are similar to property access, but with arguments separated with
 corresponds to:
 
 ```js
-foo['fnname'](arg1, arg2) // or normal: foo.fname(arg1, arg2)
+foo['fnname'](arg1, arg2) // same as foo.fname(arg1, arg2)
 ```
 
 #### Higher order functions
 
 Higher order functions must be prefixed with the `!` character.
-Arguments can be accessed using the `@` character. The `@` must be suffixed with indexes, eg `@[0,0]`, the first one corresponding to the stack depth and the second index of the argument list.
+Arguments can be accessed using the `@` character. The `@` must be suffixed with indexes, eg `@[0,0]`, the first one corresponding to the stack depth and the second corresponds to index of the argument list.
 
 ```visp
 !(map foo @[0,0])
@@ -87,7 +87,7 @@ corresponds to:
 foo.map((_,i) => i)
 ```
 
-This example shows how higher functions and arguments are nested:
+This example shows how higher functions and arguments can be nested:
 
 ```visp
 !(map foo !(map @[0,0] (slice @[1,0] @[0,1])))
@@ -118,7 +118,7 @@ corresponds to:
 ### String templates
 
 Val has support for string templates similar to JavaScript.
-They are denoted using single quotes `'` (as normal strings), but can inject experssions using  `${}`.
+They are denoted using single quotes `'` (as normal strings), but can inject expressions using  `${}`.
 
 Example:
 
@@ -166,6 +166,20 @@ Example:
 
 ```visp
 (json '{"foo": "bar"}')
+```
+
+To create numbers, lists etc, the `json` symbol can be used.
+
+It is also possible to use `json` with string templates:
+
+```visp
+(json '{ "foo": ${('title' obj)} }')
+```
+
+corresponds to:
+
+```js
+{ "foo": obj['title' ] }
 ```
 
 ### More
