@@ -1,4 +1,4 @@
-import { result } from "../../fp";
+import { pipe, result } from "../../fp";
 import { evaluate } from "./eval";
 import { parse } from "./parser";
 
@@ -68,10 +68,15 @@ describe("eval", () => {
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(
-      evaluate(
-        parseRes.value,
-        (ref) => sources[ref as keyof typeof sources],
-        []
+      pipe(
+        evaluate(
+          parseRes.value,
+          (ref) => sources[ref as keyof typeof sources],
+          []
+        ),
+        result.map(
+          (v) => v /* TODO: eval should return Val so add `.val` here */
+        )
       )
     ).toStrictEqual(expected);
   });

@@ -1,10 +1,13 @@
 # VISP
 
-VISP (as in Val-lisp) is a lisp that is designed to be the serialized representation of Val `Selector`s.
-Val requires serialized `Selector`s since Val has remote selectors.
+VISP (as in Val-lisp) is a lisp that evaluates Val `Schema`s and `Source`s.
+
+It exists since Val clients must be able to execute a `Selector`s remotely.
+See the docs for remote `Schema`s for more about this.
 
 The design goals are as follows:
 
+- evaluates to Val objects
 - easy to parse and serialize
 - easy to evaluate in JavaScript
 - more concise than an AST, therefore more readable
@@ -179,7 +182,7 @@ It is also possible to use `json` with string templates:
 corresponds to:
 
 ```js
-{ "foo": obj['title' ] }
+JSON.parse(`{ "foo": ${obj['title']} }`)
 ```
 
 ### More
