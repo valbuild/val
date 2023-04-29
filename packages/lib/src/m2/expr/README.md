@@ -1,27 +1,30 @@
-# VISP
+# Visp
 
-VISP (as in Val-lisp) is a lisp that evaluates Val `Schema`s and `Source`s.
+Visp (as in Val Lisp or whisk in Norwegian) is a Lisp that is the output of Val `Selector`s and evaluates to `Val` objects.
 
-It exists since Val clients must be able to execute a `Selector`s remotely.
+It is an INTERNAL language - it is NOT designed to be used by end-users.
+This document is architectural overview for this INTERNAL language - it is documentation for developers working on Val.
+
+Visp exists since Val clients must be able to execute `Selector`s remotely.
 See the docs for remote `Schema`s for more about this.
 
 The design goals are as follows:
 
-- evaluates to Val objects
+- evaluate to `Val` objects
 - easy to parse and serialize
 - easy to evaluate in JavaScript
-- more concise than an AST, therefore more readable
-- based on a standard language (lisp) so it does not seem too exotic for somebody who knows lisp / functional programming
+- readable by Vals developers (for internal debugging)
+- stable language semantics to avoid breaking changes as Visp is part of the (internal) API versioning
+- does not support more functionality than what is required to serialize `Selector`s
 
 The non-goals are:
 
-- not adapted to be written by humans
-- easily understandable by end-users of Val. VISP code is only derived from the `Selector` DSL.
-- include more functionality than what is required to serialize `Selector`s
+- Visp does not need to be convenient to write - `Selector`s are used to write it
+- Visp does not need to be easily understandable by end-users of Val
 
 ## Syntax
 
-VISP is a lisp which only can evaluate one expression at a time.
+Visp is a Lisp which only can evaluate one expression at a time.
 
 Read more about how it works in sections that follows.
 
@@ -37,7 +40,7 @@ corresponds to:
 foo['title']
 ```
 
-There are no numbers in VISP, so arrays are indexed in the same way:
+There are no numbers in Visp, so arrays are indexed in the same way:
 
 ```visp
 ('0' foo)
@@ -66,7 +69,7 @@ foo['fnname'](arg1, arg2) // same as foo.fname(arg1, arg2)
 #### Higher order functions
 
 Higher order functions must be prefixed with the `!` character.
-Arguments can be accessed using the `@` character. The `@` must be suffixed with indexes, eg `@[0,0]`, the first one corresponding to the stack depth and the second corresponds to index of the argument list.
+Arguments can be accessed using the `@` character. The `@` must be suffixed with indexes, e.g. `@[0,0]`, the first one corresponding to the stack depth and the second corresponds to index of the argument list.
 
 ```visp
 !(map foo @[0,0])
@@ -104,7 +107,7 @@ foo.map((v, i) => v.map((j) => j.slice(i)))
 
 ### Literals
 
-VISP only supports string literals.
+Visp only supports string literals.
 
 Example:
 
@@ -121,7 +124,7 @@ corresponds to:
 ### String templates
 
 Val has support for string templates similar to JavaScript.
-They are denoted using single quotes `'` (as normal strings), but can inject expressions using  `${}`.
+They are denoted using single quotes `'` (as string literal), but can inject expressions using  `${}`.
 
 Example:
 
@@ -163,7 +166,7 @@ Returns the `Source` of a Val module of id `/foo/bar`.
 
 ### json
 
-The `json` symbol is used to parse json.
+The `json` symbol is used to parse json strings.
 
 Example:
 
