@@ -1,4 +1,4 @@
-import { Source } from "../selector";
+import { Source } from "../Source";
 import { SerializedObjectSchema } from "./object";
 import { SerializedStringSchema } from "./string";
 

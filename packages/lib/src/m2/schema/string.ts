@@ -12,7 +12,8 @@ export type SerializedStringSchema = {
 };
 
 export class StringSchema<Src extends string> extends Schema<Src> {
-  protected validate(src: Src): false | string[] {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  protected validate(src: string): false | string[] {
     throw new Error("Method not implemented.");
   }
   protected serialize(): SerializedSchema {
@@ -20,6 +21,7 @@ export class StringSchema<Src extends string> extends Schema<Src> {
   }
 }
 
-export const string = (options?: StringOptions): StringSchema<string> => {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const string = (options?: StringOptions): Schema<string> => {
   throw new Error("Method not implemented.");
 };

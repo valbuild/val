@@ -3,8 +3,8 @@ import {
   SelectorC,
   SelectorOf,
   SelectorSource,
-  SourcePrimitive,
 } from ".";
+import { SourcePrimitive } from "../Source";
 
 declare const brand: unique symbol;
 

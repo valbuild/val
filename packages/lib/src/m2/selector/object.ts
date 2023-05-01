@@ -3,8 +3,8 @@ import {
   SelectorC,
   SelectorOf,
   SelectorSource,
-  SourceObject,
 } from ".";
+import { SourceObject } from "../Source";
 
 declare const brand: unique symbol;
 export type UndistributedSourceObject<T extends SourceObject> = [T] extends [

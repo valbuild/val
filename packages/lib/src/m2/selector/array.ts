@@ -3,8 +3,8 @@ import {
   SelectorC,
   SelectorOf,
   SelectorSource,
-  SourceArray,
 } from ".";
+import { SourceArray } from "../Source";
 
 declare const brand: unique symbol;
 
