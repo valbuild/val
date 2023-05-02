@@ -19,14 +19,6 @@ export default function Home() {
     );
   return (
     <main className={styles.main}>
-      <PortableTextComponent
-        blocks={blocks}
-        transform={{
-          types: {
-            image: (props) => <img src={props.node.asset.url} />,
-          },
-        }}
-      />
       <article className={styles.article}>
         {blogs.map((blog) => (
           <section key={blog.valSrc} className={styles.blog}>
