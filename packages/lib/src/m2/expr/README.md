@@ -1,11 +1,11 @@
 # Visp
 
-Visp (as in Val Lisp or whisk in Norwegian) is a Lisp that is the output of Val `Selector`s and evaluates to `Val` objects.
+Visp (as in Val Lisp or whisk in Norwegian) is a Lisp used to serialize Val `Selector`s.
 
 It is an INTERNAL language - it is NOT designed to be used by end-users.
 This document is architectural overview for this INTERNAL language - it is documentation for developers working on Val.
 
-Visp exists since Val clients must be able to execute `Selector`s remotely.
+Visp exists since Val clients must be able to execute remote `Selector`s.
 See the docs for remote `Schema`s for more about this.
 
 The design goals are as follows:
