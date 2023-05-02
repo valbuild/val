@@ -5,7 +5,7 @@ import { UndistributedSourceArray as ArraySelector } from "./array";
 import { Selector as PrimitiveSelector } from "./primitive";
 import { OptionalSelector as OptionalSelector } from "./optional";
 import { AssetSelector } from "./asset";
-import { expr } from "../..";
+import { ModuleId, SourcePath, Val } from "../val";
 import {
   FileSource,
   I18nSource,
@@ -15,6 +15,10 @@ import {
   SourceObject,
   SourcePrimitive,
 } from "../Source";
+import { Val as ObjectVal } from "../val/object";
+import { Val as ArrayVal } from "../val/array";
+import { Val as PrimitiveVal } from "../val/primitive";
+import { Schema } from "../schema";
 
 /**
  * Selectors can be used to select parts of a Val module.
@@ -63,28 +67,69 @@ export type SelectorSource =
   | SourcePrimitive
   | I18nSource<
       string,
+      SourcePrimitive | SourceObject | SourceArray | FileSource<string>
+    >
+  | RemoteSource<
       | SourcePrimitive
       | SourceObject
       | SourceArray
       | FileSource<string>
-      | RemoteSource<Source>
+      | I18nSource<
+          string,
+          SourcePrimitive | SourceObject | SourceArray | FileSource<string>
+        >
     >
-  | RemoteSource<string>
   | FileSource<string>
-  | SelectorC<SelectorSource>;
+  | SelectorC<Source>;
 
 /**
  * @internal
  */
-export const EXPR = Symbol("expr");
-export abstract class SelectorC<out T> {
+export const SOURCE = Symbol("getSource");
+/**
+ * @internal
+ */
+export const SOURCE_PATH = Symbol("getSourcePath");
+/**
+ * @internal
+ */
+export const VAL = Symbol("getVal");
+/**
+ * @internal
+ */
+export const SCHEMA = Symbol("getSchema");
+
+export abstract class SelectorC<T extends Source> {
+  [SOURCE](): T {
+    return this.source;
+  }
+  [SOURCE_PATH](): SourcePath | undefined {
+    return this.sourcePath;
+  }
+  [SCHEMA](): Schema<T> {
+    return this.schema;
+  }
+
   /**
    * @internal
    */
-  abstract [EXPR](): expr.Expr<[], T>;
+  constructor(
+    protected readonly sourcePath: SourcePath,
+    protected readonly schema: Schema<T>,
+    protected readonly source: T
+  ) {}
 }
 
-export type SourceOf<T> = [T] extends [SelectorC<infer S>]
+export interface AsVal<T extends Source> {
+  /**
+   * @internal
+   */
+  [VAL](): Val<T>; // TODO: we would have liked to
+}
+
+export type SourceOf<T> = [T] extends [never]
+  ? never
+  : [T] extends [SelectorC<infer S>]
   ? S
   : [T] extends [unknown[]]
   ? SourceOf<T[number]>[]
@@ -92,7 +137,9 @@ export type SourceOf<T> = [T] extends [SelectorC<infer S>]
   ? {
       [key in keyof T]: SourceOf<T[key]>;
     }
-  : T;
+  : T extends Source
+  ? T
+  : never;
 
 /**
  * Use this type to convert types that accepts both Source and Selectors

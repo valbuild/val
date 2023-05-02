@@ -1,12 +1,13 @@
 import {
+  AsVal,
   Selector as UnknownSelector,
   SelectorC,
   SelectorOf,
   SelectorSource,
+  VAL,
 } from ".";
 import { SourcePrimitive } from "../Source";
-
-declare const brand: unique symbol;
+import { Val } from "../val";
 
 /**
  * TODO: improve docs
@@ -15,10 +16,21 @@ declare const brand: unique symbol;
  * const isEquals: Val<boolean> = useVal(titleVal.eq("something"));
  *
  */
-export type Selector<T extends SourcePrimitive> = SelectorC<T> & {
-  eq(other: SourcePrimitive): Selector<boolean>;
-  readonly [brand]: "PrimitiveSelector";
+export type Selector<T extends SourcePrimitive> = PrimitiveSelector<T>;
+
+class PrimitiveSelector<T extends SourcePrimitive>
+  extends SelectorC<T>
+  implements AsVal<T>
+{
+  eq(other: SourcePrimitive): Selector<boolean> {
+    throw Error("TODO: implement me");
+  }
   andThen<U extends SelectorSource>(
     f: (v: UnknownSelector<NonNullable<T>>) => U
-  ): SelectorOf<U>;
-};
+  ): SelectorOf<U> {
+    throw Error("TODO: implement me");
+  }
+  [VAL](): Val<T> {
+    throw Error("TODO: implement me");
+  }
+}

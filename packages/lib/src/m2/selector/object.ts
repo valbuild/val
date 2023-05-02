@@ -1,22 +1,28 @@
 import {
+  AsVal,
   Selector as UnknownSelector,
   SelectorC,
   SelectorOf,
   SelectorSource,
+  VAL,
 } from ".";
 import { SourceObject } from "../Source";
+import { Val } from "../val";
 
-declare const brand: unique symbol;
 export type UndistributedSourceObject<T extends SourceObject> = [T] extends [
   SourceObject
 ]
   ? Selector<T>
   : never;
 
-type Selector<T extends SourceObject> = SelectorC<T> & {
+type Selector<T extends SourceObject> = ObjectSelector<T> & {
   readonly [key in keyof T]: UnknownSelector<T[key]>;
-} & {
-  readonly [brand]: "ObjectSelector";
+};
+
+export class ObjectSelector<T extends SourceObject>
+  extends SelectorC<T>
+  implements AsVal<T>
+{
   match<
     Tag extends keyof T,
     R extends SelectorSource,
@@ -33,8 +39,16 @@ type Selector<T extends SourceObject> = SelectorC<T> & {
     ? R extends SelectorSource
       ? SelectorOf<R>
       : never
-    : never;
+    : never {
+    throw Error("TODO: implement me");
+  }
   andThen<U extends SelectorSource>(
     f: (v: UnknownSelector<T>) => U
-  ): SelectorOf<U>;
-};
+  ): SelectorOf<U> {
+    throw Error("TODO: implement me");
+  }
+
+  [VAL](): Val<T> {
+    throw Error("TODO: implement me");
+  }
+}

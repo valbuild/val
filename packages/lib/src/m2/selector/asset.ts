@@ -3,13 +3,22 @@ import {
   SelectorC,
   SelectorOf,
   SelectorSource,
+  VAL,
 } from ".";
+import { Val } from "../val";
 
-declare const brand: unique symbol;
+export type AssetSelector = AssetSelectorC;
 
-export type AssetSelector = SelectorC<{ url: string }> & {
-  readonly url: UnknownSelector<string>;
-  readonly [brand]: "AssetSelector";
+class AssetSelectorC
+  extends SelectorC<{ url: string }>
+  implements AssetSelector
+{
+  readonly url: UnknownSelector<string> = null as any;
 
-  andThen<U extends SelectorSource>(f: (v: AssetSelector) => U): SelectorOf<U>;
-};
+  andThen<U extends SelectorSource>(f: (v: AssetSelector) => U): SelectorOf<U> {
+    throw Error("TODO: implement me");
+  }
+  [VAL](): Val<{ url: string }> {
+    throw Error("TODO: implement me");
+  }
+}
