@@ -20,7 +20,10 @@ export type Source =
     >
   | FileSource<string>;
 
-export type SourceObject = { [key in string]: Source };
+export type SourceObject = { [key in string]: Source } & {
+  match?: never;
+  andThen?: never;
+};
 export type SourceArray = Source[];
 export type SourcePrimitive = string | number | boolean | undefined;
 
