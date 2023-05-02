@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaSrcOf, SerializedSchema } from ".";
 import { Source } from "../Source";
 import { string } from "./string";
@@ -9,18 +10,18 @@ export type SerializedObjectSchema = {
 };
 
 type ObjectSchemaProps = { [key: string]: Schema<Source> };
-
-export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<{
+type ObjectSchemaSrcOf<Props extends ObjectSchemaProps> = {
   [key in keyof Props]: SchemaSrcOf<Props[key]>;
-}> {
+};
+
+export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
+  ObjectSchemaSrcOf<Props>
+> {
   constructor(readonly props: Props) {
     super();
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  protected validate(src: {
-    [key in keyof Props]: SchemaSrcOf<Props[key]>;
-  }): false | string[] {
+  protected validate(src: ObjectSchemaSrcOf<Props>): false | string[] {
     throw new Error("Method not implemented.");
   }
   protected serialize(): SerializedSchema {
@@ -30,9 +31,7 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<{
 
 export const object = <Props extends ObjectSchemaProps>(
   schema: Props
-): Schema<{
-  [key in keyof Props]: SchemaSrcOf<Props[key]>;
-}> => {
+): Schema<ObjectSchemaSrcOf<Props>> => {
   return new ObjectSchema(schema);
 };
 
