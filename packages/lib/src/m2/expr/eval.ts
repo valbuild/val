@@ -56,6 +56,14 @@ function evaluateSync(
       );
     }
     if (expr.isAnon) {
+      if (typeof obj[prop] !== "function") {
+        throw new EvalError(
+          `cannot access property ${JSON.stringify(prop)} of ${JSON.stringify(
+            obj
+          )}: required function got ${typeof obj[prop]}`,
+          expr
+        );
+      }
       if (expr.children[0] instanceof Sym) {
         return obj[prop]((...args: any[]) => {
           return evaluateSync(expr.children[2], source, stack.concat([args]));

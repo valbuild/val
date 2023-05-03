@@ -3,7 +3,7 @@ import { evaluate } from "./eval";
 import { parse } from "./parser";
 
 const sources = {
-  "/numbers": [1, 2, 3],
+  "/numbers": [0, 1, 2],
   "/articles": [{ title: "title1" }, { title: "title2" }],
 };
 
@@ -35,6 +35,10 @@ const EvalTestCases = [
   },
   {
     expr: `!(map (val '/articles') ('title' @[0,0]))`,
+    expected: result.ok(sources["/articles"].map((v) => v["title"])),
+  },
+  {
+    expr: `!(map (val '/numbers') !(andThen @[0,0] @[1,0]))`,
     expected: result.ok(sources["/articles"].map((v) => v["title"])),
   },
   {
