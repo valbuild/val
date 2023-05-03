@@ -43,9 +43,32 @@ function evaluateSync(
             expr
           );
         }
+      } else if (expr.children[0].value === "andThen") {
+        if (!expr.isAnon) {
+          throw new EvalError(
+            "must call 'andThen' as anonymous function",
+            expr
+          );
+        }
+        if (expr.children.length !== 3) {
+          throw new EvalError(
+            "must call 'andThen' with exactly two arguments",
+            expr
+          );
+        }
+
+        const obj = evaluateSync(expr.children[1], source, stack);
+        if (obj) {
+          return evaluateSync(expr.children[2], source, stack.concat([obj]));
+        }
+        return obj;
       }
     }
     const prop = evaluateSync(expr.children[0], source, stack);
+    if (expr.children.length === 1) {
+      // TODO: return if literal only?
+      return prop;
+    }
     const obj = evaluateSync(expr.children[1], source, stack);
     if (typeof prop !== "string" && typeof prop !== "number") {
       throw new EvalError(

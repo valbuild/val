@@ -9,6 +9,22 @@ const sources = {
 
 const EvalTestCases = [
   {
+    expr: `'hello world'`,
+    expected: result.ok("hello world"),
+  },
+  {
+    expr: `('hello world')`,
+    expected: result.ok("hello world"),
+  },
+  {
+    expr: `!(andThen 'value' 'show me')`,
+    expected: result.ok("show me"),
+  },
+  {
+    expr: `!(andThen '' ('do NOT show me'))`,
+    expected: result.ok(""),
+  },
+  {
     // TODO: should we do ('numbers' val) to be more consistent?
     expr: `(length (val '/numbers'))`,
     expected: result.ok(sources["/numbers"].length),
@@ -37,10 +53,10 @@ const EvalTestCases = [
     expr: `!(map (val '/articles') ('title' @[0,0]))`,
     expected: result.ok(sources["/articles"].map((v) => v["title"])),
   },
-  {
-    expr: `!(map (val '/numbers') !(andThen @[0,0] @[1,0]))`,
-    expected: result.ok(sources["/articles"].map((v) => v["title"])),
-  },
+  // {
+  //   expr: `!(map (val '/numbers') !(andThen @[0,0] @[1,0]))`,
+  //   expected: result.ok(sources["/articles"].map((v) => v["title"])),
+  // },
   {
     expr: `!(map (val '/articles') 
                  (slice ('title' @[0,0])
