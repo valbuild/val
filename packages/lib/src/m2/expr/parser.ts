@@ -5,7 +5,7 @@ import { Token, tokenize } from "./tokenizer";
 export class ParserError {
   constructor(
     public readonly message: string,
-    public readonly span: [number, number]
+    public readonly span?: [number, number?]
   ) {}
 }
 
@@ -51,7 +51,7 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
       );
     }
     return result.ok(
-      new Call(args, [first.span[0], args.slice(-1)[0].span[1]], isAnon)
+      new Call(args, isAnon, [first.span[0], args.slice(-1)[0].span?.[1]])
     );
   }
 
@@ -79,7 +79,7 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
             return result.err(
               new ParserError("unbalanced string template: missing a '}'", [
                 first.span[0],
-                children.slice(-1)[0].span[1],
+                children.slice(-1)[0].span?.[1],
               ])
             );
           } else if (last.type !== "}") {
@@ -108,7 +108,7 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
       return result.err(
         new ParserError("unbalanced string template: missing a '''", [
           first.span[0],
-          children.slice(-1)[0].span[1],
+          children.slice(-1)[0].span?.[1],
         ])
       );
     } else if (last.type !== "'") {

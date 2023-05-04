@@ -1,41 +1,47 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
-export interface Expr {
-  type: string;
-  serialize(): string;
-  span: [start: number, stop: number];
+export abstract class Expr {
+  abstract type: string;
+  abstract serialize(): string;
+  constructor(public readonly span?: [number, number?]) {}
 }
 
-export class StringLiteral implements Expr {
+export class StringLiteral extends Expr {
   public type = "StringLiteral";
   constructor(
     public readonly value: string,
-    public readonly span: [start: number, stop: number]
-  ) {}
+    span?: [start: number, stop: number]
+  ) {
+    super(span);
+  }
 
   serialize() {
     return `'${this.value}'`;
   }
 }
 
-export class Sym implements Expr {
+export class Sym extends Expr {
   public type = "Sym";
   constructor(
     public readonly value: string,
-    public readonly span: [start: number, stop: number]
-  ) {}
+    span?: [start: number, stop: number]
+  ) {
+    super(span);
+  }
 
   serialize() {
     return this.value;
   }
 }
 
-export class StringTemplate implements Expr {
+export class StringTemplate extends Expr {
   public type = "StringTemplate";
   constructor(
     public readonly children: readonly Expr[],
-    public readonly span: [number, number]
-  ) {}
+    span?: [number, number]
+  ) {
+    super(span);
+  }
 
   serialize() {
     return `'${this.children
@@ -50,13 +56,15 @@ export class StringTemplate implements Expr {
   }
 }
 
-export class Call implements Expr {
+export class Call extends Expr {
   public type = "Call";
   constructor(
     public readonly children: readonly Expr[],
-    public readonly span: [number, number],
-    public readonly isAnon: boolean
-  ) {}
+    public readonly isAnon: boolean,
+    span?: [number, number]
+  ) {
+    super(span);
+  }
 
   serialize() {
     if (this.isAnon) {
