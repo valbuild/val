@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Call, Expr, StringLiteral, StringTemplate, Sym } from "./expr";
-import { Source } from "../selector";
+import { Source } from "../Source";
 import { result } from "../../fp";
 
 export class EvalError {
@@ -62,6 +62,19 @@ function evaluateSync(
           return evaluateSync(expr.children[2], source, stack.concat([obj]));
         }
         return obj;
+      } else if (expr.children[0].value === "eq") {
+        if (expr.isAnon) {
+          throw new EvalError("cannot call 'eq' as anonymous function", expr);
+        }
+        if (expr.children.length !== 3) {
+          throw new EvalError(
+            "must call 'eq' with exactly two arguments",
+            expr
+          );
+        }
+        const a = evaluateSync(expr.children[1], source, stack);
+        const b = evaluateSync(expr.children[2], source, stack);
+        return a === b;
       }
     }
     const prop = evaluateSync(expr.children[0], source, stack);

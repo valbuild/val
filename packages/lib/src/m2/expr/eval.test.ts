@@ -21,6 +21,14 @@ const EvalTestCases = [
     expected: result.ok(undefined),
   },
   {
+    expr: `(eq 'value' 'show me')`,
+    expected: result.ok(false),
+  },
+  {
+    expr: `(eq 'value' 'value')`,
+    expected: result.ok(true),
+  },
+  {
     expr: `!(andThen 'value' 'show me')`,
     expected: result.ok("show me"),
   },
