@@ -44,6 +44,11 @@ const ExprSelectorTestCases: {
     expected: "(eq (val '/app/foo') (json '1'))",
   },
   {
+    description: "eq boolean",
+    input: newExprSelectorProxy<boolean>(root("/app/foo")).eq(true),
+    expected: "(eq (val '/app/foo') (json 'true'))",
+  },
+  {
     description: "filter string",
     input: newExprSelectorProxy<string[]>(root("/app/foo")).filter((v) =>
       v.eq("hei")
@@ -57,14 +62,16 @@ const ExprSelectorTestCases: {
     ),
     expected: "!(filter (val '/app/foo') (eq @[0,0] (json '1')))",
   },
-  // TODO: type-check fails on v.eq(undefined)
-  // {
-  //   description: "filter optional",
-  //   input: newExprSelectorProxy<(number | undefined)[]>(root("/app/foo")).filter((v) =>
-  //     v.eq(undefined)
-  //   ),
-  //   expected: "!(filter (val '/app/foo') (eq @[0,0] (json '1')))",
-  // },
+  {
+    description: "filter optional",
+    input: newExprSelectorProxy<(number | undefined)[]>(
+      root("/app/foo")
+    ).filter((v) =>
+      // @ts-expect-error TODO: currently type checks fails on v.eq(undefined), this should not be the case
+      v.eq(undefined)
+    ),
+    expected: "!(filter (val '/app/foo') (eq @[0,0] ()))",
+  },
   {
     description: "basic projection",
     input: newExprSelectorProxy<string[]>(root("/app/foo")).map((v) => ({
