@@ -23,6 +23,8 @@ export type Source =
 export type SourceObject = { [key in string]: Source } & {
   match?: never;
   andThen?: never;
+  _ref?: never;
+  _type?: never;
 };
 export type SourceArray = Source[];
 export type SourcePrimitive = string | number | boolean | undefined;
@@ -48,20 +50,23 @@ export type FileSource<Ref extends string> = {
 
 export const REMOTE_REF_PROP = "_ref" as const; // TODO: same as FILE_REF_PROP so use same prop?
 
+export type RemoteRef = string & { readonly [brand]: "RemoteRef" };
 /**
  * A remote source is a hash that represents a remote object.
  *
  * It will be resolved into a ValRemote object.
  */
 export type RemoteSource<Src extends Source> = {
-  readonly [REMOTE_REF_PROP]: Schema<Src>;
+  readonly [REMOTE_REF_PROP]: RemoteRef;
+  readonly _schema: Schema<Src>; // TODO: figure out if this is ok
+  readonly _type: "remote"; // TODO: figure out if this is ok
   readonly [brand]: "ValRemoteSource";
 };
 
 /**
  * An i18n source is a map of locales to sources.
  *
- * Its selector will automatically be the underlying source.
+ * Its selector will default to the underlying source. It is possible to call `.all` on i18n sources, which returns an object with all the locales
  *
  */
 export type I18nSource<

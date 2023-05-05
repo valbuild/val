@@ -4,7 +4,7 @@ import {
   SelectorC,
   SelectorOf,
   SelectorSource,
-  VAL,
+  VAL_OR_EXPR,
 } from ".";
 import { Source, SourcePrimitive } from "../Source";
 import { Val } from "../val";
@@ -27,7 +27,7 @@ class OptionalSelectorC<T extends Source>
     : SelectorOf<U> | Selector<undefined> {
     throw Error("TODO: implement me");
   }
-  [VAL](): Val<T | undefined> {
+  [VAL_OR_EXPR](): Val<T | undefined> {
     throw Error("TODO: implement me");
   }
 }

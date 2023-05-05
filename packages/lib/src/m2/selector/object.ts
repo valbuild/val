@@ -4,7 +4,7 @@ import {
   SelectorC,
   SelectorOf,
   SelectorSource,
-  VAL,
+  VAL_OR_EXPR,
 } from ".";
 import { SourceObject } from "../Source";
 import { Val } from "../val";
@@ -35,7 +35,7 @@ export class ObjectSelector<T extends SourceObject>
     key: Tag,
     cases: Cases
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ): Cases[T[Tag] & string] extends (v: any) => infer R
+  ): [Cases[T[Tag] & string]] extends [(v: any) => infer R]
     ? R extends SelectorSource
       ? SelectorOf<R>
       : never
@@ -48,7 +48,7 @@ export class ObjectSelector<T extends SourceObject>
     throw Error("TODO: implement me");
   }
 
-  [VAL](): Val<T> {
+  [VAL_OR_EXPR](): Val<T> {
     throw Error("TODO: implement me");
   }
 }

@@ -3,7 +3,7 @@ import {
   SelectorC,
   SelectorOf,
   SelectorSource,
-  VAL,
+  VAL_OR_EXPR,
 } from ".";
 import { Val } from "../val";
 
@@ -18,7 +18,7 @@ class AssetSelectorC
   andThen<U extends SelectorSource>(f: (v: AssetSelector) => U): SelectorOf<U> {
     throw Error("TODO: implement me");
   }
-  [VAL](): Val<{ url: string }> {
+  [VAL_OR_EXPR](): Val<{ url: string }> {
     throw Error("TODO: implement me");
   }
 }

@@ -51,7 +51,7 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
       );
     }
     return result.ok(
-      new Call(args, isAnon, [first.span[0], args.slice(-1)[0].span?.[1]])
+      new Call(args, isAnon, [first.span[0], args.slice(-1)[0].span?.[1] || -1])
     );
   }
 

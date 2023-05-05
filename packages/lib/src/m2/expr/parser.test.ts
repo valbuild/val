@@ -133,7 +133,11 @@ describe("parser", () => {
         process.stdout.write(input + "\n");
         let underline = "";
         for (let i = 0; i < input.length; i++) {
-          if (i >= res.error.span[0] && i <= res.error.span[1]) {
+          if (
+            res.error.span &&
+            i >= res.error.span[0] &&
+            i <= (res.error.span?.[1] || -1)
+          ) {
             underline += "^";
           } else {
             if (input[i] === "\n") {
@@ -148,7 +152,7 @@ describe("parser", () => {
         process.stderr.write(underline + "\n");
         expect(res).toHaveProperty("value");
       } else {
-        expect(res.value.serialize()).toBe(overrideTest || input);
+        expect(res.value.transpile()).toBe(overrideTest || input);
       }
     }
   );

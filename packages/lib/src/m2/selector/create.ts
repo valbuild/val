@@ -1,107 +1,107 @@
 // TODO: cleanup the module dependency cycles, rename index.ts -> Selector.ts and create.ts -> index.ts?
 
-import { Selector, VAL } from ".";
+import {
+  Selector,
+  SelectorC,
+  SelectorOf,
+  SelectorSource,
+  VAL_OR_EXPR,
+} from ".";
+import * as expr from "../expr/expr";
 import { Schema } from "../schema";
-import { ArraySchema } from "../schema/array";
-import { NumberSchema } from "../schema/number";
-import { ObjectSchema } from "../schema/object";
 import { StringSchema } from "../schema/string";
-import { SourceArray, Source, SourceObject } from "../Source";
 import { SourcePath } from "../val";
 import { ArraySelector } from "./array";
-import { ObjectSelector } from "./object";
+import { BooleanSelector } from "./boolean";
+import { StringSelector } from "./string";
 
-export function createArraySelector<T extends SourceArray>(
-  sourcePath: SourcePath,
-  schema: ArraySchema<Schema<T[number]>>,
-  source: T
-): Selector<T> {
-  const arraySelector = new ArraySelector<T>(sourcePath, schema, source);
-  return new Proxy(arraySelector, {
-    get(target, prop, receiver) {
-      if (typeof prop === "string" && !isNaN(Number(prop))) {
-        return createSelector(
-          `${sourcePath}.${prop}` as SourcePath,
-          schema.item,
-          source[Number(prop)]
-        );
-      } else if (prop === VAL) {
-        return () => arraySelector[VAL]().val;
+export function createSelector<T extends SelectorSource>(
+  source: T,
+  sourcePath?: SourcePath
+): SelectorOf<T> {
+  if (typeof source === "string") {
+    return new StringSelector(newVal(source, sourcePath)) as SelectorOf<T>;
+  } else if (typeof source === "boolean") {
+    return new BooleanSelector(newVal(source, sourcePath)) as SelectorOf<T>;
+  } else if (typeof source === "object" && source !== null) {
+    if (
+      "_ref" in source &&
+      "_type" in source &&
+      "_schema" in source &&
+      source["_type"] === "remote" &&
+      source["_schema"] instanceof Schema
+    ) {
+      if (source["_schema"] instanceof StringSchema) {
+        if (!sourcePath) {
+          throw Error("Cannot create a remote selector without a source path");
+        }
+        return new StringSelector(
+          new expr.Call(
+            [new expr.Sym("val"), new expr.StringLiteral(sourcePath)],
+            false
+          )
+        ) as SelectorOf<T>;
       }
-      return Reflect.get(target, prop, receiver);
-    },
-  }) as Selector<T>;
-}
+    }
 
-export function createObjectSelector<T extends SourceObject>(
-  sourcePath: SourcePath,
-  schema: ObjectSchema<{
-    [key: string]: Schema<Source>;
-  }>,
-  source: T
-): Selector<T> {
-  const objectSelector = new ObjectSelector<T>(sourcePath, schema, source);
-  return new Proxy(objectSelector, {
-    get(target, prop, receiver) {
-      if (typeof prop === "string") {
-        return createSelector(
-          `${sourcePath}.${prop}` as SourcePath,
-          schema.props[prop],
-          source[prop]
-        );
-      }
-      return Reflect.get(target, prop, receiver);
-    },
-  }) as Selector<T>;
-}
-
-export function createSelector<T extends Source>(
-  sourcePath: SourcePath,
-  schema: Schema<T>,
-  source: T
-): Selector<T> {
-  if (schema instanceof ArraySchema) {
-    if (!Array.isArray(source)) {
-      throw Error(`Expected array: ${JSON.stringify(source)}`);
+    if (Array.isArray(source)) {
+      return new ArraySelector(newVal(source, sourcePath)) as SelectorOf<T>;
     }
-    return createArraySelector(
-      sourcePath,
-      schema,
-      source as unknown as SourceArray
-    ) as Selector<T>;
-  } else if (schema instanceof ObjectSchema) {
-    if (typeof source !== "object") {
-      throw Error(`Expected object: ${JSON.stringify(source)}`);
-    }
-    return createObjectSelector(
-      sourcePath,
-      schema,
-      source as unknown as SourceObject
-    ) as Selector<T>;
-  } else if (schema instanceof StringSchema) {
-    if (typeof source !== "string") {
-      throw Error(`Expected string: ${JSON.stringify(source)}`);
-    }
-    return {
-      [VAL]() {
-        return {
-          valPath: sourcePath,
-          val: source,
-        };
-      },
-    } as Selector<T>;
-  } else if (schema instanceof NumberSchema) {
-    if (typeof source !== "number") {
-      throw Error(`Expected number: ${JSON.stringify(source)}`);
-    }
-    return {
-      [VAL]() {
-        return {
-          valPath: sourcePath,
-          val: source,
-        };
-      },
-    } as Selector<T>;
   }
-  throw Error("schema is not of an instance we know of");
+  if (source instanceof SelectorC) {
+    return source as SelectorOf<T>;
+  }
+
+  throw Error(`Cannot handle ${typeof source}`);
+}
+
+function newVal(source: any, path?: SourcePath): any {
+  switch (typeof source) {
+    case "function":
+    case "symbol":
+      throw Error("Invalid val type");
+    case "object":
+      if (source !== null) {
+        // Handles both objects and arrays!
+        return new Proxy(source, {
+          get(target, prop: string) {
+            if (prop === "valPath") {
+              return path;
+            }
+            if (prop === "val") {
+              return target;
+            }
+            if (Array.isArray(target) && prop === "length") {
+              return target.length;
+            }
+            const reflectedValue = Reflect.get(target, prop);
+            if (hasOwn(source, prop)) {
+              if (
+                typeof reflectedValue === "object" &&
+                VAL_OR_EXPR in reflectedValue &&
+                typeof reflectedValue[VAL_OR_EXPR] === "function"
+              ) {
+                return reflectedValue[VAL_OR_EXPR]();
+              }
+              return newVal(
+                reflectedValue,
+                path && (`${path}.${prop}` as SourcePath)
+              );
+            }
+            return reflectedValue;
+          },
+        });
+      }
+    // intentional fallthrough
+    // eslint-disable-next-line no-fallthrough
+    default:
+      return {
+        valPath: path,
+        val: source,
+      };
+  }
+}
+
+function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
+  return Object.prototype.hasOwnProperty.call(obj, prop);
 }

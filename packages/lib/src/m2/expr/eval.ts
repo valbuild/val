@@ -7,7 +7,7 @@ export class EvalError {
   constructor(public readonly message: string, public readonly expr: Expr) {}
 
   toString() {
-    return `${this.message} in: ${this.expr.serialize()}`;
+    return `${this.message} in: ${this.expr.transpile()}`;
   }
 }
 
@@ -15,7 +15,7 @@ const MAX_STACK_SIZE = 100; // an arbitrary semi-large number
 function evaluateSync(
   expr: Expr,
   source: (ref: string) => Source,
-  stack: Source[][]
+  stack: readonly Source[][]
 ): any {
   // TODO: amount of evaluates should be limited?
   if (stack.length > MAX_STACK_SIZE) {
@@ -75,6 +75,35 @@ function evaluateSync(
         const a = evaluateSync(expr.children[1], source, stack);
         const b = evaluateSync(expr.children[2], source, stack);
         return a === b;
+      } else if (expr.children[0].value === "json") {
+        if (expr.children.length !== 2) {
+          throw new EvalError(
+            "must call 'json' with exactly one argument",
+            expr
+          );
+        }
+        const value = evaluateSync(expr.children[1], source, stack);
+        try {
+          return JSON.parse(value);
+        } catch (e) {
+          if (e instanceof SyntaxError) {
+            throw new EvalError(
+              `cannot parse JSON: ${e.message} - value: ${JSON.stringify(
+                value
+              )}`,
+              expr.children[1]
+            );
+          }
+          throw e;
+        }
+      } else if (expr.children[0].value === "stringify") {
+        if (expr.children.length !== 2) {
+          throw new EvalError(
+            "must call 'stringify' with exactly one argument",
+            expr
+          );
+        }
+        return JSON.stringify(evaluateSync(expr.children[1], source, stack));
       }
     }
     const prop = evaluateSync(expr.children[0], source, stack);

@@ -4,33 +4,37 @@ import {
   SelectorC,
   SelectorOf,
   SelectorSource,
-  VAL,
+  VAL_OR_EXPR,
 } from ".";
-import { SourcePrimitive } from "../Source";
 import { Val } from "../val";
+import * as expr from "../expr/expr";
 
 /**
  * TODO: improve docs
  *
  * @example
- * const isEquals: Val<boolean> = useVal(titleVal.eq("something"));
+ * const isEquals: Val<boolean> = useVal(titleVal.eq(true));
  *
  */
-export type Selector<T extends SourcePrimitive> = PrimitiveSelector<T>;
+export type Selector<T extends boolean> = BooleanSelector<T>;
 
-class PrimitiveSelector<T extends SourcePrimitive>
+export class BooleanSelector<T extends boolean>
   extends SelectorC<T>
   implements AsVal<T>
 {
-  eq(other: SourcePrimitive): Selector<boolean> {
+  constructor(valOrExpr: Val<boolean> | expr.Expr) {
+    super(valOrExpr);
+  }
+  [VAL_OR_EXPR](): expr.Expr | Val<T> {
+    return this.valOrExpr;
+  }
+
+  eq(other: boolean): any {
     throw Error("TODO: implement me");
   }
   andThen<U extends SelectorSource>(
     f: (v: UnknownSelector<NonNullable<T>>) => U
   ): SelectorOf<U> {
-    throw Error("TODO: implement me");
-  }
-  [VAL](): Val<T> {
     throw Error("TODO: implement me");
   }
 }

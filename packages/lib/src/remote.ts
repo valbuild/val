@@ -4,9 +4,7 @@ export function remote<F extends string>(ref: F): RemoteSource<F> {
   return { type: "remote", ref } as RemoteSource<F>;
 }
 
-export function isRemoteRef(
-  refObject: unknown
-): refObject is RemoteSource<string> {
+export function isRemoteRef(refObject: any): refObject is RemoteSource<string> {
   return (
     typeof refObject === "object" &&
     refObject !== null &&

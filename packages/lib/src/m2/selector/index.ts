@@ -2,13 +2,16 @@
 import { I18nSelector } from "./i18n";
 import { UndistributedSourceObject as ObjectSelector } from "./object";
 import { UndistributedSourceArray as ArraySelector } from "./array";
-import { Selector as PrimitiveSelector } from "./primitive";
+import { Selector as NumberSelector } from "./number";
+import { Selector as StringSelector } from "./string";
+import { Selector as BooleanSelector } from "./boolean";
 import { OptionalSelector as OptionalSelector } from "./optional";
 import { AssetSelector } from "./asset";
-import { ModuleId, SourcePath, Val } from "../val";
+import { SourcePath, Val } from "../val";
 import {
   FileSource,
   I18nSource,
+  RemoteRef,
   RemoteSource,
   Source,
   SourceArray,
@@ -19,6 +22,7 @@ import { Val as ObjectVal } from "../val/object";
 import { Val as ArrayVal } from "../val/array";
 import { Val as PrimitiveVal } from "../val/primitive";
 import { Schema } from "../schema";
+import { Expr } from "../expr/expr";
 
 /**
  * Selectors can be used to select parts of a Val module.
@@ -40,24 +44,27 @@ import { Schema } from "../schema";
  * }));
  *
  */
-export type Selector<T> = [T] extends [never] // stop recursion if never - improves type checking performance (though it has not been measured)
-  ? never
-  : // NOTE: the "un-distribution of the conditional type is important for selectors:
+export type Selector<T extends Source> = // NOTE: the "un-distribution of the conditional type is important for selectors:
   // https://www.typescriptlang.org/docs/handbook/2/conditional-types.html#distributive-conditional-types
   // NOTE: working with selectors might give you: "Type instantiation is excessively deep and possibly infinite." errors.
   // Have a look here for tips to helping solve it: https://github.com/microsoft/TypeScript/issues/30188#issuecomment-478938437
-
   [T] extends [I18nSource<string, infer S> | undefined]
-  ? I18nSelector<NonNullable<S>> | OptionalSelector<T>
-  : [T] extends [FileSource<string> | undefined]
-  ? AssetSelector | OptionalSelector<T>
-  : [T] extends [SourceObject | undefined]
-  ? ObjectSelector<NonNullable<T>> | OptionalSelector<T>
-  : [T] extends [SourceArray | undefined]
-  ? ArraySelector<NonNullable<T>> | OptionalSelector<T>
-  : [T] extends [string | boolean | number | undefined]
-  ? PrimitiveSelector<NonNullable<T>> | OptionalSelector<T>
-  : never;
+    ? I18nSelector<NonNullable<S>> | OptionalSelector<T>
+    : [T] extends [RemoteSource<infer S> | undefined]
+    ? Selector<NonNullable<S>> | OptionalSelector<T>
+    : [T] extends [FileSource<string> | undefined]
+    ? AssetSelector | OptionalSelector<T>
+    : [T] extends [SourceObject | undefined]
+    ? ObjectSelector<NonNullable<T>> | OptionalSelector<T>
+    : [T] extends [SourceArray | undefined]
+    ? ArraySelector<NonNullable<T>> | OptionalSelector<T>
+    : [T] extends [string | undefined]
+    ? StringSelector<NonNullable<T>> | OptionalSelector<T>
+    : [T] extends [number | undefined]
+    ? NumberSelector<NonNullable<T>> | OptionalSelector<T>
+    : [T] extends [boolean | undefined]
+    ? BooleanSelector<NonNullable<T>> | OptionalSelector<T>
+    : never;
 
 export type SelectorSource =
   | {
@@ -86,6 +93,7 @@ export type SelectorSource =
  * @internal
  */
 export const SOURCE = Symbol("getSource");
+
 /**
  * @internal
  */
@@ -93,30 +101,22 @@ export const SOURCE_PATH = Symbol("getSourcePath");
 /**
  * @internal
  */
-export const VAL = Symbol("getVal");
+export const VAL_OR_EXPR = Symbol("getValOrExpr");
 /**
  * @internal
  */
 export const SCHEMA = Symbol("getSchema");
 
-export abstract class SelectorC<T extends Source> {
-  [SOURCE](): T {
-    return this.source;
-  }
-  [SOURCE_PATH](): SourcePath | undefined {
-    return this.sourcePath;
-  }
-  [SCHEMA](): Schema<T> {
-    return this.schema;
-  }
-
+export abstract class SelectorC<out T extends Source> {
   /**
    * @internal
    */
   constructor(
-    protected readonly sourcePath: SourcePath,
-    protected readonly schema: Schema<T>,
-    protected readonly source: T
+    protected valOrExpr: any,
+    // TODO: this is the actual type, but it is hard to use in the implementations - this is internal so any is ok?
+    // | Val<Source> /* Val<T> makes the type-checker confused, we do not really know why */
+    // | Expr,
+    protected readonly __fakeField?: T /* do not use this, we must have it to make type-checking (since classes are compared structurally?)  */
   ) {}
 }
 
@@ -124,18 +124,20 @@ export interface AsVal<T extends Source> {
   /**
    * @internal
    */
-  [VAL](): Val<T>; // TODO: we would have liked to
+  [VAL_OR_EXPR](): Val<T> | Expr;
 }
 
-export type SourceOf<T> = [T] extends [never]
-  ? never
-  : [T] extends [SelectorC<infer S>]
+type SourceOf<T extends SelectorSource> = T extends SelectorC<infer S>
   ? S
-  : [T] extends [unknown[]]
-  ? SourceOf<T[number]>[]
-  : [T] extends [{ [key: string]: unknown }]
+  : T extends (infer S)[]
+  ? S extends SelectorSource
+    ? SourceOf<S>[]
+    : never
+  : T extends { [key: string]: SelectorSource }
   ? {
-      [key in keyof T]: SourceOf<T[key]>;
+      [key in keyof T]: T[key] extends SelectorSource
+        ? SourceOf<T[key]>
+        : never;
     }
   : T extends Source
   ? T
@@ -146,4 +148,8 @@ export type SourceOf<T> = [T] extends [never]
  *
  * An example would be where literals are supported like in most higher order functions (e.g. map in array)
  **/
-export type SelectorOf<U extends SelectorSource> = Selector<SourceOf<U>>;
+export type SelectorOf<U extends SelectorSource> = [SourceOf<U>] extends [
+  infer S extends Source
+]
+  ? Selector<S>
+  : never;

@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Selector, VAL } from ".";
+import { Selector, VAL_OR_EXPR } from ".";
 import { FileSource, I18nSource } from "../Source";
 
 // TODO: create actual test cases - currently testing only type checker
@@ -79,7 +79,6 @@ import { FileSource, I18nSource } from "../Source";
   const out = ex.map((v) => ({
     subTitle: v.title,
   }));
-  out[0].subTitle;
   out[0].subTitle.eq("");
 }
 
@@ -188,18 +187,30 @@ import { FileSource, I18nSource } from "../Source";
     { type: "foo"; foo: string } | { type: "bar"; bar: number }
   >;
   const out = ex.match("type", {
-    foo: (v) => ({ foo: v.foo }),
-    bar: (v) => v.bar,
+    foo: (v) => ({ t: v.type, foo: v.foo }),
+    bar: (v) => ({ t: v.type, bar: v.bar }),
   });
+  // .match("t", {
+  //   foo: (v) => v.foo,
+  //   bar: (v) => v.bar,
+  // });
 }
 
 {
   const ex = "" as unknown as Selector<{
-    foo: { type: "foo"; foo: string } | { type: "bar"; bar: number };
+    foo: (
+      | { type: "foo"; foo: { type: "subfoo1" } | { type: "subfoo2" } }
+      | { type: "bar"; bar: number }
+    )[];
   }>;
-  const out = ex.foo.match("type", {
-    foo: (v) => ({ foo: v.foo }),
-    bar: (v) => v.bar,
+  const out = ex.foo[0].match("type", {
+    foo: (v) => ({
+      foo: v.foo.match("type", {
+        subfoo1: (v) => v.type,
+        subfoo2: (v) => v,
+      }),
+    }),
+    bar: (v) => ({ blah: v.bar }),
   });
 }
 

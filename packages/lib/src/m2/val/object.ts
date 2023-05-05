@@ -5,8 +5,8 @@ export type Val<T extends SourceObject> = Omit<
   {
     readonly [key in keyof T]: UnknownVal<T[key]>;
   },
-  "valSrc" | "val"
+  "valPath" | "val"
 > & {
-  readonly valSrc: string;
+  readonly valPath: string;
   readonly val: T;
 };

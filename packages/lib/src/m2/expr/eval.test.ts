@@ -29,6 +29,42 @@ const EvalTestCases = [
     expected: result.ok(true),
   },
   {
+    expr: `(json '1')`,
+    expected: result.ok(1),
+  },
+  {
+    expr: `(json '"1"')`,
+    expected: result.ok("1"),
+  },
+  {
+    expr: `(json '{"foo": "bar"}')`,
+    expected: result.ok({ foo: "bar" }),
+  },
+  {
+    expr: `(stringify '1')`,
+    expected: result.ok('"1"'),
+  },
+  {
+    expr: `(stringify (json '1'))`,
+    expected: result.ok("1"),
+  },
+  {
+    expr: `(stringify (json '"1"'))`,
+    expected: result.ok('"1"'),
+  },
+  {
+    expr: `'{"foo": \${(stringify (json '"1"'))}}'`,
+    expected: result.ok('{"foo": "1"}'),
+  },
+  {
+    expr: `'{"foo": \${(stringify (length (val '/numbers')))}}'`,
+    expected: result.ok('{"foo": 3}'),
+  },
+  {
+    expr: `(json '{"foo": \${(stringify '"')}}')`,
+    expected: result.ok({ foo: '"' }),
+  },
+  {
     expr: `!(andThen 'value' 'show me')`,
     expected: result.ok("show me"),
   },
@@ -70,7 +106,7 @@ const EvalTestCases = [
   //   expected: result.ok(sources["/articles"].map((v) => v["title"])),
   // },
   {
-    expr: `!(map (val '/articles') 
+    expr: `!(map (val '/articles')
                  (slice ('title' @[0,0])
                         0
                         2))`,

@@ -1,18 +1,18 @@
 import {
   AsVal,
-  MODULE_ID,
   Selector as UnknownSelector,
   SelectorC,
   SelectorOf,
   SelectorSource,
   SOURCE,
-  VAL,
+  VAL_OR_EXPR,
 } from ".";
 import { Schema } from "../schema";
 import { ArraySchema } from "../schema/array";
-import { Source, SourceArray } from "../Source";
-import { ModuleId, SourcePath, Val } from "../val";
-import { createArraySelector, createSelector } from "./create";
+import { SourceArray } from "../Source";
+import { SourcePath, Val } from "../val";
+import { createSelector } from "./create";
+import * as expr from "../expr/expr";
 
 export type UndistributedSourceArray<T extends SourceArray> = [T] extends [
   infer U // infer here to avoid Type instantiation is excessively deep and possibly infinite. See: https://github.com/microsoft/TypeScript/issues/30188#issuecomment-478938437. Avoiding infer extends to keep us below TS 4.9 compat
@@ -30,8 +30,11 @@ export class ArraySelector<T extends SourceArray>
   extends SelectorC<T>
   implements AsVal<T>
 {
-  [VAL](): Val<T> {
-    throw Error("TODO: implement me");
+  constructor(valOrExpr: expr.Expr | Val<T>) {
+    super(valOrExpr);
+  }
+  [VAL_OR_EXPR](): expr.Expr | Val<T> {
+    return this.valOrExpr;
   }
   readonly length: UnknownSelector<T["length"]> = null as never; // TODO: !
 
@@ -43,32 +46,7 @@ export class ArraySelector<T extends SourceArray>
   map<U extends SelectorSource>(
     f: (v: UnknownSelector<T[number]>, i: UnknownSelector<number>) => U
   ): SelectorOf<U[]> {
-    const source = this[SOURCE]();
-    const a = source.map((_v, i) => {
-      const result = f(
-        createSelector(
-          (this.sourcePath + "." + i) as SourcePath,
-          (this.schema as unknown as ArraySchema<Schema<T[number]>>).item,
-          source[i]
-        ) as unknown as UnknownSelector<T[number]>,
-        null as unknown /* TODO */ as UnknownSelector<number>
-      ) as unknown as U;
-      return result;
-    }) as unknown as SelectorOf<U[]>;
-    const currentPath = this.sourcePath;
-    return new Proxy(a, {
-      get(target, prop) {
-        if (prop === VAL) {
-          return () => {
-            return {
-              valPath: currentPath,
-              val: a.map((v) => v[VAL]().val),
-            };
-          };
-        }
-        return target[Number(prop)];
-      },
-    });
+    throw Error("TODO: implement me");
   }
   andThen<U extends SelectorSource>(
     f: (v: UnknownSelector<NonNullable<T>>) => U
