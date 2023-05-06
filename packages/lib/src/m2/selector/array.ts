@@ -4,14 +4,10 @@ import {
   SelectorC,
   SelectorOf,
   SelectorSource,
-  SOURCE,
   VAL_OR_EXPR,
 } from ".";
-import { Schema } from "../schema";
-import { ArraySchema } from "../schema/array";
 import { SourceArray } from "../Source";
-import { SourcePath, Val } from "../val";
-import { createSelector } from "./create";
+import { Val } from "../val";
 import * as expr from "../expr/expr";
 
 export type UndistributedSourceArray<T extends SourceArray> = [T] extends [

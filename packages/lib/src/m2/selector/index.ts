@@ -94,15 +94,6 @@ export type SelectorSource =
 /**
  * @internal
  */
-export const SOURCE = Symbol("getSource");
-
-/**
- * @internal
- */
-export const SOURCE_PATH = Symbol("getSourcePath");
-/**
- * @internal
- */
 export const VAL_OR_EXPR = Symbol("getValOrExpr");
 /**
  * @internal
