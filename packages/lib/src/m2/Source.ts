@@ -71,12 +71,7 @@ export type RemoteSource<Src extends Source> = {
  */
 export type I18nSource<
   Locales extends string,
-  T extends
-    | SourcePrimitive
-    | SourceObject
-    | SourceArray
-    | FileSource<string>
-    | RemoteSource<Source>
+  T extends SourcePrimitive | SourceObject | SourceArray | FileSource<string>
 > = {
   readonly [locale in Locales]: T;
 } & {

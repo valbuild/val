@@ -1,7 +1,5 @@
 import {
   FileSource,
-  RemoteSource,
-  Source,
   SourceArray,
   SourceObject,
   SourcePrimitive,
@@ -11,12 +9,7 @@ import { Selector as UnknownSelector } from ".";
 declare const brand: unique symbol;
 
 export type I18nSelector<
-  T extends
-    | SourcePrimitive
-    | SourceObject
-    | SourceArray
-    | FileSource<string>
-    | RemoteSource<Source> // TODO: this is not correct, but it simplifies the Selector type - consider removing this and checking that NonNullable<S> when "calling"  theI18nSelector in Selector type is not RemoveSource
+  T extends SourcePrimitive | SourceObject | SourceArray | FileSource<string>
 > = UnknownSelector<T> & {
   readonly [brand]: "I18nSelector";
 };

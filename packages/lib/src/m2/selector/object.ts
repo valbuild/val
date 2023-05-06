@@ -1,13 +1,10 @@
 import {
-  AsVal,
   Selector as UnknownSelector,
   SelectorC,
   SelectorOf,
   SelectorSource,
-  VAL_OR_EXPR,
 } from ".";
 import { SourceObject } from "../Source";
-import { Val } from "../val";
 
 export type UndistributedSourceObject<T extends SourceObject> = [T] extends [
   SourceObject
@@ -15,14 +12,10 @@ export type UndistributedSourceObject<T extends SourceObject> = [T] extends [
   ? Selector<T>
   : never;
 
-type Selector<T extends SourceObject> = ObjectSelector<T> & {
+// TODO: docs
+type Selector<T extends SourceObject> = SelectorC<T> & {
   readonly [key in keyof T]: UnknownSelector<T[key]>;
-};
-
-export class ObjectSelector<T extends SourceObject>
-  extends SelectorC<T>
-  implements AsVal<T>
-{
+} & {
   match<
     Tag extends keyof T,
     R extends SelectorSource,
@@ -39,16 +32,8 @@ export class ObjectSelector<T extends SourceObject>
     ? R extends SelectorSource
       ? SelectorOf<R>
       : never
-    : never {
-    throw Error("TODO: implement me");
-  }
+    : never;
   andThen<U extends SelectorSource>(
     f: (v: UnknownSelector<T>) => U
-  ): SelectorOf<U> {
-    throw Error("TODO: implement me");
-  }
-
-  [VAL_OR_EXPR](): Val<T> {
-    throw Error("TODO: implement me");
-  }
-}
+  ): SelectorOf<U>;
+};
