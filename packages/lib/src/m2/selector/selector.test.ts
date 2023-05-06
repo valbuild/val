@@ -108,17 +108,17 @@ const SelectorModuleTestCases: {
 const RemoteAndLocaleSelectorModuleTestCases = SelectorModuleTestCases.flatMap(
   (testCase) => [
     {
-      input: testCase.input(false),
+      input: () => testCase.input(false),
       description: `local ${testCase.description}`,
       expected: testCase.expected,
       remote: false,
     },
-    // {
-    //   input: testCase.input(true),
-    //   description: `remote ${testCase.description}`,
-    //   expected: testCase.expected,
-    //   remote: true,
-    // },
+    {
+      input: () => testCase.input(true),
+      description: `remote ${testCase.description}`,
+      expected: testCase.expected,
+      remote: true,
+    },
   ]
 );
 
@@ -131,10 +131,10 @@ describe("selector", () => {
       }
       // TODO: ideally we should be able to use the same test cases for both remote and local
       if (!remote) {
-        const localeRes = (input as unknown as AsVal<Source>)[VAL_OR_EXPR]();
+        const localeRes = (input() as unknown as AsVal<Source>)[VAL_OR_EXPR]();
         expect(localeRes).toStrictEqual(expected);
       } else {
-        const remoteRes = (input as unknown as AsVal<Source>)[VAL_OR_EXPR]();
+        const remoteRes = (input() as unknown as AsVal<Source>)[VAL_OR_EXPR]();
         if (remoteRes instanceof expr.Expr) {
           expect(
             evaluate(
