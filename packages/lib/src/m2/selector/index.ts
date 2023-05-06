@@ -48,7 +48,9 @@ export type Selector<T extends Source> = // NOTE: the "un-distribution of the co
   // https://www.typescriptlang.org/docs/handbook/2/conditional-types.html#distributive-conditional-types
   // NOTE: working with selectors might give you: "Type instantiation is excessively deep and possibly infinite." errors.
   // Have a look here for tips to helping solve it: https://github.com/microsoft/TypeScript/issues/30188#issuecomment-478938437
-  [T] extends [I18nSource<string, infer S> | undefined]
+  Source extends T
+    ? SelectorC<T>
+    : [T] extends [I18nSource<string, infer S> | undefined]
     ? I18nSelector<NonNullable<S>> | OptionalSelector<T>
     : [T] extends [RemoteSource<infer S> | undefined]
     ? Selector<NonNullable<S>> | OptionalSelector<T>

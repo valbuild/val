@@ -93,14 +93,18 @@ const ExprSelectorTestCases: {
   },
   {
     description: "multi module",
-    input: newExprSelectorProxy<string>(root("/app/foo")).andThen((v) =>
+    input: newExprSelectorProxy<string>(root("/app/foo")).andThen(() =>
       newExprSelectorProxy(root("/app/bar"))
     ),
     expected: "!(andThen (val '/app/foo') (val '/app/bar'))",
   },
 ];
 
-/** Useful test cases for literal conversion */
+/**
+ * Useful test cases for literal conversion
+ * There somewhat of an overlap between these cases and the selector cases,
+ * we could prune some of these away if we want to
+ **/
 const LiteralConversionTestCases: {
   input: SelectorSource;
   expected: string;

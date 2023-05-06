@@ -45,14 +45,14 @@ export class StringSelector<T extends string>
   }
 
   andThen<U extends SelectorSource>(
-    f: (v: UnknownSelector<T>) => U
-  ): SelectorOf<U> {
+    f: (v: Selector<string>) => U
+  ): SelectorOf<U> | Selector<string> {
     if (this.valOrExpr instanceof expr.Expr) {
       return newExprSelectorProxy<string>(this.valOrExpr).andThen(f);
     }
 
     if (this.valOrExpr.val) {
-      const res = f(this as UnknownSelector<T>);
+      const res = f(this as Selector<T>);
       if (res instanceof SelectorC) {
         return res as SelectorOf<U>;
       }
