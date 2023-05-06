@@ -59,7 +59,7 @@ function evaluateSync(
 
         const obj = evaluateSync(expr.children[1], source, stack);
         if (obj) {
-          return evaluateSync(expr.children[2], source, stack.concat([obj]));
+          return evaluateSync(expr.children[2], source, stack.concat([[obj]]));
         }
         return obj;
       } else if (expr.children[0].value === "eq") {

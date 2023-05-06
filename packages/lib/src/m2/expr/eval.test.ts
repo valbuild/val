@@ -69,6 +69,10 @@ const EvalTestCases = [
     expected: result.ok("show me"),
   },
   {
+    expr: `!(andThen 'text1' @[0,0])`,
+    expected: result.ok("text1"),
+  },
+  {
     expr: `!(andThen '' ('do NOT show me'))`,
     expected: result.ok(""),
   },
