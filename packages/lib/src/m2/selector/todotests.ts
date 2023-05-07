@@ -1,6 +1,16 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Selector, VAL_OR_EXPR } from ".";
-import { FileSource, I18nSource } from "../Source";
+import {
+  Selector,
+  SelectorC,
+  SelectorOf,
+  SelectorSource,
+  VAL_OR_EXPR,
+} from ".";
+import { Selector as BooleanSelector } from "./boolean";
+import { Schema } from "../schema";
+import { string } from "../schema/string";
+import { FileSource, I18nSource, Source, SourceObject } from "../Source";
+import { array } from "../schema/array";
 
 // TODO: create actual test cases - currently testing only type checker
 
@@ -39,45 +49,183 @@ import { FileSource, I18nSource } from "../Source";
 }
 
 {
+  const ex = "" as unknown as Selector<(string | number)[]>;
+  const out = ex.is(array(string()), { error: "not a string" } as const);
+}
+
+{
+  const ex = "" as unknown as Selector<(string | number)[]>;
+  const out = ex.filter(string());
+}
+
+type SourceOfSelector<T> = T extends Selector<infer O> ? O : never;
+
+// type M<T extends SourceObject> = MatchRes<>
+
+// function match<
+//   S extends SelectorC<SourceObject>,
+//   Tag extends keyof SourceOfSelector<S>,
+//   Cases extends {
+//     [Value in SourceOfSelector<S> as Value[Tag] & string]: (
+//       v: Selector<Value>
+//     ) => SelectorSource;
+//   }
+// >(
+//   target: S,
+//   key: Tag,
+//   cases: Cases
+// ): {
+//   throw new Error("unimplemented");
+// }
+
+{
+  const ex = "" as unknown as
+    | Selector<{ type: "foo"; foo: string }>
+    | Selector<{ type: "bar"; bar: number }>;
+  // const b = match(ex, "type", {
+  //   foo: (v) => v.foo,
+  //   bar: (v) => v.bar,
+  // });
+  const out = ex.fold("type")({
+    bar: (v) =>
+      ({ test: v.bar } as SelectorOf<{ test: string } | { foo: number }>),
+    foo: (v) =>
+      ({ foo: v.foo } as SelectorOf<{ test: string } | { foo: number }>),
+  });
+}
+
+{
   const ex = "" as unknown as Selector<
     { type: "foo"; foo: string } | { type: "bar"; bar: number }
   >;
-  const out = ex.match("type", {
-    foo: (v) => ({ t: v.type, foo: v.foo }),
-    bar: (v) => ({ t: v.type, bar: v.bar }),
+  const out = ex
+    .fold("type")({
+      foo: (v) =>
+        ({ t: v.type, foo: v.foo } as
+          | { t: Selector<"foo">; foo: Selector<string> }
+          | { t: Selector<"bar">; bar: Selector<number> }),
+      bar: (v) =>
+        ({ t: v.type, bar: v.bar } as
+          | { t: Selector<"foo">; foo: Selector<string> }
+          | { t: Selector<"bar">; bar: Selector<number> }),
+    })
+    .fold("t")({
+    foo: (v) => 1,
+    bar: (v) => 2,
   });
+  // TODO:
   // .match("t", {
   //   foo: (v) => v.foo,
   //   bar: (v) => v.bar,
   // });
 }
 
+// {
+//   const ex = "" as unknown as Selector<
+//     { type: "foo"; foo: string } | { type: "bar"; bar: number }
+//   >;
+//   const out: Selector<
+//     | {
+//         t: "foo";
+//         foo: string;
+//       }
+//     | {
+//         t: "bar";
+//         bar: number;
+//       }
+//   > = ex.fold("type", {
+//     foo: (v) => ({ t: v.type, foo: v.foo }),
+//     bar: (v) => ({ t: v.type, bar: v.bar }),
+//   });
+//   const out2 = out.fold("t", {
+//     foo: (v) => ({ z: "a", foo: v.foo } as const),
+//     bar: (v) => ({ z: "b", bar: v.bar } as const),
+//   });
+//   const out3 = out2.match("z", {
+//     a: (v) => v.foo,
+//     b: (v) => v.bar,
+//   });
+// }
+
+// {
+//   const ex = "" as unknown as Selector<
+//     { type: "foo"; foo: string } | { type: "bar"; bar: number }
+//   >;
+//   const out = ex
+//     .fold("type", {
+//       foo: (v) => ({ t: "test1", foo: v.foo } as const),
+//       bar: (v) => ({ t: "test2", bar: v.bar } as const),
+//     })
+//     .match("t", {
+//       test1: (v) => v.foo,
+//       test2: (v) => v.bar,
+//     });
+// }
+
+// {
+//   const ex = "" as unknown as Selector<{
+//     foo: (
+//       | { type: "foo"; foo: { type: "subfoo1" } | { type: "subfoo2" } }
+//       | { type: "bar"; bar: number }
+//     )[];
+//   }>;
+//   const out = ex.foo[0].fold("type", {
+//     foo: (v) => ({
+//       foo: v.foo.match("type", {
+//         subfoo1: (v) => v.type,
+//         subfoo2: (v) => v,
+//       }),
+//     }),
+//     bar: (v) => ({ blah: v.bar }),
+//   });
+// }
+
 {
-  const ex = "" as unknown as Selector<{
-    foo: (
-      | { type: "foo"; foo: { type: "subfoo1" } | { type: "subfoo2" } }
-      | { type: "bar"; bar: number }
-    )[];
-  }>;
-  const out = ex.foo[0].match("type", {
-    foo: (v) => ({
-      foo: v.foo.match("type", {
-        subfoo1: (v) => v.type,
-        subfoo2: (v) => v,
-      }),
-    }),
-    bar: (v) => ({ blah: v.bar }),
+  const ex = "" as unknown as Selector<
+    ({ type: "foo"; foo: string } | { type: "f"; bar: number })[]
+  >;
+
+  const a: Selector<{ type: "foo"; foo: string }[]> = ex.filterMatch({
+    type: "foo",
   });
 }
 
 {
   const ex = "" as unknown as Selector<
-    ({ type: "foo"; foo: string } | { type: "bar"; bar: number })[]
+    (
+      | { type: "foo"; foo: string }
+      // | { type: "f"; bar: number }
+      | { type2: "f"; bar: number }
+    )[]
   >;
-  const out = ex.map((v) =>
-    v.match("type", {
-      foo: (v) => ({ foo: v.foo }),
-      bar: (v) => v.bar,
-    })
+
+  const a: never = ex.filterMatch({ type: "foo" }); // should be never only type in one
+}
+
+// {
+//   const ex = "" as unknown as Selector<
+//     ({ type: "foo"; foo: string } | { type: "bar"; bar: number })[]
+//   >;
+//   const out = ex.map((v) => {
+//     const test = v.fold<
+//       "type",
+//       {
+//         foo: (v: Selector<{ type: "foo"; foo: string }>) => {
+//           foo: Selector<string>;
+//         };
+//         bar: (v: Selector<{ type: "bar"; bar: number }>) => Selector<number>;
+//       }
+//     >("type", {
+//       foo: (v) => ({ foo: v.foo }),
+//       bar: (v) => v.bar,
+//     });
+//     return test;
+//   });
+// }
+
+{
+  const ex = "" as unknown as Selector<string[]>;
+  const out = ex.map(
+    (v) => null as unknown as Selector<number> | Selector<{ foo: number }>
   );
 }

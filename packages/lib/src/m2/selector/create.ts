@@ -1,56 +1,44 @@
 // TODO: cleanup the module dependency cycles, rename index.ts -> Selector.ts and create.ts -> index.ts?
 
-import {
-  Selector,
-  SelectorC,
-  SelectorOf,
-  SelectorSource,
-  VAL_OR_EXPR,
-} from ".";
-import * as expr from "../expr/expr";
-import { Schema } from "../schema";
-import { StringSchema } from "../schema/string";
+import { SelectorOf, SelectorSource, VAL_OR_EXPR } from ".";
 import { SourcePath } from "../val";
-import { ArraySelector } from "./array";
-import { BooleanSelector } from "./boolean";
-import { StringSelector } from "./string";
 
 export function createSelector<T extends SelectorSource>(
   source: T,
   sourcePath?: SourcePath
 ): SelectorOf<T> {
-  if (typeof source === "string") {
-    return new StringSelector(newVal(source, sourcePath)) as SelectorOf<T>;
-  } else if (typeof source === "boolean") {
-    return new BooleanSelector(newVal(source, sourcePath)) as SelectorOf<T>;
-  } else if (typeof source === "object" && source !== null) {
-    if (
-      "_ref" in source &&
-      "_type" in source &&
-      "_schema" in source &&
-      source["_type"] === "remote" &&
-      source["_schema"] instanceof Schema
-    ) {
-      if (source["_schema"] instanceof StringSchema) {
-        if (!sourcePath) {
-          throw Error("Cannot create a remote selector without a source path");
-        }
-        return new StringSelector(
-          new expr.Call(
-            [new expr.Sym("val"), new expr.StringLiteral(sourcePath)],
-            false
-          )
-        ) as SelectorOf<T>;
-      }
-    }
+  // if (typeof source === "string") {
+  //   return new StringSelector(newVal(source, sourcePath)) as Selector<T>;
+  // } else if (typeof source === "boolean") {
+  //   return new BooleanSelector(newVal(source, sourcePath)) as SelectorOf<T>;
+  // } else if (typeof source === "object" && source !== null) {
+  //   if (
+  //     "_ref" in source &&
+  //     "_type" in source &&
+  //     "_schema" in source &&
+  //     source["_type"] === "remote" &&
+  //     source["_schema"] instanceof Schema
+  //   ) {
+  //     if (source["_schema"] instanceof StringSchema) {
+  //       if (!sourcePath) {
+  //         throw Error("Cannot create a remote selector without a source path");
+  //       }
+  //       return new StringSelector(
+  //         new expr.Call(
+  //           [new expr.Sym("val"), new expr.StringLiteral(sourcePath)],
+  //           false
+  //         )
+  //       ) as SelectorOf<T>;
+  //     }
+  //   }
 
-    if (Array.isArray(source)) {
-      return new ArraySelector(newVal(source, sourcePath)) as SelectorOf<T>;
-    }
-  }
-  if (source instanceof SelectorC) {
-    return source as SelectorOf<T>;
-  }
+  //   if (Array.isArray(source)) {
+  //     return new ArraySelector(newVal(source, sourcePath)) as SelectorOf<T>;
+  //   }
+  // }
+  // if (source instanceof SelectorC) {
+  //   return source as SelectorOf<T>;
+  // }
 
   throw Error(`Cannot handle ${typeof source}`);
 }

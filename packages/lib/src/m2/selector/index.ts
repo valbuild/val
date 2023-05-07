@@ -44,29 +44,27 @@ import { Expr } from "../expr/expr";
  * }));
  *
  */
-export type Selector<T extends Source> = // NOTE: the "un-distribution of the conditional type is important for selectors:
-  // https://www.typescriptlang.org/docs/handbook/2/conditional-types.html#distributive-conditional-types
-  // NOTE: working with selectors might give you: "Type instantiation is excessively deep and possibly infinite." errors.
-  // Have a look here for tips to helping solve it: https://github.com/microsoft/TypeScript/issues/30188#issuecomment-478938437
-  Source extends T
-    ? SelectorC<T>
-    : [T] extends [I18nSource<string, infer S> | undefined]
-    ? I18nSelector<NonNullable<S>> | OptionalSelector<T>
-    : [T] extends [RemoteSource<infer S> | undefined]
-    ? Selector<NonNullable<S>> | OptionalSelector<T>
-    : [T] extends [FileSource<string> | undefined]
-    ? AssetSelector | OptionalSelector<T>
-    : [T] extends [SourceObject | undefined]
-    ? ObjectSelector<NonNullable<T>> | OptionalSelector<T>
-    : [T] extends [SourceArray | undefined]
-    ? ArraySelector<NonNullable<T>> | OptionalSelector<T>
-    : [T] extends [string | undefined]
-    ? StringSelector<NonNullable<T>> | OptionalSelector<T>
-    : [T] extends [number | undefined]
-    ? NumberSelector<NonNullable<T>> | OptionalSelector<T>
-    : [T] extends [boolean | undefined]
-    ? BooleanSelector<NonNullable<T>> | OptionalSelector<T>
-    : never;
+export type Selector<T extends Source> = Source extends T
+  ? SelectorC<T>
+  : T extends I18nSource<string, infer S>
+  ? I18nSelector<S>
+  : T extends RemoteSource<infer S>
+  ? Selector<S>
+  : T extends FileSource<string>
+  ? AssetSelector
+  : T extends SourceObject
+  ? ObjectSelector<T>
+  : T extends SourceArray
+  ? ArraySelector<T>
+  : T extends string
+  ? StringSelector<T>
+  : T extends number
+  ? NumberSelector<T>
+  : T extends boolean
+  ? BooleanSelector<T>
+  : T extends undefined
+  ? OptionalSelector<T>
+  : never;
 
 export type SelectorSource =
   | {
@@ -141,8 +139,10 @@ type SourceOf<T extends SelectorSource> = T extends SelectorC<infer S>
  *
  * An example would be where literals are supported like in most higher order functions (e.g. map in array)
  **/
-export type SelectorOf<U extends SelectorSource> = [SourceOf<U>] extends [
-  infer S extends Source
-]
-  ? Selector<S>
-  : never;
+export type SelectorOf<U extends SelectorSource> =
+  // TODO: investigate why Selector<SourceOf<U>> does not work in all cases
+  SourceOf<U> extends infer S
+    ? S extends Source
+      ? Selector<S>
+      : never
+    : never;

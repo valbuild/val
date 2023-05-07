@@ -4,36 +4,74 @@ import {
   SelectorOf,
   SelectorSource,
 } from ".";
-import { SourceObject } from "../Source";
+import { Schema } from "../schema";
+import { Source, SourceObject } from "../Source";
 
-export type UndistributedSourceObject<T extends SourceObject> = [T] extends [
-  SourceObject
-]
-  ? Selector<T>
-  : never;
+export type UndistributedSourceObject<T extends SourceObject> = Selector<T>;
 
 // TODO: docs
 type Selector<T extends SourceObject> = SelectorC<T> & {
   readonly [key in keyof T]: UnknownSelector<T[key]>;
 } & {
-  match<
-    Tag extends keyof T,
-    R extends SelectorSource,
-    Cases extends {
-      [Value in T as Value[Tag] & string]: (
-        v: UndistributedSourceObject<Value>
-      ) => R;
-    }
-  >(
-    key: Tag,
-    cases: Cases
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ): [Cases[T[Tag] & string]] extends [(v: any) => infer R]
-    ? R extends SelectorSource
-      ? SelectorOf<R>
-      : never
-    : never;
+  // TODO: considered this but couldn't get it to work:
+  // fold<Tag extends string, U extends SelectorSource>(
+  //   key: Tag,
+  //   cases: {
+  //     [key in T[Tag] & string]: (v: UnknownSelector<T>) => U;
+  //   }
+  // ): SelectorOf<U>;
+
+  // TODO: decide whether we want to keep this, or remove deprecation
+  /**
+   *
+   * @deprecated use is instead
+   */
+  fold<Tag extends string>(
+    key: Tag
+  ): <U extends SelectorSource>(cases: {
+    [key in T[Tag] & string]: (v: UnknownSelector<T>) => U;
+  }) => SelectorOf<U>;
+
   andThen<U extends SelectorSource>(
     f: (v: UnknownSelector<T>) => U
   ): SelectorOf<U>;
 };
+
+// export type MatchRes<
+//   T extends SourceObject,
+//   Tag extends keyof T,
+//   Cases extends {
+//     [Value in T as Value[Tag] & string]: (
+//       v: UndistributedSourceObject<Value>
+//     ) => SelectorSource;
+//   }
+// > = Cases[T[Tag] & string] extends (v: any) => infer R
+//   ? R extends SelectorSource
+//     ? R
+//     : never
+//   : never;
+
+// type Test<
+//   T extends SourceObject,
+//   Tag extends keyof T,
+//   Cases extends {
+//     [Value in T as Value[Tag] & string]: (
+//       v: UndistributedSourceObject<Value>
+//     ) => SelectorSource;
+//   }
+// > = Cases[T[Tag] & string] extends (v: any) => infer R
+//   ? R extends SelectorSource
+//     ? R
+//     : never
+//   : never;
+
+// type T = Test<
+//   { type: "foo"; foo: string } | { type: "bar"; bar: number },
+//   "type",
+//   {
+//     foo: (v: Selector<{ type: "foo"; foo: string }>) => {
+//       foo: UnknownSelector<string>;
+//     };
+//     bar: (v: Selector<{ type: "bar"; bar: number }>) => UnknownSelector<number>;
+//   }
+// >;

@@ -10,7 +10,7 @@ export type OptionalSelector<T> = T extends undefined ? Selector<T> : never;
 
 // TODO: docs
 type Selector<T extends Source> = SelectorC<T> & {
-  eq(other: SourcePrimitive): UnknownSelector<boolean>;
+  eq(other: Source): UnknownSelector<boolean>;
   andThen<U extends SelectorSource>(
     f: (v: UnknownSelector<NonNullable<T>>) => U
   ): SelectorOf<U> | Selector<T>;
