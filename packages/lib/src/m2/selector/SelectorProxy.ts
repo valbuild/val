@@ -66,7 +66,10 @@ export function newSelectorProxy(source: any, path?: SourcePath): any {
                 return (f: any) => {
                   const filtered = target.map((a, i) => {
                     const valueOrSelector = f(
-                      newSelectorProxy(a, `${path}.${i}` as SourcePath),
+                      newSelectorProxy(
+                        a,
+                        path && (`${path}.${i}` as SourcePath)
+                      ),
                       newSelectorProxy(i)
                     );
                     if (
@@ -88,7 +91,7 @@ export function newSelectorProxy(source: any, path?: SourcePath): any {
             if (hasOwn(source, prop)) {
               return newSelectorProxy(
                 reflectedValue,
-                `${path}.${prop.toString()}` as SourcePath
+                path && (`${path}.${prop.toString()}` as SourcePath)
               );
             }
             return reflectedValue;
@@ -122,6 +125,25 @@ export function newSelectorProxy(source: any, path?: SourcePath): any {
         }),
       };
   }
+}
+
+export function selectorToVal(s: any): any {
+  function stripVal(val: any): any {
+    if (Array.isArray(val)) {
+      return val.map(stripVal);
+    } else if (typeof val === "object" && !(VAL_OR_EXPR in val)) {
+      return Object.fromEntries(
+        Object.entries(val).map(([k, v]) => [k, stripVal(v)])
+      );
+    } else if (typeof val === "object" && VAL_OR_EXPR in val) {
+      return stripVal(val?.[VAL_OR_EXPR]()?.val);
+    }
+    return val;
+  }
+  return {
+    val: stripVal(s?.[VAL_OR_EXPR]()?.val),
+    valPath: s?.[VAL_OR_EXPR]()?.valPath,
+  };
 }
 
 function unValify(valueOrSelector: any) {

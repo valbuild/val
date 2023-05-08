@@ -4,7 +4,7 @@ import { number } from "../schema/number";
 import { string } from "../schema/string";
 import { Source } from "../Source";
 import { SourcePath } from "../val";
-import { newSelectorProxy } from "./SelectorProxy";
+import { newSelectorProxy, selectorToVal } from "./SelectorProxy";
 
 describe("SelectorProxy", () => {
   test("string eq andThen", () => {
@@ -166,25 +166,6 @@ describe("SelectorProxy", () => {
     });
   });
 });
-
-function selectorToVal(s: any): any {
-  function stripVal(val: any): any {
-    if (Array.isArray(val)) {
-      return val.map(stripVal);
-    } else if (typeof val === "object" && !(VAL_OR_EXPR in val)) {
-      return Object.fromEntries(
-        Object.entries(val).map(([k, v]) => [k, stripVal(v)])
-      );
-    } else if (typeof val === "object" && VAL_OR_EXPR in val) {
-      return stripVal(val?.[VAL_OR_EXPR]()?.val);
-    }
-    return val;
-  }
-  return {
-    val: stripVal(s?.[VAL_OR_EXPR]()?.val),
-    valPath: s?.[VAL_OR_EXPR]()?.valPath,
-  };
-}
 
 function expectValOrExpr<T extends Source>(selector: SelectorC<T>) {
   return expect(selectorToVal(selector));

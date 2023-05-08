@@ -1,6 +1,5 @@
 import { pipe, result } from "../../fp";
-import { VAL_OR_EXPR } from "../selector";
-import { newSelectorProxy } from "../selector/SelectorProxy";
+import { newSelectorProxy, selectorToVal } from "../selector/SelectorProxy";
 import { SourcePath } from "../val";
 import { evaluate } from "./eval";
 import { parse } from "./parser";
@@ -17,7 +16,7 @@ const EvalTestCases = [
   },
   {
     expr: `(val '/numbers')`,
-    expected: result.ok({ valPath: "/numbers", val: [0, 1, 2] }),
+    expected: result.ok({ val: [0, 1, 2], valPath: "/numbers" }),
   },
   {
     expr: `('hello world')`,
@@ -36,6 +35,18 @@ const EvalTestCases = [
     expected: result.ok({ val: true, valPath: undefined }),
   },
   {
+    expr: `!(andThen 'value' 'show me')`,
+    expected: result.ok({ val: "show me", valPath: undefined }),
+  },
+  {
+    expr: `!(andThen '' ('do NOT show me'))`,
+    expected: result.ok({ val: "", valPath: undefined }),
+  },
+  {
+    expr: `!(andThen 'text1' @[0,0])`,
+    expected: result.ok({ val: "text1", valPath: undefined }),
+  },
+  {
     expr: `(json '1')`,
     expected: result.ok({ val: 1, valPath: undefined }),
   },
@@ -48,59 +59,51 @@ const EvalTestCases = [
     expected: result.ok({ val: { foo: "bar" }, valPath: undefined }),
   },
   {
-    expr: `(stringify '1')`,
-    expected: result.ok({ val: '"1"', valPath: undefined }),
+    expr: `(json '\${(json '1')}')`,
+    expected: result.ok({ val: 1, valPath: undefined }),
   },
   {
-    expr: `(stringify (json '1'))`,
+    expr: `(json '\${(json '"1"')}')`,
     expected: result.ok({ val: "1", valPath: undefined }),
   },
   {
-    expr: `(stringify (json '"1"'))`,
-    expected: result.ok({ val: '"1"', valPath: undefined }),
+    expr: `(json '{"foo": \${(json '"1"')}}')`,
+    expected: result.ok({
+      val: {
+        foo: {
+          // NOTE: <- this is an artifact since everything is selectable (we do not know if the inside of a literal is a val or just a literal)
+          val: "1",
+        },
+      },
+      valPath: undefined,
+    }),
   },
   {
-    expr: `'{"foo": \${(stringify (json '"1"'))}}'`,
-    expected: result.ok({ val: '{"foo": "1"}', valPath: undefined }),
-  },
-  // TODO: local val module inside expressions:
-  // {
-  //   expr: `'{"foo": \${(stringify (val '/numbers'))}}'`,
-  //   expected: result.ok({ val: '{"foo": [1, 2, 3]}', valPath: undefined }),
-  // },
-  // {
-  //   expr: `('0' (json '{"foo": \${(stringify (val '/numbers'))}}'))`,
-  //   expected: result.ok({ val: 1, valPath: "/numbers/0" }),
-  // },
-  // {
-  //   expr: `'{"foo": \${(stringify (length (val '/numbers')))}}'`,
-  //   expected: result.ok({ val: '{"foo": 3}', valPath: undefined }),
-  // },
-  {
-    expr: `(json '{"foo": \${(stringify '"')}}')`,
-    expected: result.ok({ val: { foo: '"' }, valPath: undefined }),
+    expr: `(json '\${(val '/numbers')}')`,
+    expected: result.ok({
+      val: sources["/numbers"],
+      valPath: "/numbers",
+    }),
   },
   {
-    expr: `!(andThen 'value' 'show me')`,
-    expected: result.ok({ val: "show me", valPath: undefined }),
+    expr: `('test' (json '{ "test": \${('0' (val '/numbers'))} }'))`,
+    expected: result.ok({
+      val: 0,
+      valPath: "/numbers.0",
+    }),
   },
   {
-    expr: `!(andThen 'text1' @[0,0])`,
-    expected: result.ok({ val: "text1", valPath: undefined }),
+    expr: `('1' ('foo' (json '{"foo": \${(val '/numbers')}}')))`,
+    expected: result.ok({ val: 1, valPath: "/numbers.1" }),
   },
   {
-    expr: `!(andThen '' ('do NOT show me'))`,
-    expected: result.ok({ val: "", valPath: undefined }),
-  },
-  {
-    // TODO: should we do ('numbers' val) to be more consistent?
     expr: `(length (val '/numbers'))`,
     expected: result.ok({
       val: sources["/numbers"].length,
       valPath: undefined,
     }),
   },
-  // TODO: implement
+  // TODO: implement slice, reverse
   // {
   //   expr: `(slice (val '/numbers') 0 2)`,
   //   expected: result.ok(sources["/numbers"].slice(0, 2)),
@@ -116,11 +119,6 @@ const EvalTestCases = [
       valPath: "/articles.0",
     }),
   },
-  // TODO: fix interpolations inside expressions
-  // {
-  //   expr: `'\${('0' (val '/articles'))}'`,
-  //   expected: result.ok(`${sources["/articles"][0]}`),
-  // },
   {
     expr: `!(map (val '/articles') @[0,0])`,
     expected: result.ok({
@@ -130,12 +128,19 @@ const EvalTestCases = [
   },
   {
     expr: `('0' !(map (val '/articles') ('title' @[0,0])))`,
-    expected: result.ok(sources["/articles"].map((v) => v["title"])),
+    expected: result.ok({
+      val: sources["/articles"].map((v) => v["title"])[0],
+      valPath: "/articles.0.title",
+    }),
   },
-  // // {
-  // //   expr: `!(map (val '/numbers') !(andThen @[0,0] @[1,0]))`,
-  // //   expected: result.ok(sources["/articles"].map((v) => v["title"])),
-  // // },
+  {
+    expr: `!(map (val '/articles') ('title' @[0,0]))`,
+    expected: result.ok({
+      val: sources["/articles"].map((v) => v["title"]),
+      valPath: "/articles",
+    }),
+  },
+  // TODO: implement slice
   // {
   //   expr: `!(map (val '/articles')
   //                (slice ('title' @[0,0])
@@ -178,7 +183,7 @@ describe("eval", () => {
 
           []
         ),
-        result.map((v) => v[VAL_OR_EXPR]())
+        result.map((v) => selectorToVal(v))
       )
     ).toStrictEqual(expected);
   });

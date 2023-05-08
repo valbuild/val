@@ -45,42 +45,6 @@ function evaluateSync(
             expr
           );
         }
-      } else if (expr.children[0].value === "andThen") {
-        if (!expr.isAnon) {
-          throw new EvalError(
-            "must call 'andThen' as anonymous function",
-            expr
-          );
-        }
-        if (expr.children.length !== 3) {
-          throw new EvalError(
-            "must call 'andThen' with exactly two arguments",
-            expr
-          );
-        }
-
-        const obj = evaluateSync(expr.children[1], source, stack);
-        if (obj) {
-          return evaluateSync(expr.children[2], source, stack.concat([[obj]]));
-        }
-        return obj;
-      } else if (expr.children[0].value === "eq") {
-        if (expr.isAnon) {
-          throw new EvalError("cannot call 'eq' as anonymous function", expr);
-        }
-        if (expr.children.length !== 3) {
-          throw new EvalError(
-            "must call 'eq' with exactly two arguments",
-            expr
-          );
-        }
-        const a = newSelectorProxy(
-          evaluateSync(expr.children[1], source, stack)
-        );
-        const b = newSelectorProxy(
-          evaluateSync(expr.children[2], source, stack)
-        );
-        return a.eq(b);
       } else if (expr.children[0].value === "json") {
         if (expr.children.length !== 2) {
           throw new EvalError(
@@ -89,12 +53,12 @@ function evaluateSync(
           );
         }
         const value = evaluateSync(expr.children[1], source, stack);
+        const valOrExpr = value[VAL_OR_EXPR]();
         try {
-          const parsedValue = JSON.parse(value);
-          // TODO: something like this to support local modules inside json literals?
-          // if (typeof parsedValue === "object" && "val" in parsedValue) {
-          //   return newSelectorProxy(parsedValue);
-          // }
+          const parsedValue = newSelectorProxy(
+            JSON.parse(valOrExpr.val),
+            valOrExpr.valPath
+          );
           return parsedValue;
         } catch (e) {
           if (e instanceof SyntaxError) {
@@ -115,17 +79,14 @@ function evaluateSync(
           );
         }
         const res = evaluateSync(expr.children[1], source, stack);
-        // TODO: something like this to support local modules inside json literals?
-        // if (typeof res === "object" && VAL_OR_EXPR in res) {
-        //   return JSON.stringify(res[VAL_OR_EXPR]());
-        // }
-        return JSON.stringify(res);
+        return newSelectorProxy(JSON.stringify(res[VAL_OR_EXPR]()));
       }
     }
-    const prop = evaluateSync(expr.children[0], source, stack);
+    const prop = evaluateSync(expr.children[0], source, stack)[VAL_OR_EXPR]()
+      .val;
     if (expr.children.length === 1) {
       // TODO: return if literal only?
-      return prop;
+      return newSelectorProxy(prop);
     }
     const obj = evaluateSync(expr.children[1], source, stack);
     if (typeof prop !== "string" && typeof prop !== "number") {
@@ -196,15 +157,21 @@ function evaluateSync(
       }
       return stackValue;
     } else if (expr.value === "()") {
-      return undefined;
+      return newSelectorProxy(undefined);
     }
-    return expr.value;
+    return newSelectorProxy(expr.value);
   } else if (expr instanceof StringLiteral) {
-    return expr.value;
+    return newSelectorProxy(expr.value);
   } else if (expr instanceof StringTemplate) {
-    return expr.children
-      .map((child) => evaluateSync(child, source, stack))
-      .join("");
+    return newSelectorProxy(
+      expr.children
+        .map((child) =>
+          child.type === "StringLiteral" || child.type === "StringTemplate"
+            ? evaluateSync(child, source, stack)[VAL_OR_EXPR]().val
+            : JSON.stringify(evaluateSync(child, source, stack)[VAL_OR_EXPR]())
+        )
+        .join("")
+    );
   }
   throw new EvalError(`could not evaluate`, expr);
 }
@@ -215,7 +182,7 @@ export function evaluate(
   stack: readonly SelectorC<Source>[][]
 ): result.Result<SelectorC<Source>, EvalError> {
   try {
-    return result.ok(newSelectorProxy(evaluateSync(expr, source, stack)));
+    return result.ok(evaluateSync(expr, source, stack));
   } catch (err) {
     if (err instanceof EvalError) {
       return result.err(err);
