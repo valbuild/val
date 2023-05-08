@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Expr } from "../expr/expr";
 import { Val } from "../val";
 
@@ -13,20 +14,6 @@ type SourceObject = { [key in string]: Source } & {
 };
 type SourceArray = readonly Source[];
 
-export type UnknownSelector<T extends Source> = // NOTE: the "un-distribution of the conditional type is important for selectors:
-  // https://www.typescriptlang.org/docs/handbook/2/conditional-types.html#distributive-conditional-types
-  // NOTE: working with selectors might give you: "Type instantiation is excessively deep and possibly infinite." errors.
-  // Have a look here for tips to helping solve it: https://github.com/microsoft/TypeScript/issues/30188#issuecomment-478938437
-  Source extends T
-    ? SelectorC<T>
-    : [T] extends [SourceObject | undefined]
-    ? ObjectSelector<T>
-    : [T] extends [SourceArray | undefined]
-    ? ArraySelector<T>
-    : [T] extends [string | undefined]
-    ? StringSelector<T>
-    : never;
-
 export type SelectorSource =
   | {
       readonly [key: string | number]: SelectorSource;
@@ -35,36 +22,13 @@ export type SelectorSource =
   | SourcePrimitive
   | SelectorC<Source>;
 
-/**
- * @internal
- */
-export const VAL_OR_EXPR = Symbol("getValOrExpr");
-/**
- * @internal
- */
-export const SCHEMA = Symbol("getSchema");
-
-/**
- * @internal
- */
 abstract class SelectorC<out T extends Source> {
   /**
    * @internal
    */
   constructor(
-    protected valOrExpr: any,
-    // TODO: this is the actual type, but it is hard to use in the implementations - this is internal so any is ok?
-    // | Val<Source> /* Val<T> makes the type-checker confused, we do not really know why */
-    // | Expr,
-    protected readonly __fakeField?: T /* do not use this, we must have it to make type-checking (since classes are compared structurally?)  */
+    protected readonly s?: T /* do not use this, we must have it to make type-checking (since classes are compared structurally?)  */
   ) {}
-}
-
-export interface AsVal<T extends Source> {
-  /**
-   * @internal
-   */
-  [VAL_OR_EXPR](): Expr;
 }
 
 type SourceOf<T extends SelectorSource> = T extends SelectorC<infer S>
@@ -94,67 +58,40 @@ export type SelectorOf<U extends SelectorSource> = [SourceOf<U>] extends [
   ? UnknownSelector<S>
   : never;
 
-type StringSelector<T extends string | undefined> = SelectorC<T> & {
-  andThen<U extends SelectorSource>(
-    f: (v: StringSelector<string>) => U
-  ): SelectorOf<U> | StringSelector<string>;
-  eq(other: T): SelectorOf<"todoboolean">;
-};
+type StringSelector<T extends string | undefined> = SelectorC<T>;
 
-type ArraySelector<T extends SourceArray | undefined> = ArraySelectorT<T>;
+type UndefinedSelector<T extends undefined> = SelectorC<T>;
 
-// TODO: docs
-type ArraySelectorT<T extends SourceArray | undefined> = SelectorC<T> & {
-  readonly [key in keyof T & number]: T[key] extends SourceArray
-    ? UnknownSelector<T[key]>
-    : ArraySelectorT<undefined>;
-} & {
-  map<U extends SelectorSource>(
-    f: (
-      v: T extends SourceArray
-        ? UnknownSelector<T[number]>
-        : ArraySelectorT<undefined>
-    ) => U
-  ): SelectorOf<U[]>;
-  andThen<U extends SelectorSource>(
-    f: (v: UnknownSelector<NonNullable<T>>) => U
-  ): SelectorOf<U>;
-};
-
-type ObjectSelector<T extends SourceObject | undefined> = [T] extends [
-  SourceObject | undefined
-]
-  ? ObjectSelectorT<T>
+type UnknownSelector<T extends Source> = [T] extends [SourceObject]
+  ? ObjectSelector<T>
+  : [T] extends [SourceObject | undefined]
+  ? ObjectSelectorOptional<T>
+  : T extends string
+  ? StringSelector<T>
+  : T extends undefined
+  ? UndefinedSelector<T>
   : never;
 
+type AsSource<T> = T extends Source ? T : never;
+
 // TODO: docs
-type ObjectSelectorT<T extends SourceObject | undefined> = SelectorC<T> & {
-  readonly [key in keyof T]: [T] extends [SourceObject | undefined]
-    ? T[key] | undefined extends Source
-      ? UnknownSelector<T[key] | undefined>
-      : T[key] extends Source
-      ? UnknownSelector<T[key]>
-      : never
-    : never;
-} & {
-  andThen<U extends SelectorSource>(
-    f: (v: UnknownSelector<NonNullable<T>>) => U
-  ): [T] extends [SourceObject | undefined]
-    ? SelectorOf<U | undefined>
-    : SelectorOf<U>;
+type ObjectSelectorOptional<T extends SourceObject | undefined> =
+  SelectorC<T> & {
+    readonly [key in keyof T]: UnknownSelector<AsSource<T[key] | undefined>>;
+  };
+
+type ObjectSelector<T extends SourceObject> = SelectorC<T> & {
+  readonly [key in keyof T]: UnknownSelector<AsSource<T[key]>>;
 };
 
 {
-  const a = null as unknown as UnknownSelector<
-    Record<string, "foo"> | undefined
-  >;
-  const b = a.andThen((v) => {
-    const b = v["a"];
-    return b;
-  });
-}
-
-{
-  const a = null as unknown as UnknownSelector<["1", "b"]>;
-  const b = a[0];
+  const a = null as unknown as UnknownSelector<{
+    foo: { bar: string } | undefined;
+    zoo: string;
+    boo: string | undefined;
+  }>;
+  a.foo;
+  a.foo.bar;
+  a.zoo;
+  a.boo;
 }

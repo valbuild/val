@@ -66,10 +66,7 @@ const ExprSelectorTestCases: {
     description: "filter optional",
     input: newExprSelectorProxy<(number | undefined)[]>(
       root("/app/foo")
-    ).filter((v) =>
-      // @ts-expect-error TODO: currently type checks fails on v.eq(undefined), this should not be the case
-      v.eq(undefined)
-    ),
+    ).filter((v) => v.eq(undefined)),
     expected: "!(filter (val '/app/foo') (eq @[0,0] ()))",
   },
   {

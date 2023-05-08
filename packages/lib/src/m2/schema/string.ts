@@ -21,6 +21,8 @@ export class StringSchema<Src extends string> extends Schema<Src> {
   }
 }
 
-export const string = (options?: StringOptions): Schema<string> => {
+export const string = <T extends string>(
+  options?: StringOptions
+): Schema<T> => {
   return new StringSchema();
 };

@@ -11,6 +11,7 @@ import { Schema } from "../schema";
 import { string } from "../schema/string";
 import { FileSource, I18nSource, Source, SourceObject } from "../Source";
 import { array } from "../schema/array";
+import { object } from "../schema/object";
 
 // TODO: create actual test cases - currently testing only type checker
 
@@ -50,12 +51,30 @@ import { array } from "../schema/array";
 
 {
   const ex = "" as unknown as Selector<(string | number)[]>;
-  const out = ex.is(array(string()), { error: "not a string" } as const);
+  const out = ex.is(array(string()), () => {
+    throw new Error("TODO");
+  });
+
+  const r = {} as Record<string, number>;
+  r[""];
+}
+
+{
+  const ex = "" as unknown as Selector<>;
+  const out = ex.is(object({ a: string<"a">() }));
 }
 
 {
   const ex = "" as unknown as Selector<(string | number)[]>;
   const out = ex.filter(string());
+}
+{
+  const ex = "" as unknown as Selector<{
+    foo: { bar: string } | undefined;
+    zoo: string;
+  }>;
+  const out1 = ex.foo.bar;
+  const out2 = ex.zoo;
 }
 
 type SourceOfSelector<T> = T extends Selector<infer O> ? O : never;
@@ -82,43 +101,34 @@ type SourceOfSelector<T> = T extends Selector<infer O> ? O : never;
   const ex = "" as unknown as
     | Selector<{ type: "foo"; foo: string }>
     | Selector<{ type: "bar"; bar: number }>;
-  // const b = match(ex, "type", {
-  //   foo: (v) => v.foo,
-  //   bar: (v) => v.bar,
-  // });
+
   const out = ex.fold("type")({
-    bar: (v) =>
-      ({ test: v.bar } as SelectorOf<{ test: string } | { foo: number }>),
-    foo: (v) =>
-      ({ foo: v.foo } as SelectorOf<{ test: string } | { foo: number }>),
+    bar: (v) => v.bar,
+    foo: (v) => v.foo as Selector<string | number>,
   });
 }
 
-{
-  const ex = "" as unknown as Selector<
-    { type: "foo"; foo: string } | { type: "bar"; bar: number }
-  >;
-  const out = ex
-    .fold("type")({
-      foo: (v) =>
-        ({ t: v.type, foo: v.foo } as
-          | { t: Selector<"foo">; foo: Selector<string> }
-          | { t: Selector<"bar">; bar: Selector<number> }),
-      bar: (v) =>
-        ({ t: v.type, bar: v.bar } as
-          | { t: Selector<"foo">; foo: Selector<string> }
-          | { t: Selector<"bar">; bar: Selector<number> }),
-    })
-    .fold("t")({
-    foo: (v) => 1,
-    bar: (v) => 2,
-  });
-  // TODO:
-  // .match("t", {
-  //   foo: (v) => v.foo,
-  //   bar: (v) => v.bar,
-  // });
-}
+// {
+//   const ex = "" as unknown as Selector<
+//     { type: "foo"; foo: string } | { type: "bar"; bar: number }
+//   >;
+//   const out = ex
+//     .fold("type")({
+//       foo: (v) =>
+//         ({ t: v.type, foo: v.foo }),
+//       bar: (v) =>
+//         ({ t: v.type, foo: '' })
+//     })
+//     .fold("t")({
+//     foo: (v) => 1,
+//     bar: (v) => 2,
+//   });
+//   // TODO:
+//   // .match("t", {
+//   //   foo: (v) => v.foo,
+//   //   bar: (v) => v.bar,
+//   // });
+// }
 
 // {
 //   const ex = "" as unknown as Selector<
@@ -185,7 +195,7 @@ type SourceOfSelector<T> = T extends Selector<infer O> ? O : never;
     ({ type: "foo"; foo: string } | { type: "f"; bar: number })[]
   >;
 
-  const a: Selector<{ type: "foo"; foo: string }[]> = ex.filterMatch({
+  const a = ex.filterMatch({
     type: "foo",
   });
 }

@@ -1,28 +1,28 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { I18nSelector } from "./i18n";
-import { UndistributedSourceObject as ObjectSelector } from "./object";
+import {
+  Selector as ObjectSelector,
+  OptionalSelector as OptionalObjectSelector,
+} from "./object";
 import { UndistributedSourceArray as ArraySelector } from "./array";
 import { Selector as NumberSelector } from "./number";
 import { Selector as StringSelector } from "./string";
 import { Selector as BooleanSelector } from "./boolean";
-import { OptionalSelector as OptionalSelector } from "./optional";
+import { Selector as UndefinedSelector } from "./undefined";
 import { AssetSelector } from "./asset";
-import { SourcePath, Val } from "../val";
+import { Val } from "../val";
 import {
   FileSource,
   I18nSource,
-  RemoteRef,
   RemoteSource,
   Source,
   SourceArray,
   SourceObject,
   SourcePrimitive,
 } from "../Source";
-import { Val as ObjectVal } from "../val/object";
-import { Val as ArrayVal } from "../val/array";
-import { Val as PrimitiveVal } from "../val/primitive";
 import { Schema } from "../schema";
 import { Expr } from "../expr/expr";
+import { RemoteSelector } from "./remote";
 
 /**
  * Selectors can be used to select parts of a Val module.
@@ -44,12 +44,56 @@ import { Expr } from "../expr/expr";
  * }));
  *
  */
+export type UndistributedSelector<T extends Source> = Source extends T
+  ? SelectorC<T>
+  : [T] extends [I18nSource<string, infer S>]
+  ? I18nSelector<S>
+  : [T] extends [SourceObject]
+  ? ObjectSelector<T>
+  : [T] extends [SourceObject | undefined]
+  ? OptionalObjectSelector<T>
+  : T extends RemoteSource<infer S>
+  ? S extends
+      | SourcePrimitive
+      | SourceObject
+      | SourceArray
+      | FileSource<string>
+      | I18nSource<
+          string,
+          SourcePrimitive | SourceObject | SourceArray | FileSource<string>
+        >
+    ? RemoteSelector<S>
+    : never
+  : T extends FileSource<string>
+  ? AssetSelector
+  : T extends SourceArray
+  ? ArraySelector<T>
+  : T extends string
+  ? StringSelector<T>
+  : T extends number
+  ? NumberSelector<T>
+  : T extends boolean
+  ? BooleanSelector<T>
+  : T extends undefined
+  ? UndefinedSelector<T>
+  : never;
+
 export type Selector<T extends Source> = Source extends T
   ? SelectorC<T>
   : T extends I18nSource<string, infer S>
   ? I18nSelector<S>
   : T extends RemoteSource<infer S>
-  ? Selector<S>
+  ? S extends
+      | SourcePrimitive
+      | SourceObject
+      | SourceArray
+      | FileSource<string>
+      | I18nSource<
+          string,
+          SourcePrimitive | SourceObject | SourceArray | FileSource<string>
+        >
+    ? RemoteSelector<S>
+    : never
   : T extends FileSource<string>
   ? AssetSelector
   : T extends SourceObject
@@ -63,7 +107,7 @@ export type Selector<T extends Source> = Source extends T
   : T extends boolean
   ? BooleanSelector<T>
   : T extends undefined
-  ? OptionalSelector<T>
+  ? UndefinedSelector<T>
   : never;
 
 export type SelectorSource =
@@ -109,6 +153,13 @@ export abstract class SelectorC<out T extends Source> {
     // | Expr,
     protected readonly __fakeField?: T /* do not use this, we must have it to make type-checking (since classes are compared structurally?)  */
   ) {}
+
+  is<U extends Source, E extends Source = undefined>(
+    schema: Schema<U>,
+    other?: () => E
+  ): SelectorOf<U | E> {
+    throw new Error("Not implemented");
+  }
 }
 
 export interface AsVal<T extends Source> {

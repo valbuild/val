@@ -9,6 +9,6 @@ import {
 export type AssetSelector = SelectorC<{ url: string }> & {
   readonly url: UnknownSelector<string>;
   andThen<U extends SelectorSource>(
-    f: (v: AssetSelector) => U
-  ): SelectorOf<U> | AssetSelector;
+    f: (v: UnknownSelector<NonNullable<{ url: string }>>) => U
+  ): SelectorOf<U> | UnknownSelector<boolean>;
 };

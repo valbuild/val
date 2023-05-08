@@ -5,10 +5,10 @@ import { Val as PrimitiveVal } from "./primitive";
 
 export type Val<T extends Source> = [T] extends [never]
   ? never
-  : [T] extends [SourceObject]
-  ? ObjectVal<T>
   : [T] extends [readonly Source[]]
   ? ArrayVal<T>
+  : [T] extends [SourceObject]
+  ? ObjectVal<T>
   : [T] extends [SourcePrimitive]
   ? PrimitiveVal<T>
   : never;

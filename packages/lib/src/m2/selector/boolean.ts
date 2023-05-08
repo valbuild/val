@@ -4,11 +4,7 @@ import {
   SelectorOf,
   SelectorSource,
 } from ".";
+import { Source } from "../Source";
 
 // TODO: docs
-export type Selector<T extends boolean> = SelectorC<T> & {
-  eq(other: boolean): Selector<boolean>;
-  andThen<U extends SelectorSource>(
-    f: (v: UnknownSelector<NonNullable<T>>) => U
-  ): SelectorOf<U> | Selector<boolean>;
-};
+export type Selector<T extends boolean> = SelectorC<T>;

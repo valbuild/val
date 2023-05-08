@@ -1,10 +1,10 @@
 import { I18nSelector } from "./i18n";
-import { UndistributedSourceObject as ObjectSelector } from "./object";
+import { Selector as ObjectSelector } from "./object";
 import { UndistributedSourceArray as ArraySelector } from "./array";
 import { Selector as NumberSelector } from "./number";
 import { Selector as StringSelector } from "./string";
 import { Selector as BooleanSelector } from "./boolean";
-import { OptionalSelector as OptionalSelector } from "./optional";
+import { OptionalSelector as OptionalSelector } from "./undefined";
 import { AssetSelector } from "./asset";
 import {
   FileSource,
