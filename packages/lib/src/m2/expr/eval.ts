@@ -2,6 +2,8 @@
 import { Call, Expr, StringLiteral, StringTemplate, Sym } from "./expr";
 import { Source } from "../Source";
 import { result } from "../../fp";
+import { SelectorC, VAL_OR_EXPR } from "../selector";
+import { newSelectorProxy } from "../selector/SelectorProxy";
 
 export class EvalError {
   constructor(public readonly message: string, public readonly expr: Expr) {}
@@ -14,8 +16,8 @@ export class EvalError {
 const MAX_STACK_SIZE = 100; // an arbitrary semi-large number
 function evaluateSync(
   expr: Expr,
-  source: (ref: string) => Source,
-  stack: readonly Source[][]
+  source: (ref: string) => SelectorC<Source>,
+  stack: readonly SelectorC<Source>[][]
 ): any {
   // TODO: amount of evaluates should be limited?
   if (stack.length > MAX_STACK_SIZE) {
@@ -72,9 +74,13 @@ function evaluateSync(
             expr
           );
         }
-        const a = evaluateSync(expr.children[1], source, stack);
-        const b = evaluateSync(expr.children[2], source, stack);
-        return a === b;
+        const a = newSelectorProxy(
+          evaluateSync(expr.children[1], source, stack)
+        );
+        const b = newSelectorProxy(
+          evaluateSync(expr.children[2], source, stack)
+        );
+        return a.eq(b);
       } else if (expr.children[0].value === "json") {
         if (expr.children.length !== 2) {
           throw new EvalError(
@@ -84,7 +90,12 @@ function evaluateSync(
         }
         const value = evaluateSync(expr.children[1], source, stack);
         try {
-          return JSON.parse(value);
+          const parsedValue = JSON.parse(value);
+          // TODO: something like this to support local modules inside json literals?
+          // if (typeof parsedValue === "object" && "val" in parsedValue) {
+          //   return newSelectorProxy(parsedValue);
+          // }
+          return parsedValue;
         } catch (e) {
           if (e instanceof SyntaxError) {
             throw new EvalError(
@@ -103,7 +114,12 @@ function evaluateSync(
             expr
           );
         }
-        return JSON.stringify(evaluateSync(expr.children[1], source, stack));
+        const res = evaluateSync(expr.children[1], source, stack);
+        // TODO: something like this to support local modules inside json literals?
+        // if (typeof res === "object" && VAL_OR_EXPR in res) {
+        //   return JSON.stringify(res[VAL_OR_EXPR]());
+        // }
+        return JSON.stringify(res);
       }
     }
     const prop = evaluateSync(expr.children[0], source, stack);
@@ -195,11 +211,11 @@ function evaluateSync(
 
 export function evaluate(
   expr: Expr,
-  source: (ref: string) => Source,
-  stack: Source[][]
-): result.Result<Source, EvalError> {
+  source: (ref: string) => SelectorC<Source>,
+  stack: readonly SelectorC<Source>[][]
+): result.Result<SelectorC<Source>, EvalError> {
   try {
-    return result.ok(evaluateSync(expr, source, stack)); // TODO: make sure we return Source
+    return result.ok(newSelectorProxy(evaluateSync(expr, source, stack)));
   } catch (err) {
     if (err instanceof EvalError) {
       return result.err(err);

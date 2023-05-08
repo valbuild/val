@@ -25,6 +25,8 @@ export type SourceObject = { [key in string]: Source } & {
   andThen?: never;
   _ref?: never;
   _type?: never;
+  val?: never;
+  valPath?: never;
 };
 export type SourceArray = Source[];
 export type SourcePrimitive = string | number | boolean | undefined;

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Expr } from "../expr/expr";
-import { Val } from "../val";
+import { Expr } from "../../expr/expr";
+import { Val } from "../../val";
 
 type SourcePrimitive = string | undefined;
 

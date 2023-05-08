@@ -1,11 +1,11 @@
-import { I18nSelector } from "./i18n";
-import { Selector as ObjectSelector } from "./object";
-import { UndistributedSourceArray as ArraySelector } from "./array";
-import { Selector as NumberSelector } from "./number";
-import { Selector as StringSelector } from "./string";
-import { Selector as BooleanSelector } from "./boolean";
-import { OptionalSelector as OptionalSelector } from "./undefined";
-import { AssetSelector } from "./asset";
+import { I18nSelector } from "../i18n";
+import { Selector as ObjectSelector } from "../object";
+import { UndistributedSourceArray as ArraySelector } from "../array";
+import { Selector as NumberSelector } from "../number";
+import { Selector as StringSelector } from "../string";
+import { Selector as BooleanSelector } from "../boolean";
+import { OptionalSelector as OptionalSelector } from "../undefined";
+import { AssetSelector } from "../asset";
 import {
   FileSource,
   I18nSource,
@@ -13,8 +13,8 @@ import {
   Source,
   SourceArray,
   SourceObject,
-} from "../Source";
-import { SelectorC } from ".";
+} from "../../Source";
+import { SelectorC } from "..";
 
 export default {};
 

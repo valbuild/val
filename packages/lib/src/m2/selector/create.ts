@@ -1,3 +1,5 @@
+// TODO: delete this file?
+
 // TODO: cleanup the module dependency cycles, rename index.ts -> Selector.ts and create.ts -> index.ts?
 
 import { SelectorOf, SelectorSource, VAL_OR_EXPR } from ".";

@@ -1,9 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { I18nSelector } from "./i18n";
-import {
-  Selector as ObjectSelector,
-  OptionalSelector as OptionalObjectSelector,
-} from "./object";
+import { Selector as ObjectSelector } from "./object";
 import { UndistributedSourceArray as ArraySelector } from "./array";
 import { Selector as NumberSelector } from "./number";
 import { Selector as StringSelector } from "./string";
@@ -44,40 +41,6 @@ import { RemoteSelector } from "./remote";
  * }));
  *
  */
-export type UndistributedSelector<T extends Source> = Source extends T
-  ? SelectorC<T>
-  : [T] extends [I18nSource<string, infer S>]
-  ? I18nSelector<S>
-  : [T] extends [SourceObject]
-  ? ObjectSelector<T>
-  : [T] extends [SourceObject | undefined]
-  ? OptionalObjectSelector<T>
-  : T extends RemoteSource<infer S>
-  ? S extends
-      | SourcePrimitive
-      | SourceObject
-      | SourceArray
-      | FileSource<string>
-      | I18nSource<
-          string,
-          SourcePrimitive | SourceObject | SourceArray | FileSource<string>
-        >
-    ? RemoteSelector<S>
-    : never
-  : T extends FileSource<string>
-  ? AssetSelector
-  : T extends SourceArray
-  ? ArraySelector<T>
-  : T extends string
-  ? StringSelector<T>
-  : T extends number
-  ? NumberSelector<T>
-  : T extends boolean
-  ? BooleanSelector<T>
-  : T extends undefined
-  ? UndefinedSelector<T>
-  : never;
-
 export type Selector<T extends Source> = Source extends T
   ? SelectorC<T>
   : T extends I18nSource<string, infer S>
@@ -154,12 +117,14 @@ export abstract class SelectorC<out T extends Source> {
     protected readonly __fakeField?: T /* do not use this, we must have it to make type-checking (since classes are compared structurally?)  */
   ) {}
 
-  is<U extends Source, E extends Source = undefined>(
+  assert<U extends Source, E extends Source = undefined>(
     schema: Schema<U>,
     other?: () => E
   ): SelectorOf<U | E> {
     throw new Error("Not implemented");
   }
+
+  abstract [VAL_OR_EXPR](): { val: T; valPath: string } | Expr;
 }
 
 export interface AsVal<T extends Source> {

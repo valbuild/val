@@ -1,4 +1,4 @@
-import { convertLiteralProxy, newExprSelectorProxy } from "./expr";
+import { convertLiteralProxy, newExprSelectorProxy } from "./ExprProxy";
 import * as expr from "../expr/expr";
 import { AsVal, SelectorC, SelectorSource, VAL_OR_EXPR } from ".";
 import { Source } from "../Source";

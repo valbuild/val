@@ -1,11 +1,17 @@
 import { Source } from "../Source";
-import { SerializedObjectSchema } from "./object";
-import { SerializedStringSchema } from "./string";
+import { SourcePath } from "../val";
+import { SerializedArraySchema, ArraySchema } from "./array";
+import { SerializedObjectSchema, ObjectSchema } from "./object";
+import { SerializedNumberSchema, NumberSchema } from "./number";
+import { SerializedStringSchema, StringSchema } from "./string";
+import { SerializedUndefinedSchema, UndefinedSchema } from "./undefined";
 
 export type SerializedSchema = SerializedStringSchema | SerializedObjectSchema;
 
 export abstract class Schema<Src extends Source> {
-  protected abstract validate(src: Src): false | string[];
+  abstract validate(src: Src): false | Record<SourcePath, string[]>;
+  abstract match(src: Src): boolean; // TODO: false | Record<SourcePath, string[]>;
+  abstract optional(): Schema<Src | undefined>;
   protected abstract serialize(): SerializedSchema;
 }
 

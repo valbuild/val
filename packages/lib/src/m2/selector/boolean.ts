@@ -1,10 +1,4 @@
-import {
-  Selector as UnknownSelector,
-  SelectorC,
-  SelectorOf,
-  SelectorSource,
-} from ".";
-import { Source } from "../Source";
+import { PrimitiveSelector } from "./primitive";
 
 // TODO: docs
-export type Selector<T extends boolean> = SelectorC<T>;
+export type Selector<T extends boolean> = PrimitiveSelector<T>;

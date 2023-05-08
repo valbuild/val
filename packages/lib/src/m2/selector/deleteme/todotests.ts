@@ -5,13 +5,13 @@ import {
   SelectorOf,
   SelectorSource,
   VAL_OR_EXPR,
-} from ".";
-import { Selector as BooleanSelector } from "./boolean";
-import { Schema } from "../schema";
-import { string } from "../schema/string";
-import { FileSource, I18nSource, Source, SourceObject } from "../Source";
-import { array } from "../schema/array";
-import { object } from "../schema/object";
+} from "..";
+import { Selector as BooleanSelector } from "../boolean";
+import { Schema } from "../../schema";
+import { string } from "../../schema/string";
+import { FileSource, I18nSource, Source, SourceObject } from "../../Source";
+import { array } from "../../schema/array";
+import { object } from "../../schema/object";
 
 // TODO: create actual test cases - currently testing only type checker
 
@@ -51,7 +51,7 @@ import { object } from "../schema/object";
 
 {
   const ex = "" as unknown as Selector<(string | number)[]>;
-  const out = ex.is(array(string()), () => {
+  const out = ex.assert(array(string()), () => {
     throw new Error("TODO");
   });
 
@@ -59,25 +59,18 @@ import { object } from "../schema/object";
   r[""];
 }
 
-{
-  const ex = "" as unknown as Selector<>;
-  const out = ex.is(object({ a: string<"a">() }));
-}
-
-{
-  const ex = "" as unknown as Selector<(string | number)[]>;
-  const out = ex.filter(string());
-}
-{
-  const ex = "" as unknown as Selector<{
-    foo: { bar: string } | undefined;
-    zoo: string;
-  }>;
-  const out1 = ex.foo.bar;
-  const out2 = ex.zoo;
-}
-
-type SourceOfSelector<T> = T extends Selector<infer O> ? O : never;
+// {
+//   const ex = "" as unknown as Selector<(string | number)[]>;
+//   const out = ex.filter(string());
+// }
+// {
+//   const ex = "" as unknown as Selector<{
+//     foo: { bar: string } | undefined;
+//     zoo: string;
+//   }>;
+//   const out1 = ex.foo.bar;
+//   const out2 = ex.zoo;
+// }
 
 // type M<T extends SourceObject> = MatchRes<>
 
@@ -190,27 +183,27 @@ type SourceOfSelector<T> = T extends Selector<infer O> ? O : never;
 //   });
 // }
 
-{
-  const ex = "" as unknown as Selector<
-    ({ type: "foo"; foo: string } | { type: "f"; bar: number })[]
-  >;
+// {
+//   const ex = "" as unknown as Selector<
+//     ({ type: "foo"; foo: string } | { type: "f"; bar: number })[]
+//   >;
 
-  const a = ex.filterMatch({
-    type: "foo",
-  });
-}
+//   const a = ex.filterMatch({
+//     type: "foo",
+//   });
+// }
 
-{
-  const ex = "" as unknown as Selector<
-    (
-      | { type: "foo"; foo: string }
-      // | { type: "f"; bar: number }
-      | { type2: "f"; bar: number }
-    )[]
-  >;
+// {
+//   const ex = "" as unknown as Selector<
+//     (
+//       | { type: "foo"; foo: string }
+//       // | { type: "f"; bar: number }
+//       | { type2: "f"; bar: number }
+//     )[]
+//   >;
 
-  const a: never = ex.filterMatch({ type: "foo" }); // should be never only type in one
-}
+//   const a: never = ex.filterMatch({ type: "foo" }); // should be never only type in one
+// }
 
 // {
 //   const ex = "" as unknown as Selector<
