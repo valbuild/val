@@ -111,10 +111,16 @@ const LiteralConversionTestCases: {
   { description: "basic number", input: 1, expected: "(json '1')" },
   { description: "basic boolean", input: true, expected: "(json 'true')" },
   { description: "basic array", input: [1], expected: "(json '[1]')" },
+  { description: "basic undefined", input: undefined, expected: "()" },
   {
     description: "array with 2 different",
     input: [1, "foo"],
     expected: "(json '[1, \"foo\"]')",
+  },
+  {
+    description: "array with undefined",
+    input: [1, undefined],
+    expected: "(json '[1, ${()}]')",
   },
   {
     description: "basic object",

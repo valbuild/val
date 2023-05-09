@@ -119,9 +119,6 @@ function convertObjectToStringExpr(
   isLiteralScope: boolean
 ): [e: expr.Expr, isJson: boolean] {
   if (source === undefined) {
-    if (isLiteralScope) {
-      return [new expr.StringLiteral("undefined"), false];
-    }
     return [expr.NilSym, true];
   } else if (source === null) {
     return withJsonCall(new expr.StringLiteral("null"), isLiteralScope);

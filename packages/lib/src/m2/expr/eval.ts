@@ -63,15 +63,16 @@ function evaluateSync(
         } catch (e) {
           if (e instanceof SyntaxError) {
             throw new EvalError(
-              `cannot parse JSON: ${e.message} - value: ${JSON.stringify(
-                value
-              )}`,
+              `cannot parse JSON: ${valOrExpr.val}, ${
+                e.message
+              } - value: ${JSON.stringify(value)}`,
               expr.children[1]
             );
           }
           throw e;
         }
       } else if (expr.children[0].value === "stringify") {
+        // TODO: remove stringify
         if (expr.children.length !== 2) {
           throw new EvalError(
             "must call 'stringify' with exactly one argument",
@@ -98,6 +99,7 @@ function evaluateSync(
       );
     }
     if (expr.isAnon) {
+      // anon functions:
       if (typeof obj[prop] !== "function") {
         throw new EvalError(
           `cannot access property ${JSON.stringify(prop)} of ${JSON.stringify(
@@ -117,6 +119,7 @@ function evaluateSync(
         );
       }
     } else {
+      // non-anon functions:
       if (expr.children[0] instanceof Sym) {
         if (expr.children[0].value === "val") {
           if (expr.children[1] instanceof StringLiteral) {
@@ -165,11 +168,19 @@ function evaluateSync(
   } else if (expr instanceof StringTemplate) {
     return newSelectorProxy(
       expr.children
-        .map((child) =>
-          child.type === "StringLiteral" || child.type === "StringTemplate"
-            ? evaluateSync(child, source, stack)[VAL_OR_EXPR]().val
-            : JSON.stringify(evaluateSync(child, source, stack)[VAL_OR_EXPR]())
-        )
+        .map((child) => {
+          if (
+            child.type === "StringLiteral" ||
+            child.type === "StringTemplate"
+          ) {
+            return evaluateSync(child, source, stack)[VAL_OR_EXPR]().val;
+          } else if (child instanceof Sym && child.value === "()") {
+            return "null";
+          }
+          return JSON.stringify(
+            evaluateSync(child, source, stack)[VAL_OR_EXPR]()
+          );
+        })
         .join("")
     );
   }

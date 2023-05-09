@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Selector, SelectorC, VAL_OR_EXPR } from ".";
+import { Selector, SelectorC } from ".";
 import { number } from "../schema/number";
 import { string } from "../schema/string";
 import { Source } from "../Source";

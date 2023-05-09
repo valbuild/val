@@ -3,13 +3,16 @@ import { Val as ObjectVal } from "./object";
 import { Val as ArrayVal } from "./array";
 import { Val as PrimitiveVal } from "./primitive";
 
-export type Val<T extends Source> = [T] extends [never]
-  ? never
-  : [T] extends [readonly Source[]]
-  ? ArrayVal<T>
-  : [T] extends [SourceObject]
+export type Val<T extends Source> = Source extends T
+  ? {
+      readonly valPath: SourcePath;
+      readonly val: Source;
+    }
+  : T extends SourceObject
   ? ObjectVal<T>
-  : [T] extends [SourcePrimitive]
+  : T extends readonly Source[]
+  ? ArrayVal<T>
+  : T extends SourcePrimitive
   ? PrimitiveVal<T>
   : never;
 
