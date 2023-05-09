@@ -4,6 +4,7 @@ import { Source } from "../Source";
 import { result } from "../../fp";
 import { SelectorC, VAL_OR_EXPR } from "../selector";
 import { newSelectorProxy } from "../selector/SelectorProxy";
+import { SourcePath } from "../val";
 
 export class EvalError {
   constructor(public readonly message: string, public readonly expr: Expr) {}
@@ -13,12 +14,20 @@ export class EvalError {
   }
 }
 
+type LocalSelector<S extends Source> = {
+  readonly [key: string | number]:
+    | LocalSelector<Source>
+    | ((...args: any[]) => any);
+} & {
+  [VAL_OR_EXPR](): { val: S; valPath: SourcePath };
+};
+
 const MAX_STACK_SIZE = 100; // an arbitrary semi-large number
 function evaluateSync(
   expr: Expr,
-  source: (ref: string) => SelectorC<Source>,
-  stack: readonly SelectorC<Source>[][]
-): any {
+  source: (ref: string) => LocalSelector<Source>,
+  stack: readonly LocalSelector<Source>[][]
+): LocalSelector<Source> {
   // TODO: amount of evaluates should be limited?
   if (stack.length > MAX_STACK_SIZE) {
     throw new EvalError(
@@ -53,17 +62,23 @@ function evaluateSync(
           );
         }
         const value = evaluateSync(expr.children[1], source, stack);
-        const valOrExpr = value[VAL_OR_EXPR]();
+        const valObj = value[VAL_OR_EXPR]();
+        if (typeof valObj.val !== "string") {
+          throw new EvalError(
+            `cannot parse JSON: ${JSON.stringify(valObj.val)}, expected string`,
+            expr.children[1]
+          );
+        }
         try {
           const parsedValue = newSelectorProxy(
-            JSON.parse(valOrExpr.val),
-            valOrExpr.valPath
+            JSON.parse(valObj.val),
+            valObj.valPath
           );
           return parsedValue;
         } catch (e) {
           if (e instanceof SyntaxError) {
             throw new EvalError(
-              `cannot parse JSON: ${valOrExpr.val}, ${
+              `cannot parse JSON: ${valObj.val}, ${
                 e.message
               } - value: ${JSON.stringify(value)}`,
               expr.children[1]
@@ -98,55 +113,71 @@ function evaluateSync(
         expr
       );
     }
-    if (expr.isAnon) {
-      // anon functions:
-      if (typeof obj[prop] !== "function") {
-        throw new EvalError(
-          `cannot access property ${JSON.stringify(prop)} of ${JSON.stringify(
-            obj
-          )}: required function got ${typeof obj[prop]}`,
-          expr
-        );
-      }
-      if (expr.children[0] instanceof Sym) {
-        return obj[prop]((...args: any[]) => {
-          return evaluateSync(expr.children[2], source, stack.concat([args]));
-        });
-      } else {
-        throw new EvalError(
-          `cannot call an expression that is not a symbol, got: '${expr.children[0].type}'`,
-          expr
-        );
-      }
-    } else {
-      // non-anon functions:
-      if (expr.children[0] instanceof Sym) {
-        if (expr.children[0].value === "val") {
-          if (expr.children[1] instanceof StringLiteral) {
-            return source(expr.children[1].value);
-          } else {
-            throw new EvalError(
-              "argument of 'val' must be a string literal",
-              expr
-            );
-          }
-        }
-      }
-      const args = expr.children.slice(2);
-      if (args.length > 0) {
-        if (typeof obj[prop] !== "function") {
+
+    if (prop in obj) {
+      if (expr.isAnon) {
+        // anon functions:
+        const maybeFunction = obj[prop];
+        if (typeof maybeFunction !== "function") {
           throw new EvalError(
             `cannot access property ${JSON.stringify(prop)} of ${JSON.stringify(
               obj
-            )}: required function got ${typeof obj[prop]}`,
+            )}: required higher ordered function got ${typeof obj[prop]}`,
             expr
           );
         }
-        return obj[prop](
-          ...args.map((arg) => evaluateSync(arg, source, stack))
-        );
+        if (expr.children[0] instanceof Sym) {
+          return maybeFunction((...args: any[]) => {
+            return evaluateSync(expr.children[2], source, stack.concat([args]));
+          });
+        } else {
+          throw new EvalError(
+            `cannot call an expression that is not a symbol, got: '${expr.children[0].type}'`,
+            expr
+          );
+        }
+      } else {
+        // non-anon functions:
+        if (expr.children[0] instanceof Sym) {
+          if (expr.children[0].value === "val") {
+            if (expr.children[1] instanceof StringLiteral) {
+              return source(expr.children[1].value);
+            } else {
+              throw new EvalError(
+                "argument of 'val' must be a string literal",
+                expr
+              );
+            }
+          }
+        }
+        const args = expr.children.slice(2);
+        if (args.length > 0) {
+          const maybeFunction = obj[prop];
+          if (typeof maybeFunction !== "function") {
+            throw new EvalError(
+              `cannot access property ${JSON.stringify(
+                prop
+              )} of ${JSON.stringify(obj)}: required function got ${typeof obj[
+                prop
+              ]}`,
+              expr
+            );
+          }
+          return maybeFunction(
+            ...args.map((arg) => evaluateSync(arg, source, stack))
+          );
+        }
+        const maybeValue = obj[prop];
+        if (typeof maybeValue === "function") {
+          throw new EvalError(
+            `cannot access property ${JSON.stringify(prop)} of ${JSON.stringify(
+              obj
+            )}: required value got ${typeof obj[prop]}`,
+            expr
+          );
+        }
+        return maybeValue;
       }
-      return obj[prop];
     }
   } else if (expr instanceof Sym) {
     if (expr.value.startsWith("@")) {
@@ -189,9 +220,9 @@ function evaluateSync(
 
 export function evaluate(
   expr: Expr,
-  source: (ref: string) => SelectorC<Source>,
-  stack: readonly SelectorC<Source>[][]
-): result.Result<SelectorC<Source>, EvalError> {
+  source: (ref: string) => LocalSelector<Source>,
+  stack: readonly LocalSelector<Source>[][]
+): result.Result<LocalSelector<Source>, EvalError> {
   try {
     return result.ok(evaluateSync(expr, source, stack));
   } catch (err) {
