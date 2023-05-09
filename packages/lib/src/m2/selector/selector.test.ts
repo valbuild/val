@@ -262,12 +262,6 @@ const RemoteAndLocaleSelectorModuleTestCases = SelectorModuleTestCases.flatMap(
 );
 
 describe("selector", () => {
-  // test("selectorToVal", () => {
-  //   expect(newSelectorProxy([1, 2])[VAL_OR_EXPR]()).toStrictEqual({
-  //     val: [1, 2],
-  //     valPath: undefined,
-  //   });
-  // });
   test.each(RemoteAndLocaleSelectorModuleTestCases)(
     "$description",
     ({ input, expected, remote }) => {
@@ -279,8 +273,6 @@ describe("selector", () => {
         const localeRes = input() as unknown as AsVal<Source>;
         expect(selectorToVal(localeRes)).toStrictEqual(expected);
       } else {
-        console.log(input()[VAL_OR_EXPR]().transpile());
-
         const res = evaluate(
           input()[VAL_OR_EXPR](),
           (ref) =>
