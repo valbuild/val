@@ -40,6 +40,9 @@ export function newSelectorProxy(source: any, path?: SourcePath): any {
             if (prop === VAL_OR_EXPR) {
               return true;
             }
+            if (prop === "andThen") {
+              return true;
+            }
             return prop in target;
           },
           get(target, prop: string | symbol) {
@@ -157,14 +160,14 @@ function stripVal(val: any): any {
   ) {
     return val.map((v) => stripVal(v));
   } else if (typeof val === "object" && val && VAL_OR_EXPR in val) {
-    // console.log("extract", val);
     return stripVal(val?.[VAL_OR_EXPR]()?.val);
   } else if (val === null) {
     // We acknowledge that this is a Wat!?!?! moment, however...
     // Remote selectors cannot have undefined values since they are not part of JSON, so they must operate on null,
     // We want undefined instead of nulls, because the return type of an empty object/array lookup is undefined
-    // Therefore, this is the deal, at type level, Source and SelectorSource only accepts undefined,
+    // Therefore, this is the deal, at type level, Source and SelectorSource only accepts undefined.
     // When serializing to JSON, we convert undefined to null, then back here.
+    // TODO: we should do this after parsing instead of here
     return undefined;
   }
   return val;
