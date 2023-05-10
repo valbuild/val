@@ -16,7 +16,7 @@ export type Selector<T extends SourceObject> = SelectorC<T> & {
   }) => SelectorOf<U>;
 
   andThen<U extends SelectorSource>(
-    f: (v: UnknownSelector<NonNullable<T>>) => F.Narrow<U>
+    f: (v: UnknownSelector<NonNullable<T>>) => U
   ): SelectorOf<U>;
 } & {
   readonly [key in keyof T]: UnknownSelector<T[key]>;

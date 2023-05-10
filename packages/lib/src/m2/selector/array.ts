@@ -30,12 +30,9 @@ export type Selector<T extends SourceArray> = SelectorC<T> & {
   ): Selector<T>;
   filter<U extends Source>(schema: Schema<U>): Selector<U[]>;
   map<U extends SelectorSource>(
-    f: (
-      v: UnknownSelector<T[number]>,
-      i: UnknownSelector<number>
-    ) => F.Narrow<U>
+    f: (v: UnknownSelector<T[number]>, i: UnknownSelector<number>) => U
   ): SelectorOf<U[]>; // TODO: this should be SelectorOf<ArraySelectorSourceBranded<U[]>>;
   andThen<U extends SelectorSource>(
-    f: (v: UnknownSelector<NonNullable<T>>) => F.Narrow<U>
+    f: (v: UnknownSelector<NonNullable<T>>) => U
   ): SelectorOf<U | T>;
 };

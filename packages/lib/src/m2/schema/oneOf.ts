@@ -63,7 +63,7 @@ export const oneOf = <Src extends Selector<Source[]>>(
           test2: array(number()).optional(),
           test3: object({ test: number() }).optional(),
           deep: object({
-            homelander: object({ maeve: string(), starlight: string() }),
+            homelander: object({ maeve: string(), starlight: number() }),
           }).optional(),
         })
       )
@@ -73,10 +73,10 @@ export const oneOf = <Src extends Selector<Source[]>>(
   const a = base[0];
   const base2 = content("/base2", oneOf(base), base[0]);
 
-  base2.fold("type")({
+  const b = base2.fold("type")({
     aoo: (a) => selectorOf(1),
     boo: (b) => selectorOf(2),
-    goo: (c) => c.test,
+    goo: (c) => c.deep.andThen((v) => v.homelander.starlight),
   });
 }
 
