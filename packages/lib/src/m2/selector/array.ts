@@ -1,18 +1,16 @@
 import {
-  ArraySelectorSourceBranded,
-  ArraySourceBranded,
   Selector as UnknownSelector,
   SelectorC,
   SelectorOf,
   SelectorSource,
 } from ".";
 import { Schema } from "../schema";
-import { Source } from "../Source";
+import { Source, SourceTuple } from "../Source";
 import { Selector as BooleanSelector } from "./boolean";
 import { Selector as NumberSelector } from "./number";
 import { F } from "ts-toolbelt";
 
-export type UndistributedSourceArray<T extends Source[]> = [T] extends [
+export type UndistributedSourceArray<T extends SourceTuple> = [T] extends [
   infer U // infer here to avoid Type instantiation is excessively deep and possibly infinite. See: https://github.com/microsoft/TypeScript/issues/30188#issuecomment-478938437. Avoiding infer extends to keep us below TS 4.9 compat
 ]
   ? U extends Source[]

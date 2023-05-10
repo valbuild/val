@@ -2,7 +2,6 @@
 import { I18nSelector } from "./i18n";
 import { Selector as ObjectSelector } from "./object";
 import { UndistributedSourceArray as ArraySelector } from "./array";
-import { Selector as TupleSelector } from "./tuple";
 import { Selector as NumberSelector } from "./number";
 import { Selector as StringSelector } from "./string";
 import { Selector as BooleanSelector } from "./boolean";
@@ -22,14 +21,6 @@ import { Schema } from "../schema";
 import { Expr } from "../expr/expr";
 import { RemoteSelector } from "./remote";
 import { A, F } from "ts-toolbelt";
-
-declare const brand: unique symbol;
-
-// We need these brands to know what is "normal" arrays from schema source and what is tuples in literals
-export type ArraySourceBranded<T extends Source[]> = T & { [brand]: "Array" };
-export type ArraySelectorSourceBranded<T extends SelectorSource[]> = T & {
-  [brand]: "Array";
-};
 
 /**
  * Selectors can be used to select parts of a Val module.
@@ -71,10 +62,8 @@ export type Selector<T extends Source> = Source extends T
   ? AssetSelector
   : T extends SourceObject
   ? ObjectSelector<T>
-  : T extends ArraySourceBranded<infer S>
-  ? ArraySelector<S>
-  : T extends SourceTuple // <- readonly arrays
-  ? TupleSelector<T> // <- is a tuple - the array schema will not produce tuples, but literals will, so we need this to support tuples in useVal, for example useVal([blogsVal, articlesVal])
+  : T extends SourceTuple
+  ? ArraySelector<T>
   : T extends string
   ? StringSelector<T>
   : T extends number
@@ -150,14 +139,6 @@ export type SourceOf<T extends SelectorSource> = Source extends T
   ? Source
   : T extends SelectorC<infer S>
   ? S
-  : [T] extends [ArraySelectorSourceBranded<infer S>]
-  ? S[number] extends SelectorSource
-    ? SourceOf<S[number]> extends infer S // we need this to avoid infinite recursion
-      ? S extends Source
-        ? ArraySourceBranded<S[]>
-        : never
-      : never
-    : never
   : T extends readonly (infer S)[] // NOTE: the infer S instead of Selector Source here, is to avoid infinite recursion
   ? S extends SelectorSource
     ? {

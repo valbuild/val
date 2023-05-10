@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
-  ArraySourceBranded,
   AsVal,
   Selector,
   SelectorC,
@@ -23,7 +22,7 @@ import { newExprSelectorProxy } from "./ExprProxy";
 
 const modules = {
   "/app/text": "text1",
-  "/app/texts": ["text1", "text2"] as ArraySourceBranded<string[]>,
+  "/app/texts": ["text1", "text2"] as string[],
   "/app/blog": { title: "blog1", text: "text1" } as {
     title: string | undefined;
     text: string;
@@ -31,7 +30,7 @@ const modules = {
   "/app/blogs": [
     { title: "blog1", text: "text1" },
     { title: undefined, text: "text2" },
-  ] as ArraySourceBranded<{ title: string | undefined; text: string }[]>,
+  ] as { title: string | undefined; text: string }[],
   "/app/empty": "",
   "/app/large/nested": BFV(),
 };
@@ -222,15 +221,16 @@ const SelectorModuleTestCases: {
       valPath: "/app/blogs",
     },
   },
-  {
-    description: "array object manipulation: map with tuple literal",
-    input: (remote) =>
-      testModule("/app/blogs", remote).map((a) => [1, a])[0][1].title,
-    expected: {
-      val: "blog1",
-      valPath: "/app/blogs.0.title",
-    },
-  },
+  // TODO: tuple literal was reverted
+  // {
+  //   description: "array object manipulation: map with tuple literal",
+  //   input: (remote) =>
+  //     testModule("/app/blogs", remote).map((a) => [1, a])[0][1].title,
+  //   expected: {
+  //     val: "blog1",
+  //     valPath: "/app/blogs.0.title",
+  //   },
+  // },
   {
     description: "array object manipulation: with literals",
     input: (remote) =>
