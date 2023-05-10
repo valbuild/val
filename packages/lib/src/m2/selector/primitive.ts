@@ -6,11 +6,12 @@ import {
 } from ".";
 import { Source, SourcePrimitive } from "../Source";
 import { Selector as BooleanSelector } from "./boolean";
+import { F } from "ts-toolbelt";
 
 export type PrimitiveSelector<T extends SourcePrimitive> = SelectorC<T> & {
   eq(other: Source): BooleanSelector<boolean>;
   andThen<U extends SelectorSource>(
-    f: (v: UnknownSelector<NonNullable<T>>) => U
+    f: (v: UnknownSelector<NonNullable<T>>) => F.Narrow<U>
   ): SelectorOf<U | NullableOf<T>>;
 };
 

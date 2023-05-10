@@ -11,7 +11,7 @@ import {
   I18nSource,
   RemoteSource,
   Source,
-  SourceArray,
+  SourceTuple,
   SourceObject,
 } from "../../Source";
 import { SelectorC } from "..";

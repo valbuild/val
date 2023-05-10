@@ -6,6 +6,7 @@ import {
 } from ".";
 import { Schema } from "../schema";
 import { Source, SourceObject } from "../Source";
+import { F } from "ts-toolbelt";
 
 // TODO: docs
 export type Selector<T extends SourceObject> = SelectorC<T> & {
@@ -31,7 +32,7 @@ export type Selector<T extends SourceObject> = SelectorC<T> & {
   }) => SelectorOf<U>;
 
   andThen<U extends SelectorSource>(
-    f: (v: UnknownSelector<NonNullable<T>>) => U
+    f: (v: UnknownSelector<NonNullable<T>>) => F.Narrow<U>
   ): SelectorOf<U>;
 };
 

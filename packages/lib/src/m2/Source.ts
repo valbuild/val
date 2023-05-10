@@ -3,24 +3,25 @@ import { Schema } from "./schema";
 export type Source =
   | SourcePrimitive
   | SourceObject
-  | SourceArray
+  | SourceTuple
   | I18nSource<
       string,
-      SourcePrimitive | SourceObject | SourceArray | FileSource<string>
+      SourcePrimitive | SourceObject | SourceTuple | FileSource<string>
     >
   | RemoteSource<
       | SourcePrimitive
       | SourceObject
-      | SourceArray
+      | SourceTuple
       | FileSource<string>
       | I18nSource<
           string,
-          SourcePrimitive | SourceObject | SourceArray | FileSource<string>
+          SourcePrimitive | SourceObject | SourceTuple | FileSource<string>
         >
     >
   | FileSource<string>;
 
 export type SourceObject = { [key in string]: Source } & {
+  // TODO: update these restricted parameters:
   match?: never;
   andThen?: never;
   _ref?: never;
@@ -28,7 +29,7 @@ export type SourceObject = { [key in string]: Source } & {
   val?: never;
   valPath?: never;
 };
-export type SourceArray = Source[];
+export type SourceTuple = readonly Source[];
 export type SourcePrimitive = string | number | boolean | undefined;
 
 /* Val specific types: file, remote, i18n  */
@@ -73,7 +74,7 @@ export type RemoteSource<Src extends Source> = {
  */
 export type I18nSource<
   Locales extends string,
-  T extends SourcePrimitive | SourceObject | SourceArray | FileSource<string>
+  T extends SourcePrimitive | SourceObject | SourceTuple | FileSource<string>
 > = {
   readonly [locale in Locales]: T;
 } & {

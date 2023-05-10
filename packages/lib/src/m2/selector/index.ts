@@ -2,6 +2,7 @@
 import { I18nSelector } from "./i18n";
 import { Selector as ObjectSelector } from "./object";
 import { UndistributedSourceArray as ArraySelector } from "./array";
+import { UndistributedSourceTuple as TupleSelector } from "./tuple";
 import { Selector as NumberSelector } from "./number";
 import { Selector as StringSelector } from "./string";
 import { Selector as BooleanSelector } from "./boolean";
@@ -13,13 +14,14 @@ import {
   I18nSource,
   RemoteSource,
   Source,
-  SourceArray,
+  SourceTuple,
   SourceObject,
   SourcePrimitive,
 } from "../Source";
 import { Schema } from "../schema";
 import { Expr } from "../expr/expr";
 import { RemoteSelector } from "./remote";
+import { A, F } from "ts-toolbelt";
 
 /**
  * Selectors can be used to select parts of a Val module.
@@ -49,11 +51,11 @@ export type Selector<T extends Source> = Source extends T
   ? S extends
       | SourcePrimitive
       | SourceObject
-      | SourceArray
+      | SourceTuple
       | FileSource<string>
       | I18nSource<
           string,
-          SourcePrimitive | SourceObject | SourceArray | FileSource<string>
+          SourcePrimitive | SourceObject | SourceTuple | FileSource<string>
         >
     ? RemoteSelector<S>
     : never
@@ -61,7 +63,9 @@ export type Selector<T extends Source> = Source extends T
   ? AssetSelector
   : T extends SourceObject
   ? ObjectSelector<T>
-  : T extends SourceArray
+  : T extends SourceTuple // <- readonly arrays
+  ? TupleSelector<T> // <- is a tuple - the array schema will not produce tuples, but literals will, so we need this to support tuples in useVal, for example useVal([blogsVal, articlesVal])
+  : T extends Source[]
   ? ArraySelector<T>
   : T extends string
   ? StringSelector<T>
@@ -74,23 +78,23 @@ export type Selector<T extends Source> = Source extends T
   : never;
 
 export type SelectorSource =
+  | SourcePrimitive
+  | readonly SelectorSource[]
   | {
       [key: string]: SelectorSource;
     }
-  | SelectorSource[]
-  | SourcePrimitive
   | I18nSource<
       string,
-      SourcePrimitive | SourceObject | SourceArray | FileSource<string>
+      SourcePrimitive | SourceObject | SourceTuple | FileSource<string>
     >
   | RemoteSource<
       | SourcePrimitive
       | SourceObject
-      | SourceArray
+      | SourceTuple
       | FileSource<string>
       | I18nSource<
           string,
-          SourcePrimitive | SourceObject | SourceArray | FileSource<string>
+          SourcePrimitive | SourceObject | SourceTuple | FileSource<string>
         >
     >
   | FileSource<string>
@@ -134,17 +138,21 @@ export interface AsVal<T extends Source> {
   [VAL_OR_EXPR](): Val<T> | Expr;
 }
 
-type SourceOf<T extends SelectorSource> = T extends SelectorC<infer S>
+export type SourceOf<T extends SelectorSource> = Source extends T
+  ? Source
+  : T extends SelectorC<infer S>
   ? S
-  : T extends (infer S)[]
+  : T extends readonly (infer S)[] // NOTE: the infer S instead of Selector Source here, is to avoid infinite recursion
   ? S extends SelectorSource
-    ? SourceOf<S>[]
+    ? {
+        [key in keyof T]: SourceOf<A.Try<T[key], SelectorSource>>;
+      }
     : never
+  : T extends (infer _S)[]
+  ? SourceOf<A.Try<T, SelectorSource>[]>
   : T extends { [key: string]: SelectorSource }
   ? {
-      [key in keyof T]: T[key] extends SelectorSource
-        ? SourceOf<T[key]>
-        : never;
+      [key in keyof T]: SourceOf<A.Try<T[key], SelectorSource>>;
     }
   : T extends Source
   ? T
@@ -155,10 +163,10 @@ type SourceOf<T extends SelectorSource> = T extends SelectorC<infer S>
  *
  * An example would be where literals are supported like in most higher order functions (e.g. map in array)
  **/
-export type SelectorOf<U extends SelectorSource> =
-  // TODO: investigate why Selector<SourceOf<U>> does not work in all cases
-  SourceOf<U> extends infer S
-    ? S extends Source
-      ? Selector<S>
-      : never
-    : never;
+export type SelectorOf<U extends SelectorSource> = Source extends U
+  ? SelectorC<Source>
+  : SourceOf<U> extends infer S // we need this to avoid infinite recursion
+  ? S extends Source
+    ? Selector<S>
+    : never
+  : never;

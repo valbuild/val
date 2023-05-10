@@ -36,5 +36,8 @@
       "./expr/index.ts"
     ],
     "exports": true
+  },
+  "dependencies": {
+    "ts-toolbelt": "^9.6.0"
   }
 }

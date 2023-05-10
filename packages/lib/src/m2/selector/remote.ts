@@ -2,7 +2,7 @@ import {
   FileSource,
   I18nSource,
   Source,
-  SourceArray,
+  SourceTuple,
   SourceObject,
   SourcePrimitive,
 } from "../Source";
@@ -14,11 +14,11 @@ export type RemoteSelector<
   T extends
     | SourcePrimitive
     | SourceObject
-    | SourceArray
+    | SourceTuple
     | FileSource<string>
     | I18nSource<
         string,
-        SourcePrimitive | SourceObject | SourceArray | FileSource<string>
+        SourcePrimitive | SourceObject | SourceTuple | FileSource<string>
       >
 > = UnknownSelector<T> & {
   readonly [brand]: "RemoteSelector";
