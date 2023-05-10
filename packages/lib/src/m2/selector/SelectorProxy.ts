@@ -141,7 +141,7 @@ export function newSelectorProxy(source: any, path?: SourcePath): any {
 }
 
 function stripVal(val: any): any {
-  if (typeof val === "object" && val && "val" in val) {
+  if (typeof val === "object" && val && ("valPath" in val || "val" in val)) {
     return stripVal(val.val);
   } else if (
     typeof val === "object" &&

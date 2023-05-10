@@ -161,11 +161,17 @@ const SelectorModuleTestCases: {
     expected: { val: ["text1", "text2"], valPath: "/app/texts" },
   },
   {
-    description: "array map projection",
+    description: "array map projection with undefined",
     input: (remote) =>
-      testModule("/app/blogs", remote).map((v) => ({ otherTitle: v.title })),
+      testModule("/app/blogs", remote).map((v) => ({
+        otherTitle: v.title,
+        other: undefined,
+      })),
     expected: {
-      val: [{ otherTitle: "blog1" }, { otherTitle: undefined }],
+      val: [
+        { otherTitle: "blog1", other: undefined },
+        { otherTitle: undefined, other: undefined },
+      ],
       valPath: "/app/blogs",
     },
   },
