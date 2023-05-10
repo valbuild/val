@@ -53,8 +53,8 @@ export type ArraySelectorSourceBranded<T extends SelectorSource[]> = T & {
  */
 export type Selector<T extends Source> = Source extends T
   ? SelectorC<T>
-  : T extends I18nSource<string, infer S>
-  ? I18nSelector<S>
+  : T extends I18nSource<infer L, infer S>
+  ? I18nSelector<L, S>
   : T extends RemoteSource<infer S>
   ? S extends
       | SourcePrimitive
