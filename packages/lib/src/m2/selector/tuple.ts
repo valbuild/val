@@ -10,16 +10,8 @@ import { Selector as BooleanSelector } from "./boolean";
 import { Selector as NumberSelector } from "./number";
 import { F } from "ts-toolbelt";
 
-export type UndistributedSourceTuple<T extends SourceTuple> = [T] extends [
-  infer U // infer here to avoid Type instantiation is excessively deep and possibly infinite. See: https://github.com/microsoft/TypeScript/issues/30188#issuecomment-478938437. Avoiding infer extends to keep us below TS 4.9 compat
-]
-  ? U extends SourceTuple
-    ? Selector<U>
-    : never
-  : never;
-
 // TODO: docs
-type Selector<T extends SourceTuple> = SelectorC<T> & {
+export type Selector<T extends SourceTuple> = SelectorC<T> & {
   length: NumberSelector<number>;
   filter(
     predicate: (
@@ -35,7 +27,7 @@ type Selector<T extends SourceTuple> = SelectorC<T> & {
   ): SelectorOf<readonly U[]>;
   andThen<U extends SelectorSource>(
     f: (v: UnknownSelector<NonNullable<T>>) => F.Narrow<U>
-  ): SelectorOf<U> | UnknownSelector<boolean>;
+  ): SelectorOf<U | T>;
 } & {
   readonly [key in keyof T]: UnknownSelector<T[key]>;
 };

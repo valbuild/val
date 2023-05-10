@@ -22,7 +22,7 @@ export function newExprSelectorProxy<T extends Source>(
       }
       return Reflect.get(target, prop);
     },
-  }) as Selector<T>;
+  }) as unknown as Selector<T>;
 }
 
 class GenericExprSelector {

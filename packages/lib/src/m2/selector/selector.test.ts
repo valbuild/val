@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
+  ArraySourceBranded,
   AsVal,
   Selector,
   SelectorC,
@@ -22,12 +23,15 @@ import { newExprSelectorProxy } from "./ExprProxy";
 
 const modules = {
   "/app/text": "text1",
-  "/app/texts": ["text1", "text2"],
-  "/app/blog": { title: "blog1", text: "text1" },
+  "/app/texts": ["text1", "text2"] as ArraySourceBranded<string[]>,
+  "/app/blog": { title: "blog1", text: "text1" } as {
+    title: string | undefined;
+    text: string;
+  },
   "/app/blogs": [
     { title: "blog1", text: "text1" },
-    { title: "blog2", text: "text2" },
-  ],
+    { title: undefined, text: "text2" },
+  ] as ArraySourceBranded<{ title: string | undefined; text: string }[]>,
   "/app/empty": "",
   "/app/large/nested": BFV(),
 };
@@ -36,8 +40,14 @@ const remoteModules: {
 } = {
   "/app/text": remoteSource("/app/text", string()),
   "/app/texts": remoteSource("/app/texts", array(string())),
-  "/app/blog": remoteSource("/app/blog", object({ title: string() })),
-  "/app/blogs": remoteSource("/app/blogs", array(object({ title: string() }))),
+  "/app/blog": remoteSource(
+    "/app/blog",
+    object({ title: string().optional() })
+  ),
+  "/app/blogs": remoteSource(
+    "/app/blogs",
+    array(object({ title: string().optional() }))
+  ),
   "/app/empty": remoteSource("/app/empty", string()),
   "/app/large/nested": remoteSource("/app/large/nested", BFS()),
 };
@@ -155,7 +165,7 @@ const SelectorModuleTestCases: {
     input: (remote) =>
       testModule("/app/blogs", remote).map((v) => ({ otherTitle: v.title })),
     expected: {
-      val: [{ otherTitle: "blog1" }, { otherTitle: "blog2" }],
+      val: [{ otherTitle: "blog1" }, { otherTitle: undefined }],
       valPath: "/app/blogs",
     },
   },
@@ -201,9 +211,18 @@ const SelectorModuleTestCases: {
     expected: {
       val: [
         [1, "blog1"],
-        [1, "blog2"],
+        [1, undefined],
       ],
       valPath: "/app/blogs",
+    },
+  },
+  {
+    description: "array object manipulation: map with tuple literal",
+    input: (remote) =>
+      testModule("/app/blogs", remote).map((a) => [1, a])[0][1].title,
+    expected: {
+      val: "blog1",
+      valPath: "/app/blogs.0.title",
     },
   },
   {
@@ -274,6 +293,7 @@ describe("selector", () => {
         expect(selectorToVal(localeRes)).toStrictEqual(expected);
       } else {
         const res = evaluate(
+          // @ts-expect-error TODO: fix this
           input()[VAL_OR_EXPR](),
           (ref) =>
             newSelectorProxy(
@@ -301,7 +321,7 @@ type Expected = any; // TODO: should be Val | Expr
 function testModule<P extends keyof TestModules>(
   sourcePath: P,
   remote: boolean
-): SelectorOf<TestModules[P]> {
+): Selector<TestModules[P]> {
   try {
     if (remote) {
       return newExprSelectorProxy(

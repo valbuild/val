@@ -1,13 +1,15 @@
 import { convertLiteralProxy, newExprSelectorProxy } from "./ExprProxy";
 import * as expr from "../expr/expr";
-import { AsVal, SelectorC, SelectorSource, VAL_OR_EXPR } from ".";
+import {
+  AsVal,
+  SelectorC,
+  SelectorSource,
+  VAL_OR_EXPR,
+  ArraySourceBranded,
+} from ".";
 import { Source } from "../Source";
 
-const ExprSelectorTestCases: {
-  input: SelectorC<Source>;
-  expected: string;
-  description: string;
-}[] = [
+const ExprSelectorTestCases: any[] = [
   {
     description: "basic module",
     input: newExprSelectorProxy<string>(root("/app/foo")),
@@ -15,7 +17,9 @@ const ExprSelectorTestCases: {
   },
   {
     description: "basic prop",
-    input: newExprSelectorProxy<string[]>(root("/app/foo"))[0],
+    input: newExprSelectorProxy<ArraySourceBranded<string[]>>(
+      root("/app/foo")
+    )[0],
     expected: "('0' (val '/app/foo'))",
   },
   {
@@ -25,7 +29,9 @@ const ExprSelectorTestCases: {
   },
   {
     description: "noop map",
-    input: newExprSelectorProxy<string[]>(root("/app/foo")).map((v) => v),
+    input: newExprSelectorProxy<ArraySourceBranded<string[]>>(
+      root("/app/foo")
+    ).map((v) => v),
     expected: "!(map (val '/app/foo') @[0,0])",
   },
   {
@@ -50,35 +56,39 @@ const ExprSelectorTestCases: {
   },
   {
     description: "filter string",
-    input: newExprSelectorProxy<string[]>(root("/app/foo")).filter((v) =>
-      v.eq("hei")
-    ),
+    input: newExprSelectorProxy<ArraySourceBranded<string[]>>(
+      root("/app/foo")
+    ).filter((v) => v.eq("hei")),
     expected: "!(filter (val '/app/foo') (eq @[0,0] 'hei'))",
   },
   {
     description: "filter number",
-    input: newExprSelectorProxy<number[]>(root("/app/foo")).filter((v) =>
-      v.eq(1)
-    ),
+    input: newExprSelectorProxy<ArraySourceBranded<number[]>>(
+      root("/app/foo")
+    ).filter((v) => v.eq(1)),
     expected: "!(filter (val '/app/foo') (eq @[0,0] (json '1')))",
   },
   {
     description: "filter optional",
-    input: newExprSelectorProxy<(number | undefined)[]>(
+    input: newExprSelectorProxy<ArraySourceBranded<number[]>>(
       root("/app/foo")
     ).filter((v) => v.eq(undefined)),
     expected: "!(filter (val '/app/foo') (eq @[0,0] ()))",
   },
   {
     description: "basic projection",
-    input: newExprSelectorProxy<string[]>(root("/app/foo")).map((v) => ({
+    input: newExprSelectorProxy<ArraySourceBranded<string[]>>(
+      root("/app/foo")
+    ).map((v) => ({
       foo: v,
     })),
     expected: "!(map (val '/app/foo') (json '{\"foo\": ${@[0,0]}}'))",
   },
   {
     description: "nested projection",
-    input: newExprSelectorProxy<string[]>(root("/app/foo")).map((v) => ({
+    input: newExprSelectorProxy<ArraySourceBranded<string[]>>(
+      root("/app/foo")
+    ).map((v) => ({
       foo: {
         bar: v,
       },
@@ -91,7 +101,7 @@ const ExprSelectorTestCases: {
   {
     description: "multi module",
     input: newExprSelectorProxy<string>(root("/app/foo")).andThen(() =>
-      newExprSelectorProxy(root("/app/bar"))
+      newExprSelectorProxy<string[]>(root("/app/bar"))
     ),
     expected: "!(andThen (val '/app/foo') (val '/app/bar'))",
   },

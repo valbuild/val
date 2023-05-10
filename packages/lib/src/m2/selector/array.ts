@@ -1,11 +1,13 @@
 import {
+  ArraySelectorSourceBranded,
+  ArraySourceBranded,
   Selector as UnknownSelector,
   SelectorC,
   SelectorOf,
   SelectorSource,
 } from ".";
 import { Schema } from "../schema";
-import { Source, SourceTuple } from "../Source";
+import { Source } from "../Source";
 import { Selector as BooleanSelector } from "./boolean";
 import { Selector as NumberSelector } from "./number";
 import { F } from "ts-toolbelt";
@@ -34,8 +36,8 @@ export type Selector<T extends Source[]> = SelectorC<T> & {
       v: UnknownSelector<T[number]>,
       i: UnknownSelector<number>
     ) => F.Narrow<U>
-  ): SelectorOf<U[]>;
+  ): SelectorOf<U[]>; // TODO: this should be SelectorOf<ArraySelectorSourceBranded<U[]>>;
   andThen<U extends SelectorSource>(
     f: (v: UnknownSelector<NonNullable<T>>) => F.Narrow<U>
-  ): SelectorOf<U> | UnknownSelector<boolean>;
+  ): SelectorOf<U | T>;
 };
