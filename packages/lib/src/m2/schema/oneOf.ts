@@ -12,9 +12,13 @@ import { string } from "./string";
 import { union } from "./union";
 
 type OneOfSelector<Sel extends Selector<Source[]>> = Sel extends SelectorC<
-  (infer S extends Source)[]
+  infer S
 >
-  ? Selector<S>
+  ? S extends (infer IS)[]
+    ? IS extends Source
+      ? Selector<IS>
+      : never
+    : never
   : never;
 
 class OneOfSchema<Sel extends Selector<Source[]>> extends Schema<
@@ -83,5 +87,5 @@ export const oneOf = <Src extends Selector<Source[]>>(
     []
   );
   const a = base[0];
-  const base2 = content("/base2", oneOf(base), base[0]);
+  const base2 = content("/base2", oneOf(base).optional(), base[0]);
 }
