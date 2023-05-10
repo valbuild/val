@@ -9,8 +9,7 @@ import {
 } from ".";
 import { string } from "../schema/string";
 import { array } from "../schema/array";
-import { createSelector } from "./create";
-import { SourcePath, Val } from "../val";
+import { SourcePath } from "../val";
 import { RemoteSource, Source } from "../Source";
 import { evaluate } from "../expr/eval";
 import * as expr from "../expr/expr";
