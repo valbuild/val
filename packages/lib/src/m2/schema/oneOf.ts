@@ -4,13 +4,6 @@ import { Selector, SelectorOf, SelectorSource, SourceOf } from "../selector";
 import { Source } from "../Source";
 import { SourcePath } from "../val";
 
-abstract class Schema<Src extends SelectorSource> {
-  abstract validate(src: Src): false | Record<SourcePath, string[]>;
-  abstract match(src: Src): boolean; // TODO: false | Record<SourcePath, string[]>;
-  abstract optional(): Schema<Src | undefined>;
-  protected abstract serialize(): SerializedSchema;
-}
-
 class OneOfSchema<
   Src extends Source,
   Sel extends Selector<Src[]>
