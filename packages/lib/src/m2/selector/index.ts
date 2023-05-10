@@ -28,7 +28,8 @@ import { A } from "ts-toolbelt";
  * Selectors can be used to select parts of a Val module.
  * Unlike queries, joins, aggregates etc is and will not be supported.
  *
- * They are designed to be be used as if they were "normal" JSON data.
+ * They are designed to be be used as if they were "normal" JSON data,
+ * though some concessions must be made because of TypeScript limitations.
  *
  * Selectors works equally on source content, defined in code, and remote content.
  *
@@ -38,7 +39,7 @@ import { A } from "ts-toolbelt";
  *
  * @example
  * // Match on a union type
- * const titles = useVal(docsVal.map((doc) => doc.match("type", {
+ * const titles = useVal(docsVal.map((doc) => doc.fold("type")({
  *   newsletter: (newsletter) => newsletter.title,
  *   email: (email) => email.subject,
  * }));
