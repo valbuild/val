@@ -8,6 +8,9 @@ export type Source =
   | RemoteSource<RemoteCompatibleSource>
   | FileSource<string>;
 
+/**
+ * Remote sources cannot include other remote sources.
+ */
 export type RemoteCompatibleSource =
   | SourcePrimitive
   | RemoteObject
@@ -16,6 +19,9 @@ export type RemoteCompatibleSource =
 export type RemoteObject = { [key in string]: RemoteCompatibleSource };
 export type RemoteArray = readonly RemoteCompatibleSource[];
 
+/**
+ * I18n sources cannot have nested remote sources.
+ */
 export type I18nCompatibleSource =
   | SourcePrimitive
   | I18nObject
@@ -26,7 +32,7 @@ export type I18nArray = readonly I18nCompatibleSource[];
 
 export type SourceObject = { [key in string]: Source } & {
   // TODO: update these restricted parameters:
-  match?: never;
+  fold?: never;
   andThen?: never;
   _ref?: never;
   _type?: never;
