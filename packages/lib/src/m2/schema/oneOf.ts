@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
 import { content } from "../module";
-import { Selector, SelectorC } from "../selector";
+import { SelectorC } from "../selector";
 import { remote, Source } from "../Source";
 import { SourcePath } from "../val";
 import { selectorOf } from "../wrap";
@@ -11,17 +11,17 @@ import { object } from "./object";
 import { string } from "./string";
 import { union } from "./union";
 
-type OneOfSelector<Sel extends Selector<Source[]>> = Sel extends SelectorC<
+type OneOfSelector<Sel extends SelectorC<Source[]>> = Sel extends SelectorC<
   infer S
 >
   ? S extends (infer IS)[]
     ? IS extends Source
-      ? Selector<IS>
+      ? SelectorC<IS>
       : never
     : never
   : never;
 
-class OneOfSchema<Sel extends Selector<Source[]>> extends Schema<
+class OneOfSchema<Sel extends SelectorC<Source[]>> extends Schema<
   OneOfSelector<Sel>
 > {
   constructor(readonly selector: Sel, readonly isOptional: boolean = false) {
@@ -42,7 +42,7 @@ class OneOfSchema<Sel extends Selector<Source[]>> extends Schema<
   }
 }
 
-export const oneOf = <Src extends Selector<Source[]>>(
+export const oneOf = <Src extends SelectorC<Source[]>>(
   selector: Src
 ): Schema<OneOfSelector<Src>> => {
   return new OneOfSchema(selector);
@@ -70,13 +70,12 @@ export const oneOf = <Src extends Selector<Source[]>>(
     ).remote(),
     remote("")
   );
-  const a = base[0];
   const base2 = content("/base2", oneOf(base), base[0]);
 
   const b = base2.fold("type")({
     aoo: (a) => selectorOf(1),
-    boo: (b) => selectorOf(2),
-    goo: (c) => c.deep.andThen((v) => v.homelander.starlight),
+    boo: (a) => selectorOf(1),
+    goo: (a) => a.test,
   });
 }
 
