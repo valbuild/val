@@ -2,7 +2,7 @@
 import { Schema, SerializedSchema } from ".";
 import { content } from "../module";
 import { Selector, SelectorC } from "../selector";
-import { Source } from "../Source";
+import { remote, Source } from "../Source";
 import { SourcePath } from "../val";
 import { selectorOf } from "../wrap";
 import { array } from "./array";
@@ -67,8 +67,8 @@ export const oneOf = <Src extends Selector<Source[]>>(
           }).optional(),
         })
       )
-    ),
-    []
+    ).remote(),
+    remote("")
   );
   const a = base[0];
   const base2 = content("/base2", oneOf(base), base[0]);
@@ -83,9 +83,10 @@ export const oneOf = <Src extends Selector<Source[]>>(
 {
   const base = content(
     "/base",
-    array(object({ type: string<"aoo">(), bar: string() })),
-    []
+    array(object({ type: string<"aoo">(), bar: string() })).remote(),
+    remote("")
   );
   const a = base[0];
-  const base2 = content("/base2", oneOf(base).optional(), base[0]);
+  const base2 = content("/base2", oneOf(base), base[0]);
+  base2.bar;
 }

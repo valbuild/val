@@ -76,6 +76,12 @@ export type RemoteSource<Src extends RemoteCompatibleSource> = {
   readonly [brand]: "ValRemoteSource";
 };
 
+export function remote<Src extends RemoteCompatibleSource>(
+  ref: string
+): RemoteSource<Src> {
+  throw Error("Not implemented");
+}
+
 /**
  * An i18n source is a map of locales to sources.
  *
