@@ -5,12 +5,12 @@ import {
   SelectorSource,
 } from ".";
 import { Schema } from "../schema";
-import { Source, SourceTuple } from "../Source";
+import { Source, SourceArray } from "../Source";
 import { Selector as BooleanSelector } from "./boolean";
 import { Selector as NumberSelector } from "./number";
 import { F } from "ts-toolbelt";
 
-export type UndistributedSourceArray<T extends SourceTuple> = [T] extends [
+export type UndistributedSourceArray<T extends SourceArray> = [T] extends [
   infer U // infer here to avoid Type instantiation is excessively deep and possibly infinite. See: https://github.com/microsoft/TypeScript/issues/30188#issuecomment-478938437. Avoiding infer extends to keep us below TS 4.9 compat
 ]
   ? U extends Source[]
@@ -19,7 +19,7 @@ export type UndistributedSourceArray<T extends SourceTuple> = [T] extends [
   : never;
 
 // TODO: docs
-export type Selector<T extends Source[]> = SelectorC<T> & {
+export type Selector<T extends SourceArray> = SelectorC<T> & {
   readonly [key: number]: UnknownSelector<T[number]>;
 } & {
   length: NumberSelector<number>;

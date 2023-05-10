@@ -3,22 +3,26 @@ import { Schema } from "./schema";
 export type Source =
   | SourcePrimitive
   | SourceObject
-  | SourceTuple
-  | I18nSource<
-      string,
-      SourcePrimitive | SourceObject | SourceTuple | FileSource<string>
-    >
-  | RemoteSource<
-      | SourcePrimitive
-      | SourceObject
-      | SourceTuple
-      | FileSource<string>
-      | I18nSource<
-          string,
-          SourcePrimitive | SourceObject | SourceTuple | FileSource<string>
-        >
-    >
+  | SourceArray
+  | I18nSource<string, I18nCompatibleSource>
+  | RemoteSource<RemoteCompatibleSource>
   | FileSource<string>;
+
+export type RemoteCompatibleSource =
+  | SourcePrimitive
+  | RemoteObject
+  | RemoteArray
+  | I18nSource<string, I18nCompatibleSource>;
+export type RemoteObject = { [key in string]: RemoteCompatibleSource };
+export type RemoteArray = readonly RemoteCompatibleSource[];
+
+export type I18nCompatibleSource =
+  | SourcePrimitive
+  | I18nObject
+  | I18nArray
+  | FileSource<string>;
+export type I18nObject = { [key in string]: I18nCompatibleSource };
+export type I18nArray = readonly I18nCompatibleSource[];
 
 export type SourceObject = { [key in string]: Source } & {
   // TODO: update these restricted parameters:
@@ -29,7 +33,7 @@ export type SourceObject = { [key in string]: Source } & {
   val?: never;
   valPath?: never;
 };
-export type SourceTuple = readonly Source[];
+export type SourceArray = readonly Source[];
 export type SourcePrimitive = string | number | boolean | undefined;
 
 /* Val specific types: file, remote, i18n  */
@@ -59,17 +63,7 @@ export type RemoteRef = string & { readonly [brand]: "RemoteRef" };
  *
  * It will be resolved into a ValRemote object.
  */
-export type RemoteSource<
-  Src extends
-    | SourcePrimitive
-    | SourceObject
-    | SourceTuple
-    | FileSource<string>
-    | I18nSource<
-        string,
-        SourcePrimitive | SourceObject | SourceTuple | FileSource<string>
-      >
-> = {
+export type RemoteSource<Src extends RemoteCompatibleSource> = {
   readonly [REMOTE_REF_PROP]: RemoteRef;
   readonly _schema: Schema<Src>; // TODO: figure out if this is ok
   readonly _type: "remote"; // TODO: figure out if this is ok
@@ -84,7 +78,7 @@ export type RemoteSource<
  */
 export type I18nSource<
   Locales extends string,
-  T extends SourcePrimitive | SourceObject | SourceTuple | FileSource<string>
+  T extends I18nCompatibleSource
 > = {
   readonly [locale in Locales]: T;
 } & {

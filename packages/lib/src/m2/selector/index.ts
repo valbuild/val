@@ -10,17 +10,19 @@ import { AssetSelector } from "./asset";
 import { Val } from "../val";
 import {
   FileSource,
+  I18nCompatibleSource,
   I18nSource,
+  RemoteCompatibleSource,
   RemoteSource,
   Source,
-  SourceTuple,
+  SourceArray,
   SourceObject,
   SourcePrimitive,
 } from "../Source";
 import { Schema } from "../schema";
 import { Expr } from "../expr/expr";
 import { RemoteSelector } from "./remote";
-import { A, F } from "ts-toolbelt";
+import { A } from "ts-toolbelt";
 
 /**
  * Selectors can be used to select parts of a Val module.
@@ -47,22 +49,14 @@ export type Selector<T extends Source> = Source extends T
   : T extends I18nSource<infer L, infer S>
   ? I18nSelector<L, S>
   : T extends RemoteSource<infer S>
-  ? S extends
-      | SourcePrimitive
-      | SourceObject
-      | SourceTuple
-      | FileSource<string>
-      | I18nSource<
-          string,
-          SourcePrimitive | SourceObject | SourceTuple | FileSource<string>
-        >
+  ? S extends RemoteCompatibleSource
     ? RemoteSelector<S>
     : never
   : T extends FileSource<string>
   ? AssetSelector
   : T extends SourceObject
   ? ObjectSelector<T>
-  : T extends SourceTuple
+  : T extends SourceArray
   ? ArraySelector<T>
   : T extends string
   ? StringSelector<T>
@@ -80,20 +74,8 @@ export type SelectorSource =
   | {
       [key: string]: SelectorSource;
     }
-  | I18nSource<
-      string,
-      SourcePrimitive | SourceObject | SourceTuple | FileSource<string>
-    >
-  | RemoteSource<
-      | SourcePrimitive
-      | SourceObject
-      | SourceTuple
-      | FileSource<string>
-      | I18nSource<
-          string,
-          SourcePrimitive | SourceObject | SourceTuple | FileSource<string>
-        >
-    >
+  | I18nSource<string, I18nCompatibleSource>
+  | RemoteSource<RemoteCompatibleSource>
   | FileSource<string>
   | SelectorC<Source>;
 
