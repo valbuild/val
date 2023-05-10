@@ -59,7 +59,17 @@ export type RemoteRef = string & { readonly [brand]: "RemoteRef" };
  *
  * It will be resolved into a ValRemote object.
  */
-export type RemoteSource<Src extends Source> = {
+export type RemoteSource<
+  Src extends
+    | SourcePrimitive
+    | SourceObject
+    | SourceTuple
+    | FileSource<string>
+    | I18nSource<
+        string,
+        SourcePrimitive | SourceObject | SourceTuple | FileSource<string>
+      >
+> = {
   readonly [REMOTE_REF_PROP]: RemoteRef;
   readonly _schema: Schema<Src>; // TODO: figure out if this is ok
   readonly _type: "remote"; // TODO: figure out if this is ok

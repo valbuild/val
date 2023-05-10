@@ -21,7 +21,7 @@ import { object } from "../../schema/object";
 }
 
 {
-  const ex = "" as unknown as Selector<I18nSource<"en_US", string>>;
+  const ex = "" as unknown as Selector<I18nSource<"en_US" | "no_NB", string>>;
   ex.eq("");
   const a = ex.all();
   a.en_US.eq("");
