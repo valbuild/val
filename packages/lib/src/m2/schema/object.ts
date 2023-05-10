@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SchemaSrcOf, SerializedSchema } from ".";
+import { Schema, SchemaTypeOf, SerializedSchema } from ".";
+import { Selector, SelectorSource } from "../selector";
 import { Source } from "../Source";
 import { SourcePath } from "../val";
 import { string } from "./string";
@@ -10,9 +11,9 @@ export type SerializedObjectSchema = {
   opt: boolean;
 };
 
-type ObjectSchemaProps = { [key: string]: Schema<Source> };
+type ObjectSchemaProps = { [key: string]: Schema<SelectorSource> };
 type ObjectSchemaSrcOf<Props extends ObjectSchemaProps> = {
-  [key in keyof Props]: SchemaSrcOf<Props[key]>;
+  [key in keyof Props]: SchemaTypeOf<Props[key]>;
 };
 
 export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
@@ -55,9 +56,3 @@ export const object = <Props extends ObjectSchemaProps>(
 ): Schema<ObjectSchemaSrcOf<Props>> => {
   return new ObjectSchema(schema);
 };
-
-{
-  object({
-    foo: string(),
-  });
-}

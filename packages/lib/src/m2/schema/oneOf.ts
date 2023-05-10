@@ -1,57 +1,87 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
-import { Selector, SelectorOf, SelectorSource, SourceOf } from "../selector";
+import { content } from "../module";
+import { Selector, SelectorC } from "../selector";
 import { Source } from "../Source";
 import { SourcePath } from "../val";
+import { selectorOf } from "../wrap";
+import { array } from "./array";
+import { number } from "./number";
+import { object } from "./object";
+import { string } from "./string";
+import { union } from "./union";
 
-class OneOfSchema<
-  Src extends Source,
-  Sel extends Selector<Src[]>
-> extends Schema<Selector<Src>> {
-  validate(src: Selector<Src>): false | Record<SourcePath, string[]> {
-    throw new Error("Method not implemented.");
-  }
-  match(src: Selector<Src>): boolean {
-    throw new Error("Method not implemented.");
-  }
-  optional(): Schema<Selector<Src> | undefined> {
-    throw new Error("Method not implemented.");
-  }
+type OneOfSelector<Sel extends Selector<Source[]>> = Sel extends SelectorC<
+  (infer S extends Source)[]
+>
+  ? Selector<S>
+  : never;
 
-  constructor(readonly selector: Sel) {
+class OneOfSchema<Sel extends Selector<Source[]>> extends Schema<
+  OneOfSelector<Sel>
+> {
+  constructor(readonly selector: Sel, readonly isOptional: boolean = false) {
     super();
   }
+  validate(src: OneOfSelector<Sel>): false | Record<SourcePath, string[]> {
+    throw new Error("Method not implemented.");
+  }
+  match(src: OneOfSelector<Sel>): boolean {
+    throw new Error("Method not implemented.");
+  }
+  optional(): Schema<OneOfSelector<Sel> | undefined> {
+    return new OneOfSchema(this.selector, true);
+  }
+
   protected serialize(): SerializedSchema {
     throw new Error("Method not implemented.");
   }
 }
 
-/////////////////
-
-// type SchemaSrcOf<T extends Schema<SelectorSource>> = T extends Schema<infer Src>
-//   ? Src
-//   : never;
-
-// type ValModule<T extends SelectorSource> = SelectorOf<T>;
-
-// export function content<T extends Schema<SelectorSource>>(
-//   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-//   id: string,
-//   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-//   schema: T,
-//   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-//   source: SchemaSrcOf<T>
-// ): ValModule<SchemaSrcOf<T>> {
-//   throw Error("Not implemented");
-// }
-
-export const oneOf = <Src extends Source>(
-  selector: Selector<Src[]>
-): Schema<Selector<Src>> => {
-  throw Error("");
+export const oneOf = <Src extends Selector<Source[]>>(
+  selector: Src
+): Schema<OneOfSelector<Src>> => {
+  return new OneOfSchema(selector);
 };
 
-// {
-//   const base = content("/base", array(string()), ["test"]);
-//   const base2 = content("/base2", oneOf(base), base[0]);
-// }
+{
+  const base = content(
+    "/base",
+    array(
+      union(
+        "type",
+        object({ type: string<"aoo">(), bar: string() }),
+        object({ type: string<"boo">(), bar: string() }),
+        object({
+          type: string<"goo">(),
+          foo: string(),
+          test: number(),
+          test2: array(number()).optional(),
+          test3: object({ test: number() }).optional(),
+          deep: object({
+            homelander: object({ maeve: string(), starlight: string() }),
+          }).optional(),
+        })
+      )
+    ),
+    []
+  );
+  const a = base[0];
+  const base2 = content("/base2", oneOf(base), base[0]);
+
+  base2.fold("type")({
+    aoo: (a) => selectorOf(1),
+    boo: (b) => selectorOf(2),
+    goo: (c) => c.test,
+  });
+}
+
+{
+  const base = content(
+    "/base",
+    array(object({ type: string<"aoo">(), bar: string() })),
+    []
+  );
+  const a = base[0];
+  const base2 = content("/base2", oneOf(base), base[0]);
+}

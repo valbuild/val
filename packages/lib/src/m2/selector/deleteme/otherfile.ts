@@ -5,6 +5,7 @@ import { string } from "../../schema/string";
 import { union } from "./evenmoretests";
 
 const t = union(
+  "type",
   object({ type: string<"aoo">(), bar: string() }),
   object({ type: string<"boo">(), bar: string() }),
   object({ type: string<"coo">(), bar: string() }),

@@ -5,7 +5,7 @@ import {
   SelectorSource,
 } from ".";
 import { F } from "ts-toolbelt";
-import { SourceObject } from "../Source";
+import { Source, SourceObject } from "../Source";
 
 // TODO: docs
 export type Selector<T extends SourceObject> = SelectorC<T> & {

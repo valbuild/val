@@ -1,5 +1,4 @@
 import { SelectorSource } from "../selector";
-import { Source } from "../Source";
 import { SourcePath } from "../val";
 import { SerializedObjectSchema } from "./object";
 import { SerializedStringSchema } from "./string";
@@ -13,6 +12,8 @@ export abstract class Schema<Src extends SelectorSource> {
   protected abstract serialize(): SerializedSchema;
 }
 
-export type SchemaSrcOf<T extends Schema<Source>> = T extends Schema<infer Src>
+export type SchemaTypeOf<T extends Schema<SelectorSource>> = T extends Schema<
+  infer Src
+>
   ? Src
   : never;

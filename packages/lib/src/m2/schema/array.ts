@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SchemaSrcOf, SerializedSchema } from ".";
+import { Schema, SchemaTypeOf, SerializedSchema } from ".";
+import { SelectorSource } from "../selector";
 import { Source } from "../Source";
 import { SourcePath } from "../val";
 
@@ -9,18 +10,18 @@ export type SerializedArraySchema = {
   opt: boolean;
 };
 
-export class ArraySchema<T extends Schema<Source>> extends Schema<
-  SchemaSrcOf<T>[]
+export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
+  SchemaTypeOf<T>[]
 > {
   constructor(readonly item: T, readonly isOptional: boolean = false) {
     super();
   }
 
-  validate(src: SchemaSrcOf<T>[]): false | Record<SourcePath, string[]> {
+  validate(src: SchemaTypeOf<T>[]): false | Record<SourcePath, string[]> {
     throw new Error("Method not implemented.");
   }
 
-  match(src: SchemaSrcOf<T>[]): boolean {
+  match(src: SchemaTypeOf<T>[]): boolean {
     if (this.isOptional && src === undefined) {
       return true;
     }
@@ -32,7 +33,7 @@ export class ArraySchema<T extends Schema<Source>> extends Schema<
     return typeof src === "object" && Array.isArray(src);
   }
 
-  optional(): Schema<SchemaSrcOf<T>[] | undefined> {
+  optional(): Schema<SchemaTypeOf<T>[] | undefined> {
     return new ArraySchema(this.item, true);
   }
 
@@ -41,8 +42,8 @@ export class ArraySchema<T extends Schema<Source>> extends Schema<
   }
 }
 
-export const array = <Src extends Source>(
-  schema: Schema<Src>
-): Schema<Src[]> => {
+export const array = <S extends Schema<SelectorSource>>(
+  schema: S
+): Schema<SchemaTypeOf<S>[]> => {
   return new ArraySchema(schema);
 };
