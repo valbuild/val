@@ -44,5 +44,5 @@ export class StringSchema<Src extends string | undefined> extends Schema<Src> {
 export const string = <T extends string>(
   options?: StringOptions
 ): Schema<T> => {
-  return new StringSchema();
+  return new StringSchema(options);
 };

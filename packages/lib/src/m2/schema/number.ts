@@ -40,5 +40,5 @@ export class NumberSchema<Src extends number | undefined> extends Schema<Src> {
 }
 
 export const number = (options?: NumberOptions): Schema<number> => {
-  return new NumberSchema();
+  return new NumberSchema(options);
 };
