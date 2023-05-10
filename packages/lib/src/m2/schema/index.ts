@@ -1,10 +1,7 @@
 import { Source } from "../Source";
 import { SourcePath } from "../val";
-import { SerializedArraySchema, ArraySchema } from "./array";
-import { SerializedObjectSchema, ObjectSchema } from "./object";
-import { SerializedNumberSchema, NumberSchema } from "./number";
-import { SerializedStringSchema, StringSchema } from "./string";
-import { SerializedUndefinedSchema, UndefinedSchema } from "./undefined";
+import { SerializedObjectSchema } from "./object";
+import { SerializedStringSchema } from "./string";
 
 export type SerializedSchema = SerializedStringSchema | SerializedObjectSchema;
 
