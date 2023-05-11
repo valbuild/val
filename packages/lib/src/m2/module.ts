@@ -1,10 +1,19 @@
 import { Schema, SchemaTypeOf } from "./schema";
 import { string } from "./schema/string";
 import { object } from "./schema/object";
-import { Selector, SelectorOf, SelectorSource } from "./selector";
+import { Selector, SelectorC, SelectorOf, SelectorSource } from "./selector";
 import { Source } from "./Source";
 
-export type ValModule<T extends SelectorSource> = SelectorOf<T>;
+const brand = Symbol("ValModule");
+export type ValModule<T extends SelectorSource> = SelectorOf<T> &
+  ValModuleBrand;
+
+export type ValModuleBrand = {
+  [brand]: "ValModule";
+};
+
+export type TypeOfValModule<T extends ValModule<SelectorSource>> =
+  T extends SelectorC<infer S> ? S : never;
 
 export function content<T extends Schema<SelectorSource>>(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

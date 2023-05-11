@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
-import { content } from "../module";
+import { content, ValModuleBrand } from "../module";
 import { SelectorC } from "../selector";
-import { remote, Source } from "../Source";
+import { remote, Source, SourceArray } from "../Source";
 import { SourcePath } from "../val";
 import { selectorOf } from "../wrap";
 import { array } from "./array";
@@ -11,7 +11,7 @@ import { object } from "./object";
 import { string } from "./string";
 import { union } from "./union";
 
-type OneOfSelector<Sel extends SelectorC<Source[]>> = Sel extends SelectorC<
+type OneOfSelector<Sel extends SelectorC<SourceArray>> = Sel extends SelectorC<
   infer S
 >
   ? S extends (infer IS)[]
@@ -21,7 +21,7 @@ type OneOfSelector<Sel extends SelectorC<Source[]>> = Sel extends SelectorC<
     : never
   : never;
 
-class OneOfSchema<Sel extends SelectorC<Source[]>> extends Schema<
+class OneOfSchema<Sel extends SelectorC<SourceArray>> extends Schema<
   OneOfSelector<Sel>
 > {
   constructor(readonly selector: Sel, readonly isOptional: boolean = false) {
@@ -42,10 +42,12 @@ class OneOfSchema<Sel extends SelectorC<Source[]>> extends Schema<
   }
 }
 
-export const oneOf = <Src extends SelectorC<Source[]>>(
-  selector: Src
+export const oneOf = <
+  Src extends SelectorC<SourceArray> & ValModuleBrand // ValModuleBrand enforces call site to pass in a val module - selectors are not allowed. The reason is that this should make it easier to patch. We might be able to relax this constraint in the future
+>(
+  valModule: Src
 ): Schema<OneOfSelector<Src>> => {
-  return new OneOfSchema(selector);
+  return new OneOfSchema(valModule);
 };
 
 {
