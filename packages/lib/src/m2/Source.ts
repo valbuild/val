@@ -1,3 +1,4 @@
+import { F } from "ts-toolbelt";
 import { Schema } from "./schema";
 
 export type Source =
@@ -97,3 +98,11 @@ export type I18nSource<
 } & {
   readonly [brand]: "I18nSource";
 };
+
+export function i18n<Locales extends string[]>(
+  locales: F.Narrow<Locales>
+): <Src extends I18nCompatibleSource>(source: {
+  [locale in Locales[number]]: Src;
+}) => I18nSource<Locales, Src> {
+  throw Error("Not implemented");
+}

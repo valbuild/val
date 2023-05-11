@@ -1,9 +1,15 @@
-import { A } from "ts-toolbelt";
+import { A, F } from "ts-toolbelt";
 import { SelectorSource } from "../selector";
 import { RemoteCompatibleSource, RemoteSource } from "../Source";
 import { SourcePath } from "../val";
-import { SerializedObjectSchema } from "./object";
-import { SerializedStringSchema } from "./string";
+import { array } from "./array";
+import { boolean } from "./boolean";
+import { i18n } from "./i18n";
+import { number } from "./number";
+import { object, SerializedObjectSchema } from "./object";
+import { oneOf } from "./oneOf";
+import { SerializedStringSchema, string } from "./string";
+import { union } from "./union";
 
 export type SerializedSchema = SerializedStringSchema | SerializedObjectSchema;
 
@@ -15,6 +21,7 @@ export abstract class Schema<Src extends SelectorSource> {
   remote(): Src extends RemoteCompatibleSource
     ? Schema<RemoteSource<Src>>
     : never {
+    // TODO: Schema<never, "Cannot create remote schema from non-remote source.">
     throw new Error("Method not implemented.");
   }
 }
@@ -23,4 +30,4 @@ export type SchemaTypeOf<T extends Schema<SelectorSource>> = T extends Schema<
   infer Src
 >
   ? Src
-  : never;
+  : never; // TODO: SourceError<"Could not determine type of Schema">

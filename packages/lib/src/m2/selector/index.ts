@@ -5,10 +5,9 @@ import { UndistributedSourceArray as ArraySelector } from "./array";
 import { Selector as NumberSelector } from "./number";
 import { Selector as StringSelector } from "./string";
 import { Selector as BooleanSelector } from "./boolean";
-import { Selector as UndefinedSelector } from "./undefined";
 import { PrimitiveSelector } from "./primitive";
 import { AssetSelector } from "./asset";
-import { SourcePath, Val } from "../val";
+import { SourcePath } from "../val";
 import {
   FileSource,
   I18nCompatibleSource,
@@ -53,7 +52,7 @@ export type Selector<T extends Source> = Source extends T
   : T extends RemoteSource<infer S>
   ? S extends RemoteCompatibleSource
     ? RemoteSelector<S>
-    : GenericSelector<Source, "Could not ">
+    : GenericSelector<Source, "Could not determine remote source">
   : T extends FileSource<string>
   ? AssetSelector
   : T extends SourceObject
@@ -117,6 +116,8 @@ export abstract class GenericSelector<
 
 export type SourceOf<T extends SelectorSource> = Source extends T
   ? Source
+  : T extends Source
+  ? T
   : T extends undefined
   ? null
   : T extends GenericSelector<infer S>
@@ -131,8 +132,6 @@ export type SourceOf<T extends SelectorSource> = Source extends T
   ? {
       [key in keyof T]: SourceOf<A.Try<T[key], SelectorSource>>;
     }
-  : T extends Source
-  ? T
   : never;
 
 /**

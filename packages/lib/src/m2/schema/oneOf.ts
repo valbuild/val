@@ -4,7 +4,7 @@ import { content, ValModuleBrand } from "../module";
 import { GenericSelector } from "../selector";
 import { remote, Source, SourceArray } from "../Source";
 import { SourcePath } from "../val";
-import { selectorOf } from "../wrap";
+import { selectorOf } from "../selector/selectorOf";
 import { array } from "./array";
 import { number } from "./number";
 import { object } from "./object";

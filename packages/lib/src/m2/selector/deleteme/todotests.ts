@@ -5,6 +5,7 @@ import {
   SelectorOf,
   SelectorSource,
   SourceOrExpr,
+  SourceOf,
 } from "..";
 import { Selector as BooleanSelector } from "../boolean";
 import { Schema } from "../../schema";
@@ -36,7 +37,7 @@ import { object } from "../../schema/object";
 
 {
   const ex = "" as unknown as Selector<
-    I18nSource<["en_US"], { title: string }>
+    SourceOf<I18nSource<["en_US"], { title: string }>>
   >;
   ex.title.eq("");
 }

@@ -1,4 +1,3 @@
-import { SourceObject } from "../Source";
 import { Val as UnknownVal } from ".";
 import { JsonObject } from "../Json";
 
