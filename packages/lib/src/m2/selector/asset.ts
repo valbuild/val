@@ -1,13 +1,13 @@
 import {
   Selector as UnknownSelector,
-  SelectorC,
+  GenericSelector,
   SelectorOf,
   SelectorSource,
 } from ".";
 import { F } from "ts-toolbelt";
 
 // TODO: docs
-export type AssetSelector = SelectorC<{ url: string }> & {
+export type AssetSelector = GenericSelector<{ url: string }> & {
   readonly url: UnknownSelector<string>;
   andThen<U extends SelectorSource>(
     f: (v: UnknownSelector<NonNullable<{ url: string }>>) => U

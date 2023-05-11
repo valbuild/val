@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
 import { content, ValModuleBrand } from "../module";
-import { SelectorC } from "../selector";
+import { GenericSelector } from "../selector";
 import { remote, Source, SourceArray } from "../Source";
 import { SourcePath } from "../val";
 import { selectorOf } from "../wrap";
@@ -11,17 +11,16 @@ import { object } from "./object";
 import { string } from "./string";
 import { union } from "./union";
 
-type OneOfSelector<Sel extends SelectorC<SourceArray>> = Sel extends SelectorC<
-  infer S
->
-  ? S extends (infer IS)[]
-    ? IS extends Source
-      ? SelectorC<IS>
+type OneOfSelector<Sel extends GenericSelector<SourceArray>> =
+  Sel extends GenericSelector<infer S>
+    ? S extends (infer IS)[]
+      ? IS extends Source
+        ? GenericSelector<IS>
+        : never
       : never
-    : never
-  : never;
+    : never;
 
-class OneOfSchema<Sel extends SelectorC<SourceArray>> extends Schema<
+class OneOfSchema<Sel extends GenericSelector<SourceArray>> extends Schema<
   OneOfSelector<Sel>
 > {
   constructor(readonly selector: Sel, readonly isOptional: boolean = false) {
@@ -33,7 +32,7 @@ class OneOfSchema<Sel extends SelectorC<SourceArray>> extends Schema<
   match(src: OneOfSelector<Sel>): boolean {
     throw new Error("Method not implemented.");
   }
-  optional(): Schema<OneOfSelector<Sel> | undefined> {
+  optional(): Schema<OneOfSelector<Sel> | null> {
     return new OneOfSchema(this.selector, true);
   }
 
@@ -43,7 +42,7 @@ class OneOfSchema<Sel extends SelectorC<SourceArray>> extends Schema<
 }
 
 export const oneOf = <
-  Src extends SelectorC<SourceArray> & ValModuleBrand // ValModuleBrand enforces call site to pass in a val module - selectors are not allowed. The reason is that this should make it easier to patch. We might be able to relax this constraint in the future
+  Src extends GenericSelector<SourceArray> & ValModuleBrand // ValModuleBrand enforces call site to pass in a val module - selectors are not allowed. The reason is that this should make it easier to patch. We might be able to relax this constraint in the future
 >(
   valModule: Src
 ): Schema<OneOfSelector<Src>> => {

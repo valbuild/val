@@ -13,7 +13,7 @@ export type SerializedNumberSchema = {
   opt: boolean;
 };
 
-export class NumberSchema<Src extends number | undefined> extends Schema<Src> {
+export class NumberSchema<Src extends number | null> extends Schema<Src> {
   constructor(
     readonly options?: NumberOptions,
     readonly isOptional: boolean = false
@@ -25,14 +25,14 @@ export class NumberSchema<Src extends number | undefined> extends Schema<Src> {
   }
 
   match(src: Src): boolean {
-    if (this.isOptional && src === undefined) {
+    if (this.isOptional && (src === null || src === undefined)) {
       return true;
     }
     return typeof src === "number";
   }
 
-  optional(): Schema<Src | undefined> {
-    return new NumberSchema<Src | undefined>(this.options, true);
+  optional(): Schema<Src | null> {
+    return new NumberSchema<Src | null>(this.options, true);
   }
   protected serialize(): SerializedSchema {
     throw new Error("Method not implemented.");

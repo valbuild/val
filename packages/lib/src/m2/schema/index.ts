@@ -10,7 +10,7 @@ export type SerializedSchema = SerializedStringSchema | SerializedObjectSchema;
 export abstract class Schema<Src extends SelectorSource> {
   abstract validate(src: Src): false | Record<SourcePath, string[]>;
   abstract match(src: Src): boolean; // TODO: false | Record<SourcePath, string[]>;
-  abstract optional(): Schema<Src | undefined>;
+  abstract optional(): Schema<Src | null>;
   protected abstract serialize(): SerializedSchema;
   remote(): Src extends RemoteCompatibleSource
     ? Schema<RemoteSource<Src>>

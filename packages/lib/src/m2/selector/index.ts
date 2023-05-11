@@ -6,8 +6,9 @@ import { Selector as NumberSelector } from "./number";
 import { Selector as StringSelector } from "./string";
 import { Selector as BooleanSelector } from "./boolean";
 import { Selector as UndefinedSelector } from "./undefined";
+import { PrimitiveSelector } from "./primitive";
 import { AssetSelector } from "./asset";
-import { Val } from "../val";
+import { SourcePath, Val } from "../val";
 import {
   FileSource,
   I18nCompatibleSource,
@@ -46,13 +47,13 @@ import { A } from "ts-toolbelt";
  *
  */
 export type Selector<T extends Source> = Source extends T
-  ? SelectorC<T>
+  ? GenericSelector<T>
   : T extends I18nSource<infer L, infer S>
   ? I18nSelector<L, S>
   : T extends RemoteSource<infer S>
   ? S extends RemoteCompatibleSource
     ? RemoteSelector<S>
-    : never
+    : GenericSelector<Source, "Could not ">
   : T extends FileSource<string>
   ? AssetSelector
   : T extends SourceObject
@@ -65,62 +66,60 @@ export type Selector<T extends Source> = Source extends T
   ? NumberSelector<T>
   : T extends boolean
   ? BooleanSelector<T>
-  : T extends undefined
-  ? UndefinedSelector<T>
+  : T extends null
+  ? PrimitiveSelector<null>
   : never;
 
 export type SelectorSource =
   | SourcePrimitive
+  | undefined
   | readonly SelectorSource[]
   | {
       [key: string]: SelectorSource;
     }
-  | I18nSource<string, I18nCompatibleSource>
+  | I18nSource<readonly string[], I18nCompatibleSource>
   | RemoteSource<RemoteCompatibleSource>
   | FileSource<string>
-  | SelectorC<Source>;
+  | GenericSelector<Source>;
 
 /**
  * @internal
  */
-export const VAL_OR_EXPR = Symbol("getValOrExpr");
+export const Path = Symbol("Path");
 /**
  * @internal
  */
-export const SCHEMA = Symbol("getSchema");
+export const SourceOrExpr = Symbol("SourceOrExpr");
+/**
+ * @internal
+ */
+export const ValError = Symbol("ValError");
+export abstract class GenericSelector<
+  out T extends Source,
+  Error extends string | undefined = undefined
+> {
+  readonly [Path]: SourcePath | undefined;
+  readonly [SourceOrExpr]: T | Expr;
+  readonly [ValError]: Error | undefined;
+  constructor(valOrExpr: T, path: SourcePath | undefined, error?: Error) {
+    this[Path] = path;
+    this[SourceOrExpr] = valOrExpr;
+    this[ValError] = error;
+  }
 
-export abstract class SelectorC<out T extends Source> {
-  /**
-   * @internal
-   */
-  constructor(
-    protected valOrExpr: any,
-    // TODO: this is the actual type, but it is hard to use in the implementations - this is internal so any is ok?
-    // | Val<Source> /* Val<T> makes the type-checker confused, we do not really know why */
-    // | Expr,
-    protected readonly __fakeField?: T /* do not use this, we must have it to make type-checking (since classes are compared structurally?)  */
-  ) {}
-
-  assert<U extends Source, E extends Source = undefined>(
+  assert<U extends Source, E extends Source = null>(
     schema: Schema<U>,
     other?: () => E
   ): SelectorOf<U | E> {
     throw new Error("Not implemented");
   }
-
-  abstract [VAL_OR_EXPR](): { val: T; valPath: string } | Expr;
-}
-
-export interface AsVal<T extends Source> {
-  /**
-   * @internal
-   */
-  [VAL_OR_EXPR](): Val<T> | Expr;
 }
 
 export type SourceOf<T extends SelectorSource> = Source extends T
   ? Source
-  : T extends SelectorC<infer S>
+  : T extends undefined
+  ? null
+  : T extends GenericSelector<infer S>
   ? S
   : T extends readonly (infer S)[] // NOTE: the infer S instead of Selector Source here, is to avoid infinite recursion
   ? S extends SelectorSource
@@ -142,9 +141,9 @@ export type SourceOf<T extends SelectorSource> = Source extends T
  * An example would be where literals are supported like in most higher order functions (e.g. map in array)
  **/
 export type SelectorOf<U extends SelectorSource> = Source extends U
-  ? SelectorC<Source>
+  ? GenericSelector<Source>
   : SourceOf<U> extends infer S // we need this to avoid infinite recursion
   ? S extends Source
     ? Selector<S>
-    : never
-  : never;
+    : GenericSelector<Source, "Could not determine selector of source">
+  : GenericSelector<Source, "Could not determine source">;

@@ -13,7 +13,7 @@ export type SerializedStringSchema = {
   opt: boolean;
 };
 
-export class StringSchema<Src extends string | undefined> extends Schema<Src> {
+export class StringSchema<Src extends string | null> extends Schema<Src> {
   constructor(
     readonly options?: StringOptions,
     readonly isOptional: boolean = false
@@ -26,14 +26,14 @@ export class StringSchema<Src extends string | undefined> extends Schema<Src> {
   }
 
   match(src: Src): boolean {
-    if (this.isOptional && src === undefined) {
+    if (this.isOptional && (src === null || src === undefined)) {
       return true;
     }
     return typeof src === "string";
   }
 
-  optional(): Schema<Src | undefined> {
-    return new StringSchema<Src | undefined>(this.options, true);
+  optional(): Schema<Src | null> {
+    return new StringSchema<Src | null>(this.options, true);
   }
 
   protected serialize(): SerializedSchema {

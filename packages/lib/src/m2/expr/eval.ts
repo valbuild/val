@@ -2,9 +2,9 @@
 import { Call, Expr, StringLiteral, StringTemplate, Sym } from "./expr";
 import { Source } from "../Source";
 import { result } from "../../fp";
-import { SelectorC, VAL_OR_EXPR } from "../selector";
+import { Path, SourceOrExpr } from "../selector";
 import { newSelectorProxy } from "../selector/SelectorProxy";
-import { SourcePath } from "../val";
+import { isSerializedVal, SourcePath } from "../val";
 
 export class EvalError {
   constructor(public readonly message: string, public readonly expr: Expr) {}
@@ -19,7 +19,8 @@ type LocalSelector<S extends Source> = {
     | LocalSelector<Source>
     | ((...args: any[]) => any);
 } & {
-  [VAL_OR_EXPR](): { val: S; valPath: SourcePath };
+  [SourceOrExpr]: S;
+  [Path]: SourcePath | undefined;
 };
 
 const MAX_STACK_SIZE = 100; // an arbitrary semi-large number
@@ -62,23 +63,26 @@ function evaluateSync(
           );
         }
         const value = evaluateSync(expr.children[1], source, stack);
-        const valObj = value[VAL_OR_EXPR]();
-        if (typeof valObj.val !== "string") {
+
+        const valObj = value[SourceOrExpr];
+        const valPath = value[Path];
+        if (typeof valObj !== "string") {
           throw new EvalError(
-            `cannot parse JSON: ${JSON.stringify(valObj.val)}, expected string`,
+            `cannot parse JSON: ${JSON.stringify(valObj)}, expected string`,
             expr.children[1]
           );
         }
         try {
-          const parsedValue = newSelectorProxy(
-            JSON.parse(valObj.val),
-            valObj.valPath
-          );
+          const serialized = JSON.parse(valObj);
+          if (isSerializedVal(serialized)) {
+            return newSelectorProxy(serialized.val, serialized.valPath);
+          }
+          const parsedValue = newSelectorProxy(JSON.parse(valObj), valPath);
           return parsedValue;
         } catch (e) {
           if (e instanceof SyntaxError) {
             throw new EvalError(
-              `cannot parse JSON: ${valObj.val}, ${
+              `cannot parse JSON: ${valObj}, ${
                 e.message
               } - value: ${JSON.stringify(value)}`,
               expr.children[1]
@@ -95,11 +99,10 @@ function evaluateSync(
           );
         }
         const res = evaluateSync(expr.children[1], source, stack);
-        return newSelectorProxy(JSON.stringify(res[VAL_OR_EXPR]()));
+        return newSelectorProxy(JSON.stringify(res[SourceOrExpr]));
       }
     }
-    const prop = evaluateSync(expr.children[0], source, stack)[VAL_OR_EXPR]()
-      .val;
+    const prop = evaluateSync(expr.children[0], source, stack)[SourceOrExpr];
     if (expr.children.length === 1) {
       // TODO: return if literal only?
       return newSelectorProxy(prop);
@@ -191,7 +194,7 @@ function evaluateSync(
       }
       return stackValue;
     } else if (expr.value === "()") {
-      return newSelectorProxy(undefined);
+      return newSelectorProxy(null);
     }
     return newSelectorProxy(expr.value);
   } else if (expr instanceof StringLiteral) {
@@ -200,17 +203,24 @@ function evaluateSync(
     return newSelectorProxy(
       expr.children
         .map((child) => {
+          if (child instanceof Sym && child.value === "()") {
+            return "null";
+          }
+          const evalRes = evaluateSync(child, source, stack);
           if (
             child.type === "StringLiteral" ||
             child.type === "StringTemplate"
           ) {
-            return evaluateSync(child, source, stack)[VAL_OR_EXPR]().val;
-          } else if (child instanceof Sym && child.value === "()") {
-            return "null";
+            return evalRes[SourceOrExpr];
           }
-          return JSON.stringify(
-            evaluateSync(child, source, stack)[VAL_OR_EXPR]()
-          );
+          if (Path in evalRes) {
+            // a selector, so serialize to Val
+            return JSON.stringify({
+              val: evalRes[SourceOrExpr],
+              valPath: evalRes[Path],
+            });
+          }
+          return JSON.stringify(evalRes[SourceOrExpr]);
         })
         .join("")
     );

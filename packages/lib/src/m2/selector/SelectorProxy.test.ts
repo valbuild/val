@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Selector, SelectorC } from ".";
+import { Selector, GenericSelector, Path } from ".";
 import { number } from "../schema/number";
 import { string } from "../schema/string";
 import { Source } from "../Source";
@@ -12,11 +12,11 @@ describe("SelectorProxy", () => {
     const string1 = newSelectorProxy("foo", sourcePath) as Selector<string>;
     expectValOrExpr(string1.eq("foo")).toStrictEqual({
       val: true,
-      valPath: undefined,
+      [Path]: undefined,
     });
     expectValOrExpr(string1.eq("foo").andThen(() => string1)).toStrictEqual({
       val: "foo",
-      valPath: sourcePath,
+      [Path]: sourcePath,
     });
   });
 
@@ -29,7 +29,7 @@ describe("SelectorProxy", () => {
       string1.map((a) => a).filter((a) => a.eq("foo"))
     ).toStrictEqual({
       val: ["foo"],
-      valPath: "/app/texts",
+      [Path]: "/app/texts",
     });
   });
 
@@ -40,7 +40,7 @@ describe("SelectorProxy", () => {
     >;
     expectValOrExpr(numbersVal).toStrictEqual({
       val: [1, 2, 3],
-      valPath: "/app/numbers",
+      [Path]: "/app/numbers",
     });
   });
 
@@ -51,7 +51,7 @@ describe("SelectorProxy", () => {
     >;
     expectValOrExpr(numbersVal.length).toStrictEqual({
       val: 3,
-      valPath: undefined,
+      [Path]: undefined,
     });
   });
 
@@ -59,22 +59,22 @@ describe("SelectorProxy", () => {
     const sourcePath = "/app/numbers" as SourcePath;
     const numbersVal = newSelectorProxy([1, 2, undefined], sourcePath) as
       | Selector<string[]>
-      | Selector<undefined[]>;
+      | Selector<null[]>;
     expectValOrExpr(numbersVal.filter(number())).toStrictEqual({
       val: [1, 2],
-      valPath: "/app/numbers",
+      [Path]: "/app/numbers",
     });
   });
 
-  test("array filter match string / undefined ", () => {
+  test("array filter match string / undefined / null", () => {
     const sourcePath = "/app/numbers" as SourcePath;
     const numbersVal = newSelectorProxy(
-      [1, 2, undefined, "test"],
+      [1, 2, undefined, null, "test"],
       sourcePath
-    ) as Selector<(number | string | undefined)[]>;
+    ) as Selector<(number | string | null)[]>;
     expectValOrExpr(numbersVal.filter(string().optional())).toStrictEqual({
-      val: [undefined, "test"],
-      valPath: "/app/numbers",
+      val: [null, null, "test"],
+      [Path]: "/app/numbers",
     });
   });
 
@@ -86,7 +86,7 @@ describe("SelectorProxy", () => {
     ) as Selector<{ title: string }>;
     expectValOrExpr(blogsVal).toStrictEqual({
       val: { title: "title1" },
-      valPath: "/app/blog",
+      [Path]: "/app/blog",
     });
   });
 
@@ -98,7 +98,7 @@ describe("SelectorProxy", () => {
     ) as Selector<{ title: string }>;
     expectValOrExpr(blogsVal.title).toStrictEqual({
       val: "title1",
-      valPath: "/app/blog.title",
+      [Path]: "/app/blog.title",
     });
   });
 
@@ -112,7 +112,7 @@ describe("SelectorProxy", () => {
       val: {
         title: "title1",
       },
-      valPath: "/app/blogs.0",
+      [Path]: "/app/blogs.0",
     });
   });
 
@@ -126,7 +126,7 @@ describe("SelectorProxy", () => {
       val: {
         title: "title1",
       },
-      valPath: "/app/blogs.0",
+      [Path]: "/app/blogs.0",
     });
   });
 
@@ -138,7 +138,7 @@ describe("SelectorProxy", () => {
     ) as Selector<{ title: string }[]>;
     expectValOrExpr(blogsVal.map((blog) => blog)).toStrictEqual({
       val: [{ title: "title1" }],
-      valPath: "/app/blogs",
+      [Path]: "/app/blogs",
     });
   });
 
@@ -150,7 +150,7 @@ describe("SelectorProxy", () => {
     ) as Selector<{ title: string }[]>;
     expectValOrExpr(blogsVal.map((blog) => blog)[0].title).toStrictEqual({
       val: "title1",
-      valPath: "/app/blogs.0.title",
+      [Path]: "/app/blogs.0.title",
     });
   });
 
@@ -162,11 +162,11 @@ describe("SelectorProxy", () => {
     ) as Selector<{ title: string }[]>;
     expectValOrExpr(blogsVal.map((blog) => blog.title)[0]).toStrictEqual({
       val: "title1",
-      valPath: "/app/blogs.0.title",
+      [Path]: "/app/blogs.0.title",
     });
   });
 });
 
-function expectValOrExpr<T extends Source>(selector: SelectorC<T>) {
+function expectValOrExpr<T extends Source>(selector: GenericSelector<T>) {
   return expect(selectorToVal(selector));
 }

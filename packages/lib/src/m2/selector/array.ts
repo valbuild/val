@@ -1,6 +1,6 @@
 import {
   Selector as UnknownSelector,
-  SelectorC,
+  GenericSelector,
   SelectorOf,
   SelectorSource,
 } from ".";
@@ -19,7 +19,7 @@ export type UndistributedSourceArray<T extends SourceArray> = [T] extends [
   : never;
 
 // TODO: docs
-export type Selector<T extends SourceArray> = SelectorC<T> & {
+export type Selector<T extends SourceArray> = GenericSelector<T> & {
   readonly [key: number]: UnknownSelector<T[number]>;
 } & {
   length: NumberSelector<number>;

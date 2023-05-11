@@ -1,7 +1,7 @@
 import * as repl from "repl";
 import { expr } from "../..";
 import { result, pipe } from "../../fp";
-import { VAL_OR_EXPR } from "../selector";
+import { SourceOrExpr } from "../selector";
 import { newSelectorProxy, selectorToVal } from "../selector/SelectorProxy";
 import { SourcePath } from "../val";
 import { evaluate } from "./eval";

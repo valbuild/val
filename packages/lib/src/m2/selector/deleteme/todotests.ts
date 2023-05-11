@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   Selector,
-  SelectorC,
+  GenericSelector,
   SelectorOf,
   SelectorSource,
-  VAL_OR_EXPR,
+  SourceOrExpr,
 } from "..";
 import { Selector as BooleanSelector } from "../boolean";
 import { Schema } from "../../schema";
@@ -21,7 +21,7 @@ import { object } from "../../schema/object";
 }
 
 {
-  const ex = "" as unknown as Selector<I18nSource<"en_US" | "no_NB", string>>;
+  const ex = "" as unknown as Selector<I18nSource<["en_US", "no_NB"], string>>;
   ex.eq("");
   const a = ex.all();
   a.en_US.eq("");
@@ -29,24 +29,28 @@ import { object } from "../../schema/object";
 
 {
   const { title } = "" as unknown as Selector<{
-    title: I18nSource<"en_US", string>;
+    title: I18nSource<["en_US"], string>;
   }>;
   title.eq("");
 }
 
 {
-  const ex = "" as unknown as Selector<I18nSource<"en_US", { title: string }>>;
+  const ex = "" as unknown as Selector<
+    I18nSource<["en_US"], { title: string }>
+  >;
   ex.title.eq("");
 }
 
 {
-  const ex = "" as unknown as Selector<I18nSource<"en_US", { title: string }>>;
+  const ex = "" as unknown as Selector<
+    I18nSource<["en_US"], { title: string }>
+  >;
   ex.title.eq("");
 }
 
 {
   const ex = "" as unknown as Selector<{
-    foo: I18nSource<"en_US", { title: string }>;
+    foo: I18nSource<["en_US"], { title: string }>;
   }>;
   ex.foo.title.eq("");
 }

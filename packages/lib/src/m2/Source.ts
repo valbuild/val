@@ -4,7 +4,7 @@ export type Source =
   | SourcePrimitive
   | SourceObject
   | SourceArray
-  | I18nSource<string, I18nCompatibleSource>
+  | I18nSource<string[], I18nCompatibleSource>
   | RemoteSource<RemoteCompatibleSource>
   | FileSource<string>;
 
@@ -15,7 +15,8 @@ export type RemoteCompatibleSource =
   | SourcePrimitive
   | RemoteObject
   | RemoteArray
-  | I18nSource<string, I18nCompatibleSource>;
+  | FileSource<string>
+  | I18nSource<string[], I18nCompatibleSource>;
 export type RemoteObject = { [key in string]: RemoteCompatibleSource };
 export type RemoteArray = readonly RemoteCompatibleSource[];
 
@@ -37,10 +38,10 @@ export type SourceObject = { [key in string]: Source } & {
   _ref?: never;
   _type?: never;
   val?: never;
-  valPath?: never;
+  valPath?: never; // used when serializing vals
 };
 export type SourceArray = readonly Source[];
-export type SourcePrimitive = string | number | boolean | undefined;
+export type SourcePrimitive = string | number | boolean | null;
 
 /* Val specific types: file, remote, i18n  */
 declare const brand: unique symbol;
@@ -89,10 +90,10 @@ export function remote<Src extends RemoteCompatibleSource>(
  *
  */
 export type I18nSource<
-  Locales extends string,
+  Locales extends readonly string[],
   T extends I18nCompatibleSource
 > = {
-  readonly [locale in Locales]: T;
+  readonly [locale in Locales[number]]: T;
 } & {
-  readonly [brand]: "I18nDescriptor";
+  readonly [brand]: "I18nSource";
 };

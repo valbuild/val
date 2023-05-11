@@ -1,6 +1,6 @@
 import { convertLiteralProxy, newExprSelectorProxy } from "./ExprProxy";
 import * as expr from "../expr/expr";
-import { AsVal, SelectorC, SelectorSource, VAL_OR_EXPR } from ".";
+import { GenericSelector, SelectorSource, SourceOrExpr } from ".";
 import { Source } from "../Source";
 
 const ExprSelectorTestCases: any[] = [
@@ -31,7 +31,7 @@ const ExprSelectorTestCases: any[] = [
   },
   {
     description: "eq undefined",
-    input: newExprSelectorProxy<undefined>(root("/app/foo")).eq(undefined),
+    input: newExprSelectorProxy<null>(root("/app/foo")).eq(null),
     expected: "(eq (val '/app/foo') ())",
   },
   {
@@ -61,7 +61,7 @@ const ExprSelectorTestCases: any[] = [
   {
     description: "filter optional",
     input: newExprSelectorProxy<number[]>(root("/app/foo")).filter((v) =>
-      v.eq(undefined)
+      v.eq(null)
     ),
     expected: "!(filter (val '/app/foo') (eq @[0,0] ()))",
   },
@@ -107,7 +107,7 @@ const LiteralConversionTestCases: {
   { description: "basic number", input: 1, expected: "(json '1')" },
   { description: "basic boolean", input: true, expected: "(json 'true')" },
   { description: "basic array", input: [1], expected: "(json '[1]')" },
-  { description: "basic undefined", input: undefined, expected: "()" },
+  { description: "basic null", input: null, expected: "()" },
   {
     description: "array with 2 different",
     input: [1, "foo"],
@@ -115,7 +115,7 @@ const LiteralConversionTestCases: {
   },
   {
     description: "array with undefined",
-    input: [1, undefined],
+    input: [1, null],
     expected: "(json '[1, ${()}]')",
   },
   {
@@ -177,7 +177,9 @@ describe("expr", () => {
   test.each(ExprSelectorTestCases)(
     'expr selector ($description): "$expected"',
     ({ input, expected }) => {
-      const valOrExpr = (input as unknown as AsVal<Source>)[VAL_OR_EXPR]();
+      const valOrExpr = (input as unknown as GenericSelector<Source>)[
+        SourceOrExpr
+      ];
       if (valOrExpr instanceof expr.Expr) {
         expect(valOrExpr.transpile()).toBe(expected);
       } else {

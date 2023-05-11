@@ -1,7 +1,12 @@
 import { Schema, SchemaTypeOf } from "./schema";
 import { string } from "./schema/string";
 import { object } from "./schema/object";
-import { Selector, SelectorC, SelectorOf, SelectorSource } from "./selector";
+import {
+  Selector,
+  GenericSelector,
+  SelectorOf,
+  SelectorSource,
+} from "./selector";
 import { Source } from "./Source";
 
 const brand = Symbol("ValModule");
@@ -13,7 +18,7 @@ export type ValModuleBrand = {
 };
 
 export type TypeOfValModule<T extends ValModule<SelectorSource>> =
-  T extends SelectorC<infer S> ? S : never;
+  T extends GenericSelector<infer S> ? S : never;
 
 export function content<T extends Schema<SelectorSource>>(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -33,5 +38,4 @@ export function content<T extends Schema<SelectorSource>>(
   const a = content("/id", s, {
     foo: "bar",
   });
-  a.foo;
 }

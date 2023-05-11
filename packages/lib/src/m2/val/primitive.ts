@@ -1,6 +1,6 @@
-import { SourcePrimitive } from "../Source";
+import { JsonPrimitive } from "../Json";
 
-export type Val<T extends SourcePrimitive> = {
+export type Val<T extends JsonPrimitive> = {
   valPath: string;
   val: T;
 };

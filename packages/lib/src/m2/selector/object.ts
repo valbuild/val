@@ -1,6 +1,6 @@
 import {
   Selector as UnknownSelector,
-  SelectorC,
+  GenericSelector,
   SelectorOf,
   SelectorSource,
 } from ".";
@@ -8,7 +8,7 @@ import { F } from "ts-toolbelt";
 import { Source, SourceObject } from "../Source";
 
 // TODO: docs
-export type Selector<T extends SourceObject> = SelectorC<T> & {
+export type Selector<T extends SourceObject> = GenericSelector<T> & {
   fold<Tag extends string>(
     key: Tag
   ): <U extends SelectorSource>(cases: {

@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaTypeOf, SerializedSchema } from ".";
 import { SelectorSource } from "../selector";
-import { Source } from "../Source";
 import { SourcePath } from "../val";
 
 export type SerializedArraySchema = {
@@ -22,7 +21,7 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
   }
 
   match(src: SchemaTypeOf<T>[]): boolean {
-    if (this.isOptional && src === undefined) {
+    if (this.isOptional && (src === null || src === undefined)) {
       return true;
     }
     if (!src) {
@@ -33,7 +32,7 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
     return typeof src === "object" && Array.isArray(src);
   }
 
-  optional(): Schema<SchemaTypeOf<T>[] | undefined> {
+  optional(): Schema<SchemaTypeOf<T>[] | null> {
     return new ArraySchema(this.item, true);
   }
 

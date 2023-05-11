@@ -1,8 +1,8 @@
-import { SelectorC, VAL_OR_EXPR } from ".";
+import { Path, GenericSelector, SourceOrExpr } from ".";
 import { Expr } from "../expr/expr";
 import { Schema } from "../schema";
 import { Source, SourcePrimitive } from "../Source";
-import { SourcePath, Val } from "../val";
+import { isSerializedVal, SourcePath, Val } from "../val";
 
 function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
   return Object.prototype.hasOwnProperty.call(obj, prop);
@@ -17,12 +17,10 @@ function andThen(f: (...args: any[]) => any, source: any, path?: SourcePath) {
 
 export function newSelectorProxy(source: any, path?: SourcePath): any {
   if (typeof source === "object") {
-    if (source === null) {
-      throw Error('Invalid selector type: "null"');
-    } else if (VAL_OR_EXPR in source) {
+    if (source !== null && SourceOrExpr in source) {
       // already a Selector
       return source;
-    } else if ("val" in source) {
+    } else if (isSerializedVal(source)) {
       return newSelectorProxy(source.val, source.valPath);
     }
   }
@@ -37,7 +35,10 @@ export function newSelectorProxy(source: any, path?: SourcePath): any {
         return new Proxy(source, {
           // TODO: see proxy docs if we want more traps
           has(target, prop: string | symbol) {
-            if (prop === VAL_OR_EXPR) {
+            if (prop === SourceOrExpr) {
+              return true;
+            }
+            if (prop === Path) {
               return true;
             }
             if (prop === "andThen") {
@@ -46,11 +47,11 @@ export function newSelectorProxy(source: any, path?: SourcePath): any {
             return prop in target;
           },
           get(target, prop: string | symbol) {
-            if (prop === VAL_OR_EXPR) {
-              return () => ({
-                valPath: path,
-                val: source,
-              });
+            if (prop === SourceOrExpr) {
+              return source;
+            }
+            if (prop === Path) {
+              return path;
             }
             if (prop === "andThen") {
               return (f: any) => andThen(f, source, path);
@@ -86,7 +87,7 @@ export function newSelectorProxy(source: any, path?: SourcePath): any {
                     );
                     if (
                       typeof valueOrSelector === "object" &&
-                      VAL_OR_EXPR in valueOrSelector
+                      SourceOrExpr in valueOrSelector
                     ) {
                       return valueOrSelector;
                     }
@@ -115,76 +116,78 @@ export function newSelectorProxy(source: any, path?: SourcePath): any {
     // eslint-disable-next-line no-fallthrough
     default:
       return {
-        eq: (other: SourcePrimitive | SelectorC<Source>) => {
+        eq: (other: SourcePrimitive | GenericSelector<Source>) => {
           let otherValue: any = other;
-          if (typeof other === "object" && VAL_OR_EXPR in other) {
-            const valOrExpr = other[VAL_OR_EXPR]();
-            if (valOrExpr instanceof Expr) {
-              throw Error("TODO: Cannot evaluate equality with an Expr");
-            } else if ("val" in valOrExpr) {
-              otherValue = valOrExpr.val;
-            } else {
+          if (
+            typeof other === "object" &&
+            other !== null &&
+            SourceOrExpr in other
+          ) {
+            otherValue = other[SourceOrExpr];
+            if (otherValue instanceof Expr) {
               throw Error("TODO: Cannot evaluate equality with an Expr");
             }
           }
           return newSelectorProxy(source === otherValue, undefined);
         },
         andThen: (f: any) => {
-          return andThen(f, source, path);
+          return andThen(f, source === undefined ? null : source, path);
         },
-        [VAL_OR_EXPR]: () => ({
-          valPath: path,
-          val: source,
-        }),
+        [SourceOrExpr]: source === undefined ? null : source,
+        [Path]: path,
       };
   }
 }
 
-function stripVal(val: any): any {
-  if (typeof val === "object" && val && ("valPath" in val || "val" in val)) {
-    return stripVal(val.val);
+function selectorAsVal(sel: any): any {
+  if (isSerializedVal(sel)) {
+    // is a serialized val
+    return selectorAsVal(newSelectorProxy(sel.val, sel.valPath));
   } else if (
-    typeof val === "object" &&
-    val &&
-    !(VAL_OR_EXPR in val) &&
-    !Array.isArray(val)
+    typeof sel === "object" &&
+    sel &&
+    !(SourceOrExpr in sel) &&
+    !Array.isArray(sel)
   ) {
+    // is object
     return Object.fromEntries(
-      Object.entries(val).map(([k, v]) => [k, stripVal(v)])
+      Object.entries(sel).map(([k, v]) => [k, selectorAsVal(v)])
     );
   } else if (
-    typeof val === "object" &&
-    val &&
-    !(VAL_OR_EXPR in val) &&
-    Array.isArray(val)
+    typeof sel === "object" &&
+    sel &&
+    !(SourceOrExpr in sel) &&
+    Array.isArray(sel)
   ) {
-    return val.map((v) => stripVal(v));
-  } else if (typeof val === "object" && val && VAL_OR_EXPR in val) {
-    return stripVal(val?.[VAL_OR_EXPR]()?.val);
-  } else if (val === null) {
-    // We acknowledge that this is a Wat!?!?! moment, however...
-    // Remote selectors cannot have undefined values since they are not part of JSON, so they must operate on null,
-    // We want undefined instead of nulls, because the return type of an empty object/array lookup is undefined
-    // Therefore, this is the deal, at type level, Source and SelectorSource only accepts undefined.
-    // When serializing to JSON, we convert undefined to null, then back here.
-    // TODO: we should do this after parsing instead of here
-    return undefined;
+    // is array
+    return sel.map((v) => selectorAsVal(v));
+  } else if (
+    typeof sel === "object" &&
+    sel &&
+    (SourceOrExpr in sel || Path in sel)
+  ) {
+    return selectorAsVal(sel?.[SourceOrExpr]);
+  } else if (sel === undefined) {
+    return null;
   }
-  return val;
+  return sel;
 }
 
 export function selectorToVal(s: any): any {
-  const v = stripVal(s?.[VAL_OR_EXPR]()?.val);
+  const v = selectorAsVal(s?.[SourceOrExpr]);
   return {
     val: v,
-    valPath: s?.[VAL_OR_EXPR]()?.valPath,
+    [Path]: s?.[Path],
   };
 }
 
 function unValify(valueOrSelector: any) {
-  if (typeof valueOrSelector === "object" && VAL_OR_EXPR in valueOrSelector) {
-    const selectorValue = valueOrSelector[VAL_OR_EXPR]();
-    return selectorValue.val;
+  if (
+    typeof valueOrSelector === "object" &&
+    (SourceOrExpr in valueOrSelector || Path in valueOrSelector)
+  ) {
+    const selectorValue = valueOrSelector[SourceOrExpr];
+    return selectorValue;
   }
   return valueOrSelector;
 }

@@ -7,9 +7,7 @@ export type SerializedBooleanSchema = {
   opt: boolean;
 };
 
-export class BooleanSchema<
-  Src extends boolean | undefined
-> extends Schema<Src> {
+export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
   constructor(readonly isOptional: boolean = false) {
     super();
   }
@@ -18,14 +16,14 @@ export class BooleanSchema<
   }
 
   match(src: Src): boolean {
-    if (this.isOptional && src === undefined) {
+    if (this.isOptional && (src === null || src === undefined)) {
       return true;
     }
     return typeof src === "boolean";
   }
 
-  optional(): Schema<Src | undefined> {
-    return new BooleanSchema<Src | undefined>(true);
+  optional(): Schema<Src | null> {
+    return new BooleanSchema<Src | null>(true);
   }
   protected serialize(): SerializedSchema {
     throw new Error("Method not implemented.");

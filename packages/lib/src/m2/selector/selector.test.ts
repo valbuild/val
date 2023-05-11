@@ -1,11 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
-  AsVal,
   Selector,
-  SelectorC,
+  GenericSelector,
   SelectorOf,
   SelectorSource,
-  VAL_OR_EXPR,
+  SourceOrExpr,
+  Path,
 } from ".";
 import { string } from "../schema/string";
 import { array } from "../schema/array";
@@ -23,13 +23,13 @@ const modules = {
   "/app/text": "text1",
   "/app/texts": ["text1", "text2"] as string[],
   "/app/blog": { title: "blog1", text: "text1" } as {
-    title: string | undefined;
+    title: string | null;
     text: string;
   },
   "/app/blogs": [
     { title: "blog1", text: "text1" },
     { title: undefined, text: "text2" },
-  ] as { title: string | undefined; text: string }[],
+  ] as { title: string | null; text: string }[],
   "/app/empty": "",
   "/app/large/nested": BFV(),
 };
@@ -52,7 +52,7 @@ const remoteModules: {
 
 const SelectorModuleTestCases: {
   description: string;
-  input: (remote: boolean) => SelectorC<Source>;
+  input: (remote: boolean) => GenericSelector<Source>;
   expected: Expected;
 }[] = [
   {
@@ -60,7 +60,7 @@ const SelectorModuleTestCases: {
     input: (remote) => testModule("/app/text", remote),
     expected: {
       val: "text1",
-      valPath: "/app/text",
+      [Path]: "/app/text",
     },
   },
   {
@@ -68,7 +68,7 @@ const SelectorModuleTestCases: {
     input: (remote) => testModule("/app/text", remote).eq("text1"),
     expected: {
       val: true,
-      valPath: undefined,
+      [Path]: undefined,
     },
   },
   {
@@ -76,7 +76,7 @@ const SelectorModuleTestCases: {
     input: (remote) => testModule("/app/text", remote).andThen((v) => v),
     expected: {
       val: "text1",
-      valPath: "/app/text",
+      [Path]: "/app/text",
     },
   },
   {
@@ -84,7 +84,7 @@ const SelectorModuleTestCases: {
     input: (remote) => testModule("/app/texts", remote),
     expected: {
       val: ["text1", "text2"],
-      valPath: "/app/texts",
+      [Path]: "/app/texts",
     },
   },
   {
@@ -93,7 +93,7 @@ const SelectorModuleTestCases: {
       testModule("/app/text", remote).andThen((v) => v.eq("text1")),
     expected: {
       val: true,
-      valPath: undefined,
+      [Path]: undefined,
     },
   },
   {
@@ -102,7 +102,7 @@ const SelectorModuleTestCases: {
       testModule("/app/empty", remote).andThen((v) => v.eq("text1")),
     expected: {
       val: "",
-      valPath: "/app/empty",
+      [Path]: "/app/empty",
     },
   },
   {
@@ -113,7 +113,7 @@ const SelectorModuleTestCases: {
         .eq("foo"),
     expected: {
       val: true,
-      valPath: undefined,
+      [Path]: undefined,
     },
   },
   {
@@ -124,7 +124,7 @@ const SelectorModuleTestCases: {
         .eq("foo"),
     expected: {
       val: false,
-      valPath: undefined,
+      [Path]: undefined,
     },
   },
   {
@@ -135,28 +135,28 @@ const SelectorModuleTestCases: {
         .eq("foo"),
     expected: {
       val: false,
-      valPath: undefined,
+      [Path]: undefined,
     },
   },
   {
     description: "string andThen array literal and index",
     input: (remote) =>
       testModule("/app/text", remote).andThen((v) => [v, "text2"])[0],
-    expected: { val: "text1", valPath: "/app/text" },
+    expected: { val: "text1", [Path]: "/app/text" },
   },
   {
-    description: "string map undefined literal",
+    description: "string map undefined -> null literal conversion",
     input: (remote) =>
       testModule("/app/blogs", remote).map((v) => ({ title: undefined })),
     expected: {
-      val: [{ title: undefined }, { title: undefined }],
-      valPath: "/app/blogs",
+      val: [{ title: null }, { title: null }],
+      [Path]: "/app/blogs",
     },
   },
   {
     description: "array map noop",
     input: (remote) => testModule("/app/texts", remote).map((v) => v),
-    expected: { val: ["text1", "text2"], valPath: "/app/texts" },
+    expected: { val: ["text1", "text2"], [Path]: "/app/texts" },
   },
   {
     description: "array map projection with undefined",
@@ -167,36 +167,36 @@ const SelectorModuleTestCases: {
       })),
     expected: {
       val: [
-        { otherTitle: "blog1", other: undefined },
-        { otherTitle: undefined, other: undefined },
+        { otherTitle: "blog1", other: null },
+        { otherTitle: null, other: null },
       ],
-      valPath: "/app/blogs",
+      [Path]: "/app/blogs",
     },
   },
   {
     description: "array index with eq",
     input: (remote) => testModule("/app/texts", remote)[0].eq("text1"),
-    expected: { val: true, valPath: undefined },
+    expected: { val: true, [Path]: undefined },
   },
   {
     description: "object module lookup",
     input: (remote) => testModule("/app/blog", remote),
-    expected: { val: { text: "text1", title: "blog1" }, valPath: "/app/blog" },
+    expected: { val: { text: "text1", title: "blog1" }, [Path]: "/app/blog" },
   },
   {
     description: "object andThen property lookup",
     input: (remote) => testModule("/app/blog", remote).andThen((v) => v.title),
-    expected: { val: "blog1", valPath: "/app/blog.title" },
+    expected: { val: "blog1", [Path]: "/app/blog.title" },
   },
   {
-    description: "array object manipulation: basic indexed obj (TODO)",
+    description: "array object manipulation: basic indexed obj",
     input: (remote) =>
       testModule("/app/blogs", remote)
         .map((v) => v)[0]
         .title.eq("blog1"),
     expected: {
       val: true,
-      valPath: undefined,
+      [Path]: undefined,
     },
   },
   {
@@ -205,7 +205,7 @@ const SelectorModuleTestCases: {
       testModule("/app/blogs", remote).filter((v) => v.title.eq("blog1")),
     expected: {
       val: [{ text: "text1", title: "blog1" }],
-      valPath: "/app/blogs",
+      [Path]: "/app/blogs",
     },
   },
   {
@@ -215,9 +215,9 @@ const SelectorModuleTestCases: {
     expected: {
       val: [
         [1, "blog1"],
-        [1, undefined],
+        [1, null],
       ],
-      valPath: "/app/blogs",
+      [Path]: "/app/blogs",
     },
   },
   // TODO: tuple literal was reverted
@@ -227,7 +227,7 @@ const SelectorModuleTestCases: {
   //     testModule("/app/blogs", remote).map((a) => [1, a])[0][1].title,
   //   expected: {
   //     val: "blog1",
-  //     valPath: "/app/blogs.0.title",
+  //     [Path]: "/app/blogs.0.title",
   //   },
   // },
   {
@@ -241,7 +241,7 @@ const SelectorModuleTestCases: {
           subTitle: { bar: v.title },
         }))[0]
         .title.foo.eq("string"),
-    expected: { val: true, valPath: undefined },
+    expected: { val: true, [Path]: undefined },
   },
   {
     description: "array object manipulation: with literals",
@@ -249,7 +249,7 @@ const SelectorModuleTestCases: {
       testModule("/app/blogs", remote)
         .map((v) => [v.title, v.title])[0][0]
         .eq("blog1"),
-    expected: { val: true, valPath: undefined },
+    expected: { val: true, [Path]: undefined },
   },
   {
     description: "array object manipulation: with large nested objects",
@@ -262,7 +262,7 @@ const SelectorModuleTestCases: {
       }))[0].subTitle.bar.that.even.more.even[0].more.even.more.even.more,
     expected: {
       val: "that.even.more.even.more",
-      valPath:
+      [Path]:
         "/app/large/nested.0.that.even.more.even.0.more.even.more.even.more",
     },
   },
@@ -294,12 +294,12 @@ describe("selector", () => {
       }
       // TODO: ideally we should be able to evaluate remote and local
       if (!remote) {
-        const localeRes = input() as unknown as AsVal<Source>;
+        const localeRes = input();
         expect(selectorToVal(localeRes)).toStrictEqual(expected);
       } else {
         const res = evaluate(
           // @ts-expect-error TODO: fix this
-          input()[VAL_OR_EXPR](),
+          input()[SourceOrExpr],
           (ref) =>
             newSelectorProxy(
               modules[ref as keyof typeof modules],
@@ -331,7 +331,7 @@ function testModule<P extends keyof TestModules>(
     if (remote) {
       return newExprSelectorProxy(
         root(sourcePath as SourcePath)
-      ) as unknown as SelectorOf<TestModules[P]>;
+      ) as unknown as Selector<TestModules[P]>;
     }
     return newSelectorProxy(modules[sourcePath], sourcePath as SourcePath);
   } catch (e) {

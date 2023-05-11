@@ -30,7 +30,7 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
   }
 
   match(src: ObjectSchemaSrcOf<Props>): boolean {
-    if (this.isOptional && src === undefined) {
+    if (this.isOptional && (src === null || src === undefined)) {
       return true;
     }
     if (!src) {
@@ -42,7 +42,7 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
     return typeof src === "object" && !Array.isArray(src);
   }
 
-  optional(): Schema<ObjectSchemaSrcOf<Props> | undefined> {
+  optional(): Schema<ObjectSchemaSrcOf<Props> | null> {
     return new ObjectSchema(this.props, true);
   }
 

@@ -1,5 +1,7 @@
 import { pipe, result } from "../../fp";
+import { Path } from "../selector";
 import { newSelectorProxy, selectorToVal } from "../selector/SelectorProxy";
+import { Source } from "../Source";
 import { SourcePath } from "../val";
 import { evaluate } from "./eval";
 import { parse } from "./parser";
@@ -16,64 +18,64 @@ const sources = {
 
 const EvalTestCases: {
   expr: string;
-  expected: result.Result<{ val: any; valPath: any }, any>;
+  expected: result.Result<{ val: Source; [Path]: any }, any>;
   focus?: boolean; // use focus to specify a single test case
 }[] = [
   {
     expr: `'hello world'`,
-    expected: result.ok({ val: "hello world", valPath: undefined }),
+    expected: result.ok({ val: "hello world", [Path]: undefined }),
   },
   {
     expr: `(val '/numbers')`,
-    expected: result.ok({ val: [0, 1, 2], valPath: "/numbers" }),
+    expected: result.ok({ val: [0, 1, 2], [Path]: "/numbers" }),
   },
   {
     expr: `('hello world')`,
-    expected: result.ok({ val: "hello world", valPath: undefined }),
+    expected: result.ok({ val: "hello world", [Path]: undefined }),
   },
   {
     expr: `()`,
-    expected: result.ok({ val: undefined, valPath: undefined }),
+    expected: result.ok({ val: null, [Path]: undefined }),
   },
   {
     expr: `(eq 'value' 'show me')`,
-    expected: result.ok({ val: false, valPath: undefined }),
+    expected: result.ok({ val: false, [Path]: undefined }),
   },
   {
     expr: `(eq 'value' 'value')`,
-    expected: result.ok({ val: true, valPath: undefined }),
+    expected: result.ok({ val: true, [Path]: undefined }),
   },
   {
     expr: `!(andThen 'value' 'show me')`,
-    expected: result.ok({ val: "show me", valPath: undefined }),
+    expected: result.ok({ val: "show me", [Path]: undefined }),
   },
   {
     expr: `!(andThen '' ('do NOT show me'))`,
-    expected: result.ok({ val: "", valPath: undefined }),
+    expected: result.ok({ val: "", [Path]: undefined }),
   },
   {
     expr: `!(andThen 'text1' @[0,0])`,
-    expected: result.ok({ val: "text1", valPath: undefined }),
+    expected: result.ok({ val: "text1", [Path]: undefined }),
   },
   {
     expr: `(json '1')`,
-    expected: result.ok({ val: 1, valPath: undefined }),
+    expected: result.ok({ val: 1, [Path]: undefined }),
   },
   {
     expr: `(json '"1"')`,
-    expected: result.ok({ val: "1", valPath: undefined }),
+    expected: result.ok({ val: "1", [Path]: undefined }),
   },
   {
     expr: `(json '{"foo": "bar"}')`,
-    expected: result.ok({ val: { foo: "bar" }, valPath: undefined }),
+    expected: result.ok({ val: { foo: "bar" }, [Path]: undefined }),
   },
   {
     expr: `(json '\${(json '1')}')`,
-    expected: result.ok({ val: 1, valPath: undefined }),
+    expected: result.ok({ val: 1, [Path]: undefined }),
   },
   {
     expr: `(json '\${(json '"1"')}')`,
-    expected: result.ok({ val: "1", valPath: undefined }),
+    expected: result.ok({ val: "1", [Path]: undefined }),
   },
   {
     expr: `(json '{"foo": \${(json '"1"')}}')`,
@@ -81,67 +83,67 @@ const EvalTestCases: {
       val: {
         foo: "1",
       },
-      valPath: undefined,
+      [Path]: undefined,
     }),
   },
   {
     expr: `(json '\${(val '/numbers')}')`,
     expected: result.ok({
       val: sources["/numbers"],
-      valPath: "/numbers",
+      [Path]: "/numbers",
     }),
   },
   {
     expr: `('test' (json '{ "test": \${('0' (val '/numbers'))} }'))`,
     expected: result.ok({
       val: 0,
-      valPath: "/numbers.0",
+      [Path]: "/numbers.0",
     }),
   },
   {
     expr: `('1' ('foo' (json '{"foo": \${(val '/numbers')}}')))`,
-    expected: result.ok({ val: 1, valPath: "/numbers.1" }),
+    expected: result.ok({ val: 1, [Path]: "/numbers.1" }),
   },
   {
     expr: `(length (val '/numbers'))`,
     expected: result.ok({
       val: sources["/numbers"].length,
-      valPath: undefined,
+      [Path]: undefined,
     }),
   },
   {
     expr: `('0' (val '/articles'))`,
     expected: result.ok({
       val: sources["/articles"][0],
-      valPath: "/articles.0",
+      [Path]: "/articles.0",
     }),
   },
   {
     expr: `!(map (val '/articles') @[0,0])`,
     expected: result.ok({
       val: sources["/articles"].map((v) => v),
-      valPath: "/articles",
+      [Path]: "/articles",
     }),
   },
   {
     expr: `('0' !(map (val '/articles') ('title' @[0,0])))`,
     expected: result.ok({
       val: sources["/articles"].map((v) => v["title"])[0],
-      valPath: "/articles.0.title",
+      [Path]: "/articles.0.title",
     }),
   },
   {
     expr: `!(map (val '/articles') ('title' @[0,0]))`,
     expected: result.ok({
       val: sources["/articles"].map((v) => v["title"]),
-      valPath: "/articles",
+      [Path]: "/articles",
     }),
   },
   {
     expr: `(eq !(andThen (val '/app/text') ()) 'foo')`,
     expected: result.ok({
       val: false,
-      valPath: undefined,
+      [Path]: undefined,
     }),
   },
   {
@@ -153,17 +155,17 @@ const EvalTestCases: {
           title: "blog1",
         },
       ],
-      valPath: "/app/blogs",
+      [Path]: "/app/blogs",
     }),
   },
   {
     expr: `(json '{"title": \${()}}')`,
     expected: result.ok({
       val: {
-        title: undefined,
+        title: null,
       },
 
-      valPath: undefined,
+      [Path]: undefined,
     }),
   },
 ];
@@ -183,11 +185,12 @@ describe("eval", () => {
       pipe(
         evaluate(
           parseRes.value,
-          (ref) =>
-            newSelectorProxy(
+          (ref) => {
+            return newSelectorProxy(
               sources[ref as keyof typeof sources],
               ref as SourcePath
-            ),
+            );
+          },
 
           []
         ),

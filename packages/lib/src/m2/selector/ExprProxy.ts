@@ -1,4 +1,4 @@
-import { AsVal, Selector, SelectorSource, VAL_OR_EXPR } from ".";
+import { Selector, SelectorSource, SourceOrExpr } from ".";
 import * as expr from "../expr/expr";
 import { Source, SourcePrimitive } from "../Source";
 
@@ -11,8 +11,8 @@ export function newExprSelectorProxy<T extends Source>(
 ): Selector<T> {
   return new Proxy(new GenericExprSelector(root, depth), {
     get: (target, prop) => {
-      if (prop === VAL_OR_EXPR) {
-        return target[VAL_OR_EXPR];
+      if (prop === SourceOrExpr) {
+        return target[SourceOrExpr];
       }
       if (!hasOwn(target, prop)) {
         return newExprSelectorProxy(
@@ -26,10 +26,9 @@ export function newExprSelectorProxy<T extends Source>(
 }
 
 class GenericExprSelector {
-  constructor(private readonly root: expr.Expr, private readonly depth = 0) {}
-
-  [VAL_OR_EXPR]() {
-    return this.root;
+  [SourceOrExpr]: expr.Expr;
+  constructor(private readonly root: expr.Expr, private readonly depth = 0) {
+    this[SourceOrExpr] = root;
   }
 
   andThen = (f: AnyFun) => {
@@ -118,10 +117,8 @@ function convertObjectToStringExpr(
   source: expr.Expr | SelectorSource,
   isLiteralScope: boolean
 ): [e: expr.Expr, isJson: boolean] {
-  if (source === undefined) {
+  if (source === null || source === undefined) {
     return [expr.NilSym, true];
-  } else if (source === null) {
-    return withJsonCall(new expr.StringLiteral("null"), isLiteralScope);
   } else if (typeof source === "string") {
     return [new expr.StringLiteral(JSON.stringify(source)), false];
   } else if (typeof source === "number" || typeof source === "boolean") {
@@ -129,9 +126,9 @@ function convertObjectToStringExpr(
       new expr.StringLiteral(source.toString()),
       isLiteralScope
     );
-  } else if (typeof source === "object" && VAL_OR_EXPR in source) {
-    const selector = source as AsVal<Source>;
-    const valOrExpr = selector[VAL_OR_EXPR]();
+  } else if (typeof source === "object" && SourceOrExpr in source) {
+    const selector = source;
+    const valOrExpr = selector[SourceOrExpr];
     if (valOrExpr instanceof expr.Expr) {
       return [valOrExpr, true];
     } else {
