@@ -15,12 +15,6 @@ export type TupleSelector<
   readonly [Index in keyof D]: SelectorOf<D[Index], Ctx>;
 };
 
-const test = null as unknown as TupleSelector<
-  readonly [Descriptor<number>],
-  any
->;
-const a = test.filter;
-
 class TupleSelectorC<
   D extends readonly Descriptor<Source>[],
   Ctx

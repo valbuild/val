@@ -8,6 +8,8 @@ import {
   SelectorSource,
 } from "./selector";
 import { Source } from "./Source";
+import { newSelectorProxy } from "./selector/SelectorProxy";
+import { SourcePath } from "./val";
 
 const brand = Symbol("ValModule");
 export type ValModule<T extends SelectorSource> = SelectorOf<T> &
@@ -28,7 +30,7 @@ export function content<T extends Schema<SelectorSource>>(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   source: SchemaTypeOf<T>
 ): ValModule<SchemaTypeOf<T>> {
-  throw Error("Not implemented");
+  return newSelectorProxy(source, id as SourcePath);
 }
 
 {

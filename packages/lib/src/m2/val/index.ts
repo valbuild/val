@@ -10,9 +10,10 @@ import { Val as ObjectVal } from "./object";
 import { Val as ArrayVal } from "./array";
 import { Val as PrimitiveVal } from "./primitive";
 import { Json, JsonArray, JsonObject, JsonPrimitive } from "../Json";
+import { Path, Selector } from "../selector";
 
 export type SerializedVal = {
-  val: Json;
+  val: SerializedVal | Json;
   valPath: SourcePath | undefined;
 };
 export function isSerializedVal(val: unknown): val is SerializedVal {
@@ -44,7 +45,7 @@ export type JsonOfSource<T extends Source> = Json extends T
 
 export type Val<T extends Json> = Json extends T
   ? {
-      readonly valPath: SourcePath;
+      readonly [Path]: SourcePath | undefined;
       readonly val: Source;
     }
   : T extends JsonObject
@@ -65,3 +66,9 @@ declare const brand: unique symbol;
 export type SourcePath = string & {
   [brand]: "SourcePath";
 };
+
+export function getValPath(
+  valOrSelector: Val<Json> | Selector<Source>
+): SourcePath | undefined {
+  return valOrSelector[Path];
+}

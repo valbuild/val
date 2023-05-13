@@ -1,5 +1,6 @@
 import { Val as UnknownVal } from ".";
 import { JsonObject } from "../Json";
+import { Path } from "../selector";
 
 export type Val<T extends JsonObject> = Omit<
   {
@@ -7,6 +8,6 @@ export type Val<T extends JsonObject> = Omit<
   },
   "valPath" | "val"
 > & {
-  readonly valPath: string;
+  readonly [Path]: string;
   readonly val: T;
 };

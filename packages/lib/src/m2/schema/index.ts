@@ -1,15 +1,8 @@
-import { A, F } from "ts-toolbelt";
 import { SelectorSource } from "../selector";
 import { RemoteCompatibleSource, RemoteSource } from "../Source";
 import { SourcePath } from "../val";
-import { array } from "./array";
-import { boolean } from "./boolean";
-import { i18n } from "./i18n";
-import { number } from "./number";
-import { object, SerializedObjectSchema } from "./object";
-import { oneOf } from "./oneOf";
-import { SerializedStringSchema, string } from "./string";
-import { union } from "./union";
+import { SerializedObjectSchema } from "./object";
+import { SerializedStringSchema } from "./string";
 
 export type SerializedSchema = SerializedStringSchema | SerializedObjectSchema;
 
@@ -22,7 +15,7 @@ export abstract class Schema<Src extends SelectorSource> {
     ? Schema<RemoteSource<Src>>
     : never {
     // TODO: Schema<never, "Cannot create remote schema from non-remote source.">
-    throw new Error("Method not implemented.");
+    throw new Error("You need Val Ultra to use .remote()");
   }
 }
 

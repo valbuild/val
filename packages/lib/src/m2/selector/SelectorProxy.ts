@@ -2,7 +2,7 @@ import { Path, GenericSelector, SourceOrExpr } from ".";
 import { Expr } from "../expr/expr";
 import { Schema } from "../schema";
 import { Source, SourcePrimitive } from "../Source";
-import { isSerializedVal, SourcePath, Val } from "../val";
+import { isSerializedVal, SourcePath } from "../val";
 
 function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
   return Object.prototype.hasOwnProperty.call(obj, prop);
@@ -13,6 +13,14 @@ function andThen(f: (...args: any[]) => any, source: any, path?: SourcePath) {
     return newSelectorProxy(f(newSelectorProxy(source, path)));
   }
   return newSelectorProxy(source, path);
+}
+
+export function isSelector(source: any): source is GenericSelector<Source> {
+  return (
+    typeof source === "object" &&
+    source !== null &&
+    (SourceOrExpr in source || Path in source)
+  );
 }
 
 export function newSelectorProxy(source: any, path?: SourcePath): any {
@@ -61,10 +69,7 @@ export function newSelectorProxy(source: any, path?: SourcePath): any {
                 return (f: any) => {
                   const filtered = target
                     .map((a, i) =>
-                      newSelectorProxy(
-                        a,
-                        path && (`${path}.${i}` as SourcePath)
-                      )
+                      newSelectorProxy(a, createValPathOfArrayItem(path, i))
                     )
                     .filter((a) => {
                       if (f && f instanceof Schema<Source>) {
@@ -79,10 +84,7 @@ export function newSelectorProxy(source: any, path?: SourcePath): any {
                 return (f: any) => {
                   const filtered = target.map((a, i) => {
                     const valueOrSelector = f(
-                      newSelectorProxy(
-                        a,
-                        path && (`${path}.${i}` as SourcePath)
-                      ),
+                      newSelectorProxy(a, createValPathOfArrayItem(path, i)),
                       newSelectorProxy(i)
                     );
                     if (
@@ -105,7 +107,7 @@ export function newSelectorProxy(source: any, path?: SourcePath): any {
             if (hasOwn(source, prop)) {
               return newSelectorProxy(
                 reflectedValue,
-                path && (`${path}.${prop.toString()}` as SourcePath)
+                createValPathOfArrayItem(path, prop)
               );
             }
             return reflectedValue;
@@ -118,11 +120,7 @@ export function newSelectorProxy(source: any, path?: SourcePath): any {
       return {
         eq: (other: SourcePrimitive | GenericSelector<Source>) => {
           let otherValue: any = other;
-          if (
-            typeof other === "object" &&
-            other !== null &&
-            SourceOrExpr in other
-          ) {
+          if (isSelector(other)) {
             otherValue = other[SourceOrExpr];
             if (otherValue instanceof Expr) {
               throw Error("TODO: Cannot evaluate equality with an Expr");
@@ -171,6 +169,18 @@ function selectorAsVal(sel: any): any {
     return null;
   }
   return sel;
+}
+
+export function createValPathOfArrayItem(
+  arrayPath: SourcePath | undefined,
+  prop: string | number | symbol
+) {
+  if (typeof prop === "symbol") {
+    throw Error(
+      `Cannot create val path of array item with symbol prop: ${prop.toString()}`
+    );
+  }
+  return arrayPath && (`${arrayPath}.${prop.toString()}` as SourcePath);
 }
 
 export function selectorToVal(s: any): any {
