@@ -1,30 +1,19 @@
-import { PrimitiveDescriptor, ValueOf } from "../descriptor";
-import * as expr from "../expr";
-import { SourcePrimitive } from "../Source";
-import { Selector, DESC, EXPR } from "./selector";
+import {
+  Selector as UnknownSelector,
+  GenericSelector,
+  SelectorOf,
+  SelectorSource,
+} from ".";
+import { Source, SourcePrimitive } from "../source";
+import { Selector as BooleanSelector } from "./boolean";
+import { F } from "ts-toolbelt";
 
-export class PrimitiveSelector<
-  D extends PrimitiveDescriptor<SourcePrimitive>,
-  Ctx
-> extends Selector<D, Ctx> {
-  constructor(
-    protected readonly expr: expr.Expr<Ctx, ValueOf<D>>,
-    private readonly desc: D
-  ) {
-    super();
-  }
+export type PrimitiveSelector<T extends SourcePrimitive> =
+  GenericSelector<T> & {
+    eq(other: Source): BooleanSelector<boolean>;
+    andThen<U extends SelectorSource>(
+      f: (v: UnknownSelector<NonNullable<T>>) => U
+    ): SelectorOf<U | NullableOf<T>>;
+  };
 
-  [EXPR](): expr.Expr<Ctx, ValueOf<D>> {
-    return this.expr;
-  }
-  [DESC](): D {
-    return this.desc;
-  }
-}
-
-export function newPrimitiveSelector<
-  D extends PrimitiveDescriptor<SourcePrimitive>,
-  Ctx
->(expr: expr.Expr<Ctx, ValueOf<D>>, desc: D): PrimitiveSelector<D, Ctx> {
-  return new PrimitiveSelector(expr, desc);
-}
+type NullableOf<T extends Source> = T extends null ? null : never;

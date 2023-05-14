@@ -1,65 +1,43 @@
-import * as expr from "./expr";
-import { ModuleContent } from "./content";
-import { LocalDescriptorOf } from "./schema";
-import { OutOf, Schema, SrcOf } from "./schema/Schema";
-import { DescriptorOf, Selected, SelectorOf } from "./selector";
-import { newVal, Val } from "./val";
-import { encodeValSrc } from "./expr/strings";
-import { Selectable } from "./selectable";
-import { ValueOf } from "./descriptor";
-import { Source } from "./Source";
+import { Schema, SchemaTypeOf } from "./schema";
+import { string } from "./schema/string";
+import { object } from "./schema/object";
+import {
+  Selector,
+  GenericSelector,
+  SelectorOf,
+  SelectorSource,
+} from "./selector";
+import { Source } from "./source";
+import { newSelectorProxy } from "./selector/SelectorProxy";
+import { SourcePath } from "./val";
 
-export class ValModule<T extends Schema<never, Source>>
-  implements Selectable<SrcOf<T>, OutOf<T>>
-{
-  constructor(
-    public readonly id: string,
-    public readonly content: ModuleContent<T>
-  ) {}
+const brand = Symbol("ValModule");
+export type ValModule<T extends SelectorSource> = SelectorOf<T> &
+  ValModuleBrand;
 
-  getModule(): ValModule<Schema<SrcOf<T>, Source>> {
-    // TODO: Is this type assertion actually OK?
-    return this as unknown as ValModule<Schema<SrcOf<T>, Source>>;
-  }
+export type ValModuleBrand = {
+  [brand]: "ValModule";
+};
 
-  getVal(source: SrcOf<T>, locale: "en_US"): Val<OutOf<T>> {
-    const rootExpr = expr.fromCtx<readonly [OutOf<T>], 0>(0);
-    return newVal(
-      encodeValSrc(this.id, locale, rootExpr),
-      Schema.transform(this.content.schema, source, locale)
-    );
-  }
+export type TypeOfValModule<T extends ValModule<SelectorSource>> =
+  T extends GenericSelector<infer S> ? S : never;
 
-  select<S extends Selected<readonly [OutOf<T>]>>(
-    callback: (
-      selector: SelectorOf<LocalDescriptorOf<T>, readonly [OutOf<T>]>
-    ) => S
-  ): Selectable<SrcOf<T>, ValueOf<DescriptorOf<S, readonly [OutOf<T>]>>> {
-    const resultExpr = this.content.select(callback);
-    return {
-      getModule: (): ValModule<Schema<SrcOf<T>, Source>> => {
-        return this.getModule();
-      },
-      getVal: (source, locale) => {
-        return newVal(
-          encodeValSrc(this.id, locale, resultExpr),
-          resultExpr.evaluate([
-            Schema.transform(this.content.schema, source, locale),
-          ])
-        );
-      },
-    };
-  }
+export function content<T extends Schema<SelectorSource>>(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  id: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  schema: T,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  source: SchemaTypeOf<T>
+): ValModule<SchemaTypeOf<T>> {
+  return newSelectorProxy(source, id as SourcePath);
 }
 
-/**
- *
- * @deprecated Uncertain about the name of this
- */
-export const content = <T extends Schema<never, Source>>(
-  id: string,
-  schema: T,
-  src: SrcOf<T>
-): ValModule<T> => {
-  return new ValModule(id, new ModuleContent(src, schema));
-};
+{
+  const s = object({
+    foo: string(),
+  });
+  const a = content("/id", s, {
+    foo: "bar",
+  });
+}

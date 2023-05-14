@@ -1,148 +1,38 @@
-import * as expr from "../expr";
 import {
-  descriptorOf,
-  DescriptorOf,
-  exprOf,
-  getSelector,
-  Selected,
+  Selector as UnknownSelector,
+  GenericSelector,
   SelectorOf,
+  SelectorSource,
 } from ".";
-import { Selector, DESC, EXPR } from "./selector";
-import {
-  asOptional,
-  AsOptional,
-  Descriptor,
-  ArrayDescriptor,
-  NumberDescriptor,
-  ValueOf,
-} from "../descriptor";
-import { Source } from "../Source";
+import { Schema } from "../schema";
+import { Source, SourceArray } from "../source";
+import { Selector as BooleanSelector } from "./boolean";
+import { Selector as NumberSelector } from "./number";
+import { F } from "ts-toolbelt";
 
-export type ArraySelector<D extends Descriptor<Source>, Ctx> = Selector<
-  ArrayDescriptor<D>,
-  Ctx
-> & {
-  readonly [index: number]: SelectorOf<D, Ctx>;
+export type UndistributedSourceArray<T extends SourceArray> = [T] extends [
+  infer U // infer here to avoid Type instantiation is excessively deep and possibly infinite. See: https://github.com/microsoft/TypeScript/issues/30188#issuecomment-478938437. Avoiding infer extends to keep us below TS 4.9 compat
+]
+  ? U extends Source[]
+    ? Selector<U>
+    : never
+  : never;
 
+// TODO: docs
+export type Selector<T extends SourceArray> = GenericSelector<T> & {
+  readonly [key: number]: UnknownSelector<T[number]>;
+} & {
+  length: NumberSelector<number>;
   filter(
-    predicate: <T>(v: SelectorOf<D, T>) => Selector<Descriptor<Source>, T>
-  ): ArraySelector<D, Ctx>;
-
-  find(
-    predicate: <T>(item: SelectorOf<D, T>) => Selector<Descriptor<Source>, T>
-  ): SelectorOf<AsOptional<D>, Ctx>;
-
-  slice(begin: number, end?: number): ArraySelector<D, Ctx>;
-
-  sortBy(
-    keyFn: <A>(v: SelectorOf<D, A>) => Selector<NumberDescriptor, A>
-  ): ArraySelector<D, Ctx>;
-
-  reverse(): ArraySelector<D, Ctx>;
-
-  map<S extends Selected<readonly [ValueOf<D>, number]>>(
-    callback: (
-      v: SelectorOf<D, readonly [ValueOf<D>, number]>,
-      i: SelectorOf<NumberDescriptor, readonly [ValueOf<D>, number]>
-    ) => S
-  ): ArraySelector<DescriptorOf<S, readonly [ValueOf<D>, number]>, Ctx>;
+    predicate: (
+      v: UnknownSelector<T[number]>
+    ) => BooleanSelector<boolean> | boolean
+  ): Selector<T>;
+  filter<U extends Source>(schema: Schema<U>): Selector<U[]>;
+  map<U extends SelectorSource>(
+    f: (v: UnknownSelector<T[number]>, i: UnknownSelector<number>) => U
+  ): SelectorOf<U[]>; // TODO: this should be SelectorOf<ArraySelectorSourceBranded<U[]>>;
+  andThen<U extends SelectorSource>(
+    f: (v: UnknownSelector<NonNullable<T>>) => U
+  ): SelectorOf<U | T>;
 };
-
-class ArraySelectorC<D extends Descriptor<Source>, Ctx>
-  extends Selector<ArrayDescriptor<D>, Ctx>
-  implements ArraySelector<D, Ctx>
-{
-  constructor(
-    readonly expr: expr.Expr<Ctx, readonly ValueOf<D>[]>,
-    readonly item: D
-  ) {
-    super();
-  }
-
-  readonly [index: number]: never;
-
-  [EXPR](): expr.Expr<Ctx, ValueOf<ArrayDescriptor<D>>> {
-    return this.expr;
-  }
-  [DESC](): ArrayDescriptor<D> {
-    return new ArrayDescriptor(this.item);
-  }
-
-  filter(
-    predicate: <Ctx>(v: SelectorOf<D, Ctx>) => Selector<Descriptor<Source>, Ctx>
-  ): ArraySelector<D, Ctx> {
-    const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
-    const predicateExpr = predicate(getSelector(vExpr, this.item))[EXPR]();
-    return newArraySelector(expr.filter(this.expr, predicateExpr), this.item);
-  }
-
-  find(
-    predicate: <T>(item: SelectorOf<D, T>) => Selector<Descriptor<Source>, T>
-  ): SelectorOf<AsOptional<D>, Ctx> {
-    const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
-    const predicateExpr = predicate(getSelector(vExpr, this.item))[EXPR]();
-    const e = expr.find(this.expr, predicateExpr) as expr.Expr<
-      Ctx,
-      ValueOf<AsOptional<D>>
-    >;
-    return getSelector<AsOptional<D>, Ctx>(e, asOptional(this.item));
-  }
-
-  slice(start: number, end?: number | undefined): ArraySelector<D, Ctx> {
-    return newArraySelector(expr.slice(this.expr, start, end), this.item);
-  }
-
-  sortBy(
-    keyFn: <Ctx>(v: SelectorOf<D, Ctx>) => Selector<NumberDescriptor, Ctx>
-  ): ArraySelector<D, Ctx> {
-    const vExpr = expr.fromCtx<readonly [ValueOf<D>], 0>(0);
-    const keyFnExpr = keyFn(getSelector(vExpr, this.item))[EXPR]();
-    return newArraySelector(expr.sortBy(this.expr, keyFnExpr), this.item);
-  }
-
-  reverse(): ArraySelector<D, Ctx> {
-    return newArraySelector(expr.reverse(this.expr), this.item);
-  }
-
-  map<S extends Selected<readonly [ValueOf<D>, number]>>(
-    callback: (
-      v: SelectorOf<D, readonly [ValueOf<D>, number]>,
-      i: SelectorOf<NumberDescriptor, readonly [ValueOf<D>, number]>
-    ) => S
-  ): ArraySelector<DescriptorOf<S, readonly [ValueOf<D>, number]>, Ctx> {
-    const vExpr = expr.fromCtx<readonly [ValueOf<D>, number], 0>(0);
-    const iExpr = expr.fromCtx<readonly [ValueOf<D>, number], 1>(1);
-    const selected = callback(
-      getSelector(vExpr, this.item),
-      getSelector(iExpr, NumberDescriptor)
-    );
-    return newArraySelector(
-      expr.map(this.expr, exprOf(selected)),
-      descriptorOf(selected)
-    );
-  }
-}
-
-const proxyHandler: ProxyHandler<ArraySelectorC<Descriptor<Source>, unknown>> =
-  {
-    get(target, p) {
-      if (typeof p === "string" && /^(-?0|[1-9][0-9]*)$/g.test(p)) {
-        return getSelector(expr.item(target.expr, Number(p)), target.item);
-      }
-      // Exclude own properties of target for public access, but bind methods such
-      // that they may access own properties
-      const result: unknown = Reflect.get(ArraySelectorC.prototype, p, target);
-      return typeof result === "function" ? result.bind(target) : result;
-    },
-  };
-
-export function newArraySelector<D extends Descriptor<Source>, Ctx>(
-  expr: expr.Expr<Ctx, readonly ValueOf<D>[]>,
-  item: D
-): ArraySelector<D, Ctx> {
-  const proxy = new Proxy(
-    new ArraySelectorC<Descriptor<Source>, unknown>(expr, item),
-    proxyHandler
-  );
-  return proxy as unknown as ArraySelector<D, Ctx>;
-}

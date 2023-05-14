@@ -1,60 +1,70 @@
-import { Source, SourceObject, SourcePrimitive } from "../Source";
+import { Source, SourceArray, SourceObject } from "../source";
 import { Val as ObjectVal } from "./object";
 import { Val as ArrayVal } from "./array";
 import { Val as PrimitiveVal } from "./primitive";
+import { Json, JsonArray, JsonObject, JsonPrimitive } from "../Json";
+import { Path, Selector } from "../selector";
+import { I18nSource } from "../source/i18n";
+import { RemoteSource } from "../source/remote";
+import { FileSource } from "../source/file";
 
-export type Val<T extends Source> = Source extends T
+export type SerializedVal = {
+  val: SerializedVal | Json;
+  valPath: SourcePath | undefined;
+};
+export function isSerializedVal(val: unknown): val is SerializedVal {
+  return (
+    typeof val === "object" &&
+    val !== null &&
+    val !== undefined &&
+    ("val" in val || "valPath" in val)
+  );
+}
+
+export type JsonOfSource<T extends Source> = Json extends T
+  ? Json
+  : T extends I18nSource<readonly string[], infer U>
+  ? JsonOfSource<U>
+  : T extends RemoteSource<infer U>
+  ? JsonOfSource<U>
+  : T extends FileSource<string>
+  ? { url: string }
+  : T extends SourceObject
   ? {
-      readonly valSrc: string;
+      [key in keyof T]: JsonOfSource<T[key]>;
+    }
+  : T extends SourceArray
+  ? JsonOfSource<T[number]>[]
+  : T extends JsonPrimitive
+  ? T
+  : never;
+
+export type Val<T extends Json> = Json extends T
+  ? {
+      readonly [Path]: SourcePath | undefined;
       readonly val: Source;
     }
-  : T extends SourceObject
+  : T extends JsonObject
   ? ObjectVal<T>
-  : T extends readonly Source[]
+  : T extends JsonArray
   ? ArrayVal<T>
-  : T extends SourcePrimitive
+  : T extends JsonPrimitive
   ? PrimitiveVal<T>
   : never;
 
-function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
-  return Object.prototype.hasOwnProperty.call(obj, prop);
-}
+declare const brand: unique symbol;
+/**
+ * The path of the source value.
+ *
+ * @example
+ * '/app/blogs.0.text' // the text property of the first element of the /app/blogs module
+ */
+export type SourcePath = string & {
+  [brand]: "SourcePath";
+};
 
-export function newVal<T extends Source>(source: string, value: T): Val<T> {
-  switch (typeof value) {
-    case "function":
-    case "symbol":
-      throw Error("Invalid val type");
-    case "object":
-      if (value !== null) {
-        // Handles both objects and arrays!
-        return new Proxy(value, {
-          get(target, prop: string) {
-            if (prop === "valSrc") {
-              return source;
-            }
-            if (prop === "val") {
-              return target;
-            }
-            if (Array.isArray(target) && prop === "length") {
-              return target.length;
-            }
-            if (hasOwn(value, prop)) {
-              return newVal<Source>(
-                `${source}.${JSON.stringify(prop)}`,
-                Reflect.get(target, prop) as Source
-              );
-            }
-            return Reflect.get(target, prop);
-          },
-        }) as unknown as Val<T>;
-      }
-    // intentional fallthrough
-    // eslint-disable-next-line no-fallthrough
-    default:
-      return {
-        valSrc: source,
-        val: value,
-      } as Val<T>;
-  }
+export function getValPath(
+  valOrSelector: Val<Json> | Selector<Source>
+): SourcePath | undefined {
+  return valOrSelector[Path];
 }

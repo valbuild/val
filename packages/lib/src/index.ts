@@ -1,17 +1,12 @@
 export { initVal } from "./initVal";
 export type { InitVal } from "./initVal";
-export { Schema, type SerializedSchema } from "./schema/Schema";
+export { Schema, type SerializedSchema } from "./schema";
 export type { ValModule } from "./module";
-export type {
-  FileSource,
-  SourceObject,
-  SourcePrimitive,
-  Source,
-} from "./Source";
-export { ModuleContent, type SerializedModuleContent } from "./content";
-export { type Val, newVal } from "./val";
-export * as expr from "./expr";
-export type { Selectable } from "./selectable";
-export type { ValImage } from "./schema/image";
-export { FILE_REF_PROP } from "./Source";
+export type { SourceObject, SourcePrimitive, Source } from "./source";
+export type { FileSource } from "./source/file";
+export type { RemoteSource } from "./source/remote";
+export { type Val } from "./val";
+export * as expr from "./expr/";
+// export type { ValImage } from "./schema/image";
+export { FILE_REF_PROP } from "./source/file";
 export { derefPatch } from "./patch/deref";

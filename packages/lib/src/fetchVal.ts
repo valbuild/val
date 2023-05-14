@@ -7,7 +7,6 @@ import {
   SourceOf,
   SourceOrExpr,
 } from "./selector";
-import { Source } from "../Source";
 import {
   isSerializedVal,
   JsonOfSource,
@@ -164,9 +163,7 @@ function newValProxy<T extends Json>(val: SerializedVal): Val<T> {
               return target.length;
             }
             if (hasOwn(source, prop)) {
-              return newValProxy<Source>(
-                Reflect.get(target, prop) as SerializedVal
-              );
+              return newValProxy(Reflect.get(target, prop) as SerializedVal);
             }
             return Reflect.get(target, prop);
           },

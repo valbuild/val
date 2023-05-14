@@ -1,6 +1,6 @@
-import { isFile } from "../file";
+import { FILE_REF_PROP, isFile } from "../source/file";
 import { result } from "../fp";
-import { isRemoteRef } from "../remote";
+import { isRemote, REMOTE_REF_PROP } from "../source/remote";
 import { Ops, PatchError } from "./ops";
 import { Patch } from "./patch";
 
@@ -82,12 +82,12 @@ export function derefPatch<D, E>(
                 )
               );
             }
-            fileUpdates[value.ref] = op.value;
-          } else if (isRemoteRef(value)) {
-            if (!remotePatches[value.ref]) {
-              remotePatches[value.ref] = [];
+            fileUpdates[value[FILE_REF_PROP]] = op.value;
+          } else if (isRemote(value)) {
+            if (!remotePatches[value[REMOTE_REF_PROP]]) {
+              remotePatches[value[REMOTE_REF_PROP]] = [];
             }
-            remotePatches[value.ref].push({
+            remotePatches[value[REMOTE_REF_PROP]].push({
               op: "replace",
               path: referencedPath,
               value: op.value,
