@@ -7,7 +7,7 @@ import {
 import { F } from "ts-toolbelt";
 
 // TODO: docs
-export type AssetSelector = GenericSelector<{ url: string }> & {
+export type FileSelector = GenericSelector<{ url: string }> & {
   readonly url: UnknownSelector<string>;
   andThen<U extends SelectorSource>(
     f: (v: UnknownSelector<NonNullable<{ url: string }>>) => U

@@ -6,7 +6,7 @@ import { Selector as NumberSelector } from "./number";
 import { Selector as StringSelector } from "./string";
 import { Selector as BooleanSelector } from "./boolean";
 import { PrimitiveSelector } from "./primitive";
-import { AssetSelector } from "./asset";
+import { FileSelector } from "./file";
 import { SourcePath } from "../val";
 import { Source, SourceArray, SourceObject, SourcePrimitive } from "../source";
 import { Schema } from "../schema";
@@ -47,7 +47,7 @@ export type Selector<T extends Source> = Source extends T
     ? RemoteSelector<S>
     : GenericSelector<Source, "Could not determine remote source">
   : T extends FileSource<string>
-  ? AssetSelector
+  ? FileSelector
   : T extends SourceObject
   ? ObjectSelector<T>
   : T extends SourceArray
