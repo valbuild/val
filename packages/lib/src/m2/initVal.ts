@@ -6,7 +6,7 @@ import { SelectorOf } from "./selector";
 import { Val } from "./val";
 import { SelectorSource, GenericSelector } from "./selector";
 import { JsonOfSource } from "./val";
-import { valuation } from "./valuation";
+import { fetchVal } from "./fetchVal";
 
 const initLocalizedVal = <Locales extends string[]>(options: {
   readonly locales: {
@@ -82,7 +82,7 @@ export const initVal = <
         content,
         i18n,
       },
-      fetchVal: valuation,
+      fetchVal: fetchVal,
       s,
     } as any;
   }
@@ -90,7 +90,7 @@ export const initVal = <
     val: {
       content,
     },
-    fetchVal: valuation,
+    fetchVal: fetchVal,
     s: {
       ...s,
       i18n: undefined,

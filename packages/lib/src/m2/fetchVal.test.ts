@@ -3,7 +3,7 @@ import { content } from "./module";
 import { Path } from "./selector";
 import { i18n as initI18n } from "./source/i18n";
 import { getValPath, Val } from "./val";
-import { serializedValOfSelectorSource, valuation } from "./valuation";
+import { serializedValOfSelectorSource, fetchVal } from "./fetchVal";
 
 const s = initSchema(["en_US", "no_NB"]);
 // const i18n = initI18n(["en_US", "no_NB"]);
@@ -67,13 +67,13 @@ describe("serialization of val", () => {
   });
 });
 
-describe("valuation", () => {
+describe("fetchVal", () => {
   test("valuate: string", async () => {
     const schema = s.string();
 
     const testVal = content("/app", schema, "foo");
 
-    const test = await valuation(testVal);
+    const test = await fetchVal(testVal);
     //     ^? should be Val<string>
     expect(test.val).toBe("foo");
     expect(getValPath(test)).toBe("/app");
@@ -84,7 +84,7 @@ describe("valuation", () => {
 
     const testVal = content("/app", schema, ["foo", "bar"]);
 
-    const test = await valuation(testVal);
+    const test = await fetchVal(testVal);
     //      ^? should be Val<string[]>
     expect(test.val).toStrictEqual(["foo", "bar"]);
     expect(test[0].val).toStrictEqual("foo");
@@ -98,7 +98,7 @@ describe("valuation", () => {
 
     const testVal = content("/app", schema, { foo: { bar: ["foo", "bar"] } });
 
-    const test = await valuation(testVal);
+    const test = await fetchVal(testVal);
     //      ^? should be Val<{ foo: { bar: string[] } }>
 
     expect(test.val).toStrictEqual({ foo: { bar: ["foo", "bar"] } });
@@ -115,7 +115,7 @@ describe("valuation", () => {
 
     const testVal = content("/app", schema, ["foo", "bar"]);
 
-    const test = await valuation({
+    const test = await fetchVal({
       //    ^? should be Val<{ title: string }[]>
       foo: testVal.map((v) => ({ title: v })),
       test: testVal,
@@ -140,7 +140,7 @@ describe("valuation", () => {
       }
     );
 
-    const test = await valuation({
+    const test = await fetchVal({
       //    ^?
       testVal1: testVal1.map((v) => ({ title: v, otherModule: testVal2 })),
       testVal2: testVal2,

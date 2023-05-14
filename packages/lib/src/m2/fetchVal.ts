@@ -23,7 +23,7 @@ import {
 import { S } from "ts-toolbelt";
 import { Json } from "./Json";
 
-export function valuation<T extends SelectorSource>(
+export function fetchVal<T extends SelectorSource>(
   selector: T,
   locale?: string
 ): SelectorOf<T> extends GenericSelector<infer S>
