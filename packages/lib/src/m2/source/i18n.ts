@@ -46,3 +46,14 @@ export function i18n<Locales extends readonly string[]>(
     } as I18nSource<Locales, any>;
   };
 }
+
+export function isI18n(
+  obj: unknown
+): obj is I18nSource<string[], I18nCompatibleSource> {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    ValExtension in obj &&
+    obj[ValExtension] === "i18n"
+  );
+}

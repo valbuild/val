@@ -25,12 +25,13 @@ export function file<F extends string>(ref: F): FileSource<F> {
   } as FileSource<F>;
 }
 
-export function isFileRef(refObject: any): refObject is FileSource<string> {
+export function isFile(obj: unknown): obj is FileSource<string> {
   return (
-    typeof refObject === "object" &&
-    refObject !== null &&
-    ValExtension in refObject &&
-    refObject[ValExtension] === "file" &&
-    FILE_REF_PROP in refObject
+    typeof obj === "object" &&
+    obj !== null &&
+    ValExtension in obj &&
+    obj[ValExtension] === "file" &&
+    FILE_REF_PROP in obj &&
+    typeof obj[FILE_REF_PROP] === "string"
   );
 }

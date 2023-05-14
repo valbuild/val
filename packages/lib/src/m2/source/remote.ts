@@ -1,4 +1,4 @@
-import { SourcePrimitive, ValExtension, PhantomType } from ".";
+import { SourcePrimitive, ValExtension, PhantomType, Source } from ".";
 import { FileSource } from "./file";
 import { I18nCompatibleSource, I18nSource } from "./i18n";
 
@@ -36,4 +36,17 @@ export function remote<Src extends RemoteCompatibleSource>(
     [REMOTE_REF_PROP]: ref as RemoteRef,
     [ValExtension]: "remote",
   } as RemoteSource<Src>;
+}
+
+export function isRemote(
+  obj: unknown
+): obj is RemoteSource<RemoteCompatibleSource> {
+  return (
+    typeof obj === "object" &&
+    obj !== null &&
+    ValExtension in obj &&
+    obj[ValExtension] === "remote" &&
+    REMOTE_REF_PROP in obj &&
+    typeof obj[REMOTE_REF_PROP] === "string"
+  );
 }
