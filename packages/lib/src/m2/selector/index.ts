@@ -8,21 +8,14 @@ import { Selector as BooleanSelector } from "./boolean";
 import { PrimitiveSelector } from "./primitive";
 import { AssetSelector } from "./asset";
 import { SourcePath } from "../val";
-import {
-  FileSource,
-  I18nCompatibleSource,
-  I18nSource,
-  RemoteCompatibleSource,
-  RemoteSource,
-  Source,
-  SourceArray,
-  SourceObject,
-  SourcePrimitive,
-} from "../source";
+import { Source, SourceArray, SourceObject, SourcePrimitive } from "../source";
 import { Schema } from "../schema";
 import { Expr } from "../expr/expr";
 import { RemoteSelector } from "./remote";
 import { A } from "ts-toolbelt";
+import { I18nSource, I18nCompatibleSource } from "../source/i18n";
+import { RemoteCompatibleSource, RemoteSource } from "../source/remote";
+import { FileSource } from "../source/file";
 
 /**
  * Selectors can be used to select parts of a Val module.

@@ -4,7 +4,7 @@ import { number } from "../../schema/number";
 import { object } from "../../schema/object";
 import { oneOf } from "../../schema/oneOf";
 import { string } from "../../schema/string";
-import { remote } from "../../source";
+import { remote } from "../../source/remote";
 import { selectorOf } from "../selectorOf";
 import { union } from "../../schema/union";
 

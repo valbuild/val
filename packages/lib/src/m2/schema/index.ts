@@ -1,5 +1,5 @@
 import { SelectorSource } from "../selector";
-import { RemoteCompatibleSource, RemoteSource } from "../source";
+import { RemoteCompatibleSource, RemoteSource } from "../source/remote";
 import { SourcePath } from "../val";
 import { SerializedObjectSchema } from "./object";
 import { SerializedStringSchema } from "./string";

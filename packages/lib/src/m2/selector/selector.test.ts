@@ -10,7 +10,7 @@ import {
 import { string } from "../schema/string";
 import { array } from "../schema/array";
 import { SourcePath } from "../val";
-import { RemoteSource, Source } from "../source";
+import { Source } from "../source";
 import { evaluate } from "../expr/eval";
 import * as expr from "../expr/expr";
 import { result } from "../../fp";
@@ -18,6 +18,7 @@ import { Schema } from "../schema";
 import { object } from "../schema/object";
 import { newSelectorProxy, selectorToVal } from "./SelectorProxy";
 import { newExprSelectorProxy } from "./ExprProxy";
+import { remote, RemoteSource } from "../source/remote";
 
 const modules = {
   "/app/text": "text1",
@@ -36,18 +37,12 @@ const modules = {
 const remoteModules: {
   [key in keyof TestModules]: RemoteSource<TestModules[key]>;
 } = {
-  "/app/text": remoteSource("/app/text", string()),
-  "/app/texts": remoteSource("/app/texts", array(string())),
-  "/app/blog": remoteSource(
-    "/app/blog",
-    object({ title: string().optional() })
-  ),
-  "/app/blogs": remoteSource(
-    "/app/blogs",
-    array(object({ title: string().optional() }))
-  ),
-  "/app/empty": remoteSource("/app/empty", string()),
-  "/app/large/nested": remoteSource("/app/large/nested", BFS()),
+  "/app/text": remote("/app/text"),
+  "/app/texts": remote("/app/texts"),
+  "/app/blog": remote("/app/blog"),
+  "/app/blogs": remote("/app/blogs"),
+  "/app/empty": remote("/app/empty"),
+  "/app/large/nested": remote("/app/large/nested"),
 };
 
 const SelectorModuleTestCases: {
@@ -339,17 +334,6 @@ function testModule<P extends keyof TestModules>(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return e as any;
   }
-}
-
-function remoteSource<P extends keyof TestModules>(
-  ref: P,
-  schema: Schema<TestModules[P]>
-): RemoteSource<TestModules[P]> {
-  return {
-    _ref: ref,
-    _type: "remote",
-    _schema: schema,
-  } as RemoteSource<TestModules[P]>;
 }
 
 /** A big schema */

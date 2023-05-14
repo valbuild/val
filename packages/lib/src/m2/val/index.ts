@@ -1,16 +1,12 @@
-import {
-  FileSource,
-  I18nSource,
-  RemoteSource,
-  Source,
-  SourceArray,
-  SourceObject,
-} from "../source";
+import { Source, SourceArray, SourceObject } from "../source";
 import { Val as ObjectVal } from "./object";
 import { Val as ArrayVal } from "./array";
 import { Val as PrimitiveVal } from "./primitive";
 import { Json, JsonArray, JsonObject, JsonPrimitive } from "../Json";
 import { Path, Selector } from "../selector";
+import { I18nSource } from "../source/i18n";
+import { RemoteSource } from "../source/remote";
+import { FileSource } from "../source/file";
 
 export type SerializedVal = {
   val: SerializedVal | Json;
