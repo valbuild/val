@@ -2,6 +2,11 @@ import { content } from "./module";
 import { i18n, I18n } from "./Source";
 import { InitSchema, initSchema, InitSchemaLocalized } from "./initSchema";
 import { A, F } from "ts-toolbelt";
+import { SelectorOf } from "./selector";
+import { Val } from "./val";
+import { SelectorSource, GenericSelector } from "./selector";
+import { JsonOfSource } from "./val";
+import { valuation } from "./valuation";
 
 const initLocalizedVal = <Locales extends string[]>(options: {
   readonly locales: {
@@ -41,10 +46,21 @@ type InitVal<Locales extends readonly string[] | undefined> =
         val: ValConstructor & {
           i18n: I18n<Locales>;
         };
+        fetchVal<T extends SelectorSource>(
+          selector: T,
+          locale: Locales[number]
+        ): SelectorOf<T> extends GenericSelector<infer S>
+          ? Promise<Val<JsonOfSource<S>>>
+          : never;
         s: InitSchema & InitSchemaLocalized<Locales>;
       }
     : {
         val: ValConstructor;
+        fetchVal<T extends SelectorSource>(
+          selector: T
+        ): SelectorOf<T> extends GenericSelector<infer S>
+          ? Promise<Val<JsonOfSource<S>>>
+          : never;
         s: InitSchema;
       };
 export const initVal = <
@@ -60,11 +76,13 @@ export const initVal = <
   const { locales } = options;
   const s = initSchema(locales?.required as readonly string[]);
   if (locales?.required) {
+    console.error("Locales / i18n currently not implemented");
     return {
       val: {
         content,
         i18n,
       },
+      fetchVal: valuation,
       s,
     } as any;
   }
@@ -72,6 +90,7 @@ export const initVal = <
     val: {
       content,
     },
+    fetchVal: valuation,
     s: {
       ...s,
       i18n: undefined,
