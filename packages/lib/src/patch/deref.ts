@@ -1,4 +1,4 @@
-import { isFileRef } from "../file";
+import { isFile } from "../file";
 import { result } from "../fp";
 import { isRemoteRef } from "../remote";
 import { Ops, PatchError } from "./ops";
@@ -63,7 +63,7 @@ export function derefPatch<D, E>(
         const maybeValue = ops.get(document, dereffedPath);
         if (result.isOk(maybeValue)) {
           const value = maybeValue.value;
-          if (isFileRef(value)) {
+          if (isFile(value)) {
             if (referencedPath.length > 0) {
               return result.err(
                 new PatchError(
