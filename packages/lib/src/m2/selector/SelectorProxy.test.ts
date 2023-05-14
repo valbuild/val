@@ -2,7 +2,7 @@
 import { Selector, GenericSelector, Path } from ".";
 import { number } from "../schema/number";
 import { string } from "../schema/string";
-import { Source } from "../Source";
+import { Source } from "../source";
 import { SourcePath } from "../val";
 import { newSelectorProxy, selectorToVal } from "./SelectorProxy";
 

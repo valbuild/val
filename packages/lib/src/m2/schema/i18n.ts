@@ -1,5 +1,5 @@
 import { Schema, SchemaTypeOf } from ".";
-import { I18nCompatibleSource, I18nSource } from "../Source";
+import { I18nCompatibleSource, I18nSource } from "../source";
 
 export type I18n<Locales extends readonly string[]> = <
   S extends Schema<I18nCompatibleSource>

@@ -18,7 +18,7 @@ import {
   SourceArray,
   SourceObject,
   SourcePrimitive,
-} from "../Source";
+} from "../source";
 import { Schema } from "../schema";
 import { Expr } from "../expr/expr";
 import { RemoteSelector } from "./remote";

@@ -3,7 +3,7 @@ import { Schema } from "../../schema";
 import { number } from "../../schema/number";
 import { object } from "../../schema/object";
 import { string } from "../../schema/string";
-import { Source, SourceObject } from "../../Source";
+import { Source, SourceObject } from "../../source";
 
 export const union = <
   Tag extends string,

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Call, Expr, StringLiteral, StringTemplate, Sym } from "./expr";
-import { Source } from "../Source";
+import { Source } from "../source";
 import { result } from "../../fp";
 import { Path, SourceOrExpr } from "../selector";
 import { newSelectorProxy } from "../selector/SelectorProxy";

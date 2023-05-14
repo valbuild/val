@@ -3,7 +3,7 @@ import {
   SourceArray,
   SourceObject,
   SourcePrimitive,
-} from "../Source";
+} from "../source";
 import { Selector as UnknownSelector } from ".";
 
 declare const brand: unique symbol;

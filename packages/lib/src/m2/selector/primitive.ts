@@ -4,7 +4,7 @@ import {
   SelectorOf,
   SelectorSource,
 } from ".";
-import { Source, SourcePrimitive } from "../Source";
+import { Source, SourcePrimitive } from "../source";
 import { Selector as BooleanSelector } from "./boolean";
 import { F } from "ts-toolbelt";
 

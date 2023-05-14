@@ -10,7 +10,7 @@ import {
 import { Selector as BooleanSelector } from "../boolean";
 import { Schema } from "../../schema";
 import { string } from "../../schema/string";
-import { FileSource, I18nSource, Source, SourceObject } from "../../Source";
+import { FileSource, I18nSource, Source, SourceObject } from "../../source";
 import { array } from "../../schema/array";
 import { object } from "../../schema/object";
 

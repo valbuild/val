@@ -1,4 +1,4 @@
-import { RemoteCompatibleSource } from "../Source";
+import { RemoteCompatibleSource } from "../source";
 import { Selector as UnknownSelector } from ".";
 
 declare const brand: unique symbol;

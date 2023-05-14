@@ -5,7 +5,7 @@ import {
   Source,
   SourceArray,
   SourceObject,
-} from "../Source";
+} from "../source";
 import { Val as ObjectVal } from "./object";
 import { Val as ArrayVal } from "./array";
 import { Val as PrimitiveVal } from "./primitive";

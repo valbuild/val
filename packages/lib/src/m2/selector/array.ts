@@ -5,7 +5,7 @@ import {
   SelectorSource,
 } from ".";
 import { Schema } from "../schema";
-import { Source, SourceArray } from "../Source";
+import { Source, SourceArray } from "../source";
 import { Selector as BooleanSelector } from "./boolean";
 import { Selector as NumberSelector } from "./number";
 import { F } from "ts-toolbelt";

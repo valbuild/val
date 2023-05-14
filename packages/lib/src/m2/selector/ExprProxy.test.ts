@@ -1,7 +1,7 @@
 import { convertLiteralProxy, newExprSelectorProxy } from "./ExprProxy";
 import * as expr from "../expr/expr";
 import { GenericSelector, SelectorSource, SourceOrExpr } from ".";
-import { Source } from "../Source";
+import { Source } from "../source";
 
 const ExprSelectorTestCases: any[] = [
   {

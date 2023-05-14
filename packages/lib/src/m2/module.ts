@@ -7,7 +7,7 @@ import {
   SelectorOf,
   SelectorSource,
 } from "./selector";
-import { Source } from "./Source";
+import { Source } from "./source";
 import { newSelectorProxy } from "./selector/SelectorProxy";
 import { SourcePath } from "./val";
 

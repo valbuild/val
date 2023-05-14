@@ -1,7 +1,7 @@
 import { initSchema } from "./initSchema";
 import { content } from "./module";
 import { Path } from "./selector";
-import { i18n as initI18n } from "./Source";
+import { i18n as initI18n } from "./source";
 import { getValPath, Val } from "./val";
 import { serializedValOfSelectorSource, valuation } from "./valuation";
 

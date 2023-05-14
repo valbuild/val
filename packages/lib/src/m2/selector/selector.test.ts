@@ -10,7 +10,7 @@ import {
 import { string } from "../schema/string";
 import { array } from "../schema/array";
 import { SourcePath } from "../val";
-import { RemoteSource, Source } from "../Source";
+import { RemoteSource, Source } from "../source";
 import { evaluate } from "../expr/eval";
 import * as expr from "../expr/expr";
 import { result } from "../../fp";

@@ -1,6 +1,6 @@
 import { Schema, SerializedSchema } from ".";
 import { SelectorSource, SelectorOf } from "../selector";
-import { SourceObject } from "../Source";
+import { SourceObject } from "../source";
 import { SourcePath } from "../val";
 
 type SourceOf<

@@ -1,7 +1,7 @@
 import { Path, GenericSelector, SourceOrExpr } from ".";
 import { Expr } from "../expr/expr";
 import { Schema } from "../schema";
-import { Source, SourcePrimitive } from "../Source";
+import { Source, SourcePrimitive } from "../source";
 import { isSerializedVal, SourcePath } from "../val";
 
 function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {

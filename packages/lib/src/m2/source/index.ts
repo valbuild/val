@@ -1,5 +1,5 @@
 import { F } from "ts-toolbelt";
-import { Schema } from "./schema";
+import { Schema } from "../schema";
 
 export type Source =
   | SourcePrimitive

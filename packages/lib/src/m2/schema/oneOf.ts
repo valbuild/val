@@ -2,7 +2,7 @@
 import { Schema, SerializedSchema } from ".";
 import { content, ValModuleBrand } from "../module";
 import { GenericSelector } from "../selector";
-import { remote, Source, SourceArray } from "../Source";
+import { remote, Source, SourceArray } from "../source";
 import { SourcePath } from "../val";
 import { selectorOf } from "../selector/selectorOf";
 import { array } from "./array";
