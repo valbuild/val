@@ -1,8 +1,14 @@
 import { Schema, SchemaTypeOf } from ".";
 import { I18nCompatibleSource, I18nSource } from "../Source";
 
+export type I18n<Locales extends readonly string[]> = <
+  S extends Schema<I18nCompatibleSource>
+>(
+  schema: S
+) => Schema<I18nSource<Locales, SchemaTypeOf<S>>>;
+
 export const i18n =
-  <Locales extends string[]>(locales: Locales) =>
+  <Locales extends readonly string[]>(locales: Locales) =>
   <S extends Schema<I18nCompatibleSource>>(
     schema: S
   ): Schema<I18nSource<Locales, SchemaTypeOf<S>>> => {

@@ -99,7 +99,12 @@ export type I18nSource<
   readonly [brand]: "I18nSource";
 };
 
-export function i18n<Locales extends string[]>(
+export type I18n<Locales extends readonly string[]> = <
+  Src extends I18nCompatibleSource
+>(source: {
+  [locale in Locales[number]]: Src;
+}) => I18nSource<Locales, Src>;
+export function i18n<Locales extends readonly string[]>(
   locales: F.Narrow<Locales>
 ): <Src extends I18nCompatibleSource>(source: {
   [locale in Locales[number]]: Src;

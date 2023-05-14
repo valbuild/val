@@ -6,9 +6,21 @@ import { string } from "./schema/string";
 import { boolean } from "./schema/boolean";
 import { oneOf } from "./schema/oneOf";
 import { union } from "./schema/union";
-import { i18n } from "./schema/i18n";
+import { i18n, I18n } from "./schema/i18n";
 
-export function initSchema<Locales extends string[]>(
+export type InitSchema = {
+  readonly string: typeof string;
+  readonly boolean: typeof boolean;
+  readonly array: typeof array;
+  readonly object: typeof object;
+  readonly number: typeof number;
+  readonly union: typeof union;
+  readonly oneOf: typeof oneOf;
+};
+export type InitSchemaLocalized<Locales extends readonly string[]> = {
+  readonly i18n: I18n<Locales>;
+};
+export function initSchema<Locales extends readonly string[]>(
   locales: F.Narrow<Locales>
 ) {
   return {
