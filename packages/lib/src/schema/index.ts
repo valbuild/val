@@ -1,16 +1,20 @@
 import { SelectorSource } from "../selector";
 import { RemoteCompatibleSource, RemoteSource } from "../source/remote";
 import { SourcePath } from "../val";
+import { SerializedArraySchema } from "./array";
 import { SerializedObjectSchema } from "./object";
 import { SerializedStringSchema } from "./string";
 
-export type SerializedSchema = SerializedStringSchema | SerializedObjectSchema;
+export type SerializedSchema =
+  | SerializedStringSchema
+  | SerializedObjectSchema
+  | SerializedArraySchema;
 
 export abstract class Schema<Src extends SelectorSource> {
   abstract validate(src: Src): false | Record<SourcePath, string[]>;
   abstract match(src: Src): boolean; // TODO: false | Record<SourcePath, string[]>;
   abstract optional(): Schema<Src | null>;
-  protected abstract serialize(): SerializedSchema;
+  abstract serialize(): SerializedSchema;
   remote(): Src extends RemoteCompatibleSource
     ? Schema<RemoteSource<Src>>
     : never {

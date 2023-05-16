@@ -1,12 +1,12 @@
 import path from "path";
-import { SerializedModuleContent } from "@valbuild/lib";
+import { SerializedVal } from "@valbuild/lib";
 import { QuickJSRuntime } from "quickjs-emscripten";
 
 export const readValFile = async (
   id: string,
   valConfigPath: string,
   runtime: QuickJSRuntime
-): Promise<SerializedModuleContent> => {
+): Promise<SerializedVal> => {
   const context = runtime.newContext();
   try {
     const modulePath = `.${id}.val`;
@@ -53,7 +53,7 @@ globalThis.valModule = { id: valModule?.default?.id, ...valModule?.default?.cont
 
       if (errors.length > 0) {
         throw Error(
-          `While processing a val file, we got the following errors:\n${errors.join(
+          `While processing module of id: ${id}, we got the following errors:\n${errors.join(
             "\n"
           )}`
         );

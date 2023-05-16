@@ -25,7 +25,7 @@ class UnionSchema<
   optional(): Schema<SourceOf<Key, T> | null> {
     throw new Error("Method not implemented.");
   }
-  protected serialize(): SerializedSchema {
+  serialize(): SerializedSchema {
     throw new Error("Method not implemented.");
   }
 

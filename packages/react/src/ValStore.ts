@@ -11,10 +11,8 @@ export class ValStore {
   }
 
   async updateAll() {
-    console.log();
     await Promise.all(
       Object.keys(this.listeners).map(async (moduleId) => {
-        console.log(await this.api.getModule(moduleId));
         this.set(
           moduleId,
           await this.api.getModule(moduleId)

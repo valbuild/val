@@ -2,43 +2,17 @@ import { content } from "./module";
 import { i18n, I18n } from "./source/i18n";
 import { InitSchema, initSchema, InitSchemaLocalized } from "./initSchema";
 import { A, F } from "ts-toolbelt";
-import { SelectorOf } from "./selector";
-import { Val } from "./val";
+import { Selector, SelectorOf } from "./selector";
+import { getValPath as getPath, SourcePath, Val } from "./val";
 import { SelectorSource, GenericSelector } from "./selector";
 import { JsonOfSource } from "./val";
 import { fetchVal } from "./fetchVal";
-
-const initLocalizedVal = <Locales extends string[]>(options: {
-  readonly locales: {
-    readonly required: F.Narrow<Locales>;
-    readonly fallback: Locales[number];
-  };
-}) => {
-  const s = initSchema(options.locales.required);
-  return {
-    val: {
-      content,
-      i18n,
-    },
-    s,
-  };
-};
-
-const initNonLocalizedVal = (options?: { readonly locales?: undefined }) => {
-  const s = initSchema([]);
-  return {
-    val: {
-      content,
-    },
-    s: {
-      ...s,
-      i18n: undefined,
-    },
-  };
-};
+import { Json } from "./Json";
+import { Source } from "./source";
 
 type ValConstructor = {
   content: typeof content;
+  getPath: typeof getPath; // TODO: in the react initVal we should also add a key function here which returns the path for use as react keys
 };
 export type InitVal<Locales extends readonly string[] | undefined> =
   Locales extends readonly string[]
@@ -81,6 +55,7 @@ export const initVal = <
       val: {
         content,
         i18n,
+        getPath,
       },
       fetchVal: fetchVal,
       s,
@@ -89,6 +64,7 @@ export const initVal = <
   return {
     val: {
       content,
+      getPath,
     },
     fetchVal: fetchVal,
     s: {

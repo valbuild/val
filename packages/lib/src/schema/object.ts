@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
+import { A } from "ts-toolbelt";
 import { Schema, SchemaTypeOf, SerializedSchema } from ".";
 import { Selector, SelectorSource } from "../selector";
 import { Source } from "../source";
@@ -46,13 +47,15 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
     return new ObjectSchema(this.props, true);
   }
 
-  protected serialize(): SerializedSchema {
+  serialize(): SerializedSchema {
     throw new Error("Method not implemented.");
   }
 }
 
 export const object = <Props extends ObjectSchemaProps>(
   schema: Props
-): Schema<ObjectSchemaSrcOf<Props>> => {
-  return new ObjectSchema(schema);
+): Schema<A.Compute<ObjectSchemaSrcOf<Props>>> => {
+  return new ObjectSchema(schema) as unknown as Schema<
+    A.Compute<ObjectSchemaSrcOf<Props>>
+  >;
 };

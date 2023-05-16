@@ -34,7 +34,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
   optional(): Schema<Src | null> {
     return new NumberSchema<Src | null>(this.options, true);
   }
-  protected serialize(): SerializedSchema {
+  serialize(): SerializedSchema {
     throw new Error("Method not implemented.");
   }
 }

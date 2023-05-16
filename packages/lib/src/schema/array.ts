@@ -5,7 +5,7 @@ import { SourcePath } from "../val";
 
 export type SerializedArraySchema = {
   type: "array";
-  schema: Record<string, SerializedSchema>;
+  schema: SerializedSchema;
   opt: boolean;
 };
 
@@ -36,8 +36,12 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
     return new ArraySchema(this.item, true);
   }
 
-  protected serialize(): SerializedSchema {
-    throw new Error("Method not implemented.");
+  serialize(): SerializedArraySchema {
+    return {
+      type: "array",
+      schema: this.item.serialize(),
+      opt: this.isOptional,
+    };
   }
 }
 

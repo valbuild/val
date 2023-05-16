@@ -42,6 +42,10 @@ export function jsx(type, props, key) {
 export function jsxs(type, props, key) {
   // console.log("jsxs", type, props, key);
 
+  if (key === "key") {
+    console.log("jsxDEV", type, props, key, self);
+  }
+
   devalProps(type, props);
 
   return ReactJSXRuntime.jsxs(type, props, key);

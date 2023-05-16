@@ -36,7 +36,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     return new StringSchema<Src | null>(this.options, true);
   }
 
-  protected serialize(): SerializedSchema {
+  serialize(): SerializedSchema {
     throw new Error("Method not implemented.");
   }
 }

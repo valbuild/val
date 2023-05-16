@@ -36,7 +36,7 @@ class OneOfSchema<Sel extends GenericSelector<SourceArray>> extends Schema<
     return new OneOfSchema(this.selector, true);
   }
 
-  protected serialize(): SerializedSchema {
+  serialize(): SerializedSchema {
     throw new Error("Method not implemented.");
   }
 }

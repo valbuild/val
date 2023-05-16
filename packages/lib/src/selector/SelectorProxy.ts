@@ -23,7 +23,11 @@ export function isSelector(source: any): source is GenericSelector<Source> {
   );
 }
 
-export function newSelectorProxy(source: any, path?: SourcePath): any {
+export function newSelectorProxy(
+  source: any,
+  path?: SourcePath,
+  moduleSchema?: any
+): any {
   if (typeof source === "object") {
     if (source !== null && SourceOrExpr in source) {
       // already a Selector
@@ -180,7 +184,7 @@ export function createValPathOfArrayItem(
       `Cannot create val path of array item with symbol prop: ${prop.toString()}`
     );
   }
-  return arrayPath && (`${arrayPath}.${prop.toString()}` as SourcePath);
+  return arrayPath && (`${arrayPath}.${JSON.stringify(prop)}` as SourcePath);
 }
 
 export function selectorToVal(s: any): any {
@@ -191,6 +195,7 @@ export function selectorToVal(s: any): any {
   };
 }
 
+// TODO: could we do .val on the objects instead?
 function unValify(valueOrSelector: any) {
   if (
     typeof valueOrSelector === "object" &&
