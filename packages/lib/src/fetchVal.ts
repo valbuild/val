@@ -29,9 +29,22 @@ export function fetchVal<T extends SelectorSource>(
   ? Promise<Val<JsonOfSource<S>>>
   : never {
   return Promise.resolve(
-    newValProxy(serializedValOfSelectorSource(selector))
+    getVal(selector, locale) as unknown
   ) as SelectorOf<T> extends GenericSelector<infer S>
     ? Promise<Val<JsonOfSource<S>>>
+    : never;
+}
+
+export function getVal<T extends SelectorSource>(
+  selector: T,
+  locale?: string
+): SelectorOf<T> extends GenericSelector<infer S>
+  ? Val<JsonOfSource<S>>
+  : never {
+  return newValProxy(
+    serializedValOfSelectorSource(selector)
+  ) as SelectorOf<T> extends GenericSelector<infer S>
+    ? Val<JsonOfSource<S>>
     : never;
 }
 

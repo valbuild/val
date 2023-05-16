@@ -1,10 +1,5 @@
-import { Source, ModuleContent, Schema } from "@valbuild/lib";
-import * as expr from "@valbuild/lib/expr";
-import {
-  formatJSONPointer,
-  parseJSONPointer,
-  PatchJSON,
-} from "@valbuild/lib/patch";
+import { Source, Schema } from "@valbuild/lib";
+import { parseJSONPointer, PatchJSON } from "@valbuild/lib/patch";
 import { result } from "@valbuild/lib/fp";
 import React, {
   CSSProperties,
@@ -215,89 +210,88 @@ const ValEditForm: React.FC<{
       selectedSources.map((source) => ({ source, status: "loading" }))
     );
 
-    Promise.all(
-      selectedSources.map(async (source): Promise<Entry> => {
-        try {
-          const [moduleId, locale, sourceExpr] =
-            expr.strings.parseValSrc(source);
-          const mod = ModuleContent.deserialize(
-            await valApi.getModule(moduleId)
-          );
-          valStore.set(moduleId, mod);
-
-          const [value, ref] = (
-            sourceExpr as expr.Expr<readonly [Source], Source>
-          ).evaluateRef(
-            [Schema.transform(mod.schema, mod.source, locale)],
-            [""]
-          );
-          let schemaType: "string" | "image" = "string";
-          const primitivePath = [];
-          // Temporary hack to get schema at ref
-          if (typeof ref === "string") {
-            let schema = mod.schema.serialize();
-            for (const part of ref.split("/") || []) {
-              if (part === "") {
-                continue;
-              }
-              if (schema.type === "object") {
-                schema = schema.schema[part];
-              } else if (schema.type === "array") {
-                schema = schema.schema;
-              } else {
-                if (schema.type !== "string" && schema.type !== "image") {
-                  throw Error(
-                    "Schema type " + schema.type + " not implemented"
-                  );
-                }
-                schemaType = schema.type;
-                break;
-              }
-              primitivePath.push(part);
-            }
-            // console.log(ref, primitiveRef.join("/"), schemaType);
-            if (!schemaType) {
-              throw Error('Could not find schema for ref "' + ref + '"');
-            }
-          } else {
-            console.error("TODO: ref is not a string", ref);
-          }
-          if (!expr.isAssignable(ref)) {
-            return {
-              source,
-              status: "error",
-              error: "ref is not assignable",
-            };
-          }
-          if (typeof value !== "string") {
-            return {
-              source,
-              status: "error",
-              error: "value is not a string",
-            };
-          }
-          return {
-            source,
-            status: "ready",
-            moduleId,
-            locale,
-            schemaType,
-            value,
-            primitivePath: "/" + primitivePath.join("/"),
-            path: ref,
-          };
-        } catch (err) {
-          console.error(err);
-          return {
-            source,
-            status: "error",
-            error: err instanceof Error ? err.message : "Unknown error",
-          };
-        }
-      })
-    ).then((resolvedEntries) => {
-      setEntries(resolvedEntries);
-    });
+    //   Promise.all(
+    //     selectedSources.map(async (source): Promise<Entry> => {
+    //       try {
+    //           const [moduleId, locale, sourceExpr] =
+    //             expr.strings.parseValSrc(source);
+    //           const mod = ModuleContent.deserialize(
+    //             await valApi.getModule(moduleId)
+    //           );
+    //           valStore.set(moduleId, mod);
+    //           const [value, ref] = (
+    //             sourceExpr as expr.Expr<readonly [Source], Source>
+    //           ).evaluateRef(
+    //             [Schema.transform(mod.schema, mod.source, locale)],
+    //             [""]
+    //           );
+    //           let schemaType: "string" | "image" = "string";
+    //           const primitivePath = [];
+    //           // Temporary hack to get schema at ref
+    //           if (typeof ref === "string") {
+    //             let schema = mod.schema.serialize();
+    //             for (const part of ref.split("/") || []) {
+    //               if (part === "") {
+    //                 continue;
+    //               }
+    //               if (schema.type === "object") {
+    //                 schema = schema.schema[part];
+    //               } else if (schema.type === "array") {
+    //                 schema = schema.schema;
+    //               } else {
+    //                 if (schema.type !== "string" && schema.type !== "image") {
+    //                   throw Error(
+    //                     "Schema type " + schema.type + " not implemented"
+    //                   );
+    //                 }
+    //                 schemaType = schema.type;
+    //                 break;
+    //               }
+    //               primitivePath.push(part);
+    //             }
+    //             // console.log(ref, primitiveRef.join("/"), schemaType);
+    //             if (!schemaType) {
+    //               throw Error('Could not find schema for ref "' + ref + '"');
+    //             }
+    //           } else {
+    //             console.error("TODO: ref is not a string", ref);
+    //           }
+    //           // if (!expr.isAssignable(ref)) {
+    //           //   return {
+    //           //     source,
+    //           //     status: "error",
+    //           //     error: "ref is not assignable",
+    //           //   };
+    //           // }
+    //           if (typeof value !== "string") {
+    //             return {
+    //               source,
+    //               status: "error",
+    //               error: "value is not a string",
+    //             };
+    //           }
+    //           return {
+    //             source,
+    //             status: "ready",
+    //             moduleId,
+    //             locale,
+    //             schemaType,
+    //             value,
+    //             primitivePath: "/" + primitivePath.join("/"),
+    //             path: ref,
+    //           };
+    //       } catch (err) {
+    //         console.error(err);
+    //         return {
+    //           source,
+    //           status: "error",
+    //           error: err instanceof Error ? err.message : "Unknown error",
+    //         };
+    //       }
+    //     })
+    //   ).then((resolvedEntries) => {
+    //     setEntries(resolvedEntries);
+    //   });
   }, [host, selectedSources.join(",")]);
 
   // dragging
@@ -369,7 +363,7 @@ const ValEditForm: React.FC<{
           for (const entry of entries) {
             if (entry.status === "ready") {
               const { moduleId, locale, schemaType, primitivePath } = entry;
-              let { path } = entry;
+              const { path } = entry;
               if (!modulePatches[moduleId]) {
                 modulePatches[moduleId] = [];
               }
@@ -406,28 +400,28 @@ const ValEditForm: React.FC<{
                     `${JSON.stringify(path)} is invalid JSON pointer`
                   );
                 }
-                path = formatJSONPointer(
-                  Schema.inverseTransformPath(
-                    mod.schema,
-                    mod.source,
-                    parsedPath.value,
-                    locale
-                  )
-                );
-                modulePatches[moduleId].push({
-                  op: "replace",
-                  path,
-                  value,
-                });
+                // path = formatJSONPointer(
+                //   Schema.inverseTransformPath(
+                //     mod.schema,
+                //     mod.source,
+                //     parsedPath.value,
+                //     locale
+                //   )
+                // );
+                // modulePatches[moduleId].push({
+                //   op: "replace",
+                //   path,
+                //   value,
+                // });
               }
             }
           }
           await Promise.all(
             Object.entries(modulePatches).map(async ([moduleId, patch]) => {
-              const moduleContent = ModuleContent.deserialize(
-                await valApi.patchModuleContent(moduleId, patch as PatchJSON)
-              );
-              valStore.set(moduleId, moduleContent);
+              // const moduleContent = ModuleContent.deserialize(
+              //   await valApi.patchModuleContent(moduleId, patch as PatchJSON)
+              // );
+              // valStore.set(moduleId, moduleContent);
             })
           );
           setSubmission({
@@ -662,7 +656,7 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
       styleElement = document.createElement("style");
       styleElement.id = "val-edit-highlight";
       styleElement.innerHTML = `
-        .val-edit-mode >* [data-val-src] {
+        .val-edit-mode >* [data-val-path] {
           outline: black solid 2px;
           outline-offset: 4px;
           cursor: pointer;
@@ -670,13 +664,13 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
       `;
       document.body.appendChild(styleElement);
 
-      // capture event clicks on data-val-src elements
+      // capture event clicks on data-val-path elements
       openValFormListener = (e: MouseEvent) => {
         if (e.target instanceof Element) {
-          const valSources = e.target?.getAttribute("data-val-src");
+          const valSources = e.target?.getAttribute("data-val-path");
           if (valSources) {
             e.stopPropagation();
-            setSelectedSources(expr.strings.split(valSources, ","));
+            // setSelectedSources(expr.strings.split(valSources, ","));
             setEditFormPosition({
               left: e.clientX,
               top: e.clientY,

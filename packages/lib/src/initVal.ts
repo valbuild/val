@@ -65,7 +65,7 @@ export type InitVal<Locales extends readonly string[] | undefined> =
       };
 export const initVal = <
   Locales extends readonly string[] | undefined
->(options: {
+>(options?: {
   readonly locales?: F.Narrow<{
     readonly required: Locales;
     readonly fallback: Locales extends readonly string[]
@@ -73,7 +73,7 @@ export const initVal = <
       : never;
   }>;
 }): A.Compute<InitVal<Locales>> => {
-  const { locales } = options;
+  const locales = options?.locales;
   const s = initSchema(locales?.required as readonly string[]);
   if (locales?.required) {
     console.error("Locales / i18n currently not implemented");

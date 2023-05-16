@@ -1,8 +1,8 @@
-import { ModuleContent, Source, Schema } from "@valbuild/lib";
+import { Source, Schema, ValModule, SelectorSource } from "@valbuild/lib";
 import { ValApi } from "./ValApi";
 
 export class ValStore {
-  private readonly vals: Map<string, ModuleContent<Schema<never, Source>>>;
+  private readonly vals: Map<string, ValModule<SelectorSource>>;
   private readonly listeners: { [moduleId: string]: (() => void)[] };
 
   constructor(private readonly api: ValApi) {
@@ -11,11 +11,14 @@ export class ValStore {
   }
 
   async updateAll() {
+    console.log();
     await Promise.all(
       Object.keys(this.listeners).map(async (moduleId) => {
+        console.log(await this.api.getModule(moduleId));
         this.set(
           moduleId,
-          ModuleContent.deserialize(await this.api.getModule(moduleId))
+          await this.api.getModule(moduleId)
+          // ModuleContent.deserialize(await this.api.getModule(moduleId))
         );
       })
     );
@@ -33,7 +36,7 @@ export class ValStore {
     };
   };
 
-  set(moduleId: string, val: ModuleContent<Schema<never, Source>>) {
+  set(moduleId: string, val: ValModule<SelectorSource>) {
     this.vals.set(moduleId, val);
     this.emitChange(moduleId);
   }
