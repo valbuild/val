@@ -23,7 +23,16 @@ export type SourceArray = readonly Source[];
 export type SourcePrimitive = string | number | boolean | null;
 
 /* Branded extension types: file, remote, i18n  */
-export const ValExtension = Symbol("ValExtension");
+export const ValExtension = "_type" as const;
+
+export function getValExtension(source: Source) {
+  return (
+    source &&
+    typeof source === "object" &&
+    ValExtension in source &&
+    source[ValExtension]
+  );
+}
 
 /**
  * A phantom type parameter is one that doesn't show up at runtime, but is checked statically (and only) at compile time.
