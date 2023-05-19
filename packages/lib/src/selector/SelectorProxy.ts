@@ -78,7 +78,11 @@ export function newSelectorProxy(
                 return (f: any) => {
                   const filtered = target
                     .map((a, i) =>
-                      newSelectorProxy(a, createValPathOfItem(path, i))
+                      newSelectorProxy(
+                        a,
+                        createValPathOfItem(path, i),
+                        moduleSchema?.item
+                      )
                     )
                     .filter((a) => {
                       if (f && f instanceof Schema<Source>) {
@@ -87,24 +91,25 @@ export function newSelectorProxy(
                         return unValify(f(a));
                       }
                     });
-                  return newSelectorProxy(filtered, path);
+                  return newSelectorProxy(filtered, path, moduleSchema);
                 };
               } else if (prop === "map") {
                 return (f: any) => {
                   const filtered = target.map((a, i) => {
                     const valueOrSelector = f(
-                      newSelectorProxy(a, createValPathOfItem(path, i)),
+                      newSelectorProxy(
+                        a,
+                        createValPathOfItem(path, i),
+                        moduleSchema?.item
+                      ),
                       newSelectorProxy(i)
                     );
-                    if (
-                      typeof valueOrSelector === "object" &&
-                      SourceOrExpr in valueOrSelector
-                    ) {
+                    if (isSelector(valueOrSelector)) {
                       return valueOrSelector;
                     }
                     return newSelectorProxy(valueOrSelector);
                   });
-                  return newSelectorProxy(filtered, path);
+                  return newSelectorProxy(filtered, path, moduleSchema);
                 };
               }
             }
@@ -117,12 +122,14 @@ export function newSelectorProxy(
               if (!Number.isNaN(Number(prop))) {
                 return newSelectorProxy(
                   reflectedValue,
-                  createValPathOfItem(path, Number(prop))
+                  createValPathOfItem(path, Number(prop)),
+                  moduleSchema?.item
                 );
               }
               return newSelectorProxy(
                 reflectedValue,
-                createValPathOfItem(path, prop)
+                createValPathOfItem(path, prop),
+                moduleSchema?.items[prop]
               );
             }
             return reflectedValue;

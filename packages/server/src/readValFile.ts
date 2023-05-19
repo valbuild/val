@@ -1,17 +1,12 @@
 import path from "path";
-import { SerializedVal, Source } from "@valbuild/lib";
 import { QuickJSRuntime } from "quickjs-emscripten";
-import { type SourcePath } from "@valbuild/lib/src/val";
+import { SerializedModuleContent } from "./SerializedModuleContent";
 
 export const readValFile = async (
   id: string,
   valConfigPath: string,
   runtime: QuickJSRuntime
-): Promise<{
-  source: Source;
-  schema: SerializedVal;
-  id: SourcePath;
-}> => {
+): Promise<SerializedModuleContent> => {
   const context = runtime.newContext();
   try {
     const modulePath = `.${id}.val`;
