@@ -1,4 +1,4 @@
-import { Path, GenericSelector, SourceOrExpr } from ".";
+import { Path, GenericSelector, SourceOrExpr, GetSchema } from ".";
 import { Expr } from "../expr/expr";
 import { Schema } from "../schema";
 import { Source, SourcePrimitive } from "../source";
@@ -56,6 +56,9 @@ export function newSelectorProxy(
             if (prop === "andThen") {
               return true;
             }
+            if (prop === GetSchema) {
+              return true;
+            }
             return prop in target;
           },
           get(target, prop: string | symbol) {
@@ -64,6 +67,9 @@ export function newSelectorProxy(
             }
             if (prop === Path) {
               return path;
+            }
+            if (prop === GetSchema) {
+              return moduleSchema;
             }
             if (prop === "andThen") {
               return (f: any) => andThen(f, source, path);

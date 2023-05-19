@@ -1,17 +1,27 @@
 import path from "path";
-import { SerializedVal } from "@valbuild/lib";
+import { SerializedVal, Source } from "@valbuild/lib";
 import { QuickJSRuntime } from "quickjs-emscripten";
+import { type SourcePath } from "@valbuild/lib/src/val";
 
 export const readValFile = async (
   id: string,
   valConfigPath: string,
   runtime: QuickJSRuntime
-): Promise<SerializedVal> => {
+): Promise<{
+  source: Source;
+  schema: SerializedVal;
+  id: SourcePath;
+}> => {
   const context = runtime.newContext();
   try {
     const modulePath = `.${id}.val`;
     const code = `import * as valModule from ${JSON.stringify(modulePath)};
-globalThis.valModule = { id: valModule?.default?.id, ...valModule?.default?.content?.serialize() };
+import { Internal } from "@valbuild/lib";
+globalThis.valModule = { 
+  id: valModule?.default && Internal.getValPath(valModule?.default),
+  schema: valModule?.default && Internal.getSchema(valModule?.default)?.serialize(),
+  source: valModule?.default && Internal.getRawSource(valModule?.default),
+};
 `;
     const result = context.evalCode(
       code,
@@ -38,9 +48,7 @@ globalThis.valModule = { id: valModule?.default?.id, ...valModule?.default?.cont
       if (!valModule) {
         errors.push(`Could not find any modules at: ${id}`);
       } else {
-        if (!valModule?.id) {
-          errors.push(`Could not verify id of val module: '${id}'`);
-        } else if (valModule.id !== id) {
+        if (valModule.id !== id) {
           errors.push(`Expected val id: '${id}' but got: '${valModule.id}'`);
         }
         if (!valModule?.schema) {
@@ -59,6 +67,7 @@ globalThis.valModule = { id: valModule?.default?.id, ...valModule?.default?.cont
         );
       }
       return {
+        id: valModule.id, // This might not be the asked id/path, however, that should be handled further up in the call chain
         source: valModule.source,
         schema: valModule.schema,
       };

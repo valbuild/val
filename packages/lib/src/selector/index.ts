@@ -77,6 +77,11 @@ export type SelectorSource =
 /**
  * @internal
  */
+export const GetSchema = Symbol("GetSchema");
+/**
+/**
+ * @internal
+ */
 export const Path = Symbol("Path");
 /**
  * @internal
@@ -93,10 +98,17 @@ export abstract class GenericSelector<
   readonly [Path]: SourcePath | undefined;
   readonly [SourceOrExpr]: T | Expr;
   readonly [ValError]: Error | undefined;
-  constructor(valOrExpr: T, path: SourcePath | undefined, error?: Error) {
+  readonly [GetSchema]: Schema<T> | undefined;
+  constructor(
+    valOrExpr: T,
+    path: SourcePath | undefined,
+    schema?: Schema<T>,
+    error?: Error
+  ) {
     this[Path] = path;
     this[SourceOrExpr] = valOrExpr;
     this[ValError] = error;
+    this[GetSchema] = schema;
   }
 
   assert<U extends Source, E extends Source = null>(
@@ -139,3 +151,9 @@ export type SelectorOf<U extends SelectorSource> = Source extends U
     ? Selector<S>
     : GenericSelector<Source, "Could not determine selector of source">
   : GenericSelector<Source, "Could not determine source">;
+
+export function getSchema(
+  selector: Selector<Source>
+): Schema<SelectorSource> | undefined {
+  return selector[GetSchema];
+}
