@@ -760,7 +760,7 @@ describe("TSOps", () => {
       name: "val.file",
       input: `val.file("/public/val/foo/bar.jpg")`,
       path: [],
-      value: { _ref: "/public/val/foo/bar.jpg" },
+      value: { _ref: "/public/val/foo/bar.jpg", _type: "file" },
       expected: result.ok(true),
     },
     {
