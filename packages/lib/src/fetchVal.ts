@@ -15,7 +15,7 @@ import {
   Val,
 } from "./val";
 import {
-  createValPathOfArrayItem,
+  createValPathOfItem,
   isSelector,
   newSelectorProxy,
 } from "./selector/SelectorProxy";
@@ -87,7 +87,7 @@ export function serializedValOfSelectorSource<T extends SelectorSource>(
           rec(
             isSelector(item) // NOTE: We do this since selectors currently do not create selectors of items unless specifically required.
               ? item
-              : newSelectorProxy(item, createValPathOfArrayItem(valPath, i))
+              : newSelectorProxy(item, createValPathOfItem(valPath, i))
           )
         ),
         valPath,
@@ -104,10 +104,7 @@ export function serializedValOfSelectorSource<T extends SelectorSource>(
             rec(
               isSelector(value) // NOTE: We do this since selectors currently do not create selectors of items unless specifically required.
                 ? value
-                : newSelectorProxy(
-                    value,
-                    createValPathOfArrayItem(valPath, key)
-                  )
+                : newSelectorProxy(value, createValPathOfItem(valPath, key))
             ),
           ])
         ),

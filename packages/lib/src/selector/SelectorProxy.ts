@@ -29,8 +29,7 @@ export function newSelectorProxy(
   moduleSchema?: any
 ): any {
   if (typeof source === "object") {
-    if (source !== null && SourceOrExpr in source) {
-      // already a Selector
+    if (isSelector(source)) {
       return source;
     } else if (isSerializedVal(source)) {
       return newSelectorProxy(source.val, source.valPath);
@@ -79,7 +78,7 @@ export function newSelectorProxy(
                 return (f: any) => {
                   const filtered = target
                     .map((a, i) =>
-                      newSelectorProxy(a, createValPathOfArrayItem(path, i))
+                      newSelectorProxy(a, createValPathOfItem(path, i))
                     )
                     .filter((a) => {
                       if (f && f instanceof Schema<Source>) {
@@ -94,7 +93,7 @@ export function newSelectorProxy(
                 return (f: any) => {
                   const filtered = target.map((a, i) => {
                     const valueOrSelector = f(
-                      newSelectorProxy(a, createValPathOfArrayItem(path, i)),
+                      newSelectorProxy(a, createValPathOfItem(path, i)),
                       newSelectorProxy(i)
                     );
                     if (
@@ -118,12 +117,12 @@ export function newSelectorProxy(
               if (!Number.isNaN(Number(prop))) {
                 return newSelectorProxy(
                   reflectedValue,
-                  createValPathOfArrayItem(path, Number(prop))
+                  createValPathOfItem(path, Number(prop))
                 );
               }
               return newSelectorProxy(
                 reflectedValue,
-                createValPathOfArrayItem(path, prop)
+                createValPathOfItem(path, prop)
               );
             }
             return reflectedValue;
@@ -187,7 +186,7 @@ function selectorAsVal(sel: any): any {
   return sel;
 }
 
-export function createValPathOfArrayItem(
+export function createValPathOfItem(
   arrayPath: SourcePath | undefined,
   prop: string | number | symbol
 ) {
