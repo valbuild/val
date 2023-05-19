@@ -22,7 +22,7 @@ import { FileSource } from "../source/file";
  * Unlike queries, joins, aggregates etc is and will not be supported.
  *
  * They are designed to be be used as if they were "normal" JSON data,
- * though some concessions must be made because of TypeScript limitations.
+ * though some concessions had to be made because of TypeScript limitations.
  *
  * Selectors works equally on source content, defined in code, and remote content.
  *
