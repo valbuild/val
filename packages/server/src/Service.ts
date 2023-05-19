@@ -1,4 +1,3 @@
-import { SerializedModuleContent } from "@valbuild/lib";
 import { newQuickJSWASMModule, QuickJSRuntime } from "quickjs-emscripten";
 import { patchValFile } from "./patchValFile";
 import { readValFile } from "./readValFile";
@@ -10,6 +9,7 @@ import ts from "typescript";
 import { getCompilerOptions } from "./getCompilerOptions";
 import { IValFSHost } from "./ValFSHost";
 import fs from "fs";
+import { SerializedModuleContent } from "./SerializedModuleContent";
 
 export type ServiceOptions = {
   /**

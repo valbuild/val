@@ -8,10 +8,11 @@ import {
   type ValSyntaxErrorTree,
 } from "./patch/ts/syntax";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
-import { derefPatch, SerializedModuleContent } from "@valbuild/lib";
+import { derefPatch } from "@valbuild/lib";
 import { readValFile } from "./readValFile";
 import { QuickJSRuntime } from "quickjs-emscripten";
 import ts from "typescript";
+import { SerializedModuleContent } from "./SerializedModuleContent";
 
 const ops = new TSOps((document) => {
   return pipe(

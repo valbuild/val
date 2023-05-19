@@ -83,7 +83,7 @@ function toExpression(value: JSONValue): ts.Expression {
     return ts.factory.createArrayLiteralExpression(value.map(toExpression));
   } else if (typeof value === "object") {
     if (isValFileValue(value)) {
-      return createValFileReference(value.ref);
+      return createValFileReference(value._ref);
     }
     return ts.factory.createObjectLiteralExpression(
       Object.entries(value).map(([key, value]) =>
