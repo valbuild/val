@@ -51,3 +51,65 @@ export function getRawSource(valModule: ValModule<SelectorSource>): Source {
   const source = sourceOrExpr;
   return source;
 }
+
+export function getSourceAtPath(
+  path: SourcePath,
+  valModule: ValModule<SelectorSource>
+) {
+  const parts = parsePath(path.slice(path.indexOf(".") + 1));
+  let current: any = valModule;
+  for (const part of parts) {
+    if (typeof current !== "object") {
+      throw Error("Invalid path");
+    }
+    current = current[part];
+  }
+  return current;
+}
+
+export function parsePath(input: string) {
+  const result = [];
+  let i = 0;
+
+  while (i < input.length) {
+    let part = "";
+
+    if (input[i] === '"') {
+      // Parse a quoted string
+      i++;
+      while (i < input.length && input[i] !== '"') {
+        if (input[i] === "\\" && input[i + 1] === '"') {
+          // Handle escaped double quotes
+          part += '"';
+          i++;
+        } else {
+          part += input[i];
+        }
+        i++;
+      }
+      if (input[i] !== '"') {
+        throw new Error(
+          `Invalid input (${JSON.stringify(
+            input
+          )}): Missing closing double quote: ${
+            input[i] ?? "at end of string"
+          } (char: ${i}; length: ${input.length})`
+        );
+      }
+    } else {
+      // Parse a regular string
+      while (i < input.length && input[i] !== ".") {
+        part += input[i];
+        i++;
+      }
+    }
+
+    if (part !== "") {
+      result.push(part);
+    }
+
+    i++;
+  }
+
+  return result;
+}
