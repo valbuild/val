@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { A } from "ts-toolbelt";
 import { Schema, SchemaTypeOf, SerializedSchema } from ".";
 import { SelectorSource } from "../selector";
 import { SourcePath } from "../val";
@@ -61,8 +60,8 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
 
 export const object = <Props extends ObjectSchemaProps>(
   schema: Props
-): Schema<A.Compute<ObjectSchemaSrcOf<Props>>> => {
-  return new ObjectSchema(schema) as unknown as Schema<
-    A.Compute<ObjectSchemaSrcOf<Props>>
-  >;
+): Schema<{
+  [key in keyof Props]: SchemaTypeOf<Props[key]>;
+}> => {
+  return new ObjectSchema(schema);
 };
