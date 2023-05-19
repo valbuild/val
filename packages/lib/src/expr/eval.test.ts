@@ -94,14 +94,14 @@ const EvalTestCases: {
     }),
   },
   {
-    expr: `('test' (json '{ "test": \${('0' (val '/numbers'))} }'))`,
+    expr: `('test' (json '{ "test": \${((json '0') (val '/numbers'))} }'))`,
     expected: result.ok({
       val: 0,
       [Path]: "/numbers.0",
     }),
   },
   {
-    expr: `('1' ('foo' (json '{"foo": \${(val '/numbers')}}')))`,
+    expr: `((json '1') ('foo' (json '{"foo": \${(val '/numbers')}}')))`,
     expected: result.ok({ val: 1, [Path]: "/numbers.1" }),
   },
   {
@@ -129,7 +129,7 @@ const EvalTestCases: {
     expr: `('0' !(map (val '/articles') ('title' @[0,0])))`,
     expected: result.ok({
       val: sources["/articles"].map((v) => v["title"])[0],
-      [Path]: "/articles.0.title",
+      [Path]: '/articles.0."title"',
     }),
   },
   {

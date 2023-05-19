@@ -115,6 +115,12 @@ export function newSelectorProxy(
             const reflectedValue = Reflect.get(target, prop);
 
             if (hasOwn(source, prop)) {
+              if (!Number.isNaN(Number(prop))) {
+                return newSelectorProxy(
+                  reflectedValue,
+                  createValPathOfArrayItem(path, Number(prop))
+                );
+              }
               return newSelectorProxy(
                 reflectedValue,
                 createValPathOfArrayItem(path, prop)

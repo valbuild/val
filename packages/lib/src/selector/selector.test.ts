@@ -181,7 +181,7 @@ const SelectorModuleTestCases: {
   {
     description: "object andThen property lookup",
     input: (remote) => testModule("/app/blog", remote).andThen((v) => v.title),
-    expected: { val: "blog1", [Path]: "/app/blog.title" },
+    expected: { val: "blog1", [Path]: '/app/blog."title"' },
   },
   {
     description: "array object manipulation: basic indexed obj",
@@ -258,7 +258,7 @@ const SelectorModuleTestCases: {
     expected: {
       val: "that.even.more.even.more",
       [Path]:
-        "/app/large/nested.0.that.even.more.even.0.more.even.more.even.more",
+        '/app/large/nested.0."that"."even"."more"."even".0."more"."even"."more"."even"."more"',
     },
   },
 ];

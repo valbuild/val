@@ -87,10 +87,7 @@ export function serializedValOfSelectorSource<T extends SelectorSource>(
           rec(
             isSelector(item) // NOTE: We do this since selectors currently do not create selectors of items unless specifically required.
               ? item
-              : newSelectorProxy(
-                  item,
-                  createValPathOfArrayItem(valPath, i.toString())
-                )
+              : newSelectorProxy(item, createValPathOfArrayItem(valPath, i))
           )
         ),
         valPath,

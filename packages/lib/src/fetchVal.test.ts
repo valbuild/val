@@ -52,14 +52,14 @@ describe("serialization of val", () => {
               val: [
                 {
                   val: "foo",
-                  valPath: "/app.foo.bar.0",
+                  valPath: '/app."foo"."bar".0',
                 },
-                { val: "bar", valPath: "/app.foo.bar.1" },
+                { val: "bar", valPath: '/app."foo"."bar".1' },
               ],
-              valPath: "/app.foo.bar",
+              valPath: '/app."foo"."bar"',
             },
           },
-          valPath: "/app.foo",
+          valPath: '/app."foo"',
         },
       },
       valPath: "/app",
@@ -106,8 +106,8 @@ describe("fetchVal", () => {
     expect(test.foo.bar.val).toStrictEqual(["foo", "bar"]);
     expect(test.foo.bar[0].val).toStrictEqual("foo");
     expect(test.foo.bar[1].val).toStrictEqual("bar");
-    expect(getValPath(test.foo.bar[0])).toStrictEqual("/app.foo.bar.0");
-    expect(getValPath(test.foo.bar[1])).toStrictEqual("/app.foo.bar.1");
+    expect(getValPath(test.foo.bar[0])).toStrictEqual('/app."foo"."bar".0');
+    expect(getValPath(test.foo.bar[1])).toStrictEqual('/app."foo"."bar".1');
   });
 
   test("valuate: array with map", async () => {
@@ -161,6 +161,6 @@ describe("fetchVal", () => {
     expect(getValPath(test.testVal1[0].otherModule.test1)).toStrictEqual(
       "/testVal1.0"
     );
-    expect(getValPath(test.testVal2.test2)).toStrictEqual("/testVal2.test2");
+    expect(getValPath(test.testVal2.test2)).toStrictEqual('/testVal2."test2"');
   });
 });
