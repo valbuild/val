@@ -26,7 +26,10 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     return new BooleanSchema<Src | null>(true);
   }
   serialize(): SerializedSchema {
-    throw new Error("Method not implemented.");
+    return {
+      type: "boolean",
+      opt: this.isOptional,
+    };
   }
 }
 

@@ -37,7 +37,11 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
   }
 
   serialize(): SerializedSchema {
-    throw new Error("Method not implemented.");
+    return {
+      type: "string",
+      options: this.options,
+      opt: this.isOptional,
+    };
   }
 }
 

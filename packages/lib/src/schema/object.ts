@@ -1,10 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { A } from "ts-toolbelt";
 import { Schema, SchemaTypeOf, SerializedSchema } from ".";
-import { Selector, SelectorSource } from "../selector";
-import { Source } from "../source";
+import { SelectorSource } from "../selector";
 import { SourcePath } from "../val";
-import { string } from "./string";
 
 export type SerializedObjectSchema = {
   type: "object";
@@ -48,7 +46,16 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
   }
 
   serialize(): SerializedSchema {
-    throw new Error("Method not implemented.");
+    return {
+      type: "object",
+      schema: Object.fromEntries(
+        Object.entries(this.props).map(([key, schema]) => [
+          key,
+          schema.serialize(),
+        ])
+      ),
+      opt: this.isOptional,
+    };
   }
 }
 

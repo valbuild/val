@@ -1,7 +1,14 @@
 import { Schema, SerializedSchema } from ".";
-import { SelectorSource, SelectorOf } from "../selector";
+import { SelectorSource } from "../selector";
 import { SourceObject } from "../source";
 import { SourcePath } from "../val";
+
+export type SerializedUnionSchema = {
+  type: "union";
+  key: string;
+  objects: SerializedSchema[];
+  opt: boolean;
+};
 
 type SourceOf<
   Key extends string,
@@ -26,7 +33,12 @@ class UnionSchema<
     throw new Error("Method not implemented.");
   }
   serialize(): SerializedSchema {
-    throw new Error("Method not implemented.");
+    return {
+      type: "union",
+      key: this.key,
+      objects: this.objects.map((o) => o.serialize()),
+      opt: this.isOptional,
+    };
   }
 
   constructor(

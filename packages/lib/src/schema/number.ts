@@ -35,7 +35,11 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     return new NumberSchema<Src | null>(this.options, true);
   }
   serialize(): SerializedSchema {
-    throw new Error("Method not implemented.");
+    return {
+      type: "number",
+      options: this.options,
+      opt: this.isOptional,
+    };
   }
 }
 

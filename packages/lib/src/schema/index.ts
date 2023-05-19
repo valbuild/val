@@ -2,13 +2,23 @@ import { SelectorSource } from "../selector";
 import { RemoteCompatibleSource, RemoteSource } from "../source/remote";
 import { SourcePath } from "../val";
 import { SerializedArraySchema } from "./array";
+import { SerializedBooleanSchema } from "./boolean";
+import { SerializedI18nSchema } from "./i18n";
+import { SerializedNumberSchema } from "./number";
 import { SerializedObjectSchema } from "./object";
+import { SerializedOneOfSchema } from "./oneOf";
 import { SerializedStringSchema } from "./string";
+import { SerializedUnionSchema } from "./union";
 
 export type SerializedSchema =
   | SerializedStringSchema
+  | SerializedBooleanSchema
+  | SerializedNumberSchema
   | SerializedObjectSchema
-  | SerializedArraySchema;
+  | SerializedOneOfSchema
+  | SerializedArraySchema
+  | SerializedUnionSchema
+  | SerializedI18nSchema;
 
 export abstract class Schema<Src extends SelectorSource> {
   abstract validate(src: Src): false | Record<SourcePath, string[]>;
