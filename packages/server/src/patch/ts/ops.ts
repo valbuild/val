@@ -83,7 +83,7 @@ function toExpression(value: JSONValue): ts.Expression {
     return ts.factory.createArrayLiteralExpression(value.map(toExpression));
   } else if (typeof value === "object") {
     if (isValFileValue(value)) {
-      return createValFileReference(value._ref);
+      return createValFileReference(value[FILE_REF_PROP]);
     }
     return ts.factory.createObjectLiteralExpression(
       Object.entries(value).map(([key, value]) =>
@@ -506,7 +506,7 @@ function isValFileValue(value: JSONValue): value is FileSource<string> {
     typeof value === "object" &&
     value &&
     FILE_REF_PROP in value &&
-    typeof value.ref === "string"
+    typeof value[FILE_REF_PROP] === "string"
   );
 }
 

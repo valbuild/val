@@ -2,7 +2,6 @@ import ts from "typescript";
 import { result, pipe } from "@valbuild/lib/fp";
 import { JSONValue } from "@valbuild/lib/patch";
 import { FileSource, FILE_REF_PROP } from "@valbuild/lib";
-import { ValExtension } from "@valbuild/lib/src/source";
 
 export class ValSyntaxError {
   constructor(public message: string, public node: ts.Node) {}
@@ -242,7 +241,7 @@ export function evaluateExpression(
         (ref) =>
           ({
             [FILE_REF_PROP]: ref.text,
-            [ValExtension]: "file",
+            _type: "file",
           } as FileSource<string>)
       )
     );
