@@ -5,7 +5,7 @@ import { SourcePath } from "../val";
 
 export type SerializedObjectSchema = {
   type: "object";
-  schema: Record<string, SerializedSchema>;
+  items: Record<string, SerializedSchema>;
   opt: boolean;
 };
 
@@ -47,7 +47,7 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
   serialize(): SerializedSchema {
     return {
       type: "object",
-      schema: Object.fromEntries(
+      items: Object.fromEntries(
         Object.entries(this.props).map(([key, schema]) => [
           key,
           schema.serialize(),

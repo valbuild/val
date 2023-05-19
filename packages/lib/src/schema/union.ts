@@ -6,7 +6,7 @@ import { SourcePath } from "../val";
 export type SerializedUnionSchema = {
   type: "union";
   key: string;
-  objects: SerializedSchema[];
+  items: SerializedSchema[];
   opt: boolean;
 };
 
@@ -36,14 +36,14 @@ class UnionSchema<
     return {
       type: "union",
       key: this.key,
-      objects: this.objects.map((o) => o.serialize()),
+      items: this.items.map((o) => o.serialize()),
       opt: this.isOptional,
     };
   }
 
   constructor(
     readonly key: Key,
-    readonly objects: T,
+    readonly items: T,
     readonly isOptional: boolean = false
   ) {
     super();

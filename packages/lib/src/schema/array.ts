@@ -5,7 +5,7 @@ import { SourcePath } from "../val";
 
 export type SerializedArraySchema = {
   type: "array";
-  schema: SerializedSchema;
+  item: SerializedSchema;
   opt: boolean;
 };
 
@@ -39,7 +39,7 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
   serialize(): SerializedArraySchema {
     return {
       type: "array",
-      schema: this.item.serialize(),
+      item: this.item.serialize(),
       opt: this.isOptional,
     };
   }

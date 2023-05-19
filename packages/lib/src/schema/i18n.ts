@@ -4,7 +4,7 @@ import { SourcePath } from "../val";
 
 export type SerializedI18nSchema = {
   type: "i18n";
-  schema: SerializedSchema;
+  item: SerializedSchema;
 };
 
 class I18nSchema<Locales extends readonly string[]> extends Schema<
@@ -12,7 +12,7 @@ class I18nSchema<Locales extends readonly string[]> extends Schema<
 > {
   constructor(
     readonly locales: Locales,
-    readonly schema: Schema<SchemaTypeOf<Schema<I18nCompatibleSource>>>,
+    readonly item: Schema<SchemaTypeOf<Schema<I18nCompatibleSource>>>,
     readonly isOptional: boolean = false
   ) {
     super();
@@ -34,13 +34,13 @@ class I18nSchema<Locales extends readonly string[]> extends Schema<
     Locales,
     SchemaTypeOf<Schema<I18nCompatibleSource>>
   > | null> {
-    return new I18nSchema(this.locales, this.schema, true);
+    return new I18nSchema(this.locales, this.item, true);
   }
 
   serialize(): SerializedSchema {
     return {
       type: "i18n",
-      schema: this.schema.serialize(),
+      item: this.item.serialize(),
     };
   }
 }
