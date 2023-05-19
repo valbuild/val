@@ -54,7 +54,7 @@ export function getRawSource(valModule: ValModule<SelectorSource>): Source {
 
 export function getSourceAtPath(
   path: SourcePath,
-  valModule: ValModule<SelectorSource>
+  valModule: ValModule<SelectorSource> | Source
 ) {
   const parts = parsePath(path.slice(path.indexOf(".") + 1));
   let current: any = valModule;

@@ -27,7 +27,7 @@ describe("module", () => {
     ]);
   });
 
-  test("getSourceAtPath: basic", () => {
+  test("getSourceAtPath: basic selector", () => {
     const resolvedModuleAtPath = getSourceAtPath(
       '/app."foo"."bar".1."zoo"' as SourcePath,
       newSelectorProxy({
@@ -37,6 +37,18 @@ describe("module", () => {
       })
     );
     expect(resolvedModuleAtPath[SourceOrExpr]).toStrictEqual("zoo2");
+  });
+
+  test("getSourceAtPath: basic source", () => {
+    const resolvedModuleAtPath = getSourceAtPath(
+      '/app."foo"."bar".1."zoo"' as SourcePath,
+      {
+        foo: {
+          bar: [{ zoo: "zoo1" }, { zoo: "zoo2" }],
+        },
+      }
+    );
+    expect(resolvedModuleAtPath).toStrictEqual("zoo2");
   });
 
   test("getSourceAtPath: with dots and escaped quotes", () => {
