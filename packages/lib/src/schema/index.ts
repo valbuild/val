@@ -4,6 +4,7 @@ import { SourcePath } from "../val";
 import { SerializedArraySchema } from "./array";
 import { SerializedBooleanSchema } from "./boolean";
 import { SerializedI18nSchema } from "./i18n";
+import { SerializedLiteralSchema } from "./literal";
 import { SerializedNumberSchema } from "./number";
 import { SerializedObjectSchema } from "./object";
 import { SerializedOneOfSchema } from "./oneOf";
@@ -12,6 +13,7 @@ import { SerializedUnionSchema } from "./union";
 
 export type SerializedSchema =
   | SerializedStringSchema
+  | SerializedLiteralSchema
   | SerializedBooleanSchema
   | SerializedNumberSchema
   | SerializedObjectSchema

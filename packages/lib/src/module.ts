@@ -127,12 +127,14 @@ function isOneOfSchema(
   );
 }
 
-export function getSchemaAtPath(
+export function resolvePath(
   path: ModulePath,
+  valModule: ValModule<SelectorSource> | Source,
   schema: Schema<SelectorSource> | SerializedSchema
 ) {
   const parts = parsePath(path);
   let resolvedSchema = schema;
+  let resolvedSource: any /* TODO: any */ = valModule;
   while (parts.length > 0) {
     const part = parts.shift();
     if (part === undefined) {
@@ -144,8 +146,34 @@ export function getSchemaAtPath(
           `Invalid path: array schema ${resolvedSchema} must have ${part} a number as path`
         );
       }
+      if (
+        typeof resolvedSource !== "object" &&
+        !Array.isArray(resolvedSource)
+      ) {
+        throw Error(
+          `Schema type error: expected source to be type of array, but got ${typeof resolvedSource}`
+        );
+      }
+      if (!resolvedSource[part]) {
+        throw Error(
+          `Invalid path: array source (length: ${resolvedSource?.length}) did not have index ${part} from path: ${path}`
+        );
+      }
+      resolvedSource = resolvedSource[part];
       resolvedSchema = resolvedSchema.item;
     } else if (isObjectSchema(resolvedSchema)) {
+      if (typeof resolvedSource !== "object") {
+        throw Error(
+          `Schema type error: expected source to be type of object, but got ${typeof resolvedSource}`
+        );
+      }
+
+      if (!resolvedSource[part]) {
+        throw Error(
+          `Invalid path: object source did not have key ${part} from path: ${path}`
+        );
+      }
+      resolvedSource = resolvedSource[part];
       resolvedSchema = resolvedSchema.items[part];
     } else if (isI18nSchema(resolvedSchema)) {
       if (!resolvedSchema.locales.includes(part)) {
@@ -155,10 +183,36 @@ export function getSchemaAtPath(
           )}, but found: ${part}`
         );
       }
+      if (!Object.keys(resolvedSource).includes(part)) {
+        throw Error(
+          `Schema type error: expected source to be type of i18n with locale ${part}, but got ${JSON.stringify(
+            Object.keys(resolvedSource)
+          )}`
+        );
+      }
+      resolvedSource = resolvedSource[part];
       resolvedSchema = resolvedSchema.item;
+    } else if (isUnionSchema(resolvedSchema)) {
+      const key = resolvedSchema.key;
+      const keyValue = resolvedSource[key];
+      if (!keyValue) {
+        throw Error(
+          `Invalid path: union source ${resolvedSchema} did not have required key ${key} in path: ${path}`
+        );
+      }
+      const schemaOfUnionKey = resolvedSchema.items.find(
+        (child: any) => child?.items?.[key]?.value === keyValue
+      );
+      if (!schemaOfUnionKey) {
+        throw Error(
+          `Invalid path: union schema ${resolvedSchema} did not have a child object with ${key} of value ${keyValue} in path: ${path}`
+        );
+      }
+      resolvedSchema = schemaOfUnionKey.items[part];
+      resolvedSource = resolvedSource[part];
     } else {
       throw Error(
-        `Invalid path: ${part} is not a valid path for schema ${JSON.stringify(
+        `Invalid path: ${part} resolved to an unexpected schema ${JSON.stringify(
           resolvedSchema
         )}`
       );
@@ -167,7 +221,10 @@ export function getSchemaAtPath(
   if (parts.length > 0) {
     throw Error(`Invalid path: ${parts.join(".")} is not a valid path`);
   }
-  return resolvedSchema;
+  return {
+    schema: resolvedSchema,
+    source: resolvedSource,
+  };
 }
 
 export function parsePath(input: ModulePath) {
