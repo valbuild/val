@@ -14,10 +14,7 @@ export type SerializedStringSchema = {
 };
 
 export class StringSchema<Src extends string | null> extends Schema<Src> {
-  constructor(
-    readonly options?: StringOptions,
-    readonly isOptional: boolean = false
-  ) {
+  constructor(readonly options?: StringOptions, readonly opt: boolean = false) {
     super();
   }
 
@@ -26,7 +23,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
   }
 
   match(src: Src): boolean {
-    if (this.isOptional && (src === null || src === undefined)) {
+    if (this.opt && (src === null || src === undefined)) {
       return true;
     }
     return typeof src === "string";
@@ -40,7 +37,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     return {
       type: "string",
       options: this.options,
-      opt: this.isOptional,
+      opt: this.opt,
     };
   }
 }

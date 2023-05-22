@@ -17,7 +17,7 @@ type ObjectSchemaSrcOf<Props extends ObjectSchemaProps> = {
 export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
   ObjectSchemaSrcOf<Props>
 > {
-  constructor(readonly props: Props, readonly isOptional: boolean = false) {
+  constructor(readonly items: Props, readonly opt: boolean = false) {
     super();
   }
 
@@ -28,7 +28,7 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
   }
 
   match(src: ObjectSchemaSrcOf<Props>): boolean {
-    if (this.isOptional && (src === null || src === undefined)) {
+    if (this.opt && (src === null || src === undefined)) {
       return true;
     }
     if (!src) {
@@ -41,19 +41,19 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
   }
 
   optional(): Schema<ObjectSchemaSrcOf<Props> | null> {
-    return new ObjectSchema(this.props, true);
+    return new ObjectSchema(this.items, true);
   }
 
   serialize(): SerializedSchema {
     return {
       type: "object",
       items: Object.fromEntries(
-        Object.entries(this.props).map(([key, schema]) => [
+        Object.entries(this.items).map(([key, schema]) => [
           key,
           schema.serialize(),
         ])
       ),
-      opt: this.isOptional,
+      opt: this.opt,
     };
   }
 }

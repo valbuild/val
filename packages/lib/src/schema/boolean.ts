@@ -8,7 +8,7 @@ export type SerializedBooleanSchema = {
 };
 
 export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
-  constructor(readonly isOptional: boolean = false) {
+  constructor(readonly opt: boolean = false) {
     super();
   }
   validate(src: Src): false | Record<SourcePath, string[]> {
@@ -16,7 +16,7 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
   }
 
   match(src: Src): boolean {
-    if (this.isOptional && (src === null || src === undefined)) {
+    if (this.opt && (src === null || src === undefined)) {
       return true;
     }
     return typeof src === "boolean";
@@ -28,7 +28,7 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
   serialize(): SerializedSchema {
     return {
       type: "boolean",
-      opt: this.isOptional,
+      opt: this.opt,
     };
   }
 }

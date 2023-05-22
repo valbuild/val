@@ -10,6 +10,7 @@ import { getCompilerOptions } from "./getCompilerOptions";
 import { IValFSHost } from "./ValFSHost";
 import fs from "fs";
 import { SerializedModuleContent } from "./SerializedModuleContent";
+import { ModuleId } from "@valbuild/lib";
 
 export type ServiceOptions = {
   /**
@@ -56,7 +57,7 @@ export class Service {
     this.valConfigPath = valConfigPath;
   }
 
-  async get(moduleId: string): Promise<SerializedModuleContent> {
+  async get(moduleId: ModuleId): Promise<SerializedModuleContent> {
     return readValFile(moduleId, this.valConfigPath, this.runtime);
   }
 

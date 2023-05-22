@@ -19,7 +19,7 @@ type SourceOf<
     : never
   : never;
 
-class UnionSchema<
+export class UnionSchema<
   Key extends string,
   T extends Schema<SourceObject & { [k in Key]: string }>[]
 > extends Schema<SourceOf<Key, T>> {
@@ -37,14 +37,14 @@ class UnionSchema<
       type: "union",
       key: this.key,
       items: this.items.map((o) => o.serialize()),
-      opt: this.isOptional,
+      opt: this.opt,
     };
   }
 
   constructor(
     readonly key: Key,
     readonly items: T,
-    readonly isOptional: boolean = false
+    readonly opt: boolean = false
   ) {
     super();
   }

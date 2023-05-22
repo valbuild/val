@@ -12,7 +12,7 @@ export type SerializedArraySchema = {
 export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
   SchemaTypeOf<T>[]
 > {
-  constructor(readonly item: T, readonly isOptional: boolean = false) {
+  constructor(readonly item: T, readonly opt: boolean = false) {
     super();
   }
 
@@ -21,7 +21,7 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
   }
 
   match(src: SchemaTypeOf<T>[]): boolean {
-    if (this.isOptional && (src === null || src === undefined)) {
+    if (this.opt && (src === null || src === undefined)) {
       return true;
     }
     if (!src) {
@@ -40,7 +40,7 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
     return {
       type: "array",
       item: this.item.serialize(),
-      opt: this.isOptional,
+      opt: this.opt,
     };
   }
 }

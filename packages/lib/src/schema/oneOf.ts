@@ -20,10 +20,10 @@ type OneOfSelector<Sel extends GenericSelector<SourceArray>> =
       : never
     : never;
 
-class OneOfSchema<Sel extends GenericSelector<SourceArray>> extends Schema<
-  OneOfSelector<Sel>
-> {
-  constructor(readonly selector: Sel, readonly isOptional: boolean = false) {
+export class OneOfSchema<
+  Sel extends GenericSelector<SourceArray>
+> extends Schema<OneOfSelector<Sel>> {
+  constructor(readonly selector: Sel, readonly opt: boolean = false) {
     super();
   }
   validate(src: OneOfSelector<Sel>): false | Record<SourcePath, string[]> {
@@ -46,7 +46,7 @@ class OneOfSchema<Sel extends GenericSelector<SourceArray>> extends Schema<
     return {
       type: "oneOf",
       selector: path,
-      opt: this.isOptional,
+      opt: this.opt,
     };
   }
 }

@@ -4,16 +4,18 @@ import { SourcePath } from "../val";
 
 export type SerializedI18nSchema = {
   type: "i18n";
+  locales: readonly string[];
   item: SerializedSchema;
+  opt: boolean;
 };
 
-class I18nSchema<Locales extends readonly string[]> extends Schema<
+export class I18nSchema<Locales extends readonly string[]> extends Schema<
   I18nSource<Locales, SchemaTypeOf<Schema<I18nCompatibleSource>>>
 > {
   constructor(
     readonly locales: Locales,
     readonly item: Schema<SchemaTypeOf<Schema<I18nCompatibleSource>>>,
-    readonly isOptional: boolean = false
+    readonly opt: boolean = false
   ) {
     super();
   }
@@ -41,6 +43,8 @@ class I18nSchema<Locales extends readonly string[]> extends Schema<
     return {
       type: "i18n",
       item: this.item.serialize(),
+      locales: this.locales,
+      opt: this.opt,
     };
   }
 }
@@ -56,5 +60,5 @@ export const i18n =
   <S extends Schema<I18nCompatibleSource>>(
     schema: S
   ): Schema<I18nSource<Locales, SchemaTypeOf<S>>> => {
-    throw Error("unimplemented");
+    return new I18nSchema(locales, schema);
   };

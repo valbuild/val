@@ -63,6 +63,26 @@ export type SourcePath = string & {
   [brand]: "SourcePath";
 };
 
+/**
+ * The path inside the module.
+ *
+ * @example
+ * '0."text"' // the text property of the first element of the module
+ */
+export type ModulePath = string & {
+  [brand]: "ModulePath";
+};
+
+/**
+ * The id of the module.
+ *
+ * @example
+ * '/app/blogs' // the /app/blogs module
+ */
+export type ModuleId = string & {
+  [brand]: "ModuleId";
+};
+
 export function getValPath(
   valOrSelector: Val<Json> | Selector<Source>
 ): SourcePath | undefined {

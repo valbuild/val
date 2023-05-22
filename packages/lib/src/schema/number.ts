@@ -14,10 +14,7 @@ export type SerializedNumberSchema = {
 };
 
 export class NumberSchema<Src extends number | null> extends Schema<Src> {
-  constructor(
-    readonly options?: NumberOptions,
-    readonly isOptional: boolean = false
-  ) {
+  constructor(readonly options?: NumberOptions, readonly opt: boolean = false) {
     super();
   }
   validate(src: Src): false | Record<SourcePath, string[]> {
@@ -25,7 +22,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
   }
 
   match(src: Src): boolean {
-    if (this.isOptional && (src === null || src === undefined)) {
+    if (this.opt && (src === null || src === undefined)) {
       return true;
     }
     return typeof src === "number";
@@ -38,7 +35,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     return {
       type: "number",
       options: this.options,
-      opt: this.isOptional,
+      opt: this.opt,
     };
   }
 }
