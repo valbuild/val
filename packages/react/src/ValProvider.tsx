@@ -1,11 +1,17 @@
-import { Source, ModuleContent, Schema } from "@valbuild/lib";
+import { ModuleContent, Schema, Source } from "@valbuild/lib";
 import * as expr from "@valbuild/lib/expr";
+import { result } from "@valbuild/lib/fp";
 import {
   formatJSONPointer,
   parseJSONPointer,
   PatchJSON,
 } from "@valbuild/lib/patch";
-import { result } from "@valbuild/lib/fp";
+import { Test, RichTextEditor } from "@valbuild/ui";
+import { Style } from "@valbuild/ui";
+
+import {SerializedEditorState} from "lexical/LexicalEditorState"
+import {SerializedLexicalNode} from  "lexical/LexicalNode"
+
 import React, {
   CSSProperties,
   forwardRef,
@@ -199,12 +205,14 @@ const ValEditForm: React.FC<{
   const [entries, setEntries] = useState<Entry[]>([]);
   const valStore = useValStore();
   const valApi = useValApi();
-
   const [submission, setSubmission] = useState<
     | { status: "submitting" }
     | { status: "error"; error: string }
     | { status: "ready" }
   >({ status: "ready" });
+
+  const [nodes, setNodes] =
+    useState<SerializedEditorState<SerializedLexicalNode>|null>(null);
 
   useEffect(() => {
     setEntries(
@@ -287,6 +295,8 @@ const ValEditForm: React.FC<{
         try {
           const data = new FormData(e.currentTarget);
           const modulePatches: Record<string, Operation[]> = {};
+          console.log("nodes",nodes)
+          console.log("source",entries)
           for (const entry of entries) {
             if (entry.status === "ready") {
               const { moduleId, locale } = entry;
@@ -353,7 +363,20 @@ const ValEditForm: React.FC<{
               ) : (
                 <>
                   {entry.moduleId}?{entry.locale}?{entry.path}
-                  <textarea
+                  <RichTextEditor
+                  setNodes={setNodes}
+                    entries={
+                      entries as {
+                        source: string;
+                        status: "ready";
+                        moduleId: string;
+                        locale: "en_US";
+                        value: string;
+                        path: string;
+                      }[]
+                    }
+                  />
+                  {/* <textarea
                     style={{
                       display: "block",
                       width: "100%",
@@ -363,7 +386,7 @@ const ValEditForm: React.FC<{
                     }}
                     name={entry.path}
                     defaultValue={entry.value}
-                  />
+                  /> */}
                 </>
               )}
             </label>
@@ -576,6 +599,7 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
       }}
     >
       {children}
+      {enabled && <Style />}
       {authentication.status === "local" && enabled && (
         <ValEditForm
           host={host}
