@@ -20,7 +20,7 @@ export default val.content(
       title: {
         en_US: "HVA?",
       },
-      text: "Vi gjør mange ting sammen i Blank, men det vi lever av er å designe og utvikle digitale tjenester for kundene våre.\n\n    Noen av selskapene vi jobber med er små, andre er store. Alle har de høye ambisjoner for sine digitale løsninger, og stiller høye krav til hvem de jobber med.\n    \n    Noen ganger starter vi nye, egne, selskaper også, mest fordi det er gøy (og fordi vi liker å bygge ting), men også fordi smarte folk har gode idéer som fortjener å bli realisert.\n    Ting vi har bygd for kundene våre",
+      text: "Vi gj\u00F8r mange ting sammen i Blank, men det vi lever av er \u00E5 designe og utvikle digitale tjenester for kundene v\u00E5re.\n\n    Noen av selskapene vi jobber med er sm\u00E5, andre er store. Alle har de h\u00F8ye ambisjoner for sine digitale l\u00F8sninger, og stiller h\u00F8ye krav til hvem de jobber med.\n      \n    Noen ganger starter vi nye, egne, selskaper ogs\u00E5, mest fordi det er g\u00F8y (og fordi vi liker \u00E5 bygge ting), men ogs\u00E5 fordi smarte folk har gode id\u00E9er som fortjener \u00E5 bli realisert.\n    Ting vi har bygd for kundene v\u00E5re \n\nddddd",
       rank: 100,
     },
     {
