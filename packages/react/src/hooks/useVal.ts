@@ -3,7 +3,7 @@ import {
   SelectorOf,
   GenericSelector,
   Val,
-  getVal,
+  Internal,
 } from "@valbuild/lib";
 import { JsonOfSource } from "@valbuild/lib/src/val";
 
@@ -13,5 +13,5 @@ export function useVal<T extends SelectorSource>(
 ): SelectorOf<T> extends GenericSelector<infer S>
   ? Val<JsonOfSource<S>>
   : never {
-  return getVal(selector, locale);
+  return Internal.getVal(selector, locale);
 }

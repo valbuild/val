@@ -1,4 +1,4 @@
-import { getValPath } from "@valbuild/lib";
+import { Internal } from "@valbuild/lib";
 import * as ReactJSXRuntime from "react/jsx-runtime";
 export * from "react/jsx-runtime";
 
@@ -13,7 +13,7 @@ const devalProps = (type, props) => {
   if (isIntrinsicElement(type)) {
     for (const [key, value] of Object.entries(props)) {
       if (typeof value === "object" && value !== null && "val" in value) {
-        const valPath = getValPath(value);
+        const valPath = Internal.getValPath(value);
         if (valPath) {
           valSources.push(valPath);
           if (typeof value.val === "string" || value.val === null) {

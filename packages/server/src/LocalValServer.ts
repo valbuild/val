@@ -5,7 +5,7 @@ import { result } from "@valbuild/lib/fp";
 import { parsePatch, PatchError } from "@valbuild/lib/patch";
 import { getPathFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
-import { splitModuleIdAndModulePath } from "@valbuild/lib/src/module";
+import { Internal } from "@valbuild/lib";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -27,8 +27,8 @@ export class LocalValServer implements ValServer {
     try {
       console.log(req.params);
       const path = getPathFromParams(req.params);
-      const [moduleId, modulePath] = splitModuleIdAndModulePath(path);
-      const valModule = await this.options.service.get(moduleId);
+      const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
+      const valModule = await this.options.service.get(moduleId, modulePath);
 
       res.json(valModule);
     } catch (err) {

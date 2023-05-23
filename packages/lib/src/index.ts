@@ -23,14 +23,22 @@ export {
   GenericSelector,
 } from "./selector";
 
-import { getRawSource } from "./module";
+import { getVal } from "./fetchVal";
+import {
+  getRawSource,
+  resolvePath,
+  splitModuleIdAndModulePath,
+} from "./module";
 import { getSchema } from "./selector";
 import { getValPath } from "./val";
 
 const Internal = {
   getSchema,
   getValPath,
+  getVal,
   getRawSource,
+  resolvePath,
+  splitModuleIdAndModulePath,
 };
 
 export { Internal };

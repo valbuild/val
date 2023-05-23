@@ -10,7 +10,14 @@ import { getCompilerOptions } from "./getCompilerOptions";
 import { IValFSHost } from "./ValFSHost";
 import fs from "fs";
 import { SerializedModuleContent } from "./SerializedModuleContent";
-import { ModuleId } from "@valbuild/lib";
+import {
+  ModuleId,
+  ModulePath,
+  Internal,
+  SourcePath,
+  Schema,
+  SelectorSource,
+} from "@valbuild/lib";
 
 export type ServiceOptions = {
   /**
@@ -57,8 +64,29 @@ export class Service {
     this.valConfigPath = valConfigPath;
   }
 
-  async get(moduleId: ModuleId): Promise<SerializedModuleContent> {
-    return readValFile(moduleId, this.valConfigPath, this.runtime);
+  async get(
+    moduleId: ModuleId,
+    modulePath: ModulePath
+  ): Promise<SerializedModuleContent> {
+    const valModule = await readValFile(
+      moduleId,
+      this.valConfigPath,
+      this.runtime
+    );
+
+    const resolved = Internal.resolvePath(
+      modulePath,
+      valModule.source,
+      valModule.schema
+    );
+    return {
+      id: [valModule.id, modulePath].join("/") as SourcePath,
+      schema:
+        resolved.schema instanceof Schema<SelectorSource>
+          ? resolved.schema.serialize()
+          : resolved.schema,
+      source: resolved.source,
+    };
   }
 
   async patch(
