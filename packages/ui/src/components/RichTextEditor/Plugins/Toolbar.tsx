@@ -284,7 +284,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
   };
 
   return (
-    <div className="relative border-b-2 border-valLightGrey h-fit p-2 flex flex-row gap-6 items-center">
+    <div className="relative border-b-1 border-valLightGrey h-fit p-2 flex flex-row gap-6 items-center">
       <div className="flex flex-row gap-2">
         <button className="hidden w-0 h-0 " disabled></button>
         <Button
