@@ -55,7 +55,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
     editorState: prePopulatedState,
     nodes: [HeadingNode, ImageNode, ListNode, ListItemNode],
     theme: {
-      root: "relative p-4 bg-valMediumBlack w-full h-full min-h-[200px] border-t-[0.25px] border-t-valLightGrey text-white font-roboto",
+      root: "relative p-4 bg-valMediumBlack w-full h-full min-h-[200px] text-white font-roboto",
       text: {
         bold: "font-semibold",
         underline: "underline",
@@ -89,7 +89,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
             <LexicalContentEditable className="relative flex flex-col h-full w-full min-h-[200px]" />
           }
           placeholder={
-            <div className="absolute top-[100%] left-4 text-valLightGrey ">
+            <div className="absolute top-[calc(58px+1rem)] left-4 text-valLightGrey/25 ">
               Enter some text...
             </div>
           }
