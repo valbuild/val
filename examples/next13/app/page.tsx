@@ -16,7 +16,7 @@ export default function Home() {
     <main className={styles.main}>
       <article className={styles.article}>
         {blogs.map((blog) => (
-          <section key={val.getPath(blog.title)} className={styles.blog}>
+          <section key={val.key(blog)} className={styles.blog}>
             <h1>{blog.title}</h1>
             <p>{blog.text}</p>
           </section>

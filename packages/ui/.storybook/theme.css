@@ -1,0 +1,28 @@
+html {
+  /* This must be identical to the theme in index.css */
+  --val-theme-white: #fcfcfc;
+  --val-theme-light-gray: #d6d6d6;
+  --val-theme-medium-gray: #c9c9c9;
+  --val-theme-dark-gray: #575757;
+  --val-theme-medium-black: #303030;
+  --val-theme-warm-black: #1a1a1a;
+  --val-theme-yellow: #ffff00;
+  --val-theme-red: #f02929;
+  --val-theme-green: #1ced1c;
+
+  /* light theme */
+  --val-theme-base: var(--val-theme-white);
+  --val-theme-highlight: var(--val-theme-yellow);
+  --val-theme-border: var(--val-theme-medium-gray);
+  --val-theme-fill: var(--val-theme-light-gray);
+  --val-theme-primary: var(--val-theme-warm-black);
+}
+
+/* dark theme */
+*[data-mode="dark"] {
+  --val-theme-base: var(--val-theme-warm-black);
+  --val-theme-highlight: var(--val-theme-yellow);
+  --val-theme-border: var(--val-theme-dark-gray);
+  --val-theme-fill: var(--val-theme-medium-black);
+  --val-theme-primary: var(--val-theme-white);
+}

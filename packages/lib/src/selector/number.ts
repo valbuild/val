@@ -1,4 +1,4 @@
-import { PrimitiveSelector } from "./primitive";
+import { Selector as PrimitiveSelector } from "./primitive";
 
 // TODO:
 export type Selector<T extends number> = PrimitiveSelector<T>;

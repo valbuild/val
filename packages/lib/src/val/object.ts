@@ -1,4 +1,4 @@
-import { Val as UnknownVal } from ".";
+import { SourcePath, Val as UnknownVal } from ".";
 import { JsonObject } from "../Json";
 import { Path } from "../selector";
 
@@ -8,6 +8,6 @@ export type Val<T extends JsonObject> = Omit<
   },
   "valPath" | "val"
 > & {
-  readonly [Path]: string;
+  readonly [Path]: SourcePath | undefined;
   readonly val: T;
 };

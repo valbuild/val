@@ -1,4 +1,4 @@
-import { Source, Schema } from "@valbuild/lib";
+import { Source, Schema, SourcePath } from "@valbuild/lib";
 import { parseJSONPointer, PatchJSON } from "@valbuild/lib/patch";
 import { result } from "@valbuild/lib/fp";
 import React, {
@@ -10,11 +10,13 @@ import React, {
   useMemo,
   useRef,
   useState,
-  useTransition,
 } from "react";
 import { editIcon, valcmsLogo } from "./assets";
 import { ValApi } from "./ValApi";
 import { ValStore } from "./ValStore";
+import { SerializedStringSchema } from "@valbuild/lib/src/schema/string";
+import { Style, ValOverlay } from "@valbuild/ui";
+import root from "react-shadow"; // TODO: remove dependency on react-shadow here?
 
 const baseZIndex = 8500; // Next uses 9000 highest z-index so keep us below that
 
@@ -186,14 +188,10 @@ const ValEditForm: React.FC<{
         error: string;
       }
     | {
-        source: string;
         status: "ready";
-        moduleId: string;
-        schemaType: "string" | "image";
-        primitivePath: string;
-        locale: "en_US";
-        value: string;
-        path: string;
+        valPath: SourcePath;
+        source: string;
+        schema: SerializedStringSchema;
       };
   const [entries, setEntries] = useState<Entry[]>([]);
   const valStore = useValStore();
@@ -206,10 +204,14 @@ const ValEditForm: React.FC<{
   >({ status: "ready" });
 
   useEffect(() => {
+    console.log("selectedSources", selectedSources);
     setEntries(
       selectedSources.map((source) => ({ source, status: "loading" }))
     );
 
+    selectedSources.map(async (source) => {
+      console.log(await valApi.getModule(source));
+    });
     //   Promise.all(
     //     selectedSources.map(async (source): Promise<Entry> => {
     //       try {
@@ -330,11 +332,11 @@ const ValEditForm: React.FC<{
     };
   }, [mouseDown]);
 
+  const handleMouseDown = () => setMouseDown(true);
+
   const [imagePreviews, setImagePreviews] = useState<{
     [primitivePath: string]: string;
   }>({});
-
-  const handleMouseDown = () => setMouseDown(true);
 
   if (!initPosition) {
     return null;
@@ -362,58 +364,57 @@ const ValEditForm: React.FC<{
           const modulePatches: Record<string, Operation[]> = {};
           for (const entry of entries) {
             if (entry.status === "ready") {
-              const { moduleId, locale, schemaType, primitivePath } = entry;
-              const { path } = entry;
-              if (!modulePatches[moduleId]) {
-                modulePatches[moduleId] = [];
-              }
-              if (schemaType === "image") {
-                if (imagePreviews[primitivePath]) {
-                  const base64Image = imagePreviews[primitivePath];
-
-                  const parts = primitivePath
-                    .slice(1) // removes leading slash
-                    .split("/");
-                  modulePatches[moduleId].push({
-                    op: "replace",
-                    path:
-                      // TODO: this leaves room for... improvement
-                      "/" +
-                      parts.slice(0, parts.length - 1).join("/") +
-                      "/$" +
-                      parts.slice(-1)[0],
-                    value: base64Image,
-                  });
-                }
-              } else {
-                const value = data.get(path);
-                if (typeof value !== "string") {
-                  throw Error("Invalid non-string value in form");
-                }
-                const mod = valStore.get(moduleId);
-                if (!mod) {
-                  throw Error(`${moduleId} is not in store`);
-                }
-                const parsedPath = parseJSONPointer(path);
-                if (result.isErr(parsedPath)) {
-                  throw Error(
-                    `${JSON.stringify(path)} is invalid JSON pointer`
-                  );
-                }
-                // path = formatJSONPointer(
-                //   Schema.inverseTransformPath(
-                //     mod.schema,
-                //     mod.source,
-                //     parsedPath.value,
-                //     locale
-                //   )
-                // );
-                // modulePatches[moduleId].push({
-                //   op: "replace",
-                //   path,
-                //   value,
-                // });
-              }
+              // const { moduleId, locale, schemaType, primitivePath } = entry;
+              // const { modulePath: path } = entry;
+              // if (!modulePatches[moduleId]) {
+              //   modulePatches[moduleId] = [];
+              // }
+              // if (schemaType === "image") {
+              //   if (imagePreviews[primitivePath]) {
+              //     const base64Image = imagePreviews[primitivePath];
+              //     const parts = primitivePath
+              //       .slice(1) // removes leading slash
+              //       .split("/");
+              //     modulePatches[moduleId].push({
+              //       op: "replace",
+              //       path:
+              //         // TODO: this leaves room for... improvement
+              //         "/" +
+              //         parts.slice(0, parts.length - 1).join("/") +
+              //         "/$" +
+              //         parts.slice(-1)[0],
+              //       value: base64Image,
+              //     });
+              //   }
+              // } else {
+              //   const value = data.get(path);
+              //   if (typeof value !== "string") {
+              //     throw Error("Invalid non-string value in form");
+              //   }
+              //   const mod = valStore.get(moduleId);
+              //   if (!mod) {
+              //     throw Error(`${moduleId} is not in store`);
+              //   }
+              //   const parsedPath = parseJSONPointer(path);
+              //   if (result.isErr(parsedPath)) {
+              //     throw Error(
+              //       `${JSON.stringify(path)} is invalid JSON pointer`
+              //     );
+              //   }
+              //   // path = formatJSONPointer(
+              //   //   Schema.inverseTransformPath(
+              //   //     mod.schema,
+              //   //     mod.source,
+              //   //     parsedPath.value,
+              //   //     locale
+              //   //   )
+              //   // );
+              //   // modulePatches[moduleId].push({
+              //   //   op: "replace",
+              //   //   path,
+              //   //   value,
+              //   // });
+              // }
             }
           }
           await Promise.all(
@@ -490,7 +491,7 @@ const ValEditForm: React.FC<{
         }}
       >
         {submission.status === "error" && submission.error}
-        {entries === null
+        {/* {entries === null
           ? "Loading..."
           : entries.map((entry) => (
               <label
@@ -554,14 +555,13 @@ const ValEditForm: React.FC<{
                           padding: "4px",
                           fontSize: "14px",
                         }}
-                        name={entry.primitivePath}
-                        defaultValue={entry.value}
-                      />
-                    )}
+                      name={entry.valPath}
+                      defaultValue={entry.source}
+                    />
                   </>
                 )}
               </label>
-            ))}
+            ))} */}
         <input
           type="submit"
           value="Save"
@@ -670,7 +670,12 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
           const valSources = e.target?.getAttribute("data-val-path");
           if (valSources) {
             e.stopPropagation();
-            // setSelectedSources(expr.strings.split(valSources, ","));
+            console.log("open val form", valSources);
+            setSelectedSources(
+              valSources.split(
+                ","
+              ) /* TODO: just split on commas will not work if path contains , */
+            );
             setEditFormPosition({
               left: e.clientX,
               top: e.clientY,
@@ -775,6 +780,11 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
     }
   }, [enabled, authentication.status]);
 
+  const [showEditButton, setShowEditButton] = useState(false);
+  useEffect(() => {
+    setShowEditButton(true);
+  }, []);
+
   return (
     <ValContext.Provider
       value={{
@@ -783,7 +793,15 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
       }}
     >
       {children}
-      {authentication.status === "local" && enabled && (
+      {showEditButton && (
+        <root.div>
+          <Style />
+          <div data-mode="dark">
+            <ValOverlay />
+          </div>
+        </root.div>
+      )}
+      {/* {authentication.status === "local" && enabled && (
         <ValEditForm
           host={host}
           selectedSources={selectedSources}
@@ -826,7 +844,7 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
           Error: {authentication.message}
         </div>
       )}
-      <ValEditEnableButton enabled={enabled} setEnabled={setEnabled} />
+      <ValEditEnableButton enabled={enabled} setEnabled={setEnabled} /> */}
     </ValContext.Provider>
   );
 }

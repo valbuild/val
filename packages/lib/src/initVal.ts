@@ -12,6 +12,7 @@ import { remote } from "./source/remote";
 type ValConstructor = {
   content: typeof content;
   getPath: typeof getPath; // TODO: in the react initVal we should also add a key function here which returns the path for use as react keys
+  key: typeof getPath;
   remote: typeof remote;
 };
 export type InitVal<Locales extends readonly string[] | undefined> =
@@ -57,6 +58,7 @@ export const initVal = <
         i18n,
         remote,
         getPath,
+        key: getPath,
       },
       fetchVal: fetchVal,
       s,
@@ -67,6 +69,7 @@ export const initVal = <
       content,
       remote,
       getPath,
+      key: getPath,
     },
     fetchVal: fetchVal,
     s: {

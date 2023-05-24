@@ -191,7 +191,6 @@ describe("eval", () => {
               ref as SourcePath
             );
           },
-
           []
         ),
         result.map((v) => selectorToVal(v))

@@ -1,10 +1,8 @@
 import {
   GenericSelector,
   Path,
-  Selector,
   SelectorOf,
   SelectorSource,
-  SourceOf,
   SourceOrExpr,
 } from "./selector";
 import {
@@ -19,7 +17,6 @@ import {
   isSelector,
   newSelectorProxy,
 } from "./selector/SelectorProxy";
-import { S } from "ts-toolbelt";
 import { Json } from "./Json";
 
 export function fetchVal<T extends SelectorSource>(
@@ -159,8 +156,17 @@ function newValProxy<T extends Json>(val: SerializedVal): Val<T> {
       if (source !== null) {
         // Handles both objects and arrays!
         return new Proxy(source, {
-          get(target, prop: string) {
-            if (prop === "valPath") {
+          has(target, prop: string | symbol) {
+            if (prop === "val") {
+              return true;
+            }
+            if (prop === Path) {
+              return true;
+            }
+            return hasOwn(target, prop);
+          },
+          get(target, prop: string | symbol) {
+            if (prop === Path) {
               return val.valPath;
             }
             if (prop === "val") {
@@ -170,7 +176,10 @@ function newValProxy<T extends Json>(val: SerializedVal): Val<T> {
               return target.length;
             }
             if (hasOwn(source, prop)) {
-              return newValProxy(Reflect.get(target, prop) as SerializedVal);
+              return newValProxy({
+                val: Reflect.get(target, prop).val,
+                valPath: createValPathOfItem(val.valPath, prop),
+              } as SerializedVal);
             }
             return Reflect.get(target, prop);
           },

@@ -5,7 +5,7 @@ import { UndistributedSourceArray as ArraySelector } from "./array";
 import { Selector as NumberSelector } from "./number";
 import { Selector as StringSelector } from "./string";
 import { Selector as BooleanSelector } from "./boolean";
-import { PrimitiveSelector } from "./primitive";
+import { Selector as PrimitiveSelector } from "./primitive";
 import { FileSelector } from "./file";
 import { SourcePath } from "../val";
 import { Source, SourceArray, SourceObject, SourcePrimitive } from "../source";

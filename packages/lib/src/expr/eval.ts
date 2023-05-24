@@ -26,7 +26,7 @@ type LocalSelector<S extends Source> = {
 const MAX_STACK_SIZE = 100; // an arbitrary semi-large number
 function evaluateSync(
   expr: Expr,
-  source: (ref: string) => LocalSelector<Source>,
+  getSource: (ref: string) => LocalSelector<Source>,
   stack: readonly LocalSelector<Source>[][]
 ): LocalSelector<Source> {
   // TODO: amount of evaluates should be limited?
@@ -48,7 +48,7 @@ function evaluateSync(
           throw new EvalError("cannot call 'val' as anonymous function", expr);
         }
         if (expr.children[1] instanceof StringLiteral) {
-          return source(expr.children[1].value);
+          return getSource(expr.children[1].value);
         } else {
           throw new EvalError(
             "argument of 'val' must be a string literal",
@@ -62,7 +62,7 @@ function evaluateSync(
             expr
           );
         }
-        const value = evaluateSync(expr.children[1], source, stack);
+        const value = evaluateSync(expr.children[1], getSource, stack);
 
         const valObj = value[SourceOrExpr];
         const valPath = value[Path];
@@ -98,16 +98,16 @@ function evaluateSync(
             expr
           );
         }
-        const res = evaluateSync(expr.children[1], source, stack);
+        const res = evaluateSync(expr.children[1], getSource, stack);
         return newSelectorProxy(JSON.stringify(res[SourceOrExpr]));
       }
     }
-    const prop = evaluateSync(expr.children[0], source, stack)[SourceOrExpr];
+    const prop = evaluateSync(expr.children[0], getSource, stack)[SourceOrExpr];
     if (expr.children.length === 1) {
       // TODO: return if literal only?
       return newSelectorProxy(prop);
     }
-    const obj = evaluateSync(expr.children[1], source, stack);
+    const obj = evaluateSync(expr.children[1], getSource, stack);
     if (typeof prop !== "string" && typeof prop !== "number") {
       throw new EvalError(
         `cannot access ${JSON.stringify(obj)} with property ${JSON.stringify(
@@ -131,7 +131,11 @@ function evaluateSync(
         }
         if (expr.children[0] instanceof Sym) {
           return maybeFunction((...args: any[]) => {
-            return evaluateSync(expr.children[2], source, stack.concat([args]));
+            return evaluateSync(
+              expr.children[2],
+              getSource,
+              stack.concat([args])
+            );
           });
         } else {
           throw new EvalError(
@@ -144,7 +148,7 @@ function evaluateSync(
         if (expr.children[0] instanceof Sym) {
           if (expr.children[0].value === "val") {
             if (expr.children[1] instanceof StringLiteral) {
-              return source(expr.children[1].value);
+              return getSource(expr.children[1].value);
             } else {
               throw new EvalError(
                 "argument of 'val' must be a string literal",
@@ -167,7 +171,7 @@ function evaluateSync(
             );
           }
           return maybeFunction(
-            ...args.map((arg) => evaluateSync(arg, source, stack))
+            ...args.map((arg) => evaluateSync(arg, getSource, stack))
           );
         }
         const maybeValue = obj[prop];
@@ -206,7 +210,7 @@ function evaluateSync(
           if (child instanceof Sym && child.value === "()") {
             return "null";
           }
-          const evalRes = evaluateSync(child, source, stack);
+          const evalRes = evaluateSync(child, getSource, stack);
           if (
             child.type === "StringLiteral" ||
             child.type === "StringTemplate"
