@@ -29,6 +29,10 @@ module.exports = {
     screens: {
       tablet: "640px",
     },
+    fontFamily: {
+      sans: "'Roboto', sans-serif",
+      serif: "'JetBrains Mono', monospace",
+    },
   },
   plugins: [],
 };

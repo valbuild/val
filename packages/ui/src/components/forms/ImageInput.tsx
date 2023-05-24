@@ -3,47 +3,47 @@ import { UploadCloud } from "react-feather";
 import { ErrorText } from "../ErrorText";
 
 type Error = "invalid-file" | "file-too-large";
-type ImageSource = {
+export type ImageData = {
   src: string;
   metadata?: { width: number; height: number };
 } | null;
 export type ImageInputProps = {
   name: string;
-  source: ImageSource;
+  data: ImageData;
   maxSize?: number;
   error: Error | null;
   onChange: (
-    result: { error: null; value: ImageSource } | { error: Error; value: null }
+    result: { error: null; value: ImageData } | { error: Error; value: null }
   ) => void;
 };
 
 export function ImageInput({
   name,
-  source,
+  data: data,
   maxSize,
   error,
   onChange,
 }: ImageInputProps) {
-  const [currentSource, setCurrentSource] = useState<ImageSource>(null);
+  const [currentData, setCurrentData] = useState<ImageData>(null);
   useEffect(() => {
-    setCurrentSource(source);
-  }, [source]);
+    setCurrentData(data);
+  }, [data]);
   const [currentError, setCurrentError] = useState<Error | null>(null);
   useEffect(() => {
     setCurrentError(error);
-  }, [source]);
+  }, [data]);
 
   return (
     <div className="w-full py-2 max-w-[90vw] object-contain">
       <label htmlFor={name}>
         <div className="flex items-center justify-center w-full h-full min-h-[200px] cursor-pointer">
-          {currentSource !== null && (
+          {currentData !== null && (
             <img
               className="object-contain max-h-[300px]"
-              src={currentSource.src}
+              src={currentData.src}
             />
           )}
-          {!currentSource?.src && (
+          {!currentData?.src && (
             <UploadCloud size={24} className="text-primary" />
           )}
         </div>
@@ -72,7 +72,7 @@ export function ImageInput({
                       height: image.naturalHeight,
                     },
                   };
-                  setCurrentSource(nextSource);
+                  setCurrentData(nextSource);
                   setCurrentError(null);
                   onChange({
                     error: null,
@@ -87,10 +87,9 @@ export function ImageInput({
           }}
         />
       </label>
-      {currentSource?.metadata && (
+      {currentData?.metadata && (
         <div className="ml-auto text-primary">
-          Dimensions: {currentSource.metadata.width}x
-          {currentSource.metadata.height}
+          Dimensions: {currentData.metadata.width}x{currentData.metadata.height}
         </div>
       )}
       {currentError && <ImageError error={currentError} />}

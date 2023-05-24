@@ -1,24 +1,8 @@
-import { Source, Schema, SourcePath } from "@valbuild/lib";
-import { parseJSONPointer, PatchJSON } from "@valbuild/lib/patch";
-import { result } from "@valbuild/lib/fp";
-import React, {
-  CSSProperties,
-  forwardRef,
-  MouseEventHandler,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { editIcon, valcmsLogo } from "./assets";
+import React, { useContext, useEffect, useMemo, useState } from "react";
 import { ValApi } from "./ValApi";
 import { ValStore } from "./ValStore";
-import { SerializedStringSchema } from "@valbuild/lib/src/schema/string";
 import { Style, ValOverlay } from "@valbuild/ui";
 import root from "react-shadow"; // TODO: remove dependency on react-shadow here?
-
-const baseZIndex = 8500; // Next uses 9000 highest z-index so keep us below that
 
 export function useValStore() {
   return useContext(ValContext).valStore;
@@ -26,559 +10,6 @@ export function useValStore() {
 export function useValApi() {
   return useContext(ValContext).valApi;
 }
-
-// TODO: Use me!
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const ValElementEditButton = forwardRef<
-  HTMLButtonElement,
-  {
-    left?: CSSProperties["left"];
-    top?: CSSProperties["top"];
-    display?: CSSProperties["display"];
-    onClick: MouseEventHandler<HTMLButtonElement>;
-  }
->(function ValEditButton({ left, top: top, display, onClick }, ref) {
-  return (
-    <button
-      ref={ref}
-      onClick={onClick}
-      style={{
-        display,
-        left,
-        top,
-        position: "absolute",
-        zIndex: baseZIndex + 1,
-        cursor: "pointer",
-        background: `url('${valcmsLogo}')`,
-        backgroundSize: "contain",
-        backgroundRepeat: "no-repeat",
-        backgroundColor: "white",
-        width: "20px",
-        height: "20px",
-        border: "none",
-      }}
-    />
-  );
-});
-
-// TODO: Use me!
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const ValSidebar = ({
-  selectedIds,
-  onClose,
-}: {
-  selectedIds: string[];
-  onClose: () => void;
-}) => {
-  if (selectedIds.length === 0) {
-    return null;
-  }
-  return (
-    <div
-      style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        height: "100vh",
-        width: "300px",
-        background: "whitesmoke",
-        zIndex: baseZIndex + 1,
-      }}
-    >
-      <button
-        style={{ position: "absolute", right: 0, top: 0 }}
-        onClick={onClose}
-      >
-        Close
-      </button>
-      <h1>ValCMS</h1>
-      <form>
-        {selectedIds.map((id) => (
-          <label key={id}>
-            {id}
-            <input defaultValue={"TODO"}></input>
-          </label>
-        ))}
-        <input type="submit" value="Save" />
-      </form>
-    </div>
-  );
-};
-
-const ValEditEnableButton = ({
-  enabled,
-  setEnabled,
-}: {
-  enabled: boolean;
-  setEnabled: (enabled: boolean) => void;
-}) => {
-  return (
-    <button
-      data-val-element="true"
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        position: "fixed",
-        zIndex: baseZIndex + 1,
-        cursor: "pointer",
-        left: "10px",
-        bottom: "10px",
-        color: "white",
-        backgroundColor: "black",
-        height: "50px",
-        width: "10rem",
-        border: "1px solid white",
-      }}
-      onClick={() => {
-        setEnabled(!enabled);
-      }}
-    >
-      <span
-        style={{
-          background: `url('${editIcon(18, "white")}')`,
-          backgroundSize: "contain",
-          backgroundRepeat: "no-repeat",
-          appearance: "none",
-          cursor: "pointer",
-          height: "18px",
-          width: "18px",
-          border: "none",
-        }}
-      ></span>
-      <span
-        style={{
-          marginLeft: "8px",
-          fontSize: "16px",
-        }}
-      >
-        EDIT
-      </span>
-    </button>
-  );
-};
-
-type FormPosition = {
-  left: number;
-  top: number;
-};
-
-type Operation = {
-  op: "replace";
-  path: string;
-  value: Source;
-};
-
-const ValFontFamily = "Arial, Verdana, Tahoma, Cantarell, sans-serif";
-
-const ValEditForm: React.FC<{
-  host: string;
-  position: FormPosition | null;
-  selectedSources: string[];
-  onClose: () => void;
-}> = ({ host, position: initPosition, selectedSources, onClose }) => {
-  type Entry =
-    | {
-        source: string;
-        status: "loading";
-      }
-    | {
-        source: string;
-        status: "error";
-        error: string;
-      }
-    | {
-        status: "ready";
-        valPath: SourcePath;
-        source: string;
-        schema: SerializedStringSchema;
-      };
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const valStore = useValStore();
-  const valApi = useValApi();
-
-  const [submission, setSubmission] = useState<
-    | { status: "submitting" }
-    | { status: "error"; error: string }
-    | { status: "ready" }
-  >({ status: "ready" });
-
-  useEffect(() => {
-    console.log("selectedSources", selectedSources);
-    setEntries(
-      selectedSources.map((source) => ({ source, status: "loading" }))
-    );
-
-    selectedSources.map(async (source) => {
-      console.log(await valApi.getModule(source));
-    });
-    //   Promise.all(
-    //     selectedSources.map(async (source): Promise<Entry> => {
-    //       try {
-    //           const [moduleId, locale, sourceExpr] =
-    //             expr.strings.parseValSrc(source);
-    //           const mod = ModuleContent.deserialize(
-    //             await valApi.getModule(moduleId)
-    //           );
-    //           valStore.set(moduleId, mod);
-    //           const [value, ref] = (
-    //             sourceExpr as expr.Expr<readonly [Source], Source>
-    //           ).evaluateRef(
-    //             [Schema.transform(mod.schema, mod.source, locale)],
-    //             [""]
-    //           );
-    //           let schemaType: "string" | "image" = "string";
-    //           const primitivePath = [];
-    //           // Temporary hack to get schema at ref
-    //           if (typeof ref === "string") {
-    //             let schema = mod.schema.serialize();
-    //             for (const part of ref.split("/") || []) {
-    //               if (part === "") {
-    //                 continue;
-    //               }
-    //               if (schema.type === "object") {
-    //                 schema = schema.schema[part];
-    //               } else if (schema.type === "array") {
-    //                 schema = schema.schema;
-    //               } else {
-    //                 if (schema.type !== "string" && schema.type !== "image") {
-    //                   throw Error(
-    //                     "Schema type " + schema.type + " not implemented"
-    //                   );
-    //                 }
-    //                 schemaType = schema.type;
-    //                 break;
-    //               }
-    //               primitivePath.push(part);
-    //             }
-    //             // console.log(ref, primitiveRef.join("/"), schemaType);
-    //             if (!schemaType) {
-    //               throw Error('Could not find schema for ref "' + ref + '"');
-    //             }
-    //           } else {
-    //             console.error("TODO: ref is not a string", ref);
-    //           }
-    //           // if (!expr.isAssignable(ref)) {
-    //           //   return {
-    //           //     source,
-    //           //     status: "error",
-    //           //     error: "ref is not assignable",
-    //           //   };
-    //           // }
-    //           if (typeof value !== "string") {
-    //             return {
-    //               source,
-    //               status: "error",
-    //               error: "value is not a string",
-    //             };
-    //           }
-    //           return {
-    //             source,
-    //             status: "ready",
-    //             moduleId,
-    //             locale,
-    //             schemaType,
-    //             value,
-    //             primitivePath: "/" + primitivePath.join("/"),
-    //             path: ref,
-    //           };
-    //       } catch (err) {
-    //         console.error(err);
-    //         return {
-    //           source,
-    //           status: "error",
-    //           error: err instanceof Error ? err.message : "Unknown error",
-    //         };
-    //       }
-    //     })
-    //   ).then((resolvedEntries) => {
-    //     setEntries(resolvedEntries);
-    //   });
-  }, [host, selectedSources.join(",")]);
-
-  // dragging
-  const [mouseDown, setMouseDown] = useState(false);
-  const [position, setPosition] = useState<FormPosition | null>();
-  useEffect(() => {
-    if (initPosition) {
-      setPosition(initPosition);
-    }
-  }, [initPosition]);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const onMouseUp = () => {
-      setMouseDown(false);
-    };
-    const onMouseMove = (e: MouseEvent) => {
-      if (mouseDown) {
-        const top =
-          -((ref?.current?.getBoundingClientRect()?.height || 0) / 2) +
-          +e.clientY;
-
-        setPosition({
-          left:
-            -((ref?.current?.getBoundingClientRect()?.width || 0) / 2) +
-            e.clientX,
-          top: top < 0 ? 0 : top,
-        });
-      }
-    };
-
-    document.addEventListener("mouseup", onMouseUp);
-    document.addEventListener("mousemove", onMouseMove);
-    return () => {
-      document.removeEventListener("mouseup", onMouseUp);
-      document.removeEventListener("mousemove", onMouseMove);
-    };
-  }, [mouseDown]);
-
-  const handleMouseDown = () => setMouseDown(true);
-
-  const [imagePreviews, setImagePreviews] = useState<{
-    [primitivePath: string]: string;
-  }>({});
-
-  if (!initPosition) {
-    return null;
-  }
-  return (
-    <form
-      data-val-element={true}
-      style={{
-        position: "absolute",
-        left: position?.left,
-        top: position?.top,
-        zIndex: 999999,
-        minWidth: "420px",
-        background: "#1A1A1A",
-        color: "white",
-        objectFit: "contain",
-        fontFamily: ValFontFamily,
-        filter: "drop-shadow(-10px 10px 24px rgba(0, 0, 0, 0.25))",
-      }}
-      onSubmit={async (e) => {
-        e.preventDefault();
-        setSubmission({ status: "submitting" });
-        try {
-          const data = new FormData(e.currentTarget);
-          const modulePatches: Record<string, Operation[]> = {};
-          for (const entry of entries) {
-            if (entry.status === "ready") {
-              // const { moduleId, locale, schemaType, primitivePath } = entry;
-              // const { modulePath: path } = entry;
-              // if (!modulePatches[moduleId]) {
-              //   modulePatches[moduleId] = [];
-              // }
-              // if (schemaType === "image") {
-              //   if (imagePreviews[primitivePath]) {
-              //     const base64Image = imagePreviews[primitivePath];
-              //     const parts = primitivePath
-              //       .slice(1) // removes leading slash
-              //       .split("/");
-              //     modulePatches[moduleId].push({
-              //       op: "replace",
-              //       path:
-              //         // TODO: this leaves room for... improvement
-              //         "/" +
-              //         parts.slice(0, parts.length - 1).join("/") +
-              //         "/$" +
-              //         parts.slice(-1)[0],
-              //       value: base64Image,
-              //     });
-              //   }
-              // } else {
-              //   const value = data.get(path);
-              //   if (typeof value !== "string") {
-              //     throw Error("Invalid non-string value in form");
-              //   }
-              //   const mod = valStore.get(moduleId);
-              //   if (!mod) {
-              //     throw Error(`${moduleId} is not in store`);
-              //   }
-              //   const parsedPath = parseJSONPointer(path);
-              //   if (result.isErr(parsedPath)) {
-              //     throw Error(
-              //       `${JSON.stringify(path)} is invalid JSON pointer`
-              //     );
-              //   }
-              //   // path = formatJSONPointer(
-              //   //   Schema.inverseTransformPath(
-              //   //     mod.schema,
-              //   //     mod.source,
-              //   //     parsedPath.value,
-              //   //     locale
-              //   //   )
-              //   // );
-              //   // modulePatches[moduleId].push({
-              //   //   op: "replace",
-              //   //   path,
-              //   //   value,
-              //   // });
-              // }
-            }
-          }
-          await Promise.all(
-            Object.entries(modulePatches).map(async ([moduleId, patch]) => {
-              // const moduleContent = ModuleContent.deserialize(
-              //   await valApi.patchModuleContent(moduleId, patch as PatchJSON)
-              // );
-              // valStore.set(moduleId, moduleContent);
-            })
-          );
-          setSubmission({
-            status: "ready",
-          });
-          onClose();
-        } catch (err) {
-          setSubmission({
-            status: "error",
-            error: err instanceof Error ? err.message : "Unknown error",
-          });
-        }
-      }}
-    >
-      <div
-        ref={ref}
-        style={{
-          width: "100%",
-          textAlign: "center",
-          userSelect: "none",
-          cursor: "grab",
-          padding: "4px",
-        }}
-        onMouseDown={handleMouseDown}
-      >
-        <svg
-          width={10}
-          height={9}
-          viewBox="0 0 10 9"
-          style={{
-            color: "white",
-          }}
-        >
-          <line
-            x1="0"
-            x2="10"
-            y1="1"
-            y2="1"
-            strokeWidth={1}
-            stroke="currentColor"
-          />
-          <line
-            x1="0"
-            x2="10"
-            y1="4"
-            y2="4"
-            strokeWidth={1}
-            stroke="currentColor"
-          />
-          <line
-            x1="0"
-            x2="10"
-            y1="7"
-            y2="7"
-            strokeWidth={1}
-            stroke="currentColor"
-          />
-        </svg>
-      </div>
-      <div
-        style={{
-          gap: "20px",
-          display: "flex",
-          flexDirection: "column",
-          padding: "32px",
-        }}
-      >
-        {submission.status === "error" && submission.error}
-        {/* {entries === null
-          ? "Loading..."
-          : entries.map((entry) => (
-              <label
-                key={entry.source}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "10px",
-                }}
-              >
-                {entry.status === "loading" ? (
-                  "Loading..."
-                ) : entry.status === "error" ? (
-                  entry.error
-                ) : (
-                  <>
-                    <span>
-                      {entry.moduleId}?{entry.locale}?{entry.primitivePath}
-                    </span>
-                    {entry.schemaType === "image" ? (
-                      <>
-                        <img
-                          src={
-                            imagePreviews[entry.primitivePath] || entry.value
-                          }
-                          style={{ maxWidth: "50vw" }}
-                        />
-                        <input
-                          hidden
-                          type="file"
-                          name={entry.primitivePath}
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              const reader = new FileReader();
-                              reader.addEventListener("load", () => {
-                                const result = reader.result;
-                                if (typeof result === "string") {
-                                  setImagePreviews({
-                                    ...imagePreviews,
-                                    [entry.primitivePath]: result,
-                                  });
-                                } else {
-                                  throw Error("Invalid reader result");
-                                }
-                              });
-                              reader.readAsDataURL(file);
-                            }
-                          }}
-                        />
-                      </>
-                    ) : (
-                      <textarea
-                        style={{
-                          display: "block",
-                          width: "100%",
-                          background: "#575757",
-                          color: "white",
-                          minHeight: "200px",
-                          border: "none",
-                          padding: "4px",
-                          fontSize: "14px",
-                        }}
-                      name={entry.valPath}
-                      defaultValue={entry.source}
-                    />
-                  </>
-                )}
-              </label>
-            ))} */}
-        <input
-          type="submit"
-          value="Save"
-          style={{
-            alignSelf: "flex-end",
-            background: "#1A1A1A",
-            color: "#FCFCFC",
-
-            border: "#FCFCFC solid 1px",
-            borderRadius: "4px",
-            padding: "8px 16px",
-          }}
-        />
-      </div>
-    </form>
-  );
-};
 
 export type ValContext = {
   readonly valStore: ValStore;
@@ -629,10 +60,12 @@ function isValElement(el: Element | null): boolean {
 
 export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
-  const [enabled, setEnabled] = useState(false);
-  const [editFormPosition, setEditFormPosition] = useState<FormPosition | null>(
-    null
-  );
+  const [editMode, setEditMode] = useState(false);
+  const [editFormPosition, setEditFormPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
+
   const [authentication, setAuthentication] = useState<AuthStatus>({
     status: "not-asked",
   });
@@ -640,10 +73,10 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
   const valStore = useMemo(() => new ValStore(valApi), [valApi]);
 
   useEffect(() => {
-    if (enabled) {
+    if (editMode) {
       valStore.updateAll();
     }
-  }, [enabled]);
+  }, [editMode]);
   useEffect(() => {
     let openValFormListener: ((e: MouseEvent) => void) | undefined = undefined;
     let styleElement: HTMLStyleElement | undefined = undefined;
@@ -651,7 +84,7 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
       capture: true,
       passive: true,
     };
-    if (enabled) {
+    if (editMode) {
       // highlight val element by appending a new style
       styleElement = document.createElement("style");
       styleElement.id = "val-edit-highlight";
@@ -670,7 +103,6 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
           const valSources = e.target?.getAttribute("data-val-path");
           if (valSources) {
             e.stopPropagation();
-            console.log("open val form", valSources);
             setSelectedSources(
               valSources.split(
                 ","
@@ -680,9 +112,10 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
               left: e.clientX,
               top: e.clientY,
             });
-          } else if (!isValElement(e.target)) {
-            setEditFormPosition(null);
-            setSelectedSources([]);
+            // } else if (!isValElement(e.target)) {
+            //   console.log("click outside", e.target);
+            //   setEditFormPosition(null);
+            //   setSelectedSources([]);
           }
         }
       };
@@ -702,32 +135,34 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
       }
       styleElement?.remove();
     };
-  }, [enabled]);
+  }, [editMode]);
+
+  // useEffect(() => {
+  //   const requestAuth = !(
+  //     authentication.status === "authenticated" ||
+  //     authentication.status === "local"
+  //   );
+  //   if (requestAuth) {
+  //     setSelectedSources([]);
+  //     console.log("request auth");
+  //     setEditFormPosition(null);
+  //   }
+  //   if (!editMode) {
+  //     // reset state when disabled
+  //     setSelectedSources([]);
+  //     console.log("reset state");
+  //     setEditFormPosition(null);
+  //   }
+  // }, [editMode, selectedSources.length, authentication.status]);
 
   useEffect(() => {
-    const requestAuth = !(
-      authentication.status === "authenticated" ||
-      authentication.status === "local"
-    );
-    if (requestAuth) {
-      setSelectedSources([]);
-      setEditFormPosition(null);
-    }
-    if (!enabled) {
-      // reset state when disabled
-      setSelectedSources([]);
-      setEditFormPosition(null);
-    }
-  }, [enabled, selectedSources.length, authentication.status]);
-
-  useEffect(() => {
-    if (enabled) {
+    if (editMode) {
       document.body.classList.add("val-edit-mode");
     } else {
       document.body.classList.remove("val-edit-mode");
     }
 
-    if (enabled) {
+    if (editMode) {
       if (authentication.status !== "authenticated") {
         valApi
           .getSession()
@@ -778,7 +213,7 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
         });
       }
     }
-  }, [enabled, authentication.status]);
+  }, [editMode, authentication.status]);
 
   const [showEditButton, setShowEditButton] = useState(false);
   useEffect(() => {
@@ -795,159 +230,42 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
       {children}
       {showEditButton && (
         <root.div>
+          {/* TODO: */}
+          <link rel="preconnect" href="https://fonts.googleapis.com" />
+          <link
+            rel="preconnect"
+            href="https://fonts.gstatic.com"
+            crossOrigin="anonymous"
+          />
+          <link
+            href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,400;1,700&display=swap"
+            rel="stylesheet"
+          />
           <Style />
           <div data-mode="dark">
-            <ValOverlay />
+            <ValOverlay
+              editMode={editMode}
+              setEditMode={setEditMode}
+              closeValWindow={() => {
+                setEditFormPosition(null);
+                setSelectedSources([]);
+              }}
+              valWindow={
+                (editFormPosition && {
+                  position: editFormPosition,
+                  type: "text",
+                  path: selectedSources[0],
+                  data: "test",
+                  onChange: (value) => {
+                    //
+                  },
+                }) ??
+                undefined
+              }
+            />
           </div>
         </root.div>
       )}
-      {/* {authentication.status === "local" && enabled && (
-        <ValEditForm
-          host={host}
-          selectedSources={selectedSources}
-          position={editFormPosition}
-          onClose={() => {
-            setEditFormPosition(null);
-            setSelectedSources([]);
-          }}
-        />
-      )}
-      {authentication.status === "authenticated" && (
-        <>
-          {enabled && <ValProxyActions setAuthentication={setAuthentication} />}
-          <ValEditForm
-            host={host}
-            selectedSources={selectedSources}
-            position={editFormPosition}
-            onClose={() => {
-              setEditFormPosition(null);
-              setSelectedSources([]);
-            }}
-          />
-        </>
-      )}
-      {enabled && authentication.status === "unauthenticated" && (
-        <ValLoginPrompt />
-      )}
-      {authentication.status === "error" && (
-        <div
-          style={{
-            position: "absolute",
-            height: "100vh",
-            width: "100vw",
-            background: "red",
-            zIndex: baseZIndex,
-            top: 0,
-            left: 0,
-          }}
-        >
-          Error: {authentication.message}
-        </div>
-      )}
-      <ValEditEnableButton enabled={enabled} setEnabled={setEnabled} /> */}
     </ValContext.Provider>
-  );
-}
-
-function Menu({ children }: { children: React.ReactNode }) {
-  return (
-    <div
-      data-val-element="true"
-      style={{
-        position: "fixed",
-        minHeight: "2em",
-        width: "10rem",
-        background: "transparent",
-        zIndex: baseZIndex,
-        bottom: 68,
-        left: 10,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        border: "1px solid white",
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-function ValProxyActions({
-  setAuthentication,
-}: {
-  setAuthentication: (auth: AuthStatus) => void;
-}) {
-  const valApi = useValApi();
-  return (
-    <Menu>
-      <button
-        style={{
-          display: "block",
-          color: "white",
-          background: "black",
-          border: "none",
-          cursor: "pointer",
-          width: "100%",
-          fontFamily: ValFontFamily,
-          fontWeight: "normal",
-          fontSize: "16px",
-          marginBottom: "1em",
-          padding: "8px 16px",
-        }}
-        onClick={() => {
-          valApi.commit();
-        }}
-      >
-        Commit
-      </button>
-      <button
-        style={{
-          display: "block",
-          color: "white",
-          background: "black",
-          border: "none",
-          cursor: "pointer",
-          width: "100%",
-          fontFamily: ValFontFamily,
-          fontWeight: "normal",
-          fontSize: "16px",
-          padding: "8px 16px",
-        }}
-        onClick={() => {
-          valApi.logout().then((res) => {
-            if (res.ok) {
-              setAuthentication({
-                status: "unauthenticated",
-              });
-            } else {
-              console.error("Could not log out", res.status);
-            }
-          });
-        }}
-      >
-        Log out
-      </button>
-    </Menu>
-  );
-}
-
-function ValLoginPrompt() {
-  const valApi = useValApi();
-  return (
-    <Menu>
-      <a
-        style={{
-          background: "black",
-          color: "white",
-          fontFamily: ValFontFamily,
-          fontWeight: "normal",
-          fontSize: "16px",
-        }}
-        href={valApi.loginUrl()}
-      >
-        Login
-      </a>
-    </Menu>
   );
 }

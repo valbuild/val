@@ -18,7 +18,7 @@ export const Text: Story = {
       <FormContainer>
         <TextInput
           name="/apps/blogs.0.title"
-          source="Hva skjer'a, Bagera?"
+          text="Hva skjer'a, Bagera?"
           onChange={() => {
             console.log("onChange");
           }}
@@ -35,7 +35,7 @@ export const EmptyImage: Story = {
         <ImageInput
           name="/apps/blogs.0.image"
           error={null}
-          source={null}
+          data={null}
           onChange={() => {
             console.log("onChange");
           }}
@@ -52,7 +52,7 @@ export const Image: Story = {
         <ImageInput
           name="/apps/blogs.0.image"
           error={null}
-          source={{
+          data={{
             src: EXAMPLE_IMAGE,
             metadata: {
               width: 32,
@@ -75,7 +75,7 @@ export const ImageError: Story = {
         <ImageInput
           name="/apps/blogs.0.image"
           error={"invalid-file"}
-          source={{
+          data={{
             src: EXAMPLE_IMAGE,
           }}
           onChange={() => {
