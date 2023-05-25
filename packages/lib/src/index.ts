@@ -2,7 +2,7 @@ export { initVal } from "./initVal";
 export { fetchVal } from "./fetchVal";
 export type { InitVal } from "./initVal";
 export { Schema, type SerializedSchema } from "./schema";
-export type { ValModule } from "./module";
+export type { ValModule, SerializedModule } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
 export type { RemoteSource } from "./source/remote";
@@ -30,7 +30,7 @@ import {
   splitModuleIdAndModulePath,
 } from "./module";
 import { getSchema } from "./selector";
-import { getValPath } from "./val";
+import { getValPath, SerializedVal } from "./val";
 
 const Internal = {
   getSchema,

@@ -15,6 +15,7 @@ import { ArraySchema, SerializedArraySchema } from "./schema/array";
 import { I18nSchema, SerializedI18nSchema } from "./schema/i18n";
 import { UnionSchema, SerializedUnionSchema } from "./schema/union";
 import { OneOfSchema, SerializedOneOfSchema } from "./schema/oneOf";
+import { Json } from "./Json";
 
 const brand = Symbol("ValModule");
 export type ValModule<T extends SelectorSource> = SelectorOf<T> &
@@ -273,3 +274,9 @@ export function parsePath(input: ModulePath) {
 
   return result;
 }
+
+export type SerializedModule = {
+  source: Json;
+  schema: SerializedSchema;
+  path: SourcePath;
+};

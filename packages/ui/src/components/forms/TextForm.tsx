@@ -5,7 +5,7 @@ export type TextInputProps = {
   onChange: (value: string) => void;
 };
 
-export function TextInput({ name, text, onChange }: TextInputProps) {
+export function TextForm({ name, text, onChange }: TextInputProps) {
   return (
     <div
       className="w-full py-2 grow-wrap"

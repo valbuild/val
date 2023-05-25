@@ -53,7 +53,7 @@ export class LocalValServer implements ValServer {
       res.status(401).json(patch.error);
       return;
     }
-    const [id] = splitModuleIdAndModulePath(getPathFromParams(req.params));
+    const id = getPathFromParams(req.params);
     try {
       const valModule = await this.options.service.patch(id, patch.value);
       res.json(valModule);

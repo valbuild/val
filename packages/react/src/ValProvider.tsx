@@ -1,8 +1,10 @@
 import React, { useContext, useEffect, useMemo, useState } from "react";
 import { ValApi } from "./ValApi";
 import { ValStore } from "./ValStore";
-import { Style, ValOverlay } from "@valbuild/ui";
+import { Inputs, Style, ValOverlay } from "@valbuild/ui";
 import root from "react-shadow"; // TODO: remove dependency on react-shadow here?
+import { Internal, SourcePath } from "@valbuild/lib";
+import { Patch, PatchJSON } from "@valbuild/lib/patch";
 
 export function useValStore() {
   return useContext(ValContext).valStore;
@@ -108,9 +110,10 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
                 ","
               ) /* TODO: just split on commas will not work if path contains , */
             );
+            console.log(e.clientY, e.screenY, e.pageY, e.offsetY);
             setEditFormPosition({
-              left: e.clientX,
-              top: e.clientY,
+              left: e.pageX,
+              top: e.pageY,
             });
             // } else if (!isValElement(e.target)) {
             //   console.log("click outside", e.target);
@@ -220,6 +223,38 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
     setShowEditButton(true);
   }, []);
 
+  const [inputs, setInputs] = useState<Inputs>({});
+
+  useEffect(() => {
+    setInputs({});
+    for (const path of selectedSources) {
+      valApi.getModule(path).then((serializedModule) => {
+        let input: Inputs[string] | undefined;
+        if (
+          serializedModule.schema.type === "string" &&
+          typeof serializedModule.source === "string"
+        ) {
+          input = {
+            status: "completed",
+            type: "text",
+            data: serializedModule.source,
+          };
+        }
+        console.log("input", input);
+        if (!input) {
+          throw new Error(
+            `Unsupported module type: ${serializedModule.schema.type}`
+          );
+        }
+        setInputs((inputs) => {
+          return {
+            ...inputs,
+            [path]: input,
+          } as Inputs;
+        });
+      });
+    }
+  }, [selectedSources.join(",")]);
   return (
     <ValContext.Provider
       value={{
@@ -249,15 +284,49 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
               closeValWindow={() => {
                 setEditFormPosition(null);
                 setSelectedSources([]);
+                setInputs({});
               }}
               valWindow={
                 (editFormPosition && {
                   position: editFormPosition,
-                  type: "text",
-                  path: selectedSources[0],
-                  data: "test",
-                  onChange: (value) => {
-                    //
+                  inputs,
+                  onSubmit: (inputs) => {
+                    Promise.all(
+                      Object.entries(inputs).map(([path, input]) => {
+                        if (input.status === "completed") {
+                          const [moduleId, modulePath] =
+                            Internal.splitModuleIdAndModulePath(
+                              path as SourcePath
+                            );
+
+                          if (input.type === "text") {
+                            const patch: PatchJSON = [
+                              {
+                                value: input.data,
+                                op: "replace",
+                                path: `/${modulePath
+                                  .split(".")
+                                  .map((p) => JSON.parse(p))
+                                  .join("/")}`,
+                              },
+                            ];
+                            return valApi.patchModuleContent(moduleId, patch);
+                          }
+                          throw new Error(
+                            `Unsupported input type: ${input.type}`
+                          );
+                        } else {
+                          console.error(
+                            "Submitted incomplete input, ignoring..."
+                          );
+                          return Promise.resolve();
+                        }
+                      })
+                    ).then(() => {
+                      setEditFormPosition(null);
+                      setSelectedSources([]);
+                      setInputs({});
+                    });
                   },
                 }) ??
                 undefined

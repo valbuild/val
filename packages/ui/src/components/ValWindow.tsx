@@ -6,10 +6,12 @@ export type ValWindowProps = {
   children: React.ReactNode;
   onClose: () => void;
   position?: { left: number; top: number };
+  isInitialized?: true;
 };
 
 export function ValWindow({
   position,
+  isInitialized: isInitializedProp,
   onClose,
   children,
 }: ValWindowProps): React.ReactElement {
@@ -30,10 +32,10 @@ export function ValWindow({
   return (
     <div
       className={classNames(
-        "absolute rounded bg-base drop-shadow-2xl min-w-[320px] transition-opacity duration-300",
+        "absolute h-[100svh] w-full tablet:w-auto tablet:h-auto tablet:rounded bg-base drop-shadow-2xl min-w-[320px] transition-opacity duration-300 delay-75 tablet:max-w-[50ch] max-w-full",
         {
-          "opacity-0": isInitialized,
-          "opacity-100": !isInitialized,
+          "opacity-0": !(isInitialized || isInitializedProp),
+          "opacity-100": isInitialized || isInitializedProp,
         }
       )}
       style={{
@@ -47,7 +49,7 @@ export function ValWindow({
       >
         <AlignJustify
           size={16}
-          className="w-full cursor-grab"
+          className="hidden w-full cursor-grab tablet:block"
           onMouseDown={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -55,7 +57,7 @@ export function ValWindow({
           }}
         />
         <button
-          className="absolute right-0 px-4 -translate-y-1/2 top-1/2 focus:outline-none focus-visible:outline-highlight"
+          className="absolute top-0 right-0 px-4 py-2 focus:outline-none focus-visible:outline-highlight"
           onClick={onClose}
         >
           <X size={16} />
@@ -95,12 +97,12 @@ function useDrag({
         e.stopPropagation();
         const top =
           -((ref?.current?.getBoundingClientRect()?.height || 0) / 2) +
-          +e.clientY;
+          +e.pageY;
 
         setPosition({
           left:
             -((ref?.current?.getBoundingClientRect()?.width || 0) / 2) +
-            e.clientX,
+            e.pageX,
           top: top < 0 ? 0 : top,
         });
       }
@@ -114,7 +116,22 @@ function useDrag({
     };
   }, [mouseDown]);
 
+  // TODO: rename hook from useDrag to usePosition or something since we also check for screen width here?
+  useEffect(() => {
+    const onResize = () => {
+      if (window.screen.width < 640) {
+        setPosition({
+          left: 0,
+          top: 0,
+        });
+      }
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
   const handleMouseDown = () => setMouseDown(true);
-  const isInitialized = !ref?.current?.getBoundingClientRect()?.width;
+  const isInitialized = !!ref?.current?.getBoundingClientRect()?.width;
   return [position, isInitialized, ref, handleMouseDown] as const;
 }

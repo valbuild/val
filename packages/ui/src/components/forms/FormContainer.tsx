@@ -12,9 +12,6 @@ export function FormContainer({
       className="flex flex-col justify-between w-full px-4 py-2"
       onSubmit={(ev) => {
         ev.preventDefault();
-        console.log(ev);
-        const formData = new FormData(ev.currentTarget);
-        console.log(formData);
         onSubmit();
       }}
     >

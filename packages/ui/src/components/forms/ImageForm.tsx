@@ -17,7 +17,7 @@ export type ImageInputProps = {
   ) => void;
 };
 
-export function ImageInput({
+export function ImageForm({
   name,
   data: data,
   maxSize,

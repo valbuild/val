@@ -32,9 +32,9 @@ export default val.content("/app/blogs", schema, [
     rank: 10,
   },
   {
-    title: "HVORFOR?",
+    title: "Og han er slem for aa ha gjort narr av oppsettet mitt n[r i handa mi !! GRRr! Undertrykket kommer fram",
     // image: val.file("/public/val/app/blogs/image3.jpg"),
-    text: "Vi startet Blank fordi vi ønsket oss et konsulentselskap hvor vi kan lære og utfordre oss selv, et selskap hvor det er veldig fint å jobbe - og kanskje aller mest fordi vi liker å bygge ting.\n  test\n      I tillegg ønsket vi å forandre bransjen og hvordan et konsulentselskap kan fungere.\n\n      ",
+    text: "asdf",
     rank: 1,
   },
 ]);

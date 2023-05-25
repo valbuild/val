@@ -13,11 +13,11 @@ export class ValStore {
   async updateAll() {
     await Promise.all(
       Object.keys(this.listeners).map(async (moduleId) => {
-        this.set(
-          moduleId,
-          await this.api.getModule(moduleId)
-          // ModuleContent.deserialize(await this.api.getModule(moduleId))
-        );
+        // this.set(
+        //   moduleId,
+        //   await this.api.getModule(moduleId)
+        //   // ModuleContent.deserialize(await this.api.getModule(moduleId))
+        // );
       })
     );
   }
