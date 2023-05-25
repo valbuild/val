@@ -1,7 +1,5 @@
 import * as repl from "repl";
-import { expr } from "../..";
 import { result, pipe } from "../../fp";
-import { SourceOrExpr } from "../selector";
 import { newSelectorProxy, selectorToVal } from "../selector/SelectorProxy";
 import { SourcePath } from "../val";
 import { evaluate } from "./eval";
@@ -23,6 +21,7 @@ repl
       cmd,
       context,
       filename,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       callback: (arg0: any, arg1: any) => void
     ) => {
       const res = parse(cmd);
@@ -89,4 +88,6 @@ repl
       return output;
     },
   })
-  .setupHistory(".repl_history", () => {});
+  .setupHistory(".repl_history", () => {
+    //
+  });

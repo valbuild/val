@@ -4,8 +4,7 @@ import {
   SelectorOf,
   SelectorSource,
 } from ".";
-import { F } from "ts-toolbelt";
-import { Source, SourceObject } from "../source";
+import { SourceObject } from "../source";
 
 // TODO: docs
 export type Selector<T extends SourceObject> = GenericSelector<T> & {

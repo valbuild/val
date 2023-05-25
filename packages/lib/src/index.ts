@@ -30,7 +30,7 @@ import {
   splitModuleIdAndModulePath,
 } from "./module";
 import { getSchema } from "./selector";
-import { getValPath, SerializedVal } from "./val";
+import { getValPath } from "./val";
 
 const Internal = {
   getSchema,

@@ -18,6 +18,7 @@ const sources = {
 
 const EvalTestCases: {
   expr: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   expected: result.Result<{ val: Source; [Path]: any }, any>;
   focus?: boolean; // use focus to specify a single test case
 }[] = [

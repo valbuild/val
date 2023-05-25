@@ -1,4 +1,4 @@
-import { Source, Schema, ValModule, SelectorSource } from "@valbuild/lib";
+import { ValModule, SelectorSource } from "@valbuild/lib";
 import { ValApi } from "./ValApi";
 
 export class ValStore {
@@ -12,6 +12,7 @@ export class ValStore {
 
   async updateAll() {
     await Promise.all(
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       Object.keys(this.listeners).map(async (moduleId) => {
         // this.set(
         //   moduleId,

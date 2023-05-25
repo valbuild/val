@@ -1,12 +1,5 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import {
-  Selector,
-  GenericSelector,
-  SelectorOf,
-  SelectorSource,
-  SourceOrExpr,
-  Path,
-} from ".";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { Selector, GenericSelector, SourceOrExpr, Path } from ".";
 import { string } from "../schema/string";
 import { array } from "../schema/array";
 import { SourcePath } from "../val";
@@ -14,7 +7,6 @@ import { Source } from "../source";
 import { evaluate } from "../expr/eval";
 import * as expr from "../expr/expr";
 import { result } from "../../fp";
-import { Schema } from "../schema";
 import { object } from "../schema/object";
 import { newSelectorProxy, selectorToVal } from "./SelectorProxy";
 import { newExprSelectorProxy } from "./ExprProxy";
@@ -34,6 +26,7 @@ const modules = {
   "/app/empty": "",
   "/app/large/nested": BFV(),
 };
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const remoteModules: {
   [key in keyof TestModules]: RemoteSource<TestModules[key]>;
 } = {
@@ -142,6 +135,7 @@ const SelectorModuleTestCases: {
   {
     description: "string map undefined -> null literal conversion",
     input: (remote) =>
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       testModule("/app/blogs", remote).map((v) => ({ title: undefined })),
     expected: {
       val: [{ title: null }, { title: null }],
@@ -337,6 +331,7 @@ function testModule<P extends keyof TestModules>(
 }
 
 /** A big schema */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function BFS() {
   return array(
     object({

@@ -6,7 +6,6 @@ import {
 } from ".";
 import { Source, SourcePrimitive } from "../source";
 import { Selector as BooleanSelector } from "./boolean";
-import { F } from "ts-toolbelt";
 
 export type Selector<T extends SourcePrimitive> = GenericSelector<T> & {
   eq(other: Source): BooleanSelector<boolean>;

@@ -62,6 +62,7 @@ export const initVal = <
       },
       fetchVal: fetchVal,
       s,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any;
   }
   return {
@@ -76,5 +77,6 @@ export const initVal = <
       ...s,
       i18n: undefined,
     },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
 };

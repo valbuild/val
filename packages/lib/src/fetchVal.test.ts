@@ -1,8 +1,6 @@
 import { initSchema } from "./initSchema";
 import { content } from "./module";
-import { Path } from "./selector";
-import { i18n as initI18n } from "./source/i18n";
-import { getValPath, Val } from "./val";
+import { getValPath } from "./val";
 import { serializedValOfSelectorSource, fetchVal } from "./fetchVal";
 
 const s = initSchema(["en_US", "no_NB"]);

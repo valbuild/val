@@ -1,4 +1,4 @@
-import { SourcePrimitive, ValExtension, PhantomType, Source } from ".";
+import { SourcePrimitive, ValExtension, PhantomType } from ".";
 import { FileSource } from "./file";
 import { I18nCompatibleSource, I18nSource } from "./i18n";
 

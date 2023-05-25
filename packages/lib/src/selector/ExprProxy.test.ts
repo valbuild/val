@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { convertLiteralProxy, newExprSelectorProxy } from "./ExprProxy";
 import * as expr from "../expr/expr";
 import { GenericSelector, SelectorSource, SourceOrExpr } from ".";

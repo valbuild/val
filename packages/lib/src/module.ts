@@ -1,13 +1,12 @@
 import { Schema, SchemaTypeOf, SerializedSchema } from "./schema";
-import { string } from "./schema/string";
-import { object, ObjectSchema, SerializedObjectSchema } from "./schema/object";
+import { ObjectSchema, SerializedObjectSchema } from "./schema/object";
 import {
   GenericSelector,
   SelectorOf,
   SelectorSource,
   SourceOrExpr,
 } from "./selector";
-import { Source, SourceArray, SourceObject } from "./source";
+import { Source, SourceArray } from "./source";
 import { newSelectorProxy } from "./selector/SelectorProxy";
 import { ModuleId, ModulePath, SourcePath } from "./val";
 import { Expr } from "./expr";
@@ -39,15 +38,6 @@ export function content<T extends Schema<SelectorSource>>(
   return newSelectorProxy(source, id as SourcePath, schema);
 }
 
-{
-  const s = object({
-    foo: string(),
-  });
-  const a = content("/id", s, {
-    foo: "bar",
-  });
-}
-
 export function getRawSource(valModule: ValModule<SelectorSource>): Source {
   const sourceOrExpr = valModule[SourceOrExpr];
   if (sourceOrExpr instanceof Expr) {
@@ -71,6 +61,7 @@ export function getSourceAtPath(
   valModule: ValModule<SelectorSource> | Source
 ) {
   const parts = parsePath(modulePath);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let current: any = valModule;
   for (const part of parts) {
     if (typeof current !== "object") {
@@ -112,6 +103,7 @@ function isI18nSchema(
 
 function isUnionSchema(
   schema: Schema<SelectorSource> | SerializedSchema
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): schema is UnionSchema<string, any> | SerializedUnionSchema {
   return (
     schema instanceof UnionSchema ||
@@ -119,6 +111,7 @@ function isUnionSchema(
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function isOneOfSchema(
   schema: Schema<SelectorSource> | SerializedSchema
 ): schema is OneOfSchema<GenericSelector<SourceArray>> | SerializedOneOfSchema {
@@ -135,6 +128,7 @@ export function resolvePath(
 ) {
   const parts = parsePath(path);
   let resolvedSchema = schema;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let resolvedSource: any /* TODO: any */ = valModule;
   while (parts.length > 0) {
     const part = parts.shift();
@@ -202,6 +196,7 @@ export function resolvePath(
         );
       }
       const schemaOfUnionKey = resolvedSchema.items.find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (child: any) => child?.items?.[key]?.value === keyValue
       );
       if (!schemaOfUnionKey) {

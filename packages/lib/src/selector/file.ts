@@ -4,7 +4,6 @@ import {
   SelectorOf,
   SelectorSource,
 } from ".";
-import { F } from "ts-toolbelt";
 
 // TODO: docs
 export type FileSelector = GenericSelector<{ url: string }> & {

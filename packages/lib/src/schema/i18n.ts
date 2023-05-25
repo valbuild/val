@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaTypeOf, SerializedSchema } from ".";
 import { I18nCompatibleSource, I18nSource } from "../source/i18n";
 import { SourcePath } from "../val";

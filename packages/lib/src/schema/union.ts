@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
 import { SelectorSource } from "../selector";
 import { SourceObject } from "../source";

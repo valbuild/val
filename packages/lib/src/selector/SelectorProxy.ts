@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Path, GenericSelector, SourceOrExpr, GetSchema } from ".";
 import { Expr } from "../expr/expr";
 import { Schema } from "../schema";

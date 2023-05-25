@@ -34,6 +34,7 @@ export function fetchVal<T extends SelectorSource>(
 
 export function getVal<T extends SelectorSource>(
   selector: T,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   locale?: string
 ): SelectorOf<T> extends GenericSelector<infer S>
   ? Val<JsonOfSource<S>>
@@ -45,6 +46,7 @@ export function getVal<T extends SelectorSource>(
     : never;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isArrayOrArraySelector(child: any) {
   if (isSelector(child)) {
     return (
@@ -56,6 +58,7 @@ function isArrayOrArraySelector(child: any) {
   return Array.isArray(child);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function isObjectOrObjectSelector(child: any) {
   if (isSelector(child)) {
     return (
@@ -71,6 +74,7 @@ export function serializedValOfSelectorSource<T extends SelectorSource>(
   selector: T
 ) {
   const wrappedSelector = newSelectorProxy(selector); // NOTE: we do this if call-site uses a literal with selectors inside
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function rec(child: any): any {
     const isArray = isArrayOrArraySelector(child);
     const isObject = isObjectOrObjectSelector(child);

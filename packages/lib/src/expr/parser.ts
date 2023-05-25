@@ -223,6 +223,7 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
   return res;
 }
 export function parse(input: string): result.Result<Expr, ParserError> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [tokens, cursor] = tokenize(input); // TODO: we can use cursor to improve error messages / spans
   return parseTokens(tokens);
 }

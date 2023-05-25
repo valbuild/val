@@ -1,6 +1,5 @@
 import { result } from "../../fp";
-import { Expr } from "./expr";
-import { parse, ParserError } from "./parser";
+import { parse } from "./parser";
 
 const ParserTestCases: {
   input: string;

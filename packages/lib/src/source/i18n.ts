@@ -43,6 +43,7 @@ export function i18n<Locales extends readonly string[]>(
     return {
       ...source,
       [ValExtension]: "i18n",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as I18nSource<Locales, any>;
   };
 }
