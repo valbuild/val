@@ -37,7 +37,7 @@ Read more about how it works in sections that follows.
 corresponds to:
 
 ```js
-foo['title']
+foo["title"];
 ```
 
 There are no numbers in Visp, so arrays are indexed in the same way:
@@ -49,7 +49,7 @@ There are no numbers in Visp, so arrays are indexed in the same way:
 corresponds to:
 
 ```js
-foo['0'] // same as foo[0]
+foo["0"]; // same as foo[0]
 ```
 
 ### Function calls
@@ -63,7 +63,7 @@ Function calls are similar to property access, but with arguments separated by w
 corresponds to:
 
 ```js
-foo['fnname'](arg1, arg2) // same as foo.fname(arg1, arg2)
+foo["fnname"](arg1, arg2); // same as foo.fname(arg1, arg2)
 ```
 
 #### Higher order functions
@@ -78,7 +78,7 @@ Arguments can be accessed using the `@` character. The `@` must be suffixed with
 corresponds to:
 
 ```js
-foo.map(v => v)
+foo.map((v) => v);
 ```
 
 Here we access the second argument of a function:
@@ -90,7 +90,7 @@ Here we access the second argument of a function:
 corresponds to:
 
 ```js
-foo.map((_,i) => i)
+foo.map((_, i) => i);
 ```
 
 This example shows how higher functions and arguments can be nested:
@@ -102,7 +102,7 @@ This example shows how higher functions and arguments can be nested:
 corresponds to:
 
 ```js
-foo.map((v, i) => v.map((j) => j.slice(i)))
+foo.map((v, i) => v.map((j) => j.slice(i)));
 ```
 
 ### Literals
@@ -118,13 +118,13 @@ Example:
 corresponds to:
 
 ```js
-'foo'
+"foo";
 ```
 
 ### String templates
 
 Val has support for string templates similar to JavaScript.
-They are denoted using single quotes `'` (as string literal), but can inject expressions using  `${}`.
+They are denoted using single quotes `'` (as string literal), but can inject expressions using `${}`.
 
 Example:
 
@@ -135,7 +135,7 @@ Example:
 corresponds to:
 
 ```js
-`foo ${obj['title']} bar`
+`foo ${obj["title"]} bar`;
 ```
 
 ### Special symbols
@@ -185,7 +185,7 @@ It is also possible to use `json` with string templates:
 corresponds to:
 
 ```js
-JSON.parse(`{ "foo": ${obj['title']} }`)
+JSON.parse(`{ "foo": ${obj["title"]} }`);
 ```
 
 ### More
