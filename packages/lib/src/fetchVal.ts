@@ -178,7 +178,12 @@ function newValProxy<T extends Json>(val: SerializedVal): Val<T> {
             if (hasOwn(source, prop)) {
               return newValProxy({
                 val: Reflect.get(target, prop).val,
-                valPath: createValPathOfItem(val.valPath, prop),
+                valPath:
+                  Reflect.get(target, prop)?.valPath ??
+                  createValPathOfItem(
+                    val.valPath,
+                    Array.isArray(target) ? Number(prop) : prop
+                  ),
               } as SerializedVal);
             }
             return Reflect.get(target, prop);
