@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/ban-types */
+/* eslint-disable @typescript-eslint/no-unnecessary-type-constraint */
 import { content } from "./module";
 import { i18n, I18n } from "./source/i18n";
 import { InitSchema, initSchema, InitSchemaLocalized } from "./initSchema";
@@ -40,15 +42,22 @@ export type InitVal<Locales extends readonly string[] | undefined> = [
       s: InitSchema;
     };
 
+type NarrowStrings<A> =
+  | (A extends [] ? [] : never)
+  | (A extends string ? A : never)
+  | {
+      [K in keyof A]: NarrowStrings<A[K]>;
+    };
+
 export const initVal = <
   Locales extends readonly string[] | undefined
 >(options?: {
-  readonly locales?: {
+  readonly locales?: NarrowStrings<{
     readonly required: Locales;
     readonly fallback: Locales extends readonly string[]
       ? Locales[number]
       : never;
-  };
+  }>;
 }): InitVal<Locales> => {
   const locales = options?.locales;
   const s = initSchema(locales?.required as readonly string[]);
