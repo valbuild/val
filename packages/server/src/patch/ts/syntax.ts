@@ -1,6 +1,7 @@
 import ts from "typescript";
 import { result, pipe } from "@valbuild/lib/fp";
 import { JSONValue } from "@valbuild/lib/patch";
+import { FileSource, FILE_REF_PROP } from "@valbuild/lib";
 
 export class ValSyntaxError {
   constructor(public message: string, public node: ts.Node) {}
@@ -125,9 +126,13 @@ export function shallowValidateExpression(
     value.kind === ts.SyntaxKind.FalseKeyword ||
     value.kind === ts.SyntaxKind.NullKeyword ||
     ts.isArrayLiteralExpression(value) ||
-    ts.isObjectLiteralExpression(value)
+    ts.isObjectLiteralExpression(value) ||
+    isValFileMethodCall(value)
     ? undefined
-    : new ValSyntaxError("Value must be a literal", value);
+    : new ValSyntaxError(
+        "Expression must be a literal or call val.file",
+        value
+      );
 }
 
 /**
@@ -160,8 +165,31 @@ export function deepValidateExpression(
         )
       )
     );
+  } else if (isValFileMethodCall(value)) {
+    if (value.arguments.length === 1) {
+      const arg = value.arguments[0];
+      if (ts.isStringLiteralLike(arg)) {
+        return result.voidOk;
+      } else {
+        return result.err(
+          new ValSyntaxError(
+            "Argument to val.file must be a string literal",
+            arg
+          )
+        );
+      }
+    } else {
+      return result.err(
+        new ValSyntaxError(
+          "val.file must be called with a single argument",
+          value
+        )
+      );
+    }
   } else {
-    return result.err(new ValSyntaxError("Value must be a literal", value));
+    return result.err(
+      new ValSyntaxError("Expression must be a literal or call val.file", value)
+    );
   }
 }
 
@@ -206,8 +234,21 @@ export function evaluateExpression(
       ),
       result.map(Object.fromEntries)
     );
+  } else if (isValFileMethodCall(value)) {
+    return pipe(
+      findValFileNodeArg(value),
+      result.map(
+        (ref) =>
+          ({
+            [FILE_REF_PROP]: ref.text,
+            _type: "file",
+          } as FileSource<string>)
+      )
+    );
   } else {
-    return result.err(new ValSyntaxError("Value must be a literal", value));
+    return result.err(
+      new ValSyntaxError("Expression must be a literal or call val.file", value)
+    );
   }
 }
 
@@ -231,6 +272,44 @@ export function findObjectPropertyAssignment(
       return result.ok(assignment);
     })
   );
+}
+
+export function isValFileMethodCall(
+  node: ts.Expression
+): node is ts.CallExpression {
+  return (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    ts.isIdentifier(node.expression.expression) &&
+    node.expression.expression.text === "val" &&
+    node.expression.name.text === "file"
+  );
+}
+
+export function findValFileNodeArg(
+  node: ts.CallExpression
+): result.Result<ts.StringLiteral, ValSyntaxErrorTree> {
+  if (node.arguments.length === 0) {
+    return result.err(
+      new ValSyntaxError(`Invalid val.file() call: missing ref argument`, node)
+    );
+  } else if (node.arguments.length > 1) {
+    return result.err(
+      new ValSyntaxError(
+        `Invalid val.file() call: too many arguments ${node.arguments.length}}`,
+        node
+      )
+    );
+  } else if (!ts.isStringLiteral(node.arguments[0])) {
+    return result.err(
+      new ValSyntaxError(
+        `Invalid val.file() call: argument must be a string literal`,
+        node
+      )
+    );
+  }
+  const refNode = node.arguments[0];
+  return result.ok(refNode);
 }
 
 /**

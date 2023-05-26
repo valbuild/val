@@ -1,3 +1,4 @@
+import { Internal } from "@valbuild/lib";
 import * as ReactJSXRuntime from "react/jsx-runtime";
 export * from "react/jsx-runtime";
 
@@ -11,24 +12,22 @@ const devalProps = (type, props) => {
 
   if (isIntrinsicElement(type)) {
     for (const [key, value] of Object.entries(props)) {
-      if (
-        typeof value === "object" &&
-        value !== null &&
-        "val" in value &&
-        "valSrc" in value
-      ) {
-        valSources.push(value.valSrc);
-        if (typeof value.val === "string" || value.val === null) {
-          props[key] = value.val;
-        } else {
-          throw Error("TODO: unhandled value type");
+      if (typeof value === "object" && value !== null && "val" in value) {
+        const valPath = Internal.getValPath(value);
+        if (valPath) {
+          valSources.push(valPath);
+          if (typeof value.val === "string" || value.val === null) {
+            props[key] = value.val;
+          } else {
+            throw Error("TODO: unhandled value type");
+          }
         }
       }
     }
   }
 
   if (valSources.length > 0) {
-    props["data-val-src"] = valSources.join(",");
+    props["data-val-path"] = valSources.join(",");
   }
 };
 
@@ -42,6 +41,10 @@ export function jsx(type, props, key) {
 
 export function jsxs(type, props, key) {
   // console.log("jsxs", type, props, key);
+
+  if (key === "key") {
+    console.log("jsxDEV", type, props, key, self);
+  }
 
   devalProps(type, props);
 

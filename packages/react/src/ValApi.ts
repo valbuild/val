@@ -1,17 +1,17 @@
-import { SerializedModuleContent } from "@valbuild/lib";
+import { SerializedModule } from "@valbuild/lib";
 import { PatchJSON } from "@valbuild/lib/patch";
 
 export class ValApi {
   constructor(readonly host: string) {}
 
-  async getModule(moduleId: string): Promise<SerializedModuleContent> {
-    const res = await fetch(`${this.host}/ids${moduleId}`);
+  async getModule(sourcePath: string): Promise<SerializedModule> {
+    const res = await fetch(`${this.host}/ids${sourcePath}`);
     if (res.ok) {
       const serializedVal = await res.json(); // TODO: validate
       return serializedVal;
     } else {
       throw Error(
-        `Failed to get content of module "${moduleId}". Status: ${
+        `Failed to get content of module "${sourcePath}". Status: ${
           res.status
         }. Error: ${await res.text()}`
       );
@@ -21,7 +21,7 @@ export class ValApi {
   async patchModuleContent(
     moduleId: string,
     patch: PatchJSON
-  ): Promise<SerializedModuleContent> {
+  ): Promise<SerializedModule> {
     const res = await fetch(`${this.host}/ids${moduleId}`, {
       method: "PATCH",
       headers: {

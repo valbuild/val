@@ -11,7 +11,7 @@ export interface IValFSHost
     ts.ModuleResolutionHost {
   useCaseSensitiveFileNames: boolean;
 
-  writeFile(fileName: string, text: string, writeByteOrderMark: boolean): void;
+  writeFile(fileName: string, text: string, encoding: "binary" | "utf8"): void;
 }
 
 export class ValFSHost implements IValFSHost {
@@ -37,11 +37,8 @@ export class ValFSHost implements IValFSHost {
     );
   }
 
-  writeFile(fileName: string, text: string, writeByteOrderMark: boolean): void {
-    if (writeByteOrderMark) {
-      throw new Error("writeByteOrderMark=true not implemented.");
-    }
-    this.valFS.writeFile(fileName, text);
+  writeFile(fileName: string, text: string, encoding: "binary" | "utf8"): void {
+    this.valFS.writeFile(fileName, text, encoding);
   }
 
   getCurrentDirectory(): string {

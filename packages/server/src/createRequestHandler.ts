@@ -15,6 +15,7 @@ export function createRequestHandler(valServer: ValServer): RequestHandler {
     "/ids/*",
     express.json({
       type: "application/json-patch+json",
+      limit: "10mb",
     }),
     valServer.patchIds.bind(valServer)
   );

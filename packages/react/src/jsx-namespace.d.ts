@@ -15,7 +15,9 @@ type ReactJSXIntrinsicElements = JSX.IntrinsicElements;
 
 type MaybeVal<T> = T extends Source ? Val<T> | T : T;
 type WithVal<T extends object> = {
-  [K in keyof T]: K extends "style"
+  [K in keyof T]: K extends "key" | "ref" | "className"
+    ? T[K]
+    : K extends "style"
     ? WithVal<React.CSSProperties>
     : T[K] extends object
     ? T[K]

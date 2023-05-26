@@ -79,4 +79,5 @@ export interface Ops<T, E> {
     path: string[],
     value: JSONValue
   ): result.Result<boolean, E | PatchError>;
+  get(document: T, path: string[]): result.Result<JSONValue, E | PatchError>;
 }

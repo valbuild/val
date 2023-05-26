@@ -6,6 +6,8 @@ import {
   findObjectPropertyAssignment,
   ValSyntaxErrorTree,
   shallowValidateExpression,
+  isValFileMethodCall,
+  findValFileNodeArg,
 } from "./syntax";
 import {
   deepEqual,
@@ -15,6 +17,7 @@ import {
   JSONValue,
   parseAndValidateArrayIndex,
 } from "@valbuild/lib/patch";
+import { FILE_REF_PROP, FileSource } from "@valbuild/lib";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
@@ -55,6 +58,17 @@ function createPropertyAssignment(key: string, value: JSONValue) {
   );
 }
 
+function createValFileReference(ref: string) {
+  return ts.factory.createCallExpression(
+    ts.factory.createPropertyAccessExpression(
+      ts.factory.createIdentifier("val"),
+      ts.factory.createIdentifier("file")
+    ),
+    undefined,
+    [ts.factory.createStringLiteral(ref)]
+  );
+}
+
 function toExpression(value: JSONValue): ts.Expression {
   if (typeof value === "string") {
     // TODO: Use configuration/heuristics to determine use of single quote or double quote
@@ -68,6 +82,9 @@ function toExpression(value: JSONValue): ts.Expression {
   } else if (Array.isArray(value)) {
     return ts.factory.createArrayLiteralExpression(value.map(toExpression));
   } else if (typeof value === "object") {
+    if (isValFileValue(value)) {
+      return createValFileReference(value[FILE_REF_PROP]);
+    }
     return ts.factory.createObjectLiteralExpression(
       Object.entries(value).map(([key, value]) =>
         createPropertyAssignment(key, value)
@@ -304,6 +321,23 @@ function replaceInNode(
         replaceNodeValue(document, assignment.initializer, value)
       )
     );
+  } else if (isValFileMethodCall(node)) {
+    if (key !== FILE_REF_PROP) {
+      return result.err(
+        new PatchError(`Cannot replace non-${FILE_REF_PROP} key of val.file`)
+      );
+    }
+    if (typeof value !== "string") {
+      return result.err(
+        new PatchError(
+          "Cannot replace val.file reference with non-string value"
+        )
+      );
+    }
+    return pipe(
+      findValFileNodeArg(node),
+      result.map((refNode) => replaceNodeValue(document, refNode, value))
+    );
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -346,6 +380,13 @@ export function getFromNode(
         (assignment: ts.PropertyAssignment | undefined) =>
           assignment?.initializer
       )
+    );
+  } else if (isValFileMethodCall(node)) {
+    if (key === FILE_REF_PROP) {
+      return findValFileNodeArg(node);
+    }
+    return result.err(
+      new PatchError(`Cannot access non-${FILE_REF_PROP} key of val.file`)
     );
   } else {
     return result.err(
@@ -437,6 +478,8 @@ function removeFromNode(
         assignment.initializer,
       ])
     );
+  } else if (isValFileMethodCall(node)) {
+    return result.err(new PatchError("Cannot remove a key from val.file"));
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -458,6 +501,15 @@ function removeAtPath(
   );
 }
 
+function isValFileValue(value: JSONValue): value is FileSource<string> {
+  return !!(
+    typeof value === "object" &&
+    value &&
+    FILE_REF_PROP in value &&
+    typeof value[FILE_REF_PROP] === "string"
+  );
+}
+
 function addToNode(
   document: ts.SourceFile,
   node: ts.Expression,
@@ -472,6 +524,9 @@ function addToNode(
       ])
     );
   } else if (ts.isObjectLiteralExpression(node)) {
+    if (key === FILE_REF_PROP) {
+      return result.err(new PatchError("Cannot add a key ref to object"));
+    }
     return pipe(
       findObjectPropertyAssignment(node, key),
       result.map(
@@ -492,6 +547,23 @@ function addToNode(
           }
         }
       )
+    );
+  } else if (isValFileMethodCall(node)) {
+    if (key !== FILE_REF_PROP) {
+      return result.err(
+        new PatchError(`Cannot add non-${FILE_REF_PROP} key to val.file`)
+      );
+    }
+    if (typeof value !== "string") {
+      return result.err(
+        new PatchError(
+          `Cannot add ${FILE_REF_PROP} key to val.file with non-string value`
+        )
+      );
+    }
+    return pipe(
+      findValFileNodeArg(node),
+      result.map((arg: ts.Expression) => replaceNodeValue(document, arg, value))
     );
   } else {
     return result.err(
@@ -531,7 +603,14 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
       document: ts.SourceFile
     ) => result.Result<ts.Expression, ValSyntaxErrorTree>
   ) {}
-
+  get(document: ts.SourceFile, path: string[]): TSOpsResult<JSONValue> {
+    return pipe(
+      document,
+      this.findRoot,
+      result.flatMap((rootNode: ts.Expression) => getAtPath(rootNode, path)),
+      result.flatMap(evaluateExpression)
+    );
+  }
   add(
     document: ts.SourceFile,
     path: string[],

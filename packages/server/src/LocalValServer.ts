@@ -3,8 +3,9 @@ import { Service } from "./Service";
 import { PatchJSON } from "./patch/validation";
 import { result } from "@valbuild/lib/fp";
 import { parsePatch, PatchError } from "@valbuild/lib/patch";
-import { getFileIdFromParams } from "./expressHelpers";
+import { getPathFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
+import { Internal } from "@valbuild/lib";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -25,9 +26,10 @@ export class LocalValServer implements ValServer {
   ): Promise<void> {
     try {
       console.log(req.params);
-      const valModule = await this.options.service.get(
-        getFileIdFromParams(req.params)
-      );
+      const path = getPathFromParams(req.params);
+      const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
+      const valModule = await this.options.service.get(moduleId, modulePath);
+
       res.json(valModule);
     } catch (err) {
       console.error(err);
@@ -51,7 +53,7 @@ export class LocalValServer implements ValServer {
       res.status(401).json(patch.error);
       return;
     }
-    const id = getFileIdFromParams(req.params);
+    const id = getPathFromParams(req.params);
     try {
       const valModule = await this.options.service.patch(id, patch.value);
       res.json(valModule);
