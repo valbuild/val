@@ -1,4 +1,4 @@
-import { result } from "../../fp";
+import { result } from "../fp";
 import { Call, Expr, StringLiteral, StringTemplate, Sym } from "./expr";
 import { Token, tokenize } from "./tokenizer";
 
