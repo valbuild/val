@@ -1,6 +1,6 @@
 import path from "path";
-import { SerializedModuleContent } from "@valbuild/lib";
 import { QuickJSRuntime } from "quickjs-emscripten";
+import { SerializedModuleContent } from "./SerializedModuleContent";
 
 export const readValFile = async (
   id: string,
@@ -11,7 +11,12 @@ export const readValFile = async (
   try {
     const modulePath = `.${id}.val`;
     const code = `import * as valModule from ${JSON.stringify(modulePath)};
-globalThis.valModule = { id: valModule?.default?.id, ...valModule?.default?.content?.serialize() };
+import { Internal } from "@valbuild/lib";
+globalThis.valModule = { 
+  id: valModule?.default && Internal.getValPath(valModule?.default),
+  schema: valModule?.default && Internal.getSchema(valModule?.default)?.serialize(),
+  source: valModule?.default && Internal.getRawSource(valModule?.default),
+};
 `;
     const result = context.evalCode(
       code,
@@ -38,9 +43,7 @@ globalThis.valModule = { id: valModule?.default?.id, ...valModule?.default?.cont
       if (!valModule) {
         errors.push(`Could not find any modules at: ${id}`);
       } else {
-        if (!valModule?.id) {
-          errors.push(`Could not verify id of val module: '${id}'`);
-        } else if (valModule.id !== id) {
+        if (valModule.id !== id) {
           errors.push(`Expected val id: '${id}' but got: '${valModule.id}'`);
         }
         if (!valModule?.schema) {
@@ -53,12 +56,13 @@ globalThis.valModule = { id: valModule?.default?.id, ...valModule?.default?.cont
 
       if (errors.length > 0) {
         throw Error(
-          `While processing a val file, we got the following errors:\n${errors.join(
+          `While processing module of id: ${id}, we got the following errors:\n${errors.join(
             "\n"
           )}`
         );
       }
       return {
+        id: valModule.id, // This might not be the asked id/path, however, that should be handled further up in the call chain
         source: valModule.source,
         schema: valModule.schema,
       };

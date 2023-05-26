@@ -1,6 +1,6 @@
-import { file } from "../file";
+import { file } from "../source/file";
 import { result } from "../fp";
-import { remote } from "../remote";
+import { remote } from "../source/remote";
 import { derefPatch, DerefPatchResult } from "./deref";
 import { JSONOps } from "./json";
 import { PatchError } from "./ops";

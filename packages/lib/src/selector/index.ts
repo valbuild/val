@@ -1,206 +1,159 @@
-import * as expr from "../expr";
-import { ArraySelector, newArraySelector } from "./array";
-import { newObjectSelector, ObjectSelector } from "./object";
-import { DESC, EXPR, Selector } from "./selector";
-import {
-  ArrayDescriptor,
-  Descriptor,
-  NumberDescriptor,
-  ObjectDescriptor,
-  ObjectDescriptorProps,
-  OptionalDescriptor,
-  RecordDescriptor,
-  TupleDescriptor,
-  StringDescriptor,
-  BooleanDescriptor,
-  NullDescriptor,
-  ValueOf,
-  PrimitiveDescriptor,
-  NonOptionalDescriptor,
-  ImageDescriptor,
-} from "../descriptor";
-import { newNumberSelector, NumberSelector } from "./number";
-import { newRecordSelector, RecordSelector } from "./record";
-import { newOptionalSelector, OptionalSelector } from "./optional";
-import { newTupleSelector, TupleSelector } from "./tuple";
-import { newPrimitiveSelector, PrimitiveSelector } from "./primitive";
-import { Source, SourcePrimitive } from "../Source";
-import { ImageSelector, newImageSelector } from "./image";
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { I18nSelector } from "./i18n";
+import { Selector as ObjectSelector } from "./object";
+import { UndistributedSourceArray as ArraySelector } from "./array";
+import { Selector as NumberSelector } from "./number";
+import { Selector as StringSelector } from "./string";
+import { Selector as BooleanSelector } from "./boolean";
+import { Selector as PrimitiveSelector } from "./primitive";
+import { FileSelector } from "./file";
+import { SourcePath } from "../val";
+import { Source, SourceArray, SourceObject, SourcePrimitive } from "../source";
+import { Schema } from "../schema";
+import { Expr } from "../expr/expr";
+import { RemoteSelector } from "./remote";
+import { A } from "ts-toolbelt";
+import { I18nSource, I18nCompatibleSource } from "../source/i18n";
+import { RemoteCompatibleSource, RemoteSource } from "../source/remote";
+import { FileSource } from "../source/file";
 
-export type SelectorOf<
-  D extends Descriptor<Source>,
-  Ctx
-> = Descriptor<Source> extends D
-  ? Selector<D, Ctx>
-  : D extends ObjectDescriptor<infer E>
-  ? ObjectSelector<E, Ctx>
-  : D extends ArrayDescriptor<infer E>
-  ? ArraySelector<E, Ctx>
-  : D extends RecordDescriptor<infer K, infer E>
-  ? RecordSelector<K, E, Ctx>
-  : D extends OptionalDescriptor<infer E>
-  ? OptionalSelector<E, Ctx>
-  : D extends TupleDescriptor<infer E>
-  ? TupleSelector<E, Ctx>
-  : D extends NumberDescriptor
-  ? NumberSelector<Ctx>
-  : D extends ImageDescriptor
-  ? ImageSelector<Ctx>
-  : D extends PrimitiveDescriptor<SourcePrimitive>
-  ? PrimitiveSelector<D, Ctx>
+/**
+ * Selectors can be used to select parts of a Val module.
+ * Unlike queries, joins, aggregates etc is and will not be supported.
+ *
+ * They are designed to be be used as if they were "normal" JSON data,
+ * though some concessions had to be made because of TypeScript limitations.
+ *
+ * Selectors works equally on source content, defined in code, and remote content.
+ *
+ * @example
+ * // Select the title of a document
+ * const titles = useVal(docsVal.map((doc) => doc.title));
+ *
+ * @example
+ * // Match on a union type
+ * const titles = useVal(docsVal.map((doc) => doc.fold("type")({
+ *   newsletter: (newsletter) => newsletter.title,
+ *   email: (email) => email.subject,
+ * }));
+ *
+ */
+export type Selector<T extends Source> = Source extends T
+  ? GenericSelector<T>
+  : T extends I18nSource<infer L, infer S>
+  ? I18nSelector<L, S>
+  : T extends RemoteSource<infer S>
+  ? S extends RemoteCompatibleSource
+    ? RemoteSelector<S>
+    : GenericSelector<Source, "Could not determine remote source">
+  : T extends FileSource<string>
+  ? FileSelector
+  : T extends SourceObject
+  ? ObjectSelector<T>
+  : T extends SourceArray
+  ? ArraySelector<T>
+  : T extends string
+  ? StringSelector<T>
+  : T extends number
+  ? NumberSelector<T>
+  : T extends boolean
+  ? BooleanSelector<T>
+  : T extends null
+  ? PrimitiveSelector<null>
   : never;
 
-export function getSelector<D extends Descriptor<Source>, Ctx>(
-  expr: expr.Expr<Ctx, ValueOf<D>>,
-  desc: D
-): SelectorOf<D, Ctx> {
-  if (desc instanceof ObjectDescriptor) {
-    return newObjectSelector<ObjectDescriptorProps, Ctx>(
-      expr as expr.Expr<Ctx, ValueOf<ObjectDescriptor<ObjectDescriptorProps>>>,
-      desc.props
-    ) as SelectorOf<D, Ctx>;
-  } else if (desc instanceof ArrayDescriptor) {
-    return newArraySelector<Descriptor<Source>, Ctx>(
-      expr as expr.Expr<Ctx, ValueOf<ArrayDescriptor<Descriptor<Source>>>>,
-      desc.item
-    ) as SelectorOf<D, Ctx>;
-  } else if (desc instanceof RecordDescriptor) {
-    return newRecordSelector<string, Descriptor<Source>, Ctx>(
-      expr as expr.Expr<
-        Ctx,
-        ValueOf<RecordDescriptor<string, Descriptor<Source>>>
-      >,
-      desc.item
-    ) as SelectorOf<D, Ctx>;
-  } else if (desc instanceof OptionalDescriptor) {
-    return newOptionalSelector<NonOptionalDescriptor<Source>, Ctx>(
-      expr as expr.Expr<Ctx, ValueOf<NonOptionalDescriptor<Source>>>,
-      desc.item
-    ) as SelectorOf<D, Ctx>;
-  } else if (desc instanceof TupleDescriptor) {
-    return newTupleSelector<readonly Descriptor<Source>[], Ctx>(
-      expr as expr.Expr<
-        Ctx,
-        ValueOf<TupleDescriptor<readonly Descriptor<Source>[]>>
-      >,
-      desc.items
-    ) as SelectorOf<D, Ctx>;
-  } else if (desc === NumberDescriptor) {
-    return newNumberSelector<Ctx>(
-      expr as expr.Expr<Ctx, ValueOf<NumberDescriptor>>
-    ) as SelectorOf<D, Ctx>;
-  } else if (desc === ImageDescriptor) {
-    return newImageSelector<Ctx>(
-      expr as unknown /* TODO: as unknown should not be necessary? */ as expr.Expr<
-        Ctx,
-        ValueOf<ImageDescriptor>
-      >
-    ) as SelectorOf<D, Ctx>;
-  } else if (desc instanceof PrimitiveDescriptor) {
-    return newPrimitiveSelector<PrimitiveDescriptor<SourcePrimitive>, Ctx>(
-      expr as expr.Expr<Ctx, ValueOf<PrimitiveDescriptor<SourcePrimitive>>>,
-      desc
-    ) as SelectorOf<D, Ctx>;
-  }
-
-  throw Error("Unknown descriptor type");
-}
-
-export type Selected<Ctx> =
-  | string
-  | number
-  | boolean
-  | null
-  | { readonly [P in string]: Selected<Ctx> }
-  | readonly Selected<Ctx>[]
-  | Selector<Descriptor<Source>, Ctx>;
-
-type TupleDescriptorOf<
-  S extends readonly Selected<Ctx>[],
-  Ctx
-> = TupleDescriptor<{
-  [P in keyof S]: DescriptorOf<S[P], Ctx>;
-}>;
-
-export type DescriptorOf<
-  S extends Selected<unknown>,
-  Ctx
-> = Selected<unknown> extends S
-  ? Descriptor<Source>
-  : S extends Selector<infer D, unknown>
-  ? D
-  : S extends readonly Selected<Ctx>[]
-  ? TupleDescriptorOf<S, Ctx>
-  : S extends { [P in string]: Selected<Ctx> }
-  ? ObjectDescriptor<{
-      [P in keyof S]: DescriptorOf<S[P], Ctx>;
-    }>
-  : S extends string
-  ? StringDescriptor
-  : S extends boolean
-  ? BooleanDescriptor
-  : S extends number
-  ? NumberDescriptor
-  : S extends null
-  ? NullDescriptor
-  : never;
-export function descriptorOf<S extends Selected<Ctx>, Ctx>(
-  selected: S
-): DescriptorOf<S, Ctx> {
-  if (selected instanceof Selector) {
-    return selected[DESC]() as DescriptorOf<S, Ctx>;
-  } else if (Array.isArray(selected)) {
-    const items = (selected as readonly Selected<Ctx>[]).map(descriptorOf);
-    return new TupleDescriptor(items) as unknown as DescriptorOf<S, Ctx>;
-  } else if (typeof selected === "string") {
-    return StringDescriptor as DescriptorOf<S, Ctx>;
-  } else if (typeof selected === "number") {
-    return NumberDescriptor as DescriptorOf<S, Ctx>;
-  } else if (typeof selected === "boolean") {
-    return BooleanDescriptor as DescriptorOf<S, Ctx>;
-  } else if (typeof selected === "object") {
-    if (selected === null) {
-      return NullDescriptor as DescriptorOf<S, Ctx>;
+export type SelectorSource =
+  | SourcePrimitive
+  | undefined
+  | readonly SelectorSource[]
+  | {
+      [key: string]: SelectorSource;
     }
-    const props = Object.fromEntries(
-      Object.entries(
-        selected as {
-          readonly [x: string]: Selected<Ctx>;
-        }
-      ).map(([prop, value]) => {
-        return [prop, descriptorOf<Selected<Ctx>, Ctx>(value)];
-      })
-    );
-    return new ObjectDescriptor(props) as DescriptorOf<S, Ctx>;
+  | I18nSource<readonly string[], I18nCompatibleSource>
+  | RemoteSource<RemoteCompatibleSource>
+  | FileSource<string>
+  | GenericSelector<Source>;
+
+/**
+ * @internal
+ */
+export const GetSchema = Symbol("GetSchema");
+/**
+/**
+ * @internal
+ */
+export const Path = Symbol("Path");
+/**
+ * @internal
+ */
+export const SourceOrExpr = Symbol("SourceOrExpr");
+/**
+ * @internal
+ */
+export const ValError = Symbol("ValError");
+export abstract class GenericSelector<
+  out T extends Source,
+  Error extends string | undefined = undefined
+> {
+  readonly [Path]: SourcePath | undefined;
+  readonly [SourceOrExpr]: T | Expr;
+  readonly [ValError]: Error | undefined;
+  readonly [GetSchema]: Schema<T> | undefined;
+  constructor(
+    valOrExpr: T,
+    path: SourcePath | undefined,
+    schema?: Schema<T>,
+    error?: Error
+  ) {
+    this[Path] = path;
+    this[SourceOrExpr] = valOrExpr;
+    this[ValError] = error;
+    this[GetSchema] = schema;
   }
-  throw Error("Invalid selector result");
+
+  assert<U extends Source, E extends Source = null>(
+    schema: Schema<U>,
+    other?: () => E
+  ): SelectorOf<U | E> {
+    throw new Error("Not implemented");
+  }
 }
 
-export type ExprOf<S extends Selected<Ctx>, Ctx> = expr.Expr<
-  Ctx,
-  ValueOf<DescriptorOf<S, Ctx>>
->;
-export function exprOf<Ctx, S extends Selected<Ctx>>(
-  selected: S
-): ExprOf<S, Ctx> {
-  if (selected instanceof Selector) {
-    return selected[EXPR]() as ExprOf<S, Ctx>;
-  } else if (Array.isArray(selected)) {
-    return expr.arrayLiteral(selected.map(exprOf)) as unknown as ExprOf<S, Ctx>;
-  } else if (
-    typeof selected === "number" ||
-    selected === null ||
-    typeof selected === "string" ||
-    typeof selected === "boolean"
-  ) {
-    return expr.primitiveLiteral(selected) as ExprOf<S, Ctx>;
-  } else {
-    const props = Object.fromEntries(
-      Object.entries(selected).map(([prop, value]) => [
-        prop,
-        exprOf<Ctx, Selected<Ctx>>(value),
-      ])
-    );
-    return expr.objectLiteral(props) as ExprOf<S, Ctx>;
-  }
+export type SourceOf<T extends SelectorSource> = Source extends T
+  ? Source
+  : T extends Source
+  ? T
+  : T extends undefined
+  ? null
+  : T extends GenericSelector<infer S>
+  ? S
+  : T extends readonly (infer S)[] // NOTE: the infer S instead of Selector Source here, is to avoid infinite recursion
+  ? S extends SelectorSource
+    ? {
+        [key in keyof T]: SourceOf<A.Try<T[key], SelectorSource>>;
+      }
+    : never
+  : T extends { [key: string]: SelectorSource }
+  ? {
+      [key in keyof T]: SourceOf<A.Try<T[key], SelectorSource>>;
+    }
+  : never;
+
+/**
+ * Use this type to convert types that accepts both Source and Selectors
+ *
+ * An example would be where literals are supported like in most higher order functions (e.g. map in array)
+ **/
+export type SelectorOf<U extends SelectorSource> = Source extends U
+  ? GenericSelector<Source>
+  : SourceOf<U> extends infer S // we need this to avoid infinite recursion
+  ? S extends Source
+    ? Selector<S>
+    : GenericSelector<Source, "Could not determine selector of source">
+  : GenericSelector<Source, "Could not determine source">;
+
+export function getSchema(
+  selector: Selector<Source>
+): Schema<SelectorSource> | undefined {
+  return selector[GetSchema];
 }

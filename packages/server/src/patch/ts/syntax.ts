@@ -241,7 +241,7 @@ export function evaluateExpression(
         (ref) =>
           ({
             [FILE_REF_PROP]: ref.text,
-            type: "file",
+            _type: "file",
           } as FileSource<string>)
       )
     );

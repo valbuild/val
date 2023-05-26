@@ -1,4 +1,6 @@
-import { OptIn, OptOut, Schema } from "./Schema";
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { Schema, SerializedSchema } from ".";
+import { SourcePath } from "../val";
 
 type StringOptions = {
   maxLength?: number;
@@ -7,91 +9,41 @@ type StringOptions = {
 
 export type SerializedStringSchema = {
   type: "string";
-  options?: {
-    maxLength?: number;
-    minLength?: number;
-  };
+  options?: StringOptions;
   opt: boolean;
 };
 
-export class StringSchema<Opt extends boolean> extends Schema<
-  OptIn<string, Opt>,
-  OptOut<string, Opt>
-> {
-  constructor(
-    private readonly options: StringOptions | undefined,
-    public readonly opt: Opt
-  ) {
-    super(opt);
+export class StringSchema<Src extends string | null> extends Schema<Src> {
+  constructor(readonly options?: StringOptions, readonly opt: boolean = false) {
+    super();
   }
 
-  protected validate(src: OptIn<string, Opt>): false | string[] {
-    if (src === null) {
-      if (!this.opt) return ["Required string cannot be null"];
-      return false;
-    }
-    const errors: string[] = [];
-    if (
-      this.options?.maxLength !== undefined &&
-      src.length > this.options.maxLength
-    ) {
-      errors.push(
-        `String '${src}' is too long. Length: ${src.length}. Max ${this.options.maxLength}`
-      );
-    }
-    if (
-      this.options?.minLength !== undefined &&
-      src.length < this.options.minLength
-    ) {
-      errors.push(
-        `String '${src}' is too short. Length: ${src.length}.Min ${this.options.minLength}.`
-      );
-    }
-    if (errors.length > 0) {
-      return errors;
-    }
-
-    return false;
+  validate(src: Src): false | Record<SourcePath, string[]> {
+    throw new Error("Method not implemented.");
   }
 
-  hasI18n(): false {
-    return false;
-  }
-
-  protected transform(src: OptIn<string, Opt>): OptOut<string, Opt> {
-    return src;
-  }
-
-  protected inverseTransformPath(
-    _src: OptIn<string, Opt>,
-    localPath: string[]
-  ): string[] {
-    if (localPath.length !== 0) {
-      throw Error("Invalid path: Cannot access property of string value");
+  match(src: Src): boolean {
+    if (this.opt && (src === null || src === undefined)) {
+      return true;
     }
-    return localPath;
+    return typeof src === "string";
   }
 
-  serialize(): SerializedStringSchema {
+  optional(): Schema<Src | null> {
+    return new StringSchema<Src | null>(this.options, true);
+  }
+
+  serialize(): SerializedSchema {
     return {
       type: "string",
       options: this.options,
       opt: this.opt,
     };
   }
-
-  optional(): StringSchema<true> {
-    if (this.opt) console.warn("Schema is already optional");
-    return new StringSchema(this.options, true);
-  }
-
-  static deserialize(schema: SerializedStringSchema): StringSchema<boolean> {
-    return new StringSchema(schema.options, schema.opt);
-  }
 }
-export const string = (options?: StringOptions): StringSchema<false> => {
-  return new StringSchema(options, false);
-};
-string.optional = (options?: StringOptions): StringSchema<true> => {
-  return new StringSchema(options, true);
+
+export const string = <T extends string>(
+  options?: StringOptions
+): Schema<T> => {
+  return new StringSchema(options);
 };

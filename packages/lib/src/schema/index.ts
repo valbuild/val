@@ -1,133 +1,42 @@
-import {
-  ArrayDescriptor,
-  AsOptional,
-  asOptional,
-  Descriptor,
-  ObjectDescriptor,
-  StringDescriptor,
-  NumberDescriptor,
-  RecordDescriptor,
-  ImageDescriptor,
-} from "../descriptor";
-import { Source } from "../Source";
-import { ArraySchema } from "./array";
-import { I18nSchema } from "./i18n";
-import { ImageSchema } from "./image";
-import { NumberSchema } from "./number";
-import { ObjectSchema, SchemaObject } from "./object";
-import { Schema } from "./Schema";
-import { StringSchema } from "./string";
+import { SelectorSource } from "../selector";
+import { RemoteCompatibleSource, RemoteSource } from "../source/remote";
+import { SourcePath } from "../val";
+import { SerializedArraySchema } from "./array";
+import { SerializedBooleanSchema } from "./boolean";
+import { SerializedI18nSchema } from "./i18n";
+import { SerializedLiteralSchema } from "./literal";
+import { SerializedNumberSchema } from "./number";
+import { SerializedObjectSchema } from "./object";
+import { SerializedOneOfSchema } from "./oneOf";
+import { SerializedStringSchema } from "./string";
+import { SerializedUnionSchema } from "./union";
 
-export type MaybeOptDesc<D extends Descriptor<Source>, Opt extends boolean> =
-  | (Opt extends true ? AsOptional<D> : never)
-  | (Opt extends false ? D : never);
+export type SerializedSchema =
+  | SerializedStringSchema
+  | SerializedLiteralSchema
+  | SerializedBooleanSchema
+  | SerializedNumberSchema
+  | SerializedObjectSchema
+  | SerializedOneOfSchema
+  | SerializedArraySchema
+  | SerializedUnionSchema
+  | SerializedI18nSchema;
 
-export function maybeOptDesc<D extends Descriptor<Source>, Opt extends boolean>(
-  desc: D,
-  opt: Opt
-): MaybeOptDesc<D, Opt> {
-  return (opt ? asOptional(desc) : desc) as MaybeOptDesc<D, Opt>;
-}
-
-export type LocalDescriptorOf<S extends Schema<never, Source>> = Schema<
-  Source,
-  Source
-> extends S
-  ? Descriptor<Source>
-  : S extends ArraySchema<infer T, infer Opt>
-  ? MaybeOptDesc<ArrayDescriptor<LocalDescriptorOf<T>>, Opt>
-  : S extends I18nSchema<infer T, infer Opt>
-  ? MaybeOptDesc<LocalDescriptorOf<T>, Opt>
-  : S extends ObjectSchema<infer T, infer Opt>
-  ? MaybeOptDesc<
-      ObjectDescriptor<{ [P in keyof T]: LocalDescriptorOf<T[P]> }>,
-      Opt
-    >
-  : S extends StringSchema<infer Opt>
-  ? MaybeOptDesc<StringDescriptor, Opt>
-  : S extends NumberSchema<infer Opt>
-  ? MaybeOptDesc<NumberDescriptor, Opt>
-  : S extends ImageSchema<infer Opt>
-  ? MaybeOptDesc<ImageDescriptor, Opt>
-  : MaybeOptDesc<Descriptor<Source>, boolean>;
-
-export type RawDescriptorOf<S extends Schema<never, Source>> = Schema<
-  Source,
-  Source
-> extends S
-  ? Descriptor<Source>
-  : S extends ArraySchema<infer T, infer Opt>
-  ? MaybeOptDesc<ArrayDescriptor<RawDescriptorOf<T>>, Opt>
-  : S extends I18nSchema<infer T, infer Opt>
-  ? MaybeOptDesc<RawDescriptorOf<T>, Opt>
-  : S extends ObjectSchema<infer T, infer Opt>
-  ? MaybeOptDesc<
-      ObjectDescriptor<{ [P in keyof T]: RawDescriptorOf<T[P]> }>,
-      Opt
-    >
-  : S extends StringSchema<infer Opt>
-  ? MaybeOptDesc<StringDescriptor, Opt>
-  : S extends NumberSchema<infer Opt>
-  ? MaybeOptDesc<NumberDescriptor, Opt>
-  : S extends ImageSchema<infer Opt>
-  ? MaybeOptDesc<ImageDescriptor, Opt>
-  : MaybeOptDesc<Descriptor<Source>, boolean>;
-
-export function localDescriptorOf<S extends Schema<never, Source>>(
-  s: S
-): LocalDescriptorOf<S> {
-  if (s instanceof ArraySchema) {
-    return maybeOptDesc(
-      new ArrayDescriptor(localDescriptorOf(s.item)),
-      s.opt
-    ) as LocalDescriptorOf<S>;
-  } else if (s instanceof I18nSchema) {
-    return maybeOptDesc(
-      localDescriptorOf(s.schema),
-      s.opt
-    ) as LocalDescriptorOf<S>;
-  } else if (s instanceof ObjectSchema) {
-    const entries = Object.entries(s.props as SchemaObject).map(
-      ([prop, s]) => [prop, localDescriptorOf(s)] as const
-    );
-    return maybeOptDesc(
-      new ObjectDescriptor(Object.fromEntries(entries)),
-      s.opt
-    ) as LocalDescriptorOf<S>;
-  } else if (s instanceof StringSchema) {
-    return maybeOptDesc(StringDescriptor, s.opt) as LocalDescriptorOf<S>;
-  } else if (s instanceof NumberSchema) {
-    return maybeOptDesc(NumberDescriptor, s.opt) as LocalDescriptorOf<S>;
-  } else if (s instanceof ImageSchema) {
-    return maybeOptDesc(ImageDescriptor, s.opt) as LocalDescriptorOf<S>;
+export abstract class Schema<Src extends SelectorSource> {
+  abstract validate(src: Src): false | Record<SourcePath, string[]>;
+  abstract match(src: Src): boolean; // TODO: false | Record<SourcePath, string[]>;
+  abstract optional(): Schema<Src | null>;
+  abstract serialize(): SerializedSchema;
+  remote(): Src extends RemoteCompatibleSource
+    ? Schema<RemoteSource<Src>>
+    : never {
+    // TODO: Schema<never, "Cannot create remote schema from non-remote source.">
+    throw new Error("You need Val Ultra to use .remote()");
   }
-  throw Error("Unsupported schema");
 }
-export function rawDescriptorOf<S extends Schema<never, Source>>(
-  s: S
-): RawDescriptorOf<S> {
-  if (s instanceof ArraySchema) {
-    return maybeOptDesc(
-      new ArrayDescriptor(rawDescriptorOf(s.item)),
-      s.opt
-    ) as RawDescriptorOf<S>;
-  } else if (s instanceof I18nSchema) {
-    return maybeOptDesc(
-      new RecordDescriptor(rawDescriptorOf(s.schema)),
-      s.opt
-    ) as unknown as RawDescriptorOf<S>;
-  } else if (s instanceof ObjectSchema) {
-    const entries = Object.entries(s.props as SchemaObject).map(
-      ([prop, s]) => [prop, rawDescriptorOf(s)] as const
-    );
-    return maybeOptDesc(
-      new ObjectDescriptor(Object.fromEntries(entries)),
-      s.opt
-    ) as RawDescriptorOf<S>;
-  } else if (s instanceof StringSchema) {
-    return maybeOptDesc(StringDescriptor, s.opt) as RawDescriptorOf<S>;
-  } else if (s instanceof NumberSchema) {
-    return maybeOptDesc(NumberDescriptor, s.opt) as RawDescriptorOf<S>;
-  }
-  throw Error("Unsupported schema");
-}
+
+export type SchemaTypeOf<T extends Schema<SelectorSource>> = T extends Schema<
+  infer Src
+>
+  ? Src
+  : never; // TODO: SourceError<"Could not determine type of Schema">
