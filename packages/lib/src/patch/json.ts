@@ -236,6 +236,12 @@ function pickDocument<
 }
 
 export class JSONOps implements Ops<JSONValue, never> {
+  get(
+    document: JSONValue,
+    path: string[]
+  ): result.Result<JSONValue, PatchError> {
+    return getAtPath(document, path);
+  }
   add(
     document: JSONValue,
     path: string[],

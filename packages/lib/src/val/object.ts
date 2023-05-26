@@ -1,12 +1,13 @@
-import { SourceObject, AsReadonlySource } from "../Source";
-import { Val as UnknownVal } from ".";
+import { SourcePath, Val as UnknownVal } from ".";
+import { JsonObject } from "../Json";
+import { Path } from "../selector";
 
-export type Val<T extends SourceObject> = Omit<
+export type Val<T extends JsonObject> = Omit<
   {
     readonly [key in keyof T]: UnknownVal<T[key]>;
   },
-  "valSrc" | "val"
+  "valPath" | "val"
 > & {
-  readonly valSrc: string;
-  readonly val: AsReadonlySource<T>;
+  readonly [Path]: SourcePath | undefined;
+  readonly val: T;
 };
