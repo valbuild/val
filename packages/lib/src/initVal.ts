@@ -15,39 +15,41 @@ type ValConstructor = {
   key: typeof getPath;
   remote: typeof remote;
 };
-export type InitVal<Locales extends readonly string[] | undefined> =
-  Locales extends readonly string[]
-    ? {
-        val: ValConstructor & {
-          i18n: I18n<Locales>;
-        };
-        fetchVal<T extends SelectorSource>(
-          selector: T,
-          locale: Locales[number]
-        ): SelectorOf<T> extends GenericSelector<infer S>
-          ? Promise<Val<JsonOfSource<S>>>
-          : never;
-        s: InitSchema & InitSchemaLocalized<Locales>;
-      }
-    : {
-        val: ValConstructor;
-        fetchVal<T extends SelectorSource>(
-          selector: T
-        ): SelectorOf<T> extends GenericSelector<infer S>
-          ? Promise<Val<JsonOfSource<S>>>
-          : never;
-        s: InitSchema;
+export type InitVal<Locales extends readonly string[] | undefined> = [
+  Locales
+] extends [readonly string[]]
+  ? {
+      val: ValConstructor & {
+        i18n: I18n<Locales>;
       };
+      fetchVal<T extends SelectorSource>(
+        selector: T,
+        locale: Locales[number]
+      ): SelectorOf<T> extends GenericSelector<infer S>
+        ? Promise<Val<JsonOfSource<S>>>
+        : never;
+      s: InitSchema & InitSchemaLocalized<Locales>;
+    }
+  : {
+      val: ValConstructor;
+      fetchVal<T extends SelectorSource>(
+        selector: T
+      ): SelectorOf<T> extends GenericSelector<infer S>
+        ? Promise<Val<JsonOfSource<S>>>
+        : never;
+      s: InitSchema;
+    };
+
 export const initVal = <
   Locales extends readonly string[] | undefined
 >(options?: {
-  readonly locales?: F.Narrow<{
+  readonly locales?: {
     readonly required: Locales;
     readonly fallback: Locales extends readonly string[]
       ? Locales[number]
       : never;
-  }>;
-}): A.Compute<InitVal<Locales>> => {
+  };
+}): InitVal<Locales> => {
   const locales = options?.locales;
   const s = initSchema(locales?.required as readonly string[]);
   if (locales?.required) {
