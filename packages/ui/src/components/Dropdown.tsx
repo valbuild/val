@@ -49,11 +49,11 @@ const Dropdown: React.FC<DropdownProps> = ({
       <Button
         onClick={handleToggle}
         icon={
-            <Chevron
-              className={`rotate-[-90deg] transition-transform duration-150 ease-in-out ${
-                isOpen ? "" : "rotate-[90deg]"
-              }`}
-            />
+          <Chevron
+            className={`rotate-[-90deg] transition-transform duration-150 ease-in-out ${
+              isOpen ? "" : "rotate-[90deg]"
+            }`}
+          />
         }
       >
         <span className="flex flex-row items-center justify-center gap-1">
@@ -62,15 +62,14 @@ const Dropdown: React.FC<DropdownProps> = ({
         </span>
       </Button>
       {isOpen && (
-        <div className="absolute left-0 mt-2 w-48 border shadow-lg font-mono font-[500] tracking-[0.04em] text-[14px] border-valLightGrey text-valWhite bg-valDarkGrey z-10">
+        <div className="absolute left-0 mt-2 w-48 border shadow-lg font-mono font-[500] tracking-[0.04em] text-[14px] border-base text-primary bg-border z-10">
           <div className="py-1 rounded-md">
             {options?.map((option, idx) => (
               <button
                 key={option}
                 onClick={() => handleSelect(option, idx)}
-                className={`w-full text-left px-4 py-2 hover:bg-valMediumBlack hover:text-valYellow  ${
-                  idx === selectedOption &&
-                  "font-bold bg-valMediumBlack hover:bg-valLightGrey"
+                className={`w-full text-left px-4 py-2 hover:bg-base hover:text-highlight  ${
+                  idx === selectedOption && "font-bold bg-base hover:bg-base"
                 }`}
               >
                 {option}

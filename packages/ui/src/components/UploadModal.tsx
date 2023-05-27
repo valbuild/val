@@ -51,7 +51,7 @@ const UploadModal: FC<UploadModalProps> = ({
               <div className="absolute inset-0 bg-gray-500 opacity-75" />
             </div>
 
-            <div className="flex flex-col items-center justify-between bg-valWarmBlack rounded-lg transform transition-all min-h-[300px] min-w-[500px] h-full px-5 py-7">
+            <div className="flex flex-col items-center justify-between bg-fill rounded-lg transform transition-all min-h-[300px] min-w-[500px] h-full px-5 py-7">
               <div className="flex flex-col gap-5 w-full items-center">
                 <div className="mb-4">
                   <Button
@@ -69,16 +69,16 @@ const UploadModal: FC<UploadModalProps> = ({
                 </div>
                 {uploadUrl ? (
                   <div className="flex flex-col items-center justify-center w-full gap-5">
-                    <label className="text-valWhite">Upload URL</label>
+                    <label className="text-primary">Upload URL</label>
                     <input
-                      className="w-full h-10 bg-valDarkGrey rounded-lg"
+                      className="w-full h-10 bg-border rounded-lg"
                       value={url}
                       onChange={(event) => setUrl(event.target.value)}
                     />
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center w-full gap-5">
-                    <label className="text-valWhite">Choose File</label>
+                    <label className="text-primary">Choose File</label>
                     <input
                       className="w-fit h-10 rounded-lg"
                       type="file"

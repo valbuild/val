@@ -1,3 +1,4 @@
+import classNames from "classnames";
 import { FC, useState } from "react";
 
 export interface CheckboxProps {
@@ -19,11 +20,15 @@ const Checkbox: FC<CheckboxProps> = ({ label, checked, setChecked }) => {
           checked={checked}
           onChange={(event) => handleChange(event.target.checked)}
           className="hidden"
-        />{" "}
+        />
         <span
-          className={`w-[14px] h-[14px] border rounded border-gray-400 flex items-center justify-center ${
-            checked ? "bg-valYellow" : "bg-valWarmBlack"
-          }`}
+          className={classNames(
+            "w-[14px] h-[14px] border rounded border-gray-400 flex items-center justify-center",
+            {
+              "bg-highlight": checked,
+              "bg-fill": !checked,
+            }
+          )}
         >
           {checked && (
             <svg
@@ -37,7 +42,7 @@ const Checkbox: FC<CheckboxProps> = ({ label, checked, setChecked }) => {
             </svg>
           )}
         </span>
-        <span className="ml-2 text-valWhite font-mono">{label}</span>
+        <span className="ml-2 font-mono text-primary">{label}</span>
       </label>
     </div>
   );

@@ -1,4 +1,3 @@
-export { Test } from "./components/Test";
 export { RichTextEditor } from "./components/RichTextEditor/RichTextEditor";
 export { ValOverlay } from "./components/ValOverlay";
 export { type Inputs } from "./components/forms/Form";
