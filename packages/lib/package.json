@@ -1,9 +1,10 @@
 {
   "name": "@valbuild/lib",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "jest"
+    "test": "jest",
+    "analyze-trace": "npx tsc -p tsconfig.json --skipLibCheck --generateTrace trace; npx -p @typescript/analyze-trace analyze-trace trace;  npx speedscope trace/trace.json"
   },
   "main": "dist/valbuild-lib.cjs.js",
   "module": "dist/valbuild-lib.esm.js",
@@ -35,5 +36,8 @@
       "./expr/index.ts"
     ],
     "exports": true
+  },
+  "dependencies": {
+    "ts-toolbelt": "^9.6.0"
   }
 }

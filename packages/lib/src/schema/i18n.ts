@@ -1,120 +1,65 @@
-import { Source } from "../Source";
-import {
-  LocalOf,
-  OptIn,
-  OptOut,
-  Schema,
-  SrcOf,
-  type SerializedSchema,
-} from "./Schema";
-import { deserializeSchema } from "./serialization";
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { Schema, SchemaTypeOf, SerializedSchema } from ".";
+import { I18nCompatibleSource, I18nSource } from "../source/i18n";
+import { SourcePath } from "../val";
 
 export type SerializedI18nSchema = {
   type: "i18n";
-  schema: SerializedSchema;
+  locales: readonly string[];
+  item: SerializedSchema;
   opt: boolean;
 };
 
-export class I18nSchema<
-  T extends Schema<never, Source>,
-  Opt extends boolean
-> extends Schema<
-  OptIn<{ readonly en_US: SrcOf<T> }, Opt>,
-  OptOut<LocalOf<T>, Opt>
+export class I18nSchema<Locales extends readonly string[]> extends Schema<
+  I18nSource<Locales, SchemaTypeOf<Schema<I18nCompatibleSource>>>
 > {
-  constructor(public readonly schema: T, public readonly opt: Opt) {
-    super(opt);
-
-    if (schema.hasI18n()) {
-      console.warn("Nested i18n detected.");
-    }
-  }
-  protected validate(
-    src: OptIn<{ readonly en_US: SrcOf<T> }, Opt>
-  ): false | string[] {
-    if (src === null) {
-      if (!this.opt) return ["Required i18n record cannot be null"];
-      return false;
-    }
-    const errors: string[] = [];
-    for (const key in src) {
-      const value = src[key as "en_US"];
-      const result = Schema.validate(this.schema, value);
-      if (result) {
-        errors.push(...result.map((error) => `[${key}]: ${error}`));
-      }
-    }
-    if (errors.length > 0) {
-      return errors;
-    }
-    return false;
+  constructor(
+    readonly locales: Locales,
+    readonly item: Schema<SchemaTypeOf<Schema<I18nCompatibleSource>>>,
+    readonly opt: boolean = false
+  ) {
+    super();
   }
 
-  hasI18n(): true {
-    return true;
+  validate(
+    src: I18nSource<Locales, SchemaTypeOf<Schema<I18nCompatibleSource>>>
+  ): false | Record<SourcePath, string[]> {
+    throw new Error("Method not implemented.");
   }
 
-  protected localize(
-    src: OptIn<{ readonly en_US: SrcOf<T> }, Opt>,
-    locale: "en_US"
-  ): OptOut<LocalOf<T>, Opt> {
-    if (src === null) {
-      if (!this.opt) throw Error("Required i18n record cannot be null");
-      return null as OptOut<LocalOf<T>, Opt>;
-    }
-    return Schema.localize(this.schema, src[locale], locale);
+  match(
+    src: I18nSource<Locales, SchemaTypeOf<Schema<I18nCompatibleSource>>>
+  ): boolean {
+    throw new Error("Method not implemented.");
   }
 
-  protected delocalizePath(
-    src: OptIn<{ readonly en_US: SrcOf<T> }, Opt>,
-    localPath: string[],
-    locale: "en_US"
-  ): string[] {
-    if (src === null) {
-      if (!this.opt) {
-        throw Error("Invalid value: Required i18n record cannot be null");
-      }
-
-      if (localPath.length !== 0) {
-        throw Error(
-          "Invalid path: Cannot access item of i18n record whose value is null"
-        );
-      }
-
-      return localPath;
-    }
-    return [
-      locale,
-      ...Schema.delocalizePath(this.schema, src[locale], localPath, locale),
-    ];
+  optional(): Schema<I18nSource<
+    Locales,
+    SchemaTypeOf<Schema<I18nCompatibleSource>>
+  > | null> {
+    return new I18nSchema(this.locales, this.item, true);
   }
 
-  serialize(): SerializedI18nSchema {
+  serialize(): SerializedSchema {
     return {
       type: "i18n",
-      schema: this.schema.serialize(),
+      item: this.item.serialize(),
+      locales: this.locales,
       opt: this.opt,
     };
   }
-
-  optional(): I18nSchema<T, true> {
-    if (this.opt) console.warn("Schema is already optional");
-    return new I18nSchema(this.schema, true);
-  }
-
-  static deserialize(
-    schema: SerializedI18nSchema
-  ): I18nSchema<Schema<never, Source>, boolean> {
-    return new I18nSchema(deserializeSchema(schema.schema), schema.opt);
-  }
 }
-export const i18n = <T extends Schema<never, Source>>(
-  schema: T
-): I18nSchema<T, false> => {
-  return new I18nSchema(schema, false);
-};
-i18n.optional = <T extends Schema<never, Source>>(
-  schema: T
-): I18nSchema<T, true> => {
-  return new I18nSchema(schema, true);
-};
+
+export type I18n<Locales extends readonly string[]> = <
+  S extends Schema<I18nCompatibleSource>
+>(
+  schema: S
+) => Schema<I18nSource<Locales, SchemaTypeOf<S>>>;
+
+export const i18n =
+  <Locales extends readonly string[]>(locales: Locales) =>
+  <S extends Schema<I18nCompatibleSource>>(
+    schema: S
+  ): Schema<I18nSource<Locales, SchemaTypeOf<S>>> => {
+    return new I18nSchema(locales, schema);
+  };

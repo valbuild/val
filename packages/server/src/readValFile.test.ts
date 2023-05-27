@@ -31,7 +31,7 @@ describe("read val file", () => {
     QuickJS.assertNoMemoryAllocated();
   });
 
-  test.each(TestCases)("read basic val file from:  $name", async (testCase) => {
+  test.each(TestCases)("read basic val file from: $name", async (testCase) => {
     const rootDir = path.resolve(__dirname, TestCaseDir, testCase.name);
     const loader = createModuleLoader(rootDir);
     const testRuntime = await newValQuickJSRuntime(QuickJS, loader, {

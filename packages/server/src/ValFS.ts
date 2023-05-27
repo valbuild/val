@@ -12,7 +12,7 @@ export interface ValFS {
     depth?: number | undefined
   ): readonly string[];
 
-  writeFile(filePath: string, data: string): void;
+  writeFile(filePath: string, data: string, encoding: "binary" | "utf8"): void;
 
   fileExists(filePath: string): boolean;
 

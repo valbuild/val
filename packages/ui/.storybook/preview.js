@@ -1,6 +1,23 @@
-/** @type { import('@storybook/react').Preview } */
-import "tailwindcss/tailwind.css";
+import { withThemeByDataAttribute } from "@storybook/addon-styling";
 
+import "tailwindcss/tailwind.css";
+import "../src/index.css";
+import "./theme.css"; // The normal css has theming on :hover, but we need to have it on :root for stories to work
+
+/* snipped for brevity */
+
+export const decorators = [
+  withThemeByDataAttribute({
+    themes: {
+      light: "light",
+      dark: "dark",
+    },
+    defaultTheme: "dark",
+    attributeName: "data-mode",
+  }),
+];
+
+/** @type { import('@storybook/react').Preview } */
 const preview = {
   parameters: {
     actions: { argTypesRegex: "^on[A-Z].*" },
@@ -9,23 +26,6 @@ const preview = {
         color: /(background|color)$/i,
         date: /Date$/,
       },
-    },
-    backgrounds: {
-      default: "valDarkGrey",
-      values: [
-        {
-          name: "valDarkGrey",
-          value: "#575757",
-        },
-        {
-          name: "valWhite",
-          value: "##FCFCFC",
-        },
-        {
-          name: "valWarmBlack",
-          value: "#1A1A1A",
-        }
-      ],
     },
   },
 };

@@ -2,6 +2,7 @@ import ts from "typescript";
 import { getCompilerOptions } from "./getCompilerOptions";
 import type { IValFSHost } from "./ValFSHost";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
+import fs from "fs";
 
 const JsFileLookupMapping: [resolvedFileExt: string, replacements: string[]][] =
   [
@@ -14,7 +15,10 @@ const JsFileLookupMapping: [resolvedFileExt: string, replacements: string[]][] =
 
 export const createModuleLoader = (
   rootDir: string,
-  host: IValFSHost = ts.sys
+  host: IValFSHost = {
+    ...ts.sys,
+    writeFile: fs.writeFileSync,
+  }
 ): ValModuleLoader => {
   const compilerOptions = getCompilerOptions(rootDir, host);
   const sourceFileHandler = new ValSourceFileHandler(
@@ -36,7 +40,10 @@ export class ValModuleLoader {
     public readonly projectRoot: string,
     private readonly compilerOptions: ts.CompilerOptions,
     private readonly sourceFileHandler: ValSourceFileHandler,
-    private readonly host: IValFSHost = ts.sys
+    private readonly host: IValFSHost = {
+      ...ts.sys,
+      writeFile: fs.writeFileSync,
+    }
   ) {}
 
   getModule(modulePath: string): string {

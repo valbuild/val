@@ -3,7 +3,7 @@ import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { PatchJSON } from "./patch/validation";
 import { result } from "@valbuild/lib/fp";
-import { getFileIdFromParams } from "./expressHelpers";
+import { getPathFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
 import { z } from "zod";
 import { parsePatch } from "@valbuild/lib/patch";
@@ -135,7 +135,7 @@ export class ProxyValServer implements ValServer {
     res: express.Response
   ): Promise<void> {
     return this.withAuth(req, res, async ({ token }) => {
-      const id = getFileIdFromParams(req.params);
+      const id = getPathFromParams(req.params);
       const url = new URL(
         `/api/val/modules/${encodeURIComponent(this.options.gitCommit)}${id}`,
         this.options.valBuildUrl
@@ -170,7 +170,7 @@ export class ProxyValServer implements ValServer {
         res.status(401).json(patch.error);
         return;
       }
-      const id = getFileIdFromParams(req.params);
+      const id = getPathFromParams(req.params);
       const url = new URL(
         `/api/val/modules/${encodeURIComponent(this.options.gitCommit)}${id}`,
         this.options.valBuildUrl

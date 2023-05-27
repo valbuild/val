@@ -1,63 +1,45 @@
-import { OptIn, OptOut, Schema } from "./Schema";
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { Schema, SerializedSchema } from ".";
+import { SourcePath } from "../val";
+
+type NumberOptions = {
+  max?: number;
+  min?: number;
+};
 
 export type SerializedNumberSchema = {
   type: "number";
+  options?: NumberOptions;
   opt: boolean;
 };
 
-export class NumberSchema<Opt extends boolean> extends Schema<
-  OptIn<number, Opt>,
-  OptOut<number, Opt>
-> {
-  constructor(public readonly opt: Opt) {
-    super(opt);
+export class NumberSchema<Src extends number | null> extends Schema<Src> {
+  constructor(readonly options?: NumberOptions, readonly opt: boolean = false) {
+    super();
+  }
+  validate(src: Src): false | Record<SourcePath, string[]> {
+    throw new Error("Method not implemented.");
   }
 
-  protected validate(src: OptIn<number, Opt>): false | string[] {
-    if (src === null) {
-      if (!this.opt) return ["Required number cannot be null"];
-      return false;
+  match(src: Src): boolean {
+    if (this.opt && (src === null || src === undefined)) {
+      return true;
     }
-    return false;
+    return typeof src === "number";
   }
 
-  hasI18n(): false {
-    return false;
+  optional(): Schema<Src | null> {
+    return new NumberSchema<Src | null>(this.options, true);
   }
-
-  protected localize(src: OptIn<number, Opt>): OptOut<number, Opt> {
-    return src;
-  }
-
-  protected delocalizePath(
-    _src: OptIn<number, Opt>,
-    localPath: string[]
-  ): string[] {
-    if (localPath.length !== 0) {
-      throw Error("Invalid path: Cannot access property of number value");
-    }
-    return localPath;
-  }
-
-  serialize(): SerializedNumberSchema {
+  serialize(): SerializedSchema {
     return {
       type: "number",
+      options: this.options,
       opt: this.opt,
     };
   }
-
-  optional(): NumberSchema<true> {
-    if (this.opt) console.warn("Schema is already optional");
-    return new NumberSchema(true);
-  }
-
-  static deserialize(schema: SerializedNumberSchema): NumberSchema<boolean> {
-    return new NumberSchema(schema.opt);
-  }
 }
-export const number = (): NumberSchema<false> => {
-  return new NumberSchema(false);
-};
-number.optional = (): NumberSchema<true> => {
-  return new NumberSchema(true);
+
+export const number = (options?: NumberOptions): Schema<number> => {
+  return new NumberSchema(options);
 };

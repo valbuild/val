@@ -141,6 +141,50 @@ describe("TSOps", () => {
       value: null,
       expected: result.err(PatchError),
     },
+    {
+      name: "val.file",
+      input: `{ foo: "bar" }`,
+      path: ["image"],
+      value: { _ref: "/public/val/image.jpg" },
+      expected: result.ok(
+        `{ foo: "bar", image: val.file("/public/val/image.jpg") }`
+      ),
+    },
+    {
+      name: "ref prop to val.file",
+      input: `val.file("/public/val/foo.jpg")`,
+      path: ["_ref"],
+      value: "/public/val/bar.jpg",
+      expected: result.ok(`val.file("/public/val/bar.jpg")`),
+    },
+    {
+      name: "ref prop",
+      input: `{ foo: "bar", image: {} }`,
+      path: ["image", "_ref"],
+      value: "/public/val/image.jpg",
+      expected: result.err(PatchError),
+    },
+    {
+      name: "prop on val.file",
+      input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
+      path: ["image", "zoo"],
+      value: null,
+      expected: result.err(PatchError),
+    },
+    {
+      name: "null prop of name ref on val.file",
+      input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
+      path: ["image", "_ref"],
+      value: null,
+      expected: result.err(PatchError),
+    },
+    {
+      name: "to ref on val.file",
+      input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
+      path: ["image", "_ref", "zoo"],
+      value: null,
+      expected: result.err(PatchError),
+    },
   ])("add $name", ({ input, path, value, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);
@@ -217,6 +261,24 @@ describe("TSOps", () => {
       name: "from non-object/array",
       input: `0`,
       path: ["foo"],
+      expected: result.err(PatchError),
+    },
+    {
+      name: "val.file from array",
+      input: `[val.file("/public/val/image1.jpg"), val.file("/public/val/image2.jpg")]`,
+      path: ["0"],
+      expected: result.ok(`[val.file("/public/val/image2.jpg")]`),
+    },
+    {
+      name: "val.file from object",
+      input: `[{ foo: "bar", image: val.file("/public/val/image.jpg") }]`,
+      path: ["0", "image"],
+      expected: result.ok(`[{ foo: "bar" }]`),
+    },
+    {
+      name: "ref prop from val.file",
+      input: `{ image: val.file("/public/val/image.jpg") }`,
+      path: ["image", "_ref"],
       expected: result.err(PatchError),
     },
   ])("remove $name", ({ input, path, expected }) => {
@@ -308,6 +370,50 @@ describe("TSOps", () => {
       value: null,
       expected: result.err(PatchError),
     },
+    {
+      name: "val.files",
+      input: `val.file("/public/val/foo/bar.jpg")`,
+      path: ["_ref"],
+      value: "/public/val/foo/bar2.jpg",
+      expected: result.ok(`val.file("/public/val/foo/bar2.jpg")`),
+    },
+    {
+      name: "deep val.files",
+      input: `{ foo: { bar: val.file("/public/val/foo/bar/zoo.jpg") } }`,
+      path: ["foo", "bar", "_ref"],
+      value: "/public/val/foo/bar/zoo2.jpg",
+      expected: result.ok(
+        `{ foo: { bar: val.file("/public/val/foo/bar/zoo2.jpg") } }`
+      ),
+    },
+    {
+      name: "prop on val.file",
+      input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
+      path: ["image", "zoo"],
+      value: null,
+      expected: result.err(PatchError),
+    },
+    {
+      name: "null prop of name ref on val.file",
+      input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
+      path: ["image", "_ref"],
+      value: null,
+      expected: result.err(PatchError),
+    },
+    {
+      name: "number prop of name ref on val.file",
+      input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
+      path: ["image", "_ref"],
+      value: 1,
+      expected: result.err(PatchError),
+    },
+    {
+      name: "to ref on val.file",
+      input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
+      path: ["image", "_ref", "zoo"],
+      value: null,
+      expected: result.err(PatchError),
+    },
   ])("replace $name", ({ input, path, value, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);
@@ -395,6 +501,29 @@ describe("TSOps", () => {
       input: `["foo", "bar"]`,
       from: ["0"],
       path: ["2"],
+      expected: result.err(PatchError),
+    },
+    {
+      name: "val.file to root of document",
+      input: `{ foo: null, baz: val.file("/public/val/foo/bar.jpg") }`,
+      from: ["baz"],
+      path: ["bar"],
+      expected: result.ok(
+        `{ foo: null, bar: val.file("/public/val/foo/bar.jpg") }`
+      ),
+    },
+    {
+      name: "ref out of val.file",
+      input: `{ foo: null, baz: val.file("/public/val/foo/bar.jpg") }`,
+      from: ["baz", "_ref"],
+      path: ["bar"],
+      expected: result.err(PatchError),
+    },
+    {
+      name: "object into val.file",
+      input: `{ foo: { bar: "zoo" }, baz: val.file("/public/val/foo/bar.jpg") }`,
+      from: ["foo"],
+      path: ["baz", "loo"],
       expected: result.err(PatchError),
     },
   ])("move $name", ({ input, from, path, expected }) => {
@@ -491,6 +620,20 @@ describe("TSOps", () => {
       input: `["foo", "bar"]`,
       from: ["0"],
       path: ["3"],
+      expected: result.err(PatchError),
+    },
+    {
+      name: "val.file to root of object",
+      input: `{ foo: val.file("/public/val/image1.jpg") }`,
+      from: ["foo"],
+      path: [],
+      expected: result.ok(`val.file("/public/val/image1.jpg")`),
+    },
+    {
+      name: "object into val.file",
+      input: `{ foo: val.file("/public/val/image1.jpg"), bar: null }`,
+      from: ["bar"],
+      path: ["foo", "loo"],
       expected: result.err(PatchError),
     },
   ])("copy $name", ({ input, from, path, expected }) => {
@@ -605,6 +748,27 @@ describe("TSOps", () => {
       path: ["foo"],
       value: null,
       expected: result.err(PatchError),
+    },
+    {
+      name: "val.file ref",
+      input: `val.file("/public/val/foo/bar.jpg")`,
+      path: ["_ref"],
+      value: "/public/val/foo/bar.jpg",
+      expected: result.ok(true),
+    },
+    {
+      name: "val.file",
+      input: `val.file("/public/val/foo/bar.jpg")`,
+      path: [],
+      value: { _ref: "/public/val/foo/bar.jpg", _type: "file" },
+      expected: result.ok(true),
+    },
+    {
+      name: "nested val.file",
+      input: `{ foo: { bar: val.file("/public/val/foo/bar/zoo.jpg") } }`,
+      path: ["foo", "bar", "_ref"],
+      value: "/public/val/foo/bar/zoo.jpg",
+      expected: result.ok(true),
     },
   ])("test $name", ({ input, path, value, expected }) => {
     const src = testSourceFile(input);
