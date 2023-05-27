@@ -1,12 +1,16 @@
 import ts from "typescript";
 import path from "path";
 import { IValFSHost } from "./ValFSHost";
+import fs from "fs";
 
 export class ValSourceFileHandler {
   constructor(
     private readonly projectRoot: string,
     private readonly compilerOptions: ts.CompilerOptions,
-    private readonly host: IValFSHost = ts.sys
+    private readonly host: IValFSHost = {
+      ...ts.sys,
+      writeFile: fs.writeFileSync,
+    }
   ) {}
 
   getSourceFile(filePath: string): ts.SourceFile | undefined {
@@ -18,7 +22,11 @@ export class ValSourceFileHandler {
   }
 
   writeSourceFile(sourceFile: ts.SourceFile) {
-    this.host.writeFile(sourceFile.fileName, sourceFile.text, false);
+    return this.writeFile(sourceFile.fileName, sourceFile.text, "utf8");
+  }
+
+  writeFile(filePath: string, content: string, encoding: "binary" | "utf8") {
+    this.host.writeFile(filePath, content, encoding);
   }
 
   resolveSourceModulePath(
