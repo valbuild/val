@@ -14,10 +14,10 @@
     "@types/react": "^18.0.26",
     "classnames": "^2.3.2",
     "lexical": "^0.10.0",
+    "react-feather": "^2.0.10",
     "rollup-plugin-peer-deps-external": "^2.2.4",
     "rollup-plugin-postcss": "^4.0.2",
-    "rollup-plugin-typescript2": "^0.34.1",
-    "react-feather": "^2.0.10"
+    "rollup-plugin-typescript2": "^0.34.1"
   },
   "devDependencies": {
     "@storybook/addon-essentials": "^7.0.12",

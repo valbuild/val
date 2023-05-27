@@ -20,16 +20,19 @@ const Button: FC<ButtonProps> = ({
 }) => {
   const cn = classNames(
     `font-mono font-[12px] tracking-[0.04em] font-[500] py-[8px] px-[12px] h-[40px] rounded whitespace-nowrap group relative`,
-    active && "font-bold",
-    variant === "primary"
-      ? `bg-valYellow hover:bg-valLightGrey text-valWarmBlack disabled:bg-valWarmBlack disabled:text-valLightGrey`
-      : `bg-transparent border border-valWhite text-valWhite hover:border-valYellow hover:text-valYellow disabled:bg-valWarmBlack disabled:text-valLightGrey`
+    {
+      "font-bold": variant === "primary",
+      "bg-base hover:bg-base text-fill disabled:bg-fill disabled:text-base":
+        variant === "primary",
+      "bg-transparent border border-primary text-primary hover:border-highlight hover:text-highlight disabled:bg-fill disabled:text-base":
+        variant !== "primary",
+    }
   );
   return (
     <button disabled={disabled} className={cn} onClick={onClick}>
       {tooltip && (
         <div
-          className={`absolute bottom-[-75%] left-0 z-20 bg-black w-fit h-fit text-valLightGrey hidden group-hover:block`}
+          className={`absolute bottom-[-75%] left-0 z-20 bg-black w-fit h-fit text-base hidden group-hover:block`}
         >
           <div>{tooltip}</div>
         </div>
