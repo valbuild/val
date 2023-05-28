@@ -2,33 +2,39 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  LexicalNode,
   SerializedEditorState,
   SerializedLexicalNode,
 } from "lexical";
-
-import { ListItemNode, ListNode } from "@lexical/list";
+import {
+  ListItemNode,
+  ListNode,
+  $createListNode,
+  $createListItemNode,
+} from "@lexical/list";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import LexicalErrorBoundary from "@lexical/react/LexicalErrorBoundary";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { ListPlugin } from "@lexical/react/LexicalListPlugin";
-import { HeadingNode } from "@lexical/rich-text";
 import { FC } from "react";
 import LexicalContentEditable from "./ContentEditable";
 import { ImageNode } from "./Nodes/ImageNode";
 import { AutoFocus } from "./Plugins/AutoFocus";
 import ImagesPlugin from "./Plugins/ImagePlugin";
 import Toolbar from "./Plugins/Toolbar";
+import {
+  RichText,
+  TextNode as ValTextNode,
+  HeadingNode as ValHeadingNode,
+  ListItemNode as ValListItemNode,
+  ParagraphNode as ValParagraphNode,
+  ListNode as ValListNode,
+} from "@valbuild/lib";
+import { $createHeadingNode, HeadingNode } from "@lexical/rich-text";
 
 export interface RichTextEditorProps {
-  entries: {
-    source: string;
-    status: "ready";
-    moduleId: string;
-    locale: "en_US";
-    value: string;
-    path: string;
-  }[];
+  richtext: RichText;
   setNodes: React.Dispatch<
     React.SetStateAction<SerializedEditorState<SerializedLexicalNode> | null>
   >;
@@ -38,20 +44,88 @@ function onError(error: any) {
   console.error(error);
 }
 
+type ValNode =
+  | ValTextNode
+  | ValHeadingNode
+  | ValListItemNode
+  | ValParagraphNode
+  | ValListNode;
+function toLexicalNode(node: ValNode): LexicalNode {
+  switch (node.type) {
+    case "heading":
+      return toLexicalHeadingNode(node);
+    case "listitem":
+      return toLexicalListItemNode(node);
+    case "paragraph":
+      return toLexicalParagraphNode(node);
+    case "list":
+      return toLexicalListNode(node);
+    case "text":
+      return toLexicalTextNode(node);
+  }
+}
+
+function toLexicalHeadingNode(heading: ValHeadingNode): LexicalNode {
+  const node = $createHeadingNode(heading.tag);
+  node.setFormat(heading.format);
+  node.setIndent(heading.indent);
+  node.setDirection(heading.direction);
+  node.append(...heading.children.map((child) => toLexicalNode(child)));
+  return node;
+}
+
+function toLexicalParagraphNode(paragraph: ValParagraphNode): LexicalNode {
+  const node = $createParagraphNode();
+  node.setFormat(paragraph.format);
+  node.setIndent(paragraph.indent);
+  node.setDirection(paragraph.direction);
+  node.append(...paragraph.children.map((child) => toLexicalNode(child)));
+  return node;
+}
+
+function toLexicalListItemNode(listItem: ValListItemNode): LexicalNode {
+  const node = $createListItemNode();
+  node.setFormat(listItem.format);
+  node.setIndent(listItem.indent);
+  node.setDirection(listItem.direction);
+  node.setValue(listItem.value);
+  node.setChecked(listItem.checked);
+  node.append(...listItem.children.map((child) => toLexicalNode(child)));
+  return node;
+}
+
+function toLexicalListNode(list: ValListNode): LexicalNode {
+  const node = $createListNode(list.listType, list.start);
+  node.setFormat(list.format);
+  node.setIndent(list.indent);
+  node.setDirection(list.direction);
+  node.append(...list.children.map((child) => toLexicalNode(child)));
+  return node;
+}
+
+function toLexicalTextNode(text: ValTextNode): LexicalNode {
+  const node = $createTextNode(text.text);
+  node.setFormat(text.format as any); // TODO: why is text.format numbers when we are trying it out?
+  text.indent && node.setIndent(text.indent);
+  text.direction && node.setDirection(text.direction);
+  node.setStyle(text.style);
+  node.setDetail(text.detail);
+  return node;
+}
+
 export const RichTextEditor: FC<RichTextEditorProps> = ({
-  entries,
+  richtext,
   setNodes,
 }) => {
   const prePopulatedState = () => {
     const root = $getRoot();
-    const paragraph = $createParagraphNode();
-    const text = $createTextNode(entries[0].value);
-    paragraph.append(text);
-    $getRoot().append(paragraph);
+    $getRoot().append(
+      ...richtext.children.map((child) => toLexicalNode(child))
+    );
     root.selectEnd();
   };
   const initialConfig = {
-    namespace: "VAL",
+    namespace: "val",
     editorState: prePopulatedState,
     nodes: [HeadingNode, ImageNode, ListNode, ListItemNode],
     theme: {

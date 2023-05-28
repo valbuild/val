@@ -3,7 +3,6 @@
 import { content } from "./module";
 import { i18n, I18n } from "./source/i18n";
 import { InitSchema, initSchema, InitSchemaLocalized } from "./initSchema";
-import { A, F } from "ts-toolbelt";
 import { SelectorOf } from "./selector";
 import { getValPath as getPath, Val } from "./val";
 import { SelectorSource, GenericSelector } from "./selector";

@@ -31,6 +31,16 @@ import {
 } from "./module";
 import { getSchema } from "./selector";
 import { getValPath } from "./val";
+export type {
+  RichText,
+  TextNode,
+  ParagraphNode,
+  HeadingNode,
+  ImageNode,
+  ListItemNode,
+  ListNode,
+  RootNode,
+} from "./schema/richtext";
 
 const Internal = {
   getSchema,

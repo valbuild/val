@@ -99,16 +99,18 @@ export function serializedValOfSelectorSource<T extends SelectorSource>(
       ) as object;
       const valPath = Path in child ? (child[Path] as SourcePath) : undefined;
       return {
-        val: Object.fromEntries(
-          Object.entries(obj).map(([key, value]) => [
-            key,
-            rec(
-              isSelector(value) // NOTE: We do this since selectors currently do not create selectors of items unless specifically required.
-                ? value
-                : newSelectorProxy(value, createValPathOfItem(valPath, key))
-            ),
-          ])
-        ),
+        val:
+          obj !== null &&
+          Object.fromEntries(
+            Object.entries(obj).map(([key, value]) => [
+              key,
+              rec(
+                isSelector(value) // NOTE: We do this since selectors currently do not create selectors of items unless specifically required.
+                  ? value
+                  : newSelectorProxy(value, createValPathOfItem(valPath, key))
+              ),
+            ])
+          ),
         valPath,
       };
     } else if (isSelector(child)) {
