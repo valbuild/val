@@ -9,6 +9,7 @@ import {
 } from "@valbuild/lib";
 import { Internal } from "@valbuild/lib";
 import { createElement } from "react";
+import parse from "style-to-object";
 
 const getValPath = Internal.getValPath;
 export function ValRichText({ children }: { children: Val<RichText> }) {
@@ -46,7 +47,13 @@ export function ValRichText({ children }: { children: Val<RichText> }) {
 }
 
 function TextNodeComponent({ node }: { node: Val<TextNode> }) {
-  return <span data-val-path={getValPath(node)}>{node.text}</span>;
+  return (
+    <span
+      style={node.val.style ? parse(node.val.style) ?? undefined : undefined}
+    >
+      {node.val.text}
+    </span>
+  );
 }
 
 function HeadingNodeComponent({ node }: { node: Val<HeadingNode> }) {

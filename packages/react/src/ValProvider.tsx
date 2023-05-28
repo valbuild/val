@@ -102,7 +102,18 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
       // capture event clicks on data-val-path elements
       openValFormListener = (e: MouseEvent) => {
         if (e.target instanceof Element) {
-          const valSources = e.target?.getAttribute("data-val-path");
+          let parent = e.target;
+          while (parent && parent !== document.body) {
+            if (parent.getAttribute("data-val-path")) {
+              break;
+            }
+            if (parent.parentElement) {
+              parent = parent.parentElement;
+            } else {
+              break;
+            }
+          }
+          const valSources = parent?.getAttribute("data-val-path");
           if (valSources) {
             e.stopPropagation();
             setSelectedSources(
@@ -307,8 +318,6 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
                             Internal.splitModuleIdAndModulePath(
                               path as SourcePath
                             );
-                          console.log("her", path);
-
                           if (input.type === "text") {
                             const patch: PatchJSON = [
                               {
