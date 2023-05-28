@@ -32,6 +32,7 @@ const Dropdown: React.FC<DropdownProps> = ({
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
       if (
+        isOpen &&
         dropdownRef.current &&
         !dropdownRef.current.contains(event.target as Node)
       ) {
@@ -45,9 +46,12 @@ const Dropdown: React.FC<DropdownProps> = ({
   }, []);
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div ref={dropdownRef}>
       <Button
-        onClick={handleToggle}
+        onClick={(ev) => {
+          ev.preventDefault();
+          handleToggle();
+        }}
         icon={
           <Chevron
             className={`rotate-[-90deg] transition-transform duration-150 ease-in-out ${
@@ -67,7 +71,10 @@ const Dropdown: React.FC<DropdownProps> = ({
             {options?.map((option, idx) => (
               <button
                 key={option}
-                onClick={() => handleSelect(option, idx)}
+                onClick={(ev) => {
+                  ev.preventDefault();
+                  handleSelect(option, idx);
+                }}
                 className={`w-full text-left px-4 py-2 hover:bg-base hover:text-highlight  ${
                   idx === selectedOption && "font-bold bg-base hover:bg-base"
                 }`}
