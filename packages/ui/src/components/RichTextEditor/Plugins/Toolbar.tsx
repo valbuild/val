@@ -32,6 +32,7 @@ import {
   COMMAND_PRIORITY_CRITICAL,
   DEPRECATED_$isGridSelection,
   FORMAT_TEXT_COMMAND,
+  LexicalEditor,
   NodeKey,
   REDO_COMMAND,
   SELECTION_CHANGE_COMMAND,
@@ -55,18 +56,21 @@ export interface ToolbarSettingsProps {
   fontsFamilies?: string[];
   fontSizes?: string[];
   colors?: string[];
-  setNodes?: React.Dispatch<
-    React.SetStateAction<SerializedEditorState<SerializedLexicalNode> | null>
-  >;
+  onEditor?: (editor: LexicalEditor) => void;
 }
 
 const Toolbar: FC<ToolbarSettingsProps> = ({
   fontSizes,
   fontsFamilies,
+  onEditor,
   colors,
-  setNodes,
 }) => {
   const [editor] = useLexicalComposerContext();
+  useEffect(() => {
+    if (onEditor) {
+      onEditor(editor);
+    }
+  }, [editor]);
   const [activeEditor, setActiveEditor] = useState(editor);
   const [selectedElementKey, setSelectedElementKey] = useState<NodeKey | null>(
     null
@@ -157,7 +161,6 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
         $getSelectionStyleValueForProperty(selection, "font-family", "Arial")
       );
     }
-    if (setNodes) setNodes(editor.getEditorState().toJSON());
   }, [activeEditor]);
 
   useEffect(() => {

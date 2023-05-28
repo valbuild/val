@@ -8,6 +8,7 @@ import { SerializedLiteralSchema } from "./literal";
 import { SerializedNumberSchema } from "./number";
 import { SerializedObjectSchema } from "./object";
 import { SerializedOneOfSchema } from "./oneOf";
+import { SerializedRichTextSchema } from "./richtext";
 import { SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
 
@@ -20,6 +21,7 @@ export type SerializedSchema =
   | SerializedOneOfSchema
   | SerializedArraySchema
   | SerializedUnionSchema
+  | SerializedRichTextSchema
   | SerializedI18nSchema;
 
 export abstract class Schema<Src extends SelectorSource> {

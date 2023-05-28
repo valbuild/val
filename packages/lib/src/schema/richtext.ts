@@ -1,16 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
 import { content } from "../module";
+import { ValExtension } from "../source";
 import { SourcePath } from "../val";
-
-type RichTextOptions = {
-  maxLength?: number;
-  minLength?: number;
-};
 
 export type SerializedRichTextSchema = {
   type: "richtext";
-  options?: RichTextOptions;
   opt: boolean;
 };
 
@@ -96,9 +91,7 @@ export type RichText<
   VN extends TextNode | ValNode = TextNode
 > = RootNode<HT, VN>;
 
-export class RichTextSchema<Src extends Schema<string>> extends Schema<
-  RichText<HeadingTags>
-> {
+export class RichTextSchema extends Schema<RichText | null> {
   validate(
     src: RichText<HeadingTags, TextNode>
   ): false | Record<SourcePath, string[]> {
@@ -111,14 +104,17 @@ export class RichTextSchema<Src extends Schema<string>> extends Schema<
     return new RichTextSchema(true);
   }
   serialize(): SerializedSchema {
-    throw new Error("Method not implemented.");
+    return {
+      type: "richtext",
+      opt: this.opt,
+    };
   }
   constructor(readonly opt: boolean = false) {
     super();
   }
 }
 
-export const richtext = (): Schema<RichText<HeadingTags>> => {
+export const richtext = (): Schema<RichText | null> => {
   return new RichTextSchema();
 };
 

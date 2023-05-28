@@ -7,19 +7,36 @@ import {
   TextNode,
   Val,
 } from "@valbuild/lib";
+import { Internal } from "@valbuild/lib";
 import { createElement } from "react";
 
+const getValPath = Internal.getValPath;
 export function ValRichText({ children }: { children: Val<RichText> }) {
   return (
-    <div>
-      {children.val.children.map((child, i) => {
-        switch (child.type) {
+    <div data-val-path={getValPath(children)}>
+      {children.children.map((child) => {
+        switch (child.type.val) {
           case "heading":
-            return <HeadingNodeComponent key={i} node={child} />;
+            return (
+              <HeadingNodeComponent
+                key={getValPath(child)}
+                node={child as Val<HeadingNode>}
+              />
+            );
           case "paragraph":
-            return <ParagraphNodeComponent key={i} node={child} />;
+            return (
+              <ParagraphNodeComponent
+                key={getValPath(child)}
+                node={child as Val<ParagraphNode>}
+              />
+            );
           case "list":
-            return <ListNodeComponent key={i} node={child} />;
+            return (
+              <ListNodeComponent
+                key={getValPath(child)}
+                node={child as Val<ListNode>}
+              />
+            );
           default:
             throw Error("Unknown node type: " + (child as any)?.type);
         }
@@ -28,25 +45,27 @@ export function ValRichText({ children }: { children: Val<RichText> }) {
   );
 }
 
-function TextNodeComponent({ node }: { node: TextNode }) {
-  return <span>{node.text}</span>;
+function TextNodeComponent({ node }: { node: Val<TextNode> }) {
+  return <span data-val-path={getValPath(node)}>{node.text}</span>;
 }
 
-function HeadingNodeComponent({ node }: { node: HeadingNode }) {
+function HeadingNodeComponent({ node }: { node: Val<HeadingNode> }) {
   return createElement(
-    node.tag,
+    node.tag.val,
     {},
-    node.children.map((child, i) => <TextNodeComponent key={i} node={child} />)
+    node.children.map((child) => (
+      <TextNodeComponent key={getValPath(child)} node={child} />
+    ))
   );
 }
 
-function ParagraphNodeComponent({ node }: { node: ParagraphNode }) {
+function ParagraphNodeComponent({ node }: { node: Val<ParagraphNode> }) {
   return (
     <p>
-      {node.children.map((child, i) => {
-        switch (child.type) {
+      {node.children.map((child) => {
+        switch (child.type.val) {
           case "text":
-            return <TextNodeComponent key={i} node={child} />;
+            return <TextNodeComponent key={getValPath(child)} node={child} />;
           default:
             throw Error("Unknown node type: " + (child as any)?.type);
         }
@@ -55,19 +74,21 @@ function ParagraphNodeComponent({ node }: { node: ParagraphNode }) {
   );
 }
 
-function ListNodeComponent({ node }: { node: ListNode }) {
+function ListNodeComponent({ node }: { node: Val<ListNode> }) {
   return createElement(
-    node.tag,
+    node.val.tag,
     {},
-    node.children.map((child, i) => <ListItemComponent key={i} node={child} />)
+    node.children.map((child) => (
+      <ListItemComponent key={getValPath(child)} node={child} />
+    ))
   );
 }
 
-function ListItemComponent({ node }: { node: ListItemNode }) {
+function ListItemComponent({ node }: { node: Val<ListItemNode> }) {
   return (
     <li>
       {node.children.map((child, i) => {
-        switch (child.type) {
+        switch (child.val.type) {
           case "text":
             return <TextNodeComponent key={i} node={child} />;
           default:

@@ -80,7 +80,7 @@ export class Service {
       valModule.schema
     );
     return {
-      id: [valModule.id, modulePath].join("/") as SourcePath,
+      path: [moduleId, resolved.path].join(".") as SourcePath,
       schema:
         resolved.schema instanceof Schema<SelectorSource>
           ? resolved.schema.serialize()

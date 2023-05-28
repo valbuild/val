@@ -200,16 +200,6 @@ export default val.content("/app/blogs", schema, [
                   type: "text",
                   version: 1,
                 },
-                // TODO: image
-                // {
-                //   altText: "",
-                //   height: 0,
-                //   maxWidth: 0,
-                //   src: "https://picsum.photos/id/237/200/300",
-                //   type: "image",
-                //   version: 1,
-                //   width: 0,
-                // },
               ],
               direction: "ltr",
               format: "",
