@@ -3,7 +3,7 @@ import { ValApi } from "./ValApi";
 import { ValStore } from "./ValStore";
 import { Inputs, Style, ValOverlay } from "@valbuild/ui";
 import root from "react-shadow"; // TODO: remove dependency on react-shadow here?
-import { Internal, SourcePath } from "@valbuild/lib";
+import { Internal, RichText, SourcePath } from "@valbuild/lib";
 import { Patch, PatchJSON } from "@valbuild/lib/patch";
 
 export function useValStore() {
@@ -110,7 +110,6 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
                 ","
               ) /* TODO: just split on commas will not work if path contains , */
             );
-            console.log(e.clientY, e.screenY, e.pageY, e.offsetY);
             setEditFormPosition({
               left: e.pageX,
               top: e.pageY,
@@ -239,8 +238,18 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
             type: "text",
             data: serializedModule.source,
           };
+        } else if (
+          serializedModule.schema.type === "richtext" &&
+          typeof serializedModule.source === "object"
+        ) {
+          input = {
+            status: "completed",
+            type: "richtext",
+            data: serializedModule.source as RichText, // TODO: validate
+          };
         }
-        console.log("input", input);
+        console.log("input path", path);
+        console.log("serialized path", serializedModule.path);
         if (!input) {
           throw new Error(
             `Unsupported module type: ${serializedModule.schema.type}`
@@ -249,7 +258,7 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
         setInputs((inputs) => {
           return {
             ...inputs,
-            [path]: input,
+            [serializedModule.path]: input,
           } as Inputs;
         });
       });
@@ -298,6 +307,7 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
                             Internal.splitModuleIdAndModulePath(
                               path as SourcePath
                             );
+                          console.log("her", path);
 
                           if (input.type === "text") {
                             const patch: PatchJSON = [
@@ -310,6 +320,25 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
                                   .join("/")}`,
                               },
                             ];
+                            return valApi.patchModuleContent(moduleId, patch);
+                          } else if (input.type === "richtext") {
+                            const patch: PatchJSON = [
+                              {
+                                value: input.data,
+                                op: "replace",
+                                path: `/${modulePath
+                                  .split(".")
+                                  .map((p) => JSON.parse(p))
+                                  .join("/")}`,
+                              },
+                            ];
+                            console.log(
+                              "hei",
+                              `/${modulePath
+                                .split(".")
+                                .map((p) => JSON.parse(p))
+                                .join("/")}`
+                            );
                             return valApi.patchModuleContent(moduleId, patch);
                           }
                           throw new Error(

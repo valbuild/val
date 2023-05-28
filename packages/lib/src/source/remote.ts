@@ -1,4 +1,5 @@
 import { SourcePrimitive, ValExtension, PhantomType } from ".";
+import { RichText } from "../schema/richtext";
 import { FileSource } from "./file";
 import { I18nCompatibleSource, I18nSource } from "./i18n";
 
@@ -9,6 +10,7 @@ export type RemoteCompatibleSource =
   | SourcePrimitive
   | RemoteObject
   | RemoteArray
+  | RichText
   | FileSource<string>
   | I18nSource<string[], I18nCompatibleSource>;
 export type RemoteObject = { [key in string]: RemoteCompatibleSource };

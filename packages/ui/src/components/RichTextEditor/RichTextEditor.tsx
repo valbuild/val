@@ -2,6 +2,7 @@ import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
+  LexicalEditor,
   LexicalNode,
   SerializedEditorState,
   SerializedLexicalNode,
@@ -35,9 +36,7 @@ import { $createHeadingNode, HeadingNode } from "@lexical/rich-text";
 
 export interface RichTextEditorProps {
   richtext: RichText;
-  setNodes: React.Dispatch<
-    React.SetStateAction<SerializedEditorState<SerializedLexicalNode> | null>
-  >;
+  onEditor?: (editor: LexicalEditor) => void; // Not the ideal way of passing the editor to the upper context, we need it to be able to save
 }
 
 function onError(error: any) {
@@ -115,7 +114,7 @@ function toLexicalTextNode(text: ValTextNode): LexicalNode {
 
 export const RichTextEditor: FC<RichTextEditorProps> = ({
   richtext,
-  setNodes,
+  onEditor,
 }) => {
   const prePopulatedState = () => {
     const root = $getRoot();
@@ -156,7 +155,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
   return (
     <div className=" relative bg-base min-h-[200px] mt-2 border border-border rounded h-full  w-fit ">
       <LexicalComposer initialConfig={initialConfig}>
-        <Toolbar setNodes={setNodes} />
+        <Toolbar onEditor={onEditor} />
         <ImagesPlugin />
         <RichTextPlugin
           contentEditable={

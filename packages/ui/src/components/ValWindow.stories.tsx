@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { RichTextEditor } from "../exports";
 import { FormContainer } from "./forms/FormContainer";
 import { ImageForm } from "./forms/ImageForm";
 import { TextForm } from "./forms/TextForm";
@@ -54,6 +55,50 @@ export const LongText: Story = {
           text={EXAMPLE_TEXT}
           onChange={() => {
             console.log("onChange");
+          }}
+        />
+      </FormContainer>
+    ),
+  },
+};
+
+export const RichText: Story = {
+  args: {
+    isInitialized: true,
+    children: (
+      <FormContainer
+        onSubmit={() => {
+          /* */
+        }}
+      >
+        <RichTextEditor
+          richtext={{
+            children: [
+              {
+                children: [
+                  {
+                    detail: 0,
+                    format: 0,
+                    mode: "normal",
+                    style: "",
+                    text: "Heading 1",
+                    type: "text",
+                    version: 1,
+                  },
+                ],
+                direction: "ltr",
+                format: "",
+                indent: 0,
+                type: "heading",
+                version: 1,
+                tag: "h1",
+              },
+            ],
+            direction: "ltr",
+            format: "",
+            indent: 0,
+            type: "root",
+            version: 1,
           }}
         />
       </FormContainer>
