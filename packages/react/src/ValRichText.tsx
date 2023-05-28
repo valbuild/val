@@ -47,13 +47,46 @@ export function ValRichText({ children }: { children: Val<RichText> }) {
 }
 
 function TextNodeComponent({ node }: { node: Val<TextNode> }) {
-  return (
-    <span
-      style={node.val.style ? parse(node.val.style) ?? undefined : undefined}
-    >
-      {node.val.text}
-    </span>
-  );
+  const actualVal = node.val;
+  const styleProps = actualVal.style ? parse(actualVal.style) ?? {} : {};
+  // TODO: Ugly! We should do this before serializing instead
+  if (styleProps["font-family"]) {
+    styleProps["fontFamily"] = styleProps["font-family"];
+    delete styleProps["font-family"];
+  }
+  if (styleProps["font-size"]) {
+    styleProps["fontSize"] = styleProps["font-size"];
+    delete styleProps["font-size"];
+  }
+  const bitmask = actualVal.format.toString(2);
+  const bitmaskOffset = bitmask.length - 1;
+  function isBitOne(bit: number) {
+    return (
+      bitmask.length >= bitmaskOffset - bit &&
+      bitmask[bitmaskOffset - bit] === "1"
+    );
+  }
+  if (isBitOne(0)) {
+    styleProps["fontWeight"] = "bold";
+  }
+  if (isBitOne(1)) {
+    styleProps["fontStyle"] = "italic";
+  }
+  if (isBitOne(2)) {
+    if (!styleProps["textDecoration"]) {
+      styleProps["textDecoration"] = "line-through";
+    } else {
+      styleProps["textDecoration"] += " line-through";
+    }
+  }
+  if (isBitOne(3)) {
+    if (!styleProps["textDecoration"]) {
+      styleProps["textDecoration"] = "underline";
+    } else {
+      styleProps["textDecoration"] += " underline";
+    }
+  }
+  return <span style={styleProps}>{actualVal.text}</span>;
 }
 
 function HeadingNodeComponent({ node }: { node: Val<HeadingNode> }) {

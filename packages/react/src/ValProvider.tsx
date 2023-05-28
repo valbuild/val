@@ -341,13 +341,6 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
                                   .join("/")}`,
                               },
                             ];
-                            console.log(
-                              "hei",
-                              `/${modulePath
-                                .split(".")
-                                .map((p) => JSON.parse(p))
-                                .join("/")}`
-                            );
                             return valApi.patchModuleContent(moduleId, patch);
                           }
                           throw new Error(

@@ -218,10 +218,6 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
     }
   };
 
-  const save = () => {
-    console.log(editor.getEditorState().toJSON());
-  };
-
   const clearFormatting = useCallback(() => {
     editor.update(() => {
       const selection = $getSelection();
@@ -287,8 +283,8 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
   };
 
   return (
-    <div className="relative flex flex-row items-center gap-6 p-2 border-b-1 border-valLightGrey h-fit">
-      <div className="flex flex-row gap-2">
+    <div className="flex flex-row items-center gap-6 p-2 overflow-scroll">
+      {/* <div className="flex flex-row gap-2">
         <button className="hidden w-0 h-0 " disabled></button>
         <Button
           icon={<Undo />}
@@ -302,7 +298,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
             editor.dispatchCommand(REDO_COMMAND, undefined);
           }}
         />
-      </div>
+      </div> */}
       <div className="flex flex-row gap-2">
         <Dropdown
           options={Object.values(blockTypes)}
@@ -330,7 +326,8 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
       <div className="flex flex-row gap-2">
         <Button
           variant="primary"
-          onClick={() => {
+          onClick={(ev) => {
+            ev.preventDefault();
             editor.dispatchCommand(FORMAT_TEXT_COMMAND, "bold");
           }}
           tooltip="Format text as bold"
@@ -339,7 +336,8 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
         />
         <Button
           active={isStrikethrough}
-          onClick={() => {
+          onClick={(ev) => {
+            ev.preventDefault();
             editor.dispatchCommand(FORMAT_TEXT_COMMAND, "strikethrough");
           }}
           icon={
@@ -348,21 +346,28 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
         />
         <Button
           active={isItalic}
-          onClick={() => {
+          onClick={(ev) => {
+            ev.preventDefault();
             editor.dispatchCommand(FORMAT_TEXT_COMMAND, "italic");
           }}
           icon={<Italic className={`${isItalic && "stroke-[3px]"}`} />}
         />
         <Button
           active={isUnderline}
-          onClick={() => {
+          onClick={(ev) => {
+            ev.preventDefault();
             editor.dispatchCommand(FORMAT_TEXT_COMMAND, "underline");
           }}
           icon={<Underline className={`${isUnderline && "stroke-[3px]"}`} />}
         />
       </div>
-      <Button icon={<ImageIcon />} onClick={() => setShowModal(true)}></Button>
-      <Button onClick={() => save()}>Save</Button>
+      <Button
+        icon={<ImageIcon />}
+        onClick={(ev) => {
+          ev.preventDefault();
+          setShowModal(true);
+        }}
+      ></Button>
       <UploadModal
         setShowModal={setShowModal}
         showModal={showModal}

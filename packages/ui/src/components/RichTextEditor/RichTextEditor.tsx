@@ -128,7 +128,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
     editorState: prePopulatedState,
     nodes: [HeadingNode, ImageNode, ListNode, ListItemNode],
     theme: {
-      root: "relative p-4 bg-base w-full h-full min-h-[200px] text-white font-roboto",
+      root: "relative p-4 bg-base min-h-[200px] text-white font-roboto",
       text: {
         bold: "font-semibold",
         underline: "underline",
@@ -153,13 +153,13 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
     onError,
   };
   return (
-    <div className=" relative bg-base min-h-[200px] mt-2 border border-border rounded h-full  w-fit ">
+    <div className=" relative bg-base min-h-[200px] mt-2 border border-highlight rounded">
       <LexicalComposer initialConfig={initialConfig}>
         <Toolbar onEditor={onEditor} />
         <ImagesPlugin />
         <RichTextPlugin
           contentEditable={
-            <LexicalContentEditable className="relative flex flex-col h-full w-full min-h-[200px]" />
+            <LexicalContentEditable className="relative bg-fill flex flex-col h-full w-full min-h-[200px] text-primary outline-none" />
           }
           placeholder={
             <div className="absolute top-[calc(58px+1rem)] left-4 text-base/25 ">
