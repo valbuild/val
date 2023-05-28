@@ -31,20 +31,21 @@ type FormatType =
   | "right"
   | "end"
   | "justify"
-  | ""
-  | number;
+  | "";
 type DirectionType = "ltr" | "rtl" | null;
 
-type TextNode = Node & {
-  format: FormatType;
+export type TextNode = Node & {
+  format: FormatType | number;
   detail: number;
   mode: "normal" | "code" | "quote";
   style: string;
   text: string;
   type: "text";
+  direction?: DirectionType;
+  indent?: number;
 };
 
-type ImageNode = Node & {
+export type ImageNode = Node & {
   altText: string;
   height: number;
   width: number;
@@ -53,33 +54,34 @@ type ImageNode = Node & {
   type: "image";
 };
 
-type ParagraphNode<VN> = NodeType & {
+export type ParagraphNode<VN = TextNode> = NodeType & {
   children: (TextNode | VN)[];
   type: "paragraph";
 };
 
-type HeadingNode<HT extends HeadingTags> = NodeType & {
+export type HeadingNode<HT extends HeadingTags = HeadingTags> = NodeType & {
   children: TextNode[];
   type: "heading";
   tag: HT;
 };
 
-type ListItemNode<VN> = NodeType & {
+export type ListItemNode<VN = TextNode> = NodeType & {
   children: (TextNode | VN)[];
   type: "listitem";
-  value: number | string;
+  value: number;
+  checked?: boolean;
 };
 
-type ListNode<VN> = NodeType & {
+export type ListNode<VN = TextNode> = NodeType & {
   children: ListItemNode<VN>[];
   type: "list";
   tag: "ol" | "ul";
-  listType: "number" | "bullet";
+  listType: "number" | "bullet" | "check";
   start?: number;
 };
 
 type HeadingTags = "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
-type RootNode<HT extends HeadingTags, VN> = Node & {
+export type RootNode<HT extends HeadingTags, VN> = Node & {
   children: (HeadingNode<HT> | ParagraphNode<VN> | ListNode<VN>)[];
   type: "root";
   format: FormatType;
@@ -88,8 +90,9 @@ type RootNode<HT extends HeadingTags, VN> = Node & {
 };
 
 type ValNode = ImageNode;
+
 export type RichText<
-  HT extends HeadingTags,
+  HT extends HeadingTags = HeadingTags,
   VN extends TextNode | ValNode = TextNode
 > = RootNode<HT, VN>;
 
@@ -105,15 +108,12 @@ export class RichTextSchema<Src extends Schema<string>> extends Schema<
     throw new Error("Method not implemented.");
   }
   optional(): Schema<RichText<HeadingTags, TextNode> | null> {
-    throw new Error("Method not implemented.");
+    return new RichTextSchema(true);
   }
   serialize(): SerializedSchema {
     throw new Error("Method not implemented.");
   }
-  constructor(
-    readonly options?: RichTextOptions,
-    readonly opt: boolean = false
-  ) {
+  constructor(readonly opt: boolean = false) {
     super();
   }
 }

@@ -1,12 +1,12 @@
 "use client";
 import styles from "./page.module.css";
 import blogsVal from "./blogs.val";
-import { useVal } from "@valbuild/react";
+import { useVal, ValRichText } from "@valbuild/react";
 import { Val } from "@valbuild/lib";
 import { val } from "../val.config";
 
 export default function Home() {
-  const blogs: Val<{ title: string; text: string | null }[]> = useVal(
+  const blogs = useVal(
     blogsVal.map((blog) => ({
       title: blog.title,
       text: blog.text,
@@ -18,7 +18,7 @@ export default function Home() {
         {blogs.map((blog) => (
           <section key={val.key(blog)} className={styles.blog}>
             <h1>{blog.title}</h1>
-            <p>{blog.text}</p>
+            {blog.text.val && <ValRichText>{blog.text}</ValRichText>}
           </section>
         ))}
       </article>
