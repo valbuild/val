@@ -100,7 +100,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
   };
   const blockTypesLookup: { [key: string]: string } = {};
 
-  for (let key in blockTypes) {
+  for (const key in blockTypes) {
     blockTypesLookup[blockTypes[key]] = key;
   }
 
@@ -157,7 +157,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
         $getSelectionStyleValueForProperty(selection, "font-family", "Arial")
       );
     }
-    if(setNodes) setNodes(editor.getEditorState().toJSON());
+    if (setNodes) setNodes(editor.getEditorState().toJSON());
   }, [activeEditor]);
 
   useEffect(() => {
@@ -284,7 +284,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
   };
 
   return (
-    <div className="relative border-b-1 border-valLightGrey h-fit p-2 flex flex-row gap-6 items-center">
+    <div className="relative flex flex-row items-center gap-6 p-2 border-b-1 border-valLightGrey h-fit">
       <div className="flex flex-row gap-2">
         <button className="hidden w-0 h-0 " disabled></button>
         <Button
@@ -359,6 +359,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
         />
       </div>
       <Button icon={<ImageIcon />} onClick={() => setShowModal(true)}></Button>
+      <Button onClick={() => save()}>Save</Button>
       <UploadModal
         setShowModal={setShowModal}
         showModal={showModal}
