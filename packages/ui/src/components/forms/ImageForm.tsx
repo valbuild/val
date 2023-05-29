@@ -6,11 +6,11 @@ type Error = "invalid-file" | "file-too-large";
 export type ImageData =
   | {
       src: string;
-      metadata?: { width: number; height: number; checksum: string };
+      metadata?: { width: number; height: number; sha256: string };
     }
   | {
       url: string;
-      metadata?: { width: number; height: number; checksum: string };
+      metadata?: { width: number; height: number; sha256: string };
     }
   | null;
 export type ImageInputProps = {
@@ -39,19 +39,21 @@ export function ImageForm({
     setCurrentError(error);
   }, [data]);
 
+  // TODO: we should update the Input type - we should never have a url here?
+  const src =
+    (currentData &&
+      (("src" in currentData && currentData.src) ||
+        ("url" in currentData && currentData.url))) ||
+    undefined;
+
   return (
     <div className="w-full py-2 max-w-[90vw] object-contain">
       <label htmlFor={name}>
         <div className="flex items-center justify-center w-full h-full min-h-[200px] cursor-pointer">
           {currentData !== null && (
-            <img
-              className="object-contain max-h-[300px]"
-              src={currentData.src || currentData.url}
-            />
+            <img className="object-contain max-h-[300px]" src={src} />
           )}
-          {!(currentData?.src || currentData?.url) && (
-            <UploadCloud size={24} className="text-primary" />
-          )}
+          {!src && <UploadCloud size={24} className="text-primary" />}
         </div>
         <input
           hidden
