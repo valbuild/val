@@ -12,6 +12,7 @@ import {
   VAL_EXTENSION,
 } from "@valbuild/lib";
 import { PatchJSON } from "@valbuild/lib/patch";
+import { ImageMetadata } from "@valbuild/lib/src/schema/image";
 
 export function useValStore() {
   return useContext(ValContext).valStore;
@@ -278,7 +279,7 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
             status: "completed",
             type: "image",
             data: Internal.convertImageSource(
-              serializedModule.source as FileSource
+              serializedModule.source as FileSource<ImageMetadata>
             ),
           };
         }
@@ -358,6 +359,10 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
                               .split(".")
                               .map((p) => JSON.parse(p));
 
+                            if (!input?.data || !("src" in input.data)) {
+                              // TODO: We probably need to have an Output type that is different from the Input: we have a union of both cases in Input right now, and we believe we do not want that
+                              throw new Error("No .src on input provided");
+                            }
                             const patch: PatchJSON = [
                               {
                                 value: input.data.src,
