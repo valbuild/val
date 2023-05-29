@@ -8,19 +8,24 @@ export const FILE_REF_PROP = "_ref" as const;
  * It will be resolved into a Asset object.
  *
  */
-export type FileSource = {
+export type FileSource<
+  Metadata extends { readonly [key: string]: unknown } = {
+    readonly [key: string]: never;
+  }
+> = {
   readonly [FILE_REF_PROP]: string;
   readonly [VAL_EXTENSION]: "file";
+  readonly metadata?: Metadata;
 };
 
-type FileInDirectory<Dir extends string, Path extends string> = `${Dir}${Path}`;
-
-export function file<Dir extends string, Path extends string = string>(
-  ref: FileInDirectory<Dir, Path>
+export function file<Metadata extends { readonly [key: string]: unknown }>(
+  ref: string,
+  metadata?: Metadata
 ): FileSource {
   return {
     [FILE_REF_PROP]: ref,
     [VAL_EXTENSION]: "file",
+    metadata,
   } as FileSource;
 }
 

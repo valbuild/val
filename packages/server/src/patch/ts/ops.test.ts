@@ -378,6 +378,24 @@ describe("TSOps", () => {
       expected: result.ok(`val.file("/public/val/foo/bar2.jpg")`),
     },
     {
+      name: "val.file ref with options",
+      input: `val.file("/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
+      path: ["_ref"],
+      value: "/public/val/foo/bar2.jpg",
+      expected: result.ok(
+        `val.file("/public/val/foo/bar2.jpg", { checksum: "123", width: 456, height: 789 })`
+      ),
+    },
+    {
+      name: "TODO: val.file checksum",
+      input: `val.file("/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
+      path: ["checksum"],
+      value: "101112",
+      expected: result.ok(
+        `val.file("/public/val/foo/bar.jpg", { checksum: "101112", width: 456, height: 789 })`
+      ),
+    },
+    {
       name: "deep val.files",
       input: `{ foo: { bar: val.file("/public/val/foo/bar/zoo.jpg") } }`,
       path: ["foo", "bar", "_ref"],
