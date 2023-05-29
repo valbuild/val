@@ -6,7 +6,7 @@ export const schema = s.array(
     /**
      * Blog image. We only allow png and jpg.
      */
-    // image: s.image({ exts: ["png", "jpg"] }),
+    image: s.image({ ext: ["jpg"] }),
     /**
      * The text is optional, by the way.
      */
@@ -21,7 +21,7 @@ export const schema = s.array(
 export default val.content("/app/blogs", schema, [
   {
     title: "HVA?",
-    // image: val.file("/public/val/app/blogs/image1.jpg"),
+    image: val.file("/public/val/app/blogs/image1.jpg"),
     text: {
       children: [
         {
@@ -225,7 +225,7 @@ export default val.content("/app/blogs", schema, [
   },
   {
     title: "HVEM ER VI?",
-    // image: val.file("/public/val/app/blogs/image2.jpg"),
+    image: val.file("/public/val/app/blogs/image2.jpg"),
     text: {
       direction: "ltr",
       format: "",
@@ -238,7 +238,7 @@ export default val.content("/app/blogs", schema, [
   },
   {
     title: "HVORFOR?",
-    // image: val.file("/public/val/app/blogs/image3.jpg"),
+    image: val.file("/public/val/app/blogs/image3.jpg"),
     text: {
       children: [
         {

@@ -9,12 +9,14 @@ import { SelectorSource, GenericSelector } from "./selector";
 import { JsonOfSource } from "./val";
 import { fetchVal } from "./fetchVal";
 import { remote } from "./source/remote";
+import { file } from "./source/file";
 
 type ValConstructor = {
   content: typeof content;
   getPath: typeof getPath; // TODO: in the react initVal we should also add a key function here which returns the path for use as react keys
   key: typeof getPath;
   remote: typeof remote;
+  file: typeof file;
 };
 export type InitVal<Locales extends readonly string[] | undefined> = [
   Locales
@@ -69,6 +71,7 @@ export const initVal = <
         remote,
         getPath,
         key: getPath,
+        file,
       },
       fetchVal: fetchVal,
       s,
@@ -81,6 +84,7 @@ export const initVal = <
       remote,
       getPath,
       key: getPath,
+      file,
     },
     fetchVal: fetchVal,
     s: {
