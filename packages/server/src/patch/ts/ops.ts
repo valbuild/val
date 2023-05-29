@@ -501,7 +501,7 @@ function removeAtPath(
   );
 }
 
-function isValFileValue(value: JSONValue): value is FileSource<string> {
+function isValFileValue(value: JSONValue): value is FileSource {
   return !!(
     typeof value === "object" &&
     value &&

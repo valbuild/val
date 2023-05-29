@@ -14,15 +14,14 @@ export {
   type SourcePath,
 } from "./val";
 export * as expr from "./expr/";
-// export type { ValImage } from "./schema/image";
 export { FILE_REF_PROP } from "./source/file";
+export { VAL_EXTENSION } from "./source";
 export { derefPatch } from "./patch/deref";
 export {
   type SelectorSource,
   type SelectorOf,
   GenericSelector,
 } from "./selector";
-
 import { getVal } from "./fetchVal";
 import {
   getRawSource,
@@ -41,8 +40,10 @@ export type {
   ListNode,
   RootNode,
 } from "./schema/richtext";
+import { convertImageSource } from "./schema/image";
 
 const Internal = {
+  convertImageSource,
   getSchema,
   getValPath,
   getVal,

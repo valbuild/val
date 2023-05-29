@@ -1,5 +1,5 @@
 import { F } from "ts-toolbelt";
-import { SourcePrimitive, ValExtension } from ".";
+import { SourcePrimitive, VAL_EXTENSION } from ".";
 import { FileSource } from "./file";
 
 /**
@@ -9,7 +9,7 @@ export type I18nCompatibleSource =
   | SourcePrimitive
   | I18nObject
   | I18nArray
-  | FileSource<string>;
+  | FileSource;
 export type I18nObject = { [key in string]: I18nCompatibleSource };
 export type I18nArray = readonly I18nCompatibleSource[];
 
@@ -25,7 +25,7 @@ export type I18nSource<
 > = {
   readonly [locale in Locales[number]]: T;
 } & {
-  readonly [ValExtension]: "i18n";
+  readonly [VAL_EXTENSION]: "i18n";
 };
 
 export type I18n<Locales extends readonly string[]> = <
@@ -42,7 +42,7 @@ export function i18n<Locales extends readonly string[]>(
   return (source) => {
     return {
       ...source,
-      [ValExtension]: "i18n",
+      [VAL_EXTENSION]: "i18n",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as I18nSource<Locales, any>;
   };
@@ -54,7 +54,7 @@ export function isI18n(
   return (
     typeof obj === "object" &&
     obj !== null &&
-    ValExtension in obj &&
-    obj[ValExtension] === "i18n"
+    VAL_EXTENSION in obj &&
+    obj[VAL_EXTENSION] === "i18n"
   );
 }

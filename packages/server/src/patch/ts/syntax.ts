@@ -242,7 +242,7 @@ export function evaluateExpression(
           ({
             [FILE_REF_PROP]: ref.text,
             _type: "file",
-          } as FileSource<string>)
+          } as FileSource)
       )
     );
   } else {

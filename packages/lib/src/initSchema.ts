@@ -8,6 +8,7 @@ import { oneOf } from "./schema/oneOf";
 import { union } from "./schema/union";
 import { i18n, I18n } from "./schema/i18n";
 import { richtext } from "./schema/richtext";
+import { image } from "./schema/image";
 
 export type InitSchema = {
   readonly string: typeof string;
@@ -18,6 +19,7 @@ export type InitSchema = {
   readonly union: typeof union;
   readonly oneOf: typeof oneOf;
   readonly richtext: typeof richtext;
+  readonly image: typeof image;
 };
 export type InitSchemaLocalized<Locales extends readonly string[]> = {
   readonly i18n: I18n<Locales>;
@@ -34,6 +36,7 @@ export function initSchema<Locales extends readonly string[]>(
     union,
     oneOf,
     richtext,
+    image,
     i18n: i18n(locales),
   };
 }

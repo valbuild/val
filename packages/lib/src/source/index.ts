@@ -8,7 +8,7 @@ export type Source =
   | SourceArray
   | I18nSource<string[], I18nCompatibleSource>
   | RemoteSource<RemoteCompatibleSource>
-  | FileSource<string>;
+  | FileSource;
 
 export type SourceObject = { [key in string]: Source } & {
   // TODO: update these restricted parameters:
@@ -23,14 +23,14 @@ export type SourceArray = readonly Source[];
 export type SourcePrimitive = string | number | boolean | null;
 
 /* Branded extension types: file, remote, i18n  */
-export const ValExtension = "_type" as const;
+export const VAL_EXTENSION = "_type" as const;
 
 export function getValExtension(source: Source) {
   return (
     source &&
     typeof source === "object" &&
-    ValExtension in source &&
-    source[ValExtension]
+    VAL_EXTENSION in source &&
+    source[VAL_EXTENSION]
   );
 }
 

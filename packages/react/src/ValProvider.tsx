@@ -3,8 +3,15 @@ import { ValApi } from "./ValApi";
 import { ValStore } from "./ValStore";
 import { Inputs, Style, ValOverlay } from "@valbuild/ui";
 import root from "react-shadow"; // TODO: remove dependency on react-shadow here?
-import { Internal, RichText, SourcePath } from "@valbuild/lib";
-import { Patch, PatchJSON } from "@valbuild/lib/patch";
+import {
+  FileSource,
+  FILE_REF_PROP,
+  Internal,
+  RichText,
+  SourcePath,
+  VAL_EXTENSION,
+} from "@valbuild/lib";
+import { PatchJSON } from "@valbuild/lib/patch";
 
 export function useValStore() {
   return useContext(ValContext).valStore;
@@ -258,6 +265,22 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
             type: "richtext",
             data: serializedModule.source as RichText, // TODO: validate
           };
+        } else if (
+          serializedModule.schema.type === "image" &&
+          serializedModule.source &&
+          typeof serializedModule.source === "object" &&
+          FILE_REF_PROP in serializedModule.source &&
+          typeof serializedModule.source[FILE_REF_PROP] === "string" &&
+          VAL_EXTENSION in serializedModule.source &&
+          typeof serializedModule.source[VAL_EXTENSION] === "string"
+        ) {
+          input = {
+            status: "completed",
+            type: "image",
+            data: Internal.convertImageSource(
+              serializedModule.source as FileSource
+            ),
+          };
         }
         console.log("input path", path);
         console.log("serialized path", serializedModule.path);
@@ -330,6 +353,22 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
                               },
                             ];
                             return valApi.patchModuleContent(moduleId, patch);
+                          } else if (input.type === "image") {
+                            const pathParts = modulePath
+                              .split(".")
+                              .map((p) => JSON.parse(p));
+
+                            const patch: PatchJSON = [
+                              {
+                                value: input.data.src,
+                                op: "replace",
+                                path: `/${pathParts.slice(0, -1).join("/")}/$${
+                                  pathParts[pathParts.length - 1]
+                                }`,
+                              },
+                            ];
+                            console.log(patch);
+                            return valApi.patchModuleContent(moduleId, patch);
                           } else if (input.type === "richtext") {
                             const patch: PatchJSON = [
                               {
@@ -344,7 +383,7 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
                             return valApi.patchModuleContent(moduleId, patch);
                           }
                           throw new Error(
-                            `Unsupported input type: ${input.type}`
+                            `Unsupported input type: ${(input as any).type}`
                           );
                         } else {
                           console.error(

@@ -20,6 +20,8 @@ import {
   RichTextSchema,
   SerializedRichTextSchema,
 } from "./schema/richtext";
+import { ImageSchema, SerializedImageSchema } from "./schema/image";
+import { FileSource } from "./source/file";
 
 const brand = Symbol("ValModule");
 export type ValModule<T extends SelectorSource> = SelectorOf<T> &
@@ -130,6 +132,15 @@ function isRichTextSchema(
   );
 }
 
+function isImageSchema(
+  schema: Schema<SelectorSource> | SerializedSchema
+): schema is ImageSchema<FileSource | null> | SerializedImageSchema {
+  return (
+    schema instanceof ImageSchema<FileSource | null> ||
+    (typeof schema === "object" && "type" in schema && schema.type === "image")
+  );
+}
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function isOneOfSchema(
   schema: Schema<SelectorSource> | SerializedSchema
@@ -207,6 +218,15 @@ export function resolvePath(
       }
       resolvedSource = resolvedSource[part];
       resolvedSchema = resolvedSchema.item;
+    } else if (isImageSchema(resolvedSchema)) {
+      return {
+        path: origParts
+          .slice(0, origParts.length - parts.length - 1)
+          .map((p) => JSON.stringify(p))
+          .join("."), // TODO: create a function generate path from parts (not sure if this always works)
+        schema: resolvedSchema,
+        source: resolvedSource,
+      };
     } else if (isUnionSchema(resolvedSchema)) {
       const key = resolvedSchema.key;
       const keyValue = resolvedSource[key];

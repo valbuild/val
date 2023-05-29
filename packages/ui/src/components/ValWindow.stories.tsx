@@ -141,7 +141,7 @@ export const Image: Story = {
           name="/apps/blogs.0.image"
           error={null}
           data={{
-            src: EXAMPLE_IMAGE,
+            url: EXAMPLE_IMAGE,
             metadata: {
               width: 32,
               height: 32,
@@ -169,7 +169,7 @@ export const ImageError: Story = {
           name="/apps/blogs.0.image"
           error={"invalid-file"}
           data={{
-            src: EXAMPLE_IMAGE,
+            url: EXAMPLE_IMAGE,
           }}
           onChange={() => {
             console.log("onChange");

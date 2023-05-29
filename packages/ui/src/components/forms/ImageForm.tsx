@@ -3,10 +3,16 @@ import { UploadCloud } from "react-feather";
 import { ErrorText } from "../ErrorText";
 
 type Error = "invalid-file" | "file-too-large";
-export type ImageData = {
-  src: string;
-  metadata?: { width: number; height: number };
-} | null;
+export type ImageData =
+  | {
+      src: string;
+      metadata?: { width: number; height: number; checksum: string };
+    }
+  | {
+      url: string;
+      metadata?: { width: number; height: number; checksum: string };
+    }
+  | null;
 export type ImageInputProps = {
   name: string;
   data: ImageData;
@@ -40,10 +46,10 @@ export function ImageForm({
           {currentData !== null && (
             <img
               className="object-contain max-h-[300px]"
-              src={currentData.src}
+              src={currentData.src || currentData.url}
             />
           )}
-          {!currentData?.src && (
+          {!(currentData?.src || currentData?.url) && (
             <UploadCloud size={24} className="text-primary" />
           )}
         </div>
