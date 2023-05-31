@@ -142,7 +142,7 @@ function isImageSchema(
   | ImageSchema<FileSource<ImageMetadata> | null>
   | SerializedImageSchema {
   return (
-    schema instanceof ImageSchema<FileSource<ImageMetadata> | null> ||
+    schema instanceof ImageSchema ||
     (typeof schema === "object" && "type" in schema && schema.type === "image")
   );
 }
