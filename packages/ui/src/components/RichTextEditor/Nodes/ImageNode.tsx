@@ -1,10 +1,10 @@
 import {
-  DecoratorNode, LexicalNode,
+  DecoratorNode,
+  LexicalNode,
   NodeKey,
   SerializedLexicalNode,
-  Spread
+  Spread,
 } from "lexical";
-
 
 export interface ImagePayload {
   altText: string;
@@ -91,7 +91,15 @@ export class ImageNode extends DecoratorNode<JSX.Element> {
   }
 
   decorate(): JSX.Element {
-    return <img key={this.__key} src={this.__src} alt={this.__altText} width={this.__width} height={this.__height} />;
+    return (
+      <img
+        key={this.__key}
+        src={this.__src}
+        alt={this.__altText}
+        width={this.__width}
+        height={this.__height}
+      />
+    );
   }
 }
 export function $createImageNode(
@@ -99,7 +107,7 @@ export function $createImageNode(
   altText?: string,
   width?: "inherit" | number,
   height?: "inherit" | number,
-  maxWidth?: number,
+  maxWidth?: number
 ): ImageNode {
   return new ImageNode(src, altText, width, height, maxWidth);
 }
