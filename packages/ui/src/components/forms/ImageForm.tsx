@@ -80,26 +80,28 @@ export function ImageForm({
                 return;
               }
               const reader = new FileReader();
-              reader.addEventListener("load", async () => {
+              reader.addEventListener("load", () => {
                 const result = reader.result;
                 if (typeof result === "string") {
                   const image = new Image();
-                  image.src = result;
-                  const nextSource = {
-                    src: result,
-                    metadata: {
-                      width: image.naturalWidth,
-                      height: image.naturalHeight,
-                      sha256: await getSHA256Hash(textEncoder.encode(result)),
-                    },
-                    addMetadata: !currentData?.metadata,
+                  image.onload = async () => {
+                    const nextSource = {
+                      src: result,
+                      metadata: {
+                        width: image.naturalWidth,
+                        height: image.naturalHeight,
+                        sha256: await getSHA256Hash(textEncoder.encode(result)),
+                      },
+                      addMetadata: !currentData?.metadata,
+                    };
+                    setCurrentData(nextSource);
+                    setCurrentError(null);
+                    onChange({
+                      error: null,
+                      value: nextSource,
+                    });
                   };
-                  setCurrentData(nextSource);
-                  setCurrentError(null);
-                  onChange({
-                    error: null,
-                    value: nextSource,
-                  });
+                  image.src = result;
                 } else {
                   onChange({ error: "invalid-file", value: null });
                 }

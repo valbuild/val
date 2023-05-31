@@ -62,7 +62,9 @@ export const convertImageSource = (
 ): { url: string; metadata?: ImageMetadata } => {
   // TODO: /public should be configurable
   return {
-    url: src[FILE_REF_PROP].slice("/public".length),
+    url:
+      src[FILE_REF_PROP].slice("/public".length) +
+      `?sha256=${src.metadata?.sha256}`,
     metadata: src.metadata,
   };
 };

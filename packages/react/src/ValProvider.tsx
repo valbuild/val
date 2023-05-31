@@ -361,7 +361,10 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
 
                             if (!input?.data || !("src" in input.data)) {
                               // TODO: We probably need to have an Output type that is different from the Input: we have a union of both cases in Input right now, and we believe we do not want that
-                              throw new Error("No .src on input provided");
+                              console.warn(
+                                "No .src on input provided - this might mean no changes was made"
+                              );
+                              return;
                             }
                             const patch: PatchJSON = [
                               {
@@ -387,6 +390,7 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
                                 });
                               }
                             }
+                            console.log("patch", patch);
                             return valApi.patchModuleContent(moduleId, patch);
                           } else if (input.type === "richtext") {
                             const patch: PatchJSON = [
