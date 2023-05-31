@@ -11,6 +11,7 @@ export function createRequestHandler(valServer: ValServer): RequestHandler {
   router.get("/callback", valServer.callback.bind(valServer));
   router.get("/logout", valServer.logout.bind(valServer));
   router.get<{ 0: string }>("/ids/*", valServer.getIds.bind(valServer));
+  router.get("/ids", valServer.getAllModules.bind(valServer));
   router.patch<{ 0: string }>(
     "/ids/*",
     express.json({
