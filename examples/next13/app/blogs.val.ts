@@ -21,7 +21,12 @@ export const schema = s.array(
 export default val.content("/app/blogs", schema, [
   {
     title: "HVA?",
-    image: val.file("/public/val/app/blogs/image1.jpg"),
+    image: val.file("/public/val/app/blogs/image1.jpg", {
+      width: 512,
+      height: 512,
+      sha256:
+        "9e420dc93157ab98338542ba6f1d34fcf829d646aa729a86720fa3f4cb2d0076",
+    }),
     text: {
       children: [
         {
@@ -225,7 +230,12 @@ export default val.content("/app/blogs", schema, [
   },
   {
     title: "HVEM ER VI?",
-    image: val.file("/public/val/app/blogs/image2.jpg"),
+    image: val.file("/public/val/app/blogs/image2.jpg", {
+      width: 512,
+      height: 512,
+      sha256:
+        "9d39bf1a0b7efb117c5b6cfbca0911904c0be3d07588142db624dab183c33e20",
+    }),
     text: {
       direction: "ltr",
       format: "",
@@ -238,7 +248,12 @@ export default val.content("/app/blogs", schema, [
   },
   {
     title: "HVORFOR?",
-    image: val.file("/public/val/app/blogs/image3.jpg"),
+    image: val.file("/public/val/app/blogs/image3.jpg", {
+      width: 512,
+      height: 512,
+      sha256:
+        "5d70cf57c58aed863e79971cc78607ccd26529050ceb083e9face9670581ea7d",
+    }),
     text: {
       children: [
         {

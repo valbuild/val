@@ -248,14 +248,14 @@ export function evaluateExpression(
                   [FILE_REF_PROP]: ref.text,
                   _type: "file",
                   metadata,
-                } as FileSource)
+                } as FileSource<{ [key: string]: JSONValue }>)
             )
           );
         } else {
           return result.ok({
             [FILE_REF_PROP]: ref.text,
             _type: "file",
-          } as FileSource);
+          } as FileSource<{ [key: string]: JSONValue }>);
         }
       })
     );

@@ -108,7 +108,15 @@ export function derefPatch<D, E>(
         dereferencedPatch.push(op);
       }
     } else {
-      throw new Error(`Unimplemented operation: ${JSON.stringify(op)}`);
+      const maybeDerefRes = derefPath(op.path);
+      if (result.isErr(maybeDerefRes)) {
+        return maybeDerefRes;
+      }
+      const [, referencedPath] = maybeDerefRes.value;
+      if (referencedPath) {
+        throw new Error(`Unimplemented operation: ${JSON.stringify(op)}`);
+      }
+      dereferencedPatch.push(op);
     }
   }
 
