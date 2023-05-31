@@ -10,7 +10,7 @@ export const schema = s.array(
     /**
      * The text is optional, by the way.
      */
-    text: s.richtext().optional(),
+    text: s.richtext(),
     /**
      * The rank is some arbitrary number we sort by.
      */
