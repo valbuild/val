@@ -91,15 +91,15 @@ export type RichText<
   VN extends TextNode | ValNode = TextNode
 > = RootNode<HT, VN>;
 
-export class RichTextSchema extends Schema<RichText | null> {
-  validate(
-    src: RichText<HeadingTags, TextNode>
-  ): false | Record<SourcePath, string[]> {
+export class RichTextSchema<Src extends RichText | null> extends Schema<Src> {
+  validate(src: Src): false | Record<SourcePath, string[]> {
     throw new Error("Method not implemented.");
   }
-  match(src: RichText<HeadingTags, TextNode>): boolean {
-    throw new Error("Method not implemented.");
+  match(src: Src): boolean {
+    // TODO:
+    return true;
   }
+
   optional(): Schema<RichText<HeadingTags, TextNode> | null> {
     return new RichTextSchema(true);
   }
@@ -114,7 +114,7 @@ export class RichTextSchema extends Schema<RichText | null> {
   }
 }
 
-export const richtext = (): Schema<RichText | null> => {
+export const richtext = (): Schema<RichText> => {
   return new RichTextSchema();
 };
 
