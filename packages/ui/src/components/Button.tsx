@@ -14,7 +14,7 @@ const Button: FC<ButtonProps> = ({
   onClick,
   children,
   icon,
-  active = false,
+  // active = false,
   disabled = false,
   tooltip,
 }) => {

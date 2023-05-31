@@ -1,6 +1,5 @@
 import { FC, useEffect, useState } from "react";
 import Button from "./Button";
-import Checkbox from "./Checkbox";
 
 interface UploadModalProps {
   showModal: boolean;
@@ -46,13 +45,13 @@ const UploadModal: FC<UploadModalProps> = ({
     <div className="absolute z-10 flex flex-col justify-center items-center top-[50%] left-[50%] font-mono">
       {showModal && (
         <div className="flex flex-col items-center justify-center">
-          <div className="flex flex-col items-start justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <div className="flex flex-col items-start justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
             <div className="fixed inset-0 transition-opacity">
               <div className="absolute inset-0 bg-gray-500 opacity-75" />
             </div>
 
             <div className="flex flex-col items-center justify-between bg-fill rounded-lg transform transition-all min-h-[300px] min-w-[500px] h-full px-5 py-7">
-              <div className="flex flex-col gap-5 w-full items-center">
+              <div className="flex flex-col items-center w-full gap-5">
                 <div className="mb-4">
                   <Button
                     variant={uploadUrl ? "primary" : "secondary"}
@@ -71,7 +70,7 @@ const UploadModal: FC<UploadModalProps> = ({
                   <div className="flex flex-col items-center justify-center w-full gap-5">
                     <label className="text-primary">Upload URL</label>
                     <input
-                      className="w-full h-10 bg-border rounded-lg"
+                      className="w-full h-10 rounded-lg bg-border"
                       value={url}
                       onChange={(event) => setUrl(event.target.value)}
                     />
@@ -80,14 +79,14 @@ const UploadModal: FC<UploadModalProps> = ({
                   <div className="flex flex-col items-center justify-center w-full gap-5">
                     <label className="text-primary">Choose File</label>
                     <input
-                      className="w-fit h-10 rounded-lg"
+                      className="h-10 rounded-lg w-fit"
                       type="file"
                       onChange={(e) => loadImage(e.target.files)}
                     />
                   </div>
                 )}
               </div>
-              <div className="flex flex-row justify-center items-center gap-5 ">
+              <div className="flex flex-row items-center justify-center gap-5 ">
                 <Button variant="secondary" onClick={() => setShowModal(false)}>
                   Cancel
                 </Button>
