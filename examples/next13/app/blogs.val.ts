@@ -6,7 +6,7 @@ export const schema = s.array(
     /**
      * Blog image. We only allow png and jpg.
      */
-    image: s.image({ ext: ["jpg"] }),
+    image: s.image(),
     /**
      * The text is optional, by the way.
      */
