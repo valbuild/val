@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useContext, useEffect, useMemo, useState } from "react";
 import { ValApi } from "./ValApi";
 import { ValStore } from "./ValStore";
@@ -57,16 +58,6 @@ type AuthStatus =
       status: "error";
       message: string;
     };
-
-function isValElement(el: Element | null): boolean {
-  if (!el) {
-    return false;
-  }
-  if (el.getAttribute("data-val-element") === "true") {
-    return true;
-  }
-  return isValElement(el.parentElement);
-}
 
 export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
   const [selectedSources, setSelectedSources] = useState<string[]>([]);

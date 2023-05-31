@@ -1,11 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   $createParagraphNode,
   $createTextNode,
   $getRoot,
   LexicalEditor,
   LexicalNode,
-  SerializedEditorState,
-  SerializedLexicalNode,
 } from "lexical";
 import {
   ListItemNode,
