@@ -20,7 +20,11 @@ import {
   RichTextSchema,
   SerializedRichTextSchema,
 } from "./schema/richtext";
-import { ImageSchema, SerializedImageSchema } from "./schema/image";
+import {
+  ImageMetadata,
+  ImageSchema,
+  SerializedImageSchema,
+} from "./schema/image";
 import { FileSource } from "./source/file";
 
 const brand = Symbol("ValModule");
@@ -134,9 +138,11 @@ function isRichTextSchema(
 
 function isImageSchema(
   schema: Schema<SelectorSource> | SerializedSchema
-): schema is ImageSchema<FileSource | null> | SerializedImageSchema {
+): schema is
+  | ImageSchema<FileSource<ImageMetadata> | null>
+  | SerializedImageSchema {
   return (
-    schema instanceof ImageSchema<FileSource | null> ||
+    schema instanceof ImageSchema<FileSource<ImageMetadata> | null> ||
     (typeof schema === "object" && "type" in schema && schema.type === "image")
   );
 }
