@@ -1,4 +1,5 @@
 import { VAL_EXTENSION } from ".";
+import { JsonPrimitive } from "../Json";
 
 export const FILE_REF_PROP = "_ref" as const;
 
@@ -9,8 +10,8 @@ export const FILE_REF_PROP = "_ref" as const;
  *
  */
 export type FileSource<
-  Metadata extends { readonly [key: string]: unknown } | undefined =
-    | { readonly [key: string]: unknown }
+  Metadata extends { readonly [key: string]: JsonPrimitive } | undefined =
+    | { readonly [key: string]: JsonPrimitive }
     | undefined
 > = {
   readonly [FILE_REF_PROP]: string;
@@ -18,13 +19,12 @@ export type FileSource<
   readonly metadata?: Metadata;
 };
 
-export function file<Metadata extends { readonly [key: string]: unknown }>(
-  ref: string,
-  metadata: Metadata
-): FileSource<Metadata>;
+export function file<
+  Metadata extends { readonly [key: string]: JsonPrimitive }
+>(ref: string, metadata: Metadata): FileSource<Metadata>;
 export function file(ref: string, metadata?: undefined): FileSource<undefined>;
 export function file<
-  Metadata extends { readonly [key: string]: unknown } | undefined
+  Metadata extends { readonly [key: string]: JsonPrimitive } | undefined
 >(ref: string, metadata?: Metadata): FileSource<Metadata> {
   return {
     [FILE_REF_PROP]: ref,

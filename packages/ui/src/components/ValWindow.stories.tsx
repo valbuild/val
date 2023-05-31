@@ -145,6 +145,7 @@ export const Image: Story = {
             metadata: {
               width: 32,
               height: 32,
+              sha256: "123",
             },
           }}
           onChange={() => {

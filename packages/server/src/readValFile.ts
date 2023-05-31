@@ -62,7 +62,7 @@ globalThis.valModule = {
         );
       }
       return {
-        id: valModule.id, // This might not be the asked id/path, however, that should be handled further up in the call chain
+        path: valModule.id, // This might not be the asked id/path, however, that should be handled further up in the call chain
         source: valModule.source,
         schema: valModule.schema,
       };

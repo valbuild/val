@@ -19,6 +19,7 @@ import {
   parseAndValidateArrayIndex,
 } from "@valbuild/lib/patch";
 import { FILE_REF_PROP, FileSource } from "@valbuild/lib";
+import { JsonPrimitive } from "@valbuild/lib/src/Json";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
@@ -543,7 +544,7 @@ function removeAtPath(
 }
 
 function isValFileValue(value: JSONValue): value is FileSource<{
-  [key: string]: JSONValue;
+  [key: string]: JsonPrimitive;
 }> {
   return !!(
     typeof value === "object" &&

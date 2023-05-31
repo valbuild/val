@@ -2,6 +2,7 @@ import ts from "typescript";
 import { result, pipe } from "@valbuild/lib/fp";
 import { JSONValue } from "@valbuild/lib/patch";
 import { FileSource, FILE_REF_PROP } from "@valbuild/lib";
+import { JsonPrimitive } from "@valbuild/lib/src/Json";
 
 export class ValSyntaxError {
   constructor(public message: string, public node: ts.Node) {}
@@ -248,14 +249,14 @@ export function evaluateExpression(
                   [FILE_REF_PROP]: ref.text,
                   _type: "file",
                   metadata,
-                } as FileSource<{ [key: string]: JSONValue }>)
+                } as FileSource<{ [key: string]: JsonPrimitive }>)
             )
           );
         } else {
           return result.ok({
             [FILE_REF_PROP]: ref.text,
             _type: "file",
-          } as FileSource<{ [key: string]: JSONValue }>);
+          } as FileSource<{ [key: string]: JsonPrimitive }>);
         }
       })
     );

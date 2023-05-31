@@ -34,8 +34,8 @@ describe("deref", () => {
       {
         foo: {
           baz: 1,
-          image1: file("/public/val/File\\ Name.jpg"),
-          image2: file("/public/val/Some\\ Other\\ image.jpg"),
+          image1: file("/public/val/File\\ Name.jpg", {}),
+          image2: file("/public/val/Some\\ Other\\ image.jpg", {}),
         },
       },
       ops
@@ -79,7 +79,7 @@ describe("deref", () => {
       {
         foo: {
           baz: 1,
-          image1: file("/public/val/File\\ Name.jpg"),
+          image1: file("/public/val/File\\ Name.jpg", {}),
         },
       },
       ops
@@ -114,8 +114,8 @@ describe("deref", () => {
       {
         foo: {
           baz: 1,
-          image1: file("/public/val/File\\ Name.jpg"),
-          image2: file("/public/val/File\\ Name.jpg"),
+          image1: file("/public/val/File\\ Name.jpg", {}),
+          image2: file("/public/val/File\\ Name.jpg", {}),
         },
       },
       ops
