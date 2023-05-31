@@ -9,9 +9,9 @@ export const FILE_REF_PROP = "_ref" as const;
  *
  */
 export type FileSource<
-  Metadata extends { readonly [key: string]: unknown } = {
-    readonly [key: string]: never;
-  }
+  Metadata extends { readonly [key: string]: unknown } | undefined =
+    | { readonly [key: string]: unknown }
+    | undefined
 > = {
   readonly [FILE_REF_PROP]: string;
   readonly [VAL_EXTENSION]: "file";
@@ -20,13 +20,17 @@ export type FileSource<
 
 export function file<Metadata extends { readonly [key: string]: unknown }>(
   ref: string,
-  metadata?: Metadata
-): FileSource {
+  metadata: Metadata
+): FileSource<Metadata>;
+export function file(ref: string, metadata?: undefined): FileSource<undefined>;
+export function file<
+  Metadata extends { readonly [key: string]: unknown } | undefined
+>(ref: string, metadata?: Metadata): FileSource<Metadata> {
   return {
     [FILE_REF_PROP]: ref,
     [VAL_EXTENSION]: "file",
     metadata,
-  } as FileSource;
+  } as FileSource<Metadata>;
 }
 
 export function isFile(obj: unknown): obj is FileSource {

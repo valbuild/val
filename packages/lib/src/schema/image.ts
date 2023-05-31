@@ -15,11 +15,13 @@ export type SerializedImageSchema = {
   opt: boolean;
 };
 
-export type ImageMetadata = {
-  width: number;
-  height: number;
-  sha256: string;
-};
+export type ImageMetadata =
+  | {
+      width: number;
+      height: number;
+      sha256: string;
+    }
+  | undefined;
 export class ImageSchema<
   Src extends FileSource<ImageMetadata> | null
 > extends Schema<Src> {
