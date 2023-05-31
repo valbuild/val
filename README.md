@@ -1,4 +1,3 @@
-
 <p align="center">
   <h1 align="center">Val - super-charged hard-coded content</h1>
   <p align="center">
@@ -8,9 +7,7 @@
   </p>
 </p>
 
-
 ## Table of contents
-
 
 - [Table of contents](#table-of-contents)
 - [Introduction](#introduction)
@@ -38,9 +35,7 @@ For editors: your content is best viewed in your app, they click and edit direct
 
 With Val we have combined the 2 into an awesome CMS.
 
-
 --- Feature-by-feature
-
 
 With Val your content is code, but editable.
 
@@ -81,7 +76,6 @@ import { initVal } from "@valbuild/lib";
 const { s, val } = initVal();
 
 export { s, val };
-
 ```
 
 - Update tsconfig.json: enable strict mode and include the Val JSX transformer :
@@ -95,12 +89,11 @@ export { s, val };
     "strict": true,
     ///...
     "jsx": "react-jsx",
-    "jsxImportSource": "@valbuild/react",
+    "jsxImportSource": "@valbuild/react"
     //...
-  },
+  }
   ///...
 }
-
 ```
 
 - Enable contextual editing: setup Val endpoints
@@ -123,7 +116,6 @@ export const config = {
     externalResolver: true,
   },
 };
-
 ```
 
 - Enable contextual editing: Use the Val provider in a top-level layout file:
@@ -152,7 +144,6 @@ export default function RootLayout({
     </html>
   );
 }
-
 ```
 
 ## Create your first Val content file
@@ -184,7 +175,6 @@ export default val.content(
 
 ## Use your content
 
-
 ```tsx
 // /app/example/page.tsx
 
@@ -199,8 +189,7 @@ const Home: NextPage = () => {
     <main>
       <article>
         {blogs.map((blog) => (
-          <section
-            key={val.key(blog)}>
+          <section key={val.key(blog)}>
             <h1>{blog.title}</h1>
             <p>{blog.text}</p>
           </section>
@@ -216,12 +205,11 @@ export default Home;
 ## Primitives
 
 ```ts
-import { s } from './val.config';
+import { s } from "./val.config";
 
 s.string(); // <- Schema<string>
 s.number();
 s.boolean();
-
 ```
 
 ## Optional
@@ -229,18 +217,17 @@ s.boolean();
 All schema types can be optional. An optional schema creates a union of the type and `null`.
 
 ```ts
-import { s } from './val.config';
+import { s } from "./val.config";
 
 s.string().optional(); // <- Schema<string | null>
 ```
 
 ## RichText
 
-
 ### RichText Schema
 
 ```ts
-import { s } from './val.config';
+import { s } from "./val.config";
 
 s.richtext();
 ```
@@ -250,7 +237,7 @@ s.richtext();
 To initialize some text content using a RichText schema, you can use follow the example below:
 
 ```ts
-import { s, val } from './val.config';
+import { s, val } from "./val.config";
 
 // TODO: need some other way of doing this:
 export default val.content("/example/richtext.ts", s.richtext(), {
@@ -280,7 +267,6 @@ export default val.content("/example/richtext.ts", s.richtext(), {
   type: "root",
   version: 1,
 });
-
 ```
 
 ### Render RichText
@@ -288,25 +274,22 @@ export default val.content("/example/richtext.ts", s.richtext(), {
 You can use the `ValRichText` component to render content.
 
 ```tsx
-
 "use client";
 import { useVal, ValRichText } from "@valbuild/react";
-import richtextVal from './richtext';
+import richtextVal from "./richtext";
 
 export default function Page() {
   const richtext = useVal(richtextVal);
-  return<ValRichText>{richtext}</ValRichText>
+  return <ValRichText>{richtext}</ValRichText>;
 }
 ```
-
 
 ## Image
 
 ### Schema
 
 ```ts
-
-s.image({ ext: ["webp"] })
+s.image({ ext: ["webp"] });
 ```
 
 ### Initializing image content
@@ -323,6 +306,4 @@ TODO:
 
 ## One of references
 
-
 # Selector
-
