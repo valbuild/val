@@ -372,7 +372,21 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
                                 }`,
                               },
                             ];
-                            console.log(patch);
+                            if (input.data.metadata) {
+                              if (input.data.addMetadata) {
+                                patch.push({
+                                  value: input.data.metadata,
+                                  op: "add",
+                                  path: `/${pathParts.join("/")}/metadata`,
+                                });
+                              } else {
+                                patch.push({
+                                  value: input.data.metadata,
+                                  op: "replace",
+                                  path: `/${pathParts.join("/")}/metadata`,
+                                });
+                              }
+                            }
                             return valApi.patchModuleContent(moduleId, patch);
                           } else if (input.type === "richtext") {
                             const patch: PatchJSON = [

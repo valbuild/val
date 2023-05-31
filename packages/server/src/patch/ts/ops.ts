@@ -527,7 +527,9 @@ function removeAtPath(
   );
 }
 
-function isValFileValue(value: JSONValue): value is FileSource {
+function isValFileValue(value: JSONValue): value is FileSource<{
+  [key: string]: JSONValue;
+}> {
   return !!(
     typeof value === "object" &&
     value &&
@@ -593,14 +595,28 @@ function addToNode(
       return pipe(
         findValFileMetadataArg(node),
         result.flatMap((metadataArgNode) => {
-          if (!metadataArgNode) {
+          if (metadataArgNode) {
             return result.err(
               new PatchError(
-                `Cannot add ${key} key to val.file with no metadata`
+                "Cannot add metadata to val.file when it already exists"
               )
             );
           }
-          return addToNode(document, metadataArgNode, key, value);
+          if (key !== "metadata") {
+            return result.err(
+              new PatchError(
+                `Cannot add ${key} key to val.file: only metadata is allowed`
+              )
+            );
+          }
+          return result.ok([
+            insertAt(
+              document,
+              node.arguments,
+              node.arguments.length,
+              toExpression(value)
+            ),
+          ]);
         })
       );
     }

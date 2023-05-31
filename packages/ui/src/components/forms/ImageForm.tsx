@@ -6,6 +6,7 @@ type Error = "invalid-file" | "file-too-large";
 export type ImageData =
   | {
       src: string;
+      addMetadata: boolean;
       metadata?: { width: number; height: number; sha256: string };
     }
   | {
@@ -21,6 +22,17 @@ export type ImageInputProps = {
   onChange: (
     result: { error: null; value: ImageData } | { error: Error; value: null }
   ) => void;
+};
+
+const textEncoder = new TextEncoder();
+// TODO: handle hashes some other way
+const getSHA256Hash = async (bits: Uint8Array) => {
+  const hashBuffer = await window.crypto.subtle.digest("SHA-256", bits);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hash = hashArray
+    .map((item) => item.toString(16).padStart(2, "0"))
+    .join("");
+  return hash;
 };
 
 export function ImageForm({
@@ -68,7 +80,7 @@ export function ImageForm({
                 return;
               }
               const reader = new FileReader();
-              reader.addEventListener("load", () => {
+              reader.addEventListener("load", async () => {
                 const result = reader.result;
                 if (typeof result === "string") {
                   const image = new Image();
@@ -78,7 +90,9 @@ export function ImageForm({
                     metadata: {
                       width: image.naturalWidth,
                       height: image.naturalHeight,
+                      sha256: await getSHA256Hash(textEncoder.encode(result)),
                     },
+                    addMetadata: !currentData?.metadata,
                   };
                   setCurrentData(nextSource);
                   setCurrentError(null);
@@ -95,6 +109,70 @@ export function ImageForm({
           }}
         />
       </label>
+      {currentData &&
+        (!currentData.metadata ||
+          typeof currentData.metadata.height === "undefined" ||
+          typeof currentData.metadata.width === "undefined" ||
+          typeof currentData.metadata.sha256 === "undefined") && (
+          <ErrorText>
+            <div className="">
+              <div>Validation failed: missing metadata</div>
+              <button
+                className="px-4 py-2 border border-dark-gray"
+                onClick={async (ev) => {
+                  ev.preventDefault();
+
+                  const image = new Image();
+                  image.onload = async () => {
+                    const nextSource = {
+                      src: image.src,
+                      metadata: {
+                        width: image.naturalWidth,
+                        height: image.naturalHeight,
+                        sha256: await getSHA256Hash(
+                          textEncoder.encode(image.src)
+                        ),
+                      },
+                      addMetadata: !currentData?.metadata,
+                    };
+                    setCurrentData(nextSource);
+                    setCurrentError(null);
+                    onChange({
+                      error: null,
+                      value: nextSource,
+                    });
+                  };
+
+                  if ("url" in currentData) {
+                    const src = await fetch(currentData.url)
+                      .then((response) => response.blob())
+                      .then((blob) => {
+                        return new Promise<string>((resolve, reject) => {
+                          const reader = new FileReader();
+                          reader.onload = function () {
+                            if (typeof this.result !== "string") {
+                              return reject(
+                                Error(
+                                  `Could not read file from url: ${currentData.url}`
+                                )
+                              );
+                            }
+                            resolve(this.result);
+                          }; // <--- `this.result` contains a base64 data URI
+                          reader.readAsDataURL(blob);
+                        });
+                      });
+                    image.src = src;
+                  } else {
+                    image.src = currentData.src;
+                  }
+                }}
+              >
+                Fix
+              </button>
+            </div>
+          </ErrorText>
+        )}
       {currentData?.metadata && (
         <div className="ml-auto text-primary">
           Dimensions: {currentData.metadata.width}x{currentData.metadata.height}
