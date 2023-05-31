@@ -7,6 +7,7 @@ import { getPathFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
 import { z } from "zod";
 import { parsePatch } from "@valbuild/lib/patch";
+import { ParsedQs } from "qs";
 
 const VAL_SESSION_COOKIE = "val_session";
 const VAL_STATE_COOKIE = "val_state";
@@ -22,6 +23,20 @@ export type ProxyValServerOptions = {
 
 export class ProxyValServer implements ValServer {
   constructor(readonly options: ProxyValServerOptions) {}
+
+  getAllModules(
+    req: express.Request<
+      { 0: string },
+      any,
+      any,
+      ParsedQs,
+      Record<string, any>
+    >,
+    res: express.Response<any, Record<string, any>>
+  ): Promise<void> {
+    // TODO:
+    throw new Error("Method not implemented.");
+  }
 
   async authorize(req: express.Request, res: express.Response): Promise<void> {
     const { redirect_to } = req.query;

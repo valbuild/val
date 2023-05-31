@@ -5,7 +5,10 @@ import { result } from "@valbuild/lib/fp";
 import { parsePatch, PatchError } from "@valbuild/lib/patch";
 import { getPathFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
-import { Internal } from "@valbuild/lib";
+import { Internal, ModuleId, ModulePath } from "@valbuild/lib";
+import { ParsedQs } from "qs";
+import { promises as fs } from "fs";
+import path from "path";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -13,6 +16,55 @@ export type LocalValServerOptions = {
 
 export class LocalValServer implements ValServer {
   constructor(readonly options: LocalValServerOptions) {}
+  getAllModules(
+    req: express.Request<
+      { 0: string },
+      any,
+      any,
+      ParsedQs,
+      Record<string, any>
+    >,
+    res: express.Response<any, Record<string, any>>
+  ): Promise<void> {
+    // TODO: this barely works,
+    const rootDir = process.cwd();
+    const moduleIds: string[] = [];
+    // iterate over all .val files in the root directory
+    const walk = async (dir: string) => {
+      const files = await fs.readdir(dir);
+      for (const file of files) {
+        if ((await fs.stat(path.join(dir, file))).isDirectory()) {
+          if (file === "node_modules") continue;
+          await walk(path.join(dir, file));
+        } else {
+          if (file.endsWith(".val.js") || file.endsWith(".val.ts")) {
+            moduleIds.push(
+              path
+                .join(dir, file)
+                .replace(rootDir, "")
+                .replace(".val.js", "")
+                .replace(".val.ts", "")
+            );
+          }
+        }
+      }
+    };
+
+    return walk(rootDir).then(async () => {
+      res.send(
+        JSON.stringify(
+          await Promise.all(
+            moduleIds.map(async (moduleId) => {
+              return await this.options.service.get(
+                moduleId as ModuleId,
+                "" as ModulePath
+              );
+            })
+          )
+        )
+      );
+    });
+  }
 
   async session(_req: express.Request, res: express.Response): Promise<void> {
     res.json({
