@@ -346,7 +346,22 @@ function replaceInNode(
               )
             );
           }
-          return replaceInNode(document, metadataArgNode, key, value);
+          if (key !== "metadata") {
+            return result.err(
+              new PatchError(
+                `Cannot replace val.file metadata key ${key} when it does not exist`
+              )
+            );
+          }
+          return replaceInNode(
+            document,
+            // TODO: creating a fake object here might not be right - seems to work though
+            ts.factory.createObjectLiteralExpression([
+              ts.factory.createPropertyAssignment(key, metadataArgNode),
+            ]),
+            key,
+            value
+          );
         })
       );
     }
