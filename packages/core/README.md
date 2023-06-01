@@ -113,7 +113,7 @@ export const config = {
 };
 ```
 
-- Enable contextual editing: Use the Val provider in the _app file:
+- Enable contextual editing: Use the Val provider in the \_app file:
 
 ```tsx
 // ./src/pages/_app.tsx
@@ -185,7 +185,6 @@ const Blog: NextPage = () => {
 };
 
 export default Blog;
-
 ```
 
 ## Concepts
