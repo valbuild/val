@@ -80,7 +80,7 @@ export { s, val };
 
 - Update tsconfig.json: enable strict mode and include the Val JSX transformer :
 
-```json
+```jsonc
 // ./tsconfig.json
 
 {
