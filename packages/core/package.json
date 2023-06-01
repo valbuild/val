@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/core",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest",
