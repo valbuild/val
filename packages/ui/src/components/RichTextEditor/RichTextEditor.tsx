@@ -30,7 +30,7 @@ import {
   ListItemNode as ValListItemNode,
   ParagraphNode as ValParagraphNode,
   ListNode as ValListNode,
-} from "@valbuild/lib";
+} from "@valbuild/core";
 import { $createHeadingNode, HeadingNode } from "@lexical/rich-text";
 
 export interface RichTextEditorProps {

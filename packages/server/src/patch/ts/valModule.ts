@@ -1,5 +1,5 @@
 import ts from "typescript";
-import { result, pipe } from "@valbuild/lib/fp";
+import { result, pipe } from "@valbuild/core/fp";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./syntax";
 
 export type ValModuleAnalysis = {

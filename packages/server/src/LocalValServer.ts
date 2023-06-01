@@ -1,11 +1,11 @@
 import express from "express";
 import { Service } from "./Service";
 import { PatchJSON } from "./patch/validation";
-import { result } from "@valbuild/lib/fp";
-import { parsePatch, PatchError } from "@valbuild/lib/patch";
+import { result } from "@valbuild/core/fp";
+import { parsePatch, PatchError } from "@valbuild/core/patch";
 import { getPathFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
-import { Internal } from "@valbuild/lib";
+import { Internal } from "@valbuild/core";
 
 export type LocalValServerOptions = {
   service: Service;

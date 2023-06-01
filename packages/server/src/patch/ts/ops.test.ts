@@ -1,8 +1,8 @@
 import { describe, test, expect } from "@jest/globals";
 import ts from "typescript";
 import { TSOps } from "./ops";
-import { result, array, pipe } from "@valbuild/lib/fp";
-import { PatchError, JSONValue } from "@valbuild/lib/patch";
+import { result, array, pipe } from "@valbuild/core/fp";
+import { PatchError, JSONValue } from "@valbuild/core/patch";
 import { ValSyntaxError } from "./syntax";
 
 function testSourceFile(expression: string): ts.SourceFile {

@@ -1,5 +1,5 @@
 import ts from "typescript";
-import { result, array, pipe } from "@valbuild/lib/fp";
+import { result, array, pipe } from "@valbuild/core/fp";
 import {
   validateInitializers,
   evaluateExpression,
@@ -17,9 +17,9 @@ import {
   PatchError,
   JSONValue,
   parseAndValidateArrayIndex,
-} from "@valbuild/lib/patch";
-import { FILE_REF_PROP, FileSource } from "@valbuild/lib";
-import { JsonPrimitive } from "@valbuild/lib/src/Json";
+} from "@valbuild/core/patch";
+import { FILE_REF_PROP, FileSource } from "@valbuild/core";
+import { JsonPrimitive } from "@valbuild/core/src/Json";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 

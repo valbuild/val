@@ -5,7 +5,7 @@ import { useVal, ValRichText } from "@valbuild/react";
 import { val } from "../val.config";
 
 export default function Home() {
-  const blogs = useVal(blogsVal);
+  const blogs = useVal(blogsVal.map((s) => s));
   return (
     <main className={styles.main}>
       <article className={styles.article}>

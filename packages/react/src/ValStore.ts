@@ -1,4 +1,4 @@
-import { ValModule, SelectorSource } from "@valbuild/lib";
+import { ValModule, SelectorSource } from "@valbuild/core";
 import { ValApi } from "./ValApi";
 
 export class ValStore {

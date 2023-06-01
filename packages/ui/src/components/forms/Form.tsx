@@ -1,4 +1,4 @@
-import { RichText } from "@valbuild/lib";
+import { RichText } from "@valbuild/core";
 import { LexicalEditor } from "lexical";
 import { useEffect, useState } from "react";
 import { RichTextEditor } from "../RichTextEditor/RichTextEditor";

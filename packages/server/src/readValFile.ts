@@ -11,7 +11,7 @@ export const readValFile = async (
   try {
     const modulePath = `.${id}.val`;
     const code = `import * as valModule from ${JSON.stringify(modulePath)};
-import { Internal } from "@valbuild/lib";
+import { Internal } from "@valbuild/core";
 globalThis.valModule = { 
   id: valModule?.default && Internal.getValPath(valModule?.default),
   schema: valModule?.default && Internal.getSchema(valModule?.default)?.serialize(),

@@ -11,9 +11,9 @@ import {
   RichText,
   SourcePath,
   VAL_EXTENSION,
-} from "@valbuild/lib";
-import { PatchJSON } from "@valbuild/lib/patch";
-import { ImageMetadata } from "@valbuild/lib/src/schema/image";
+} from "@valbuild/core";
+import { PatchJSON } from "@valbuild/core/patch";
+import { ImageMetadata } from "@valbuild/core/src/schema/image";
 
 export function useValStore() {
   return useContext(ValContext).valStore;

@@ -1,8 +1,8 @@
 import ts from "typescript";
-import { result, pipe } from "@valbuild/lib/fp";
-import { JSONValue } from "@valbuild/lib/patch";
-import { FileSource, FILE_REF_PROP } from "@valbuild/lib";
-import { JsonPrimitive } from "@valbuild/lib/src/Json";
+import { result, pipe } from "@valbuild/core/fp";
+import { JSONValue } from "@valbuild/core/patch";
+import { FileSource, FILE_REF_PROP } from "@valbuild/core";
+import { JsonPrimitive } from "@valbuild/core/src/Json";
 
 export class ValSyntaxError {
   constructor(public message: string, public node: ts.Node) {}

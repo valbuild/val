@@ -63,7 +63,7 @@ Oh, and did we mention: local development requires no sign up.
 - Install the packages:
 
 ```sh
-npm install @valbuild/lib @valbuild/react @valbuild/server
+npm install @valbuild/core @valbuild/react @valbuild/server
 ```
 
 - Create your val.config.ts file:
@@ -71,7 +71,7 @@ npm install @valbuild/lib @valbuild/react @valbuild/server
 ```ts
 // ./val.config.ts
 
-import { initVal } from "@valbuild/lib";
+import { initVal } from "@valbuild/core";
 
 const { s, val } = initVal();
 

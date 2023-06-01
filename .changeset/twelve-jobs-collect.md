@@ -1,7 +1,7 @@
 ---
 "@valbuild/server": minor
 "@valbuild/react": minor
-"@valbuild/lib": minor
+"@valbuild/core": minor
 "@valbuild/ui": minor
 ---
 
