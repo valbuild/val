@@ -4,10 +4,12 @@ import { SourcePath } from "../val";
 import { SerializedArraySchema } from "./array";
 import { SerializedBooleanSchema } from "./boolean";
 import { SerializedI18nSchema } from "./i18n";
+import { SerializedImageSchema } from "./image";
 import { SerializedLiteralSchema } from "./literal";
 import { SerializedNumberSchema } from "./number";
 import { SerializedObjectSchema } from "./object";
 import { SerializedOneOfSchema } from "./oneOf";
+import { SerializedRichTextSchema } from "./richtext";
 import { SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
 
@@ -20,6 +22,8 @@ export type SerializedSchema =
   | SerializedOneOfSchema
   | SerializedArraySchema
   | SerializedUnionSchema
+  | SerializedRichTextSchema
+  | SerializedImageSchema
   | SerializedI18nSchema;
 
 export abstract class Schema<Src extends SelectorSource> {

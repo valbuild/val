@@ -46,7 +46,7 @@ export type Selector<T extends Source> = Source extends T
   ? S extends RemoteCompatibleSource
     ? RemoteSelector<S>
     : GenericSelector<Source, "Could not determine remote source">
-  : T extends FileSource<string>
+  : T extends FileSource
   ? FileSelector
   : T extends SourceObject
   ? ObjectSelector<T>
@@ -71,7 +71,7 @@ export type SelectorSource =
     }
   | I18nSource<readonly string[], I18nCompatibleSource>
   | RemoteSource<RemoteCompatibleSource>
-  | FileSource<string>
+  | FileSource
   | GenericSelector<Source>;
 
 /**

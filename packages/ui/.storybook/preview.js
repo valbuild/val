@@ -1,5 +1,6 @@
-// .storybook/preview.js
 import { withThemeByDataAttribute } from "@storybook/addon-styling";
+
+import "tailwindcss/tailwind.css";
 import "../src/index.css";
 import "./theme.css"; // The normal css has theming on :hover, but we need to have it on :root for stories to work
 

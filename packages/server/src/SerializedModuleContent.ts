@@ -4,5 +4,5 @@ import { type SourcePath } from "@valbuild/lib/src/val";
 export type SerializedModuleContent = {
   source: Source;
   schema: SerializedSchema;
-  id: SourcePath;
+  path: SourcePath;
 };

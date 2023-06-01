@@ -8,6 +8,7 @@ import {
   shallowValidateExpression,
   isValFileMethodCall,
   findValFileNodeArg,
+  findValFileMetadataArg,
 } from "./syntax";
 import {
   deepEqual,
@@ -18,6 +19,7 @@ import {
   parseAndValidateArrayIndex,
 } from "@valbuild/lib/patch";
 import { FILE_REF_PROP, FileSource } from "@valbuild/lib";
+import { JsonPrimitive } from "@valbuild/lib/src/Json";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
@@ -322,22 +324,48 @@ function replaceInNode(
       )
     );
   } else if (isValFileMethodCall(node)) {
-    if (key !== FILE_REF_PROP) {
-      return result.err(
-        new PatchError(`Cannot replace non-${FILE_REF_PROP} key of val.file`)
+    if (key === FILE_REF_PROP) {
+      if (typeof value !== "string") {
+        return result.err(
+          new PatchError(
+            "Cannot replace val.file reference with non-string value"
+          )
+        );
+      }
+      return pipe(
+        findValFileNodeArg(node),
+        result.map((refNode) => replaceNodeValue(document, refNode, value))
+      );
+    } else {
+      return pipe(
+        findValFileMetadataArg(node),
+        result.flatMap((metadataArgNode) => {
+          if (!metadataArgNode) {
+            return result.err(
+              new PatchError(
+                "Cannot replace in val.file metadata when it does not exist"
+              )
+            );
+          }
+          if (key !== "metadata") {
+            return result.err(
+              new PatchError(
+                `Cannot replace val.file metadata key ${key} when it does not exist`
+              )
+            );
+          }
+          return replaceInNode(
+            document,
+            // TODO: creating a fake object here might not be right - seems to work though
+            ts.factory.createObjectLiteralExpression([
+              ts.factory.createPropertyAssignment(key, metadataArgNode),
+            ]),
+            key,
+            value
+          );
+        })
       );
     }
-    if (typeof value !== "string") {
-      return result.err(
-        new PatchError(
-          "Cannot replace val.file reference with non-string value"
-        )
-      );
-    }
-    return pipe(
-      findValFileNodeArg(node),
-      result.map((refNode) => replaceNodeValue(document, refNode, value))
-    );
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -385,9 +413,7 @@ export function getFromNode(
     if (key === FILE_REF_PROP) {
       return findValFileNodeArg(node);
     }
-    return result.err(
-      new PatchError(`Cannot access non-${FILE_REF_PROP} key of val.file`)
-    );
+    return findValFileMetadataArg(node);
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -479,7 +505,23 @@ function removeFromNode(
       ])
     );
   } else if (isValFileMethodCall(node)) {
-    return result.err(new PatchError("Cannot remove a key from val.file"));
+    if (key === FILE_REF_PROP) {
+      return result.err(new PatchError("Cannot remove a ref from val.file"));
+    } else {
+      return pipe(
+        findValFileMetadataArg(node),
+        result.flatMap((metadataArgNode) => {
+          if (!metadataArgNode) {
+            return result.err(
+              new PatchError(
+                "Cannot remove from val.file metadata when it does not exist"
+              )
+            );
+          }
+          return removeFromNode(document, metadataArgNode, key);
+        })
+      );
+    }
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -501,7 +543,9 @@ function removeAtPath(
   );
 }
 
-function isValFileValue(value: JSONValue): value is FileSource<string> {
+function isValFileValue(value: JSONValue): value is FileSource<{
+  [key: string]: JsonPrimitive;
+}> {
   return !!(
     typeof value === "object" &&
     value &&
@@ -549,22 +593,49 @@ function addToNode(
       )
     );
   } else if (isValFileMethodCall(node)) {
-    if (key !== FILE_REF_PROP) {
-      return result.err(
-        new PatchError(`Cannot add non-${FILE_REF_PROP} key to val.file`)
-      );
-    }
-    if (typeof value !== "string") {
-      return result.err(
-        new PatchError(
-          `Cannot add ${FILE_REF_PROP} key to val.file with non-string value`
+    if (key === FILE_REF_PROP) {
+      if (typeof value !== "string") {
+        return result.err(
+          new PatchError(
+            `Cannot add ${FILE_REF_PROP} key to val.file with non-string value`
+          )
+        );
+      }
+      return pipe(
+        findValFileNodeArg(node),
+        result.map((arg: ts.Expression) =>
+          replaceNodeValue(document, arg, value)
         )
       );
+    } else {
+      return pipe(
+        findValFileMetadataArg(node),
+        result.flatMap((metadataArgNode) => {
+          if (metadataArgNode) {
+            return result.err(
+              new PatchError(
+                "Cannot add metadata to val.file when it already exists"
+              )
+            );
+          }
+          if (key !== "metadata") {
+            return result.err(
+              new PatchError(
+                `Cannot add ${key} key to val.file: only metadata is allowed`
+              )
+            );
+          }
+          return result.ok([
+            insertAt(
+              document,
+              node.arguments,
+              node.arguments.length,
+              toExpression(value)
+            ),
+          ]);
+        })
+      );
     }
-    return pipe(
-      findValFileNodeArg(node),
-      result.map((arg: ts.Expression) => replaceNodeValue(document, arg, value))
-    );
   } else {
     return result.err(
       shallowValidateExpression(node) ??

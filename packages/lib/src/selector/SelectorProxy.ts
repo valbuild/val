@@ -2,7 +2,9 @@
 import { Path, GenericSelector, SourceOrExpr, GetSchema } from ".";
 import { Expr } from "../expr/expr";
 import { Schema } from "../schema";
-import { Source, SourcePrimitive } from "../source";
+import { convertImageSource } from "../schema/image";
+import { Source, SourcePrimitive, VAL_EXTENSION } from "../source";
+import { FILE_REF_PROP } from "../source/file";
 import { isSerializedVal, SourcePath } from "../val";
 
 function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
@@ -35,6 +37,14 @@ export function newSelectorProxy(
     } else if (isSerializedVal(source)) {
       return newSelectorProxy(source.val, source.valPath);
     }
+  }
+
+  if (source && source[FILE_REF_PROP] && source[VAL_EXTENSION] === "file") {
+    const fileRef = source[FILE_REF_PROP];
+    if (typeof fileRef !== "string") {
+      throw Error("Invalid file ref: " + fileRef);
+    }
+    return newSelectorProxy(convertImageSource(source), path, moduleSchema);
   }
 
   switch (typeof source) {
