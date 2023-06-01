@@ -54,14 +54,15 @@ Val is built on top of TypeScript and Git, letting you use types, branches, vers
 
 ## Installation
 
-- Make sure you have TypeScript 4.9+, Next 13+ (other meta frameworks will come), React 18+ (other frontend frameworks will come)
+- Make sure you have TypeScript 4.9+, Next 12+ (other meta frameworks will come), React 18+ (other frontend frameworks will come)
+- **NOTE**: THIS GUIDE is using the Next `/pages` directory NOT the new `/app` directory!
 - Install the packages:
 
 ```sh
 npm install @valbuild/core @valbuild/react @valbuild/server
 ```
 
-- Create your val.config.ts file:
+- Create your val.config.ts file. NOTE: this file should be in the same directory as `tsconfig.json`:
 
 ```ts
 // ./val.config.ts
@@ -83,7 +84,6 @@ export { s, val };
     ///...
     "strict": true,
     ///...
-    "jsx": "react-jsx",
     "jsxImportSource": "@valbuild/react"
     //...
   }
@@ -94,7 +94,7 @@ export { s, val };
 - Enable contextual editing: setup Val endpoints
 
 ```ts
-// ./pages/api/val/[...val].ts
+// ./src/pages/api/val/[...val].ts
 
 import { createRequestListener } from "@valbuild/server";
 import { NextApiHandler } from "next";
@@ -113,32 +113,23 @@ export const config = {
 };
 ```
 
-- Enable contextual editing: Use the Val provider in a top-level layout file:
+- Enable contextual editing: Use the Val provider in the _app file:
 
 ```tsx
-// ./app/layout.tsx
+// ./src/pages/_app.tsx
 
 import { ValProvider } from "@valbuild/react";
-import "./globals.css";
+import type { AppProps } from "next/app";
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+function MyApp({ Component, pageProps }: AppProps) {
   return (
-    <html lang="en">
-      {/*
-        <head /> will contain the components returned by the nearest parent
-        head.tsx. Find out more at https://beta.nextjs.org/docs/api-reference/file-conventions/head
-      */}
-      <head />
-      <body>
-        <ValProvider host="/api/val">{children}</ValProvider>
-      </body>
-    </html>
+    <ValProvider host="/api/val">
+      <Component {...pageProps} />
+    </ValProvider>
   );
 }
+
+export default MyApp;
 ```
 
 ## Getting started
@@ -150,12 +141,12 @@ Content defined in Val is always defined `.val.{ts|js}` files.
 They must export a default `val.content` where the first argument equals the path of the file relative to the `val.config.{js|ts}` file.
 
 ```ts
-// ./app/example/blogs.val.ts
+// ./src/content/example/blogs.val.ts
 
-import { s, val } from "src/val.config";
+import { s, val } from "../../../val.config";
 
 export default val.content(
-  "/app/example/blogs", // <- NOTE: this must be the same path as the file
+  "/src/content/example/blogs", // <- NOTE: this must be the same path as the file
   s.array(s.object({ title: s.string(), text: s.string() })),
   [
     {
@@ -173,30 +164,28 @@ export default val.content(
 ### Use your content
 
 ```tsx
-// /app/example/page.tsx
+// ./src/pages/example/index.tsx
 
 import { NextPage } from "next";
 import { useVal } from "@valbuild/react";
-import blogsVal from "./blogs.val";
-import { val } from "val.config";
+import blogsVal from "@/content/example/blogs.val";
 
-const Home: NextPage = () => {
-  const blogs = useVal(blogsVal);
+const Blog: NextPage = () => {
+  const blog = useVal(blogsVal[0]);
   return (
     <main>
       <article>
-        {blogs.map((blog) => (
-          <section key={val.key(blog)}>
-            <h1>{blog.title}</h1>
-            <p>{blog.text}</p>
-          </section>
-        ))}
+        <section>
+          <h1>{blog.title}</h1>
+          <p>{blog.text}</p>
+        </section>
       </article>
     </main>
   );
 };
 
-export default Home;
+export default Blog;
+
 ```
 
 ## Concepts
