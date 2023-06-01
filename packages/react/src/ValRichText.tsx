@@ -7,8 +7,8 @@ import {
   RichText,
   TextNode,
   Val,
-} from "@valbuild/lib";
-import { Internal } from "@valbuild/lib";
+} from "@valbuild/core";
+import { Internal } from "@valbuild/core";
 import { createElement } from "react";
 import parse from "style-to-object";
 

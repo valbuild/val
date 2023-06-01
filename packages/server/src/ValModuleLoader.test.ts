@@ -34,7 +34,7 @@ describe("val module loader", () => {
             "../val.config"
           )
         )
-      ).toContain("@valbuild/lib");
+      ).toContain("@valbuild/core");
     }
   );
 

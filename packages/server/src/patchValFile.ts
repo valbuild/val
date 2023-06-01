@@ -1,14 +1,14 @@
 import { analyzeValModule } from "./patch/ts/valModule";
-import { applyPatch, Patch, PatchError } from "@valbuild/lib/patch";
+import { applyPatch, Patch, PatchError } from "@valbuild/core/patch";
 import { TSOps } from "./patch/ts/ops";
-import { result, pipe } from "@valbuild/lib/fp";
+import { result, pipe } from "@valbuild/core/fp";
 import {
   flatMapErrors,
   formatSyntaxError,
   type ValSyntaxErrorTree,
 } from "./patch/ts/syntax";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
-import { derefPatch } from "@valbuild/lib";
+import { derefPatch } from "@valbuild/core";
 import { readValFile } from "./readValFile";
 import { QuickJSRuntime } from "quickjs-emscripten";
 import ts from "typescript";

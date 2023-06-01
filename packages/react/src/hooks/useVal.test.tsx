@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { useVal } from "./useVal";
-import { initVal, Val } from "@valbuild/lib";
+import { initVal, Val } from "@valbuild/core";
 import { renderHook } from "@testing-library/react";
 import { ValContext } from "../ValProvider";
 import { ReactElement } from "react";

@@ -2,7 +2,7 @@ import type {
   JSONValue as JSONValueT,
   OperationJSON as OperationJSONT,
   PatchJSON as PatchJSONT,
-} from "@valbuild/lib/patch";
+} from "@valbuild/core/patch";
 import z from "zod";
 
 const JSONValueT: z.ZodType<JSONValueT> = z.lazy(() =>

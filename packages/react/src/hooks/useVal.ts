@@ -4,8 +4,8 @@ import {
   GenericSelector,
   Val,
   Internal,
-} from "@valbuild/lib";
-import { JsonOfSource } from "@valbuild/lib/src/val";
+} from "@valbuild/core";
+import { JsonOfSource } from "@valbuild/core/src/val";
 
 export function useVal<T extends SelectorSource>(
   selector: T,

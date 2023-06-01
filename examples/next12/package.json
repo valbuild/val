@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@preconstruct/next": "^4.0.0",
-    "@valbuild/lib": "*",
+    "@valbuild/core": "*",
     "@valbuild/react": "*",
     "@valbuild/server": "*",
     "next": "^12.1.6",

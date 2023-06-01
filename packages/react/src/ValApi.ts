@@ -1,5 +1,5 @@
-import { SerializedModule } from "@valbuild/lib";
-import { PatchJSON } from "@valbuild/lib/patch";
+import { SerializedModule } from "@valbuild/core";
+import { PatchJSON } from "@valbuild/core/patch";
 
 export class ValApi {
   constructor(readonly host: string) {}

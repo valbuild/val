@@ -1,4 +1,4 @@
-import { result } from "@valbuild/lib/fp";
+import { result } from "@valbuild/core/fp";
 import ts from "typescript";
 import { analyzeValModule, ValModuleAnalysis } from "./valModule";
 
