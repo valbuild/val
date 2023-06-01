@@ -2,11 +2,11 @@ import express from "express";
 import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { PatchJSON } from "./patch/validation";
-import { result } from "@valbuild/lib/fp";
+import { result } from "@valbuild/core/fp";
 import { getPathFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
 import { z } from "zod";
-import { parsePatch } from "@valbuild/lib/patch";
+import { parsePatch } from "@valbuild/core/patch";
 import { ParsedQs } from "qs";
 
 const VAL_SESSION_COOKIE = "val_session";

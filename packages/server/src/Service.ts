@@ -1,7 +1,7 @@
 import { newQuickJSWASMModule, QuickJSRuntime } from "quickjs-emscripten";
 import { patchValFile } from "./patchValFile";
 import { readValFile } from "./readValFile";
-import { Patch } from "@valbuild/lib/patch";
+import { Patch } from "@valbuild/core/patch";
 import { ValModuleLoader } from "./ValModuleLoader";
 import { newValQuickJSRuntime } from "./ValQuickJSRuntime";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
@@ -17,7 +17,7 @@ import {
   SourcePath,
   Schema,
   SelectorSource,
-} from "@valbuild/lib";
+} from "@valbuild/core";
 
 export type ServiceOptions = {
   /**
@@ -80,7 +80,7 @@ export class Service {
       valModule.schema
     );
     return {
-      id: [valModule.id, modulePath].join("/") as SourcePath,
+      path: [moduleId, resolved.path].join(".") as SourcePath,
       schema:
         resolved.schema instanceof Schema<SelectorSource>
           ? resolved.schema.serialize()

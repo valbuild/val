@@ -1,0 +1,43 @@
+{
+  "name": "@valbuild/core",
+  "version": "0.13.2",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "analyze-trace": "npx tsc -p tsconfig.json --skipLibCheck --generateTrace trace; npx -p @typescript/analyze-trace analyze-trace trace;  npx speedscope trace/trace.json"
+  },
+  "main": "dist/valbuild-core.cjs.js",
+  "module": "dist/valbuild-core.esm.js",
+  "exports": {
+    ".": {
+      "module": "./dist/valbuild-core.esm.js",
+      "default": "./dist/valbuild-core.cjs.js"
+    },
+    "./fp": {
+      "module": "./fp/dist/valbuild-core-fp.esm.js",
+      "default": "./fp/dist/valbuild-core-fp.cjs.js"
+    },
+    "./expr": {
+      "module": "./expr/dist/valbuild-core-expr.esm.js",
+      "default": "./expr/dist/valbuild-core-expr.cjs.js"
+    },
+    "./patch": {
+      "module": "./patch/dist/valbuild-core-patch.esm.js",
+      "default": "./patch/dist/valbuild-core-patch.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "dist/valbuild-core.cjs.d.ts",
+  "preconstruct": {
+    "entrypoints": [
+      "./index.ts",
+      "./fp/index.ts",
+      "./patch/index.ts",
+      "./expr/index.ts"
+    ],
+    "exports": true
+  },
+  "dependencies": {
+    "ts-toolbelt": "^9.6.0"
+  }
+}

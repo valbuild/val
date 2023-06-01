@@ -1,8 +1,8 @@
 import { describe, test, expect } from "@jest/globals";
 import ts from "typescript";
 import { TSOps } from "./ops";
-import { result, array, pipe } from "@valbuild/lib/fp";
-import { PatchError, JSONValue } from "@valbuild/lib/patch";
+import { result, array, pipe } from "@valbuild/core/fp";
+import { PatchError, JSONValue } from "@valbuild/core/patch";
 import { ValSyntaxError } from "./syntax";
 
 function testSourceFile(expression: string): ts.SourceFile {
@@ -165,11 +165,17 @@ describe("TSOps", () => {
       expected: result.err(PatchError),
     },
     {
-      name: "prop on val.file",
+      name: "prop on val.file TODO",
       input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
-      path: ["image", "zoo"],
-      value: null,
-      expected: result.err(PatchError),
+      path: ["image", "metadata"],
+      value: {
+        width: 123,
+        height: 456,
+        sha256: "abc",
+      },
+      expected: result.ok(
+        `{ foo: "bar", image: val.file("/public/val/image.jpg", { width: 123, height: 456, sha256: "abc" }) }`
+      ),
     },
     {
       name: "null prop of name ref on val.file",
@@ -378,6 +384,32 @@ describe("TSOps", () => {
       expected: result.ok(`val.file("/public/val/foo/bar2.jpg")`),
     },
     {
+      name: "val.file ref with options",
+      input: `val.file("/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
+      path: ["_ref"],
+      value: "/public/val/foo/bar2.jpg",
+      expected: result.ok(
+        `val.file("/public/val/foo/bar2.jpg", { checksum: "123", width: 456, height: 789 })`
+      ),
+    },
+    // TODO:
+    // {
+    //   name: "val.file non metadata",
+    //   input: `val.file("/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
+    //   path: ["failure", "checksum"],
+    //   value: "101112",
+    //   expected: result.err(PatchError),
+    // },
+    {
+      name: "val.file checksum",
+      input: `val.file("/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
+      path: ["metadata", "checksum"],
+      value: "101112",
+      expected: result.ok(
+        `val.file("/public/val/foo/bar.jpg", { checksum: "101112", width: 456, height: 789 })`
+      ),
+    },
+    {
       name: "deep val.files",
       input: `{ foo: { bar: val.file("/public/val/foo/bar/zoo.jpg") } }`,
       path: ["foo", "bar", "_ref"],
@@ -389,8 +421,12 @@ describe("TSOps", () => {
     {
       name: "prop on val.file",
       input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
-      path: ["image", "zoo"],
-      value: null,
+      path: ["image", "metadata"],
+      value: {
+        width: 123,
+        height: 456,
+        sha256: "1234567890abcdef",
+      },
       expected: result.err(PatchError),
     },
     {
@@ -523,8 +559,10 @@ describe("TSOps", () => {
       name: "object into val.file",
       input: `{ foo: { bar: "zoo" }, baz: val.file("/public/val/foo/bar.jpg") }`,
       from: ["foo"],
-      path: ["baz", "loo"],
-      expected: result.err(PatchError),
+      path: ["baz", "metadata"],
+      expected: result.ok(
+        `{ baz: val.file("/public/val/foo/bar.jpg", { bar: "zoo" }) }`
+      ),
     },
   ])("move $name", ({ input, from, path, expected }) => {
     const src = testSourceFile(input);
@@ -633,8 +671,10 @@ describe("TSOps", () => {
       name: "object into val.file",
       input: `{ foo: val.file("/public/val/image1.jpg"), bar: null }`,
       from: ["bar"],
-      path: ["foo", "loo"],
-      expected: result.err(PatchError),
+      path: ["foo", "metadata"],
+      expected: result.ok(
+        `{ foo: val.file("/public/val/image1.jpg", null), bar: null }`
+      ),
     },
   ])("copy $name", ({ input, from, path, expected }) => {
     const src = testSourceFile(input);

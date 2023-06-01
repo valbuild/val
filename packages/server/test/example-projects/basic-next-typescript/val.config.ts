@@ -1,4 +1,4 @@
-import { initVal } from "@valbuild/lib";
+import { initVal } from "@valbuild/core";
 
 const { s, val } = initVal();
 

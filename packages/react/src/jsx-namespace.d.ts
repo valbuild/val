@@ -1,4 +1,4 @@
-import { Source, Val } from "@valbuild/lib";
+import { Source, Val } from "@valbuild/core";
 
 // unpack all here to avoid infinite self-referencing when defining our own JSX namespace
 type ReactJSXElement = JSX.Element;

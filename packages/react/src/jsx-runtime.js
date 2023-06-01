@@ -1,4 +1,4 @@
-import { Internal } from "@valbuild/lib";
+import { Internal } from "@valbuild/core";
 import * as ReactJSXRuntime from "react/jsx-runtime";
 export * from "react/jsx-runtime";
 

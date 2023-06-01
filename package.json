@@ -1,11 +1,15 @@
 {
   "name": "@valbuild/root",
   "version": "0.0.1",
-  "private": true,
+  "private": false,
   "workspaces": [
     "packages/*",
     "examples/*"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/valbuild/val.git"
+  },
   "scripts": {
     "build": "preconstruct build && npm run build -w packages/ui",
     "postinstall": "patch-package && preconstruct dev",
@@ -24,7 +28,7 @@
     "@babel/preset-typescript": "^7.18.6",
     "@changesets/cli": "^2.26.0",
     "@preconstruct/cli": "^2.3.0",
-    "@types/jest": "^29.4.0",
+    "@types/jest": "^29.4.2",
     "@typescript-eslint/eslint-plugin": "^5.48.1",
     "@typescript-eslint/parser": "^5.48.1",
     "babel-jest": "^29.4.2",

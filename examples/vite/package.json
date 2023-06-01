@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@valbuild/lib": "*",
+    "@valbuild/core": "*",
     "@valbuild/react": "*",
     "@valbuild/server": "*",
     "react": "^18.2.0",
