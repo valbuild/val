@@ -33,6 +33,20 @@ module.exports = {
       sans: "'Roboto', sans-serif",
       serif: "'JetBrains Mono', monospace",
     },
+    keyframes: {
+      rotateLeft: {
+        "0%": { transform: "rotate(0deg)" },
+        "100%": { transform: "rotate(45deg)" },
+      },
+      rotateRight: {
+        "0%": { transform: "rotate(0deg)" },
+        "100%": { transform: "rotate(-45deg)" },
+      },
+    },
+    animation: {
+      rotateLeft: "rotateLeft 200ms ease-in-out",
+      rotateRight: "rotateRight 200ms ease-in-out",
+    },
   },
   plugins: [],
 };

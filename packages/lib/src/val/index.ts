@@ -27,7 +27,7 @@ export type JsonOfSource<T extends Source> = Json extends T
   ? JsonOfSource<U>
   : T extends RemoteSource<infer U>
   ? JsonOfSource<U>
-  : T extends FileSource<string>
+  : T extends FileSource
   ? { url: string }
   : T extends SourceObject
   ? {

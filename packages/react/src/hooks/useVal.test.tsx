@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useVal } from "./useVal";
 import { initVal, Val } from "@valbuild/lib";
 import { renderHook } from "@testing-library/react";

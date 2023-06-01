@@ -15,6 +15,17 @@ import { I18nSchema, SerializedI18nSchema } from "./schema/i18n";
 import { UnionSchema, SerializedUnionSchema } from "./schema/union";
 import { OneOfSchema, SerializedOneOfSchema } from "./schema/oneOf";
 import { Json } from "./Json";
+import {
+  RichText,
+  RichTextSchema,
+  SerializedRichTextSchema,
+} from "./schema/richtext";
+import {
+  ImageMetadata,
+  ImageSchema,
+  SerializedImageSchema,
+} from "./schema/image";
+import { FileSource } from "./source/file";
 
 const brand = Symbol("ValModule");
 export type ValModule<T extends SelectorSource> = SelectorOf<T> &
@@ -112,6 +123,31 @@ function isUnionSchema(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
+function isRichTextSchema(
+  schema: Schema<SelectorSource> | SerializedSchema
+): schema is
+  | Schema<RichText> // TODO: RichTextSchema
+  | SerializedRichTextSchema {
+  return (
+    schema instanceof RichTextSchema ||
+    (typeof schema === "object" &&
+      "type" in schema &&
+      schema.type === "richtext")
+  );
+}
+
+function isImageSchema(
+  schema: Schema<SelectorSource> | SerializedSchema
+): schema is
+  | ImageSchema<FileSource<ImageMetadata> | null>
+  | SerializedImageSchema {
+  return (
+    schema instanceof ImageSchema ||
+    (typeof schema === "object" && "type" in schema && schema.type === "image")
+  );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function isOneOfSchema(
   schema: Schema<SelectorSource> | SerializedSchema
 ): schema is OneOfSchema<GenericSelector<SourceArray>> | SerializedOneOfSchema {
@@ -127,6 +163,7 @@ export function resolvePath(
   schema: Schema<SelectorSource> | SerializedSchema
 ) {
   const parts = parsePath(path);
+  const origParts = [...parts];
   let resolvedSchema = schema;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let resolvedSource: any /* TODO: any */ = valModule;
@@ -187,6 +224,15 @@ export function resolvePath(
       }
       resolvedSource = resolvedSource[part];
       resolvedSchema = resolvedSchema.item;
+    } else if (isImageSchema(resolvedSchema)) {
+      return {
+        path: origParts
+          .slice(0, origParts.length - parts.length - 1)
+          .map((p) => JSON.stringify(p))
+          .join("."), // TODO: create a function generate path from parts (not sure if this always works)
+        schema: resolvedSchema,
+        source: resolvedSource,
+      };
     } else if (isUnionSchema(resolvedSchema)) {
       const key = resolvedSchema.key;
       const keyValue = resolvedSource[key];
@@ -206,6 +252,15 @@ export function resolvePath(
       }
       resolvedSchema = schemaOfUnionKey.items[part];
       resolvedSource = resolvedSource[part];
+    } else if (isRichTextSchema(resolvedSchema)) {
+      return {
+        path: origParts
+          .slice(0, origParts.length - parts.length - 1)
+          .map((p) => JSON.stringify(p))
+          .join("."), // TODO: create a function generate path from parts (not sure if this always works)
+        schema: resolvedSchema,
+        source: resolvedSource,
+      };
     } else {
       throw Error(
         `Invalid path: ${part} resolved to an unexpected schema ${JSON.stringify(
@@ -218,6 +273,7 @@ export function resolvePath(
     throw Error(`Invalid path: ${parts.join(".")} is not a valid path`);
   }
   return {
+    path,
     schema: resolvedSchema,
     source: resolvedSource,
   };

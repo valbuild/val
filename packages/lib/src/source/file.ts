@@ -1,4 +1,5 @@
-import { ValExtension } from ".";
+import { VAL_EXTENSION } from ".";
+import { JsonPrimitive } from "../Json";
 
 export const FILE_REF_PROP = "_ref" as const;
 
@@ -7,30 +8,37 @@ export const FILE_REF_PROP = "_ref" as const;
  *
  * It will be resolved into a Asset object.
  *
- * The reference must point to a file that is in a 'public' directory (which is overridable),
- * where the url is the reference without the 'public' directory prefix.
- *
  */
-export type FileSource<Ref extends string> = {
-  readonly [FILE_REF_PROP]: Ref;
-  readonly [ValExtension]: "file";
+export type FileSource<
+  Metadata extends { readonly [key: string]: JsonPrimitive } | undefined =
+    | { readonly [key: string]: JsonPrimitive }
+    | undefined
+> = {
+  readonly [FILE_REF_PROP]: string;
+  readonly [VAL_EXTENSION]: "file";
+  readonly metadata?: Metadata;
 };
 
-export const REMOTE_REF_PROP = "_ref" as const; // TODO: same as FILE_REF_PROP so use same prop?
-
-export function file<F extends string>(ref: F): FileSource<F> {
+export function file<
+  Metadata extends { readonly [key: string]: JsonPrimitive }
+>(ref: string, metadata: Metadata): FileSource<Metadata>;
+export function file(ref: string, metadata?: undefined): FileSource<undefined>;
+export function file<
+  Metadata extends { readonly [key: string]: JsonPrimitive } | undefined
+>(ref: string, metadata?: Metadata): FileSource<Metadata> {
   return {
     [FILE_REF_PROP]: ref,
-    [ValExtension]: "file",
-  } as FileSource<F>;
+    [VAL_EXTENSION]: "file",
+    metadata,
+  } as FileSource<Metadata>;
 }
 
-export function isFile(obj: unknown): obj is FileSource<string> {
+export function isFile(obj: unknown): obj is FileSource {
   return (
     typeof obj === "object" &&
     obj !== null &&
-    ValExtension in obj &&
-    obj[ValExtension] === "file" &&
+    VAL_EXTENSION in obj &&
+    obj[VAL_EXTENSION] === "file" &&
     FILE_REF_PROP in obj &&
     typeof obj[FILE_REF_PROP] === "string"
   );

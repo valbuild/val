@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { RichTextEditor } from "../exports";
 import { FormContainer } from "./forms/FormContainer";
 import { ImageForm } from "./forms/ImageForm";
 import { TextForm } from "./forms/TextForm";
@@ -61,6 +62,50 @@ export const LongText: Story = {
   },
 };
 
+export const RichText: Story = {
+  args: {
+    isInitialized: true,
+    children: (
+      <FormContainer
+        onSubmit={() => {
+          /* */
+        }}
+      >
+        <RichTextEditor
+          richtext={{
+            children: [
+              {
+                children: [
+                  {
+                    detail: 0,
+                    format: 0,
+                    mode: "normal",
+                    style: "",
+                    text: "Heading 1",
+                    type: "text",
+                    version: 1,
+                  },
+                ],
+                direction: "ltr",
+                format: "",
+                indent: 0,
+                type: "heading",
+                version: 1,
+                tag: "h1",
+              },
+            ],
+            direction: "ltr",
+            format: "",
+            indent: 0,
+            type: "root",
+            version: 1,
+          }}
+        />
+      </FormContainer>
+    ),
+  },
+};
+
 export const EmptyImage: Story = {
   args: {
     isInitialized: true,
@@ -96,10 +141,11 @@ export const Image: Story = {
           name="/apps/blogs.0.image"
           error={null}
           data={{
-            src: EXAMPLE_IMAGE,
+            url: EXAMPLE_IMAGE,
             metadata: {
               width: 32,
               height: 32,
+              sha256: "123",
             },
           }}
           onChange={() => {
@@ -124,7 +170,7 @@ export const ImageError: Story = {
           name="/apps/blogs.0.image"
           error={"invalid-file"}
           data={{
-            src: EXAMPLE_IMAGE,
+            url: EXAMPLE_IMAGE,
           }}
           onChange={() => {
             console.log("onChange");

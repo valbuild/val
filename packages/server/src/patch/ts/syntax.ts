@@ -2,6 +2,7 @@ import ts from "typescript";
 import { result, pipe } from "@valbuild/lib/fp";
 import { JSONValue } from "@valbuild/lib/patch";
 import { FileSource, FILE_REF_PROP } from "@valbuild/lib";
+import { JsonPrimitive } from "@valbuild/lib/src/Json";
 
 export class ValSyntaxError {
   constructor(public message: string, public node: ts.Node) {}
@@ -166,26 +167,27 @@ export function deepValidateExpression(
       )
     );
   } else if (isValFileMethodCall(value)) {
-    if (value.arguments.length === 1) {
-      const arg = value.arguments[0];
-      if (ts.isStringLiteralLike(arg)) {
-        return result.voidOk;
-      } else {
+    if (value.arguments.length >= 1) {
+      if (!ts.isStringLiteralLike(value.arguments[0])) {
         return result.err(
           new ValSyntaxError(
-            "Argument to val.file must be a string literal",
-            arg
+            "First argument of val.file must be a string literal",
+            value.arguments[0]
           )
         );
       }
-    } else {
-      return result.err(
-        new ValSyntaxError(
-          "val.file must be called with a single argument",
-          value
-        )
-      );
     }
+    if (value.arguments.length === 2) {
+      if (!ts.isObjectLiteralExpression(value.arguments[1])) {
+        return result.err(
+          new ValSyntaxError(
+            "Second argument of val.file must be an object literal",
+            value.arguments[1]
+          )
+        );
+      }
+    }
+    return result.voidOk;
   } else {
     return result.err(
       new ValSyntaxError("Expression must be a literal or call val.file", value)
@@ -237,13 +239,26 @@ export function evaluateExpression(
   } else if (isValFileMethodCall(value)) {
     return pipe(
       findValFileNodeArg(value),
-      result.map(
-        (ref) =>
-          ({
+      result.flatMap((ref) => {
+        if (value.arguments.length === 2) {
+          return pipe(
+            evaluateExpression(value.arguments[1]),
+            result.map(
+              (metadata) =>
+                ({
+                  [FILE_REF_PROP]: ref.text,
+                  _type: "file",
+                  metadata,
+                } as FileSource<{ [key: string]: JsonPrimitive }>)
+            )
+          );
+        } else {
+          return result.ok({
             [FILE_REF_PROP]: ref.text,
             _type: "file",
-          } as FileSource<string>)
-      )
+          } as FileSource<{ [key: string]: JsonPrimitive }>);
+        }
+      })
     );
   } else {
     return result.err(
@@ -293,7 +308,7 @@ export function findValFileNodeArg(
     return result.err(
       new ValSyntaxError(`Invalid val.file() call: missing ref argument`, node)
     );
-  } else if (node.arguments.length > 1) {
+  } else if (node.arguments.length > 2) {
     return result.err(
       new ValSyntaxError(
         `Invalid val.file() call: too many arguments ${node.arguments.length}}`,
@@ -303,13 +318,40 @@ export function findValFileNodeArg(
   } else if (!ts.isStringLiteral(node.arguments[0])) {
     return result.err(
       new ValSyntaxError(
-        `Invalid val.file() call: argument must be a string literal`,
+        `Invalid val.file() call: ref must be a string literal`,
         node
       )
     );
   }
   const refNode = node.arguments[0];
   return result.ok(refNode);
+}
+export function findValFileMetadataArg(
+  node: ts.CallExpression
+): result.Result<ts.ObjectLiteralExpression | undefined, ValSyntaxErrorTree> {
+  if (node.arguments.length === 0) {
+    return result.err(
+      new ValSyntaxError(`Invalid val.file() call: missing ref argument`, node)
+    );
+  } else if (node.arguments.length > 2) {
+    return result.err(
+      new ValSyntaxError(
+        `Invalid val.file() call: too many arguments ${node.arguments.length}}`,
+        node
+      )
+    );
+  } else if (node.arguments.length === 2) {
+    if (!ts.isObjectLiteralExpression(node.arguments[1])) {
+      return result.err(
+        new ValSyntaxError(
+          `Invalid val.file() call: metadata must be a object literal`,
+          node
+        )
+      );
+    }
+    return result.ok(node.arguments[1]);
+  }
+  return result.ok(undefined);
 }
 
 /**

@@ -10,7 +10,8 @@
     "@valbuild/lib": "~0.10.0",
     "@valbuild/ui": "~0.10.0",
     "base64-arraybuffer": "^1.0.2",
-    "react-shadow": "^20.0.0"
+    "react-shadow": "^20.0.0",
+    "style-to-object": "^0.4.1"
   },
   "devDependencies": {
     "@testing-library/react": "^14.0.0",

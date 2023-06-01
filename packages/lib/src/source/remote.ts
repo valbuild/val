@@ -1,4 +1,5 @@
-import { SourcePrimitive, ValExtension, PhantomType } from ".";
+import { SourcePrimitive, VAL_EXTENSION, PhantomType } from ".";
+import { RichText } from "../schema/richtext";
 import { FileSource } from "./file";
 import { I18nCompatibleSource, I18nSource } from "./i18n";
 
@@ -9,7 +10,8 @@ export type RemoteCompatibleSource =
   | SourcePrimitive
   | RemoteObject
   | RemoteArray
-  | FileSource<string>
+  | RichText
+  | FileSource
   | I18nSource<string[], I18nCompatibleSource>;
 export type RemoteObject = { [key in string]: RemoteCompatibleSource };
 export type RemoteArray = readonly RemoteCompatibleSource[];
@@ -26,7 +28,7 @@ export type RemoteRef = string & { readonly [brand]: "RemoteRef" };
  */
 export type RemoteSource<Src extends RemoteCompatibleSource> = {
   readonly [REMOTE_REF_PROP]: RemoteRef;
-  readonly [ValExtension]: "remote";
+  readonly [VAL_EXTENSION]: "remote";
 } & PhantomType<Src>;
 
 export function remote<Src extends RemoteCompatibleSource>(
@@ -34,7 +36,7 @@ export function remote<Src extends RemoteCompatibleSource>(
 ): RemoteSource<Src> {
   return {
     [REMOTE_REF_PROP]: ref as RemoteRef,
-    [ValExtension]: "remote",
+    [VAL_EXTENSION]: "remote",
   } as RemoteSource<Src>;
 }
 
@@ -44,8 +46,8 @@ export function isRemote(
   return (
     typeof obj === "object" &&
     obj !== null &&
-    ValExtension in obj &&
-    obj[ValExtension] === "remote" &&
+    VAL_EXTENSION in obj &&
+    obj[VAL_EXTENSION] === "remote" &&
     REMOTE_REF_PROP in obj &&
     typeof obj[REMOTE_REF_PROP] === "string"
   );
