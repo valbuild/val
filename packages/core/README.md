@@ -216,11 +216,15 @@ They are evaluated when the content is run, therefore they have a specific set o
 Example:
 
 ```ts
-import { s, val } from '../val.config';
+import { s, val } from "../val.config";
 
 export const schema = t.string();
 
-export default val.content('/file/path/relative/to/val/config', schema, 'My string content');
+export default val.content(
+  "/file/path/relative/to/val/config",
+  schema,
+  "My string content"
+);
 ```
 
 NOTE: IN THE FUTURE, they will be validated by the eslint-plugin.
@@ -240,7 +244,7 @@ See [Selectors](#selector) for more info.
 ### String `.eq`
 
 ```ts
-useVal(stringVal.eq("")) // <- Val<boolean>
+useVal(stringVal.eq("")); // <- Val<boolean>
 ```
 
 ## Number
@@ -258,7 +262,7 @@ See [Selectors](#selector) for more info.
 ### Number `.eq`
 
 ```ts
-useVal(numberVal.eq(2)) // <- Val<boolean>
+useVal(numberVal.eq(2)); // <- Val<boolean>
 ```
 
 ## Boolean
@@ -276,7 +280,7 @@ See [Selectors](#selector) for more info.
 ### Boolean `.eq`
 
 ```ts
-useVal(booleanVal.eq(true)) // <- Val<boolean>
+useVal(booleanVal.eq(true)); // <- Val<boolean>
 ```
 
 ## Optional
@@ -308,7 +312,7 @@ s.array(t.string());
 TODO: text
 
 ```ts
-useVal(myArray.filter(item => item.title.eq("Title 1")));
+useVal(myArray.filter((item) => item.title.eq("Title 1")));
 ```
 
 ### `.map`
@@ -316,7 +320,7 @@ useVal(myArray.filter(item => item.title.eq("Title 1")));
 TODO:
 
 ```ts
-useVal(myArray.map(item => ({ test: item.title })));
+useVal(myArray.map((item) => ({ test: item.title })));
 ```
 
 ## Object
@@ -412,12 +416,11 @@ s.image();
 Local images must be stored under the `.public` folder.
 
 ```ts
-import { s, val } from '../val.config';
+import { s, val } from "../val.config";
 
 export const schema = s.image();
 
-export default val.content('/image', schema, val.file('/public/myfile.jpg'));
-
+export default val.content("/image", schema, val.file("/public/myfile.jpg"));
 ```
 
 NOTE: This will not validate, since images requires `width`, `height` and a `sha256` checksum. You can fix this validation in the UI by opening the image and clicking the Fix button.
@@ -465,8 +468,11 @@ export { s, val };
 TODO: fill in.
 
 ```ts
-s.union("type", s.object({ type: s.literal("type1"), bar: s.string() }), s.object({ type: s.literal("type2"), foo: s.number() }));
-
+s.union(
+  "type",
+  s.object({ type: s.literal("type1"), bar: s.string() }),
+  s.object({ type: s.literal("type2"), foo: s.number() })
+);
 ```
 
 ### Selecting unions
@@ -489,8 +495,6 @@ useVal(myUnionVal.fold("type")({
 
 ```
 
-
-
 # Remote
 
 **NOTE**: WORKS ONLY ON THE TYPE LEVEL
@@ -504,8 +508,7 @@ Example:
 ```ts
 export const schema = s.object({ stuff: s.string() });
 
-export default val.content('/remote/example', schema, val.remote("REFERENCE" ));
-
+export default val.content("/remote/example", schema, val.remote("REFERENCE"));
 ```
 
 ## Selector
@@ -529,6 +532,6 @@ export const schema = t.array(t.string()).optional();
 ```
 
 ```ts
-import maybeArrayVal from './maybeArray.val';
-useVal(maybeArrayVal.andThen(array => array.filter(v => v.eq("foo"))))
+import maybeArrayVal from "./maybeArray.val";
+useVal(maybeArrayVal.andThen((array) => array.filter((v) => v.eq("foo"))));
 ```
