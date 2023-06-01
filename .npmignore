@@ -1,0 +1,3 @@
+src/*
+tsconfig.tsbuildinfo
+jest.config.js
