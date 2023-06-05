@@ -15,6 +15,7 @@ import {
 import { PatchJSON } from "@valbuild/core/patch";
 import { ImageMetadata } from "@valbuild/core/src/schema/image";
 import { AuthStatus } from "./AuthStatus";
+import { ShadowRoot } from "./ShadowRoot";
 
 export type ValUIProps = {
   valStore: ValStore;
@@ -235,7 +236,7 @@ export default function ValUI({ valApi, valStore }: ValUIProps) {
     return null;
   }
   return (
-    <root.div>
+    <ShadowRoot>
       {/* TODO: */}
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link
@@ -349,6 +350,6 @@ export default function ValUI({ valApi, valStore }: ValUIProps) {
           }
         />
       </div>
-    </root.div>
+    </ShadowRoot>
   );
 }
