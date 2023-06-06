@@ -15,7 +15,7 @@ export function ValWindow({
   onClose,
   children,
 }: ValWindowProps): React.ReactElement {
-  const [draggedPosition, isInitialized, ref, onMouseDown] = useDrag({
+  const [draggedPosition, isInitialized, dragRef, onMouseDownDrag] = useDrag({
     position,
   });
   useEffect(() => {
@@ -29,23 +29,29 @@ export function ValWindow({
       document.removeEventListener("keyup", closeOnEscape);
     };
   }, []);
+
+  //
+  const [size, resizeRef, onMouseDownResize] = useResize();
   return (
     <div
       className={classNames(
-        "absolute h-[100svh] w-full tablet:w-auto tablet:h-auto tablet:rounded bg-base drop-shadow-2xl min-w-[320px] transition-opacity duration-300 delay-75 tablet:max-w-[50ch] max-w-full",
+        "absolute h-[100svh] w-full tablet:w-auto tablet:h-auto tablet:min-h-fit tablet:rounded bg-base drop-shadow-2xl min-w-[320px] transition-opacity duration-300 delay-75 max-w-full",
         {
           "opacity-0": !(isInitialized || isInitializedProp),
           "opacity-100": isInitialized || isInitializedProp,
         }
       )}
+      ref={resizeRef}
       style={{
         left: draggedPosition.left,
         top: draggedPosition.top,
+        width: size?.width,
+        height: size?.height,
       }}
     >
       <div
-        ref={ref}
-        className="relative flex justify-center px-2 py-2 text-primary"
+        ref={dragRef}
+        className="relative flex justify-center px-2 pt-2 text-primary pb-[16px]"
       >
         <AlignJustify
           size={16}
@@ -53,7 +59,7 @@ export function ValWindow({
           onMouseDown={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            onMouseDown();
+            onMouseDownDrag();
           }}
         />
         <button
@@ -64,8 +70,57 @@ export function ValWindow({
         </button>
       </div>
       {children}
+      <div
+        className="absolute bottom-0 right-0 hidden ml-auto select-none tablet:block text-border cursor-nwse-resize"
+        style={{
+          height: 16,
+          width: 16,
+        }}
+        onMouseDown={onMouseDownResize}
+      >
+        <svg
+          height="18"
+          viewBox="0 0 18 18"
+          width="18"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            d="m14.228 16.227a1 1 0 0 1 -.707-1.707l1-1a1 1 0 0 1 1.416 1.414l-1 1a1 1 0 0 1 -.707.293zm-5.638 0a1 1 0 0 1 -.707-1.707l6.638-6.638a1 1 0 0 1 1.416 1.414l-6.638 6.638a1 1 0 0 1 -.707.293zm-5.84 0a1 1 0 0 1 -.707-1.707l12.477-12.477a1 1 0 1 1 1.415 1.414l-12.478 12.477a1 1 0 0 1 -.707.293z"
+            fill="currentColor"
+          />
+        </svg>
+      </div>
     </div>
   );
+}
+
+function useResize() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState<{ height: number; width: number }>();
+
+  const handler = (mouseDownEvent: React.MouseEvent) => {
+    const startSize = ref.current?.getBoundingClientRect();
+
+    const startPosition = { x: mouseDownEvent.pageX, y: mouseDownEvent.pageY };
+    function onMouseMove(mouseMoveEvent: MouseEvent) {
+      if (startSize) {
+        const nextWidth =
+          startSize.width - startPosition.x + mouseMoveEvent.pageX;
+        const nextHeight =
+          startSize.height - startPosition.y + mouseMoveEvent.pageY;
+        setSize({
+          width: nextWidth,
+          height: nextHeight,
+        });
+      }
+    }
+    function onMouseUp() {
+      document.body.removeEventListener("mousemove", onMouseMove);
+    }
+    document.body.addEventListener("mousemove", onMouseMove);
+    document.body.addEventListener("mouseup", onMouseUp, { once: true });
+  };
+  return [size, ref, handler] as const;
 }
 
 function useDrag({
