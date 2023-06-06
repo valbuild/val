@@ -1,7 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
 import { content } from "../module";
-import { VAL_EXTENSION } from "../source";
 import { SourcePath } from "../val";
 
 export type SerializedRichTextSchema = {
