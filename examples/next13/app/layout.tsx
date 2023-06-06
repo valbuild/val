@@ -1,4 +1,4 @@
-import Providers from "./providers";
+import { ValProvider } from "@valbuild/react";
 import "./globals.css";
 
 export default function RootLayout({
@@ -14,7 +14,7 @@ export default function RootLayout({
       */}
       <head />
       <body>
-        <Providers>{children}</Providers>
+        <ValProvider host="/api/val">{children}</ValProvider>
       </body>
     </html>
   );

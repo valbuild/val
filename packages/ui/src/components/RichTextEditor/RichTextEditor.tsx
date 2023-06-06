@@ -133,7 +133,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
         underline: "underline",
         italic: "italic",
         strikethrough: "line-through",
-        underlineStrikethrough: "underlined-line-through",
+        underlineStrikethrough: "underline line-through",
       },
       list: {
         listitem: "ml-[20px]",
@@ -161,7 +161,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
             <LexicalContentEditable className="relative bg-fill flex flex-col h-full w-full min-h-[200px] text-primary outline-none" />
           }
           placeholder={
-            <div className="absolute top-[calc(58px+1rem)] left-4 text-base/25 ">
+            <div className="absolute top-[calc(58px+1rem)] left-4 text-base/25 text-primary">
               Enter some text...
             </div>
           }
