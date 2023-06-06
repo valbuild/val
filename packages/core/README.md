@@ -3,7 +3,7 @@
   <p align="center">
     ✨ <a href="https://app.val.build">https://app.val.build</a> ✨
     <br/>
-    content - super-charged - hard-coded
+    hard-coded content - super-charged
   </p>
 </p>
 
