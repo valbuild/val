@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { ValApi } from "./ValApi";
 import { ValStore } from "./ValStore";
 import { Inputs, Style, ValOverlay } from "@valbuild/ui";
-import root from "react-shadow"; // TODO: remove dependency on react-shadow here?
 import {
   FileSource,
   FILE_REF_PROP,
@@ -52,8 +51,7 @@ export default function ValUI({ valApi, valStore }: ValUIProps) {
       styleElement.id = "val-edit-highlight";
       styleElement.innerHTML = `
         .val-edit-mode >* [data-val-path] {
-          outline: black solid 2px;
-          outline-offset: 4px;
+          outline: #ffff00 solid 1px;
           cursor: pointer;
         }
       `;
