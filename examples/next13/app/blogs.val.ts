@@ -2,7 +2,7 @@ import { s, val } from "../val.config";
 
 export const schema = s.array(
   s.object({
-    title: s.string(), // TODO: i18n
+    title: s.string(),
     /**
      * Blog image. We only allow png and jpg.
      */
