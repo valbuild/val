@@ -12,7 +12,9 @@ export {
   type ModuleId,
   type ModulePath,
   type SourcePath,
+  type JsonOfSource,
 } from "./val";
+export { type Json } from "./Json";
 export * as expr from "./expr/";
 export { FILE_REF_PROP } from "./source/file";
 export { VAL_EXTENSION } from "./source";

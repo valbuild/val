@@ -1,5 +1,5 @@
 import { NextPage } from "next";
-import { useVal } from "@valbuild/react";
+import { useVal } from "@valbuild/next";
 import blogsVal from "../blogs.val";
 import { val } from "val.config";
 
@@ -25,7 +25,7 @@ const Home: NextPage = () => {
       >
         {blogs.map((blog) => (
           <section
-            key={val.key(blog)}
+            key={blog.title}
             style={{
               display: "flex",
               flexDirection: "column",
