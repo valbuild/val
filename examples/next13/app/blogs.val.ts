@@ -20,7 +20,7 @@ export const schema = s.array(
 
 export default val.content("/app/blogs", schema, [
   {
-    title: "HVA?",
+    title: "HVA? dsafdsa\n",
     image: val.file("/public/val/app/blogs/image1.jpg", {
       width: 512,
       height: 512,

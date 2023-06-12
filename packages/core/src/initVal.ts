@@ -13,7 +13,7 @@ import { file } from "./source/file";
 
 type ValConstructor = {
   content: typeof content;
-  getPath: typeof getPath; // TODO: in the react initVal we should also add a key function here which returns the path for use as react keys
+  getPath: typeof getPath;
   key: typeof getPath;
   remote: typeof remote;
   file: typeof file;
