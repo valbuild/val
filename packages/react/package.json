@@ -1,6 +1,8 @@
 {
   "name": "@valbuild/react",
   "version": "0.13.3",
+  "private": false,
+  "description": "Val - React",
   "sideEffects": false,
   "scripts": {
     "typecheck": "tsc --noEmit",

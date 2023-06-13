@@ -1,5 +1,7 @@
 {
   "name": "@valbuild/server",
+  "private": false,
+  "description": "Val - integrated server",
   "main": "dist/valbuild-server.cjs.js",
   "module": "dist/valbuild-server.esm.js",
   "exports": {
