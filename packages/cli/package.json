@@ -1,5 +1,6 @@
 {
   "name": "@valbuild/cli",
+  "private": false,
   "version": "0.13.3",
   "description": "Val CLI tools",
   "bin": {
