@@ -30,7 +30,8 @@
   "dependencies": {
     "@valbuild/core": "~0.13.0",
     "@valbuild/react": "~0.13.0",
-    "@valbuild/server": "~0.13.0"
+    "@valbuild/server": "~0.13.0",
+    "@vercel/stega": "^0.0.5"
   },
   "peerDependencies": {
     "next": "^12.3.4",
