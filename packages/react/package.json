@@ -1,14 +1,14 @@
 {
   "name": "@valbuild/react",
-  "version": "0.13.0",
+  "version": "0.13.3",
   "sideEffects": false,
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest"
   },
   "dependencies": {
-    "@valbuild/core": "~0.13.0",
-    "@valbuild/ui": "~0.13.0",
+    "@valbuild/core": "~0.13.3",
+    "@valbuild/ui": "~0.13.3",
     "base64-arraybuffer": "^1.0.2",
     "style-to-object": "^0.4.1"
   },
