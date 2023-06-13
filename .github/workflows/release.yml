@@ -16,8 +16,6 @@ jobs:
         with:
           node-version-file: ".nvmrc"
           cache: npm
-          registry-url: "https://npm.pkg.github.com/"
-          scope: "@valbuild"
       - run: npm ci
       - uses: changesets/action@v1
         with:
