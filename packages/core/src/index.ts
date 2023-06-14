@@ -1,5 +1,4 @@
 export { initVal } from "./initVal";
-export { fetchVal } from "./fetchVal";
 export type { InitVal } from "./initVal";
 export { Schema, type SerializedSchema } from "./schema";
 export type { ValModule, SerializedModule } from "./module";
@@ -43,6 +42,7 @@ export type {
   RootNode,
 } from "./schema/richtext";
 import { convertImageSource } from "./schema/image";
+import { fetchVal } from "./fetchVal";
 
 const Internal = {
   convertImageSource,
@@ -52,6 +52,7 @@ const Internal = {
   getRawSource,
   resolvePath,
   splitModuleIdAndModulePath,
+  fetchVal,
 };
 
 export { Internal };
