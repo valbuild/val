@@ -1,6 +1,8 @@
 {
   "name": "@valbuild/next",
-  "description": "Hard-coded content - super charged",
+  "description": "Val NextJS: hard-coded content - super-charged",
+  "private": false,
+  "sideEffects": true,
   "keywords": [
     "CMS",
     "next",
