@@ -7,6 +7,7 @@ export interface DropdownProps {
   label: string;
   onChange: (selectedOption: string) => void;
   icon?: React.ReactElement<SVGProps<SVGSVGElement>>;
+  variant?: "primary" | "secondary";
 }
 
 const Dropdown: React.FC<DropdownProps> = ({
@@ -14,6 +15,7 @@ const Dropdown: React.FC<DropdownProps> = ({
   onChange,
   label,
   icon,
+  variant = "primary",
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const dropdownRef = useRef<HTMLDivElement>(null);

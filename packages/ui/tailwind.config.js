@@ -59,5 +59,9 @@ module.exports = {
       spin: "spin 1s linear infinite",
     },
   },
-  plugins: [],
+  plugins: [
+    function ({ addVariant, addComponents }) {
+      addVariant("all-but-last-child", "& > *:not(:last-child)");
+    },
+  ],
 };

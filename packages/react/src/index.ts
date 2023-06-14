@@ -2,3 +2,4 @@
 export { ValProvider } from "./ValProvider";
 export { useVal } from "./hooks/useVal";
 export { ValRichText } from "./ValRichText";
+export { ValApi } from "./ValApi";

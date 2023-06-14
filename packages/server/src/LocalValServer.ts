@@ -1,9 +1,9 @@
 import express from "express";
 import { Service } from "./Service";
-import { PatchJSON } from "./patch/validation";
 import { result } from "@valbuild/core/fp";
 import { parsePatch, PatchError } from "@valbuild/core/patch";
 import { getPathFromParams } from "./expressHelpers";
+import { PatchJSON } from "./patch/validation";
 import { ValServer } from "./ValServer";
 import { Internal, ModuleId, ModulePath } from "@valbuild/core";
 import { enable } from "./ProxyValServer";
