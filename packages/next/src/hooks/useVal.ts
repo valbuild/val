@@ -1,7 +1,6 @@
 import {
   GenericSelector,
   Json,
-  JsonOfSource,
   SelectorOf,
   SelectorSource,
   Val,
@@ -65,6 +64,7 @@ export function useVal<T extends SelectorSource>(
 function stegaEncodeVal<T extends Json>(val: Val<T>): T {
   if (typeof val.val === "object") {
     if (Array.isArray(val)) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return val.map(stegaEncodeVal) as any;
     }
 
@@ -78,5 +78,6 @@ function stegaEncodeVal<T extends Json>(val: Val<T>): T {
       data: { valPath: Internal.getValPath(val) },
     }) as T;
   }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return val.val as any;
 }
