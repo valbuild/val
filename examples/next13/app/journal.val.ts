@@ -2,11 +2,11 @@ import { s, val } from "../val.config";
 
 export const schema = s.array(
   s.object({
-    title: s.string(),
+    title: s.string(), // TODO: i18n
     /**
      * Blog image. We only allow png and jpg.
      */
-    image: s.image(),
+    image: s.image().optional(),
     /**
      * The text is optional, by the way.
      */
@@ -18,55 +18,17 @@ export const schema = s.array(
   })
 );
 
-export default val.content("/app/blogs", schema, [
+export default val.content("/app/journal", schema, [
   {
-    title: "HVA? \n",
-    image: val.file("/public/val/app/blogs/image1.jpg", {
+    title: "Dear Diary?",
+    image: val.file("/public/val/app/journal/image1.jpg", {
       width: 512,
       height: 512,
       sha256:
-        "41fe618d9db1a477debe0d72d9a8947be3623412281fec8ed4f70517188dfc5a",
+        "9e420dc93157ab98338542ba6f1d34fcf829d646aa729a86720fa3f4cb2d0076",
     }),
-    text: val.richtext({
+    text: {
       children: [
-        {
-          children: [
-            {
-              detail: 0,
-              format: 0,
-              mode: "normal",
-              style: "",
-              text: "Heading 1",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "heading",
-          version: 1,
-          tag: "h1",
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 0,
-              mode: "normal",
-              style: "",
-              text: "Heading 2",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "heading",
-          version: 1,
-          tag: "h2",
-        },
         {
           children: [],
           direction: "ltr",
@@ -220,30 +182,137 @@ export default val.content("/app/blogs", schema, [
           version: 1,
         },
       ],
+      direction: "ltr",
+      format: "",
+      indent: 0,
       type: "root",
-    }),
+      version: 1,
+    },
     rank: 100,
   },
   {
-    title: "HVEM ER VI?",
-    image: val.file("/public/val/app/blogs/image2.jpg", {
-      width: 512,
-      height: 512,
-      sha256:
-        "9abaf6c805ba6379f0fcf1452041e53ec109aff978ea8a7b9d79d7d2f065abd0",
-    }),
-    text: val.richtext("Ja si det"),
-    rank: 10,
+    title: "Today I started to use Val?",
+    image: null,
+    text: {
+      children: [
+        {
+          children: [
+            {
+              children: [
+                {
+                  detail: 0,
+                  format: 0,
+                  mode: "normal",
+                  style: "",
+                  text: "Num list 2",
+                  type: "text",
+                  version: 1,
+                },
+              ],
+              direction: "ltr",
+              format: "",
+              indent: 0,
+              type: "listitem",
+              version: 1,
+              value: 2,
+            },
+          ],
+          direction: "ltr",
+          format: "",
+          indent: 0,
+          type: "list",
+          version: 1,
+          listType: "number",
+          start: 1,
+          tag: "ol",
+        },
+        {
+          children: [],
+          direction: null,
+          format: "",
+          indent: 0,
+          type: "paragraph",
+          version: 1,
+        },
+        {
+          children: [
+            {
+              children: [
+                {
+                  detail: 0,
+                  format: 0,
+                  mode: "normal",
+                  style: "",
+                  text: "Bullet list 1",
+                  type: "text",
+                  version: 1,
+                },
+              ],
+              direction: "ltr",
+              format: "",
+              indent: 0,
+              type: "listitem",
+              version: 1,
+              value: 1,
+            },
+            {
+              children: [
+                {
+                  detail: 0,
+                  format: 0,
+                  mode: "normal",
+                  style: "",
+                  text: "Bullet list 2",
+                  type: "text",
+                  version: 1,
+                },
+              ],
+              direction: "ltr",
+              format: "",
+              indent: 0,
+              type: "listitem",
+              version: 1,
+              value: 2,
+            },
+          ],
+          direction: "ltr",
+          format: "",
+          indent: 0,
+          type: "list",
+          version: 1,
+          listType: "bullet",
+          start: 1,
+          tag: "ul",
+        },
+        {
+          children: [],
+          direction: null,
+          format: "",
+          indent: 0,
+          type: "heading",
+          version: 1,
+          tag: "h2",
+        },
+      ],
+      direction: "ltr",
+      format: "",
+      indent: 0,
+      type: "root",
+      version: 1,
+    },
+    rank: 1,
   },
   {
-    title: "HVORFOR? ikke?",
-    image: val.file("/public/val/app/blogs/image3.jpg", {
-      width: 512,
-      height: 512,
-      sha256:
-        "9db79a84245d1d806ad7554ea6dd47696779e8df62c2b7fe0fcc687687662551",
-    }),
-    text: val.richtext("Vet ikke"),
-    rank: 1,
+    title: "Why hasn't there ever been such a great CMS such as this?",
+    image: null,
+    text: {
+      direction: "ltr",
+      format: "",
+      indent: 0,
+      type: "root",
+      version: 1,
+      children: [],
+    },
+    rank: 10,
   },
 ]);
