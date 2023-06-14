@@ -1,5 +1,7 @@
 import "./autoTagJSX";
 
 export { ValProvider, ValRichText } from "@valbuild/react";
-export { useVal, type ValEncodedString } from "./hooks/useVal";
+export { useVal } from "./hooks/useVal";
+export { type ValEncodedString } from "./stegaEncode";
 export * from "@valbuild/core";
+export { fetchVal } from "./fetchVal";
