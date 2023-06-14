@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import jsxRuntime from "react/jsx-runtime";
 import jsxRuntimeDev from "react/jsx-dev-runtime";
 import React from "react";
