@@ -273,7 +273,6 @@ export function resolvePath(
     throw Error(`Invalid path: ${parts.join(".")} is not a valid path`);
   }
   return {
-    //TODO: create resolve path 
     path: origParts
       .map((p) => {
         if(!Number.isNaN(Number(p))){

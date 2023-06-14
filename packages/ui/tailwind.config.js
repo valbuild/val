@@ -48,5 +48,9 @@ module.exports = {
       rotateRight: "rotateRight 200ms ease-in-out",
     },
   },
-  plugins: [],
+  plugins: [
+    function ({ addVariant, addComponents }) {
+      addVariant("all-but-last-child", "& > *:not(:last-child)");
+    },
+  ],
 };

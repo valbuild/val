@@ -1,19 +1,18 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { useContext, useEffect, useMemo, useState } from "react";
-import { ValApi } from "./ValApi";
-import { ValStore } from "./ValStore";
-import { Inputs, Style, ValOverlay } from "@valbuild/ui";
-import root from "react-shadow"; // TODO: remove dependency on react-shadow here?
 import {
   FileSource,
   FILE_REF_PROP,
   Internal,
-  RichText,
-  SourcePath,
-  VAL_EXTENSION,
+  RichText, SourcePath,
+  VAL_EXTENSION
 } from "@valbuild/core";
 import { PatchJSON } from "@valbuild/core/patch";
 import { ImageMetadata } from "@valbuild/core/src/schema/image";
+import { Inputs, Style, ValDashboard, ValOverlay } from "@valbuild/ui";
+import React, { useContext, useEffect, useMemo, useState } from "react";
+import root from "react-shadow"; // TODO: remove dependency on react-shadow here?
+import { ValApi } from "./ValApi";
+import { ValStore } from "./ValStore";
 
 export function useValStore() {
   return useContext(ValContext).valStore;
@@ -62,17 +61,16 @@ type AuthStatus =
 export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [editMode, setEditMode] = useState(false);
+  const [showDashboard, setShowDashboard] = useState(false);
   const [editFormPosition, setEditFormPosition] = useState<{
     left: number;
     top: number;
   } | null>(null);
-
   const [authentication, setAuthentication] = useState<AuthStatus>({
     status: "not-asked",
   });
   const valApi = useMemo(() => new ValApi(host), [host]);
   const valStore = useMemo(() => new ValStore(valApi), [valApi]);
-
   useEffect(() => {
     if (editMode) {
       valStore.updateAll();
@@ -274,8 +272,6 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
             ),
           };
         }
-        console.log("input path", path);
-        console.log("serialized path", serializedModule.path);
         if (!input) {
           throw new Error(
             `Unsupported module type: ${serializedModule.schema.type}`
@@ -316,6 +312,8 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
             <ValOverlay
               editMode={editMode}
               setEditMode={setEditMode}
+              showDashboard={showDashboard}
+              setShowDashboard={setShowDashboard}
               closeValWindow={() => {
                 setEditFormPosition(null);
                 setSelectedSources([]);
@@ -342,8 +340,8 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
                                   .split(".")
                                   .map((p) => JSON.parse(p))
                                   .join("/")}`,
-                              },
-                            ];
+                                },
+                              ];
                             return valApi.patchModuleContent(moduleId, patch);
                           } else if (input.type === "image") {
                             const pathParts = modulePath
@@ -381,7 +379,6 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
                                 });
                               }
                             }
-                            console.log("patch", patch);
                             return valApi.patchModuleContent(moduleId, patch);
                           } else if (input.type === "richtext") {
                             const patch: PatchJSON = [
@@ -415,6 +412,12 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
                 }) ??
                 undefined
               }
+            />
+            <ValDashboard
+              editMode={editMode}
+              showDashboard={showDashboard}
+              setShowDashboard={setShowDashboard}
+              valApi={valApi}
             />
           </div>
         </root.div>

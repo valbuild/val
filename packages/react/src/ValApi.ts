@@ -18,6 +18,20 @@ export class ValApi {
     }
   }
 
+  async getAllModules(): Promise<SerializedModule[]> {
+    const res = await fetch(`${this.host}/ids`);
+    if (res.ok) {
+      const serializedVal = await res.json();
+      return serializedVal;
+    } else {
+      throw Error(
+        `Failed to get all modules. Status: ${
+          res.status
+        }. Error: ${await res.text()}`
+      );
+    }
+  }
+
   async patchModuleContent(
     moduleId: string,
     patch: PatchJSON

@@ -20,7 +20,7 @@ export const schema = s.array(
 
 export default val.content("/app/blogs", schema, [
   {
-    title: "HVA?",
+    title: "HVA? asdasdas     dasdas ascasasdasdas eqweqweqweqw shabbaboooey. ",
     image: val.file("/public/val/app/blogs/image1.jpg", {
       width: 512,
       height: 512,
@@ -31,7 +31,7 @@ export default val.content("/app/blogs", schema, [
     rank: 100,
   },
   {
-    title: "HVEM ER VI?",
+    title: "HVEM ER VI? Hvem er vi s\u00E5nn eeeeegentlig? h\u00E6\u00E6\u00E6.                ",
     image: val.file("/public/val/app/blogs/image2.jpg", {
       width: 512,
       height: 512,
