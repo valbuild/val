@@ -81,7 +81,7 @@ export { s, val };
 import { valEditHandler } from "../../../../val.config";
 import { NextApiHandler } from "next";
 
-const handler: NextApiHandler = valEditHandler
+const handler: NextApiHandler = valEditHandler;
 
 export default handler;
 
