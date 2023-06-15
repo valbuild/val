@@ -31,6 +31,13 @@ export async function newValQuickJSRuntime(
               "export const useVal = () => { throw Error(`Cannot use 'useVal' in this type of file`) }; export function ValProvider() { throw Error(`Cannot use 'ValProvider' in this type of file`) }; export function ValRichText() { throw Error(`Cannot use 'ValRichText' in this type of file`)};",
           };
         }
+
+        if (modulePath === "./ValRichText") {
+          return {
+            value:
+              "export function ValRichText() { throw Error(`Cannot use 'ValRichText' in this type of file`)};",
+          };
+        }
         return { value: moduleLoader.getModule(modulePath) };
       } catch (e) {
         return {
@@ -44,6 +51,9 @@ export async function newValQuickJSRuntime(
           return { value: requestedName };
         }
         if (requestedName === "@valbuild/react") {
+          return { value: requestedName };
+        }
+        if (requestedName === "./ValRichText") {
           return { value: requestedName };
         }
         const modulePath = moduleLoader.resolveModulePath(
