@@ -1,4 +1,4 @@
-import { Json, Val, Internal } from "@valbuild/core";
+import { Json, Val, Internal, RichTextSource, RichText } from "@valbuild/core";
 import { vercelStegaCombine } from "@vercel/stega";
 import { FileSource, RemoteSource, Source, SourceObject } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core/src/Json";
@@ -25,6 +25,8 @@ export type StegaOfSource<T extends Source> = Json extends T
   ? StegaOfSource<U>
   : T extends RemoteSource<infer U>
   ? StegaOfSource<U>
+  : T extends RichTextSource
+  ? RichText
   : T extends FileSource
   ? { url: ValEncodedString }
   : T extends SourceObject
@@ -46,6 +48,19 @@ export function stegaEncodeVal<T extends Json>(val: Val<T>): T {
       return val.map(stegaEncodeVal) as any;
     }
 
+    if (
+      typeof val.val === "object" &&
+      val.val &&
+      "_type" in val.val &&
+      val.val["_type"] === "richtext"
+    ) {
+      return {
+        ...val.val,
+        valPath: Internal.getValPath(val),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any;
+    }
+
     return Object.fromEntries(
       Object.entries(val).map(([key, value]) => [key, stegaEncodeVal(value)])
     ) as T;
@@ -54,7 +69,7 @@ export function stegaEncodeVal<T extends Json>(val: Val<T>): T {
     return vercelStegaCombine(val.val, {
       origin: "app.val.build",
       data: { valPath: Internal.getValPath(val) },
-    }) as T;
+    }) as T; // TODO: skip should false at least for URLs? Dates...?
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return val.val as any;

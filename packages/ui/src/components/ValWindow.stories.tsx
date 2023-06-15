@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
+import { RichText as RichTextType, SourcePath } from "@valbuild/core";
 import { RichTextEditor } from "../exports";
 import { FormContainer } from "./forms/FormContainer";
 import { ImageForm } from "./forms/ImageForm";
@@ -72,34 +73,37 @@ export const RichText: Story = {
         }}
       >
         <RichTextEditor
-          richtext={{
-            children: [
-              {
-                children: [
-                  {
-                    detail: 0,
-                    format: 0,
-                    mode: "normal",
-                    style: "",
-                    text: "Heading 1",
-                    type: "text",
-                    version: 1,
-                  },
-                ],
-                direction: "ltr",
-                format: "",
-                indent: 0,
-                type: "heading",
-                version: 1,
-                tag: "h1",
-              },
-            ],
-            direction: "ltr",
-            format: "",
-            indent: 0,
-            type: "root",
-            version: 1,
-          }}
+          richtext={
+            {
+              valPath: "/foo" as SourcePath,
+              children: [
+                {
+                  children: [
+                    {
+                      detail: 0,
+                      format: 0,
+                      mode: "normal",
+                      style: "",
+                      text: "Heading 1",
+                      type: "text",
+                      version: 1,
+                    },
+                  ],
+                  direction: "ltr",
+                  format: "",
+                  indent: 0,
+                  type: "heading",
+                  version: 1,
+                  tag: "h1",
+                },
+              ],
+              direction: "ltr",
+              format: "",
+              indent: 0,
+              type: "root",
+              version: 1,
+            } as RichTextType
+          }
         />
       </FormContainer>
     ),

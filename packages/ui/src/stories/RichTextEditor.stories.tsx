@@ -3,6 +3,7 @@ import {
   RichTextEditorProps,
 } from "../components/RichTextEditor/RichTextEditor";
 import { Meta, Story } from "@storybook/react";
+import { RichText, SourcePath } from "@valbuild/core";
 
 export default {
   title: "RichTextEditor",
@@ -17,6 +18,7 @@ export const DropdownStory = Template.bind({});
 
 DropdownStory.args = {
   richtext: {
+    valPath: "/test" as SourcePath,
     children: [
       {
         children: [
@@ -310,5 +312,5 @@ DropdownStory.args = {
     indent: 0,
     type: "root",
     version: 1,
-  },
+  } as RichText,
 };

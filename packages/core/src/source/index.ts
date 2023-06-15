@@ -1,6 +1,7 @@
 import { FileSource } from "./file";
 import { I18nSource, I18nCompatibleSource } from "./i18n";
 import { RemoteSource, RemoteCompatibleSource } from "./remote";
+import { RichTextSource } from "./richtext";
 
 export type Source =
   | SourcePrimitive
@@ -8,7 +9,8 @@ export type Source =
   | SourceArray
   | I18nSource<string[], I18nCompatibleSource>
   | RemoteSource<RemoteCompatibleSource>
-  | FileSource;
+  | FileSource
+  | RichTextSource;
 
 export type SourceObject = { [key in string]: Source } & {
   // TODO: update these restricted parameters:

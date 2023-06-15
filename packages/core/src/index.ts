@@ -5,6 +5,15 @@ export type { ValModule, SerializedModule } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
 export type { RemoteSource } from "./source/remote";
+export type {
+  RichTextSource,
+  RichText,
+  TextNode,
+  ParagraphNode,
+  HeadingNode,
+  ListItemNode,
+  ListNode,
+} from "./source/richtext";
 export {
   type Val,
   type SerializedVal,
@@ -30,17 +39,7 @@ import {
   splitModuleIdAndModulePath,
 } from "./module";
 import { getSchema } from "./selector";
-import { getValPath } from "./val";
-export type {
-  RichText,
-  TextNode,
-  ParagraphNode,
-  HeadingNode,
-  ImageNode,
-  ListItemNode,
-  ListNode,
-  RootNode,
-} from "./schema/richtext";
+import { getValPath, isVal } from "./val";
 import { convertImageSource } from "./schema/image";
 import { fetchVal } from "./fetchVal";
 
@@ -53,6 +52,7 @@ const Internal = {
   resolvePath,
   splitModuleIdAndModulePath,
   fetchVal,
+  isVal,
 };
 
 export { Internal };
