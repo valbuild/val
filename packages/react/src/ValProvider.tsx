@@ -36,10 +36,7 @@ export type ValProviderProps = {
 const ValUI =
   typeof window !== "undefined" ? lazy(() => import("./ValUI")) : null;
 
-export default function ValProvider({
-  host = "/api/val",
-  children,
-}: ValProviderProps) {
+export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
   const valApi = useMemo(() => new ValApi(host), [host]);
   const valStore = useMemo(() => new ValStore(valApi), [valApi]);
   return (

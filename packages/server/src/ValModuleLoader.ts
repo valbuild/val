@@ -56,6 +56,7 @@ export class ValModuleLoader {
     }
     return ts.transpile(code, {
       ...this.compilerOptions,
+      jsx: ts.JsxEmit.React,
       // allowJs: true,
       // rootDir: this.compilerOptions.rootDir,
       module: ts.ModuleKind.ESNext,
@@ -69,10 +70,16 @@ export class ValModuleLoader {
     containingFilePath: string,
     requestedModuleName: string
   ): string {
-    const sourceFileName = this.sourceFileHandler.resolveSourceModulePath(
+    let sourceFileName = this.sourceFileHandler.resolveSourceModulePath(
       containingFilePath,
       requestedModuleName
     );
+
+    if (requestedModuleName === "@vercel/stega") {
+      sourceFileName = this.sourceFileHandler
+        .resolveSourceModulePath(containingFilePath, "@vercel/stega")
+        .replace("stega/dist", "stega/dist/esm");
+    }
     const matches = this.findMatchingJsFile(sourceFileName);
     if (matches.match === false) {
       throw Error(
