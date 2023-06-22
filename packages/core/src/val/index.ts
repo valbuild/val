@@ -52,6 +52,16 @@ export type Val<T extends Json> = Json extends T
   ? PrimitiveVal<T>
   : never;
 
+export function isVal<T extends Json>(val: unknown): val is Val<T> {
+  return (
+    typeof val === "object" &&
+    val !== null &&
+    val !== undefined &&
+    Path in val &&
+    "val" in val
+  );
+}
+
 declare const brand: unique symbol;
 /**
  * The path of the source value.
