@@ -16,7 +16,7 @@ const isIntrinsicElement = (type: any) => {
 const addValPathIfFound = (type: any, props: any) => {
   const valSources = [];
 
-  if (isIntrinsicElement(type)) {
+  if (isIntrinsicElement(type) && props && typeof props === "object") {
     for (const [key, value] of Object.entries(props)) {
       if (typeof value === "string" && value.match(VERCEL_STEGA_REGEX)) {
         const encodedBits = vercelStegaDecode(value);
@@ -31,7 +31,6 @@ const addValPathIfFound = (type: any, props: any) => {
           const valPath = encodedBits?.data?.valPath;
           if (valPath) {
             console.log("Found encoded valPath", valPath);
-
             valSources.push(valPath);
             props[key] = vercelStegaSplit(value).cleaned;
           }
