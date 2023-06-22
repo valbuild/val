@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/react",
-  "version": "0.13.3",
+  "version": "0.13.4",
   "private": false,
   "description": "Val - React",
   "sideEffects": false,
@@ -9,8 +9,8 @@
     "test": "jest"
   },
   "dependencies": {
-    "@valbuild/core": "~0.13.3",
-    "@valbuild/ui": "~0.13.3",
+    "@valbuild/core": "~0.13.4",
+    "@valbuild/ui": "~0.13.4",
     "base64-arraybuffer": "^1.0.2",
     "style-to-object": "^0.4.1"
   },
