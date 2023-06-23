@@ -10,7 +10,7 @@ import { FileSource } from "../source/file";
 
 export type SerializedVal = {
   val: SerializedVal | Json;
-  valPath: SourcePath | undefined;
+  valPath: SourcePath | null;
 };
 export function isSerializedVal(val: unknown): val is SerializedVal {
   return (
