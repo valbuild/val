@@ -289,11 +289,7 @@ describe("selector", () => {
         const res = evaluate(
           // @ts-expect-error TODO: fix this
           input()[SourceOrExpr],
-          (ref) =>
-            newSelectorProxy(
-              modules[ref as keyof typeof modules],
-              ref as SourcePath
-            ),
+          (path) => modules[path as keyof typeof modules],
           []
         );
         if (result.isErr(res)) {

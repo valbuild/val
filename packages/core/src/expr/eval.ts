@@ -5,6 +5,7 @@ import { result } from "../fp";
 import { Path, SourceOrExpr } from "../selector";
 import { newSelectorProxy } from "../selector/SelectorProxy";
 import { isSerializedVal, SourcePath } from "../val";
+import { Json } from "../Json";
 
 export class EvalError {
   constructor(public readonly message: string, public readonly expr: Expr) {}
@@ -26,7 +27,7 @@ type LocalSelector<S extends Source> = {
 const MAX_STACK_SIZE = 100; // an arbitrary semi-large number
 function evaluateSync(
   expr: Expr,
-  getSource: (ref: string) => LocalSelector<Source>,
+  getSource: (path: string) => Json,
   stack: readonly LocalSelector<Source>[][]
 ): LocalSelector<Source> {
   // TODO: amount of evaluates should be limited?
@@ -48,7 +49,8 @@ function evaluateSync(
           throw new EvalError("cannot call 'val' as anonymous function", expr);
         }
         if (expr.children[1] instanceof StringLiteral) {
-          return getSource(expr.children[1].value);
+          const path = expr.children[1].value as SourcePath;
+          return newSelectorProxy(getSource(path), path);
         } else {
           throw new EvalError(
             "argument of 'val' must be a string literal",
@@ -148,7 +150,8 @@ function evaluateSync(
         if (expr.children[0] instanceof Sym) {
           if (expr.children[0].value === "val") {
             if (expr.children[1] instanceof StringLiteral) {
-              return getSource(expr.children[1].value);
+              const path = expr.children[1].value as SourcePath;
+              return newSelectorProxy(getSource(path), path);
             } else {
               throw new EvalError(
                 "argument of 'val' must be a string literal",
@@ -234,7 +237,7 @@ function evaluateSync(
 
 export function evaluate(
   expr: Expr,
-  source: (ref: string) => LocalSelector<Source>,
+  source: (ref: string) => Json,
   stack: readonly LocalSelector<Source>[][]
 ): result.Result<LocalSelector<Source>, EvalError> {
   try {

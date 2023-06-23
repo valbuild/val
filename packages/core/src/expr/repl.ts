@@ -57,11 +57,7 @@ repl
         pipe(
           evaluate(
             res.value,
-            (ref) =>
-              newSelectorProxy(
-                sources[ref as keyof typeof sources],
-                ref as SourcePath
-              ),
+            (path) => sources[path as keyof typeof sources],
 
             []
           ),
