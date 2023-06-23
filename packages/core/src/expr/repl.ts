@@ -56,11 +56,7 @@ repl
       } else {
         evaluate(
           res.value,
-          (ref) =>
-            newSelectorProxy(
-              sources[ref as keyof typeof sources],
-              ref as SourcePath
-            ),
+          (ref) => Promise.resolve(sources[ref as keyof typeof sources]),
 
           []
         ).then((res) =>
