@@ -78,7 +78,10 @@ async function evaluateAsync(
         try {
           const serialized = JSON.parse(valObj);
           if (isSerializedVal(serialized)) {
-            return newSelectorProxy(serialized.val, serialized.valPath);
+            return newSelectorProxy(
+              serialized.val,
+              serialized.valPath ?? undefined
+            );
           }
           const parsedValue = newSelectorProxy(JSON.parse(valObj), valPath);
           return parsedValue;

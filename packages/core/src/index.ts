@@ -32,7 +32,7 @@ export {
   type SelectorOf,
   GenericSelector,
 } from "./selector";
-import { getVal } from "./fetchVal";
+import { getVal, serializedValOfSelectorSource } from "./fetchVal";
 import {
   getRawSource,
   resolvePath,
@@ -51,6 +51,7 @@ const Internal = {
   getRawSource,
   resolvePath,
   splitModuleIdAndModulePath,
+  serializedValOfSelectorSource,
   fetchVal,
   isVal,
 };
