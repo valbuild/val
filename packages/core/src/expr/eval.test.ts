@@ -176,7 +176,7 @@ describe("eval", () => {
     EvalTestCases.filter(({ focus }) =>
       EvalTestCases.some((v) => v.focus) ? focus : true
     )
-  )('evaluate: "$expr"', ({ expr, expected }) => {
+  )('evaluate: "$expr"', async ({ expr, expected }) => {
     const parseRes = parse(expr);
     if (result.isErr(parseRes)) {
       return expect(parseRes).toHaveProperty("value");
@@ -184,7 +184,7 @@ describe("eval", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(
       pipe(
-        evaluate(
+        await evaluate(
           parseRes.value,
           (ref) => {
             return newSelectorProxy(

@@ -54,32 +54,34 @@ repl
         lines += underline + "\x1b[0m\n";
         callback(null, lines);
       } else {
-        pipe(
-          evaluate(
-            res.value,
-            (ref) =>
-              newSelectorProxy(
-                sources[ref as keyof typeof sources],
-                ref as SourcePath
-              ),
+        evaluate(
+          res.value,
+          (ref) =>
+            newSelectorProxy(
+              sources[ref as keyof typeof sources],
+              ref as SourcePath
+            ),
 
-            []
-          ),
-          result.map((v) => {
-            try {
-              console.log(selectorToVal(v).val);
-              callback(null, undefined);
-            } catch (e) {
-              callback(
-                null,
-                `\x1b[31mInvalid function! Expected selector, but got:\x1b[0m:\n${JSON.stringify(
-                  v
-                )}\n\nDetails: ${
-                  e instanceof Error ? e.message : JSON.stringify(e)
-                }`
-              );
-            }
-          })
+          []
+        ).then((res) =>
+          pipe(
+            res,
+            result.map((v) => {
+              try {
+                console.log(selectorToVal(v).val);
+                callback(null, undefined);
+              } catch (e) {
+                callback(
+                  null,
+                  `\x1b[31mInvalid function! Expected selector, but got:\x1b[0m:\n${JSON.stringify(
+                    v
+                  )}\n\nDetails: ${
+                    e instanceof Error ? e.message : JSON.stringify(e)
+                  }`
+                );
+              }
+            })
+          )
         );
       }
     },
