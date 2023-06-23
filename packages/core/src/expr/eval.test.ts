@@ -187,7 +187,10 @@ describe("eval", () => {
         await evaluate(
           parseRes.value,
           (ref) => {
-            return Promise.resolve(sources[ref as keyof typeof sources]);
+            return newSelectorProxy(
+              sources[ref as keyof typeof sources],
+              ref as SourcePath
+            );
           },
           []
         ),
