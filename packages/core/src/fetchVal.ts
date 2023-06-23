@@ -88,7 +88,10 @@ export function serializedValOfSelectorSource<T extends SelectorSource>(
           rec(
             isSelector(item) // NOTE: We do this since selectors currently do not create selectors of items unless specifically required.
               ? item
-              : newSelectorProxy(item, createValPathOfItem(valPath, i))
+              : newSelectorProxy(
+                  item,
+                  createValPathOfItem(valPath ?? undefined, i)
+                )
           )
         ),
         valPath,
@@ -187,7 +190,7 @@ function newValProxy<T extends Json>(val: SerializedVal): Val<T> {
                 valPath:
                   Reflect.get(target, prop)?.valPath ??
                   createValPathOfItem(
-                    val.valPath,
+                    val.valPath ?? undefined,
                     Array.isArray(target) ? Number(prop) : prop
                   ),
               } as SerializedVal);
