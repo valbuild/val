@@ -4,7 +4,8 @@ import { Source } from "../source";
 import { result } from "../fp";
 import { Path, SourceOrExpr } from "../selector";
 import { newSelectorProxy } from "../selector/SelectorProxy";
-import { isSerializedVal, SourcePath } from "../val";
+import { isSerializedVal, ModulePath, SourcePath } from "../val";
+import { Json } from "../Json";
 
 export class EvalError {
   constructor(public readonly message: string, public readonly expr: Expr) {}
@@ -24,11 +25,11 @@ type LocalSelector<S extends Source> = {
 };
 
 const MAX_STACK_SIZE = 100; // an arbitrary semi-large number
-function evaluateSync(
+async function evaluateAsync(
   expr: Expr,
-  getSource: (ref: string) => LocalSelector<Source>,
+  getSource: (modulePath: ModulePath) => Promise<Json>,
   stack: readonly LocalSelector<Source>[][]
-): LocalSelector<Source> {
+): Promise<LocalSelector<Source>> {
   // TODO: amount of evaluates should be limited?
   if (stack.length > MAX_STACK_SIZE) {
     throw new EvalError(
@@ -48,7 +49,9 @@ function evaluateSync(
           throw new EvalError("cannot call 'val' as anonymous function", expr);
         }
         if (expr.children[1] instanceof StringLiteral) {
-          return getSource(expr.children[1].value);
+          const path = expr.children[1].value;
+          const source = await getSource(path as ModulePath);
+          return newSelectorProxy(source, path as SourcePath);
         } else {
           throw new EvalError(
             "argument of 'val' must be a string literal",
@@ -62,7 +65,7 @@ function evaluateSync(
             expr
           );
         }
-        const value = evaluateSync(expr.children[1], getSource, stack);
+        const value = await evaluateAsync(expr.children[1], getSource, stack);
 
         const valObj = value[SourceOrExpr];
         const valPath = value[Path];
@@ -75,7 +78,10 @@ function evaluateSync(
         try {
           const serialized = JSON.parse(valObj);
           if (isSerializedVal(serialized)) {
-            return newSelectorProxy(serialized.val, serialized.valPath);
+            return newSelectorProxy(
+              serialized.val,
+              serialized.valPath ?? undefined
+            );
           }
           const parsedValue = newSelectorProxy(JSON.parse(valObj), valPath);
           return parsedValue;
@@ -98,16 +104,18 @@ function evaluateSync(
             expr
           );
         }
-        const res = evaluateSync(expr.children[1], getSource, stack);
+        const res = await evaluateAsync(expr.children[1], getSource, stack);
         return newSelectorProxy(JSON.stringify(res[SourceOrExpr]));
       }
     }
-    const prop = evaluateSync(expr.children[0], getSource, stack)[SourceOrExpr];
+    const prop = (await evaluateAsync(expr.children[0], getSource, stack))[
+      SourceOrExpr
+    ];
     if (expr.children.length === 1) {
       // TODO: return if literal only?
       return newSelectorProxy(prop);
     }
-    const obj = evaluateSync(expr.children[1], getSource, stack);
+    const obj = await evaluateAsync(expr.children[1], getSource, stack);
     if (typeof prop !== "string" && typeof prop !== "number") {
       throw new EvalError(
         `cannot access ${JSON.stringify(obj)} with property ${JSON.stringify(
@@ -131,7 +139,7 @@ function evaluateSync(
         }
         if (expr.children[0] instanceof Sym) {
           return maybeFunction((...args: any[]) => {
-            return evaluateSync(
+            return evaluateAsync(
               expr.children[2],
               getSource,
               stack.concat([args])
@@ -148,7 +156,9 @@ function evaluateSync(
         if (expr.children[0] instanceof Sym) {
           if (expr.children[0].value === "val") {
             if (expr.children[1] instanceof StringLiteral) {
-              return getSource(expr.children[1].value);
+              const path = expr.children[1].value;
+              const source = await getSource(path as ModulePath);
+              return newSelectorProxy(source, path as SourcePath);
             } else {
               throw new EvalError(
                 "argument of 'val' must be a string literal",
@@ -171,7 +181,7 @@ function evaluateSync(
             );
           }
           return maybeFunction(
-            ...args.map((arg) => evaluateSync(arg, getSource, stack))
+            ...args.map((arg) => evaluateAsync(arg, getSource, stack))
           );
         }
         const maybeValue = obj[prop];
@@ -205,40 +215,42 @@ function evaluateSync(
     return newSelectorProxy(expr.value);
   } else if (expr instanceof StringTemplate) {
     return newSelectorProxy(
-      expr.children
-        .map((child) => {
-          if (child instanceof Sym && child.value === "()") {
-            return "null";
-          }
-          const evalRes = evaluateSync(child, getSource, stack);
-          if (
-            child.type === "StringLiteral" ||
-            child.type === "StringTemplate"
-          ) {
-            return evalRes[SourceOrExpr];
-          }
-          if (Path in evalRes) {
-            // a selector, so serialize to Val
-            return JSON.stringify({
-              val: evalRes[SourceOrExpr],
-              valPath: evalRes[Path],
-            });
-          }
-          return JSON.stringify(evalRes[SourceOrExpr]);
-        })
-        .join("")
+      await Promise.all(
+        expr.children
+          .map(async (child) => {
+            if (child instanceof Sym && child.value === "()") {
+              return "null";
+            }
+            const evalRes = await evaluateAsync(child, getSource, stack);
+            if (
+              child.type === "StringLiteral" ||
+              child.type === "StringTemplate"
+            ) {
+              return evalRes[SourceOrExpr];
+            }
+            if (Path in evalRes) {
+              // a selector, so serialize to Val
+              return JSON.stringify({
+                val: evalRes[SourceOrExpr],
+                valPath: evalRes[Path],
+              });
+            }
+            return JSON.stringify(evalRes[SourceOrExpr]);
+          })
+          .join("")
+      )
     );
   }
   throw new EvalError(`could not evaluate`, expr);
 }
 
-export function evaluate(
+export async function evaluate(
   expr: Expr,
-  source: (ref: string) => LocalSelector<Source>,
+  source: (ref: string) => Promise<Json>,
   stack: readonly LocalSelector<Source>[][]
-): result.Result<LocalSelector<Source>, EvalError> {
+): Promise<result.Result<LocalSelector<Source>, EvalError>> {
   try {
-    return result.ok(evaluateSync(expr, source, stack));
+    return result.ok(await evaluateAsync(expr, source, stack));
   } catch (err) {
     if (err instanceof EvalError) {
       return result.err(err);
