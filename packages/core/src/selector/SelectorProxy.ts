@@ -166,6 +166,7 @@ export function newSelectorProxy(
         },
         [SourceOrExpr]: source === undefined ? null : source,
         [Path]: path,
+        [GetSchema]: moduleSchema,
       };
   }
 }
