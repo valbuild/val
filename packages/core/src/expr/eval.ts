@@ -24,11 +24,11 @@ type LocalSelector<S extends Source> = {
 };
 
 const MAX_STACK_SIZE = 100; // an arbitrary semi-large number
-async function evaluateAsync(
+function evaluateSync(
   expr: Expr,
-  getSource: (ref: string) => Promise<LocalSelector<Source>>,
+  getSource: (ref: string) => LocalSelector<Source>,
   stack: readonly LocalSelector<Source>[][]
-): Promise<LocalSelector<Source>> {
+): LocalSelector<Source> {
   // TODO: amount of evaluates should be limited?
   if (stack.length > MAX_STACK_SIZE) {
     throw new EvalError(
@@ -62,7 +62,7 @@ async function evaluateAsync(
             expr
           );
         }
-        const value = await evaluateAsync(expr.children[1], getSource, stack);
+        const value = evaluateSync(expr.children[1], getSource, stack);
 
         const valObj = value[SourceOrExpr];
         const valPath = value[Path];
@@ -98,18 +98,16 @@ async function evaluateAsync(
             expr
           );
         }
-        const res = await evaluateAsync(expr.children[1], getSource, stack);
+        const res = evaluateSync(expr.children[1], getSource, stack);
         return newSelectorProxy(JSON.stringify(res[SourceOrExpr]));
       }
     }
-    const prop = (await evaluateAsync(expr.children[0], getSource, stack))[
-      SourceOrExpr
-    ];
+    const prop = evaluateSync(expr.children[0], getSource, stack)[SourceOrExpr];
     if (expr.children.length === 1) {
       // TODO: return if literal only?
       return newSelectorProxy(prop);
     }
-    const obj = await evaluateAsync(expr.children[1], getSource, stack);
+    const obj = evaluateSync(expr.children[1], getSource, stack);
     if (typeof prop !== "string" && typeof prop !== "number") {
       throw new EvalError(
         `cannot access ${JSON.stringify(obj)} with property ${JSON.stringify(
@@ -133,7 +131,7 @@ async function evaluateAsync(
         }
         if (expr.children[0] instanceof Sym) {
           return maybeFunction((...args: any[]) => {
-            return evaluateAsync(
+            return evaluateSync(
               expr.children[2],
               getSource,
               stack.concat([args])
@@ -173,7 +171,7 @@ async function evaluateAsync(
             );
           }
           return maybeFunction(
-            ...args.map((arg) => evaluateAsync(arg, getSource, stack))
+            ...args.map((arg) => evaluateSync(arg, getSource, stack))
           );
         }
         const maybeValue = obj[prop];
@@ -207,42 +205,40 @@ async function evaluateAsync(
     return newSelectorProxy(expr.value);
   } else if (expr instanceof StringTemplate) {
     return newSelectorProxy(
-      await Promise.all(
-        expr.children
-          .map(async (child) => {
-            if (child instanceof Sym && child.value === "()") {
-              return "null";
-            }
-            const evalRes = await evaluateAsync(child, getSource, stack);
-            if (
-              child.type === "StringLiteral" ||
-              child.type === "StringTemplate"
-            ) {
-              return evalRes[SourceOrExpr];
-            }
-            if (Path in evalRes) {
-              // a selector, so serialize to Val
-              return JSON.stringify({
-                val: evalRes[SourceOrExpr],
-                valPath: evalRes[Path],
-              });
-            }
-            return JSON.stringify(evalRes[SourceOrExpr]);
-          })
-          .join("")
-      )
+      expr.children
+        .map((child) => {
+          if (child instanceof Sym && child.value === "()") {
+            return "null";
+          }
+          const evalRes = evaluateSync(child, getSource, stack);
+          if (
+            child.type === "StringLiteral" ||
+            child.type === "StringTemplate"
+          ) {
+            return evalRes[SourceOrExpr];
+          }
+          if (Path in evalRes) {
+            // a selector, so serialize to Val
+            return JSON.stringify({
+              val: evalRes[SourceOrExpr],
+              valPath: evalRes[Path],
+            });
+          }
+          return JSON.stringify(evalRes[SourceOrExpr]);
+        })
+        .join("")
     );
   }
   throw new EvalError(`could not evaluate`, expr);
 }
 
-export async function evaluate(
+export function evaluate(
   expr: Expr,
-  source: (ref: string) => Promise<LocalSelector<Source>>,
+  source: (ref: string) => LocalSelector<Source>,
   stack: readonly LocalSelector<Source>[][]
-): Promise<result.Result<LocalSelector<Source>, EvalError>> {
+): result.Result<LocalSelector<Source>, EvalError> {
   try {
-    return result.ok(await evaluateAsync(expr, source, stack));
+    return result.ok(evaluateSync(expr, source, stack));
   } catch (err) {
     if (err instanceof EvalError) {
       return result.err(err);
