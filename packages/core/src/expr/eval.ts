@@ -4,7 +4,8 @@ import { Source } from "../source";
 import { result } from "../fp";
 import { Path, SourceOrExpr } from "../selector";
 import { newSelectorProxy } from "../selector/SelectorProxy";
-import { isSerializedVal, SourcePath } from "../val";
+import { isSerializedVal, ModulePath, SourcePath } from "../val";
+import { Json } from "../Json";
 
 export class EvalError {
   constructor(public readonly message: string, public readonly expr: Expr) {}
@@ -26,7 +27,7 @@ type LocalSelector<S extends Source> = {
 const MAX_STACK_SIZE = 100; // an arbitrary semi-large number
 async function evaluateAsync(
   expr: Expr,
-  getSource: (ref: string) => Promise<LocalSelector<Source>>,
+  getSource: (modulePath: ModulePath) => Promise<Json>,
   stack: readonly LocalSelector<Source>[][]
 ): Promise<LocalSelector<Source>> {
   // TODO: amount of evaluates should be limited?
@@ -48,7 +49,9 @@ async function evaluateAsync(
           throw new EvalError("cannot call 'val' as anonymous function", expr);
         }
         if (expr.children[1] instanceof StringLiteral) {
-          return getSource(expr.children[1].value);
+          const path = expr.children[1].value;
+          const source = await getSource(path as ModulePath);
+          return newSelectorProxy(source, path as SourcePath);
         } else {
           throw new EvalError(
             "argument of 'val' must be a string literal",
@@ -150,7 +153,9 @@ async function evaluateAsync(
         if (expr.children[0] instanceof Sym) {
           if (expr.children[0].value === "val") {
             if (expr.children[1] instanceof StringLiteral) {
-              return getSource(expr.children[1].value);
+              const path = expr.children[1].value;
+              const source = await getSource(path as ModulePath);
+              return newSelectorProxy(source, path as SourcePath);
             } else {
               throw new EvalError(
                 "argument of 'val' must be a string literal",
@@ -238,7 +243,7 @@ async function evaluateAsync(
 
 export async function evaluate(
   expr: Expr,
-  source: (ref: string) => Promise<LocalSelector<Source>>,
+  source: (ref: string) => Promise<Json>,
   stack: readonly LocalSelector<Source>[][]
 ): Promise<result.Result<LocalSelector<Source>, EvalError>> {
   try {
