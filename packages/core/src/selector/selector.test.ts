@@ -277,7 +277,7 @@ const RemoteAndLocaleSelectorModuleTestCases = SelectorModuleTestCases.flatMap(
 describe("selector", () => {
   test.each(RemoteAndLocaleSelectorModuleTestCases)(
     "$description",
-    async ({ input, expected, remote }) => {
+    ({ input, expected, remote }) => {
       if (input instanceof Error) {
         throw input;
       }
@@ -286,7 +286,7 @@ describe("selector", () => {
         const localeRes = input();
         expect(selectorToVal(localeRes)).toStrictEqual(expected);
       } else {
-        const res = await evaluate(
+        const res = evaluate(
           // @ts-expect-error TODO: fix this
           input()[SourceOrExpr],
           (ref) =>
