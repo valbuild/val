@@ -35,7 +35,7 @@ export function newSelectorProxy(
     if (isSelector(source)) {
       return source;
     } else if (isSerializedVal(source)) {
-      return newSelectorProxy(source.val, source.valPath ?? undefined);
+      return newSelectorProxy(source.val, source.valPath);
     }
   }
 
@@ -174,7 +174,7 @@ export function newSelectorProxy(
 function selectorAsVal(sel: any): any {
   if (isSerializedVal(sel)) {
     // is a serialized val
-    return selectorAsVal(newSelectorProxy(sel.val, sel.valPath ?? undefined));
+    return selectorAsVal(newSelectorProxy(sel.val, sel.valPath));
   } else if (
     typeof sel === "object" &&
     sel &&
