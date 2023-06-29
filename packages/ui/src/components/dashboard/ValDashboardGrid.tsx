@@ -2,8 +2,8 @@ import { SerializedModule } from "@valbuild/core";
 import { ValApi } from "@valbuild/react";
 import classNames from "classnames";
 import React, { useState, FC, ReactNode, useEffect } from "react";
-import ValDashboardEditor from "./ValDashboardEditor";
-import ValTreeNavigator from "./ValTreeNavigator";
+import { ValDashboardEditor } from "./ValDashboardEditor";
+import { ValTreeNavigator } from "./ValTreeNavigator";
 
 interface PanelProps {
   header?: ReactNode;

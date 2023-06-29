@@ -22,7 +22,7 @@ interface ValDashboardEditorProps {
   valApi: ValApi;
 }
 
-const ValDashboardEditor: FC<ValDashboardEditorProps> = ({
+export const ValDashboardEditor: FC<ValDashboardEditorProps> = ({
   selectedPath,
   valApi,
 }) => {
@@ -276,5 +276,3 @@ const ValDashboardEditor: FC<ValDashboardEditorProps> = ({
     </div>
   );
 };
-
-export default ValDashboardEditor;
