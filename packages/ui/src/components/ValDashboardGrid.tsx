@@ -11,10 +11,10 @@ import React, {
   useCallback,
   useEffect,
 } from "react";
-import DashboardDropdown from "../DashboardDropdown";
-import { Inputs } from "../forms/Form";
-import ValDashboardEditor from "../ValDashboardEditor";
-import ValTreeNavigator from "../ValTreeNavigator";
+import DashboardDropdown from "./DashboardDropdown";
+import { Inputs } from "./forms/Form";
+import ValDashboardEditor from "./ValDashboardEditor";
+import ValTreeNavigator from "./ValTreeNavigator";
 
 interface PanelProps {
   header: ReactNode;
@@ -79,7 +79,7 @@ const Panel: FC<PanelProps> = ({
               {collapsible && (
                 <button
                   onClick={onCollapse}
-                  className="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded"
+                  className="px-2 py-1 font-bold text-white bg-red-500 rounded hover:bg-red-700"
                 >
                   {collapsed ? "Expand" : "Collapse"}
                 </button>
@@ -107,7 +107,7 @@ interface ValDashboardGridProps {
 
 export const ValDashboardGrid: FC<ValDashboardGridProps> = ({
   valApi,
-  editMode
+  editMode,
 }) => {
   const [widths, setWidths] = useState([
     window.innerWidth / 6,
@@ -146,7 +146,7 @@ export const ValDashboardGrid: FC<ValDashboardGridProps> = ({
   }, [collapsed]);
 
   return (
-    <div className="flex h-screen justify-start">
+    <div className="flex justify-start h-screen">
       <Panel
         width={widths[0]}
         onResize={handleResize(0)}
