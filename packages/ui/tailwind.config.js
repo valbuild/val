@@ -59,7 +59,7 @@ module.exports = {
       spin: "spin 1s linear infinite",
     },
     transitionProperty: {
-      dropzone: ["height", "padding"],
+      opacity: ["opacity"],
     },
   },
   plugins: [

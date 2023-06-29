@@ -16,7 +16,14 @@ const ValTreeArrayModuleItem: FC<{
 }> = ({ submodule, selectedModule, setSelectedModule, idx, path, reOrder }) => {
   const title = resolveTitle(submodule);
   return (
-    <div className="w-fit" draggable id={idx.toString()}>
+    <div
+      className="w-fit"
+      draggable
+      id={idx.toString()}
+      onDragStart={(ev) => {
+        console.log("drag start", idx, ev);
+      }}
+    >
       <div className="flex gap-4">
         <button
           onClick={() => setSelectedModule(path + idx.toString())}
@@ -84,19 +91,7 @@ const ValTreeNavigatorArrayModule: FC<{
   const [items, setItems] = useState<Json[]>(
     (module.source as JsonArray).map((submodule) => submodule as Json)
   );
-  const [dragId, setDragId] = useState(-1);
   const [reOrderMode, setReOrderMode] = useState(false);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (dragId !== -1) {
-        e.preventDefault();
-        setDragId(-1);
-      }
-    };
-    document.addEventListener("mouseup", handler);
-    return () => document.removeEventListener("mouseup", handler);
-  });
 
   const reOrder = async (oldIndex: number, newIndex: number) => {
     const sanitizedNewIndex =
@@ -128,8 +123,9 @@ const ValTreeNavigatorArrayModule: FC<{
       },
     ];
     await valApi.patchModuleContent(moduleId, patch);
-    if (selectedModule === path)
+    if (selectedModule === path) {
       setSelectedModule(`${newModuleId}.${newModulePath}`);
+    }
     setItems((items) => {
       const newItems = [...items];
       const item = newItems.splice(oldIndex, 1)[0];
