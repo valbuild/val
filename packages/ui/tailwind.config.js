@@ -48,7 +48,7 @@ module.exports = {
       rotateRight: "rotateRight 200ms ease-in-out",
     },
     transitionProperty: {
-      dropzone: ["height", "padding"],
+      opacity: ["opacity"],
     },
   },
   plugins: [
