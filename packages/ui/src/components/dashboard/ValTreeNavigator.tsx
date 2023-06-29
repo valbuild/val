@@ -210,7 +210,7 @@ interface ValTreeNavigator {
   setSelectedModule: Dispatch<SetStateAction<string>>;
   valApi: ValApi;
 }
-const ValTreeNavigator: FC<ValTreeNavigator> = ({
+export const ValTreeNavigator: FC<ValTreeNavigator> = ({
   modules,
   selectedModule,
   setSelectedModule,
@@ -241,5 +241,3 @@ const ValTreeNavigator: FC<ValTreeNavigator> = ({
     </div>
   );
 };
-
-export default ValTreeNavigator;

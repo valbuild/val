@@ -8,7 +8,7 @@ interface DashboardDropdownProps {
   setSelectedModule: React.Dispatch<React.SetStateAction<SerializedModule>>;
   modules: SerializedModule[];
 }
-const DashboardDropdown: FC<DashboardDropdownProps> = ({
+export const DashboardDropdown: FC<DashboardDropdownProps> = ({
   selectedModule,
   setSelectedModule,
   modules,
@@ -57,5 +57,3 @@ const DashboardDropdown: FC<DashboardDropdownProps> = ({
     </div>
   );
 };
-
-export default DashboardDropdown;
