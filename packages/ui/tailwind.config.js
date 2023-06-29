@@ -58,10 +58,14 @@ module.exports = {
       rotateRight: "rotateRight 200ms ease-in-out",
       spin: "spin 1s linear infinite",
     },
+    transitionProperty: {
+      dropzone: ["height", "padding"],
+    },
   },
   plugins: [
     function ({ addVariant, addComponents }) {
       addVariant("all-but-last-child", "& > *:not(:last-child)");
+      addVariant("children", "& *");
     },
   ],
 };
