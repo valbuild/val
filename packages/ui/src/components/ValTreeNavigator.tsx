@@ -1,62 +1,249 @@
-import { SerializedModule } from "@valbuild/core";
+import { Internal, SerializedModule, SourcePath } from "@valbuild/core";
+import { Json, JsonArray, JsonObject } from "@valbuild/core/src/Json";
 import classNames from "classnames";
-import { Dispatch, FC, SetStateAction } from "react";
+import {
+  Dispatch,
+  DragEvent,
+  FC,
+  SetStateAction,
+  useEffect,
+  useState,
+} from "react";
+import Chevron from "../assets/icons/Chevron";
+import { JSONValue, PatchJSON } from "@valbuild/core/patch";
+import { ValApi } from "@valbuild/react";
+
+const ValTreeArrayModuleItem: FC<{
+  submodule: Json;
+  selectedModule: string;
+  setSelectedModule: Dispatch<SetStateAction<string>>;
+  idx: number;
+  path: string;
+  reOrder: (oldIdx: number, newIdx: number) => void;
+}> = ({ submodule, selectedModule, setSelectedModule, idx, path, reOrder }) => {
+  return (
+    <>
+      <div className="w-fit" draggable id={idx.toString()}>
+        <div className="flex gap-4">
+          <button
+            onClick={() => setSelectedModule(path + idx.toString())}
+            className={classNames(
+              "px-4 py-2 text-start hover:bg-light-gray/20 hover:rounded-lg",
+              {
+                "font-extrabold ":
+                  module.path + idx.toString() === selectedModule,
+              }
+            )}
+          >
+            {submodule.title}
+          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => reOrder(idx, idx + 1)}
+              className="disabled:text-dark-gray"
+            >
+              <Chevron className="rotate-90" />
+            </button>
+            <button
+              onClick={() => reOrder(idx, idx - 1)}
+              className="disabled:text-dark-gray"
+            >
+              <Chevron className="-rotate-90" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+const ValTreeNavigatorArrayModule: FC<{
+  module: SerializedModule;
+  selectedModule: string;
+  setSelectedModule: Dispatch<SetStateAction<string>>;
+  valApi: ValApi;
+}> = ({ module, selectedModule, setSelectedModule, valApi }) => {
+  const [collapsed, setCollapsed] = useState(true);
+  const [items, setItems] = useState<Json[]>(
+    (module.source as JsonArray).map((submodule) => submodule as Json)
+  );
+  const [dragId, setDragId] = useState(-1);
+  const [dragging, setDragging] = useState(false);
+  const [reOrderMode, setReOrderMode] = useState(false);
+  const [mouse, setMouse] = useState<[number, number]>([0, 0]);
+  const [dropzone, setDropzone] = useState(-1);
+  //Create nice and pretty animation when moving items
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dragId !== -1) {
+        e.preventDefault();
+        setDragId(-1);
+        console.log(dropzone);
+      }
+    };
+    document.addEventListener("mouseup", handler);
+    return () => document.removeEventListener("mouseup", handler);
+  });
+
+  const onDragStart = (e: React.DragEvent<HTMLDivElement>) => {
+    setDragId(parseInt(e.currentTarget.id));
+    setDragging(true);
+  };
+
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>, idx: number) => {
+    reOrder(dragId, idx);
+  };
+
+  const reOrder = async (oldIndex: number, newIndex: number) => {
+    const sanitizedNewIndex =
+      newIndex < 0 ? items.length - 1 : newIndex % items.length;
+    const path = module.path + oldIndex.toString();
+    const newPath = module.path + newIndex.toString();
+    const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(
+      path as SourcePath
+    );
+
+    const [newModuleId, newModulePath] = Internal.splitModuleIdAndModulePath(
+      newPath as SourcePath
+    );
+    const patch: PatchJSON = [
+      {
+        op: "move",
+        from: `/${modulePath
+          .split(".")
+          .map((p) => {
+            return JSON.parse(p);
+          })
+          .join("/")}`,
+        path: `/${newModulePath
+          .split(".")
+          .map((p) => {
+            return JSON.parse(p);
+          })
+          .join("/")}`,
+      },
+    ];
+    await valApi.patchModuleContent(moduleId, patch);
+    console.log(
+      selectedModule,
+      path,
+      modulePath,
+      moduleId,
+      newModulePath,
+      newModuleId
+    );
+    if (selectedModule === path)
+      setSelectedModule(`${newModuleId}.${newModulePath}`);
+    setItems((items) => {
+      const newItems = [...items];
+      const item = newItems.splice(oldIndex, 1)[0];
+      newItems.splice(sanitizedNewIndex, 0, item);
+      return newItems;
+    });
+  };
+
+  const toggleReorderMode = () => {
+    setReOrderMode(!reOrderMode);
+    if (collapsed) setCollapsed(false);
+  };
+
+  return (
+    <div className="flex flex-col relative gap-3">
+      {/* {treeIsDirty && <button onClick={saveReorder}>Update tree</button>} */}
+      <div className="flex justify-between items-center ">
+        <button
+          className="flex justify-between items-center hover:bg-light-gray/20 hover:rounded-lg px-4 py-2 "
+          onClick={() => setCollapsed(!collapsed)}
+        >
+          <div className="flex items-center gap-2">
+            <Chevron className={classNames({ "rotate-90": !collapsed })} />
+            <h1 className="text-xl">{module.path}</h1>
+          </div>
+        </button>
+        <div className="flex gap-2">
+          <button
+            className="relative w-[20px] h-[20px] flex flex-col justify-between items-center"
+            onClick={toggleReorderMode}
+          >
+            <Chevron className="-rotate-90 top-0" />
+            <Chevron className=" rotate-90" />
+          </button>
+          <button className="text-2xl w-[20px] h-[20px] rounded-full flex justify-center items-center">
+            +
+          </button>
+        </div>
+      </div>
+
+      {!collapsed &&
+        items.map((submodule, idx) => (
+          <ValTreeArrayModuleItem
+            submodule={submodule}
+            idx={idx}
+            selectedModule={selectedModule}
+            setSelectedModule={setSelectedModule}
+            path={module.path}
+            key={idx}
+            reOrder={reOrder}
+          />
+        ))}
+    </div>
+  );
+};
+
+const ValTreeNavigatorModule: FC<{
+  module: SerializedModule;
+  selectedModule: string;
+  setSelectedModule: Dispatch<SetStateAction<string>>;
+}> = ({ module, selectedModule, setSelectedModule }) => {
+  return (
+    <div className="flex flex-col relative gap-3  hover:bg-light-gray/20 hover:rounded-lg px-4 py-2 ">
+      <button
+        className="flex justify-between items-center"
+        onClick={() => setSelectedModule(module.path)}
+      >
+        <div className="flex items-center gap-2">
+          <Chevron className={classNames("opacity-0")} />
+          <h1 className="text-xl">{module.path}</h1>
+        </div>
+      </button>
+    </div>
+  );
+};
 
 interface ValTreeNavigator {
   modules: SerializedModule[];
-  selectedModule?: SerializedModule;
-  setSelectedModule: Dispatch<SetStateAction<SerializedModule>>;
-  selectedSubmodule?: string;
-  setSelectedSubmodule: Dispatch<SetStateAction<string>>;
+  selectedModule: string;
+  setSelectedModule: Dispatch<SetStateAction<string>>;
+  valApi: ValApi;
 }
 const ValTreeNavigator: FC<ValTreeNavigator> = ({
   modules,
   selectedModule,
   setSelectedModule,
-  selectedSubmodule,
-  setSelectedSubmodule,
+  valApi,
 }) => {
   return (
-    <div className={classNames("flex flex-col gap-4 font-serif text-lg")}>
+    <div
+      className={classNames("flex flex-col gap-4 font-serif text-lg px-4 py-3")}
+    >
       {modules.map((module, idx) => (
         <div key={idx}>
-          <button
-            onClick={() => {
-              setSelectedModule(module);
-              setSelectedSubmodule("");
-            }}
-          >
-            <h1
-              className={classNames(
-                "text-xl",
-                { "hover:font-extrabold": selectedModule !== module },
-                {
-                  "font-extrabold hover:underline": selectedModule === module,
-                }
-              )}
-            >
-              {module.path}
-            </h1>
-          </button>
-          <div className="flex flex-col justify-start items-start gap-2">
-            {module.source?.map((source, key) => (
-              <div className="ml-4" key={key}>
-                <button
-                  className={classNames("flex text-left", {
-                    "underline": selectedSubmodule === source.title,
-                  })}
-                  onClick={() => {
-                    setSelectedSubmodule(source.title);
-                    if (selectedModule !== module) {
-                      setSelectedModule(module);
-                    }
-                  }}
-                >
-                  {source.title}
-                </button>
-              </div>
-            ))}
-          </div>
+          {module.schema.type === "array" ? (
+            <ValTreeNavigatorArrayModule
+              module={module}
+              key={idx}
+              selectedModule={selectedModule}
+              setSelectedModule={setSelectedModule}
+              valApi={valApi}
+            />
+          ) : (
+            <ValTreeNavigatorModule
+              module={module}
+              selectedModule={selectedModule}
+              setSelectedModule={setSelectedModule}
+            />
+          )}
         </div>
       ))}
     </div>

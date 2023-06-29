@@ -17,7 +17,7 @@ import ValDashboardEditor from "./ValDashboardEditor";
 import ValTreeNavigator from "./ValTreeNavigator";
 
 interface PanelProps {
-  header: ReactNode;
+  header?: ReactNode;
   width?: number;
   onResize?: (width: number) => void;
   collapsible?: boolean;
@@ -60,33 +60,31 @@ const Panel: FC<PanelProps> = ({
       {!collapsed ? (
         <div
           className={classNames(
-            "relative border border-dark-gray min-w-0 h-full overflow-auto ",
+            "relative border border-dark-gray min-w-0 h-full overflow-auto",
             {
               "flex-grow": !width,
             }
           )}
           style={width ? { width: `${width}px` } : {}}
         >
-          <>
-            {onResize && (
-              <div
-                className="absolute inset-y-0 right-0 cursor-col-resize w-[1px] bg-dark-gray hover:w-[2px] hover:bg-light-gray"
-                onMouseDown={handleMouseDown}
-              />
+          {onResize && (
+            <div
+              className="absolute inset-y-0 right-0 cursor-col-resize w-[1px] bg-dark-gray hover:w-[2px] hover:bg-light-gray"
+              onMouseDown={handleMouseDown}
+            />
+          )}
+          <div className="bg-gray-300 border-b border-dark-gray flex justify-between items-center h-[75px] w-full font-serif px-4">
+            {header}
+            {collapsible && (
+              <button
+                onClick={onCollapse}
+                className="px-2 py-1 font-bold text-white bg-red-500 rounded hover:bg-red-700"
+              >
+                {collapsed ? "Expand" : "Collapse"}
+              </button>
             )}
-            <div className="bg-gray-300 border-b border-dark-gray flex justify-between items-center min-h-[50px] w-full px-4 font-serif">
-              {header}
-              {collapsible && (
-                <button
-                  onClick={onCollapse}
-                  className="px-2 py-1 font-bold text-white bg-red-500 rounded hover:bg-red-700"
-                >
-                  {collapsed ? "Expand" : "Collapse"}
-                </button>
-              )}
-            </div>
-            <div className="px-4 pt-[13px]">{children}</div>
-          </>
+          </div>
+          <div>{children}</div>
         </div>
       ) : (
         <button
@@ -109,15 +107,10 @@ export const ValDashboardGrid: FC<ValDashboardGridProps> = ({
   valApi,
   editMode,
 }) => {
-  const [widths, setWidths] = useState([
-    window.innerWidth / 6,
-    (2 * window.innerWidth) / 3,
-  ]);
+  const [widths, setWidths] = useState([300, (2 * window.innerWidth) / 3]);
   const [collapsed, setCollapsed] = useState(false);
-  const [selectedSubmodule, setSelectedSubmodule] = useState<string>("");
-
   const [modules, setModules] = useState<SerializedModule[]>([]);
-  const [selectedModule, setSelectedModule] = useState<SerializedModule>();
+  const [selectedPath, setSelectedPath] = useState<string>("");
   useEffect(() => {
     valApi.getAllModules().then((modules) => {
       setModules(modules);
@@ -127,7 +120,7 @@ export const ValDashboardGrid: FC<ValDashboardGridProps> = ({
   const handleResize = (index: number) => (width: number) => {
     setWidths((prevWidths) => {
       const newWidths = [...prevWidths];
-      newWidths[index] = width;
+      newWidths[index] = Math.max(width, 300);
       return newWidths;
     });
   };
@@ -147,44 +140,35 @@ export const ValDashboardGrid: FC<ValDashboardGridProps> = ({
 
   return (
     <div className="flex justify-start h-screen">
-      <Panel
-        width={widths[0]}
-        onResize={handleResize(0)}
-        header={
-          <DashboardDropdown
-            modules={modules}
-            selectedModule={selectedModule}
-            setSelectedModule={setSelectedModule}
-          />
-        }
-      >
+      <Panel width={widths[0]} onResize={handleResize(0)}>
         <ValTreeNavigator
           modules={modules}
-          selectedModule={selectedModule}
-          setSelectedModule={setSelectedModule}
-          selectedSubmodule={selectedSubmodule}
-          setSelectedSubmodule={setSelectedSubmodule}
-        />
-      </Panel>
-      <Panel
-        header={<div>Edit content</div>}
-        width={widths[1]}
-        onResize={handleResize(1)}
-      >
-        <ValDashboardEditor
-          selectedModule={selectedModule}
-          selectedSubmodule={selectedSubmodule}
+          selectedModule={selectedPath}
+          setSelectedModule={setSelectedPath}
           valApi={valApi}
         />
       </Panel>
       <Panel
+        header={
+          selectedPath && (
+            <div className="w-full max-w-[1000px] bg-dark-gray px-4 py-2 rounded-lg">
+              {selectedPath}
+            </div>
+          )
+        }
+        width={widths[1]}
+        onResize={handleResize(1)}
+      >
+        <ValDashboardEditor selectedPath={selectedPath} valApi={valApi} />
+      </Panel>
+      {/* <Panel
         header={<div>labbalooey</div>}
         collapsible
         collapsed={collapsed}
         onCollapse={handleCollapse}
       >
         Width: 'auto'
-      </Panel>
+      </Panel> */}
     </div>
   );
 };

@@ -1,15 +1,28 @@
-import { FC } from "react";
+import { FC, useEffect, useState } from "react";
+import ValDashboardTable from "./ValDashboardTable";
+import { SerializedModule } from "@valbuild/lib";
 import { ValDashboardGrid } from "./ValDashboardGrid";
 import { ValApi } from "@valbuild/react";
+import { Inputs } from "../exports";
+import {
+  RichText,
+  FILE_REF_PROP,
+  VAL_EXTENSION,
+  Internal,
+  FileSource,
+} from "@valbuild/core";
+import { ImageMetadata } from "@valbuild/core/src/schema/image";
 
 interface ValDashboardProps {
   showDashboard: boolean;
   editMode: boolean;
+  setShowDashboard: (showDashboard: boolean) => void;
   valApi: ValApi;
 }
 export const ValDashboard: FC<ValDashboardProps> = ({
   showDashboard,
   editMode,
+  setShowDashboard,
   valApi,
 }) => {
   return (
