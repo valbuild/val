@@ -2,7 +2,7 @@ import { useState } from "react";
 import Button from "./Button";
 import { EditButton } from "./EditButton";
 import { Form, FormProps, Inputs } from "./forms/Form";
-import { DashboardButton } from "./DashboardButton";
+import { DashboardButton } from "./dashboard/DashboardButton";
 import { ValWindow } from "./ValWindow";
 import User from "./User";
 
