@@ -2,7 +2,7 @@ import { Internal, SerializedModule, SourcePath } from "@valbuild/core";
 import { Json, JsonArray } from "@valbuild/core/src/Json";
 import classNames from "classnames";
 import { Dispatch, FC, SetStateAction, useEffect, useState } from "react";
-import Chevron from "../assets/icons/Chevron";
+import Chevron from "../../assets/icons/Chevron";
 import { PatchJSON } from "@valbuild/core/patch";
 import { ValApi } from "@valbuild/react";
 

@@ -8,15 +8,14 @@ import {
   VAL_EXTENSION,
 } from "@valbuild/core";
 import { PatchJSON } from "@valbuild/core/patch";
-import { JsonArray } from "@valbuild/core/src/Json";
 import { ImageMetadata } from "@valbuild/core/src/schema/image";
 import { ValApi } from "@valbuild/react";
 import { LexicalEditor } from "lexical";
 import { FC, useEffect, useState } from "react";
-import { Inputs, RichTextEditor } from "../exports";
-import Button from "./Button";
-import { ImageForm } from "./forms/ImageForm";
-import { TextForm } from "./forms/TextForm";
+import { Inputs, RichTextEditor } from "../../exports";
+import Button from "../Button";
+import { ImageForm } from "../forms/ImageForm";
+import { TextForm } from "../forms/TextForm";
 
 interface ValDashboardEditorProps {
   selectedPath: string;
@@ -45,7 +44,7 @@ const ValDashboardEditor: FC<ValDashboardEditorProps> = ({
   }, [selectedPath]);
 
   useEffect(() => {
-    if (selectedModule) {
+    if (selectedModule && selectedModule?.source) {
       setInputs({});
       for (const key of Object.keys(selectedModule?.source)) {
         if (key !== "rank") {

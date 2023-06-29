@@ -1,7 +1,7 @@
-import { SerializedModule } from "@valbuild/lib";
-import React, { FC, useEffect, useRef, useState } from "react";
+import { SerializedModule } from "@valbuild/core";
+import React, { FC, useRef, useState } from "react";
 import classNames from "classnames";
-import Chevron from "../assets/icons/Chevron";
+import Chevron from "../../assets/icons/Chevron";
 
 interface DashboardDropdownProps {
   selectedModule: SerializedModule;
@@ -22,7 +22,7 @@ const DashboardDropdown: FC<DashboardDropdownProps> = ({
         onClick={() => setIsOpen(!isOpen)}
         className={classNames("w-full")}
       >
-        <span className="flex flex-row w-full justify-between items-center">
+        <span className="flex flex-row items-center justify-between w-full">
           <p>
             {selectedModule ? selectedModule.path : "No module selected..."}
           </p>
