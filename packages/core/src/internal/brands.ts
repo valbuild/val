@@ -9,3 +9,5 @@ export type ValRoot = Brand<string, "ValRoot">;
 export type GitRef = Brand<string, "GitRef">; // e.g. "heads/master" or "1234567890abcdef1234567890abcdef12345678"
 export type BranchRef = Brand<string, "BranchRef">;
 export type CommitSha = Brand<string, "CommitSha">;
+
+export type PatchId = Brand<string, "PatchId">;
