@@ -25,6 +25,10 @@
       "module": "./patch/dist/valbuild-core-patch.esm.js",
       "default": "./patch/dist/valbuild-core-patch.cjs.js"
     },
+    "./internal": {
+      "module": "./internal/dist/valbuild-core-internal.esm.js",
+      "default": "./internal/dist/valbuild-core-internal.cjs.js"
+    },
     "./package.json": "./package.json"
   },
   "types": "dist/valbuild-core.cjs.d.ts",
@@ -33,7 +37,8 @@
       "./index.ts",
       "./fp/index.ts",
       "./patch/index.ts",
-      "./expr/index.ts"
+      "./expr/index.ts",
+      "./internal/index.ts"
     ],
     "exports": true
   },
