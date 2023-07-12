@@ -13,9 +13,9 @@ export type DraggableListProps = {
 
 export const DraggableList = ({
   children: rawChildren,
+  onDragEnd,
 }: DraggableListProps): React.ReactElement => {
   const [from, setFrom] = useState<number | undefined>();
-  const [fromHeight, setFromHeight] = useState<number | undefined>();
   const [dragOver, setDragOver] = useState<number | undefined>();
   const [children, setChildren] = useState<React.ReactNode[]>([]);
   const [dropHappened, setDropHappened] = useState<boolean>(false);
@@ -24,15 +24,15 @@ export const DraggableList = ({
   }, [rawChildren]);
 
   return (
-    <>
-      {[...children, <div className="h-[10px]"></div>].map((child, idx) => {
+    <div className="bg-transparent">
+      {[...children, <div className="h-[1px]"></div>].map((child, idx) => {
         const ref = createRef<HTMLDivElement>();
         return (
           <div key={idx} className="relative">
             {dragOver === idx && (
               <div className="flex items-center">
                 <div className="border-[2px] border-yellow w-3 h-3 rounded-full" />
-                <div className="bg-yborder-yellow w-full h-[1px]" />
+                <div className="bg-yellow border-yellow w-full h-[1px]" />
                 <div className="border-[2px] border-yellow w-3 h-3 rounded-full" />
               </div>
             )}
@@ -43,7 +43,6 @@ export const DraggableList = ({
               onDragStart={(ev) => {
                 ev.dataTransfer.setDragImage(new Image(), 0, 0);
                 setFrom(idx);
-                setFromHeight(ref.current?.offsetHeight);
               }}
               onDragOver={(ev) => {
                 ev.preventDefault();
@@ -57,13 +56,13 @@ export const DraggableList = ({
                   dragOver !== undefined
                 ) {
                   const copy = [...children];
+                  const end = Math.min(dragOver, children.length - 1);
                   copy.splice(from, 1);
-                  copy.splice(
-                    Math.min(dragOver, children.length - 1),
-                    0,
-                    children[from]
-                  );
+                  copy.splice(end, 0, children[from]);
                   setChildren(copy);
+                  if (onDragEnd) {
+                    onDragEnd({ from: from, to: end });
+                  }
                 }
                 setDropHappened(false);
                 setFrom(undefined);
@@ -74,11 +73,11 @@ export const DraggableList = ({
                 if (from !== undefined) {
                   const copy = [...children];
                   copy.splice(from, 1);
-                  copy.splice(
-                    Math.min(idx, children.length - 1),
-                    0,
-                    children[from]
-                  );
+                  const end = Math.min(idx, children.length - 1);
+                  copy.splice(end, 0, children[from]);
+                  if (onDragEnd) {
+                    onDragEnd({ from: from, to: end });
+                  }
                   setChildren(copy);
                   setDragOver(undefined);
                   setFrom(undefined);
@@ -91,6 +90,6 @@ export const DraggableList = ({
           </div>
         );
       })}
-    </>
+    </div>
   );
 };
