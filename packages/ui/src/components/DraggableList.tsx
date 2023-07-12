@@ -18,35 +18,30 @@ export const DraggableList = ({
   const [fromHeight, setFromHeight] = useState<number | undefined>();
   const [dragOver, setDragOver] = useState<number | undefined>();
   const [children, setChildren] = useState<React.ReactNode[]>([]);
+  const [dropHappened, setDropHappened] = useState<boolean>(false);
   useEffect(() => {
     setChildren(Array.isArray(rawChildren) ? rawChildren : [rawChildren]);
   }, [rawChildren]);
 
   return (
     <>
-      {children.map((child, idx) => {
+      {[...children, <div className="h-[10px]"></div>].map((child, idx) => {
         const ref = createRef<HTMLDivElement>();
         return (
-          <div key={idx}>
+          <div key={idx} className="relative">
+            {dragOver === idx && (
+              <div className="flex items-center">
+                <div className="border-[2px] border-yellow w-3 h-3 rounded-full" />
+                <div className="bg-yborder-yellow w-full h-[1px]" />
+                <div className="border-[2px] border-yellow w-3 h-3 rounded-full" />
+              </div>
+            )}
             <div
               ref={ref}
               draggable
-              className={classNames("cursor-grab transition-opacity", {
-                // hidden: from === idx,
-                // "border border-red": dragOver === idx,
-                "opacity-0": from === idx,
-              })}
-              style={{
-                translate:
-                  dragOver !== undefined && dragOver < idx
-                    ? `0 ${fromHeight}px`
-                    : "0 0",
-              }}
+              className={classNames("cursor-grab transition-opacity")}
               onDragStart={(ev) => {
-                const img = new Image();
-                // img.src =
-                //   'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" height="0" width="0" />';
-                ev.dataTransfer.setDragImage(img, 0, 0);
+                ev.dataTransfer.setDragImage(new Image(), 0, 0);
                 setFrom(idx);
                 setFromHeight(ref.current?.offsetHeight);
               }}
@@ -56,28 +51,38 @@ export const DraggableList = ({
               }}
               onDragEnd={(ev) => {
                 ev.preventDefault();
-
-                console.log("drag end", from, dragOver);
-                // if (from !== undefined && dragOver !== undefined) {
-                //   const copy = [...children];
-                //   copy.splice(from, 1);
-                //   copy.splice(dragOver, 0, children[from]);
-                //   setChildren(copy);
-                //   console.log("drag end copy");
-                // }
+                if (
+                  from !== undefined &&
+                  !dropHappened &&
+                  dragOver !== undefined
+                ) {
+                  const copy = [...children];
+                  copy.splice(from, 1);
+                  copy.splice(
+                    Math.min(dragOver, children.length - 1),
+                    0,
+                    children[from]
+                  );
+                  setChildren(copy);
+                }
+                setDropHappened(false);
                 setFrom(undefined);
                 setDragOver(undefined);
               }}
               onDrop={(ev) => {
                 ev.preventDefault();
-                console.log("drop", from, idx);
                 if (from !== undefined) {
                   const copy = [...children];
                   copy.splice(from, 1);
-                  copy.splice(idx, 0, children[from]);
+                  copy.splice(
+                    Math.min(idx, children.length - 1),
+                    0,
+                    children[from]
+                  );
                   setChildren(copy);
                   setDragOver(undefined);
                   setFrom(undefined);
+                  setDropHappened(true);
                 }
               }}
             >
