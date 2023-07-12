@@ -1,10 +1,11 @@
 import { Internal, SerializedModule, SourcePath } from "@valbuild/core";
-import { Json, JsonArray } from "@valbuild/core/src/Json";
-import classNames from "classnames";
-import { Dispatch, FC, SetStateAction, useEffect, useState } from "react";
-import Chevron from "../../assets/icons/Chevron";
 import { PatchJSON } from "@valbuild/core/patch";
+import { Json, JsonArray } from "@valbuild/core/src/Json";
 import { ValApi } from "@valbuild/react";
+import classNames from "classnames";
+import { Dispatch, FC, SetStateAction, useState } from "react";
+import Chevron from "../../assets/icons/Chevron";
+import { DraggableList, DraggableResult } from "../DraggableList";
 
 const ValTreeArrayModuleItem: FC<{
   submodule: Json;
@@ -165,8 +166,8 @@ const ValTreeNavigatorArrayModule: FC<{
         </div>
       </div>
 
-      {!collapsed &&
-        items.map((submodule, idx) => (
+      <DraggableList onDragEnd={(res: DraggableResult)=>reOrder(res.from, res.to)}>
+        {items.map((submodule, idx) => (
           <ValTreeArrayModuleItem
             submodule={submodule}
             idx={idx}
@@ -177,6 +178,7 @@ const ValTreeNavigatorArrayModule: FC<{
             reOrder={reOrder}
           />
         ))}
+      </DraggableList>
     </div>
   );
 };
