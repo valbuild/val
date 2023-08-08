@@ -1,5 +1,7 @@
 {
   "name": "@valbuild/server",
+  "private": false,
+  "description": "Val - integrated server",
   "main": "dist/valbuild-server.cjs.js",
   "module": "dist/valbuild-server.esm.js",
   "exports": {
@@ -10,7 +12,7 @@
     "./package.json": "./package.json"
   },
   "types": "dist/valbuild-server.cjs.d.ts",
-  "version": "0.13.0",
+  "version": "0.13.4",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest",
@@ -23,8 +25,8 @@
     "concurrently": "^7.6.0"
   },
   "dependencies": {
-    "@valbuild/core": "~0.13.0",
-    "@valbuild/ui": "~0.13.0",
+    "@valbuild/core": "~0.13.4",
+    "@valbuild/ui": "~0.13.4",
     "express": "^4.18.2",
     "quickjs-emscripten": "^0.21.1",
     "ts-morph": "^17.0.1",

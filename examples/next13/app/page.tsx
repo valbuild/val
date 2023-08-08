@@ -1,16 +1,14 @@
-"use client";
-import styles from "./page.module.css";
 import blogsVal from "./blogs.val";
-import { useVal, ValRichText } from "@valbuild/react";
-import { val } from "../val.config";
+import { useVal } from "@valbuild/next";
+import { ValRichText } from "@valbuild/next";
 
-export default function Home() {
-  const blogs = useVal(blogsVal.map((s) => s));
+export default async function Home() {
+  const blogs = useVal(blogsVal);
   return (
-    <main className={styles.main}>
-      <article className={styles.article}>
+    <main>
+      <article>
         {blogs.map((blog) => (
-          <section key={val.key(blog)} className={styles.blog}>
+          <section key={blog.title}>
             <h1>{blog.title}</h1>
             <img src={blog.image.url} />
             <ValRichText>{blog.text}</ValRichText>

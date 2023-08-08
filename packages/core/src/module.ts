@@ -15,17 +15,14 @@ import { I18nSchema, SerializedI18nSchema } from "./schema/i18n";
 import { UnionSchema, SerializedUnionSchema } from "./schema/union";
 import { OneOfSchema, SerializedOneOfSchema } from "./schema/oneOf";
 import { Json } from "./Json";
-import {
-  RichText,
-  RichTextSchema,
-  SerializedRichTextSchema,
-} from "./schema/richtext";
+import { RichTextSchema, SerializedRichTextSchema } from "./schema/richtext";
 import {
   ImageMetadata,
   ImageSchema,
   SerializedImageSchema,
 } from "./schema/image";
 import { FileSource } from "./source/file";
+import { RichText } from "./source/richtext";
 
 const brand = Symbol("ValModule");
 export type ValModule<T extends SelectorSource> = SelectorOf<T> &

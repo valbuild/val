@@ -186,11 +186,8 @@ describe("eval", () => {
       pipe(
         evaluate(
           parseRes.value,
-          (ref) => {
-            return newSelectorProxy(
-              sources[ref as keyof typeof sources],
-              ref as SourcePath
-            );
+          (path) => {
+            return sources[path as keyof typeof sources];
           },
           []
         ),

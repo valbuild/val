@@ -15,4 +15,4 @@ This is released only for **INTERNAL** **TESTING** PURPOSES.
 
 # Information
 
-See core lib [README](./packages/core/README.md).
+See core lib [README](./packages/next/README.md).

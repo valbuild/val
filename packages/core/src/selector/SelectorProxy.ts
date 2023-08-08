@@ -96,7 +96,7 @@ export function newSelectorProxy(
                       )
                     )
                     .filter((a) => {
-                      if (f && f instanceof Schema<Source>) {
+                      if (f && f instanceof Schema) {
                         return f.match(unValify(a));
                       } else {
                         return unValify(f(a));
@@ -166,6 +166,7 @@ export function newSelectorProxy(
         },
         [SourceOrExpr]: source === undefined ? null : source,
         [Path]: path,
+        [GetSchema]: moduleSchema,
       };
   }
 }

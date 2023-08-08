@@ -65,27 +65,27 @@ function toLexicalNode(node: ValNode): LexicalNode {
 
 function toLexicalHeadingNode(heading: ValHeadingNode): LexicalNode {
   const node = $createHeadingNode(heading.tag);
-  node.setFormat(heading.format);
-  node.setIndent(heading.indent);
-  node.setDirection(heading.direction);
+  node.setFormat(heading.format || "");
+  node.setIndent(heading.indent || 0);
+  node.setDirection(heading.direction || "ltr");
   node.append(...heading.children.map((child) => toLexicalNode(child)));
   return node;
 }
 
 function toLexicalParagraphNode(paragraph: ValParagraphNode): LexicalNode {
   const node = $createParagraphNode();
-  node.setFormat(paragraph.format);
-  node.setIndent(paragraph.indent);
-  node.setDirection(paragraph.direction);
+  node.setFormat(paragraph.format || "");
+  node.setIndent(paragraph.indent || 0);
+  node.setDirection(paragraph.direction || "ltr");
   node.append(...paragraph.children.map((child) => toLexicalNode(child)));
   return node;
 }
 
 function toLexicalListItemNode(listItem: ValListItemNode): LexicalNode {
   const node = $createListItemNode();
-  node.setFormat(listItem.format);
-  node.setIndent(listItem.indent);
-  node.setDirection(listItem.direction);
+  node.setFormat(listItem.format || "");
+  node.setIndent(listItem.indent || 0);
+  node.setDirection(listItem.direction || "ltr");
   node.setValue(listItem.value);
   node.setChecked(listItem.checked);
   node.append(...listItem.children.map((child) => toLexicalNode(child)));
@@ -94,9 +94,9 @@ function toLexicalListItemNode(listItem: ValListItemNode): LexicalNode {
 
 function toLexicalListNode(list: ValListNode): LexicalNode {
   const node = $createListNode(list.listType, list.start);
-  node.setFormat(list.format);
-  node.setIndent(list.indent);
-  node.setDirection(list.direction);
+  node.setFormat(list.format || "");
+  node.setIndent(list.indent || 0);
+  node.setDirection(list.direction || "ltr");
   node.append(...list.children.map((child) => toLexicalNode(child)));
   return node;
 }
@@ -106,8 +106,8 @@ function toLexicalTextNode(text: ValTextNode): LexicalNode {
   node.setFormat(text.format as any); // TODO: why is text.format numbers when we are trying it out?
   text.indent && node.setIndent(text.indent);
   text.direction && node.setDirection(text.direction);
-  node.setStyle(text.style);
-  node.setDetail(text.detail);
+  node.setStyle(text.style || "");
+  node.setDetail(text.detail || 0);
   return node;
 }
 
@@ -133,7 +133,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
         underline: "underline",
         italic: "italic",
         strikethrough: "line-through",
-        underlineStrikethrough: "underlined-line-through",
+        underlineStrikethrough: "underline line-through",
       },
       list: {
         listitem: "ml-[20px]",
@@ -161,7 +161,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
             <LexicalContentEditable className="relative bg-fill flex flex-col h-full w-full min-h-[200px] text-primary outline-none" />
           }
           placeholder={
-            <div className="absolute top-[calc(58px+1rem)] left-4 text-base/25 ">
+            <div className="absolute top-[calc(58px+1rem)] left-4 text-base/25 text-primary">
               Enter some text...
             </div>
           }

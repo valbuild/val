@@ -1,26 +1,29 @@
 {
   "name": "@valbuild/react",
-  "version": "0.13.0",
+  "version": "0.13.4",
+  "private": false,
+  "description": "Val - React",
   "sideEffects": false,
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest"
   },
   "dependencies": {
-    "@valbuild/core": "~0.13.0",
-    "@valbuild/ui": "~0.13.0",
+    "@valbuild/core": "~0.13.4",
+    "@valbuild/ui": "~0.13.4",
     "base64-arraybuffer": "^1.0.2",
-    "react-shadow": "^20.0.0",
     "style-to-object": "^0.4.1"
   },
   "devDependencies": {
     "@testing-library/react": "^14.0.0",
     "@types/react": "^18.0.26",
     "jest-environment-jsdom": "^29.5.0",
-    "react": "^18.2.0"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "peerDependencies": {
-    "react": ">=16.8.0"
+    "react": ">=18.2.0",
+    "react-dom": ">=18.2.0"
   },
   "peerDependenciesMeta": {
     "@types/react": {
@@ -40,6 +43,9 @@
       ]
     }
   },
+  "externals": [
+    "react"
+  ],
   "main": "dist/valbuild-react.cjs.js",
   "module": "dist/valbuild-react.esm.js",
   "browser": {

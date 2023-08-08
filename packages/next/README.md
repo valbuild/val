@@ -3,7 +3,7 @@
   <p align="center">
     ✨ <a href="https://app.val.build">https://app.val.build</a> ✨
     <br/>
-    content - super-charged - hard-coded
+    hard-coded content - super-charged
   </p>
 </p>
 
@@ -55,11 +55,10 @@ Val is built on top of TypeScript and Git, letting you use types, branches, vers
 ## Installation
 
 - Make sure you have TypeScript 4.9+, Next 12+ (other meta frameworks will come), React 18+ (other frontend frameworks will come)
-- **NOTE**: THIS GUIDE is using the Next `/pages` directory NOT the new `/app` directory!
 - Install the packages:
 
 ```sh
-npm install @valbuild/core @valbuild/react @valbuild/server
+npm install @valbuild/next
 ```
 
 - Create your val.config.ts file. NOTE: this file should be in the same directory as `tsconfig.json`:
@@ -67,28 +66,11 @@ npm install @valbuild/core @valbuild/react @valbuild/server
 ```ts
 // ./val.config.ts
 
-import { initVal } from "@valbuild/core";
+import { initVal } from "@valbuild/next";
 
 const { s, val } = initVal();
 
 export { s, val };
-```
-
-- Update tsconfig.json: enable strict mode and include the Val JSX transformer :
-
-```jsonc
-// ./tsconfig.json
-
-{
-  "compilerOptions": {
-    ///...
-    "strict": true,
-    ///...
-    "jsxImportSource": "@valbuild/react"
-    //...
-  }
-  ///...
-}
 ```
 
 - Enable contextual editing: setup Val endpoints
@@ -96,12 +78,10 @@ export { s, val };
 ```ts
 // ./src/pages/api/val/[...val].ts
 
-import { createRequestListener } from "@valbuild/server";
+import { valEditHandler } from "../../../../val.config";
 import { NextApiHandler } from "next";
 
-const handler: NextApiHandler = createRequestListener("/api/val", {
-  valConfigPath: "./val.config",
-});
+const handler: NextApiHandler = valEditHandler;
 
 export default handler;
 
@@ -192,8 +172,6 @@ export default Blog;
 `.val.{ts|js}` files **MUST** have a default export which is a ValModule. A ValModule is a special type of [Selector](#selectors). Selectors makes it possible to select a subset of content from a ValModule or a another Selector.
 
 Selectors can be turned to Val types using `useVal` or `fetchVal`.
-
-Val types is what you use in your components. It is a wrapper around underlying type that adds an id, which is used to automatically tag content in the DOM. You can always extract the underlying value from a Val using the `.val` property.
 
 ### .val files
 
