@@ -4,7 +4,7 @@ import classNames from "classnames";
 import { Dispatch, FC, SetStateAction, useEffect, useState } from "react";
 import Chevron from "../../assets/icons/Chevron";
 import { PatchJSON } from "@valbuild/core/patch";
-import { ValApi } from "@valbuild/react";
+// import { ValApi } from "@valbuild/react";
 
 const ValTreeArrayModuleItem: FC<{
   submodule: Json;
@@ -85,8 +85,8 @@ const ValTreeNavigatorArrayModule: FC<{
   module: SerializedModule;
   selectedModule: string;
   setSelectedModule: Dispatch<SetStateAction<string>>;
-  valApi: ValApi;
-}> = ({ module, selectedModule, setSelectedModule, valApi }) => {
+  // valApi: ValApi;
+}> = ({ module, selectedModule, setSelectedModule }) => {
   const [collapsed, setCollapsed] = useState(true);
   const [items, setItems] = useState<Json[]>(
     (module.source as JsonArray).map((submodule) => submodule as Json)
@@ -122,7 +122,7 @@ const ValTreeNavigatorArrayModule: FC<{
           .join("/")}`,
       },
     ];
-    await valApi.patchModuleContent(moduleId, patch);
+    // await valApi.patchModuleContent(moduleId, patch);
     if (selectedModule === path) {
       setSelectedModule(`${newModuleId}.${newModulePath}`);
     }
@@ -204,13 +204,13 @@ interface ValTreeNavigator {
   modules: SerializedModule[];
   selectedModule: string;
   setSelectedModule: Dispatch<SetStateAction<string>>;
-  valApi: ValApi;
+  // valApi: ValApi;
 }
 export const ValTreeNavigator: FC<ValTreeNavigator> = ({
   modules,
   selectedModule,
   setSelectedModule,
-  valApi,
+  // valApi,
 }) => {
   return (
     <div
@@ -224,7 +224,7 @@ export const ValTreeNavigator: FC<ValTreeNavigator> = ({
               key={idx}
               selectedModule={selectedModule}
               setSelectedModule={setSelectedModule}
-              valApi={valApi}
+              // valApi={valApi}
             />
           ) : (
             <ValTreeNavigatorModule

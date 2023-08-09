@@ -1,26 +1,66 @@
-import { ValModule, SelectorSource } from "@valbuild/core";
+import {
+  ValModule,
+  SelectorSource,
+  SerializedVal,
+  SourcePath,
+  ModuleId,
+  ModulePath,
+  SerializedSchema,
+} from "@valbuild/core";
+import {
+  BranchRef,
+  CommitSha,
+  OrgName,
+  ProjectName,
+} from "@valbuild/core/internal";
+import { Patch } from "@valbuild/core/patch";
+import { Json } from "@valbuild/core/src/Json";
+import { SerializedArraySchema } from "@valbuild/core/src/schema/array";
+import { SerializedObjectSchema } from "@valbuild/core/src/schema/object";
 import { ValApi } from "./ValApi";
 
+export function initStore(config: {
+  api: ValApi;
+  commitSha: CommitSha;
+  branchRef: BranchRef;
+  projectName: ProjectName;
+  orgName: OrgName;
+}) {
+  return new ValStore(config.api);
+}
+
+type RootModule =
+  | {
+      compositeType: "object";
+      schema: SerializedObjectSchema;
+      paths: ModulePath[];
+      size: number;
+    }
+  // | {
+  //     compositeType: "record";
+  //     schema: SerializedRecordSchema;
+  //     paths: ModulePath[];
+  //     size: number;
+  //   }
+  | {
+      compositeType: "array";
+      schema: SerializedArraySchema;
+      paths: ModulePath[];
+      size: number;
+    }
+  | {
+      compositeType: false;
+      schema: SerializedSchema;
+      source: SerializedVal;
+    };
+
 export class ValStore {
-  private readonly vals: Map<string, ValModule<SelectorSource>>;
-  private readonly listeners: { [moduleId: string]: (() => void)[] };
+  private readonly vals: Map<ModuleId, Json>;
+  private readonly listeners: { [path: SourcePath]: (() => void)[] };
 
   constructor(private readonly api: ValApi) {
     this.vals = new Map();
     this.listeners = {};
-  }
-
-  async updateAll() {
-    await Promise.all(
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      Object.keys(this.listeners).map(async (moduleId) => {
-        // this.set(
-        //   moduleId,
-        //   await this.api.getModule(moduleId)
-        //   // ModuleContent.deserialize(await this.api.getModule(moduleId))
-        // );
-      })
-    );
   }
 
   subscribe = (moduleId: string) => (listener: () => void) => {
@@ -44,7 +84,7 @@ export class ValStore {
     return this.vals.get(moduleId);
   }
 
-  emitChange(moduleId: string) {
+  emitChange(sourcePath: SourcePath) {
     const listeners = this.listeners[moduleId];
     if (typeof listeners === "undefined") return;
     for (const listener of listeners) {
@@ -52,11 +92,30 @@ export class ValStore {
     }
   }
 
-  getSnapshot = (moduleId: string) => () => {
+  getSnapshot = (sourcePath: SourcePath) => () => {
     return this.vals.get(moduleId);
   };
 
-  getServerSnapshot = (moduleId: string) => () => {
+  getServerSnapshot = (sourcePath: SourcePath) => () => {
     return this.vals.get(moduleId);
   };
+
+  getRootModules() {
+    // { [moduleId: string]:  }
+  }
+
+  fetchVal(
+    sourcePath: SourcePath,
+    applyPatches = true
+  ): Promise<SerializedVal> {
+    throw new Error("Method not implemented.");
+  }
+
+  applyPatch(sourcePath: SourcePath, patch: Patch): Promise<void> {
+    throw new Error("Method not implemented.");
+  }
+
+  getValidationErrors() {
+    // TODO?
+  }
 }

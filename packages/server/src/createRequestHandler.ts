@@ -21,5 +21,6 @@ export function createRequestHandler(valServer: ValServer): RequestHandler {
     valServer.patchIds.bind(valServer)
   );
   router.post("/commit", valServer.commit.bind(valServer));
+  router.get("/enable", valServer.setEnableCookie.bind(valServer));
   return router;
 }

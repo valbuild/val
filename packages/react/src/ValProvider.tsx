@@ -1,6 +1,6 @@
 "use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import React, { lazy, useContext, useMemo } from "react";
+import React, { lazy, useContext, useEffect, useMemo, useState } from "react";
 import { ValApi } from "./ValApi";
 import { ValStore } from "./ValStore";
 
@@ -34,11 +34,16 @@ export type ValProviderProps = {
   children?: React.ReactNode;
 };
 const ValUI =
-  typeof window !== "undefined" ? lazy(() => import("./ValUI")) : null;
+  typeof window !== "undefined" &&
+  (process.env.NODE_ENV !== "production" ||
+    document.cookie.includes("val_enabled=true"))
+    ? lazy(() => import("./ValUI"))
+    : null;
 
 export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
   const valApi = useMemo(() => new ValApi(host), [host]);
   const valStore = useMemo(() => new ValStore(valApi), [valApi]);
+
   return (
     <ValContext.Provider value={{ valApi, valStore }}>
       {children}

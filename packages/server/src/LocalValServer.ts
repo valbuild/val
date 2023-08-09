@@ -9,6 +9,7 @@ import { ParsedQs } from "qs";
 import fs from "fs/promises";
 import { Internal, ModuleId, ModulePath } from "@valbuild/core";
 import path from "path";
+import { ParamsDictionary } from "express-serve-static-core";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -141,6 +142,10 @@ export class LocalValServer implements ValServer {
   }
 
   logout(req: express.Request, res: express.Response): Promise<void> {
+    return this.badRequest(req, res);
+  }
+
+  setEnableCookie(req: express.Request, res: express.Response): Promise<void> {
     return this.badRequest(req, res);
   }
 }

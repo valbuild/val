@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { PatchJSON } from "./patch/validation";
 import { result } from "@valbuild/core/fp";
+import { VAL_ENABLED_COOKIE } from "@valbuild/core/internal";
 import { getPathFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
 import { z } from "zod";
@@ -97,6 +98,18 @@ export class ProxyValServer implements ValServer {
         expires: new Date(exp * 1000), // NOTE: this is not used for authorization, only for authentication
       })
       .redirect(callbackReqSuccess.redirect_uri || "/");
+  }
+
+  async setEnableCookie(
+    _req: express.Request,
+    res: express.Response
+  ): Promise<void> {
+    res
+      .cookie(VAL_ENABLED_COOKIE, JSON.stringify(true), {
+        httpOnly: false,
+        sameSite: "lax",
+      })
+      .redirect("/");
   }
 
   async logout(_req: express.Request, res: express.Response): Promise<void> {

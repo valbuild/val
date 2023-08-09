@@ -1,5 +1,4 @@
 import { SerializedModule } from "@valbuild/core";
-import { ValApi } from "@valbuild/react";
 import classNames from "classnames";
 import React, { useState, FC, ReactNode, useEffect } from "react";
 import { ValDashboardEditor } from "./ValDashboardEditor";
@@ -88,21 +87,21 @@ const Panel: FC<PanelProps> = ({
 };
 
 interface ValDashboardGridProps {
-  valApi: ValApi;
+  // valApi: ValApi;
   editMode: boolean;
 }
 
 export const ValDashboardGrid: FC<ValDashboardGridProps> = ({
-  valApi,
+  // valApi,
   editMode,
 }) => {
   const [widths, setWidths] = useState([300, (2 * window.innerWidth) / 3]);
   const [modules, setModules] = useState<SerializedModule[]>([]);
   const [selectedPath, setSelectedPath] = useState<string>("");
   useEffect(() => {
-    valApi.getAllModules().then((modules) => {
-      setModules(modules);
-    });
+    // valApi.getAllModules().then((modules) => {
+    //   setModules(modules);
+    // });
   }, [editMode]);
 
   const handleResize = (index: number) => (width: number) => {
@@ -120,7 +119,7 @@ export const ValDashboardGrid: FC<ValDashboardGridProps> = ({
           modules={modules}
           selectedModule={selectedPath}
           setSelectedModule={setSelectedPath}
-          valApi={valApi}
+          // valApi={valApi}
         />
       </Panel>
       <Panel
@@ -134,7 +133,7 @@ export const ValDashboardGrid: FC<ValDashboardGridProps> = ({
         width={widths[1]}
         onResize={handleResize(1)}
       >
-        <ValDashboardEditor selectedPath={selectedPath} valApi={valApi} />
+        <ValDashboardEditor selectedPath={selectedPath} />
       </Panel>
     </div>
   );

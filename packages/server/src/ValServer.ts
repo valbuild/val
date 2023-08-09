@@ -25,4 +25,6 @@ export interface ValServer {
   ): Promise<void>;
 
   commit(req: express.Request, res: express.Response): Promise<void>;
+
+  setEnableCookie(req: express.Request, res: express.Response): Promise<void>;
 }

@@ -9,7 +9,6 @@ import {
 } from "@valbuild/core";
 import { PatchJSON } from "@valbuild/core/patch";
 import { ImageMetadata } from "@valbuild/core/src/schema/image";
-import { ValApi } from "@valbuild/react";
 import { LexicalEditor } from "lexical";
 import { FC, useEffect, useState } from "react";
 import { Inputs, RichTextEditor } from "../../exports";
@@ -19,12 +18,12 @@ import { TextForm } from "../forms/TextForm";
 
 interface ValDashboardEditorProps {
   selectedPath: string;
-  valApi: ValApi;
+  // valApi: ValApi;
 }
 
 export const ValDashboardEditor: FC<ValDashboardEditorProps> = ({
   selectedPath,
-  valApi,
+  // valApi,
 }) => {
   const [selectedModule, setSelectedModule] = useState<SerializedModule>();
   const [inputs, setInputs] = useState<Inputs>({});
@@ -37,9 +36,9 @@ export const ValDashboardEditor: FC<ValDashboardEditorProps> = ({
 
   useEffect(() => {
     if (selectedPath) {
-      valApi.getModule(selectedPath).then((module) => {
-        setSelectedModule(module);
-      });
+      // valApi.getModule(selectedPath).then((module) => {
+      //   setSelectedModule(module);
+      // });
     }
   }, [selectedPath]);
 
@@ -48,57 +47,57 @@ export const ValDashboardEditor: FC<ValDashboardEditorProps> = ({
       setInputs({});
       for (const key of Object.keys(selectedModule?.source)) {
         if (key !== "rank") {
-          valApi
-            .getModule(`${selectedModule.path}.${key}`)
-            .then((serializedModule) => {
-              let input: Inputs[string] | undefined;
-              if (
-                serializedModule.schema.type === "string" &&
-                typeof serializedModule.source === "string"
-              ) {
-                input = {
-                  status: "completed",
-                  type: "text",
-                  data: serializedModule.source,
-                };
-              } else if (
-                serializedModule.schema.type === "richtext" &&
-                typeof serializedModule.source === "object"
-              ) {
-                input = {
-                  status: "completed",
-                  type: "richtext",
-                  data: serializedModule.source as RichText, // TODO: validate
-                };
-              } else if (
-                serializedModule.schema.type === "image" &&
-                serializedModule.source &&
-                typeof serializedModule.source === "object" &&
-                FILE_REF_PROP in serializedModule.source &&
-                typeof serializedModule.source[FILE_REF_PROP] === "string" &&
-                VAL_EXTENSION in serializedModule.source &&
-                typeof serializedModule.source[VAL_EXTENSION] === "string"
-              ) {
-                input = {
-                  status: "completed",
-                  type: "image",
-                  data: Internal.convertImageSource(
-                    serializedModule.source as FileSource<ImageMetadata>
-                  ),
-                };
-              }
-              if (!input) {
-                throw new Error(
-                  `Unsupported module type: ${serializedModule.schema.type}`
-                );
-              }
-              setInputs((inputs) => {
-                return {
-                  ...inputs,
-                  [serializedModule.path]: input,
-                } as Inputs;
-              });
-            });
+          // valApi
+          //   .getModule(`${selectedModule.path}.${key}`)
+          //   .then((serializedModule) => {
+          //     let input: Inputs[string] | undefined;
+          //     if (
+          //       serializedModule.schema.type === "string" &&
+          //       typeof serializedModule.source === "string"
+          //     ) {
+          //       input = {
+          //         status: "completed",
+          //         type: "text",
+          //         data: serializedModule.source,
+          //       };
+          //     } else if (
+          //       serializedModule.schema.type === "richtext" &&
+          //       typeof serializedModule.source === "object"
+          //     ) {
+          //       input = {
+          //         status: "completed",
+          //         type: "richtext",
+          //         data: serializedModule.source as RichText, // TODO: validate
+          //       };
+          //     } else if (
+          //       serializedModule.schema.type === "image" &&
+          //       serializedModule.source &&
+          //       typeof serializedModule.source === "object" &&
+          //       FILE_REF_PROP in serializedModule.source &&
+          //       typeof serializedModule.source[FILE_REF_PROP] === "string" &&
+          //       VAL_EXTENSION in serializedModule.source &&
+          //       typeof serializedModule.source[VAL_EXTENSION] === "string"
+          //     ) {
+          //       input = {
+          //         status: "completed",
+          //         type: "image",
+          //         data: Internal.convertImageSource(
+          //           serializedModule.source as FileSource<ImageMetadata>
+          //         ),
+          //       };
+          //     }
+          //     if (!input) {
+          //       throw new Error(
+          //         `Unsupported module type: ${serializedModule.schema.type}`
+          //       );
+          //     }
+          //     setInputs((inputs) => {
+          //       return {
+          //         ...inputs,
+          //         [serializedModule.path]: input,
+          //       } as Inputs;
+          //     });
+          //   });
         }
       }
     }
@@ -138,7 +137,7 @@ export const ValDashboardEditor: FC<ValDashboardEditorProps> = ({
                 },
               ];
               console.log("patch", patch);
-              return valApi.patchModuleContent(moduleId, patch);
+              // return valApi.patchModuleContent(moduleId, patch);
             } else if (input.type === "image") {
               const pathParts = modulePath.split(".").map((p) => JSON.parse(p));
 
@@ -174,7 +173,7 @@ export const ValDashboardEditor: FC<ValDashboardEditorProps> = ({
                 }
               }
               console.log("patch", patch);
-              return valApi.patchModuleContent(moduleId, patch);
+              // return valApi.patchModuleContent(moduleId, patch);
             } else if (input.type === "richtext") {
               const patch: PatchJSON = [
                 {
@@ -186,7 +185,7 @@ export const ValDashboardEditor: FC<ValDashboardEditorProps> = ({
                     .join("/")}`,
                 },
               ];
-              return valApi.patchModuleContent(moduleId, patch);
+              // return valApi.patchModuleContent(moduleId, patch);
             }
             throw new Error(`Unsupported input type: ${(input as any).type}`);
           } else {
