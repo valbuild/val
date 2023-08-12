@@ -37,7 +37,7 @@
     "style-to-object": "^0.4.1"
   },
   "peerDependencies": {
-    "next": "^12.3.4",
+    "next": ">=12.3.4",
     "react": ">=18.2.0"
   },
   "externals": [
