@@ -14,16 +14,22 @@ const ValTreeArrayModuleItem: FC<{
   idx: number;
   path: string;
   reOrder: (oldIdx: number, newIdx: number) => void;
-}> = ({ submodule, selectedModule, setSelectedModule, idx, path, reOrder }) => {
+  reorderMode: boolean;
+}> = ({
+  submodule,
+  selectedModule,
+  setSelectedModule,
+  idx,
+  path,
+  reOrder,
+  reorderMode,
+}) => {
   const title = resolveTitle(submodule);
   return (
     <div
       className="w-fit"
       draggable
       id={idx.toString()}
-      onDragStart={(ev) => {
-        console.log("drag start", idx, ev);
-      }}
     >
       <div className="flex gap-4">
         <button
@@ -38,20 +44,22 @@ const ValTreeArrayModuleItem: FC<{
         >
           {title}
         </button>
-        <div className="flex gap-2">
-          <button
-            onClick={() => reOrder(idx, idx + 1)}
-            className="disabled:text-dark-gray"
-          >
-            <Chevron className="rotate-90" />
-          </button>
-          <button
-            onClick={() => reOrder(idx, idx - 1)}
-            className="disabled:text-dark-gray"
-          >
-            <Chevron className="-rotate-90" />
-          </button>
-        </div>
+        {reorderMode && (
+          <div className="flex gap-2">
+            <button
+              onClick={() => reOrder(idx, idx + 1)}
+              className="disabled:text-dark-gray"
+            >
+              <Chevron className="rotate-90" />
+            </button>
+            <button
+              onClick={() => reOrder(idx, idx - 1)}
+              className="disabled:text-dark-gray"
+            >
+              <Chevron className="-rotate-90" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -98,10 +106,11 @@ const ValTreeNavigatorArrayModule: FC<{
     const sanitizedNewIndex =
       newIndex < 0 ? items.length - 1 : newIndex % items.length;
     const path = module.path + oldIndex.toString();
-    const newPath = module.path + newIndex.toString();
+    const newPath = module.path + sanitizedNewIndex.toString();
     const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(
       path as SourcePath
     );
+
 
     const [newModuleId, newModulePath] = Internal.splitModuleIdAndModulePath(
       newPath as SourcePath
@@ -166,19 +175,24 @@ const ValTreeNavigatorArrayModule: FC<{
         </div>
       </div>
 
-      <DraggableList onDragEnd={(res: DraggableResult)=>reOrder(res.from, res.to)}>
-        {items.map((submodule, idx) => (
-          <ValTreeArrayModuleItem
-            submodule={submodule}
-            idx={idx}
-            selectedModule={selectedModule}
-            setSelectedModule={setSelectedModule}
-            path={module.path}
-            key={idx}
-            reOrder={reOrder}
-          />
-        ))}
-      </DraggableList>
+      {!collapsed && (
+        <DraggableList
+          onDragEnd={(res: DraggableResult) => reOrder(res.from, res.to)}
+        >
+          {items.map((submodule, idx) => (
+            <ValTreeArrayModuleItem
+              submodule={submodule}
+              idx={idx}
+              selectedModule={selectedModule}
+              setSelectedModule={setSelectedModule}
+              path={module.path}
+              key={idx}
+              reOrder={reOrder}
+              reorderMode={reOrderMode}
+            />
+          ))}
+        </DraggableList>
+      )}
     </div>
   );
 };
