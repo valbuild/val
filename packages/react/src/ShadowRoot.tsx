@@ -17,10 +17,14 @@ export const ShadowRoot = ({ children }: { children: React.ReactNode }) => {
 
   useLayoutEffect(() => {
     if (node.current) {
-      const root = node.current.attachShadow({
-        mode: "closed",
-      });
-      setRoot(root);
+      if (node.current.shadowRoot) {
+        setRoot(node.current.shadowRoot);
+      } else {
+        const root = node.current.attachShadow({
+          mode: "open",
+        });
+        setRoot(root);
+      }
     }
   }, []);
 
