@@ -83,7 +83,7 @@ export class ValModuleLoader {
     const matches = this.findMatchingJsFile(sourceFileName);
     if (matches.match === false) {
       throw Error(
-        `Could not find matching js file for module "${requestedModuleName}". Tried:\n${matches.tried.join(
+        `Could not find matching js file for module "${requestedModuleName}" requested by: "${containingFilePath}". Tried:\n${matches.tried.join(
           "\n"
         )}`
       );
