@@ -66,11 +66,19 @@ export function stegaEncodeVal<T extends Json>(val: Val<T>): T {
     ) as T;
   }
   if (typeof val.val === "string") {
-    return vercelStegaCombine(val.val, {
-      origin: "app.val.build",
-      data: { valPath: Internal.getValPath(val) },
-    }) as T; // TODO: skip should false at least for URLs? Dates...?
+    return vercelStegaCombine(
+      val.val,
+      {
+        origin: "val.build",
+        data: { valPath: Internal.getValPath(val) },
+      },
+      !isDate(val.val)
+    ) as T; // TODO: skip should false at least for URLs? Dates...?
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return val.val as any;
+}
+
+function isDate(s: string) {
+  return Boolean(Date.parse(s));
 }
