@@ -5,10 +5,7 @@
     "allowJs": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
-    "lib": [
-      "es6",
-      "dom"
-    ],
+    "lib": ["es6", "dom"],
     "module": "CommonJS",
     "noEmit": true,
     "target": "ES5",
@@ -20,7 +17,5 @@
     "../react/stega/autoTagJSX.ts",
     "../react/stega/fetchVal.ts"
   ],
-  "exclude": [
-    "dist/**"
-  ]
+  "exclude": ["dist/**"]
 }
