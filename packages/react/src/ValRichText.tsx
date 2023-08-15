@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   HeadingNode,
   ListItemNode,
@@ -19,7 +18,6 @@ export function ValRichText({ children }: { children: RichText }) {
       {root.children.map((child, i) => {
         const childType = child.type;
         const childPath = `${path}.${i}` as SourcePath;
-        console.log(`'${childType}', ${childPath}`);
         switch (childType) {
           case "heading":
             return (
@@ -130,7 +128,7 @@ function ParagraphNodeComponent({
           case "text":
             return <TextNodeComponent key={childPath} node={child} />;
           default:
-            throw Error("Unknown paragraph node type: " + (child as any)?.type);
+            throw Error("Unknown paragraph node type: " + child?.type);
         }
       })}
     </p>
@@ -171,7 +169,7 @@ function ListItemComponent({
           case "text":
             return <TextNodeComponent key={childPath} node={child} />;
           default:
-            throw Error("Unknown list item node type: " + (child as any)?.type);
+            throw Error("Unknown list item node type: " + child?.type);
         }
       })}
     </li>
