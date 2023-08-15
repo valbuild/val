@@ -1,8 +1,8 @@
-import "./autoTagJSX";
+import "@valbuild/react/stega/autoTagJSX";
 
 export { ValProvider } from "@valbuild/react";
-export { useVal } from "./hooks/useVal";
-export { type ValEncodedString } from "./stegaEncode";
+export { useVal } from "@valbuild/react/stega";
+export { type ValEncodedString } from "@valbuild/react/stega";
 export * from "@valbuild/core";
-export { fetchVal } from "./fetchVal";
-export { ValRichText } from "./ValRichText";
+export { fetchVal } from "@valbuild/react/stega";
+export { ValRichText } from "@valbuild/react/src/ValRichText";

@@ -2,7 +2,7 @@
   "name": "@valbuild/react",
   "version": "0.13.4",
   "private": false,
-  "description": "Val - React",
+  "description": "Val - React internal helpers",
   "sideEffects": false,
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -34,7 +34,8 @@
     "entrypoints": [
       "./index.ts",
       "./jsx-runtime.js",
-      "./jsx-dev-runtime.js"
+      "./jsx-dev-runtime.js",
+      "./stega/index.ts"
     ],
     "exports": {
       "envConditions": [
@@ -67,6 +68,14 @@
         "default": "./jsx-runtime/dist/valbuild-react-jsx-runtime.esm.js"
       },
       "default": "./jsx-runtime/dist/valbuild-react-jsx-runtime.cjs.js"
+    },
+    "./stega": {
+      "module": {
+        "worker": "./stega/dist/valbuild-react-stega.worker.esm.js",
+        "browser": "./stega/dist/valbuild-react-stega.browser.esm.js",
+        "default": "./stega/dist/valbuild-react-stega.esm.js"
+      },
+      "default": "./stega/dist/valbuild-react-stega.cjs.js"
     },
     "./jsx-dev-runtime": {
       "module": {

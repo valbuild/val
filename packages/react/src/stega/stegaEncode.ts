@@ -1,9 +1,9 @@
 import { Json, Val, Internal, RichTextSource, RichText } from "@valbuild/core";
 import { vercelStegaCombine } from "@vercel/stega";
 import { FileSource, RemoteSource, Source, SourceObject } from "@valbuild/core";
-import { JsonPrimitive } from "@valbuild/core/src/Json";
-import { SourceArray } from "@valbuild/core/src/source";
-import { I18nSource } from "@valbuild/core/src/source/i18n";
+import { JsonPrimitive } from "@valbuild/core";
+import { SourceArray } from "@valbuild/core";
+import { I18nSource } from "@valbuild/core";
 
 declare const brand: unique symbol;
 
