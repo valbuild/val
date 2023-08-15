@@ -3,11 +3,7 @@
 import { content } from "./module";
 import { i18n, I18n } from "./source/i18n";
 import { InitSchema, initSchema, InitSchemaLocalized } from "./initSchema";
-import { SelectorOf } from "./selector";
-import { getValPath as getPath, Val } from "./val";
-import { SelectorSource, GenericSelector } from "./selector";
-import { JsonOfSource } from "./val";
-import { fetchVal } from "./fetchVal";
+import { getValPath as getPath } from "./val";
 import { remote } from "./source/remote";
 import { file } from "./source/file";
 import { richtext } from "./source/richtext";
@@ -27,21 +23,10 @@ export type InitVal<Locales extends readonly string[] | undefined> = [
       val: ValConstructor & {
         i18n: I18n<Locales>;
       };
-      fetchVal<T extends SelectorSource>(
-        selector: T,
-        locale: Locales[number]
-      ): SelectorOf<T> extends GenericSelector<infer S>
-        ? Promise<Val<JsonOfSource<S>>>
-        : never;
       s: InitSchema & InitSchemaLocalized<Locales>;
     }
   : {
       val: ValConstructor;
-      fetchVal<T extends SelectorSource>(
-        selector: T
-      ): SelectorOf<T> extends GenericSelector<infer S>
-        ? Promise<Val<JsonOfSource<S>>>
-        : never;
       s: InitSchema;
     };
 
@@ -76,7 +61,6 @@ export const initVal = <
         file,
         richtext,
       },
-      fetchVal: fetchVal,
       s,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any;
@@ -90,7 +74,6 @@ export const initVal = <
       file,
       richtext,
     },
-    fetchVal: fetchVal,
     s: {
       ...s,
       i18n: undefined,
