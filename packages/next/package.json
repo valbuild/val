@@ -8,7 +8,7 @@
     "next",
     "react"
   ],
-  "version": "0.14.0",
+  "version": "0.15.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest"
@@ -30,9 +30,9 @@
     "exports": true
   },
   "dependencies": {
-    "@valbuild/core": "~0.14.0",
-    "@valbuild/react": "~0.14.0",
-    "@valbuild/server": "~0.14.0"
+    "@valbuild/core": "~0.15.0",
+    "@valbuild/react": "~0.15.0",
+    "@valbuild/server": "~0.15.0"
   },
   "peerDependencies": {
     "next": ">=12.3.4",
