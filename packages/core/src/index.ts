@@ -22,10 +22,11 @@ export {
   type SourcePath,
   type JsonOfSource,
 } from "./val";
-export { type Json } from "./Json";
+export type { Json, JsonPrimitive } from "./Json";
 export * as expr from "./expr/";
 export { FILE_REF_PROP } from "./source/file";
-export { VAL_EXTENSION } from "./source";
+export { VAL_EXTENSION, type SourceArray } from "./source";
+export type { I18nSource } from "./source/i18n";
 export { derefPatch } from "./patch/deref";
 export {
   type SelectorSource,

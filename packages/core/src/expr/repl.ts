@@ -1,7 +1,6 @@
 import * as repl from "repl";
 import { result, pipe } from "../../fp";
-import { newSelectorProxy, selectorToVal } from "../selector/SelectorProxy";
-import { SourcePath } from "../val";
+import { selectorToVal } from "../selector/SelectorProxy";
 import { evaluate } from "./eval";
 import { parse } from "./parser";
 

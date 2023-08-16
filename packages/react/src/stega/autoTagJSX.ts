@@ -14,7 +14,7 @@ const isIntrinsicElement = (type: any) => {
 };
 
 const addValPathIfFound = (type: any, props: any) => {
-  const valSources = [];
+  const valSources: any = [];
 
   if (isIntrinsicElement(type) && props && typeof props === "object") {
     for (const [key, value] of Object.entries(props)) {
@@ -58,20 +58,23 @@ interface JsxRuntimeModule {
   jsxs?(type: any, ...rest: any[]): unknown;
   jsxDEV?(type: any, ...rest: any[]): unknown;
 }
-const JsxPro: JsxRuntimeModule = jsxRuntime;
-const JsxDev: JsxRuntimeModule = jsxRuntimeDev;
 
-/**
- * createElement _may_ be called by jsx runtime as a fallback in certain cases,
- * so we need to wrap it regardless.
- *
- * The jsx exports depend on the `NODE_ENV` var to ensure the users' bundler doesn't
- * include both, so one of them will be set with `undefined` values.
- */
-React.createElement = WrapJsx(React.createElement);
-JsxDev.jsx && /*   */ (JsxDev.jsx = WrapJsx(JsxDev.jsx));
-JsxPro.jsx && /*   */ (JsxPro.jsx = WrapJsx(JsxPro.jsx));
-JsxDev.jsxs && /*  */ (JsxDev.jsxs = WrapJsx(JsxDev.jsxs));
-JsxPro.jsxs && /*  */ (JsxPro.jsxs = WrapJsx(JsxPro.jsxs));
-JsxDev.jsxDEV && /**/ (JsxDev.jsxDEV = WrapJsx(JsxDev.jsxDEV));
-JsxPro.jsxDEV && /**/ (JsxPro.jsxDEV = WrapJsx(JsxPro.jsxDEV));
+export function autoTagJSX() {
+  const JsxPro: JsxRuntimeModule = jsxRuntime;
+  const JsxDev: JsxRuntimeModule = jsxRuntimeDev;
+
+  /**
+   * createElement _may_ be called by jsx runtime as a fallback in certain cases,
+   * so we need to wrap it regardless.
+   *
+   * The jsx exports depend on the `NODE_ENV` var to ensure the users' bundler doesn't
+   * include both, so one of them will be set with `undefined` values.
+   */
+  React.createElement = WrapJsx(React.createElement);
+  JsxDev.jsx && /*   */ (JsxDev.jsx = WrapJsx(JsxDev.jsx));
+  JsxPro.jsx && /*   */ (JsxPro.jsx = WrapJsx(JsxPro.jsx));
+  JsxDev.jsxs && /*  */ (JsxDev.jsxs = WrapJsx(JsxDev.jsxs));
+  JsxPro.jsxs && /*  */ (JsxPro.jsxs = WrapJsx(JsxPro.jsxs));
+  JsxDev.jsxDEV && /**/ (JsxDev.jsxDEV = WrapJsx(JsxDev.jsxDEV));
+  JsxPro.jsxDEV && /**/ (JsxPro.jsxDEV = WrapJsx(JsxPro.jsxDEV));
+}
