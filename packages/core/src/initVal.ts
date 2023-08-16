@@ -11,7 +11,6 @@ import { richtext } from "./source/richtext";
 type ValConstructor = {
   content: typeof content;
   getPath: typeof getPath;
-  key: typeof getPath;
   remote: typeof remote;
   file: typeof file;
   richtext: typeof richtext;
@@ -57,7 +56,6 @@ export const initVal = <
         i18n,
         remote,
         getPath,
-        key: getPath,
         file,
         richtext,
       },
@@ -70,7 +68,6 @@ export const initVal = <
       content,
       remote,
       getPath,
-      key: getPath,
       file,
       richtext,
     },
