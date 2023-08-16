@@ -72,8 +72,8 @@ export function stegaEncodeVal<T extends Json>(val: Val<T>): T {
         origin: "val.build",
         data: { valPath: Internal.getValPath(val) },
       },
-      !isDate(val.val)
-    ) as T; // TODO: skip should false at least for URLs? Dates...?
+      isDate(val.val) // skip = true if isDate
+    ) as T;
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return val.val as any;
