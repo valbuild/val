@@ -1,5 +1,6 @@
-import { pipe, result } from "../../fp";
+import { pipe, result } from "../fp";
 import { Path } from "../selector";
+import { selectorToVal } from "../selector/SelectorProxy";
 import { Source } from "../source";
 import { evaluate } from "./eval";
 import { parse } from "./parser";
