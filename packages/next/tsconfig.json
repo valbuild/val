@@ -12,6 +12,10 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src/**/*"],
+  "include": [
+    "src/**/*",
+    "../react/stega/autoTagJSX.ts",
+    "../react/stega/fetchVal.ts"
+  ],
   "exclude": ["dist/**"]
 }

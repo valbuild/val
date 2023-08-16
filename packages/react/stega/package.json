@@ -1,0 +1,7 @@
+{
+  "main": "dist/valbuild-react-stega.cjs.js",
+  "module": "dist/valbuild-react-stega.esm.js",
+  "browser": {
+    "./dist/valbuild-react-stega.esm.js": "./dist/valbuild-react-stega.browser.esm.js"
+  }
+}
