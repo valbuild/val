@@ -18,8 +18,18 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
   constructor(readonly options?: NumberOptions, readonly opt: boolean = false) {
     super();
   }
-  validate(src: Src): ValidationError {
-    throw new Error("Method not implemented.");
+  validate(path: SourcePath, src: Src): ValidationError {
+    if (this.opt && (src === null || src === undefined)) {
+      return false;
+    }
+    if (typeof src !== "number") {
+      return {
+        [path]: [
+          { message: `Expected 'number', got '${typeof src}'`, value: src },
+        ],
+      } as ValidationError;
+    }
+    return false;
   }
 
   assert(src: Src): boolean {

@@ -27,7 +27,7 @@ export class OneOfSchema<
   constructor(readonly selector: Sel, readonly opt: boolean = false) {
     super();
   }
-  validate(src: OneOfSelector<Sel>): ValidationError {
+  validate(path: SourcePath, src: OneOfSelector<Sel>): ValidationError {
     throw new Error("Method not implemented.");
   }
   assert(src: OneOfSelector<Sel>): boolean {

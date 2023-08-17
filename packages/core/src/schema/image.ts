@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
 import { FileSource, FILE_REF_PROP } from "../source/file";
+import { SourcePath } from "../val";
 import { ValidationError } from "./validation/ValidationError";
 
 export type ImageOptions = {
@@ -29,7 +30,7 @@ export class ImageSchema<
     super();
   }
 
-  validate(src: Src): ValidationError {
+  validate(path: SourcePath, src: Src): ValidationError {
     throw new Error("Method not implemented.");
   }
 

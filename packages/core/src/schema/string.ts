@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
+import { SourcePath } from "../val";
 import { ValidationError } from "./validation/ValidationError";
 
 type StringOptions = {
@@ -18,8 +19,18 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     super();
   }
 
-  validate(src: Src): ValidationError {
-    throw new Error("Method not implemented.");
+  validate(path: SourcePath, src: Src): ValidationError {
+    if (this.opt && (src === null || src === undefined)) {
+      return false;
+    }
+    if (typeof src !== "string") {
+      return {
+        [path]: [
+          { message: `Expected 'string', got '${typeof src}'`, value: src },
+        ],
+      } as ValidationError;
+    }
+    return false;
   }
 
   assert(src: Src): boolean {
