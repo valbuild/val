@@ -1,7 +1,6 @@
 import * as repl from "repl";
 import { result, pipe } from "../../fp";
-import { newSelectorProxy, selectorToVal } from "../selector/SelectorProxy";
-import { SourcePath } from "../val";
+import { selectorToVal } from "../selector/SelectorProxy";
 import { evaluate } from "./eval";
 import { parse } from "./parser";
 
@@ -19,8 +18,8 @@ repl
     prompt: "β > ",
     eval: (
       cmd,
-      context,
-      filename,
+      _context,
+      _filename,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       callback: (arg0: any, arg1: any) => void
     ) => {

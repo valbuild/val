@@ -1,8 +1,14 @@
-import "./autoTagJSX";
+export * from "@valbuild/core";
 
 export { ValProvider } from "@valbuild/react";
-export { useVal } from "./hooks/useVal";
-export { type ValEncodedString } from "./stegaEncode";
-export * from "@valbuild/core";
-export { fetchVal } from "./fetchVal";
-export { ValRichText } from "./ValRichText";
+export { ValRichText } from "@valbuild/react";
+
+export { useVal } from "@valbuild/react/stega";
+export { type ValEncodedString } from "@valbuild/react/stega";
+export { fetchVal } from "@valbuild/react/stega";
+
+// Auto-tag JSX with Val paths:
+import { autoTagJSX } from "@valbuild/react/stega";
+
+// NOTE! Side effects:
+autoTagJSX();

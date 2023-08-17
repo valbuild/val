@@ -8,7 +8,7 @@
     "next",
     "react"
   ],
-  "version": "0.13.4",
+  "version": "0.15.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest"
@@ -30,14 +30,12 @@
     "exports": true
   },
   "dependencies": {
-    "@valbuild/core": "~0.13.4",
-    "@valbuild/react": "~0.13.4",
-    "@valbuild/server": "~0.13.4",
-    "@vercel/stega": "^0.0.5",
-    "style-to-object": "^0.4.1"
+    "@valbuild/core": "~0.15.0",
+    "@valbuild/react": "~0.15.0",
+    "@valbuild/server": "~0.15.0"
   },
   "peerDependencies": {
-    "next": "^12.3.4",
+    "next": ">=12.3.4",
     "react": ">=18.2.0"
   },
   "externals": [

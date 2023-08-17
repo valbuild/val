@@ -1,4 +1,4 @@
-import { result } from "../../fp";
+import { result } from "../fp";
 import { parse } from "./parser";
 
 const ParserTestCases: {

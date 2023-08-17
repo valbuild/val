@@ -6,7 +6,7 @@ import { SourcePath } from "../val";
 import { Source } from "../source";
 import { evaluate } from "../expr/eval";
 import * as expr from "../expr/expr";
-import { result } from "../../fp";
+import { result } from "../fp";
 import { object } from "../schema/object";
 import { newSelectorProxy, selectorToVal } from "./SelectorProxy";
 import { newExprSelectorProxy } from "./ExprProxy";
