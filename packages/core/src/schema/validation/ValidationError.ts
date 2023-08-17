@@ -1,6 +1,12 @@
+import { Json } from "../../Json";
 import { SourcePath } from "../../val";
 
 /**
- * Validation error: false if no validation errors were found, or a map of source path to error messages.
+ * Equals `false` if no validation errors were found.
+ * Errors are indexed by the full source path.
+ *
+ * Global errors have the path `"/"`.
  */
-export type ValidationError = false | Record<SourcePath, string[]>;
+export type ValidationError =
+  | false
+  | Record<SourcePath | "/", { message: string; value?: unknown }[]>;

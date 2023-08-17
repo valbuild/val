@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaTypeOf, SerializedSchema } from ".";
 import { I18nCompatibleSource, I18nSource } from "../source/i18n";
+import { SourcePath } from "../val";
 import { ValidationError } from "./validation/ValidationError";
 
 export type SerializedI18nSchema = {
@@ -22,6 +23,7 @@ export class I18nSchema<Locales extends readonly string[]> extends Schema<
   }
 
   validate(
+    path: SourcePath,
     src: I18nSource<Locales, SchemaTypeOf<Schema<I18nCompatibleSource>>>
   ): ValidationError {
     throw new Error("Method not implemented.");

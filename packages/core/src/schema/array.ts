@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaTypeOf, SerializedSchema } from ".";
 import { SelectorSource } from "../selector";
+import { createValPathOfItem } from "../selector/SelectorProxy";
+import { SourcePath } from "../val";
 import { ValidationError } from "./validation/ValidationError";
 
 export type SerializedArraySchema = {
@@ -16,8 +18,43 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
     super();
   }
 
-  validate(src: SchemaTypeOf<T>[]): ValidationError {
-    throw new Error("Method not implemented.");
+  validate(path: SourcePath, src: SchemaTypeOf<T>[]): ValidationError {
+    let error: ValidationError = false;
+
+    if (this.opt && (src === null || src === undefined)) {
+      return false;
+    }
+
+    if (typeof src && !Array.isArray(src)) {
+      return {
+        [path]: [{ message: `Expected array, got '${typeof src}'` }],
+      } as ValidationError;
+    }
+    src.forEach((i, idx) => {
+      const subPath = createValPathOfItem(path, idx);
+      if (!subPath) {
+        error = this.appendValidationError(
+          error,
+          path,
+          `Internal error: could not create path at ${
+            !path && typeof path === "string" ? "<empty string>" : path
+          } at index ${idx}`, // Should! never happen
+          src
+        );
+      } else {
+        const subError = this.item.validate(subPath, i);
+        if (subError && error) {
+          error = {
+            ...subError,
+            ...error,
+          };
+        } else if (subError) {
+          error = subError;
+        }
+      }
+    });
+
+    return error;
   }
 
   assert(src: SchemaTypeOf<T>[]): boolean {

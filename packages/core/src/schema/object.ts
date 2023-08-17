@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaTypeOf, SerializedSchema } from ".";
 import { SelectorSource } from "../selector";
+import { SourcePath } from "../val";
 import { ValidationError } from "./validation/ValidationError";
 
 export type SerializedObjectSchema = {
@@ -21,7 +22,7 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
     super();
   }
 
-  validate(src: ObjectSchemaSrcOf<Props>): ValidationError {
+  validate(path: SourcePath, src: ObjectSchemaSrcOf<Props>): ValidationError {
     throw new Error("Method not implemented.");
   }
 

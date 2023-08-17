@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
 import { RichTextSource } from "../source/richtext";
+import { SourcePath } from "../val";
 import { ValidationError } from "./validation/ValidationError";
 
 export type SerializedRichTextSchema = {
@@ -11,7 +12,7 @@ export type SerializedRichTextSchema = {
 export class RichTextSchema<
   Src extends RichTextSource | null
 > extends Schema<Src> {
-  validate(src: Src): ValidationError {
+  validate(path: SourcePath, src: Src): ValidationError {
     throw new Error("Method not implemented.");
   }
   assert(src: Src): boolean {
