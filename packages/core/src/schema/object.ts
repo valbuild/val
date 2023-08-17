@@ -25,7 +25,7 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
     throw new Error("Method not implemented.");
   }
 
-  match(src: ObjectSchemaSrcOf<Props>): boolean {
+  assert(src: ObjectSchemaSrcOf<Props>): boolean {
     if (this.opt && (src === null || src === undefined)) {
       return true;
     }

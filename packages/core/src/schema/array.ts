@@ -20,7 +20,7 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
     throw new Error("Method not implemented.");
   }
 
-  match(src: SchemaTypeOf<T>[]): boolean {
+  assert(src: SchemaTypeOf<T>[]): boolean {
     if (this.opt && (src === null || src === undefined)) {
       return true;
     }

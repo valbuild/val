@@ -27,7 +27,7 @@ export class I18nSchema<Locales extends readonly string[]> extends Schema<
     throw new Error("Method not implemented.");
   }
 
-  match(
+  assert(
     src: I18nSource<Locales, SchemaTypeOf<Schema<I18nCompatibleSource>>>
   ): boolean {
     throw new Error("Method not implemented.");
