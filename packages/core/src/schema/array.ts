@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaTypeOf, SerializedSchema } from ".";
 import { SelectorSource } from "../selector";
-import { SourcePath } from "../val";
+import { ValidationError } from "./validation/ValidationError";
 
 export type SerializedArraySchema = {
   type: "array";
@@ -16,7 +16,7 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
     super();
   }
 
-  validate(src: SchemaTypeOf<T>[]): false | Record<SourcePath, string[]> {
+  validate(src: SchemaTypeOf<T>[]): ValidationError {
     throw new Error("Method not implemented.");
   }
 

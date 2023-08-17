@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
-import { SourcePath } from "../val";
+import { ValidationError } from "./validation/ValidationError";
 
 export type SerializedBooleanSchema = {
   type: "boolean";
@@ -11,7 +11,7 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
   constructor(readonly opt: boolean = false) {
     super();
   }
-  validate(src: Src): false | Record<SourcePath, string[]> {
+  validate(src: Src): ValidationError {
     throw new Error("Method not implemented.");
   }
 
