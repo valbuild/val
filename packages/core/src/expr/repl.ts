@@ -18,8 +18,8 @@ repl
     prompt: "β > ",
     eval: (
       cmd,
-      context,
-      filename,
+      _context,
+      _filename,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       callback: (arg0: any, arg1: any) => void
     ) => {
