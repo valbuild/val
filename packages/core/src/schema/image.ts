@@ -34,8 +34,7 @@ export class ImageSchema<
   }
 
   assert(src: Src): boolean {
-    // TODO:
-    return true;
+    return src?.[FILE_REF_PROP] !== undefined;
   }
 
   optional(): Schema<Src | null> {
