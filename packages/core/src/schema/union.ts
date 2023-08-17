@@ -27,7 +27,7 @@ export class UnionSchema<
   validate(src: SourceOf<Key, T>): ValidationError {
     throw new Error("Method not implemented.");
   }
-  match(src: SourceOf<Key, T>): boolean {
+  assert(src: SourceOf<Key, T>): boolean {
     throw new Error("Method not implemented.");
   }
   optional(): Schema<SourceOf<Key, T> | null> {

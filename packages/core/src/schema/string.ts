@@ -22,7 +22,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     throw new Error("Method not implemented.");
   }
 
-  match(src: Src): boolean {
+  assert(src: Src): boolean {
     if (this.opt && (src === null || src === undefined)) {
       return true;
     }

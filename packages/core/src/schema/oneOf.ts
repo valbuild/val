@@ -30,7 +30,7 @@ export class OneOfSchema<
   validate(src: OneOfSelector<Sel>): ValidationError {
     throw new Error("Method not implemented.");
   }
-  match(src: OneOfSelector<Sel>): boolean {
+  assert(src: OneOfSelector<Sel>): boolean {
     throw new Error("Method not implemented.");
   }
   optional(): Schema<OneOfSelector<Sel> | null> {

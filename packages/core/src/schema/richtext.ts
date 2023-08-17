@@ -14,7 +14,7 @@ export class RichTextSchema<
   validate(src: Src): ValidationError {
     throw new Error("Method not implemented.");
   }
-  match(src: Src): boolean {
+  assert(src: Src): boolean {
     // TODO:
     return true;
   }
