@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
-import { SourcePath } from "../val";
+import { ValidationError } from "./validation/ValidationError";
 
 export type SerializedLiteralSchema = {
   type: "literal";
@@ -13,7 +13,7 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
     super();
   }
 
-  validate(src: Src): false | Record<SourcePath, string[]> {
+  validate(src: Src): ValidationError {
     throw new Error("Method not implemented.");
   }
 
