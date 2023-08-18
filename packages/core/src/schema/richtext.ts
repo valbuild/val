@@ -2,7 +2,7 @@
 import { Schema, SerializedSchema } from ".";
 import { RichTextSource } from "../source/richtext";
 import { SourcePath } from "../val";
-import { ValidationError } from "./validation/ValidationError";
+import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedRichTextSchema = {
   type: "richtext";
@@ -12,7 +12,7 @@ export type SerializedRichTextSchema = {
 export class RichTextSchema<
   Src extends RichTextSource | null
 > extends Schema<Src> {
-  validate(path: SourcePath, src: Src): ValidationError {
+  validate(path: SourcePath, src: Src): ValidationErrors {
     throw new Error("Method not implemented.");
   }
   assert(src: Src): boolean {

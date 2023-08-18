@@ -3,7 +3,7 @@ import { Schema, SchemaTypeOf, SerializedSchema } from ".";
 import { SelectorSource } from "../selector";
 import { createValPathOfItem } from "../selector/SelectorProxy";
 import { SourcePath } from "../val";
-import { ValidationError } from "./validation/ValidationError";
+import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedArraySchema = {
   type: "array";
@@ -18,17 +18,17 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
     super();
   }
 
-  validate(path: SourcePath, src: SchemaTypeOf<T>[]): ValidationError {
-    let error: ValidationError = false;
+  validate(path: SourcePath, src: SchemaTypeOf<T>[]): ValidationErrors {
+    let error: ValidationErrors = false;
 
     if (this.opt && (src === null || src === undefined)) {
       return false;
     }
 
-    if (typeof src && !Array.isArray(src)) {
+    if (typeof src !== "object" || !Array.isArray(src)) {
       return {
-        [path]: [{ message: `Expected array, got '${typeof src}'` }],
-      } as ValidationError;
+        [path]: [{ message: `Expected 'array', got '${typeof src}'` }],
+      } as ValidationErrors;
     }
     src.forEach((i, idx) => {
       const subPath = createValPathOfItem(path, idx);
@@ -65,7 +65,11 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
       return false;
     }
 
-    // TODO: checks all items
+    for (const item of src) {
+      if (!this.item.assert(item)) {
+        return false;
+      }
+    }
     return typeof src === "object" && Array.isArray(src);
   }
 

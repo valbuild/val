@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
 import { SourcePath } from "../val";
-import { ValidationError } from "./validation/ValidationError";
+import { ValidationErrors } from "./validation/ValidationError";
 
 type StringOptions = {
   maxLength?: number;
@@ -19,7 +19,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     super();
   }
 
-  validate(path: SourcePath, src: Src): ValidationError {
+  validate(path: SourcePath, src: Src): ValidationErrors {
     if (this.opt && (src === null || src === undefined)) {
       return false;
     }
@@ -28,7 +28,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
         [path]: [
           { message: `Expected 'string', got '${typeof src}'`, value: src },
         ],
-      } as ValidationError;
+      } as ValidationErrors;
     }
     return false;
   }
