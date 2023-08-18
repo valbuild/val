@@ -1,8 +1,9 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaTypeOf, SerializedSchema } from ".";
 import { SelectorSource } from "../selector";
+import { createValPathOfItem } from "../selector/SelectorProxy";
 import { SourcePath } from "../val";
-import { ValidationError } from "./validation/ValidationError";
+import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedObjectSchema = {
   type: "object";
@@ -22,8 +23,48 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
     super();
   }
 
-  validate(path: SourcePath, src: ObjectSchemaSrcOf<Props>): ValidationError {
-    throw new Error("Method not implemented.");
+  validate(path: SourcePath, src: ObjectSchemaSrcOf<Props>): ValidationErrors {
+    let error: ValidationErrors = false;
+
+    if (this.opt && (src === null || src === undefined)) {
+      return false;
+    }
+
+    if (typeof src !== "object") {
+      return {
+        [path]: [{ message: `Expected 'object', got '${typeof src}'` }],
+      } as ValidationErrors;
+    } else if (Array.isArray(src)) {
+      return {
+        [path]: [{ message: `Expected 'object', got 'array'` }],
+      } as ValidationErrors;
+    }
+
+    Object.entries(this.items).forEach(([key, schema]) => {
+      const subPath = createValPathOfItem(path, key);
+      if (!subPath) {
+        error = this.appendValidationError(
+          error,
+          path,
+          `Internal error: could not create path at ${
+            !path && typeof path === "string" ? "<empty string>" : path
+          } at key ${key}`, // Should! never happen
+          src
+        );
+      } else {
+        const subError = schema.validate(subPath, src[key]);
+        if (subError && error) {
+          error = {
+            ...subError,
+            ...error,
+          };
+        } else if (subError) {
+          error = subError;
+        }
+      }
+    });
+
+    return error;
   }
 
   assert(src: ObjectSchemaSrcOf<Props>): boolean {
@@ -34,8 +75,11 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
       return false;
     }
 
-    // TODO: checks all props
-
+    for (const [key, schema] of Object.entries(this.items)) {
+      if (!schema.assert(src[key])) {
+        return false;
+      }
+    }
     return typeof src === "object" && !Array.isArray(src);
   }
 

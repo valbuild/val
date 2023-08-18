@@ -1,5 +1,11 @@
-import { Json } from "../../Json";
 import { SourcePath } from "../../val";
+import { ValidationFix } from "./ValidationFix";
+
+export type ValidationError = {
+  message: string;
+  value?: unknown;
+  fixes?: ValidationFix[];
+};
 
 /**
  * Equals `false` if no validation errors were found.
@@ -7,6 +13,6 @@ import { SourcePath } from "../../val";
  *
  * Global errors have the path `"/"`.
  */
-export type ValidationError =
+export type ValidationErrors =
   | false
-  | Record<SourcePath | "/", { message: string; value?: unknown }[]>;
+  | Record<SourcePath | "/", ValidationError[]>;

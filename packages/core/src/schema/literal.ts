@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
 import { SourcePath } from "../val";
-import { ValidationError } from "./validation/ValidationError";
+import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedLiteralSchema = {
   type: "literal";
@@ -14,7 +14,7 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
     super();
   }
 
-  validate(path: SourcePath, src: Src): ValidationError {
+  validate(path: SourcePath, src: Src): ValidationErrors {
     if (this.opt && (src === null || src === undefined)) {
       return false;
     }
@@ -23,7 +23,7 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
         [path]: [
           { message: `Expected 'string', got '${typeof src}'`, value: src },
         ],
-      } as ValidationError;
+      } as ValidationErrors;
     }
     if (src !== this.value) {
       return {
@@ -33,7 +33,7 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
             value: src,
           },
         ],
-      } as ValidationError;
+      } as ValidationErrors;
     }
     return false;
   }

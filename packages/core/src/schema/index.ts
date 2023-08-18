@@ -13,7 +13,7 @@ import { SerializedOneOfSchema } from "./oneOf";
 import { SerializedRichTextSchema } from "./richtext";
 import { SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
-import { ValidationError } from "./validation/ValidationError";
+import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedSchema =
   | SerializedStringSchema
@@ -29,7 +29,7 @@ export type SerializedSchema =
   | SerializedI18nSchema;
 
 export abstract class Schema<Src extends SelectorSource> {
-  abstract validate(path: SourcePath, src: Src): ValidationError;
+  abstract validate(path: SourcePath, src: Src): ValidationErrors;
   abstract assert(src: Src): boolean; // TODO: false | Record<SourcePath, string[]>;
   abstract optional(): Schema<Src | null>;
   abstract serialize(): SerializedSchema;
@@ -42,11 +42,11 @@ export abstract class Schema<Src extends SelectorSource> {
 
   /** MUTATES! since internal and perf sensitive */
   protected appendValidationError(
-    current: ValidationError,
+    current: ValidationErrors,
     path: SourcePath,
     message: string,
     value?: unknown
-  ): ValidationError {
+  ): ValidationErrors {
     if (current) {
       if (current[path]) {
         current[path].push({ message, value });
@@ -55,7 +55,7 @@ export abstract class Schema<Src extends SelectorSource> {
       }
       return current;
     } else {
-      return { [path]: [{ message, value }] } as ValidationError;
+      return { [path]: [{ message, value }] } as ValidationErrors;
     }
   }
 }

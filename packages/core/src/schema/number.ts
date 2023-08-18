@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
 import { SourcePath } from "../val";
-import { ValidationError } from "./validation/ValidationError";
+import { ValidationErrors } from "./validation/ValidationError";
 
 type NumberOptions = {
   max?: number;
@@ -18,7 +18,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
   constructor(readonly options?: NumberOptions, readonly opt: boolean = false) {
     super();
   }
-  validate(path: SourcePath, src: Src): ValidationError {
+  validate(path: SourcePath, src: Src): ValidationErrors {
     if (this.opt && (src === null || src === undefined)) {
       return false;
     }
@@ -27,7 +27,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
         [path]: [
           { message: `Expected 'number', got '${typeof src}'`, value: src },
         ],
-      } as ValidationError;
+      } as ValidationErrors;
     }
     return false;
   }
