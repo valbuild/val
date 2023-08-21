@@ -26,11 +26,7 @@ const ValTreeArrayModuleItem: FC<{
 }) => {
   const title = resolveTitle(submodule);
   return (
-    <div
-      className="w-fit"
-      draggable
-      id={idx.toString()}
-    >
+    <div className="w-fit" draggable id={idx.toString()}>
       <div className="flex gap-4">
         <button
           onClick={() => setSelectedModule(path + idx.toString())}
@@ -111,7 +107,6 @@ const ValTreeNavigatorArrayModule: FC<{
       path as SourcePath
     );
 
-
     const [newModuleId, newModulePath] = Internal.splitModuleIdAndModulePath(
       newPath as SourcePath
     );
@@ -154,7 +149,10 @@ const ValTreeNavigatorArrayModule: FC<{
       <div className="flex items-center justify-between ">
         <button
           className="flex items-center justify-between px-4 py-2 hover:bg-light-gray/20 hover:rounded-lg "
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={() => {
+            setSelectedModule(`${module.path.toString()}`);
+            setCollapsed(!collapsed);
+          }}
         >
           <div className="flex items-center gap-2">
             <Chevron className={classNames({ "rotate-90": !collapsed })} />
@@ -228,6 +226,7 @@ export const ValTreeNavigator: FC<ValTreeNavigator> = ({
   setSelectedModule,
   valApi,
 }) => {
+  console.log('hello?????????????',modules)
   return (
     <div
       className={classNames("flex flex-col gap-4 font-serif text-lg px-4 py-3")}

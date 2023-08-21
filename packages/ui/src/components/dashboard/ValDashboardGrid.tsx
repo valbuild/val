@@ -62,7 +62,7 @@ const Panel: FC<PanelProps> = ({
               onMouseDown={handleMouseDown}
             />
           )}
-          <div className="bg-gray-300 border-b border-dark-gray flex justify-between items-center h-[75px] w-full font-serif px-4">
+          <div className="bg-gray-300 border border-dark-gray flex justify-between items-center h-[75px] w-full font-serif px-4">
             {header}
             {collapsible && (
               <button
