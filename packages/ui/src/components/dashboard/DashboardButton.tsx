@@ -2,7 +2,7 @@ import { FC, ReactNode } from "react";
 import ExpandLogo from "../ExpandLogo";
 
 export const DashboardButton: FC<{
-  onClick: () => void;
+  onClick?: () => void;
   expanded: boolean;
   children: ReactNode;
 }> = ({ onClick, children, expanded }) => {
