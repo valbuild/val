@@ -16,6 +16,10 @@ globalThis.valModule = {
   id: valModule?.default && Internal.getValPath(valModule?.default),
   schema: valModule?.default && Internal.getSchema(valModule?.default)?.serialize(),
   source: valModule?.default && Internal.getRawSource(valModule?.default),
+  validation: valModule?.default && Internal.getSchema(valModule?.default)?.validate(
+    valModule?.default && Internal.getValPath(valModule?.default) || "/",
+    valModule?.default && Internal.getRawSource(valModule?.default)
+  )
 };
 `;
     const result = context.evalCode(
@@ -62,6 +66,7 @@ globalThis.valModule = {
         );
       }
       return {
+        // TODO: requestedId + errors + validations
         path: valModule.id, // This might not be the asked id/path, however, that should be handled further up in the call chain
         source: valModule.source,
         schema: valModule.schema,
