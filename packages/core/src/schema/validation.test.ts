@@ -9,12 +9,14 @@ import { number } from "./number";
 import { object } from "./object";
 import { string } from "./string";
 import { file as fileVal } from "../source/file";
+import { richtext as richtextVal } from "../source/richtext";
 import { image } from "./image";
 import { ValidationFix } from "./validation/ValidationFix";
 import {
   ValidationError,
   ValidationErrors,
 } from "./validation/ValidationError";
+import { richtext } from "./richtext";
 
 const testPath = "/test" as SourcePath;
 const pathOf = (p: string | symbol | number) => {
@@ -144,49 +146,56 @@ const ValidationTestCases: {
   //   expected: [pathOf("two")],
   // },
   // image / file
+  // {
+  //   description: "optional image",
+  //   input: null,
+  //   schema: image().optional(),
+  //   expected: false,
+  // },
+  // {
+  //   description: "failure image:: null",
+  //   input: null,
+  //   schema: image(),
+  //   expected: [testPath],
+  // },
+  // {
+  //   description: "failure image: add metadata",
+  //   input: fileVal("test", {
+  //     width: 100,
+  //     height: 100,
+  //     sha256: "test",
+  //   }),
+  //   schema: image(),
+  //   expected: [testPath],
+  //   fixes: {
+  //     [testPath]: ["image:add-metadata"],
+  //   },
+  // },
+  // {
+  //   description: "failure image: check metadata",
+  //   input: fileVal("test", {
+  //     width: 100,
+  //     height: 100,
+  //     sha256:
+  //       "9e420dc93157ab98338542ba6f1d34fcf829d646aa729a86720fa3f4cb2d0076",
+  //   }),
+  //   schema: image(),
+  //   expected: [testPath],
+  //   fixes: {
+  //     [testPath]: ["image:check-metadata"],
+  //   },
+  // },
+  // richtext
   {
-    description: "optional image",
-    input: null,
-    schema: image().optional(),
+    description: "basic richtext",
+    input: richtextVal("test"),
     expected: false,
+    schema: richtext(),
   },
-  {
-    description: "failure image:: null",
-    input: null,
-    schema: image(),
-    expected: [testPath],
-  },
-  {
-    description: "failure image: add metadata",
-    input: fileVal("test", {
-      width: 100,
-      height: 100,
-      sha256: "test",
-    }),
-    schema: image(),
-    expected: [testPath],
-    fixes: {
-      [testPath]: ["image:add-metadata"],
-    },
-  },
-  {
-    description: "failure image: check metadata",
-    input: fileVal("test", {
-      width: 100,
-      height: 100,
-      sha256:
-        "9e420dc93157ab98338542ba6f1d34fcf829d646aa729a86720fa3f4cb2d0076",
-    }),
-    schema: image(),
-    expected: [testPath],
-    fixes: {
-      [testPath]: ["image:check-metadata"],
-    },
-  },
+  // TODO: more richtext cases
   // TODO: union
   // TODO: oneOf
   // TODO: i18n
-  // TODO: richtext
 ];
 
 describe("validation", () => {
