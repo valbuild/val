@@ -23,7 +23,7 @@ type TreeNodeProps = {
   path: string;
   paths?: string[];
   level?: number;
-  type: "text" | "image" | "section";
+  type: "string" | "image" | "section";
   setActivePath?: (path: string) => void;
 };
 Tree.Node = ({
@@ -36,7 +36,7 @@ Tree.Node = ({
 }: TreeNodeProps): React.ReactElement => {
   const paddingLeft = level * 30;
   const logo =
-    type === "text" ? (
+    type === "string" ? (
       <TextIcon />
     ) : type === "image" ? (
       <ImageIcon className="h-[9px] w-[9px]" />
@@ -44,9 +44,9 @@ Tree.Node = ({
       <Section />
     );
   return (
-    <div className="w-full h-full">
+    <div className="w-full">
       <button
-        className="flex justify-between w-full h-full text-white hover:bg-dark-gray group py-2 hover:text-warm-black text-xs font-[400]"
+        className="flex justify-between w-full text-white hover:bg-dark-gray group py-2 hover:text-warm-black text-xs font-[400]"
         onClick={() => {
           setActivePath && setActivePath(path);
         }}

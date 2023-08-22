@@ -8,13 +8,6 @@ type Story = StoryObj<typeof Dropdown>;
 
 export const Default: Story = {
   render: () => (
-    <Dropdown>
-        <Dropdown.Child>
-            hade
-        </Dropdown.Child>
-        <Dropdown.Child>
-            påbade din gamle sjokolade
-        </Dropdown.Child>
-    </Dropdown>
+    <Dropdown options={["/blogs", "/journals"]}/>
   ),
 };

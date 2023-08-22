@@ -1,13 +1,4 @@
-import {
-  Children,
-  cloneElement,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import Dropdown from "../Dropdown";
-import { Tree } from "./Tree";
+import { Children, useEffect, useRef } from "react";
 
 type GridProps = {
   children: React.ReactNode | React.ReactNode[];
@@ -38,7 +29,8 @@ export function Grid({ children }: GridProps): React.ReactElement {
           ? event.screenX - x.current
           : x.current - event.screenX;
       targetRef.current.style.width = `${Math.max(
-        originalWidth.current + dx
+        originalWidth.current + dx,
+        150
       )}px`;
     }
   };
@@ -64,6 +56,9 @@ export function Grid({ children }: GridProps): React.ReactElement {
         }
       }
     };
+
+  const [header1, body1, header2, body2, header3, body3] =
+    Children.toArray(children);
   useEffect(() => {
     document.addEventListener("mouseup", handleMouseUp);
     document.addEventListener("mousemove", handleMouseMove);
@@ -81,34 +76,30 @@ export function Grid({ children }: GridProps): React.ReactElement {
         className="border-r border-dark-gray relative h-full"
         style={{ width: 300 }}
       >
-        <Tree>
-          <Tree.Node path="Main nav" type="section" />
-          <Tree.Node path="H1" type="text">
-            <Tree.Node path="Section 3" type="text" />
-            <Tree.Node path="Section 4" type="section">
-              <Tree.Node path="Section 5" type="text" />
-              <Tree.Node path="Section 6" type="section">
-                <Tree.Node path="Section 7" type="text" />
-              </Tree.Node>
-            </Tree.Node>
-          </Tree.Node>
-        </Tree>
+        <Grid.Column>
+          {header1}
+          {body1}
+        </Grid.Column>
         <div
           className="absolute inset-y-0 right-0 cursor-col-resize w-[1px] bg-dark-gray hover:w-[2px] hover:bg-light-gray"
           onMouseDown={handleMouseDown("left")}
         ></div>
       </div>
       <div className="bg-warm-black flex-auto">
-        <div className="flex flex-col all-but-last-child:border-b text-white all-but-last-child:border-dark-gray">
-          test 2
-        </div>
+        <Grid.Column>
+          {header2}
+          {body2}
+        </Grid.Column>
       </div>
       <div
         ref={rightColRef}
         className="border-l border-dark-gray bg-warm-black relative"
         style={{ width: 300 }}
       >
-        <div className="text-white">hey</div>
+        <Grid.Column>
+          {header3}
+          {body3}
+        </Grid.Column>
         <div
           onMouseDown={handleMouseDown("right")}
           className="absolute inset-y-0 left-0 cursor-col-resize w-[1px]  bg-dark-gray hover:w-[2px] hover:bg-light-gray"
@@ -120,71 +111,16 @@ export function Grid({ children }: GridProps): React.ReactElement {
 
 type GridChildProps = {
   children: React.ReactNode | React.ReactNode[];
-  header?: React.ReactNode | React.ReactNode[];
-  width?: number;
-  dragEnd?: (deltaWidth: number) => void;
 };
 
-Grid.Column = ({
-  children,
-  header,
-  width,
-  dragEnd,
-}: GridChildProps): React.ReactElement => {
-  const [isResizing, setIsResizing] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [x, setX] = useState(0);
-
-  useEffect(() => {
-    const handleMouseUp = (event: MouseEvent) => {
-      setIsResizing(false);
-      if (containerRef.current && isResizing) {
-        const dx = event.screenX - x;
-        if (dragEnd) {
-          dragEnd(dx);
-        }
-      }
-      setX(0);
-    };
-
-    const handleMouseMove = (event: MouseEvent) => {
-      event.preventDefault();
-      if (isResizing && containerRef.current) {
-        const newWidth = event.screenX - x;
-        if (dragEnd) {
-          dragEnd(newWidth);
-        }
-      }
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-
-    return () => {
-      document.removeEventListener("mouseup", handleMouseUp);
-      document.removeEventListener("mousemove", handleMouseMove);
-    };
-  }, [isResizing]);
-
-  const handleMouseDown: React.MouseEventHandler<HTMLDivElement> = (event) => {
-    setIsResizing(true);
-    setX(event.screenX);
-  };
-
+Grid.Column = ({ children }: GridChildProps): React.ReactElement => {
+  const [header, body] = Children.toArray(children);
   return (
-    <div
-      className="flex flex-col bg-warm-black border border-dark-gray w-full h-screen relative"
-      style={{ width: width }}
-      ref={containerRef}
-    >
-      <div
-        className="absolute inset-y-0 right-0 cursor-col-resize w-[1px]  bg-dark-gray hover:w-[2px] hover:bg-light-gray"
-        onMouseDown={handleMouseDown}
-      />
-      <div className="border-b border-dark-gray flex items-center text-white min-h-[32px]">
+    <div className="flex flex-col h-full bg-warm-black overflow-clip">
+      <div className="h-[50px] flex items-center border-b border-dark-gray">
         {header}
       </div>
-      {children}
+      {body}
     </div>
   );
 };
