@@ -32,7 +32,6 @@ export class ImageSchema<
   }
 
   validate(path: SourcePath, src: Src): ValidationErrors {
-    console.log(path, src);
     if (this.opt && (src === null || src === undefined)) {
       return false;
     }

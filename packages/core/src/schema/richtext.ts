@@ -17,7 +17,6 @@ export class RichTextSchema<
   Src extends RichTextSource | null
 > extends Schema<Src> {
   validate(path: SourcePath, src: Src): ValidationErrors {
-    console.log("validate", src);
     if (this.opt && (src === null || src === undefined)) {
       return false;
     }
