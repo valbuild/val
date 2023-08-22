@@ -74,19 +74,24 @@ export class Service {
       this.runtime
     );
 
-    const resolved = Internal.resolvePath(
-      modulePath,
-      valModule.source,
-      valModule.schema
-    );
-    return {
-      path: [moduleId, resolved.path].join(".") as SourcePath,
-      schema:
-        resolved.schema instanceof Schema<SelectorSource>
-          ? resolved.schema.serialize()
-          : resolved.schema,
-      source: resolved.source,
-    };
+    if (valModule.errors) {
+      return valModule;
+    } else {
+      const resolved = Internal.resolvePath(
+        modulePath,
+        valModule.source,
+        valModule.schema
+      );
+      return {
+        path: [moduleId, resolved.path].join(".") as SourcePath,
+        schema:
+          resolved.schema instanceof Schema<SelectorSource>
+            ? resolved.schema.serialize()
+            : resolved.schema,
+        source: resolved.source,
+        errors: false,
+      };
+    }
   }
 
   async patch(
