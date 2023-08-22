@@ -10,25 +10,22 @@ type Story = StoryObj<typeof Grid>;
 export const Default: Story = {
   render: () => (
     <Grid>
-      <Dropdown>
-        <Dropdown.Child>babbabooey</Dropdown.Child>
-        <Dropdown.Child>babba</Dropdown.Child>
-      </Dropdown>
+      <Dropdown options={["/blogs", "/journals"]}/>
       <Tree>
         <Tree.Node path="Main nav" type="section" />
-        <Tree.Node path="H1" type="text">
-          <Tree.Node path="Section 3" type="text" />
+        <Tree.Node path="H1" type="string">
+          <Tree.Node path="Section 3" type="string" />
           <Tree.Node path="Section 4" type="section">
-            <Tree.Node path="Section 5" type="text" />
+            <Tree.Node path="Section 5" type="string" />
             <Tree.Node path="Section 6" type="section">
-              <Tree.Node path="Section 7" type="text" />
+              <Tree.Node path="Section 7" type="string" />
             </Tree.Node>
           </Tree.Node>
         </Tree.Node>
       </Tree>
       <div className="font-serif text-xs w-full h-full flex justify-between items-center px-3 text-white">
         <p>Content</p>
-        <button className="flex justify-between gap-1">
+        <button className="flex justify-between gap-1 flex-shrink-0">
           <span className="w-fit">+</span>
           <span className="w-fit">Add item</span>
         </button>

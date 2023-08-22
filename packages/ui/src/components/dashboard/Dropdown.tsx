@@ -1,59 +1,53 @@
 import classNames from "classnames";
-import React, { Children, ReactElement, ReactNode, useState } from "react";
-import Chevron from "../../assets/icons/Chevron";
+import {
+  ReactElement,
+  ReactNode,
+  useRef,
+  useState
+} from "react";
 
 type DropdownProps = {
-  children?: ReactElement[] | ReactElement;
-  childSelected?: (path: string) => void;
+  options?: string[];
+  onClick?: (path: string) => void;
 };
-export function Dropdown({ children, childSelected }: DropdownProps): ReactElement {
-  const [selected, setSelected] = useState<number>(0);
-  const [open, setOpen] = useState(false);
+export function Dropdown({
+  options = [],
+  onClick,
+}: DropdownProps): ReactElement {
+  const [selected, setSelected] = useState<string>(options[0]);
+  const dropdownRef = useRef<HTMLSelectElement>(null);
 
-  const handleClick = (path: string) => (idx: number) => {
-    setSelected(idx);
-    setOpen(false);
-    if(childSelected) childSelected(path);
+  const handleChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelected(event.target.value);
+    if (onClick) onClick(event.target.value);
   };
 
   return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen(!open)}
-        className="font-serif group bg-warm-black text-white w-full hover:bg-dark-gray"
-      >
-        <span className="flex justify-between items-center ">
-          {Children.toArray(children)[selected]}
-          <Chevron
-            className={classNames(
-              "w-3 h-3 transform mr-3 hover:bg-warm-black",
-              { " rotate-90 ": !open },
-              { " rotate-0 ": open }
-            )}
-          />
-        </span>
-      </button>
-      <div className={classNames({ hidden: !open }, { open: open })}>
-        <div
+    <select
+      className="relative w-full justify-start font-serif text-xs group bg-warm-black text-white hover:bg-dark-gray px-4 mx-2"
+      onChange={handleChange}
+      ref={dropdownRef}
+    >
+      {options.map((option, index) => (
+        <option
+          key={index}
+          value={option}
           className={classNames(
-            "absolute left-0 top-full w-full z-10 tracking-wider text-xs font-[400] "
+            { "bg-yellow": selected === option },
+            { "bg-red": selected !== option }
           )}
         >
-          {React.Children.map(children, (child, idx) => {
-            return React.cloneElement(child as ReactElement, {
-              selected: selected === idx,
-              onClick: () => handleClick(idx),
-            });
-          })}
-        </div>
-      </div>
-    </div>
+          {option}
+        </option>
+      ))}
+    </select>
   );
 }
 
 type DropdownChildProps = {
   children?: ReactNode | ReactNode[];
-  onClick?: (child: ReactNode) => void;
+  id?: string | number;
+  onClick?: () => void;
   selected?: boolean;
 };
 
@@ -62,20 +56,20 @@ Dropdown.Child = ({
   onClick,
   selected,
 }: DropdownChildProps): ReactElement => {
-  const handleClick = () => {
-    onClick && onClick(children);
-  };
-
   return (
-    <button
-      onClick={handleClick}
+    <div
+      onClick={() => {
+        if (onClick) {
+          onClick();
+        }
+      }}
       className={classNames(
-        "py-2 px-3 w-full flex flex-col bg-warm-black hover:bg-dark-gray tracking-wider text-xs font-[400]",
+        "flex flex-col py-2 px-3 w-full justify-start items-start  bg-warm-black group-hover:bg-dark-gray hover:bg-dark-gray tracking-wider text-[12px] font-[400] font-serif hover:cursor-pointer",
         { "bg-yellow text-warm-black ": selected },
         { "text-white ": !selected }
       )}
     >
       {children}
-    </button>
+    </div>
   );
 };
