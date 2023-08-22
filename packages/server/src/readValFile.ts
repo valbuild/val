@@ -8,7 +8,6 @@ export const readValFile = async (
   valConfigPath: string,
   runtime: QuickJSRuntime
 ): Promise<SerializedModuleContent> => {
-  console.log("readValFile", id, valConfigPath);
   const context = runtime.newContext();
   try {
     const modulePath = `.${id}.val`;
