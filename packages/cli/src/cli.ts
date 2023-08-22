@@ -3,9 +3,37 @@ import { error } from "./logger";
 import { validate } from "./validate";
 import { execSync } from "child_process";
 import { error, info } from "./logger";
-import { prompt } from "enquirer";
 import { z } from "zod";
-import fs from "fs";
+import { fileURLToPath } from "url";
+import { debugPrint, error, info } from "./logger.js";
+import { z } from "zod";
+import confirm from "@inquirer/confirm";
+//import open from "open";
+import { runChecks } from "./utils/pre_config_check.js";
+import installVal, {
+  informUserOnEnvironmentVariables,
+  informUserOnHowToPatchAppRoute,
+} from "./utils/installVal.js";
+import { input } from "@inquirer/prompts";
+
+const VAL_URL = "http://localhost:3420";
+
+function createInitUrl({
+  projectName,
+  valRootDir,
+  repoName,
+  repoOwner,
+}: {
+  projectName: string;
+  valRootDir: string;
+  repoName: string;
+  repoOwner: string;
+}) {
+  return new URL(
+    `/new/import?repo=${repoName}&owner=${repoOwner}&project_name=${projectName}&val_root=${valRootDir}&source=cli`,
+    VAL_URL
+  );
+}
 
 async function main(): Promise<void> {
   const { input, flags, showHelp } = meow(
@@ -68,9 +96,22 @@ async function main(): Promise<void> {
         fix: flags.fix,
         noEslint: flags.noEslint,
       });
-    case "init":
-      initValProject();
+    case "pwd":
+      return info(process.cwd());
+    case "init": {
+      runChecks();
+      installVal();
+      informUserOnHowToPatchAppRoute();
+      const wantsValCloud = await confirm({
+        message:
+          "Would you like to set up Val Cloud? This is optional but enables the full CMS experience?",
+      });
+      if (wantsValCloud) {
+        initValCloudProject();
+        informUserOnEnvironmentVariables();
+      }
       return error("Not implemented yet");
+    }
     default:
       return error(`Unknown command "${input.join(" ")}"`);
   }
@@ -89,23 +130,9 @@ const projectNameSchema = z
 // $ - end of string
 // so this regex allows only strings that contain only characters from a-z, A-Z, 0-9, _ or -
 
-// valid file path
-const valRootDirSchema = z.string().refine((val) => {
-  try {
-    fs.accessSync(val);
-    return true;
-  } catch {
-    return false;
-  }
-}, "Invalid file path");
-
-const valConfigSchema = z.object({
-  projectName: projectNameSchema,
-  valRootDir: valRootDirSchema,
-  ownerAndRepo: z.string().transform((val) => {
-    const [owner, repo] = val.split("/");
-    return { owner, repo };
-  }),
+const ownerAndRepoName = z.string().transform((val) => {
+  const [owner, repo] = val.split("/");
+  return { owner, repo };
 });
 
 function getGitRemoteUrls() {
@@ -126,15 +153,28 @@ function getGitRemoteUrls() {
   }
 }
 
-function getPossibleGitRemoteUrls() {
+function getPossibleGitRemoteUrls(remoteName?: string) {
   const remotes = getGitRemoteUrls();
-  if (remotes === null) return [];
+  if (remotes === null) return null;
   const possibleRemotes = remotes.filter(
-    (remote) => remote.type === "push" && remote.url
+    ({ type, url, name }) =>
+      type === "push" &&
+      url &&
+      (name === remoteName || remoteName === undefined) // if remoteName is undefined, then return all remotes
   );
   // happy with this one even though copilot gave me a hint
   const matchOwnerRepo = /github.com(?::|\/)([\w-]+)\/([\w-]+)\.git/g;
-  // rewrite this
+
+  // github.com - matches github.command
+  // (?::|\/) - matches : or /
+  // The ?: is a non-capturing group, it matches the group but doesn't capture it
+  // ([\w-]+) - matches any word character (equal to [a-zA-Z0-9_]), + means one or more times
+  // \/ - matches /
+  // ([\w-]+) - matches any word character (equal to [a-zA-Z0-9_]), + means one or more times
+  // \.git - matches .git
+  // g - global flag, matches all occurences
+  // Regex matches github.com/{owner}/{repo}.git and returns owner and repo
+
   const gurba = possibleRemotes.map((remote) => {
     const [owner, repoName] = z
       .string()
@@ -142,46 +182,58 @@ function getPossibleGitRemoteUrls() {
       .min(3)
       .parse(Array.from(remote.url.matchAll(matchOwnerRepo))[0])
       .slice(1, 3);
-    return { owner, repoName };
+    return { owner, repoName, remote: remote.name };
   });
 
-  return gurba;
+  // todo safe parse or handle differently
+  return gurba[0] ?? null;
 }
 
-console.log(getGitRemoteUrls());
-console.log(getPossibleGitRemoteUrls());
-async function initValProject() {
+async function initValCloudProject() {
   info("Initializing val project...");
-  const valConfig = await valConfigSchema.promise().parse(
-    prompt([
-      {
-        type: "input",
-        name: "projectName",
-        message: "What is the name of your project?",
-      },
-      {
-        type: "input",
-        name: "valRootDir",
-        message: "What is the root directory of your Val project?",
-        initial: "./",
-      },
-      {
-        type: "input",
-        name: "gitRemote",
-        message: "What is the name of your git remote?",
-        initial: "./",
-      },
-      {
-        type: "input",
-        name: "ownerAndRepo",
-        message: "What is the owner and repo of your project?",
-        initial: getPossibleGitRemoteUrls()
-          .map((remote) => `${remote.owner}/${remote.repoName}`)
-          .join(", "),
-      },
-    ])
+  const __filename = fileURLToPath(import.meta.url); // Current filepath
+  const currentDir = path.basename(path.dirname(__filename)); // Current directory name, just used as a default project name
+  const possibleGitRemoteUrls = getPossibleGitRemoteUrls();
+
+  // Collect input
+  const projectName = projectNameSchema.parse(
+    await input({
+      message: "What is the name of your project?",
+      default: currentDir,
+    })
   );
-  console.log(valConfig);
+  const valRootDir = await input({
+    message: "What is the root directory of your Val project?",
+    default: "./",
+  });
+  const remoteName = await input({
+    message: "What is the name of your git remote?",
+    default: possibleGitRemoteUrls?.remote ?? "origin",
+  });
+  const ownerAndRepo = ownerAndRepoName.parse(
+    await input({
+      message: "What is the owner and repo of your project?",
+      default:
+        ([getPossibleGitRemoteUrls(remoteName)] ?? [])
+          .flatMap((remote) =>
+            remote ? [`${remote.owner}/${remote.repoName}`] : []
+          )
+          .join("") ?? "owner/repo",
+    })
+  );
+  // ----------------
+
+  debugPrint("inputs done, lets create a url!");
+  debugPrint(JSON.stringify(ownerAndRepo));
+  const valUrl = createInitUrl({
+    projectName,
+    valRootDir,
+    repoName: ownerAndRepo.repo,
+    repoOwner: ownerAndRepo.owner,
+  });
+  // no org, then use username
+  console.log("URL:", valUrl.toString());
+  //await open(valUrl.toString());
 }
 
 void main().catch((err) => {
