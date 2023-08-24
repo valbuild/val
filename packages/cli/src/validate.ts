@@ -18,19 +18,10 @@ export async function validate({
     valConfigPath: cfg ?? "./val.config",
   });
 
-  const valFiles: string[] = await new Promise((resolve, reject) =>
-    glob(
-      "**/*.val.{js,ts}",
-      { ignore: "node_modules/**", root: projectRoot },
-      (err, matches) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(matches);
-        }
-      }
-    )
-  );
+  const valFiles: string[] = await glob("**/*.val.{js,ts}", {
+    ignore: "node_modules/**",
+    root: projectRoot,
+  });
   console.log(picocolors.green("✔"), "Validating", valFiles.length, "files");
 
   async function validateFile(file: string): Promise<number> {
