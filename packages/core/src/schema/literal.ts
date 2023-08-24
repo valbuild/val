@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
 import { SourcePath } from "../val";
+import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedLiteralSchema = {
   type: "literal";
@@ -13,11 +14,31 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
     super();
   }
 
-  validate(src: Src): false | Record<SourcePath, string[]> {
-    throw new Error("Method not implemented.");
+  validate(path: SourcePath, src: Src): ValidationErrors {
+    if (this.opt && (src === null || src === undefined)) {
+      return false;
+    }
+    if (typeof src !== "string") {
+      return {
+        [path]: [
+          { message: `Expected 'string', got '${typeof src}'`, value: src },
+        ],
+      } as ValidationErrors;
+    }
+    if (src !== this.value) {
+      return {
+        [path]: [
+          {
+            message: `Expected literal '${this.value}', got '${src}'`,
+            value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
+    return false;
   }
 
-  match(src: Src): boolean {
+  assert(src: Src): boolean {
     if (this.opt && (src === null || src === undefined)) {
       return true;
     }

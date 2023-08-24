@@ -60,7 +60,7 @@ export class ValModuleLoader {
       // allowJs: true,
       // rootDir: this.compilerOptions.rootDir,
       module: ts.ModuleKind.ESNext,
-      target: ts.ScriptTarget.ES2020, // QuickJS supports a lot of ES2020: https://test262.report/, however not all cases are in that report (e.g. export const {} = {})
+      target: ts.ScriptTarget.ES2015, // QuickJS supports a lot of ES2020: https://test262.report/, however not all cases are in that report (e.g. export const {} = {})
       // moduleResolution: ts.ModuleResolutionKind.NodeNext,
       // target: ts.ScriptTarget.ES2020, // QuickJs runs in ES2020 so we must use that
     });

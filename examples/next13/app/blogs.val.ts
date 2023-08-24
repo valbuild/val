@@ -25,7 +25,7 @@ export default val.content("/app/blogs", schema, [
       width: 512,
       height: 512,
       sha256:
-        "9e420dc93157ab98338542ba6f1d34fcf829d646aa729a86720fa3f4cb2d0076",
+        "41fe618d9db1a477debe0d72d9a8947be3623412281fec8ed4f70517188dfc5a",
     }),
     text: val.richtext({
       children: [
@@ -230,7 +230,7 @@ export default val.content("/app/blogs", schema, [
       width: 512,
       height: 512,
       sha256:
-        "9d39bf1a0b7efb117c5b6cfbca0911904c0be3d07588142db624dab183c33e20",
+        "9abaf6c805ba6379f0fcf1452041e53ec109aff978ea8a7b9d79d7d2f065abd0",
     }),
     text: val.richtext("Ja si det"),
     rank: 10,
@@ -241,7 +241,7 @@ export default val.content("/app/blogs", schema, [
       width: 512,
       height: 512,
       sha256:
-        "5d70cf57c58aed863e79971cc78607ccd26529050ceb083e9face9670581ea7d",
+        "9db79a84245d1d806ad7554ea6dd47696779e8df62c2b7fe0fcc687687662551",
     }),
     text: val.richtext("Vet ikke"),
     rank: 1,

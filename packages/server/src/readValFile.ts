@@ -1,3 +1,4 @@
+import { ModuleId } from "@valbuild/core";
 import path from "path";
 import { QuickJSRuntime } from "quickjs-emscripten";
 import { SerializedModuleContent } from "./SerializedModuleContent";
@@ -16,6 +17,10 @@ globalThis.valModule = {
   id: valModule?.default && Internal.getValPath(valModule?.default),
   schema: valModule?.default && Internal.getSchema(valModule?.default)?.serialize(),
   source: valModule?.default && Internal.getRawSource(valModule?.default),
+  validation: valModule?.default && Internal.getSchema(valModule?.default)?.validate(
+    valModule?.default && Internal.getValPath(valModule?.default) || "/",
+    valModule?.default && Internal.getRawSource(valModule?.default)
+  )
 };
 `;
     const result = context.evalCode(
@@ -23,48 +28,61 @@ globalThis.valModule = {
       // Synthetic module name
       path.join(path.dirname(valConfigPath), "<val>")
     );
+    const fatalErrors: string[] = [];
     if (result.error) {
       const error = result.error.consume(context.dump);
-      console.error("Got error", error); // TODO: use this to figure out how to strip out QuickJS specific errors and get the actual stack
-
-      throw new Error(
-        `Could not read val id: ${id}. Cause:\n${error.name}: ${error.message}${
-          error.stack ? error.stack : ""
-        }`
-      );
+      return {
+        errors: {
+          invalidModuleId: id as ModuleId,
+          fatal: [
+            {
+              message: `${error.name || "Unknown error"}: ${
+                error.message || "<no message>"
+              }`,
+              stack: error.stack,
+            },
+          ],
+        },
+      };
     } else {
       result.value.dispose();
       const valModule = context
         .getProp(context.global, "valModule")
         .consume(context.dump);
 
-      const errors: string[] = [];
-
       if (!valModule) {
-        errors.push(`Could not find any modules at: ${id}`);
+        fatalErrors.push(`Could not find any modules at: ${id}`);
       } else {
         if (valModule.id !== id) {
-          errors.push(`Expected val id: '${id}' but got: '${valModule.id}'`);
+          fatalErrors.push(
+            `Expected val id: '${id}' but got: '${valModule.id}'`
+          );
         }
         if (!valModule?.schema) {
-          errors.push(`Expected val id: '${id}' to have a schema`);
+          fatalErrors.push(`Expected val id: '${id}' to have a schema`);
         }
         if (!valModule?.source) {
-          errors.push(`Expected val id: '${id}' to have a source`);
+          fatalErrors.push(`Expected val id: '${id}' to have a source`);
         }
       }
-
-      if (errors.length > 0) {
-        throw Error(
-          `While processing module of id: ${id}, we got the following errors:\n${errors.join(
-            "\n"
-          )}`
-        );
+      let errors: SerializedModuleContent["errors"] = false;
+      if (fatalErrors.length > 0) {
+        errors = {
+          invalidModuleId: valModule.id !== id ? (id as ModuleId) : undefined,
+          fatal: fatalErrors.map((message) => ({ message })),
+        };
+      }
+      if (valModule?.validation) {
+        errors = {
+          ...(errors ? errors : {}),
+          validation: valModule.validation,
+        };
       }
       return {
-        path: valModule.id, // This might not be the asked id/path, however, that should be handled further up in the call chain
+        path: valModule.id, // NOTE: we use path here, since SerializedModuleContent (maybe bad name?) can be used for whole modules as well as subparts of modules
         source: valModule.source,
         schema: valModule.schema,
+        errors,
       };
     }
   } finally {

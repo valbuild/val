@@ -8,4 +8,5 @@ export {
   deepEqual,
   deepClone,
   parseAndValidateArrayIndex,
+  sourceToPatchPath,
 } from "./util";

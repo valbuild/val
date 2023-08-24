@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
 import { SourcePath } from "../val";
+import { ValidationErrors } from "./validation/ValidationError";
 
 type NumberOptions = {
   max?: number;
@@ -17,11 +18,21 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
   constructor(readonly options?: NumberOptions, readonly opt: boolean = false) {
     super();
   }
-  validate(src: Src): false | Record<SourcePath, string[]> {
-    throw new Error("Method not implemented.");
+  validate(path: SourcePath, src: Src): ValidationErrors {
+    if (this.opt && (src === null || src === undefined)) {
+      return false;
+    }
+    if (typeof src !== "number") {
+      return {
+        [path]: [
+          { message: `Expected 'number', got '${typeof src}'`, value: src },
+        ],
+      } as ValidationErrors;
+    }
+    return false;
   }
 
-  match(src: Src): boolean {
+  assert(src: Src): boolean {
     if (this.opt && (src === null || src === undefined)) {
       return true;
     }

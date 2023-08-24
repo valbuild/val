@@ -34,7 +34,8 @@ export async function createService(
   host: IValFSHost = {
     ...ts.sys,
     writeFile: fs.writeFileSync,
-  }
+  },
+  loader?: ValModuleLoader
 ): Promise<Service> {
   const compilerOptions = getCompilerOptions(projectRoot, host);
   const sourceFileHandler = new ValSourceFileHandler(
@@ -42,14 +43,12 @@ export async function createService(
     compilerOptions,
     host
   );
-  const loader = new ValModuleLoader(
-    projectRoot,
-    compilerOptions,
-    sourceFileHandler,
-    host
-  );
   const module = await newQuickJSWASMModule();
-  const runtime = await newValQuickJSRuntime(module, loader);
+  const runtime = await newValQuickJSRuntime(
+    module,
+    loader ||
+      new ValModuleLoader(projectRoot, compilerOptions, sourceFileHandler, host)
+  );
   return new Service(opts, sourceFileHandler, runtime);
 }
 
@@ -74,19 +73,24 @@ export class Service {
       this.runtime
     );
 
-    const resolved = Internal.resolvePath(
-      modulePath,
-      valModule.source,
-      valModule.schema
-    );
-    return {
-      path: [moduleId, resolved.path].join(".") as SourcePath,
-      schema:
-        resolved.schema instanceof Schema<SelectorSource>
-          ? resolved.schema.serialize()
-          : resolved.schema,
-      source: resolved.source,
-    };
+    if (valModule.errors) {
+      return valModule;
+    } else {
+      const resolved = Internal.resolvePath(
+        modulePath,
+        valModule.source,
+        valModule.schema
+      );
+      return {
+        path: [moduleId, resolved.path].join(".") as SourcePath,
+        schema:
+          resolved.schema instanceof Schema<SelectorSource>
+            ? resolved.schema.serialize()
+            : resolved.schema,
+        source: resolved.source,
+        errors: false,
+      };
+    }
   }
 
   async patch(

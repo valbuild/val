@@ -2,6 +2,7 @@
 import { Schema, SchemaTypeOf, SerializedSchema } from ".";
 import { I18nCompatibleSource, I18nSource } from "../source/i18n";
 import { SourcePath } from "../val";
+import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedI18nSchema = {
   type: "i18n";
@@ -22,12 +23,13 @@ export class I18nSchema<Locales extends readonly string[]> extends Schema<
   }
 
   validate(
+    path: SourcePath,
     src: I18nSource<Locales, SchemaTypeOf<Schema<I18nCompatibleSource>>>
-  ): false | Record<SourcePath, string[]> {
+  ): ValidationErrors {
     throw new Error("Method not implemented.");
   }
 
-  match(
+  assert(
     src: I18nSource<Locales, SchemaTypeOf<Schema<I18nCompatibleSource>>>
   ): boolean {
     throw new Error("Method not implemented.");
