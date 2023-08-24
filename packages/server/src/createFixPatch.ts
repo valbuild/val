@@ -7,6 +7,7 @@ import crypto from "crypto";
 
 export async function createFixPatch(
   config: { projectRoot: string },
+  apply: boolean,
   sourcePath: SourcePath,
   validationError: ValidationError
 ): Promise<{ patch: Patch; remainingErrors: ValidationError[] } | undefined> {
@@ -68,15 +69,78 @@ export async function createFixPatch(
 
         // skips if the metadata is already correct
         if (!metadataIsCorrect) {
-          patch.push({
-            op: "replace",
-            path: sourceToPatchPath(sourcePath).concat("metadata"),
-            value: {
-              width: imageMetadata.width,
-              height: imageMetadata.height,
-              sha256: imageMetadata.sha256,
-            },
-          });
+          if (apply) {
+            patch.push({
+              op: "replace",
+              path: sourceToPatchPath(sourcePath).concat("metadata"),
+              value: {
+                width: imageMetadata.width,
+                height: imageMetadata.height,
+                sha256: imageMetadata.sha256,
+              },
+            });
+          } else {
+            if (
+              typeof currentValue === "object" &&
+              currentValue &&
+              "metadata" in currentValue &&
+              currentValue.metadata &&
+              typeof currentValue.metadata === "object"
+            ) {
+              if (
+                !("sha256" in currentValue.metadata) ||
+                currentValue.metadata.sha256 !== imageMetadata.sha256
+              ) {
+                remainingErrors.push({
+                  message:
+                    "Image metadata sha256 is incorrect! Found: " +
+                    ("sha256" in currentValue.metadata
+                      ? currentValue.metadata.sha256
+                      : "<empty>") +
+                    ". Expected: " +
+                    imageMetadata.sha256 +
+                    ".",
+                  fixes: undefined,
+                });
+              }
+              if (
+                !("width" in currentValue.metadata) ||
+                currentValue.metadata.width !== imageMetadata.width
+              ) {
+                remainingErrors.push({
+                  message:
+                    "Image metadata width is incorrect! Found: " +
+                    ("width" in currentValue.metadata
+                      ? currentValue.metadata.width
+                      : "<empty>") +
+                    ". Expected: " +
+                    imageMetadata.width,
+                  fixes: undefined,
+                });
+              }
+              if (
+                !("height" in currentValue.metadata) ||
+                currentValue.metadata.height !== imageMetadata.height
+              ) {
+                remainingErrors.push({
+                  message:
+                    "Image metadata height is incorrect! Found: " +
+                    ("height" in currentValue.metadata
+                      ? currentValue.metadata.height
+                      : "<empty>") +
+                    ". Expected: " +
+                    imageMetadata.height,
+                  fixes: undefined,
+                });
+              }
+            } else {
+              remainingErrors.push({
+                ...validationError,
+                message: "Image metadata is not an object!",
+                fixes: undefined,
+              });
+            }
+          }
         }
       } else if (fix === "image:add-metadata") {
         patch.push({
