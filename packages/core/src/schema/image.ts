@@ -68,35 +68,13 @@ export class ImageSchema<
         ],
       } as ValidationErrors;
     }
-    if (typeof src.metadata !== "object") {
+    if (src.metadata) {
       return {
         [path]: [
           {
-            message: `Image files must include a metadata object with the sha256, width, height.`,
+            message: `Found metadata, but it could not be validated. Image metadata must be an object with the required props: width (positive number), height (positive number) and sha256 (string of length 64 of the base16 hash).`, // These validation errors will have to be picked up by logic outside of this package and revalidated. Reasons: 1) we have to read files to verify the metadata, which is handled differently in different runtimes (Browser, QuickJS, Node.js); 2) we want to keep this package dependency free.
             value: src,
-            fixes: ["image:add-metadata"],
-          },
-        ],
-      } as ValidationErrors;
-    }
-    if (
-      typeof src.metadata !== "object" ||
-      typeof src.metadata.sha256 !== "string" ||
-      src.metadata.sha256.length !== 64 ||
-      !/^[a-f0-9]+$/.test(src.metadata.sha256) ||
-      typeof src.metadata.width !== "number" ||
-      typeof src.metadata.height !== "number" ||
-      src.metadata.width < 0 || // TODO: accept 0 or not?
-      src.metadata.height < 0
-    ) {
-      return {
-        [path]: [
-          {
-            message: `Image metadata must be an object with the required props: width (positive number), height (positive number) and sha256 (string of length 64 of the base16 hash). Got: ${JSON.stringify(
-              src.metadata
-            )}`,
-            value: src,
-            fixes: ["image:add-metadata"],
+            fixes: ["image:replace-metadata"],
           },
         ],
       } as ValidationErrors;
@@ -105,9 +83,9 @@ export class ImageSchema<
     return {
       [path]: [
         {
-          message: `Could not validate Image metadata.`, // These validation errors will have to be picked up by logic outside of this package and revalidated. Reasons: 1) we have to read files to verify the metadata, which is handled differently in different runtimes (Browser, QuickJS, Node.js); 2) we want to keep this package dependency free.
+          message: `Could not validate Image metadata.`,
           value: src,
-          fixes: ["image:check-metadata"],
+          fixes: ["image:add-metadata"],
         },
       ],
     } as ValidationErrors;

@@ -23,7 +23,11 @@ export {
   type JsonOfSource,
 } from "./val";
 export type { Json, JsonPrimitive } from "./Json";
-export type { ValidationErrors } from "./schema/validation/ValidationError";
+export type {
+  ValidationErrors,
+  ValidationError,
+} from "./schema/validation/ValidationError";
+export type { ValidationFix } from "./schema/validation/ValidationFix";
 export * as expr from "./expr/";
 export { FILE_REF_PROP } from "./source/file";
 export { VAL_EXTENSION, type SourceArray } from "./source";

@@ -5,7 +5,8 @@ import { error, info } from "./logger";
 import express from "express";
 import cors from "cors";
 import { createServer, Server } from "node:http";
-import { LocalValServer } from "@valbuild/server/src/LocalValServer";
+import { LocalValServer } from "@valbuild/server";
+import { validate } from "./validate";
 
 async function serve({
   root,
@@ -68,12 +69,14 @@ async function main(): Promise<void> {
         $ val [command]
       Commands
         serve    Run val development server
+        validate val-idate val modules
 
       Options
         --help                   Show this message
         --port [port], -p [port] Set server port (default 4123)
         --root [root], -r [root] Set project root directory (default process.cwd())
         --cfg  [cfg],  -c [cfg]  Set path to config relative to root (default ./val.config)
+        --fix  [fix]             Attempt to fix validation errors
     `,
     {
       flags: {
@@ -89,6 +92,9 @@ async function main(): Promise<void> {
         cfg: {
           type: "string",
           alias: "c",
+        },
+        fix: {
+          type: "boolean",
         },
       },
       hardRejection: false,
@@ -111,12 +117,25 @@ async function main(): Promise<void> {
         port: flags.port,
         cfg: flags.cfg,
       });
+    case "validate":
+    case "idate":
+      return validate({
+        root: flags.root,
+        cfg: flags.cfg,
+        fix: flags.fix,
+      });
     default:
       return error(`Unknown command "${input.join(" ")}"`);
   }
 }
 
 void main().catch((err) => {
-  error(err);
+  error(
+    err instanceof Error
+      ? err.message + "\n" + err.stack
+      : typeof err === "object"
+      ? JSON.stringify(err, null, 2)
+      : err
+  );
   process.exitCode = 1;
 });
