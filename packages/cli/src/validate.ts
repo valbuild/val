@@ -45,13 +45,14 @@ export async function validate({
           valModule.errors.validation
         )) {
           for (const v of validationErrors) {
-            if (fix) {
+            if (v.fixes && v.fixes.length > 0) {
               const fixPatch = await createFixPatch(
                 { projectRoot },
+                !!fix,
                 sourcePath as SourcePath,
                 v
               );
-              if (fixPatch?.patch && fixPatch?.patch.length > 0) {
+              if (fix && fixPatch?.patch && fixPatch?.patch.length > 0) {
                 await service.patch(moduleId, fixPatch.patch);
                 console.log(
                   picocolors.green("✔"),
@@ -62,8 +63,8 @@ export async function validate({
               fixPatch?.remainingErrors?.forEach((e) => {
                 errors += 1;
                 console.log(
-                  picocolors.red("✘"),
-                  "Found non-fixable error in",
+                  v.fixes ? picocolors.yellow("⚠") : picocolors.red("✘"),
+                  `Found ${v.fixes ? "fixable " : ""}error in`,
                   `${sourcePath}:`,
                   e.message
                 );
