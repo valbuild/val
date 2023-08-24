@@ -329,6 +329,7 @@ export default function ValUI({ valApi, valStore }: ValUIProps) {
                         ];
                         return valApi.patchModuleContent(moduleId, patch);
                       }
+                      console.log("->", input);
                       throw new Error(
                         `Unsupported input type: ${(input as any).type}`
                       );
