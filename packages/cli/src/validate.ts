@@ -1,7 +1,7 @@
 import path from "path";
 import { createFixPatch, createService } from "@valbuild/server";
 import { ModuleId, ModulePath, SourcePath } from "@valbuild/core";
-import { glob } from "glob";
+import { glob } from "fast-glob";
 import picocolors from "picocolors";
 
 export async function validate({
@@ -19,8 +19,8 @@ export async function validate({
   });
 
   const valFiles: string[] = await glob("**/*.val.{js,ts}", {
-    ignore: "node_modules/**",
-    root: projectRoot,
+    ignore: ["node_modules/**"],
+    cwd: projectRoot,
   });
   console.log(picocolors.green("✔"), "Validating", valFiles.length, "files");
 
