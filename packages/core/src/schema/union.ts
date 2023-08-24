@@ -3,6 +3,7 @@ import { Schema, SerializedSchema } from ".";
 import { SelectorSource } from "../selector";
 import { SourceObject } from "../source";
 import { SourcePath } from "../val";
+import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedUnionSchema = {
   type: "union";
@@ -24,10 +25,10 @@ export class UnionSchema<
   Key extends string,
   T extends Schema<SourceObject & { [k in Key]: string }>[]
 > extends Schema<SourceOf<Key, T>> {
-  validate(src: SourceOf<Key, T>): false | Record<SourcePath, string[]> {
+  validate(path: SourcePath, src: SourceOf<Key, T>): ValidationErrors {
     throw new Error("Method not implemented.");
   }
-  match(src: SourceOf<Key, T>): boolean {
+  assert(src: SourceOf<Key, T>): boolean {
     throw new Error("Method not implemented.");
   }
   optional(): Schema<SourceOf<Key, T> | null> {

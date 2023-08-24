@@ -4,6 +4,7 @@ import { ValModuleBrand } from "../module";
 import { GenericSelector } from "../selector";
 import { Source, SourceArray } from "../source";
 import { getValPath, SourcePath } from "../val";
+import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedOneOfSchema = {
   type: "oneOf";
@@ -26,10 +27,10 @@ export class OneOfSchema<
   constructor(readonly selector: Sel, readonly opt: boolean = false) {
     super();
   }
-  validate(src: OneOfSelector<Sel>): false | Record<SourcePath, string[]> {
+  validate(path: SourcePath, src: OneOfSelector<Sel>): ValidationErrors {
     throw new Error("Method not implemented.");
   }
-  match(src: OneOfSelector<Sel>): boolean {
+  assert(src: OneOfSelector<Sel>): boolean {
     throw new Error("Method not implemented.");
   }
   optional(): Schema<OneOfSelector<Sel> | null> {

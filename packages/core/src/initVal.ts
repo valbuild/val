@@ -41,7 +41,7 @@ export const initVal = <
 >(options?: {
   readonly locales?: NarrowStrings<{
     readonly required: Locales;
-    readonly fallback: Locales extends readonly string[]
+    readonly default: Locales extends readonly string[]
       ? Locales[number]
       : never;
   }>;

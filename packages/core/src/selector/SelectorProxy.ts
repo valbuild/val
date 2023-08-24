@@ -97,7 +97,7 @@ export function newSelectorProxy(
                     )
                     .filter((a) => {
                       if (f && f instanceof Schema) {
-                        return f.match(unValify(a));
+                        return f.assert(unValify(a));
                       } else {
                         return unValify(f(a));
                       }
