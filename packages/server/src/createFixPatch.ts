@@ -1,15 +1,9 @@
-import {
-  FILE_REF_PROP,
-  Internal,
-  SourcePath,
-  ValidationError,
-} from "@valbuild/core";
+import { FILE_REF_PROP, SourcePath, ValidationError } from "@valbuild/core";
 import { Patch, sourceToPatchPath } from "@valbuild/core/patch";
 import sizeOf from "image-size";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
-import { image } from "@valbuild/core/src/schema/image";
 
 export async function createFixPatch(
   config: { projectRoot: string },
@@ -96,6 +90,9 @@ export async function createFixPatch(
         });
       }
     }
+  }
+  if (!validationError.fixes || validationError.fixes.length === 0) {
+    remainingErrors.push(validationError);
   }
   return {
     patch,
