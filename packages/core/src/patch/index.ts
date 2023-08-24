@@ -9,5 +9,4 @@ export {
   deepClone,
   parseAndValidateArrayIndex,
   sourceToPatchPath,
-  joinPatchPath,
 } from "./util";
