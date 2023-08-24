@@ -8,7 +8,7 @@ type Story = StoryObj<typeof Tree>;
 
 type Node = {
   path: string;
-  type: "text" | "image" | "section";
+  type: "string" | "image" | "section";
   children: Node[];
 };
 
@@ -20,11 +20,11 @@ const nodes: Node[] = [
   },
   {
     path: "H1",
-    type: "text",
+    type: "string",
     children: [
       {
         path: "Section 3",
-        type: "text",
+        type: "string",
         children: [],
       },
       {
@@ -33,7 +33,7 @@ const nodes: Node[] = [
         children: [
           {
             path: "Section 5",
-            type: "text",
+            type: "string",
             children: [],
           },
           {
@@ -42,7 +42,7 @@ const nodes: Node[] = [
             children: [
               {
                 path: "Section 7",
-                type: "text",
+                type: "string",
                 children: [],
               },
               {
@@ -73,12 +73,12 @@ export const Default: Story = {
   render: () => (
     <Tree rootPath="root">
       <Tree.Node path="Main nav" type="section" />
-      <Tree.Node path="H1" type="text">
-        <Tree.Node path="Section 3" type="text" />
+      <Tree.Node path="H1" type="string">
+        <Tree.Node path="Section 3" type="string" />
         <Tree.Node path="Section 4" type="section">
-          <Tree.Node path="Section 5" type="text" />
+          <Tree.Node path="Section 5" type="string" />
           <Tree.Node path="Section 6" type="section">
-            <Tree.Node path="Section 7" type="text" />
+            <Tree.Node path="Section 7" type="string" />
           </Tree.Node>
         </Tree.Node>
       </Tree.Node>

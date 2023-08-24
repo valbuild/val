@@ -46,7 +46,7 @@ Tree.Node = ({
   return (
     <div className="w-full">
       <button
-        className="flex justify-between w-full text-white hover:bg-dark-gray group py-2 hover:text-warm-black text-xs font-[400]"
+        className="flex justify-between w-full text-white hover:bg-dark-gray group py-2 hover:text-warm-black text-xs font-[400] shrink-0"
         onClick={() => {
           setActivePath && setActivePath(path);
         }}
@@ -54,7 +54,7 @@ Tree.Node = ({
       >
         <div className="flex items-center justify-center gap-2">
           {logo}
-          {path}
+          <p>{path}</p>
         </div>
       </button>
       {children && (
