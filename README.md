@@ -15,4 +15,6 @@ This is released only for **INTERNAL** **TESTING** PURPOSES.
 
 # Information
 
-See core lib [README](./packages/next/README.md).
+Currently only the next integration is supported.
+
+Head over to the [README](./packages/next/README.md) to learn how to try out Val in your NextJS project.
