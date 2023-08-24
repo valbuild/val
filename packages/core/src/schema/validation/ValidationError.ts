@@ -13,6 +13,4 @@ export type ValidationError = {
  *
  * Global errors have the path `"/"`.
  */
-export type ValidationErrors =
-  | false
-  | Record<SourcePath | "/", ValidationError[]>;
+export type ValidationErrors = false | Record<SourcePath, ValidationError[]>;

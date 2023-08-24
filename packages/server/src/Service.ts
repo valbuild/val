@@ -73,23 +73,39 @@ export class Service {
       this.runtime
     );
 
-    if (valModule.errors) {
-      return valModule;
-    } else {
+    if (valModule.source && valModule.schema) {
       const resolved = Internal.resolvePath(
         modulePath,
         valModule.source,
         valModule.schema
       );
+      const sourcePath = [moduleId, resolved.path].join(".") as SourcePath;
       return {
-        path: [moduleId, resolved.path].join(".") as SourcePath,
+        path: sourcePath,
         schema:
           resolved.schema instanceof Schema<SelectorSource>
             ? resolved.schema.serialize()
             : resolved.schema,
         source: resolved.source,
-        errors: false,
+        errors:
+          valModule.errors &&
+          valModule.errors.validation &&
+          valModule.errors.validation[sourcePath]
+            ? {
+                validation: valModule.errors.validation[sourcePath]
+                  ? {
+                      [sourcePath]: valModule.errors.validation[sourcePath],
+                    }
+                  : undefined,
+                fatal:
+                  valModule.errors && valModule.errors.fatal
+                    ? valModule.errors.fatal
+                    : undefined,
+              }
+            : false,
       };
+    } else {
+      return valModule;
     }
   }
 
