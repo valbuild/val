@@ -73,6 +73,14 @@ type ValServerOverrides = Partial<{
    * @example "https://app.val.build"
    */
   valBuildUrl: string;
+  /**
+   * The full name of this Val project.
+   *
+   * Typically this is set using the VAL_NAME env var.
+   *
+   * @example "myorg/my-project"
+   */
+  valName: string;
 }>;
 
 async function _createRequestListener(
@@ -119,6 +127,10 @@ async function initHandlerOptions(
     if (!maybeGitBranch) {
       throw new Error("VAL_GIT_BRANCH env var must be set in proxy mode");
     }
+    const maybeValName = opts.gitBranch || process.env.VAL_NAME;
+    if (!maybeValName) {
+      throw new Error("VAL_NAME env var must be set in proxy mode");
+    }
     return {
       mode: "proxy",
       route,
@@ -127,6 +139,7 @@ async function initHandlerOptions(
       valBuildUrl,
       gitCommit: maybeGitCommit,
       gitBranch: maybeGitBranch,
+      valName: maybeValName,
     };
   } else {
     const service = await createService(process.cwd(), opts);
