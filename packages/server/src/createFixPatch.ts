@@ -5,6 +5,7 @@ import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 
+// TODO: find a better name? transformFixesToPatch?
 export async function createFixPatch(
   config: { projectRoot: string },
   apply: boolean,
