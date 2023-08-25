@@ -18,6 +18,7 @@ export type ProxyValServerOptions = {
   valBuildUrl: string;
   gitCommit: string;
   gitBranch: string;
+  valName: string;
 };
 
 export class ProxyValServer implements ValServer {
@@ -112,9 +113,10 @@ export class ProxyValServer implements ValServer {
   }
 
   async session(req: express.Request, res: express.Response): Promise<void> {
+    console.log("hit session");
     return this.withAuth(req, res, async (data) => {
       const url = new URL(
-        "/api/val/auth/user/session",
+        `/api/val/${this.options.valName}/auth/session`,
         this.options.valBuildUrl
       );
       const fetchRes = await fetch(url, {
@@ -233,7 +235,10 @@ export class ProxyValServer implements ValServer {
     project: string;
     token: string;
   } | null> {
-    const url = new URL("/api/val/auth/user/token", this.options.valBuildUrl);
+    const url = new URL(
+      `/api/val/${this.options.valName}/auth/token`,
+      this.options.valBuildUrl
+    );
     url.searchParams.set("code", encodeURIComponent(code));
     return fetch(url, {
       method: "POST",
@@ -262,7 +267,10 @@ export class ProxyValServer implements ValServer {
   }
 
   private getAuthorizeUrl(publicValApiRoute: string, token: string): string {
-    const url = new URL("/authorize", this.options.valBuildUrl);
+    const url = new URL(
+      `/auth/${this.options.valName}/authorize`,
+      this.options.valBuildUrl
+    );
     url.searchParams.set(
       "redirect_uri",
       encodeURIComponent(`${publicValApiRoute}/callback`)
