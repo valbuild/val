@@ -13,7 +13,7 @@ export function Grid({ children }: GridProps): React.ReactElement {
   const [headerRow, bodyRow] = Children.toArray(children);
 
   return (
-    <div className="flex flex-col w-full h-screen bg-warm-black">
+    <div className="flex flex-col w-full h-screen bg-warm-black overflow-clip">
       {cloneElement(headerRow as React.ReactElement, {
         leftColRef: leftColHeaderRef,
         rightColRef: rightColHeaderRef,
@@ -37,7 +37,7 @@ Grid.Row = ({
   children,
   leftColRef,
   rightColRef,
-  fill = false,
+  fill: bottomRow = false,
 }: GridRowProps): React.ReactElement => {
   const [leftCol, middleCol, rightCol] = Children.toArray(children);
   //implement mouseover event to share hover-event between rows
@@ -45,23 +45,27 @@ Grid.Row = ({
   return (
     <div
       className={classNames("flex w-full py-2 border-b border-dark-gray", {
-        "h-full": fill,
+        "h-full": bottomRow,
       })}
     >
       <div className="relative" style={{ width: "300px" }} ref={leftColRef}>
         {leftCol}
-        <div
-          className="absolute inset-y-0 right-0 cursor-col-resize w-[1px] bg-dark-gray hover:w-[2px] hover:bg-light-gray -my-2"
-          //   onMouseDown={handleMouseDown("left")}
-        ></div>
+        {bottomRow && (
+          <div
+            className="absolute inset-y-0 right-0 cursor-col-resize w-[1px] bg-dark-gray hover:w-[2px] hover:bg-light-gray -my-[100px]"
+            //   onMouseDown={handleMouseDown("left")}
+          ></div>
+        )}
       </div>
       <div className="flex-auto">{middleCol}</div>
       <div className="relative" style={{ width: "300px" }} ref={rightColRef}>
         {rightCol}
-        <div
-          //   onMouseDown={handleMouseDown("right")}
-          className="absolute inset-y-0 left-0 cursor-col-resize w-[1px]  bg-dark-gray hover:w-[2px] hover:bg-light-gray -my-2"
-        ></div>
+        {bottomRow && (
+          <div
+            //   onMouseDown={handleMouseDown("right")}
+            className="absolute inset-y-0 left-0 cursor-col-resize w-[1px]  bg-dark-gray hover:w-[2px] hover:bg-light-gray -my-2"
+          ></div>
+        )}
       </div>
     </div>
   );
