@@ -284,22 +284,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
   };
 
   return (
-    <div className="flex flex-row items-center gap-6 p-2 overflow-scroll">
-      {/* <div className="flex flex-row gap-2">
-        <button className="hidden w-0 h-0 " disabled></button>
-        <Button
-          icon={<Undo />}
-          onClick={() => {
-            editor.dispatchCommand(UNDO_COMMAND, undefined);
-          }}
-        ></Button>
-        <Button
-          icon={<Undo className="transform -scale-x-100" />}
-          onClick={() => {
-            editor.dispatchCommand(REDO_COMMAND, undefined);
-          }}
-        />
-      </div> */}
+    <div className="flex flex-row items-center gap-6 p-2 overflow-clip">
       <div className="flex flex-row gap-2">
         <Dropdown
           options={Object.values(blockTypes)}
