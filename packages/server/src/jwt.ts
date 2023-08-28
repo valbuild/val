@@ -1,7 +1,17 @@
 import crypto from "crypto";
 import { z } from "zod";
 
-export function decodeJwt(token: string, secretKey?: string): unknown | null {
+export type JwtPayload = {
+  sub: string;
+  exp: number;
+  org: string;
+  project: string;
+};
+
+export function decodeJwt(
+  token: string,
+  secretKey?: string
+): JwtPayload | null {
   const [headerBase64, payloadBase64, signatureBase64, ...rest] =
     token.split(".");
   if (!headerBase64 || !payloadBase64 || !signatureBase64 || rest.length > 0) {
@@ -47,7 +57,7 @@ export function decodeJwt(token: string, secretKey?: string): unknown | null {
   try {
     const parsedPayload = JSON.parse(
       Buffer.from(payloadBase64, "base64").toString("utf8")
-    ) as unknown;
+    ) as JwtPayload;
     return parsedPayload;
   } catch (err) {
     console.debug("Invalid JWT: could not parse payload", err);
