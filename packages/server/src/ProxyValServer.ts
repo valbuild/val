@@ -113,7 +113,6 @@ export class ProxyValServer implements ValServer {
   }
 
   async session(req: express.Request, res: express.Response): Promise<void> {
-    console.log("hit session");
     return this.withAuth(req, res, async (data) => {
       const url = new URL(
         `/api/val/${this.options.valName}/auth/session`,
