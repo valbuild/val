@@ -30,9 +30,9 @@ const addValPathIfFound = (type: any, props: any) => {
         ) {
           const valPath = encodedBits?.data?.valPath;
           if (valPath) {
-            console.log("Found encoded valPath", valPath);
             valSources.push(valPath);
             props[key] = vercelStegaSplit(value).cleaned;
+            props[`data-val-attr-${key}`] = valPath;
           }
         }
       }
