@@ -36,8 +36,7 @@ export function ValOverlay({
       if (res.status === 200) {
         setSession(await res.json());
       } else {
-        // TODO: remove debug
-        console.debug("Session: ", res.status, await res.text());
+        console.error("Session: ", res.status, await res.text());
         setSession(false);
       }
     });
