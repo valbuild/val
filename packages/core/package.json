@@ -39,8 +39,7 @@
     ],
     "exports": true
   },
-  "dependencies": {
-    "image-size": "^1.0.2",
+  "devDependencies": {
     "ts-toolbelt": "^9.6.0"
   }
 }
