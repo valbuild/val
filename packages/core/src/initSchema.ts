@@ -1,4 +1,4 @@
-import { F } from "ts-toolbelt";
+import type { F } from "ts-toolbelt";
 import { array } from "./schema/array";
 import { number } from "./schema/number";
 import { object } from "./schema/object";
