@@ -20,4 +20,6 @@ export interface ValServer {
   ): Promise<void>;
 
   commit(req: express.Request, res: express.Response): Promise<void>;
+
+  enable(req: express.Request, res: express.Response): Promise<void>;
 }

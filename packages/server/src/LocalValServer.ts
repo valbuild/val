@@ -6,6 +6,7 @@ import { parsePatch, PatchError } from "@valbuild/core/patch";
 import { getPathFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
 import { Internal } from "@valbuild/core";
+import { enable } from "./ProxyValServer";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -20,6 +21,10 @@ export class LocalValServer implements ValServer {
     });
   }
 
+  async enable(req: express.Request, res: express.Response): Promise<void> {
+    return enable(req, res);
+  }
+
   async getIds(
     req: express.Request<{ 0: string }>,
     res: express.Response
@@ -28,6 +33,7 @@ export class LocalValServer implements ValServer {
       console.log(req.params);
       const path = getPathFromParams(req.params);
       const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
+
       const valModule = await this.options.service.get(moduleId, modulePath);
 
       res.json(valModule);
