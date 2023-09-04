@@ -7,9 +7,12 @@ import { getPathFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
 import { z } from "zod";
 import { parsePatch } from "@valbuild/core/patch";
+import { ParamsDictionary } from "express-serve-static-core";
+import { ParsedQs } from "qs";
 
 const VAL_SESSION_COOKIE = "val_session";
 const VAL_STATE_COOKIE = "val_state";
+const VAL_ENABLED_COOKIE = "val_enabled";
 
 export type ProxyValServerOptions = {
   apiKey: string;
@@ -45,6 +48,10 @@ export class ProxyValServer implements ValServer {
         expires: new Date(Date.now() + 1000 * 60 * 60), // 1 hour
       })
       .redirect(appAuthorizeUrl);
+  }
+
+  async enable(req: express.Request, res: express.Response): Promise<void> {
+    return enable(req, res);
   }
 
   async callback(req: express.Request, res: express.Response): Promise<void> {
@@ -383,6 +390,23 @@ function getStateFromCookie(stateCookie: string):
       success: false,
       error: "Invalid state cookie: could not parse",
     };
+  }
+}
+
+export async function enable(
+  req: express.Request,
+  res: express.Response
+): Promise<void> {
+  const { redirect_to } = req.query;
+  if (typeof redirect_to === "string" || typeof redirect_to === "undefined") {
+    res
+      .cookie(VAL_ENABLED_COOKIE, "true", {
+        httpOnly: false,
+        sameSite: "lax",
+      })
+      .redirect(redirect_to || "/");
+  } else {
+    res.sendStatus(400);
   }
 }
 
