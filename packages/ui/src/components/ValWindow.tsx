@@ -11,7 +11,6 @@ export type ValWindowProps = {
 
 export function ValWindow({
   position,
-  isInitialized: isInitializedProp,
   onClose,
   children,
 }: ValWindowProps): React.ReactElement {
@@ -32,21 +31,22 @@ export function ValWindow({
 
   //
   const [size, resizeRef, onMouseDownResize] = useResize();
+
   return (
     <div
       className={classNames(
         "absolute h-[100svh] w-full tablet:w-auto tablet:h-auto tablet:min-h-fit tablet:rounded bg-base drop-shadow-2xl min-w-[320px] transition-opacity duration-300 delay-75 max-w-full",
         {
-          "opacity-0": !(isInitialized || isInitializedProp),
-          "opacity-100": isInitialized || isInitializedProp,
+          "opacity-0": !isInitialized,
+          "opacity-100": isInitialized,
         }
       )}
       ref={resizeRef}
       style={{
         left: draggedPosition.left,
         top: draggedPosition.top,
-        width: size?.width,
-        height: size?.height,
+        width: size?.width || 320,
+        height: size?.height || 320,
       }}
     >
       <div
@@ -109,8 +109,8 @@ function useResize() {
         const nextHeight =
           startSize.height - startPosition.y + mouseMoveEvent.pageY;
         setSize({
-          width: nextWidth,
-          height: nextHeight,
+          width: nextWidth > 320 ? nextWidth : 320,
+          height: nextHeight > 320 ? nextHeight : 320,
         });
       }
     }
@@ -131,11 +131,13 @@ function useDrag({
   const [position, setPosition] = useState({ left: 0, top: 0 });
   useEffect(() => {
     if (initPosition) {
+      const left =
+        initPosition.left -
+        (ref?.current?.getBoundingClientRect()?.width || 0) / 2;
+      const top = initPosition.top - 16;
       setPosition({
-        left:
-          initPosition.left -
-          (ref?.current?.getBoundingClientRect()?.width || 0) / 2,
-        top: initPosition.top - 16,
+        left: left < 0 ? 0 : left,
+        top: top < 0 ? 0 : top,
       });
     }
   }, [initPosition]);
@@ -150,14 +152,13 @@ function useDrag({
       if (mouseDown) {
         e.preventDefault();
         e.stopPropagation();
+        const left =
+          -((ref?.current?.getBoundingClientRect()?.width || 0) / 2) + e.pageX;
         const top =
           -((ref?.current?.getBoundingClientRect()?.height || 0) / 2) +
           +e.pageY;
-
         setPosition({
-          left:
-            -((ref?.current?.getBoundingClientRect()?.width || 0) / 2) +
-            e.pageX,
+          left: left < 0 ? 0 : left,
           top: top < 0 ? 0 : top,
         });
       }

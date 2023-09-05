@@ -3,6 +3,12 @@ module.exports = {
   content: [__dirname + "/src/**/*.{js,ts,jsx,tsx}"],
   darkMode: ["class", '[data-mode="dark"]'],
   theme: {
+    zIndex: {
+      overlay: 8999, // 1 less than the NextJS error z-index: 9000
+      hover: 8996,
+      window: 8997,
+      full: 8998,
+    },
     colors: {
       base: "var(--val-theme-base)",
       highlight: "var(--val-theme-highlight)",
@@ -42,10 +48,15 @@ module.exports = {
         "0%": { transform: "rotate(0deg)" },
         "100%": { transform: "rotate(-45deg)" },
       },
+      spin: {
+        "0%": { transform: "rotate(0deg)" },
+        "100%": { transform: "rotate(360deg)" },
+      },
     },
     animation: {
       rotateLeft: "rotateLeft 200ms ease-in-out",
       rotateRight: "rotateRight 200ms ease-in-out",
+      spin: "spin 1s linear infinite",
     },
   },
   plugins: [],
