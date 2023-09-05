@@ -1,4 +1,3 @@
-import { Json } from "../Json";
 import { SelectorSource } from "../selector";
 import { RemoteCompatibleSource, RemoteSource } from "../source/remote";
 import { SourcePath } from "../val";

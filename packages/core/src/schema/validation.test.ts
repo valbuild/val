@@ -56,135 +56,135 @@ const ValidationTestCases: {
     schema: boolean().optional(),
     expected: false,
   },
-  // {
-  //   description: "failing boolean",
-  //   input: "false",
-  //   schema: boolean(),
-  //   expected: [testPath],
-  // },
-  // // number
-  // {
-  //   description: "basic number (0)",
-  //   input: 0,
-  //   schema: number(),
-  //   expected: false,
-  // },
-  // {
-  //   description: "basic number (-1)",
-  //   input: -1,
-  //   schema: number(),
-  //   expected: false,
-  // },
-  // {
-  //   description: "basic number (1)",
-  //   input: 1,
-  //   schema: number(),
-  //   expected: false,
-  // },
-  // {
-  //   description: "basic number (1)",
-  //   input: 1,
-  //   schema: number(),
-  //   expected: false,
-  // },
-  // // string
-  // {
-  //   description: "basic string",
-  //   input: "two",
-  //   schema: string(),
-  //   expected: false,
-  // },
-  // {
-  //   description: "failing string",
-  //   input: 1,
-  //   schema: string(),
-  //   expected: [testPath],
-  // },
-  // // literal
-  // {
-  //   description: "basic literal",
-  //   input: "one",
-  //   schema: literal("one"),
-  //   expected: false,
-  // },
-  // {
-  //   description: "failing literal",
-  //   input: "two",
-  //   schema: literal("one"),
-  //   expected: [testPath],
-  // },
-  // // array
-  // {
-  //   description: "basic array(string)",
-  //   input: ["one", "two"],
-  //   schema: array(string()),
-  //   expected: false,
-  // },
-  // {
-  //   description: "failing array(string)",
-  //   input: [true, "false"],
-  //   schema: array(string()),
-  //   expected: [pathOf(0)],
-  // },
-  // // object
-  // {
-  //   description: "basic object(string)",
-  //   input: { one: "one val", two: 2 },
-  //   schema: object({
-  //     one: string(),
-  //     two: number(),
-  //   }),
-  //   expected: false,
-  // },
-  // {
-  //   description: "basic object(string)",
-  //   input: { one: "one val", two: 1 },
-  //   schema: object({
-  //     one: string(),
-  //     two: string(),
-  //   }),
-  //   expected: [pathOf("two")],
-  // },
+  {
+    description: "failing boolean",
+    input: "false",
+    schema: boolean(),
+    expected: [testPath],
+  },
+  // number
+  {
+    description: "basic number (0)",
+    input: 0,
+    schema: number(),
+    expected: false,
+  },
+  {
+    description: "basic number (-1)",
+    input: -1,
+    schema: number(),
+    expected: false,
+  },
+  {
+    description: "basic number (1)",
+    input: 1,
+    schema: number(),
+    expected: false,
+  },
+  {
+    description: "basic number (1)",
+    input: 1,
+    schema: number(),
+    expected: false,
+  },
+  // string
+  {
+    description: "basic string",
+    input: "two",
+    schema: string(),
+    expected: false,
+  },
+  {
+    description: "failing string",
+    input: 1,
+    schema: string(),
+    expected: [testPath],
+  },
+  // literal
+  {
+    description: "basic literal",
+    input: "one",
+    schema: literal("one"),
+    expected: false,
+  },
+  {
+    description: "failing literal",
+    input: "two",
+    schema: literal("one"),
+    expected: [testPath],
+  },
+  // array
+  {
+    description: "basic array(string)",
+    input: ["one", "two"],
+    schema: array(string()),
+    expected: false,
+  },
+  {
+    description: "failing array(string)",
+    input: [true, "false"],
+    schema: array(string()),
+    expected: [pathOf(0)],
+  },
+  // object
+  {
+    description: "basic object(string)",
+    input: { one: "one val", two: 2 },
+    schema: object({
+      one: string(),
+      two: number(),
+    }),
+    expected: false,
+  },
+  {
+    description: "basic object(string)",
+    input: { one: "one val", two: 1 },
+    schema: object({
+      one: string(),
+      two: string(),
+    }),
+    expected: [pathOf("two")],
+  },
   // image / file
-  // {
-  //   description: "optional image",
-  //   input: null,
-  //   schema: image().optional(),
-  //   expected: false,
-  // },
-  // {
-  //   description: "failure image:: null",
-  //   input: null,
-  //   schema: image(),
-  //   expected: [testPath],
-  // },
-  // {
-  //   description: "failure image: add metadata",
-  //   input: fileVal("test", {
-  //     width: 100,
-  //     height: 100,
-  //     sha256: "test",
-  //   }),
-  //   schema: image(),
-  //   expected: [testPath],
-  //   fixes: {
-  //     [testPath]: ["image:add-metadata"],
-  //   },
-  // },
-  // {
-  //   description: "failure image: check metadata",
-  //   input: fileVal("test", {
-  //     width: 100,
-  //     height: 100,
-  //     sha256:
-  //       "9e420dc93157ab98338542ba6f1d34fcf829d646aa729a86720fa3f4cb2d0076",
-  //   }),
-  //   schema: image(),
-  //   expected: [testPath],
-  //   fixes: {
-  //     [testPath]: ["image:check-metadata"],
-  //   },
-  // },
+  {
+    description: "optional image",
+    input: null,
+    schema: image().optional(),
+    expected: false,
+  },
+  {
+    description: "failure image:: null",
+    input: null,
+    schema: image(),
+    expected: [testPath],
+  },
+  {
+    description: "failure image: replace metadata",
+    input: fileVal("test", {
+      width: 100,
+      height: 100,
+      sha256: "test",
+    }),
+    schema: image(),
+    expected: [testPath],
+    fixes: {
+      [testPath]: ["image:replace-metadata"],
+    },
+  },
+  {
+    description: "failure image: check metadata",
+    input: fileVal("test", {
+      width: 100,
+      height: 100,
+      sha256:
+        "9e420dc93157ab98338542ba6f1d34fcf829d646aa729a86720fa3f4cb2d0076",
+    }),
+    schema: image(),
+    expected: [testPath],
+    fixes: {
+      [testPath]: ["image:replace-metadata"],
+    },
+  },
   // richtext
   {
     description: "basic richtext",
