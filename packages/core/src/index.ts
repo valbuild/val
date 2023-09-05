@@ -59,6 +59,7 @@ const Internal = {
   splitModuleIdAndModulePath,
   fetchVal,
   isVal,
+  VAL_ENABLE_COOKIE_NAME: "val_enable",
 };
 
 export { Internal };

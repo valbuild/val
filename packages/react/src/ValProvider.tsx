@@ -42,7 +42,7 @@ export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
   return (
     <ValContext.Provider value={{ valApi, valStore }}>
       {children}
-      {ValUI && <ValUI valApi={valApi} valStore={valStore} />}
+      {ValUI && <ValUI host={host} />}
     </ValContext.Provider>
   );
 }
