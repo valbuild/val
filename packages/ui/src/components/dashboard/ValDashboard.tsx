@@ -57,11 +57,14 @@ export const ValDashboard: FC<ValDashboardProps> = ({
           } = {};
           if (child) {
             for (const key of Object.keys(child)) {
-              const type = module.schema.item.items[key].type as string;
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const type = (module.schema as any).item.items[key]
+                .type as string;
               if (key !== "rank" && type !== "richtext") {
                 newModule[key] = {
                   path: key,
-                  type: module.schema.item.items[key].type as string,
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  type: (module.schema as any).item.items[key].type as string,
                 };
               }
             }
@@ -78,7 +81,8 @@ export const ValDashboard: FC<ValDashboardProps> = ({
         } = {};
         if (child) {
           for (const key of Object.keys(child)) {
-            const type = module.schema.items[key].type as string;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const type = (module.schema as any).items[key].type as string;
             if (key !== "rank" && type !== "richtext") {
               newModule[key] = {
                 path: key,
@@ -124,9 +128,9 @@ export const ValDashboard: FC<ValDashboardProps> = ({
                 })}
               </Tree>
             )}
-            <div className="font-serif text-xs w-full h-full flex justify-between items-center px-3 text-white">
+            <div className="flex items-center justify-between w-full h-full px-3 font-serif text-xs text-white">
               <p>Content</p>
-              <button className="flex justify-between gap-1 flex-shrink-0">
+              <button className="flex justify-between flex-shrink-0 gap-1">
                 <span className="w-fit">+</span>
                 <span className="w-fit">Add item</span>
               </button>

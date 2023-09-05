@@ -63,7 +63,7 @@ module.exports = {
     },
   },
   plugins: [
-    function ({ addVariant, addComponents }) {
+    function ({ addVariant }) {
       addVariant("all-but-last-child", "& > *:not(:last-child)");
       addVariant("children", "& *");
     },

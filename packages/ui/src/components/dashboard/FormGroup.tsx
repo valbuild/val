@@ -12,7 +12,7 @@ export const FormGroup = ({ children }: FormGroupProps) => {
     "px-4 py-3 border-b border-dark-gray hover:bg-light-gray hover:border-light-gray";
   return (
     <div>
-      <div className="flex flex-col text-white font-serif text-xs leading-4 tracking-wider">
+      <div className="flex flex-col font-serif text-xs leading-4 tracking-wider text-white">
         <button
           className={classNames(
             defaultClass,
@@ -21,7 +21,7 @@ export const FormGroup = ({ children }: FormGroupProps) => {
           onClick={() => setExpanded(!expanded)}
         >
           {firstChild}
-          <div>{expanded ? "Collapse" : "Expand" }</div>
+          <div>{expanded ? "Collapse" : "Expand"}</div>
         </button>
         {expanded && (
           <div className="flex flex-col bg-medium-black">

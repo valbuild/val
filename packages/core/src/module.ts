@@ -272,9 +272,9 @@ export function resolvePath(
   return {
     path: origParts
       .map((p) => {
-        if(!Number.isNaN(Number(p))){
+        if (!Number.isNaN(Number(p))) {
           return p;
-        }else{
+        } else {
           return JSON.stringify(p);
         }
       })

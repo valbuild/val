@@ -7,7 +7,6 @@ import { PatchJSON } from "./patch/validation";
 import { ValServer } from "./ValServer";
 import { Internal, ModuleId, ModulePath } from "@valbuild/core";
 import { enable } from "./ProxyValServer";
-import { ParsedQs } from "qs";
 import { promises as fs } from "fs";
 import path from "path";
 
@@ -17,16 +16,7 @@ export type LocalValServerOptions = {
 
 export class LocalValServer implements ValServer {
   constructor(readonly options: LocalValServerOptions) {}
-  getAllModules(
-    req: express.Request<
-      { 0: string },
-      any,
-      any,
-      ParsedQs,
-      Record<string, any>
-    >,
-    res: express.Response<any, Record<string, any>>
-  ): Promise<void> {
+  getAllModules(req: express.Request, res: express.Response): Promise<void> {
     // TODO: this barely works,
     const rootDir = process.cwd();
     const moduleIds: string[] = [];

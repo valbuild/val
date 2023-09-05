@@ -188,6 +188,7 @@ export const ValDashboardEditor: FC<ValDashboardEditorProps> = ({
               ];
               return valApi.patchModuleContent(moduleId, patch);
             }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             throw new Error(`Unsupported input type: ${(input as any).type}`);
           } else {
             console.error("Submitted incomplete input, ignoring...");

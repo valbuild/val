@@ -15,7 +15,7 @@ const Dropdown: React.FC<DropdownProps> = ({
   onChange,
   label,
   icon,
-  variant = "primary",
+  // variant = "primary",
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
