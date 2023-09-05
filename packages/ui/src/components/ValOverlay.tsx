@@ -62,9 +62,7 @@ export function ValOverlay({ api, defaultTheme }: ValOverlayProps) {
               setWindowTarget(null);
               setEditMode("hover");
             }}
-          >
-            hei
-          </ValWindow>
+          ></ValWindow>
         )}
       </div>
     </ValOverlayContext.Provider>
@@ -122,6 +120,7 @@ function ValHover({
 }
 
 // TODO: do something fun on highlight?
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function useHighlight(
   highlight: boolean,
   setTarget: Dispatch<HoverTarget | null>
