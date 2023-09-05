@@ -1,10 +1,5 @@
 import classNames from "classnames";
-import {
-  ReactElement,
-  ReactNode,
-  useRef,
-  useState
-} from "react";
+import { ReactElement, ReactNode, useRef, useState } from "react";
 
 type DropdownProps = {
   options?: string[];
@@ -24,7 +19,7 @@ export function Dropdown({
 
   return (
     <select
-      className="relative w-full justify-start font-serif text-xs group bg-warm-black text-white hover:bg-dark-gray px-4 mx-2"
+      className="relative justify-start w-full px-4 mx-2 font-serif text-xs text-white group bg-warm-black hover:bg-dark-gray"
       onChange={handleChange}
       ref={dropdownRef}
     >

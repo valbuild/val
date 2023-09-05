@@ -7,7 +7,6 @@ import { getPathFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
 import { z } from "zod";
 import { parsePatch } from "@valbuild/core/patch";
-import { ParsedQs } from "qs";
 import { Internal } from "@valbuild/core";
 
 const VAL_SESSION_COOKIE = "val_session";
@@ -27,16 +26,8 @@ export type ProxyValServerOptions = {
 export class ProxyValServer implements ValServer {
   constructor(readonly options: ProxyValServerOptions) {}
 
-  getAllModules(
-    req: express.Request<
-      { 0: string },
-      any,
-      any,
-      ParsedQs,
-      Record<string, any>
-    >,
-    res: express.Response<any, Record<string, any>>
-  ): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  getAllModules(_req: express.Request, _res: express.Response): Promise<void> {
     // TODO:
     throw new Error("Method not implemented.");
   }

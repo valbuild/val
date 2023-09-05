@@ -27,7 +27,205 @@ export default val.content("/app/blogs", schema, [
       sha256:
         "41fe618d9db1a477debe0d72d9a8947be3623412281fec8ed4f70517188dfc5a",
     }),
-    text: { children: [{ children: [{ detail: 0, format: 0, mode: "normal", style: "", text: "Heading 1", type: "text", version: 1 }], direction: "ltr", format: "", indent: 0, type: "heading", version: 1, tag: "h1" }, { children: [{ detail: 0, format: 0, mode: "normal", style: "", text: "Heading 2", type: "text", version: 1 }], direction: "ltr", format: "", indent: 0, type: "heading", version: 1, tag: "h2" }, { children: [], direction: "ltr", format: "", indent: 0, type: "paragraph", version: 1 }, { children: [{ detail: 0, format: 0, mode: "normal", style: "font-size: 11px;", text: "Normal small", type: "text", version: 1 }], direction: "ltr", format: "", indent: 0, type: "paragraph", version: 1 }, { children: [{ detail: 0, format: 0, mode: "normal", style: "font-size: 20px;", text: "Normal Font size 20", type: "text", version: 1 }], direction: "ltr", format: "", indent: 0, type: "paragraph", version: 1 }, { children: [{ detail: 0, format: 0, mode: "normal", style: "font-family: serif;", text: "Normal font type serif", type: "text", version: 1 }], direction: "ltr", format: "", indent: 0, type: "paragraph", version: 1 }, { children: [{ detail: 0, format: 1, mode: "normal", style: "font-family: serif;", text: "Serif and bold", type: "text", version: 1 }], direction: "ltr", format: "", indent: 0, type: "paragraph", version: 1 }, { children: [{ detail: 0, format: 2, mode: "normal", style: "", text: "Arial and italic", type: "text", version: 1 }], direction: "ltr", format: "", indent: 0, type: "paragraph", version: 1 }, { children: [{ detail: 0, format: 8, mode: "normal", style: "", text: "Underline", type: "text", version: 1 }], direction: "ltr", format: "", indent: 0, type: "paragraph", version: 1 }, { children: [{ detail: 0, format: 4, mode: "normal", style: "", text: "strikethrough", type: "text", version: 1 }], direction: "ltr", format: "", indent: 0, type: "paragraph", version: 1 }, { children: [{ detail: 0, format: 12, mode: "normal", style: "", text: "Underline then strikethrough", type: "text", version: 1 }], direction: "ltr", format: "", indent: 0, type: "paragraph", version: 1 }], direction: "ltr", format: "", indent: 0, type: "root", version: 1 },
+    text: val.richtext({
+      children: [
+        {
+          children: [
+            {
+              detail: 0,
+              format: 0,
+              mode: "normal",
+              style: "",
+              text: "Heading 1",
+              type: "text",
+              version: 1,
+            },
+          ],
+          direction: "ltr",
+          format: "",
+          indent: 0,
+          type: "heading",
+          version: 1,
+          tag: "h1",
+        },
+        {
+          children: [
+            {
+              detail: 0,
+              format: 0,
+              mode: "normal",
+              style: "",
+              text: "Heading 2",
+              type: "text",
+              version: 1,
+            },
+          ],
+          direction: "ltr",
+          format: "",
+          indent: 0,
+          type: "heading",
+          version: 1,
+          tag: "h2",
+        },
+        {
+          children: [],
+          direction: "ltr",
+          format: "",
+          indent: 0,
+          type: "paragraph",
+          version: 1,
+        },
+        {
+          children: [
+            {
+              detail: 0,
+              format: 0,
+              mode: "normal",
+              style: "font-size: 11px;",
+              text: "Normal small",
+              type: "text",
+              version: 1,
+            },
+          ],
+          direction: "ltr",
+          format: "",
+          indent: 0,
+          type: "paragraph",
+          version: 1,
+        },
+        {
+          children: [
+            {
+              detail: 0,
+              format: 0,
+              mode: "normal",
+              style: "font-size: 20px;",
+              text: "Normal Font size 20",
+              type: "text",
+              version: 1,
+            },
+          ],
+          direction: "ltr",
+          format: "",
+          indent: 0,
+          type: "paragraph",
+          version: 1,
+        },
+        {
+          children: [
+            {
+              detail: 0,
+              format: 0,
+              mode: "normal",
+              style: "font-family: serif;",
+              text: "Normal font type serif",
+              type: "text",
+              version: 1,
+            },
+          ],
+          direction: "ltr",
+          format: "",
+          indent: 0,
+          type: "paragraph",
+          version: 1,
+        },
+        {
+          children: [
+            {
+              detail: 0,
+              format: 1,
+              mode: "normal",
+              style: "font-family: serif;",
+              text: "Serif and bold",
+              type: "text",
+              version: 1,
+            },
+          ],
+          direction: "ltr",
+          format: "",
+          indent: 0,
+          type: "paragraph",
+          version: 1,
+        },
+        {
+          children: [
+            {
+              detail: 0,
+              format: 2,
+              mode: "normal",
+              style: "",
+              text: "Arial and italic",
+              type: "text",
+              version: 1,
+            },
+          ],
+          direction: "ltr",
+          format: "",
+          indent: 0,
+          type: "paragraph",
+          version: 1,
+        },
+        {
+          children: [
+            {
+              detail: 0,
+              format: 8,
+              mode: "normal",
+              style: "",
+              text: "Underline",
+              type: "text",
+              version: 1,
+            },
+          ],
+          direction: "ltr",
+          format: "",
+          indent: 0,
+          type: "paragraph",
+          version: 1,
+        },
+        {
+          children: [
+            {
+              detail: 0,
+              format: 4,
+              mode: "normal",
+              style: "",
+              text: "strikethrough",
+              type: "text",
+              version: 1,
+            },
+          ],
+          direction: "ltr",
+          format: "",
+          indent: 0,
+          type: "paragraph",
+          version: 1,
+        },
+        {
+          children: [
+            {
+              detail: 0,
+              format: 12,
+              mode: "normal",
+              style: "",
+              text: "Underline then strikethrough",
+              type: "text",
+              version: 1,
+            },
+          ],
+          direction: "ltr",
+          format: "",
+          indent: 0,
+          type: "paragraph",
+          version: 1,
+        },
+      ],
+      direction: "ltr",
+      format: "",
+      indent: 0,
+      type: "root",
+      version: 1,
+    }),
     rank: 100,
   },
   {
@@ -38,14 +236,14 @@ export default val.content("/app/blogs", schema, [
       sha256:
         "9d39bf1a0b7efb117c5b6cfbca0911904c0be3d07588142db624dab183c33e20",
     }),
-    text: {
+    text: val.richtext({
       direction: "ltr",
       format: "",
       indent: 0,
       type: "root",
       version: 1,
       children: [],
-    },
+    }),
     rank: 10,
   },
   {
@@ -56,7 +254,7 @@ export default val.content("/app/blogs", schema, [
       sha256:
         "5d70cf57c58aed863e79971cc78607ccd26529050ceb083e9face9670581ea7d",
     }),
-    text: {
+    text: val.richtext({
       children: [
         {
           children: [

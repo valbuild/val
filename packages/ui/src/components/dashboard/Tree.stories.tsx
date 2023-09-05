@@ -89,5 +89,3 @@ export const Default: Story = {
 export const TestData: Story = {
   render: () => <Tree rootPath="root">{nodes.map(renderNodes)}</Tree>,
 };
-
-
