@@ -152,13 +152,13 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
     onError,
   };
   return (
-    <div className=" relative bg-base min-h-[200px] mt-2 border border-highlight rounded">
+    <div className=" relative bg-base min-h-[200px] mt-2 border border-highlight rounded overflow-none resize">
       <LexicalComposer initialConfig={initialConfig}>
         <Toolbar onEditor={onEditor} />
         <ImagesPlugin />
         <RichTextPlugin
           contentEditable={
-            <LexicalContentEditable className="relative bg-fill flex flex-col h-full w-full min-h-[200px] text-primary outline-none" />
+            <LexicalContentEditable className="relative bg-fill flex flex-col h-full w-full min-h-[200px] min-w-[566px] text-primary outline-none overflow-auto resize" />
           }
           placeholder={
             <div className="absolute top-[calc(58px+1rem)] left-4 text-base/25 text-primary">

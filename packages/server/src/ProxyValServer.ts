@@ -26,6 +26,12 @@ export type ProxyValServerOptions = {
 export class ProxyValServer implements ValServer {
   constructor(readonly options: ProxyValServerOptions) {}
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  getAllModules(_req: express.Request, _res: express.Response): Promise<void> {
+    // TODO:
+    throw new Error("Method not implemented.");
+  }
+
   async authorize(req: express.Request, res: express.Response): Promise<void> {
     const { redirect_to } = req.query;
     if (typeof redirect_to !== "string") {

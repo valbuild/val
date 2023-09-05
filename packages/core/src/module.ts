@@ -270,7 +270,15 @@ export function resolvePath(
     throw Error(`Invalid path: ${parts.join(".")} is not a valid path`);
   }
   return {
-    path,
+    path: origParts
+      .map((p) => {
+        if (!Number.isNaN(Number(p))) {
+          return p;
+        } else {
+          return JSON.stringify(p);
+        }
+      })
+      .join("."), // TODO: create a function generate path from parts (not sure if this always works)
     schema: resolvedSchema,
     source: resolvedSource,
   };
