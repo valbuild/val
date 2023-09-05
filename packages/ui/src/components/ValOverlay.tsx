@@ -62,7 +62,9 @@ export function ValOverlay({ api, defaultTheme }: ValOverlayProps) {
               setWindowTarget(null);
               setEditMode("hover");
             }}
-          ></ValWindow>
+          >
+            <div className="text-primary">Test</div>
+          </ValWindow>
         )}
       </div>
     </ValOverlayContext.Provider>
