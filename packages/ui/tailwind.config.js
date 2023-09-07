@@ -15,6 +15,8 @@ module.exports = {
       border: "var(--val-theme-border)",
       fill: "var(--val-theme-fill)",
       primary: "var(--val-theme-primary)",
+      input: "var(--val-theme-input)",
+      inverse: "var(--val-theme-inverse)",
       //
       white: "#FCFCFC",
       "light-gray": "#D6D6D6",

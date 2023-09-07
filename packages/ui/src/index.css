@@ -32,6 +32,8 @@
     --val-theme-border: var(--val-theme-light-gray);
     --val-theme-fill: var(--val-theme-light-gray);
     --val-theme-primary: var(--val-theme-warm-black);
+    --val-theme-input: var(--val-theme-light-gray);
+    --val-theme-inverse: var(--val-theme-warm-black);
   }
 
   /* dark theme */
@@ -41,6 +43,8 @@
     --val-theme-border: var(--val-theme-dark-gray);
     --val-theme-fill: var(--val-theme-medium-black);
     --val-theme-primary: var(--val-theme-white);
+    --val-theme-input: var(--val-theme-light-gray);
+    --val-theme-inverse: var(--val-theme-warm-black);
   }
 
   /* text area auto-grow */

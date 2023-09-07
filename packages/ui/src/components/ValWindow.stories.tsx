@@ -24,7 +24,6 @@ Ting vi har bygd for kundene våre
 `;
 export const ShortText: Story = {
   args: {
-    isInitialized: true,
     children: (
       <FormContainer
         onSubmit={() => {

@@ -7,13 +7,10 @@ export type TextInputProps = {
 
 export function TextForm({ name, text, onChange }: TextInputProps) {
   return (
-    <div
-      className="w-full py-2 grow-wrap"
-      data-replicated-value={text} /* see grow-wrap */
-    >
+    <div className="grow-wrap" data-replicated-value={text} /* see grow-wrap */>
       <textarea
         name={name}
-        className="w-full p-2 border outline-none bg-fill text-primary border-border focus-visible:border-highlight"
+        className="w-full p-2 border outline-none bg-input text-inverse border-border focus-visible:border-highlight"
         defaultValue={text}
         onChange={(e) => onChange(e.target.value)}
       />
