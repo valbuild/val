@@ -273,18 +273,3 @@ function PreviewText({ text, onClick }: { text: string; onClick: () => void }) {
     </button>
   );
 }
-
-function query(valModules: SerializedModule[], paths2: JsonPath[]) {
-  const valModuleByPath = valModules.reduce((acc, valModule) => {
-    acc[valModule.path] = valModule;
-    return acc;
-  }, {} as Record<SourcePath, SerializedModule>);
-  const paths = ['$[?(@.path == "/app/employees")].source[*].name'];
-
-  if (paths.length > 0) {
-    console.log(
-      paths,
-      paths.reduce((acc, curr) => jp.query(acc, curr)[0], valModules)
-    );
-  }
-}
