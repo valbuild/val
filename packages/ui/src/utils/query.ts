@@ -1,41 +1,111 @@
 import {
   Internal,
   Json,
+  JsonArray,
   ModulePath,
   SerializedModule,
   Source,
   SourcePath,
 } from "@valbuild/core";
-import { JsonObject } from "@valbuild/core/src/Json";
+import { result } from "@valbuild/core/fp";
+import { JsonObject } from "@valbuild/core";
 
-export type SelectedPaths = { [key: string]: SelectedPaths } | true;
+export type QueryObject = { [key: string]: QueryObject } | true;
 
+export type QueryError = {
+  fallbackSource: Json;
+  messages: string[];
+  queryObject: QueryObject;
+};
 export function query(
   valModules: SerializedModule[],
-  paths: Record<string, SelectedPaths>
-) {
-  function it(source: Json, path: SelectedPaths): Json {
-    if (source === null) {
-      return source;
+  queryObject: Record<string, QueryObject>
+): Record<string, result.Result<Json, QueryError>> {
+  function it(
+    source: Json,
+    queryObject: QueryObject
+  ): result.Result<Json, QueryError> {
+    if (queryObject === true) {
+      return result.ok(source);
     }
-    if (path === true) {
-      return source;
-    } else {
-      if (Array.isArray(source)) {
-        return source.map((s) => it(s, path));
-      } else if (typeof source === "object") {
-        return Object.fromEntries(
-          Object.entries(paths).map(([k, v]) => [k, it(source[k], v)])
-        );
+    if (typeof source === "object") {
+      if (source === null) {
+        return result.ok(source);
       }
-      return source;
+      if (Array.isArray(source)) {
+        const errors = [];
+        const res = [];
+        for (const el of source) {
+          const curr = it(el, queryObject);
+          if (result.isErr(curr)) {
+            errors.push(...curr.error.messages);
+            res.push(curr.error.fallbackSource);
+          } else {
+            res.push(curr.value);
+          }
+        }
+        if (errors.length > 0) {
+          return result.err({
+            fallbackSource: res,
+            messages: errors,
+            queryObject,
+          });
+        }
+        return result.ok(res);
+      }
+      const sourceObject = source as JsonObject; // JsonArray is readonly array which is not covered by the isArray type guard
+
+      const errors = [];
+      const res: Record<string, Json> = {};
+      for (const [key, subQueryObject] of Object.entries(queryObject)) {
+        if (sourceObject[key] === undefined) {
+          errors.push(
+            `Could not query key: "${key}". Available keys: ${Object.keys(
+              sourceObject
+            )
+              .map((k) => `"${k}"`)
+              .join(", ")}`
+          );
+        } else {
+          const curr = it(sourceObject[key], subQueryObject);
+          if (result.isErr(curr)) {
+            errors.push(...curr.error.messages);
+            res[key] = curr.error.fallbackSource;
+          } else {
+            res[key] = curr.value;
+          }
+        }
+      }
+      if (errors.length > 0) {
+        return result.err({
+          fallbackSource: res,
+          messages: errors,
+          queryObject,
+        });
+      }
+      return result.ok(res);
     }
+    return result.err({
+      fallbackSource: source,
+      messages: [
+        `Cannot execute this query on source of this type : '${typeof source}'`,
+      ],
+      queryObject,
+    });
   }
-  return Object.entries(paths).flatMap(([modulePath, selectedPaths]) => {
+
+  const res: Record<string, result.Result<Json, QueryError>> = {};
+  for (const [modulePath, selectedPaths] of Object.entries(queryObject)) {
     const module = valModules.find((m) => m.path === modulePath);
     if (!module) {
-      return [];
+      res[modulePath] = result.err({
+        fallbackSource: null,
+        messages: [`Could not find module '${modulePath}'`],
+        queryObject,
+      });
+    } else {
+      res[modulePath] = it(module.source, selectedPaths);
     }
-    return [[modulePath, it(module.source, selectedPaths)]];
-  });
+  }
+  return res;
 }

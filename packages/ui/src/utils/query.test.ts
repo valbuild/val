@@ -1,5 +1,6 @@
 import { Internal, Json, SerializedModule, initVal } from "@valbuild/core";
-import { SelectedPaths, query } from "./query";
+import { result } from "@valbuild/core/fp";
+import { QueryObject, query } from "./query";
 
 const { s, val } = initVal();
 
@@ -88,39 +89,184 @@ const TEST_DATA = [
       },
     ]
   ),
-];
+].map((valModule): SerializedModule => {
+  const path = Internal.getValPath(valModule);
+  const schema = Internal.getSchema(valModule)?.serialize();
+  const source = Internal.getVal(valModule).val as Json;
+
+  if (!path) {
+    throw new Error("Path not found: " + JSON.stringify(valModule));
+  }
+  if (!schema) {
+    throw new Error("Schema not found: " + Internal.getValPath(valModule));
+  }
+
+  return {
+    path,
+    source,
+    schema,
+  };
+});
 
 describe("query", () => {
-  test('should return "query"', () => {
-    const serializedModules = TEST_DATA.map((valModule): SerializedModule => {
-      const path = Internal.getValPath(valModule);
-      const schema = Internal.getSchema(valModule)?.serialize();
-      const source = Internal.getVal(valModule).val as Json;
-
-      if (!path) {
-        throw new Error("Path not found: " + JSON.stringify(valModule));
-      }
-      if (!schema) {
-        throw new Error("Schema not found: " + Internal.getValPath(valModule));
-      }
-
-      return {
-        path,
-        source,
-        schema,
-      };
-    });
-
-    const paths: Record<string, SelectedPaths> = {
+  test("simplest query possible", () => {
+    const paths: Record<string, QueryObject> = {
       "/app/about/content": {
-        handbook: {
-          title: true,
-          chapters: { header: true, sections: { text: true } },
-        },
-        // handbook: true,
+        handbook: true,
       },
     };
 
-    expect(query(serializedModules, paths)).toBe("query");
+    expect(query(TEST_DATA, paths)).toStrictEqual({
+      "/app/about/content": result.ok({
+        handbook: {
+          title: "Personal&shy;håndbok",
+          chapters: [
+            {
+              header: "Innhold",
+              sections: [
+                {
+                  header: "Intro",
+                  slug: "intro",
+                  text: "Personalhåndboken er ikke ment å være 100 % utfyllende.",
+                },
+              ],
+              slug: "innhold",
+            },
+          ],
+          ingress: "Her finner det meste du trenger å vite om å jobbe i Blank.",
+        },
+      }),
+    });
+  });
+
+  test("query one-key one-level of depth", () => {
+    const paths: Record<string, QueryObject> = {
+      "/app/about/content": {
+        handbook: {
+          title: true,
+        },
+      },
+    };
+
+    expect(query(TEST_DATA, paths)).toStrictEqual({
+      "/app/about/content": result.ok({
+        handbook: {
+          title: "Personal&shy;håndbok",
+        },
+      }),
+    });
+  });
+
+  test("query 2-key one-level of depth", () => {
+    const paths: Record<string, QueryObject> = {
+      "/app/about/content": {
+        handbook: {
+          title: true,
+          ingress: true,
+        },
+      },
+    };
+
+    expect(query(TEST_DATA, paths)).toStrictEqual({
+      "/app/about/content": result.ok({
+        handbook: {
+          title: "Personal&shy;håndbok",
+          ingress: "Her finner det meste du trenger å vite om å jobbe i Blank.",
+        },
+      }),
+    });
+  });
+
+  test("query 1-key 1-level array", () => {
+    const paths: Record<string, QueryObject> = {
+      "/app/about/content": {
+        handbook: {
+          chapters: {
+            header: true,
+          },
+        },
+      },
+    };
+
+    expect(query(TEST_DATA, paths)).toStrictEqual({
+      "/app/about/content": result.ok({
+        handbook: {
+          chapters: [
+            {
+              header: "Innhold",
+            },
+          ],
+        },
+      }),
+    });
+  });
+
+  test("query 2-key 2-level array", () => {
+    const paths: Record<string, QueryObject> = {
+      "/app/about/content": {
+        handbook: {
+          chapters: {
+            header: true,
+            sections: {
+              header: true,
+              slug: true,
+            },
+          },
+        },
+      },
+    };
+
+    expect(query(TEST_DATA, paths)).toStrictEqual({
+      "/app/about/content": result.ok({
+        handbook: {
+          chapters: [
+            {
+              header: "Innhold",
+              sections: [{ header: "Intro", slug: "intro" }],
+            },
+          ],
+        },
+      }),
+    });
+  });
+
+  test("query with error: missing module", () => {
+    const paths: Record<string, QueryObject> = {
+      "/app/about/content2": {
+        handbook: {
+          title: true,
+          ingress: true,
+        },
+      },
+    };
+
+    expectIsErr(query(TEST_DATA, paths)["/app/about/content2"]);
+  });
+
+  test("query with error: one missing key, fallback source is correct", () => {
+    const paths: Record<string, QueryObject> = {
+      "/app/about/content": {
+        handbook: {
+          title: true,
+          ingress: true,
+          foo: true,
+        },
+      },
+    };
+
+    const res = query(TEST_DATA, paths)["/app/about/content"];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((res as any)?.error?.fallbackSource).toStrictEqual({
+      handbook: {
+        ingress: "Her finner det meste du trenger å vite om å jobbe i Blank.",
+        title: "Personal&shy;håndbok",
+      },
+    });
   });
 });
+
+function expectIsErr(res: result.Result<unknown, unknown> | undefined) {
+  if (!res || result.isOk(res)) {
+    expect(res).toStrictEqual(result.err({}));
+  }
+}

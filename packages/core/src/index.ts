@@ -22,7 +22,7 @@ export {
   type SourcePath,
   type JsonOfSource,
 } from "./val";
-export type { Json, JsonPrimitive } from "./Json";
+export type { Json, JsonObject, JsonArray, JsonPrimitive } from "./Json";
 export type {
   ValidationErrors,
   ValidationError,
