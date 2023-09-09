@@ -20,16 +20,16 @@ export function ModuleMenu({ children }: ModuleMenuProps): React.ReactElement {
 export type ModuleMenuBranchProps = {
   name: string;
   icon: React.ReactNode;
-  path: JsonPath;
+  queryPath: string[];
   selected: boolean;
   children: React.ReactNode[] | React.ReactNode;
-  onSelect: (path: JsonPath) => void;
+  onSelect: (queryKey: string[]) => void;
 };
 
 ModuleMenu.Branch = ({
   name,
   icon,
-  path,
+  queryPath,
   selected,
   children,
   onSelect,
@@ -52,7 +52,7 @@ ModuleMenu.Branch = ({
           })}
           onClick={() => {
             setOpen(true);
-            onSelect(path);
+            onSelect(queryPath);
           }}
         >
           <span>{name}</span>
@@ -72,15 +72,15 @@ export type ModuleMenuLeafProps = {
   children: React.ReactNode;
   icon: React.ReactNode;
   selected: boolean;
-  path: JsonPath;
-  onSelect: (path: JsonPath) => void;
+  queryPath: string[];
+  onSelect: (queryKey: string[]) => void;
 };
 
 ModuleMenu.Leaf = ({
   selected,
   icon,
   children,
-  path,
+  queryPath,
   onSelect,
 }: ModuleMenuLeafProps): React.ReactElement => {
   return (
@@ -89,7 +89,7 @@ ModuleMenu.Leaf = ({
         "text-highlight": selected,
       })}
       onClick={() => {
-        onSelect(path);
+        onSelect(queryPath);
       }}
     >
       <span>{children}</span>

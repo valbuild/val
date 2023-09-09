@@ -1,16 +1,8 @@
-import {
-  Internal,
-  Json,
-  JsonArray,
-  ModulePath,
-  SerializedModule,
-  Source,
-  SourcePath,
-} from "@valbuild/core";
+import { Json, SerializedModule } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { JsonObject } from "@valbuild/core";
 
-export type QueryObject = { [key: string]: QueryObject } | true;
+export type QueryObject = { [key: string]: QueryObject } | undefined;
 
 export type QueryError = {
   fallbackSource: Json;
@@ -25,7 +17,11 @@ export function query(
     source: Json,
     queryObject: QueryObject
   ): result.Result<Json, QueryError> {
-    if (queryObject === true) {
+    const isEmptyObject =
+      typeof queryObject === "object" &&
+      queryObject &&
+      Object.keys(queryObject).length === 0;
+    if (isEmptyObject) {
       return result.ok(source);
     }
     if (typeof source === "object") {
@@ -57,7 +53,7 @@ export function query(
 
       const errors = [];
       const res: Record<string, Json> = {};
-      for (const [key, subQueryObject] of Object.entries(queryObject)) {
+      for (const [key, subQueryObject] of Object.entries(queryObject || {})) {
         if (sourceObject[key] === undefined) {
           errors.push(
             `Could not query key: "${key}". Available keys: ${Object.keys(

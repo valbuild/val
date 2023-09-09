@@ -12,6 +12,8 @@ import { MobileCard as MobileCard } from "./MobileCard";
 import jp from "jsonpath";
 import { TextForm } from "../forms/TextForm";
 import { SchemaIcon } from "./SchemaIcon";
+import { query, QueryObject } from "../../utils/query";
+import { deepClone } from "@valbuild/core/patch";
 
 const meta: Meta = { title: "components/dashboard/Mobile" };
 
@@ -132,34 +134,40 @@ const serializedModules = modules.map((valModule): SerializedModule => {
 
 export const Default: Story = {
   render: () => {
-    const [selected, setSelected] = React.useState<JsonPath[]>([]);
-    const onSelect = (path: JsonPath) => {
-      if (selected.includes(path)) {
-        setSelected((prev) => prev.filter((p) => p !== path));
-      } else {
-        setSelected((prev) => prev.concat(path));
-      }
+    const [queryObject, setQueryObject] = React.useState<
+      Record<string, QueryObject>
+    >({});
+    const onSelect = (queryPath: string[]) => {
+      setQueryObject((prev) => {
+        // let subQueryObject = prev;
+        // for (const querySegment of queryPath) {
+        // Ok - I hear you. This looks gaudy... We might want to rewrite this:
+        // This adds new child if not present, then change subQueryObject to said child... :_)
+        // subQueryObject[querySegment] = subQueryObject[querySegment] || {};
+        // subQueryObject = subQueryObject[querySegment] || {};
+        // }
+        return queryPath.reduce;
+      });
     };
 
     function transform(
-      path: JsonPath,
+      queryPath: string[],
       schema: SerializedSchema
     ): React.ReactElement[] | React.ReactElement | null {
       if (schema.type === "array") {
-        return transform(`${path}[*]`, schema.item);
+        return transform(queryPath, schema.item);
       } else if (schema.type === "i18n") {
-        return transform(`${path}[*]`, schema.item);
+        return transform(queryPath, schema.item);
       } else if (schema.type === "object") {
         return Object.entries(schema.items).map(([key, schema]) => {
-          const keyPath = `${path}.${key}`;
           if (schema.type !== "object" && schema.type !== "array") {
             return (
               <ModuleMenu.Leaf
-                key={keyPath}
+                key={queryPath.concat(key).join(".")}
                 icon={<SchemaIcon type="string" />}
                 onSelect={onSelect}
-                path={keyPath}
-                selected={selected.includes(keyPath)}
+                queryPath={queryPath.concat(key)}
+                selected={false}
               >
                 {key}
               </ModuleMenu.Leaf>
@@ -168,38 +176,44 @@ export const Default: Story = {
           return (
             <ModuleMenu.Branch
               icon={<SchemaIcon type={schema.type} />}
-              key={keyPath}
+              key={queryPath.join(".")}
               name={key}
-              path={keyPath}
-              selected={selected.includes(keyPath)}
+              queryPath={queryPath}
+              selected={false}
               onSelect={onSelect}
             >
-              {transform(keyPath, schema)}
+              {transform(queryPath.concat(key), schema)}
             </ModuleMenu.Branch>
           );
         });
       }
       return null;
     }
-
-    query(serializedModules, selected);
+    console.log(JSON.stringify(queryObject, null, 2));
     return (
       <div className="max-w-[400px] bg-fill">
         <ModuleMenu>
           {serializedModules.map((serializedModule) => {
-            const keyPath = `$["${serializedModule.path}"]`;
+            const queryPath = [serializedModule.path];
             return (
               <ModuleMenu.Branch
                 icon={<SchemaIcon type={"module"} />}
-                key={keyPath}
+                key={queryPath.join(".")}
                 name={serializedModule.path}
-                path={keyPath}
-                selected={selected.includes(keyPath)}
+                queryPath={queryPath}
+                selected={false}
                 onSelect={() => {
-                  setSelected([keyPath]);
+                  setQueryObject((prev) => {
+                    return {
+                      ...prev,
+                      [serializedModule.path]: !prev[serializedModule.path]
+                        ? {}
+                        : undefined,
+                    };
+                  });
                 }}
               >
-                {transform(keyPath, serializedModule.schema)}
+                {transform(queryPath, serializedModule.schema)}
               </ModuleMenu.Branch>
             );
           })}

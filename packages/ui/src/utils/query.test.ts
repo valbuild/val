@@ -112,7 +112,7 @@ describe("query", () => {
   test("simplest query possible", () => {
     const paths: Record<string, QueryObject> = {
       "/app/about/content": {
-        handbook: true,
+        handbook: {},
       },
     };
 
@@ -143,7 +143,7 @@ describe("query", () => {
     const paths: Record<string, QueryObject> = {
       "/app/about/content": {
         handbook: {
-          title: true,
+          title: {},
         },
       },
     };
@@ -161,8 +161,8 @@ describe("query", () => {
     const paths: Record<string, QueryObject> = {
       "/app/about/content": {
         handbook: {
-          title: true,
-          ingress: true,
+          title: {},
+          ingress: {},
         },
       },
     };
@@ -182,7 +182,7 @@ describe("query", () => {
       "/app/about/content": {
         handbook: {
           chapters: {
-            header: true,
+            header: {},
           },
         },
       },
@@ -206,10 +206,10 @@ describe("query", () => {
       "/app/about/content": {
         handbook: {
           chapters: {
-            header: true,
+            header: {},
             sections: {
-              header: true,
-              slug: true,
+              header: {},
+              slug: {},
             },
           },
         },
@@ -234,8 +234,8 @@ describe("query", () => {
     const paths: Record<string, QueryObject> = {
       "/app/about/content2": {
         handbook: {
-          title: true,
-          ingress: true,
+          title: {},
+          ingress: {},
         },
       },
     };
@@ -247,9 +247,9 @@ describe("query", () => {
     const paths: Record<string, QueryObject> = {
       "/app/about/content": {
         handbook: {
-          title: true,
-          ingress: true,
-          foo: true,
+          title: {},
+          ingress: {},
+          foo: {},
         },
       },
     };
