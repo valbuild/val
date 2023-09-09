@@ -7,7 +7,7 @@ import {
   initVal,
   SourcePath,
 } from "@valbuild/core";
-import React from "react";
+import React, { useEffect } from "react";
 import { MobileCard as MobileCard } from "./MobileCard";
 import jp from "jsonpath";
 import { TextForm } from "../forms/TextForm";
@@ -137,16 +137,38 @@ export const Default: Story = {
     const [queryObject, setQueryObject] = React.useState<
       Record<string, QueryObject>
     >({});
+    const [selectedQueryPath, setSelectedQueryPath] = React.useState<
+      Record<string, string[]> // an object to avoid having to escape paths
+    >({});
     const onSelect = (queryPath: string[]) => {
-      setQueryObject((prev) => {
-        let curr = prev;
-        for (const segment of queryPath) {
-          curr[segment] = curr[segment] || {};
-          curr = curr[segment] || {};
+      setSelectedQueryPath((prev) => {
+        if (prev[queryPath.join(".")]) {
+          return {
+            ...prev,
+            [queryPath.join(".")]: undefined,
+          } as Record<string, string[]>;
+        } else {
+          return {
+            ...prev,
+            [queryPath.join(".")]: queryPath,
+          };
         }
-        return { ...prev };
       });
     };
+    useEffect(() => {
+      setQueryObject(() => {
+        const next: Record<string, QueryObject> = {};
+        let curr = next;
+        for (const queryPath of Object.values(selectedQueryPath)) {
+          for (const segment of queryPath || []) {
+            curr[segment] = curr[segment] || {};
+            curr = curr[segment] || {};
+          }
+          curr = next;
+        }
+        return { ...next };
+      });
+    }, [selectedQueryPath]);
 
     function transform(
       queryPath: string[],
@@ -187,7 +209,8 @@ export const Default: Story = {
       }
       return null;
     }
-    console.log(query(serializedModules, queryObject));
+    console.log(JSON.stringify(queryObject, null, 2));
+    // console.log(query(serializedModules, queryObject));
     return (
       <div className="max-w-[400px] bg-fill">
         <ModuleMenu>
@@ -200,16 +223,7 @@ export const Default: Story = {
                 name={serializedModule.path}
                 queryPath={queryPath}
                 selected={false}
-                onSelect={() => {
-                  setQueryObject((prev) => {
-                    return {
-                      ...prev,
-                      [serializedModule.path]: !prev[serializedModule.path]
-                        ? {}
-                        : undefined,
-                    };
-                  });
-                }}
+                onSelect={onSelect}
               >
                 {transform(queryPath, serializedModule.schema)}
               </ModuleMenu.Branch>
