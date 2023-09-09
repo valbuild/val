@@ -139,14 +139,12 @@ export const Default: Story = {
     >({});
     const onSelect = (queryPath: string[]) => {
       setQueryObject((prev) => {
-        // let subQueryObject = prev;
-        // for (const querySegment of queryPath) {
-        // Ok - I hear you. This looks gaudy... We might want to rewrite this:
-        // This adds new child if not present, then change subQueryObject to said child... :_)
-        // subQueryObject[querySegment] = subQueryObject[querySegment] || {};
-        // subQueryObject = subQueryObject[querySegment] || {};
-        // }
-        return queryPath.reduce;
+        let curr = prev;
+        for (const segment of queryPath) {
+          curr[segment] = curr[segment] || {};
+          curr = curr[segment] || {};
+        }
+        return { ...prev };
       });
     };
 
@@ -189,7 +187,7 @@ export const Default: Story = {
       }
       return null;
     }
-    console.log(JSON.stringify(queryObject, null, 2));
+    console.log(query(serializedModules, queryObject));
     return (
       <div className="max-w-[400px] bg-fill">
         <ModuleMenu>
