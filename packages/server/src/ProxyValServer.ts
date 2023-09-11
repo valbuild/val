@@ -18,6 +18,7 @@ export type ProxyValServerOptions = {
   route: string;
   valSecret: string;
   valBuildUrl: string;
+  valContentUrl: string;
   gitCommit: string;
   gitBranch: string;
   valName: string;
@@ -140,6 +141,26 @@ export class ProxyValServer implements ValServer {
       } else {
         res.sendStatus(fetchRes.status);
       }
+    });
+  }
+
+  async getTree(req: express.Request, res: express.Response): Promise<void> {
+    return this.withAuth(req, res, async (data) => {
+      const { patch, schema, source } = req.query;
+      const params = new URLSearchParams({
+        patch: (patch === "true").toString(),
+        schema: (schema === "true").toString(),
+        source: (source === "true").toString(),
+      });
+      const url = new URL(
+        `/v1/tree/${this.options.valName}/heads/${this.options.gitBranch}/${req.params["0"]}/?${params}`,
+        this.options.valContentUrl
+      );
+      console.log(url);
+      const json = await fetch(url, {
+        headers: this.getAuthHeaders(data.token, "application/json"),
+      }).then((res) => res.json());
+      res.send(json);
     });
   }
 

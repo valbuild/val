@@ -9,6 +9,8 @@ import { Internal, ModuleId, ModulePath } from "@valbuild/core";
 import { enable } from "./ProxyValServer";
 import { promises as fs } from "fs";
 import path from "path";
+import { ParamsDictionary } from "express-serve-static-core";
+import { ParsedQs } from "qs";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -61,6 +63,20 @@ export class LocalValServer implements ValServer {
     res.json({
       mode: "local",
     });
+  }
+
+  async getTree(
+    req: express.Request<
+      ParamsDictionary,
+      any,
+      any,
+      ParsedQs,
+      Record<string, any>
+    >,
+    res: express.Response<any, Record<string, any>>
+  ): Promise<void> {
+    console.error("TODO", req.url);
+    res.sendStatus(500);
   }
 
   async enable(req: express.Request, res: express.Response): Promise<void> {

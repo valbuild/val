@@ -74,6 +74,16 @@ type ValServerOverrides = Partial<{
    */
   valBuildUrl: string;
   /**
+   * The base url of Val content.
+   *
+   * Typically this should not be set.
+   *
+   * Can also be overridden using the VAL_CONTENT_URL env var.
+   *
+   * @example "https://content.val.build"
+   */
+  valContentUrl: string;
+  /**
    * The full name of this Val project.
    *
    * Typically this is set using the VAL_NAME env var.
@@ -119,6 +129,10 @@ async function initHandlerOptions(
         "VAL_API_KEY and VAL_SECRET env vars must both be set in proxy mode"
       );
     }
+    const valContentUrl =
+      opts.valContentUrl ||
+      process.env.VAL_CONTENT_URL ||
+      "https://content.val.build";
     const maybeGitCommit = opts.gitCommit || process.env.VAL_GIT_COMMIT;
     if (!maybeGitCommit) {
       throw new Error("VAL_GIT_COMMIT env var must be set in proxy mode");
@@ -137,6 +151,7 @@ async function initHandlerOptions(
       apiKey: maybeApiKey,
       valSecret: maybeValSecret,
       valBuildUrl,
+      valContentUrl,
       gitCommit: maybeGitCommit,
       gitBranch: maybeGitBranch,
       valName: maybeValName,
