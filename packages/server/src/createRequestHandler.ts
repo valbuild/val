@@ -22,5 +22,6 @@ export function createRequestHandler(valServer: ValServer): RequestHandler {
   );
   router.post("/commit", valServer.commit.bind(valServer));
   router.get("/enable", valServer.enable.bind(valServer));
+  router.get("/tree/*", valServer.getTree.bind(valServer));
   return router;
 }

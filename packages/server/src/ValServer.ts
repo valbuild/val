@@ -27,4 +27,6 @@ export interface ValServer {
   commit(req: express.Request, res: express.Response): Promise<void>;
 
   enable(req: express.Request, res: express.Response): Promise<void>;
+
+  getTree(req: express.Request, res: express.Response): Promise<void>;
 }

@@ -27,6 +27,16 @@ export function ValOverlay({ api, defaultTheme }: ValOverlayProps) {
 
   const [highlight, setHighlight] = useState(false);
 
+  const [testData, setTestData] = useState<any>();
+
+  useEffect(() => {
+    //
+    api.getTree(false, true, false).then(async (res) => {
+      const json = await res.json();
+      console.log(json);
+    });
+  }, []);
+
   return (
     <ValOverlayContext.Provider
       value={{
@@ -62,9 +72,7 @@ export function ValOverlay({ api, defaultTheme }: ValOverlayProps) {
               setWindowTarget(null);
               setEditMode("hover");
             }}
-          >
-            <div className="text-primary">Test</div>
-          </ValWindow>
+          ></ValWindow>
         )}
       </div>
     </ValOverlayContext.Provider>
