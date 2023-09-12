@@ -97,10 +97,6 @@ export function ValOverlay({ api, defaultTheme }: ValOverlayProps) {
         )}
         {editMode === "window" && windowTarget && (
           <ValWindow
-            position={{
-              left: windowTarget.mouse.x,
-              top: windowTarget.mouse.y,
-            }}
             onClose={() => {
               setWindowTarget(null);
               setEditMode("hover");
@@ -400,33 +396,35 @@ function WindowHeader({
         {segments.map((segment, i) => {
           if (i === segments.length - 1) {
             return (
-              <span className="text-primary">
+              <span key={i} className="text-primary">
                 {segment.split(".").map((s, i) => {
                   let name = s;
                   if (i === 0) {
-                    <>
-                      <span>{name}</span>
-                    </>;
+                    return (
+                      <span key={i + "."}>
+                        <span>{name}</span>
+                      </span>
+                    );
                   } else {
                     name = JSON.parse(s);
                   }
                   return (
-                    <>
+                    <span key={i + "."}>
                       <span>{name}</span>
                       {i < segment.split(".").length - 1 && (
                         <span className="px-1 text-xs text-highlight">/</span>
                       )}
-                    </>
+                    </span>
                   );
                 })}
               </span>
             );
           }
           return (
-            <>
+            <span key={i}>
               <span>{segment}</span>
               <span className="px-1 text-xs opacity-50">/</span>
-            </>
+            </span>
           );
         })}
       </span>
