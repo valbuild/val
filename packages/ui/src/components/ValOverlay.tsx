@@ -9,21 +9,21 @@ import { Session } from "../dto/Session";
 import { ValMenu } from "./ValMenu";
 import { EditMode, Theme, ValOverlayContext } from "./ValOverlayContext";
 import { Remote } from "../utils/Remote";
-import { FetchApi } from "../utils/FetchApi";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
 import { TextForm } from "./forms/TextForm";
 import { SerializedSchema, SourcePath } from "@valbuild/core";
 import { Modules, resolvePath } from "../utils/resolvePath";
-import { RichTextEditor } from "../exports";
+import { ValApi } from "@valbuild/react";
+import { useValApi, useValStore } from "@valbuild/react/src/ValProvider";
 
 export type ValOverlayProps = {
-  api: FetchApi;
   defaultTheme?: "dark" | "light";
 };
 
-export function ValOverlay({ api, defaultTheme }: ValOverlayProps) {
+export function ValOverlay({ defaultTheme }: ValOverlayProps) {
   const [theme, setTheme] = useTheme(defaultTheme);
+  const api = useValApi();
   const session = useSession(api);
 
   const [editMode, setEditMode] = useInitEditMode();
@@ -349,7 +349,7 @@ function useTheme(defaultTheme: Theme = "dark") {
   ] as const;
 }
 
-function useSession(api: FetchApi) {
+function useSession(api: ValApi) {
   const [session, setSession] = useState<Remote<Session>>({
     status: "not-asked",
   });

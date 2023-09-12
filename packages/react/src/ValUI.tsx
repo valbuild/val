@@ -4,13 +4,7 @@ import { FetchApi, Style, ValOverlay } from "@valbuild/ui";
 import { useEffect, useMemo, useState } from "react";
 import { ShadowRoot } from "./ShadowRoot";
 
-export type ValUIProps = {
-  host: string;
-};
-
-export default function ValUI({ host }: ValUIProps) {
-  const api = useMemo(() => new FetchApi(host), [host]);
-
+export default function ValUI() {
   const [isClient, setIsClient] = useState(false);
   const [enabled, setEnabled] = useState(false);
   useEffect(() => {
@@ -26,9 +20,9 @@ export default function ValUI({ host }: ValUIProps) {
   }, []);
   if (isClient && !enabled && process.env.NODE_ENV === "development") {
     console.log(
-      `Val is disabled. Enable it by going here ${
-        window.origin
-      }${host}/enable?redirect_to=${encodeURIComponent(
+      `Val is disabled. Enable it by going here ${window.origin}${
+        api.host
+      }/enable?redirect_to=${encodeURIComponent(
         window.location.href
       )}. NOTE: this message appears because NODE_ENV is set to development.`
     );
@@ -51,7 +45,7 @@ export default function ValUI({ host }: ValUIProps) {
           rel="stylesheet"
         />
         <Style />
-        <ValOverlay api={api} />
+        <ValOverlay />
       </ShadowRoot>
     </>
   );

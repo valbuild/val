@@ -1,62 +1,52 @@
-import { ValModule, SelectorSource } from "@valbuild/core";
+import { Json, ModuleId } from "@valbuild/core";
 import { ValApi } from "./ValApi";
+import { result } from "@valbuild/core/fp";
 
 export class ValStore {
-  private readonly vals: Map<string, ValModule<SelectorSource>>;
-  private readonly listeners: { [moduleId: string]: (() => void)[] };
+  private readonly vals: Map<ModuleId, Json>;
+  private readonly listeners: (() => void)[];
 
   constructor(private readonly api: ValApi) {
     this.vals = new Map();
-    this.listeners = {};
+    this.listeners = [];
   }
 
   async updateAll() {
-    await Promise.all(
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      Object.keys(this.listeners).map(async (moduleId) => {
-        // this.set(
-        //   moduleId,
-        //   await this.api.getModule(moduleId)
-        //   // ModuleContent.deserialize(await this.api.getModule(moduleId))
-        // );
-      })
-    );
+    const data = await this.api.getModules({
+      patch: true,
+      includeSource: true,
+    });
+    if (result.isOk(data)) {
+      for (const moduleId of Object.keys(data.value.modules) as ModuleId[]) {
+        const source = data.value.modules[moduleId].source;
+        if (typeof source !== "undefined") {
+          this.vals.set(moduleId, source);
+        }
+      }
+      this.emitChange();
+    } else {
+      console.error(data.error.message);
+    }
   }
 
-  subscribe = (moduleId: string) => (listener: () => void) => {
-    const listeners = (this.listeners[moduleId] =
-      moduleId in this.listeners ? this.listeners[moduleId] : []);
-    listeners.push(listener);
+  subscribe = () => (listener: () => void) => {
+    this.listeners.push(listener);
     return () => {
-      listeners.splice(listeners.indexOf(listener), 1);
-      if (listeners.length === 0) {
-        delete this.listeners[moduleId];
-      }
+      this.listeners.splice(this.listeners.indexOf(listener), 1);
     };
   };
 
-  set(moduleId: string, val: ValModule<SelectorSource>) {
-    this.vals.set(moduleId, val);
-    this.emitChange(moduleId);
-  }
-
-  get(moduleId: string) {
-    return this.vals.get(moduleId);
-  }
-
-  emitChange(moduleId: string) {
-    const listeners = this.listeners[moduleId];
-    if (typeof listeners === "undefined") return;
-    for (const listener of listeners) {
+  emitChange() {
+    for (const listener of this.listeners) {
       listener();
     }
   }
 
-  getSnapshot = (moduleId: string) => () => {
+  getSnapshot = () => () => {
     return this.vals.get(moduleId);
   };
 
-  getServerSnapshot = (moduleId: string) => () => {
+  getServerSnapshot = () => () => {
     return this.vals.get(moduleId);
   };
 }
