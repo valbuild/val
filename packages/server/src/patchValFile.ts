@@ -95,8 +95,15 @@ function convertDataUrlToBase64(dataUrl: string): Buffer {
 }
 
 export const patchSourceFile = (
-  sourceFile: ts.SourceFile,
+  sourceFile: ts.SourceFile | string,
   patch: Patch
 ): result.Result<ts.SourceFile, ValSyntaxErrorTree | PatchError> => {
+  if (typeof sourceFile === "string") {
+    return applyPatch(
+      ts.createSourceFile("<val>", sourceFile, ts.ScriptTarget.ES2015),
+      ops,
+      patch
+    );
+  }
   return applyPatch(sourceFile, ops, patch);
 };
