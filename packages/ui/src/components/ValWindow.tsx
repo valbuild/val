@@ -139,6 +139,13 @@ function useDrag({
         left: left < 0 ? 0 : left,
         top: top < 0 ? 0 : top,
       });
+    } else {
+      const left = window.innerWidth / 2 - 320 / 2 - window.scrollX;
+      const top = window.innerHeight / 2 - 320 / 2 + window.scrollY;
+      setPosition({
+        left,
+        top,
+      });
     }
   }, [initPosition]);
 
