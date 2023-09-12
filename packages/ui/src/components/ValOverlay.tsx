@@ -11,6 +11,11 @@ import { EditMode, Theme, ValOverlayContext } from "./ValOverlayContext";
 import { Remote } from "../utils/Remote";
 import { FetchApi } from "../utils/FetchApi";
 import { ValWindow } from "./ValWindow";
+import { result } from "@valbuild/core/fp";
+import { TextForm } from "./forms/TextForm";
+import { SerializedSchema, SourcePath } from "@valbuild/core";
+import { Modules, resolvePath } from "../utils/resolvePath";
+import { RichTextEditor } from "../exports";
 
 export type ValOverlayProps = {
   api: FetchApi;
@@ -24,18 +29,46 @@ export function ValOverlay({ api, defaultTheme }: ValOverlayProps) {
   const [editMode, setEditMode] = useInitEditMode();
   const [hoverTarget, setHoverTarget] = useHoverTarget(editMode);
   const [windowTarget, setWindowTarget] = useState<WindowTarget | null>(null);
-
   const [highlight, setHighlight] = useState(false);
-
-  const [testData, setTestData] = useState<any>();
+  const [modules, setModules] = useState<Modules>();
 
   useEffect(() => {
     //
-    api.getTree(false, true, false).then(async (res) => {
-      const json = await res.json();
-      console.log(json);
-    });
+    api
+      .getModules({
+        patch: true,
+        includeSource: true,
+        includeSchema: true,
+      })
+      .then(async (res) => {
+        if (result.isOk(res)) {
+          setModules(res.value.modules);
+        } else {
+          console.error(res.error);
+        }
+      });
   }, []);
+
+  const resolvedModulePath =
+    windowTarget && modules && resolvePath(windowTarget.path, modules);
+
+  const {
+    error,
+    source: selectedSource,
+    schema: selectedSchema,
+  } = resolvedModulePath && result.isOk(resolvedModulePath)
+    ? {
+        ...resolvedModulePath.value,
+        error: null,
+      }
+    : {
+        error:
+          resolvedModulePath && result.isErr(resolvedModulePath)
+            ? resolvedModulePath.error.message
+            : null,
+        source: undefined,
+        schema: undefined,
+      };
 
   return (
     <ValOverlayContext.Provider
@@ -72,7 +105,27 @@ export function ValOverlay({ api, defaultTheme }: ValOverlayProps) {
               setWindowTarget(null);
               setEditMode("hover");
             }}
-          ></ValWindow>
+          >
+            <div className="px-4 text-sm">
+              <WindowHeader
+                path={windowTarget.path}
+                type={selectedSchema?.type}
+              />
+            </div>
+            <div className="p-4">
+              {error && <div className="text-red">{error}</div>}
+              {typeof selectedSource === "string" &&
+                selectedSchema.type === "string" && (
+                  <TextForm
+                    name={windowTarget.path}
+                    text={selectedSource as string}
+                    onChange={(text) => {
+                      console.log(text);
+                    }}
+                  />
+                )}
+            </div>
+          </ValWindow>
         )}
       </div>
     </ValOverlayContext.Provider>
@@ -82,12 +135,12 @@ export function ValOverlay({ api, defaultTheme }: ValOverlayProps) {
 type WindowTarget = {
   element?: HTMLElement | undefined;
   mouse: { x: number; y: number };
-  path: string;
+  path: SourcePath;
 };
 
 type HoverTarget = {
   element?: HTMLElement | undefined;
-  path: string;
+  path: SourcePath;
 };
 function ValHover({
   hoverTarget,
@@ -104,7 +157,7 @@ function ValHover({
   return (
     <div
       id="val-hover"
-      className="fixed border cursor-pointer z-overlay-hover border-highlight"
+      className="fixed border-2 cursor-pointer z-overlay-hover border-base"
       style={{
         top: rect?.top,
         left: rect?.left,
@@ -120,8 +173,15 @@ function ValHover({
         setHoverTarget(null);
       }}
     >
-      <div className="flex justify-end w-full">
-        <div className="px-3 py-1 text-xs rounded-bl-sm text-warm-black bg-highlight">
+      <div className="flex items-center justify-end w-full text-xs">
+        <div
+          className="flex items-center justify-center px-3 py-1 text-primary bg-base"
+          style={{
+            maxHeight: rect?.height && rect.height - 4,
+            fontSize:
+              rect?.height && rect.height <= 16 ? rect.height - 4 : undefined,
+          }}
+        >
           Edit
         </div>
       </div>
@@ -144,7 +204,7 @@ function useHighlight(
 
       const highlight = () => {
         const element = elements[index];
-        const path = element.dataset.valPath;
+        const path = element.dataset.valPath as SourcePath;
         if (path) {
           setTarget({
             path,
@@ -180,7 +240,7 @@ function useInitEditMode() {
         storedEditMode === "window" ||
         storedEditMode === "full"
       ) {
-        setEditModeRaw(storedEditMode);
+        setEditModeRaw(storedEditMode === "window" ? "hover" : storedEditMode);
       } else {
         localStorage.removeItem(LOCAL_STORAGE_EDIT_MODE_KEY);
         setEditModeRaw("off");
@@ -194,14 +254,11 @@ function useInitEditMode() {
     if (typeof v === "function") {
       setEditModeRaw((prev) => {
         const next = v(prev);
-        localStorage.setItem(
-          LOCAL_STORAGE_EDIT_MODE_KEY,
-          next ? "true" : "false"
-        );
+        localStorage.setItem(LOCAL_STORAGE_EDIT_MODE_KEY, next);
         return next;
       });
     } else {
-      localStorage.setItem(LOCAL_STORAGE_EDIT_MODE_KEY, v ? "true" : "false");
+      localStorage.setItem(LOCAL_STORAGE_EDIT_MODE_KEY, v);
       setEditModeRaw(v);
     }
   }, []);
@@ -212,7 +269,7 @@ function useHoverTarget(editMode: EditMode) {
   const [target, setTarget] = useState<{
     element?: HTMLElement;
     rect?: DOMRect;
-    path: string;
+    path: SourcePath;
   } | null>(null);
   useEffect(() => {
     if (editMode === "hover") {
@@ -225,7 +282,7 @@ function useHoverTarget(editMode: EditMode) {
           if (curr?.dataset.valPath) {
             setTarget({
               element: curr,
-              path: curr.dataset.valPath,
+              path: curr.dataset.valPath as SourcePath,
             });
             break;
           }
@@ -305,8 +362,8 @@ function useSession(api: FetchApi) {
     setSession({ status: "loading" });
     api.getSession().then(async (res) => {
       try {
-        if (res.status === 200) {
-          const session = await res.json();
+        if (result.isOk(res)) {
+          const session = res.value;
           setSession({ status: "success", data: Session.parse(session) });
         } else {
           if (sessionResetId < 3) {
@@ -326,4 +383,54 @@ function useSession(api: FetchApi) {
     });
   }, [sessionResetId]);
   return session;
+}
+
+function WindowHeader({
+  path,
+  type,
+}: {
+  path: SourcePath;
+  type?: SerializedSchema["type"];
+}) {
+  const segments = path.split("/").slice(1);
+  return (
+    <span className="flex items-center justify-between">
+      <span>
+        <span className="pr-1 text-xs opacity-50">/</span>
+        {segments.map((segment, i) => {
+          if (i === segments.length - 1) {
+            return (
+              <span className="text-primary">
+                {segment.split(".").map((s, i) => {
+                  let name = s;
+                  if (i === 0) {
+                    <>
+                      <span>{name}</span>
+                    </>;
+                  } else {
+                    name = JSON.parse(s);
+                  }
+                  return (
+                    <>
+                      <span>{name}</span>
+                      {i < segment.split(".").length - 1 && (
+                        <span className="px-1 text-xs text-highlight">/</span>
+                      )}
+                    </>
+                  );
+                })}
+              </span>
+            );
+          }
+          return (
+            <>
+              <span>{segment}</span>
+              <span className="px-1 text-xs opacity-50">/</span>
+            </>
+          );
+        })}
+      </span>
+      {type && <span className="ml-4">({type})</span>}
+    </span>
+  );
 }

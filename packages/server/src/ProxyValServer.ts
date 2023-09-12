@@ -156,7 +156,6 @@ export class ProxyValServer implements ValServer {
         `/v1/tree/${this.options.valName}/heads/${this.options.gitBranch}/${req.params["0"]}/?${params}`,
         this.options.valContentUrl
       );
-      console.log(url);
       const json = await fetch(url, {
         headers: this.getAuthHeaders(data.token, "application/json"),
       }).then((res) => res.json());
