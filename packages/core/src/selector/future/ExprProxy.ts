@@ -25,6 +25,13 @@ export function newExprSelectorProxy<T extends Source>(
   }) as unknown as Selector<T>;
 }
 
+export function root(sourcePath: string) {
+  return new expr.Call(
+    [new expr.Sym("val"), new expr.StringLiteral(sourcePath)],
+    false
+  );
+}
+
 class GenericExprSelector {
   [SourceOrExpr]: expr.Expr;
   constructor(private readonly root: expr.Expr, private readonly depth = 0) {
