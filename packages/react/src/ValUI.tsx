@@ -1,12 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Internal } from "@valbuild/core";
-import { FetchApi, Style, ValOverlay } from "@valbuild/ui";
-import { useEffect, useMemo, useState } from "react";
+import { Style, ValOverlay } from "@valbuild/ui";
+import { useEffect, useState } from "react";
 import { ShadowRoot } from "./ShadowRoot";
+import { useValApi } from "./ValProvider";
 
 export default function ValUI() {
   const [isClient, setIsClient] = useState(false);
   const [enabled, setEnabled] = useState(false);
+  const api = useValApi();
   useEffect(() => {
     setIsClient(true);
     try {
@@ -45,7 +47,7 @@ export default function ValUI() {
           rel="stylesheet"
         />
         <Style />
-        <ValOverlay />
+        <ValOverlay api={api} />
       </ShadowRoot>
     </>
   );
