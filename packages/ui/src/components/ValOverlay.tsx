@@ -15,15 +15,14 @@ import { TextForm } from "./forms/TextForm";
 import { SerializedSchema, SourcePath } from "@valbuild/core";
 import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/react";
-import { useValApi, useValStore } from "@valbuild/react/src/ValProvider";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
+  api: ValApi;
 };
 
-export function ValOverlay({ defaultTheme }: ValOverlayProps) {
+export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
   const [theme, setTheme] = useTheme(defaultTheme);
-  const api = useValApi();
   const session = useSession(api);
 
   const [editMode, setEditMode] = useInitEditMode();
