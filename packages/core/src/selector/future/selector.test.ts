@@ -5,11 +5,10 @@ import { array } from "../../schema/array";
 import { SourcePath } from "../../val";
 import { Source } from "../../source";
 import { evaluate } from "../../expr/eval";
-import * as expr from "../../expr/expr";
 import { result } from "../../fp";
 import { object } from "../../schema/object";
 import { newSelectorProxy, selectorToVal } from "./SelectorProxy";
-import { newExprSelectorProxy } from "./ExprProxy";
+import { newExprSelectorProxy, root } from "./ExprProxy";
 
 const modules = {
   "/app/text": "text1",
@@ -427,11 +426,4 @@ function BFV() {
       expected: "expected",
     },
   ];
-}
-
-function root(sourcePath: string) {
-  return new expr.Call(
-    [new expr.Sym("val"), new expr.StringLiteral(sourcePath)],
-    false
-  );
 }
