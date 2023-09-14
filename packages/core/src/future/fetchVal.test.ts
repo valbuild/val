@@ -1,6 +1,6 @@
-import { initSchema } from "./initSchema";
-import { content } from "./module";
-import { getValPath } from "./val";
+import { initSchema } from "../initSchema";
+import { content } from "../module";
+import { getValPath } from "../val";
 import { serializedValOfSelectorSource, fetchVal } from "./fetchVal";
 
 const s = initSchema();

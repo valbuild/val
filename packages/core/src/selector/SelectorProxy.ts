@@ -2,7 +2,7 @@
 import { Path, GenericSelector, GetSource, GetSchema } from "./index";
 import { Expr } from "../expr/expr";
 import { Schema } from "../schema";
-import { convertImageSource } from "../schema/image";
+import { convertFileSource } from "../schema/image";
 import { Source, SourcePrimitive, VAL_EXTENSION } from "../source";
 import { FILE_REF_PROP } from "../source/file";
 import { isSerializedVal, SourcePath } from "../val";
@@ -44,7 +44,7 @@ export function newSelectorProxy(
     if (typeof fileRef !== "string") {
       throw Error("Invalid file ref: " + fileRef);
     }
-    return newSelectorProxy(convertImageSource(source), path, moduleSchema);
+    return newSelectorProxy(convertFileSource(source), path, moduleSchema);
   }
 
   switch (typeof source) {

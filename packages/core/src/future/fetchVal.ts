@@ -4,20 +4,20 @@ import {
   SelectorOf,
   SelectorSource,
   GetSource,
-} from "./selector";
+} from "../selector";
 import {
   isSerializedVal,
   JsonOfSource,
   SerializedVal,
   SourcePath,
   Val,
-} from "./val";
+} from "../val";
 import {
   createValPathOfItem,
   isSelector,
   newSelectorProxy,
-} from "./selector/SelectorProxy";
-import { Json } from "./Json";
+} from "../selector/SelectorProxy";
+import { Json } from "../Json";
 
 export function fetchVal<T extends SelectorSource>(
   selector: T

@@ -1,4 +1,5 @@
 import { SerializedModule } from "@valbuild/core";
+import { result } from "@valbuild/core/fp";
 import { Json } from "@valbuild/core/src/Json";
 import { ValApi } from "@valbuild/react";
 import { FC, useEffect, useState } from "react";
@@ -30,9 +31,8 @@ export const ValDashboard: FC<ValDashboardProps> = ({
   >();
 
   useEffect(() => {
-    valApi.getAllModules().then((modules) => {
-      setSelectedPath(modules[0].path);
-      setModules(modules);
+    valApi.getModules({ patch: true, includeSource: true }).then((modules) => {
+      // TODO:
     });
   }, []);
 

@@ -1,14 +1,10 @@
 import { GenericSelector, SelectorOf, SelectorSource } from "@valbuild/core";
-import { useVal as useReactVal } from "@valbuild/react";
-import { stegaEncodeVal, StegaOfSource } from "../stegaEncode";
+import { transform, StegaOfSource } from "../transform";
 
 export function useVal<T extends SelectorSource>(
-  selector: T,
-  locale?: string
+  selector: T
 ): SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never {
-  return stegaEncodeVal(
-    useReactVal(selector, locale)
-  ) as SelectorOf<T> extends GenericSelector<infer S>
+  return transform(selector) as SelectorOf<T> extends GenericSelector<infer S>
     ? StegaOfSource<S>
     : never;
 }
