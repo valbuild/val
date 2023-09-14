@@ -9,8 +9,8 @@ import { z } from "zod";
 import { parsePatch } from "@valbuild/core/patch";
 import { Internal } from "@valbuild/core";
 
-const VAL_SESSION_COOKIE = "val_session";
-const VAL_STATE_COOKIE = "val_state";
+const VAL_SESSION_COOKIE = Internal.VAL_SESSION_COOKIE;
+const VAL_STATE_COOKIE = Internal.VAL_STATE_COOKIE;
 const VAL_ENABLED_COOKIE = Internal.VAL_ENABLE_COOKIE_NAME;
 
 export type ProxyValServerOptions = {

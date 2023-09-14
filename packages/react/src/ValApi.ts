@@ -20,17 +20,21 @@ export class ValApi {
     includeSchema = false,
     includeSource = false,
     treePath = "/",
+    headers,
   }: {
     patch?: boolean;
     includeSchema?: boolean;
     includeSource?: boolean;
     treePath?: string;
+    headers?: Record<string, string> | undefined;
   }) {
     const params = new URLSearchParams();
     params.set("patch", patch.toString());
     params.set("schema", includeSchema.toString());
     params.set("source", includeSource.toString());
-    return fetch(`${this.host}/tree/~${treePath}?${params.toString()}`).then(
+    return fetch(`${this.host}/tree/~${treePath}?${params.toString()}`, {
+      headers,
+    }).then(
       parse<{
         git: {
           commit: string;
