@@ -1,11 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Path, GenericSelector, SourceOrExpr, GetSchema } from "./index";
-import { Expr } from "../expr/expr";
-import { Schema } from "../schema";
-import { convertImageSource } from "../schema/image";
-import { Source, SourcePrimitive, VAL_EXTENSION } from "../source";
-import { FILE_REF_PROP } from "../source/file";
-import { isSerializedVal, SourcePath } from "../val";
+import { Path, GenericSelector, SourceOrExpr, GetSchema } from ".";
+import { Expr } from "../../expr/expr";
+import { Schema } from "../../schema";
+import { convertImageSource } from "../../schema/image";
+import { Source, SourcePrimitive, VAL_EXTENSION } from "../../source";
+import { FILE_REF_PROP } from "../../source/file";
+import { isSerializedVal, SourcePath } from "../../val";
 
 function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
   return Object.prototype.hasOwnProperty.call(obj, prop);

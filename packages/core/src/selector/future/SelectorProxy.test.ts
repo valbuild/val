@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Selector, GenericSelector, Path } from ".";
-import { number } from "../schema/number";
-import { string } from "../schema/string";
-import { Source } from "../source";
-import { SourcePath } from "../val";
+import { number } from "../../schema/number";
+import { string } from "../../schema/string";
+import { Source } from "../../source";
+import { SourcePath } from "../../val";
 import { newSelectorProxy, selectorToVal } from "./SelectorProxy";
 
 describe("SelectorProxy", () => {

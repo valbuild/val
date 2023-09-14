@@ -6,8 +6,6 @@ import {
 } from "./module";
 import { SchemaTypeOf } from "./schema";
 import { array } from "./schema/array";
-import { i18n as initI18nSchema } from "./schema/i18n";
-import { i18n as initI18nSource } from "./source/i18n";
 import { number } from "./schema/number";
 import { object } from "./schema/object";
 import { string, StringSchema } from "./schema/string";
@@ -17,10 +15,12 @@ import { newSelectorProxy } from "./selector/SelectorProxy";
 import { ModulePath, SourcePath } from "./val";
 import { literal } from "./schema/literal";
 
-const i18n = initI18nSchema(["en_US", "nb_NO"] as const);
-const val = {
-  i18n: initI18nSource(["en_US", "nb_NO"] as const),
-};
+// import { i18n as initI18nSchema } from "./schema/i18n";
+// import { i18n as initI18nSource } from "./source/i18n";
+// const i18n = initI18nSchema(["en_US", "nb_NO"] as const);
+// const val = {
+//   i18n: initI18nSource(["en_US", "nb_NO"] as const),
+// };
 describe("module", () => {
   test("parse path", () => {
     expect(parsePath('"foo"."bar".1."zoo"' as ModulePath)).toStrictEqual([
@@ -110,37 +110,37 @@ describe("module", () => {
     expect(source).toStrictEqual("bar1");
   });
 
-  test("getSchemaAtPath: i18n", () => {
-    const basicSchema = array(
-      object({
-        foo: i18n(array(object({ bar: string() }))),
-        zoo: number(),
-      })
-    );
-    const res = resolveAtPath(
-      '0."foo"."nb_NO".0."bar"' as ModulePath,
-      [
-        {
-          foo: val.i18n({
-            en_US: [
-              {
-                bar: "dive",
-              },
-            ],
-            nb_NO: [
-              {
-                bar: "brun",
-              },
-            ],
-          }),
-          zoo: 1,
-        },
-      ] as SchemaTypeOf<typeof basicSchema>,
-      basicSchema.serialize()
-    );
-    expect(res.schema).toStrictEqual(string().serialize());
-    expect(res.source).toStrictEqual("brun");
-  });
+  // test("getSchemaAtPath: i18n", () => {
+  //   const basicSchema = array(
+  //     object({
+  //       foo: i18n(array(object({ bar: string() }))),
+  //       zoo: number(),
+  //     })
+  //   );
+  //   const res = resolveAtPath(
+  //     '0."foo"."nb_NO".0."bar"' as ModulePath,
+  //     [
+  //       {
+  //         foo: val.i18n({
+  //           en_US: [
+  //             {
+  //               bar: "dive",
+  //             },
+  //           ],
+  //           nb_NO: [
+  //             {
+  //               bar: "brun",
+  //             },
+  //           ],
+  //         }),
+  //         zoo: 1,
+  //       },
+  //     ] as SchemaTypeOf<typeof basicSchema>,
+  //     basicSchema.serialize()
+  //   );
+  //   expect(res.schema).toStrictEqual(string().serialize());
+  //   expect(res.source).toStrictEqual("brun");
+  // });
 
   test("getSchemaAtPath: union", () => {
     const basicSchema = array(

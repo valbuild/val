@@ -1,6 +1,6 @@
 import { Selector, SelectorSource, SourceOrExpr } from ".";
-import * as expr from "../expr/expr";
-import { Source, SourcePrimitive } from "../source";
+import * as expr from "../../expr/expr";
+import { Source, SourcePrimitive } from "../../source";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyFun = (...args: any[]) => any;

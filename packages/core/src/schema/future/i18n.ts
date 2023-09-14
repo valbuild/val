@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SchemaTypeOf, SerializedSchema } from ".";
-import { I18nCompatibleSource, I18nSource } from "../source/i18n";
-import { SourcePath } from "../val";
-import { ValidationErrors } from "./validation/ValidationError";
+import { Schema, SchemaTypeOf, SerializedSchema } from "..";
+import { I18nCompatibleSource, I18nSource } from "../../source/future/i18n";
+import { SourcePath } from "../../val";
+import { ValidationErrors } from "../validation/ValidationError";
 
 export type SerializedI18nSchema = {
   type: "i18n";
@@ -43,12 +43,14 @@ export class I18nSchema<Locales extends readonly string[]> extends Schema<
   }
 
   serialize(): SerializedSchema {
-    return {
-      type: "i18n",
-      item: this.item.serialize(),
-      locales: this.locales,
-      opt: this.opt,
-    };
+    throw new Error("Method not implemented.");
+
+    // return {
+    //   type: "i18n",
+    //   item: this.item.serialize(),
+    //   locales: this.locales,
+    //   opt: this.opt,
+    // };
   }
 }
 

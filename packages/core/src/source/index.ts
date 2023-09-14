@@ -1,6 +1,6 @@
 import { FileSource } from "./file";
-import { I18nSource, I18nCompatibleSource } from "./i18n";
-import { RemoteSource, RemoteCompatibleSource } from "./remote";
+import { I18nSource, I18nCompatibleSource } from "./future/i18n";
+import { RemoteSource, RemoteCompatibleSource } from "./future/remote";
 import { RichTextSource } from "./richtext";
 
 export type Source =

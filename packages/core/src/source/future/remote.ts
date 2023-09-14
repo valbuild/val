@@ -1,7 +1,7 @@
-import { SourcePrimitive, VAL_EXTENSION, PhantomType } from ".";
-import { FileSource } from "./file";
+import { SourcePrimitive, VAL_EXTENSION, PhantomType } from "..";
+import { FileSource } from "../file";
 import { I18nCompatibleSource, I18nSource } from "./i18n";
-import { RichTextSource } from "./richtext";
+import { RichTextSource } from "../richtext";
 
 /**
  * Remote sources cannot include other remote sources.
