@@ -54,6 +54,8 @@ const Internal = {
   isVal,
   createValPathOfItem,
   VAL_ENABLE_COOKIE_NAME: "val_enable",
+  VAL_STATE_COOKIE: "val_state",
+  VAL_SESSION_COOKIE: "val_session",
 };
 
 export { Internal };
