@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { createValPathOfItem } from "../selector/SelectorProxy";
+import { createValPathOfItem } from "../selector/future/SelectorProxy";
 import { SourcePath } from "../val";
 import { array } from "./array";
 import { boolean } from "./boolean";

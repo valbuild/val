@@ -1,6 +1,6 @@
 import { F } from "ts-toolbelt";
-import { SourcePrimitive, VAL_EXTENSION } from ".";
-import { FileSource } from "./file";
+import { SourcePrimitive, VAL_EXTENSION } from "..";
+import { FileSource } from "../file";
 
 /**
  * I18n sources cannot have nested remote sources.

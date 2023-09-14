@@ -1,6 +1,6 @@
 import { SourcePath, Val as UnknownVal } from ".";
 import { JsonObject } from "../Json";
-import { Path } from "../selector";
+import { Path } from "../selector/index";
 
 export type Val<T extends JsonObject> = Omit<
   {

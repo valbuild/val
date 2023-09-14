@@ -6,14 +6,12 @@ import {
   SelectorSource,
   SourceOrExpr,
 } from "./selector";
-import { Source, SourceArray } from "./source";
+import { Source } from "./source";
 import { newSelectorProxy } from "./selector/SelectorProxy";
 import { ModuleId, ModulePath, SourcePath } from "./val";
 import { Expr } from "./expr";
 import { ArraySchema, SerializedArraySchema } from "./schema/array";
-import { I18nSchema, SerializedI18nSchema } from "./schema/i18n";
 import { UnionSchema, SerializedUnionSchema } from "./schema/union";
-import { OneOfSchema, SerializedOneOfSchema } from "./schema/oneOf";
 import { Json } from "./Json";
 import { RichTextSchema, SerializedRichTextSchema } from "./schema/richtext";
 import {
@@ -100,14 +98,14 @@ function isArraySchema(
   );
 }
 
-function isI18nSchema(
-  schema: Schema<SelectorSource> | SerializedSchema
-): schema is I18nSchema<readonly string[]> | SerializedI18nSchema {
-  return (
-    schema instanceof I18nSchema ||
-    (typeof schema === "object" && "type" in schema && schema.type === "i18n")
-  );
-}
+// function isI18nSchema(
+//   schema: Schema<SelectorSource> | SerializedSchema
+// ): schema is I18nSchema<readonly string[]> | SerializedI18nSchema {
+//   return (
+//     schema instanceof I18nSchema ||
+//     (typeof schema === "object" && "type" in schema && schema.type === "i18n")
+//   );
+// }
 
 function isUnionSchema(
   schema: Schema<SelectorSource> | SerializedSchema
@@ -144,15 +142,14 @@ function isImageSchema(
   );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function isOneOfSchema(
-  schema: Schema<SelectorSource> | SerializedSchema
-): schema is OneOfSchema<GenericSelector<SourceArray>> | SerializedOneOfSchema {
-  return (
-    schema instanceof OneOfSchema ||
-    (typeof schema === "object" && "type" in schema && schema.type === "oneOf")
-  );
-}
+// function isOneOfSchema(
+//   schema: Schema<SelectorSource> | SerializedSchema
+// ): schema is OneOfSchema<GenericSelector<SourceArray>> | SerializedOneOfSchema {
+//   return (
+//     schema instanceof OneOfSchema ||
+//     (typeof schema === "object" && "type" in schema && schema.type === "oneOf")
+//   );
+// }
 
 export function resolvePath(
   path: ModulePath,
@@ -204,23 +201,23 @@ export function resolvePath(
       }
       resolvedSource = resolvedSource[part];
       resolvedSchema = resolvedSchema.items[part];
-    } else if (isI18nSchema(resolvedSchema)) {
-      if (!resolvedSchema.locales.includes(part)) {
-        throw Error(
-          `Invalid path: i18n schema ${resolvedSchema} supports locales ${resolvedSchema.locales.join(
-            ", "
-          )}, but found: ${part}`
-        );
-      }
-      if (!Object.keys(resolvedSource).includes(part)) {
-        throw Error(
-          `Schema type error: expected source to be type of i18n with locale ${part}, but got ${JSON.stringify(
-            Object.keys(resolvedSource)
-          )}`
-        );
-      }
-      resolvedSource = resolvedSource[part];
-      resolvedSchema = resolvedSchema.item;
+      // } else if (isI18nSchema(resolvedSchema)) {
+      //   if (!resolvedSchema.locales.includes(part)) {
+      //     throw Error(
+      //       `Invalid path: i18n schema ${resolvedSchema} supports locales ${resolvedSchema.locales.join(
+      //         ", "
+      //       )}, but found: ${part}`
+      //     );
+      //   }
+      //   if (!Object.keys(resolvedSource).includes(part)) {
+      //     throw Error(
+      //       `Schema type error: expected source to be type of i18n with locale ${part}, but got ${JSON.stringify(
+      //         Object.keys(resolvedSource)
+      //       )}`
+      //     );
+      //   }
+      //   resolvedSource = resolvedSource[part];
+      //   resolvedSchema = resolvedSchema.item;
     } else if (isImageSchema(resolvedSchema)) {
       return {
         path: origParts

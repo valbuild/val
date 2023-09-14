@@ -1,10 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from ".";
-import { ValModuleBrand } from "../module";
-import { GenericSelector } from "../selector";
-import { Source, SourceArray } from "../source";
-import { getValPath, SourcePath } from "../val";
-import { ValidationErrors } from "./validation/ValidationError";
+import { Schema, SerializedSchema } from "..";
+import { ValModuleBrand } from "../../module";
+import { GenericSelector } from "../../selector/future";
+import { Source, SourceArray } from "../../source";
+import { SourcePath } from "../../val";
+import { ValidationErrors } from "../validation/ValidationError";
 
 export type SerializedOneOfSchema = {
   type: "oneOf";
@@ -38,17 +38,19 @@ export class OneOfSchema<
   }
 
   serialize(): SerializedSchema {
-    const path = getValPath(this.selector);
-    if (!path) {
-      throw new Error(
-        "Cannot serialize oneOf schema with empty selector. Make sure a Val module is used."
-      );
-    }
-    return {
-      type: "oneOf",
-      selector: path,
-      opt: this.opt,
-    };
+    throw new Error("Method not implemented.");
+
+    // const path = getValPath(this.selector);
+    // if (!path) {
+    //   throw new Error(
+    //     "Cannot serialize oneOf schema with empty selector. Make sure a Val module is used."
+    //   );
+    // }
+    // return {
+    //   type: "oneOf",
+    //   selector: path,
+    //   opt: this.opt,
+    // };
   }
 }
 

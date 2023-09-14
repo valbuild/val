@@ -1,16 +1,15 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Selector, GenericSelector, SourceOrExpr, Path } from ".";
-import { string } from "../schema/string";
-import { array } from "../schema/array";
-import { SourcePath } from "../val";
-import { Source } from "../source";
-import { evaluate } from "../expr/eval";
-import * as expr from "../expr/expr";
-import { result } from "../fp";
-import { object } from "../schema/object";
+import { string } from "../../schema/string";
+import { array } from "../../schema/array";
+import { SourcePath } from "../../val";
+import { Source } from "../../source";
+import { evaluate } from "../../expr/eval";
+import * as expr from "../../expr/expr";
+import { result } from "../../fp";
+import { object } from "../../schema/object";
 import { newSelectorProxy, selectorToVal } from "./SelectorProxy";
 import { newExprSelectorProxy } from "./ExprProxy";
-import { remote, RemoteSource } from "../source/remote";
 
 const modules = {
   "/app/text": "text1",
@@ -25,17 +24,6 @@ const modules = {
   ] as { title: string | null; text: string }[],
   "/app/empty": "",
   "/app/large/nested": BFV(),
-};
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const remoteModules: {
-  [key in keyof TestModules]: RemoteSource<TestModules[key]>;
-} = {
-  "/app/text": remote("/app/text"),
-  "/app/texts": remote("/app/texts"),
-  "/app/blog": remote("/app/blog"),
-  "/app/blogs": remote("/app/blogs"),
-  "/app/empty": remote("/app/empty"),
-  "/app/large/nested": remote("/app/large/nested"),
 };
 
 const SelectorModuleTestCases: {

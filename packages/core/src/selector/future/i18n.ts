@@ -1,6 +1,6 @@
-import { SourceArray, SourceObject, SourcePrimitive } from "../source";
+import { SourceArray, SourceObject, SourcePrimitive } from "../../source";
 import { Selector as UnknownSelector } from ".";
-import { FileSource } from "../source/file";
+import { FileSource } from "../../source/file";
 
 declare const brand: unique symbol;
 
