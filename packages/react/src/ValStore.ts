@@ -43,10 +43,10 @@ export class ValStore {
   }
 
   getSnapshot = () => () => {
-    return this.vals.get(moduleId);
+    // return this.vals.get(moduleId);
   };
 
   getServerSnapshot = () => () => {
-    return this.vals.get(moduleId);
+    // return this.vals.get(moduleId);
   };
 }

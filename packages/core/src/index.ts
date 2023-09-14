@@ -30,34 +30,29 @@ export type { ValidationFix } from "./schema/validation/ValidationFix";
 export * as expr from "./expr/";
 export { FILE_REF_PROP } from "./source/file";
 export { VAL_EXTENSION, type SourceArray } from "./source";
-export type { I18nSource } from "./source/future/i18n";
 export { derefPatch } from "./patch/deref";
 export {
   type SelectorSource,
   type SelectorOf,
   GenericSelector,
 } from "./selector";
-import { getVal } from "./fetchVal";
-import {
-  getRawSource,
-  resolvePath,
-  splitModuleIdAndModulePath,
-} from "./module";
+import { getSource, resolvePath, splitModuleIdAndModulePath } from "./module";
 import { getSchema } from "./selector";
 import { getValPath, isVal } from "./val";
-import { convertImageSource } from "./schema/image";
-import { fetchVal } from "./fetchVal";
+import { convertFileSource } from "./schema/image";
+import { createValPathOfItem } from "./selector/SelectorProxy";
+import { getVal } from "./future/fetchVal";
 
 const Internal = {
-  convertImageSource,
+  convertFileSource,
   getSchema,
   getValPath,
   getVal,
-  getRawSource,
+  getSource,
   resolvePath,
   splitModuleIdAndModulePath,
-  fetchVal,
   isVal,
+  createValPathOfItem,
   VAL_ENABLE_COOKIE_NAME: "val_enable",
 };
 

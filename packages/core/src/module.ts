@@ -5,9 +5,10 @@ import {
   SelectorOf,
   SelectorSource,
   GetSource,
+  GetSchema,
+  Path,
 } from "./selector";
 import { Source } from "./source";
-import { newSelectorProxy } from "./selector/SelectorProxy";
 import { ModuleId, ModulePath, SourcePath } from "./val";
 import { Expr } from "./expr";
 import { ArraySchema, SerializedArraySchema } from "./schema/array";
@@ -41,10 +42,14 @@ export function content<T extends Schema<SelectorSource>>(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   source: SchemaTypeOf<T>
 ): ValModule<SchemaTypeOf<T>> {
-  return newSelectorProxy(source, id as SourcePath, schema);
+  return {
+    [GetSource]: source,
+    [GetSchema]: schema,
+    [Path]: id as SourcePath,
+  } as unknown as ValModule<SchemaTypeOf<T>>;
 }
 
-export function getRawSource(valModule: ValModule<SelectorSource>): Source {
+export function getSource(valModule: ValModule<SelectorSource>): Source {
   const sourceOrExpr = valModule[GetSource];
   if (sourceOrExpr instanceof Expr) {
     throw Error("Cannot get raw source of an Expr");

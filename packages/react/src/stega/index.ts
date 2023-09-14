@@ -2,4 +2,4 @@
 export { autoTagJSX } from "./autoTagJSX";
 export { fetchVal } from "./fetchVal";
 export { useVal } from "./hooks/useVal";
-export type { ValEncodedString } from "./stegaEncode";
+export type { ValEncodedString } from "./transform";
