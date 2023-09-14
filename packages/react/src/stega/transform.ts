@@ -117,6 +117,13 @@ export function transform(input: any): any {
       );
     }
 
+    if (
+      typeof sourceOrSelector === "number" ||
+      typeof sourceOrSelector === "boolean"
+    ) {
+      return sourceOrSelector;
+    }
+
     console.error(
       `Unexpected type of source selector: ${typeof sourceOrSelector}`
     );

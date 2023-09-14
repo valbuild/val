@@ -10,6 +10,8 @@ describe("stega transform", () => {
       s.object({
         image: s.image(),
         text: s.richtext(),
+        n: s.number(),
+        b: s.boolean(),
       })
     );
 
@@ -21,6 +23,8 @@ describe("stega transform", () => {
           height: 100,
         }),
         text: val.richtext("Test1"),
+        n: 1,
+        b: true,
       },
       {
         image: val.file("/public/test2.png", {
@@ -29,6 +33,8 @@ describe("stega transform", () => {
           height: 100,
         }),
         text: val.richtext("Test2"),
+        n: 2,
+        b: false,
       },
     ]);
     const transformed = transform(valModule);
