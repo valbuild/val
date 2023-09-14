@@ -1,11 +1,11 @@
-import { transform } from "./transform";
+import { getModuleIds, transform } from "./transform";
 import { initVal } from "@valbuild/core";
 import { vercelStegaDecode, vercelStegaSplit } from "@vercel/stega";
 
+const { s, val } = initVal();
+
 describe("stega transform", () => {
   test("basic", () => {
-    const { s, val } = initVal();
-
     const schema = s.array(
       s.object({
         image: s.image(),
@@ -63,5 +63,79 @@ describe("stega transform", () => {
 
     expect(transformed[0].text.valPath).toStrictEqual('/test.0."text"');
     expect(transformed[1].text.valPath).toStrictEqual('/test.1."text"');
+  });
+
+  test("get modules", () => {
+    const schema = s.array(s.string());
+
+    expect(
+      getModuleIds({
+        foo: [
+          { test: val.content("/test1", schema, ["one", "two"]) },
+          { test: val.content("/test2", schema, ["one", "two"]) },
+        ],
+        test: val.content("/test3", schema, ["one", "two"]),
+      })
+    ).toStrictEqual(["/test1", "/test2", "/test3"]);
+  });
+
+  test("basic transform with get modules", () => {
+    const schema = s.array(s.string());
+    const transformed = transform(
+      val.content("/test1", schema, ["one", "two"]),
+      (moduleId) => {
+        if (moduleId === "/test1") {
+          return ["1", "2"];
+        }
+      }
+    );
+
+    expect(vercelStegaSplit(transformed[0]).cleaned).toStrictEqual("1");
+    expect(vercelStegaDecode(transformed[0])).toStrictEqual({
+      data: {
+        valPath: "/test1.0",
+      },
+      origin: "val.build",
+    });
+  });
+
+  test("transform with get modules", () => {
+    const schema = s.array(s.string());
+    const transformed = transform(
+      {
+        foo: [
+          { test: val.content("/test1", schema, ["one", "two"]) },
+          { test: val.content("/test2", schema, ["one", "two"]) },
+        ],
+        test: val.content("/test3", schema, ["one", "two"]),
+      },
+      (moduleId) => {
+        if (moduleId === "/test2") {
+          return ["1", "2"];
+        }
+      }
+    );
+
+    expect(vercelStegaSplit(transformed.foo[0].test[0]).cleaned).toStrictEqual(
+      "one"
+    );
+    expect(vercelStegaDecode(transformed.foo[0].test[0])).toStrictEqual({
+      data: {
+        valPath: "/test1.0",
+      },
+      origin: "val.build",
+    });
+
+    //
+
+    expect(vercelStegaSplit(transformed.foo[1].test[0]).cleaned).toStrictEqual(
+      "1"
+    );
+    expect(vercelStegaDecode(transformed.foo[1].test[0])).toStrictEqual({
+      data: {
+        valPath: "/test2.0",
+      },
+      origin: "val.build",
+    });
   });
 });
