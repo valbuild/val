@@ -10,7 +10,7 @@ import { number } from "./schema/number";
 import { object } from "./schema/object";
 import { string, StringSchema } from "./schema/string";
 import { union } from "./schema/union";
-import { SourceOrExpr } from "./selector";
+import { GetSource } from "./selector";
 import { newSelectorProxy } from "./selector/SelectorProxy";
 import { ModulePath, SourcePath } from "./val";
 import { literal } from "./schema/literal";
@@ -58,7 +58,7 @@ describe("module", () => {
         },
       })
     );
-    expect(resolvedModuleAtPath[SourceOrExpr]).toStrictEqual("zoo2");
+    expect(resolvedModuleAtPath[GetSource]).toStrictEqual("zoo2");
   });
 
   test("getSourceAtPath: basic source", () => {
@@ -82,7 +82,7 @@ describe("module", () => {
         },
       })
     );
-    expect(resolvedModuleAtPath[SourceOrExpr]).toStrictEqual("zoo2");
+    expect(resolvedModuleAtPath[GetSource]).toStrictEqual("zoo2");
   });
 
   test("getSchemaAtPath: array & object", () => {

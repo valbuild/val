@@ -4,7 +4,7 @@ import {
   GenericSelector,
   SelectorOf,
   SelectorSource,
-  SourceOrExpr,
+  GetSource,
 } from "./selector";
 import { Source } from "./source";
 import { newSelectorProxy } from "./selector/SelectorProxy";
@@ -45,7 +45,7 @@ export function content<T extends Schema<SelectorSource>>(
 }
 
 export function getRawSource(valModule: ValModule<SelectorSource>): Source {
-  const sourceOrExpr = valModule[SourceOrExpr];
+  const sourceOrExpr = valModule[GetSource];
   if (sourceOrExpr instanceof Expr) {
     throw Error("Cannot get raw source of an Expr");
   }
