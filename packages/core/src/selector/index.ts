@@ -8,8 +8,7 @@ import { FileSelector } from "./file";
 import { SourcePath } from "../val";
 import { Source, SourceArray, SourceObject, SourcePrimitive } from "../source";
 import { Schema } from "../schema";
-import { Expr } from "../expr/expr";
-import { A } from "ts-toolbelt";
+import type { A } from "ts-toolbelt";
 import { FileSource } from "../source/file";
 import { RichText, RichTextSource } from "../source/richtext";
 
@@ -56,7 +55,7 @@ export const Path = Symbol("Path");
 /**
  * @internal
  */
-export const SourceOrExpr = Symbol("SourceOrExpr");
+export const GetSource = Symbol("GetSource");
 /**
  * @internal
  */
@@ -66,7 +65,7 @@ export abstract class GenericSelector<
   Error extends string | undefined = undefined
 > {
   readonly [Path]: SourcePath | undefined;
-  readonly [SourceOrExpr]: T | Expr;
+  readonly [GetSource]: T;
   readonly [ValError]: Error | undefined;
   readonly [GetSchema]: Schema<T> | undefined;
   constructor(
@@ -76,7 +75,7 @@ export abstract class GenericSelector<
     error?: Error
   ) {
     this[Path] = path;
-    this[SourceOrExpr] = valOrExpr;
+    this[GetSource] = valOrExpr;
     this[ValError] = error;
     this[GetSchema] = schema;
   }

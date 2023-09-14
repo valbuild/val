@@ -3,7 +3,7 @@ import {
   Path,
   SelectorOf,
   SelectorSource,
-  SourceOrExpr,
+  GetSource,
 } from "./selector";
 import {
   isSerializedVal,
@@ -20,22 +20,19 @@ import {
 import { Json } from "./Json";
 
 export function fetchVal<T extends SelectorSource>(
-  selector: T,
-  locale?: string
+  selector: T
 ): SelectorOf<T> extends GenericSelector<infer S>
   ? Promise<Val<JsonOfSource<S>>>
   : never {
   return Promise.resolve(
-    getVal(selector, locale) as unknown
+    getVal(selector) as unknown
   ) as SelectorOf<T> extends GenericSelector<infer S>
     ? Promise<Val<JsonOfSource<S>>>
     : never;
 }
 
 export function getVal<T extends SelectorSource>(
-  selector: T,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  locale?: string
+  selector: T
 ): SelectorOf<T> extends GenericSelector<infer S>
   ? Val<JsonOfSource<S>>
   : never {
@@ -50,9 +47,9 @@ export function getVal<T extends SelectorSource>(
 function isArrayOrArraySelector(child: any) {
   if (isSelector(child)) {
     return (
-      typeof child[SourceOrExpr] === "object" &&
-      typeof child[SourceOrExpr] !== null &&
-      Array.isArray(child[SourceOrExpr])
+      typeof child[GetSource] === "object" &&
+      typeof child[GetSource] !== null &&
+      Array.isArray(child[GetSource])
     );
   }
   return Array.isArray(child);
@@ -62,9 +59,9 @@ function isArrayOrArraySelector(child: any) {
 function isObjectOrObjectSelector(child: any) {
   if (isSelector(child)) {
     return (
-      typeof child[SourceOrExpr] === "object" &&
-      typeof child[SourceOrExpr] !== null &&
-      !Array.isArray(child[SourceOrExpr])
+      typeof child[GetSource] === "object" &&
+      typeof child[GetSource] !== null &&
+      !Array.isArray(child[GetSource])
     );
   }
   return typeof child === "object";
@@ -80,7 +77,7 @@ export function serializedValOfSelectorSource<T extends SelectorSource>(
     const isObject = isObjectOrObjectSelector(child);
     if (isArray) {
       const array = (
-        SourceOrExpr in child ? child[SourceOrExpr] : child
+        GetSource in child ? child[GetSource] : child
       ) as Array<unknown>;
       const valPath = Path in child ? (child[Path] as SourcePath) : undefined;
       return {
@@ -94,9 +91,7 @@ export function serializedValOfSelectorSource<T extends SelectorSource>(
         valPath,
       };
     } else if (isObject) {
-      const obj = (
-        SourceOrExpr in child ? child[SourceOrExpr] : child
-      ) as object;
+      const obj = (GetSource in child ? child[GetSource] : child) as object;
       const valPath = Path in child ? (child[Path] as SourcePath) : undefined;
       return {
         val:
@@ -115,7 +110,7 @@ export function serializedValOfSelectorSource<T extends SelectorSource>(
       };
     } else if (isSelector(child)) {
       return {
-        val: rec(child[SourceOrExpr]),
+        val: rec(child[GetSource]),
         valPath: child[Path],
       };
     } else {
