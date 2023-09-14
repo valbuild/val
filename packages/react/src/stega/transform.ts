@@ -44,12 +44,19 @@ export type StegaOfSource<T extends Source> = Json extends T
   ? T
   : never;
 
-export function transform(input: any): any {
+export function transform(
+  input: any,
+  getModule?: (moduleId: string) => any
+): any {
   function rec(sourceOrSelector: any, path?: any): any {
     if (typeof sourceOrSelector === "object") {
       const selectorPath = Internal.getValPath(sourceOrSelector);
       if (selectorPath) {
-        return rec(Internal.getSource(sourceOrSelector), selectorPath);
+        return rec(
+          (getModule && getModule(selectorPath)) ||
+            Internal.getSource(sourceOrSelector),
+          selectorPath
+        );
       }
 
       if (!sourceOrSelector) {
@@ -113,7 +120,7 @@ export function transform(input: any): any {
           origin: "val.build",
           data: { valPath: path },
         },
-        isDate(sourceOrSelector) // skip = true if isDate
+        false // auto detection on urls and dates is disabled, isDate could be used but it is also disabled (users should use a date schema instead): isDate(sourceOrSelector) // skip = true if isDate
       );
     }
 
@@ -132,6 +139,79 @@ export function transform(input: any): any {
   return rec(input);
 }
 
+export function getModuleIds(input: any): string[] {
+  const modules: Set<string> = new Set();
+  function rec(sourceOrSelector: any): undefined {
+    if (typeof sourceOrSelector === "object") {
+      const selectorPath = Internal.getValPath(sourceOrSelector);
+      if (selectorPath) {
+        modules.add(selectorPath);
+        return;
+      }
+
+      if (!sourceOrSelector) {
+        return;
+      }
+
+      if (VAL_EXTENSION in sourceOrSelector) {
+        if (sourceOrSelector[VAL_EXTENSION] === "richtext") {
+          return;
+        }
+
+        if (
+          sourceOrSelector[VAL_EXTENSION] === "file" &&
+          typeof sourceOrSelector[FILE_REF_PROP] === "string"
+        ) {
+          return;
+        }
+        console.error(
+          `Encountered unexpected extension: ${sourceOrSelector[VAL_EXTENSION]}`
+        );
+        return sourceOrSelector;
+      }
+
+      if (Array.isArray(sourceOrSelector)) {
+        sourceOrSelector.forEach(rec);
+        return;
+      }
+
+      if (!Array.isArray(sourceOrSelector)) {
+        for (const [, value] of Object.entries(sourceOrSelector)) {
+          rec(value);
+        }
+        return;
+      }
+
+      console.error(
+        `Could not transform source selector: ${typeof sourceOrSelector} (array: ${Array.isArray(
+          sourceOrSelector
+        )})`,
+        sourceOrSelector
+      );
+      return;
+    }
+
+    if (typeof sourceOrSelector === "string") {
+      return;
+    }
+
+    if (
+      typeof sourceOrSelector === "number" ||
+      typeof sourceOrSelector === "boolean"
+    ) {
+      return;
+    }
+
+    console.error(
+      `Unexpected type of source selector: ${typeof sourceOrSelector}`
+    );
+    return;
+  }
+  rec(input);
+  return Array.from(modules);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function isDate(s: string) {
   return Boolean(Date.parse(s));
 }
