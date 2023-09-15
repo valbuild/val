@@ -83,10 +83,12 @@ describe("stega transform", () => {
     const schema = s.array(s.string());
     const transformed = transform(
       val.content("/test1", schema, ["one", "two"]),
-      (moduleId) => {
-        if (moduleId === "/test1") {
-          return ["1", "2"];
-        }
+      {
+        getModule: (moduleId) => {
+          if (moduleId === "/test1") {
+            return ["1", "2"];
+          }
+        },
       }
     );
 
@@ -109,10 +111,12 @@ describe("stega transform", () => {
         ],
         test: val.content("/test3", schema, ["one", "two"]),
       },
-      (moduleId) => {
-        if (moduleId === "/test2") {
-          return ["1", "2"];
-        }
+      {
+        getModule: (moduleId) => {
+          if (moduleId === "/test2") {
+            return ["1", "2"];
+          }
+        },
       }
     );
 

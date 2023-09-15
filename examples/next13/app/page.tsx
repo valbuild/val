@@ -1,9 +1,9 @@
 import blogsVal from "./blogs.val";
-import { fetchVal } from "@valbuild/next";
+import { fetchVal, useVal } from "@valbuild/next";
 import { ValRichText } from "@valbuild/next";
 
 export default async function Home() {
-  const blogs = await fetchVal(blogsVal);
+  const blogs = useVal(blogsVal);
   return (
     <main>
       <article>

@@ -46,16 +46,19 @@ export type StegaOfSource<T extends Source> = Json extends T
 
 export function transform(
   input: any,
-  getModule?: (moduleId: string) => any
+  opts: {
+    getModule?: (moduleId: string) => any;
+    disabled?: boolean;
+  }
 ): any {
   function rec(sourceOrSelector: any, path?: any): any {
     if (typeof sourceOrSelector === "object") {
       const selectorPath = Internal.getValPath(sourceOrSelector);
       if (selectorPath) {
         return rec(
-          (getModule && getModule(selectorPath)) ||
+          (opts.getModule && opts.getModule(selectorPath)) ||
             Internal.getSource(sourceOrSelector),
-          selectorPath
+          opts.disabled ? undefined : selectorPath
         );
       }
 
