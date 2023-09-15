@@ -1,9 +1,5 @@
 import { cookies, draftMode, headers } from "next/headers";
-import {
-  fetchVal as rawFetchVal,
-  transform,
-  type StegaOfSource,
-} from "@valbuild/react/stega";
+import { transform, type StegaOfSource } from "@valbuild/react/stega";
 import {
   SelectorSource,
   SelectorOf,
@@ -13,6 +9,7 @@ import {
 import { ValApi } from "@valbuild/react";
 import { result } from "@valbuild/core/fp";
 import { Internal } from "@valbuild/core";
+import { isValEnabled } from "./isValEnabled";
 
 const valApiEndpoints = "/api/val"; // TODO: get from config
 export function fetchVal<T extends SelectorSource>(
@@ -21,7 +18,8 @@ export function fetchVal<T extends SelectorSource>(
   ? Promise<StegaOfSource<S>>
   : never {
   const host = getHost();
-  if (host && safeDraftModeEnabled()) {
+  const enabled = isValEnabled();
+  if (host && safeDraftModeEnabled() && enabled) {
     // TODO: Use the content.val.build endpoints directly
     const api = new ValApi(`${host}${valApiEndpoints}`);
 
@@ -36,16 +34,18 @@ export function fetchVal<T extends SelectorSource>(
       .then((res) => {
         if (result.isOk(res)) {
           const { modules } = res.value;
-          return transform(selector, (moduleId) => {
-            const module = modules[moduleId as ModuleId];
-            if (module) {
-              return module.source;
-            }
+          return transform(selector, {
+            getModule: (moduleId) => {
+              const module = modules[moduleId as ModuleId];
+              if (module) {
+                return module.source;
+              }
+            },
           });
         } else {
           console.error("Val: could not fetch modules", res.error);
         }
-        return transform(selector);
+        return transform(selector, {});
       })
       .catch((err) => {
         console.error("Val: failed while checking modules", err);
@@ -54,7 +54,9 @@ export function fetchVal<T extends SelectorSource>(
       ? Promise<StegaOfSource<S>>
       : never;
   }
-  return rawFetchVal<T>(selector);
+  return transform(selector, {
+    disabled: !enabled,
+  });
 }
 
 function getHost() {

@@ -27,6 +27,7 @@ export type InitVal = {
 //       [K in keyof A]: NarrowStrings<A[K]>;
 //     };
 
+// TODO: Rename to createValSystem (only to be used by internal things), we can then export * from '@valbuild/core' in the next package then.
 export const initVal = (): //   options?: {
 //   readonly locales?: NarrowStrings<{
 //     readonly required: Locales;
