@@ -1,7 +1,8 @@
 import { Edit2, Edit3, Moon, Power, Sun } from "react-feather";
 import { useValOverlayContext } from "./ValOverlayContext";
+import { ValApi } from "@valbuild/react";
 
-export function ValMenu() {
+export function ValMenu({ api }: { api: ValApi }) {
   const { theme, setTheme, editMode, setEditMode } = useValOverlayContext();
   return (
     <div className="flex flex-row items-center justify-center w-full h-full space-x-4 text-primary">
@@ -26,7 +27,10 @@ export function ValMenu() {
           {theme === "light" && <Moon size={15} />}
         </div>
       </button>
-      <a className="p-1 border rounded-full shadow bg-base border-highlight">
+      <a
+        className="p-1 border rounded-full shadow bg-base border-highlight"
+        href={api.getDisableUrl()}
+      >
         <div className="h-[24px] w-[24px] flex justify-center items-center">
           <Power size={18} />
         </div>

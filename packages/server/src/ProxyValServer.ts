@@ -23,6 +23,7 @@ export type ProxyValServerOptions = {
   gitBranch: string;
   valName: string;
   valEnableRedirectUrl?: string;
+  valDisableRedirectUrl?: string;
 };
 
 export class ProxyValServer implements ValServer {
@@ -59,6 +60,9 @@ export class ProxyValServer implements ValServer {
 
   async enable(req: express.Request, res: express.Response): Promise<void> {
     return enable(req, res, this.options.valEnableRedirectUrl);
+  }
+  async disable(req: express.Request, res: express.Response): Promise<void> {
+    return disable(req, res, this.options.valEnableRedirectUrl);
   }
 
   async callback(req: express.Request, res: express.Response): Promise<void> {
@@ -303,17 +307,17 @@ export class ProxyValServer implements ValServer {
       `/auth/${this.options.valName}/authorize`,
       this.options.valBuildUrl
     );
-    url.params.set(
+    url.searchParams.set(
       "redirect_uri",
       encodeURIComponent(`${publicValApiRoute}/callback`)
     );
-    url.params.set("state", token);
+    url.searchParams.set("state", token);
     return url.toString();
   }
 
   private getAppErrorUrl(error: string): string {
     const url = new URL("/authorize", this.options.valBuildUrl);
-    url.params.set("error", encodeURIComponent(error));
+    url.searchParams.set("error", encodeURIComponent(error));
     return url.toString();
   }
 }
@@ -433,6 +437,28 @@ export async function enable(
     }
     res
       .cookie(VAL_ENABLED_COOKIE, "true", {
+        httpOnly: false,
+        sameSite: "lax",
+      })
+      .redirect(redirectUrlToUse);
+  } else {
+    res.sendStatus(400);
+  }
+}
+export async function disable(
+  req: express.Request,
+  res: express.Response,
+  redirectUrl?: string
+): Promise<void> {
+  const { redirect_to } = req.query;
+  if (typeof redirect_to === "string" || typeof redirect_to === "undefined") {
+    let redirectUrlToUse = redirect_to || "/";
+    if (redirectUrl) {
+      redirectUrlToUse =
+        redirectUrl + "?redirect_to=" + encodeURIComponent(redirectUrlToUse);
+    }
+    res
+      .cookie(VAL_ENABLED_COOKIE, "false", {
         httpOnly: false,
         sameSite: "lax",
       })
