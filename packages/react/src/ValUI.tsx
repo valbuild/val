@@ -3,13 +3,14 @@ import { Internal } from "@valbuild/core";
 import { Style, ValOverlay } from "@valbuild/ui";
 import { useEffect, useState } from "react";
 import { ShadowRoot } from "./ShadowRoot";
-import { useValApi } from "./ValProvider";
+import { useValApi, useValStore } from "./ValProvider";
 
 export default function ValUI() {
   const [isClient, setIsClient] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [isDraftMode, setDraftMode] = useState(false);
   const api = useValApi();
+  const valStore = useValStore();
   useEffect(() => {
     setIsClient(true);
     try {
@@ -56,7 +57,7 @@ export default function ValUI() {
           rel="stylesheet"
         />
         <Style />
-        <ValOverlay api={api} isDraftMode={isDraftMode} />
+        <ValOverlay api={api} store={valStore} />
       </ShadowRoot>
     </>
   );

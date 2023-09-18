@@ -6,6 +6,10 @@ type FetchError = { message: string; statusCode?: number };
 export class ValApi {
   constructor(public host: string) {}
 
+  getDisableUrl() {
+    return `${this.host}/disable`;
+  }
+
   getSession() {
     return fetch(`${this.host}/session`).then(
       parse<{

@@ -6,7 +6,7 @@ import { getPathFromParams } from "./expressHelpers";
 import { PatchJSON } from "./patch/validation";
 import { ValServer } from "./ValServer";
 import { Internal, ModuleId, ModulePath } from "@valbuild/core";
-import { enable } from "./ProxyValServer";
+import { disable, enable } from "./ProxyValServer";
 import { promises as fs } from "fs";
 import path from "path";
 import { ParamsDictionary } from "express-serve-static-core";
@@ -81,6 +81,10 @@ export class LocalValServer implements ValServer {
 
   async enable(req: express.Request, res: express.Response): Promise<void> {
     return enable(req, res);
+  }
+
+  async disable(req: express.Request, res: express.Response): Promise<void> {
+    return disable(req, res);
   }
 
   async getIds(

@@ -15,13 +15,15 @@ import { TextForm } from "./forms/TextForm";
 import { SerializedSchema, SourcePath } from "@valbuild/core";
 import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/react";
+import { ValStore } from "@valbuild/react/src/ValStore";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
   api: ValApi;
+  store: ValStore;
 };
 
-export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
+export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
   const [theme, setTheme] = useTheme(defaultTheme);
   const session = useSession(api);
 
@@ -33,19 +35,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
 
   useEffect(() => {
     //
-    api
-      .getModules({
-        patch: true,
-        includeSource: true,
-        includeSchema: true,
-      })
-      .then(async (res) => {
-        if (result.isOk(res)) {
-          setModules(res.value.modules);
-        } else {
-          console.error(res.error);
-        }
-      });
+    store.updateAll();
   }, []);
 
   const resolvedModulePath =
@@ -84,7 +74,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
     >
       <div data-mode={theme}>
         <div className="fixed -translate-x-1/2 z-overlay left-1/2 bottom-4">
-          <ValMenu />
+          <ValMenu api={api} />
         </div>
         {editMode === "hover" && hoverTarget && (
           <ValHover

@@ -96,11 +96,21 @@ type ValServerOverrides = Partial<{
    *
    * May be used to setup a custom flow after enabling Val.
    *
-   * Typically this is set using the VAL_ENABLE_REDIRECT_URL env var.
+   *This can be set using the VAL_ENABLE_REDIRECT_URL env var.
    *
    * @example "/api/draft/enable"
    */
   valEnableRedirectUrl?: string;
+  /**
+   * After Val is disabled, redirect to this url.
+   *
+   * May be used to setup a custom flow after disabling Val.
+   *
+   * This can be set using the VAL_DISABLE_REDIRECT_URL env var.
+   *
+   * @example "/api/draft/enable"
+   */
+  valDisableRedirectUrl?: string;
 }>;
 
 async function _createRequestListener(
@@ -167,6 +177,8 @@ async function initHandlerOptions(
       valName: maybeValName,
       valEnableRedirectUrl:
         opts.valEnableRedirectUrl || process.env.VAL_ENABLE_REDIRECT_URL,
+      valDisableRedirectUrl:
+        opts.valDisableRedirectUrl || process.env.VAL_DISABLE_REDIRECT_URL,
     };
   } else {
     const service = await createService(process.cwd(), opts);
