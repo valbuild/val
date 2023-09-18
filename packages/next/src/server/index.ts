@@ -1,0 +1,1 @@
+export { fetchVal } from "./fetchVal";

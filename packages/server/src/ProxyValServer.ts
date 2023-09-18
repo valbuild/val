@@ -22,6 +22,7 @@ export type ProxyValServerOptions = {
   gitCommit: string;
   gitBranch: string;
   valName: string;
+  valEnableRedirectUrl?: string;
 };
 
 export class ProxyValServer implements ValServer {
@@ -57,7 +58,7 @@ export class ProxyValServer implements ValServer {
   }
 
   async enable(req: express.Request, res: express.Response): Promise<void> {
-    return enable(req, res);
+    return enable(req, res, this.options.valEnableRedirectUrl);
   }
 
   async callback(req: express.Request, res: express.Response): Promise<void> {
@@ -270,7 +271,7 @@ export class ProxyValServer implements ValServer {
       `/api/val/${this.options.valName}/auth/token`,
       this.options.valBuildUrl
     );
-    url.searchParams.set("code", encodeURIComponent(code));
+    url.params.set("code", encodeURIComponent(code));
     return fetch(url, {
       method: "POST",
       headers: this.getAuthHeaders(this.options.apiKey, "application/json"), // NOTE: we use apiKey as auth on this endpoint (we do not have a token yet)
@@ -302,17 +303,17 @@ export class ProxyValServer implements ValServer {
       `/auth/${this.options.valName}/authorize`,
       this.options.valBuildUrl
     );
-    url.searchParams.set(
+    url.params.set(
       "redirect_uri",
       encodeURIComponent(`${publicValApiRoute}/callback`)
     );
-    url.searchParams.set("state", token);
+    url.params.set("state", token);
     return url.toString();
   }
 
   private getAppErrorUrl(error: string): string {
     const url = new URL("/authorize", this.options.valBuildUrl);
-    url.searchParams.set("error", encodeURIComponent(error));
+    url.params.set("error", encodeURIComponent(error));
     return url.toString();
   }
 }
@@ -420,16 +421,22 @@ function getStateFromCookie(stateCookie: string):
 
 export async function enable(
   req: express.Request,
-  res: express.Response
+  res: express.Response,
+  redirectUrl?: string
 ): Promise<void> {
   const { redirect_to } = req.query;
   if (typeof redirect_to === "string" || typeof redirect_to === "undefined") {
+    let redirectUrlToUse = redirect_to || "/";
+    if (redirectUrl) {
+      redirectUrlToUse =
+        redirectUrl + "?redirect_to=" + encodeURIComponent(redirectUrlToUse);
+    }
     res
       .cookie(VAL_ENABLED_COOKIE, "true", {
         httpOnly: false,
         sameSite: "lax",
       })
-      .redirect(redirect_to || "/");
+      .redirect(redirectUrlToUse);
   } else {
     res.sendStatus(400);
   }
