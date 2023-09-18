@@ -1,4 +1,3 @@
-// import { cookies, draftMode, headers } from "next/headers";
 import { transform, type StegaOfSource } from "@valbuild/react/stega";
 import {
   SelectorSource,
@@ -9,7 +8,7 @@ import {
 import { ValApi } from "@valbuild/react";
 import { result } from "@valbuild/core/fp";
 import { Internal } from "@valbuild/core";
-import { isValEnabled } from "./isValEnabled";
+import { draftMode } from "next/headers";
 
 const valApiEndpoints = "/api/val"; // TODO: get from config
 export function fetchVal<T extends SelectorSource>(
@@ -17,55 +16,56 @@ export function fetchVal<T extends SelectorSource>(
 ): SelectorOf<T> extends GenericSelector<infer S>
   ? Promise<StegaOfSource<S>>
   : never {
-  const host = getHost();
-  const enabled = isValEnabled();
-  if (host && safeDraftModeEnabled() && enabled) {
-    // TODO: Use the content.val.build endpoints directly
-    const api = new ValApi(`${host}${valApiEndpoints}`);
-
-    // Optimize: only fetch the modules needed, also cache by module id and revalidate when patched
-    // const valModuleIds = getModuleIds(selector);
-    return api
-      .getModules({
-        patch: true,
-        includeSource: true,
-        headers: getValHeaders(),
-      })
-      .then((res) => {
-        if (result.isOk(res)) {
-          const { modules } = res.value;
-          return transform(selector, {
-            getModule: (moduleId) => {
-              const module = modules[moduleId as ModuleId];
-              if (module) {
-                return module.source;
-              }
-            },
-          });
-        } else {
-          console.error("Val: could not fetch modules", res.error);
-        }
-        return transform(selector, {});
-      })
-      .catch((err) => {
-        console.error("Val: failed while checking modules", err);
-        return selector;
-      }) as SelectorOf<T> extends GenericSelector<infer S>
-      ? Promise<StegaOfSource<S>>
-      : never;
+  const enabled = safeDraftModeEnabled();
+  if (enabled) {
+    getHost().then((host) => {
+      //
+      if (host) {
+        // TODO: Use the content.val.build endpoints directly
+        const api = new ValApi(`${host}${valApiEndpoints}`);
+        // Optimize: only fetch the modules needed, also cache by module id and revalidate when patched
+        // const valModuleIds = getModuleIds(selector);
+        return api
+          .getModules({
+            patch: true,
+            includeSource: true,
+            headers: getValHeaders(),
+          })
+          .then((res) => {
+            if (result.isOk(res)) {
+              const { modules } = res.value;
+              return transform(selector, {
+                getModule: (moduleId) => {
+                  const module = modules[moduleId as ModuleId];
+                  if (module) {
+                    return module.source;
+                  }
+                },
+              });
+            } else {
+              console.error("Val: could not fetch modules", res.error);
+            }
+            return transform(selector, {});
+          })
+          .catch((err) => {
+            console.error("Val: failed while checking modules", err);
+            return selector;
+          }) as SelectorOf<T> extends GenericSelector<infer S>
+          ? Promise<StegaOfSource<S>>
+          : never;
+      }
+    });
   }
   return transform(selector, {
     disabled: !enabled,
   });
 }
 
-function getHost() {
+async function getHost() {
   // TODO: does NextJs have a way to determine this?
   try {
-    // const hs = headers();
-    const hs = {
-      get: (s: string) => "",
-    };
+    const { headers } = await import("next/headers");
+    const hs = headers();
     const host = hs.get("host");
     let proto = "https";
     if (hs.get("x-forwarded-proto") === "http") {
@@ -112,8 +112,7 @@ function getValHeaders(): Record<string, string> {
 
 function safeDraftModeEnabled() {
   try {
-    return true;
-    // return draftMode().isEnabled;
+    return draftMode().isEnabled;
   } catch (err) {
     console.error(
       "Val: could read draft mode! fetchVal can only be used server-side. Use useVal on clients.",

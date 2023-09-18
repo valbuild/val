@@ -91,6 +91,16 @@ type ValServerOverrides = Partial<{
    * @example "myorg/my-project"
    */
   valName: string;
+  /**
+   * After Val is enabled, redirect to this url.
+   *
+   * May be used to setup a custom flow after enabling Val.
+   *
+   * Typically this is set using the VAL_ENABLE_REDIRECT_URL env var.
+   *
+   * @example "/api/draft/enable"
+   */
+  valEnableRedirectUrl?: string;
 }>;
 
 async function _createRequestListener(
@@ -155,6 +165,8 @@ async function initHandlerOptions(
       gitCommit: maybeGitCommit,
       gitBranch: maybeGitBranch,
       valName: maybeValName,
+      valEnableRedirectUrl:
+        opts.valEnableRedirectUrl || process.env.VAL_ENABLE_REDIRECT_URL,
     };
   } else {
     const service = await createService(process.cwd(), opts);

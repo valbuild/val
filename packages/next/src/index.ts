@@ -41,9 +41,7 @@ export { ValRichText } from "@valbuild/react";
 export { type ValEncodedString } from "@valbuild/react/stega";
 
 // Next specific
-export { fetchVal } from "./fetchVal";
 export { initVal } from "./initVal";
-export { useVal } from "./useVal";
 
 // Auto-tag JSX with Val paths:
 import { autoTagJSX } from "@valbuild/react/stega";

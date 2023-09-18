@@ -53,6 +53,13 @@ const Internal = {
   splitModuleIdAndModulePath,
   isVal,
   createValPathOfItem,
+  /**
+   * Enables draft mode: updates all Val modules with patches
+   */
+  VAL_DRAFT_MODE_COOKIE: "val_draft_mode",
+  /**
+   * Enables Val: show the overlay / menu
+   */
   VAL_ENABLE_COOKIE_NAME: "val_enable",
   VAL_STATE_COOKIE: "val_state",
   VAL_SESSION_COOKIE: "val_session",

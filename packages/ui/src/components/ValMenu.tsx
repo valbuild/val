@@ -1,4 +1,4 @@
-import { Edit2, Edit3, Moon, Sun } from "react-feather";
+import { Edit2, Edit3, Moon, Power, Sun } from "react-feather";
 import { useValOverlayContext } from "./ValOverlayContext";
 
 export function ValMenu() {
@@ -26,6 +26,11 @@ export function ValMenu() {
           {theme === "light" && <Moon size={15} />}
         </div>
       </button>
+      <a className="p-1 border rounded-full shadow bg-base border-highlight">
+        <div className="h-[24px] w-[24px] flex justify-center items-center">
+          <Power size={18} />
+        </div>
+      </a>
     </div>
   );
 }

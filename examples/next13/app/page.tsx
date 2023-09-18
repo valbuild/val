@@ -1,15 +1,16 @@
 "use client";
-import blogsVal from "./blogs.val";
-import { useVal } from "@valbuild/next";
-import { ValRichText } from "@valbuild/next";
+import { useVal } from "@valbuild/next/client";
 
-export default async function Home() {
+import { ValRichText } from "@valbuild/next";
+import blogsVal from "./blogs.val";
+
+export default function Home() {
   const blogs = useVal(blogsVal);
   return (
     <main>
       <article>
-        {blogs.map((blog) => (
-          <section key={blog.title}>
+        {blogs.map((blog, i) => (
+          <section key={i}>
             <h1>{blog.title}</h1>
             <img src={blog.image.url} />
             <ValRichText>{blog.text}</ValRichText>

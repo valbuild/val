@@ -6,7 +6,6 @@ type SubscriberId = string & {
   readonly _tag: unique symbol;
 };
 
-const empty = {};
 export class ValStore {
   private readonly subscribers: Map<SubscriberId, Record<ModuleId, Json>>; // uncertain whether this is the optimal way of returning
   private readonly listeners: Record<SubscriberId, (() => void)[]>;
@@ -17,7 +16,6 @@ export class ValStore {
   }
 
   async updateAll() {
-    console.log("updateAll");
     const data = await this.api.getModules({
       patch: true,
       includeSource: true,
@@ -48,18 +46,16 @@ export class ValStore {
       for (const [updatedSubscriberId, moduleIds] of Array.from(
         updatedSubscriberIds.entries()
       )) {
-        this.subscribers.set(
-          updatedSubscriberId,
-          Object.fromEntries(
-            moduleIds.flatMap((moduleId) => {
-              const source = data.value.modules[moduleId].source;
-              if (!source) {
-                return [];
-              }
-              return [[moduleId, source]];
-            })
-          )
+        const subscriberModules = Object.fromEntries(
+          moduleIds.flatMap((moduleId) => {
+            const source = data.value.modules[moduleId].source;
+            if (!source) {
+              return [];
+            }
+            return [[moduleId, source]];
+          })
         );
+        this.subscribers.set(updatedSubscriberId, subscriberModules);
         this.emitChange(updatedSubscriberId);
       }
     } else {
@@ -71,6 +67,7 @@ export class ValStore {
     const subscriberId = createSubscriberId(moduleIds);
     if (!this.listeners[subscriberId]) {
       this.listeners[subscriberId] = [];
+      this.subscribers.set(subscriberId, {});
     }
     this.listeners[subscriberId].push(listener);
 
@@ -99,12 +96,12 @@ export class ValStore {
     return this.get(moduleIds);
   };
 
-  get = (moduleIds: ModuleId[]): Record<ModuleId, Json> => {
+  get = (moduleIds: ModuleId[]): Record<ModuleId, Json> | undefined => {
     const subscriberId = createSubscriberId(moduleIds);
-    return this.subscribers.get(subscriberId) || empty;
+    return this.subscribers.get(subscriberId);
   };
 }
 
 function createSubscriberId(moduleIds: ModuleId[]): SubscriberId {
-  return moduleIds.join("&") as SubscriberId;
+  return moduleIds.slice().sort().join("&") as SubscriberId;
 }

@@ -1,0 +1,4 @@
+{
+  "main": "dist/valbuild-next-client.cjs.js",
+  "module": "dist/valbuild-next-client.esm.js"
+}

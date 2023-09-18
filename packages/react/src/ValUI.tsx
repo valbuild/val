@@ -8,6 +8,7 @@ import { useValApi } from "./ValProvider";
 export default function ValUI() {
   const [isClient, setIsClient] = useState(false);
   const [enabled, setEnabled] = useState(false);
+  const [isDraftMode, setDraftMode] = useState(false);
   const api = useValApi();
   useEffect(() => {
     setIsClient(true);
@@ -18,6 +19,14 @@ export default function ValUI() {
       setEnabled(valEnabled);
     } catch (e) {
       console.warn("Could not read Val enabled state", e);
+    }
+    try {
+      const valDraftMode = document.cookie?.includes(
+        `${Internal.VAL_DRAFT_MODE_COOKIE}=true`
+      );
+      setDraftMode(valDraftMode);
+    } catch (e) {
+      console.warn("Could not read Val draft mode", e);
     }
   }, []);
   if (isClient && !enabled && process.env.NODE_ENV === "development") {
@@ -47,7 +56,7 @@ export default function ValUI() {
           rel="stylesheet"
         />
         <Style />
-        <ValOverlay api={api} />
+        <ValOverlay api={api} isDraftMode={isDraftMode} />
       </ShadowRoot>
     </>
   );
