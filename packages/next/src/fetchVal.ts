@@ -1,4 +1,4 @@
-import { cookies, draftMode, headers } from "next/headers";
+// import { cookies, draftMode, headers } from "next/headers";
 import { transform, type StegaOfSource } from "@valbuild/react/stega";
 import {
   SelectorSource,
@@ -62,7 +62,10 @@ export function fetchVal<T extends SelectorSource>(
 function getHost() {
   // TODO: does NextJs have a way to determine this?
   try {
-    const hs = headers();
+    // const hs = headers();
+    const hs = {
+      get: (s: string) => "",
+    };
     const host = hs.get("host");
     let proto = "https";
     if (hs.get("x-forwarded-proto") === "http") {
@@ -87,7 +90,10 @@ function getHost() {
 
 function getValHeaders(): Record<string, string> {
   try {
-    const cs = cookies(); // TODO: simply get all headers?
+    // const cs = cookies(); // TODO: simply get all headers?
+    const cs = {
+      get: (s: string) => ({ value: s }),
+    };
     const session = cs.get(Internal.VAL_SESSION_COOKIE);
     if (session) {
       return {
@@ -106,7 +112,8 @@ function getValHeaders(): Record<string, string> {
 
 function safeDraftModeEnabled() {
   try {
-    return draftMode().isEnabled;
+    return true;
+    // return draftMode().isEnabled;
   } catch (err) {
     console.error(
       "Val: could read draft mode! fetchVal can only be used server-side. Use useVal on clients.",
