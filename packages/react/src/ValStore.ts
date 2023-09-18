@@ -2,51 +2,109 @@ import { Json, ModuleId } from "@valbuild/core";
 import { ValApi } from "./ValApi";
 import { result } from "@valbuild/core/fp";
 
+type SubscriberId = string & {
+  readonly _tag: unique symbol;
+};
+
+const empty = {};
 export class ValStore {
-  private readonly vals: Map<ModuleId, Json>;
-  private readonly listeners: (() => void)[];
+  private readonly subscribers: Map<SubscriberId, Record<ModuleId, Json>>; // uncertain whether this is the optimal way of returning
+  private readonly listeners: Record<SubscriberId, (() => void)[]>;
 
   constructor(private readonly api: ValApi) {
-    this.vals = new Map();
-    this.listeners = [];
+    this.subscribers = new Map();
+    this.listeners = {};
   }
 
   async updateAll() {
+    console.log("updateAll");
     const data = await this.api.getModules({
       patch: true,
       includeSource: true,
     });
     if (result.isOk(data)) {
+      const updatedSubscriberIds = new Map<SubscriberId, ModuleId[]>();
+      const subscriberIds = Array.from(this.subscribers.keys());
+
+      // Figure out which modules have been updated and map to updated subscribed id
       for (const moduleId of Object.keys(data.value.modules) as ModuleId[]) {
         const source = data.value.modules[moduleId].source;
         if (typeof source !== "undefined") {
-          this.vals.set(moduleId, source);
+          const updatedSubscriberId = subscriberIds.find(
+            (subscriberId) => subscriberId.includes(moduleId) // NOTE: dependent on
+          );
+          if (updatedSubscriberId) {
+            updatedSubscriberIds.set(
+              updatedSubscriberId,
+              (updatedSubscriberIds.get(updatedSubscriberId) || []).concat(
+                moduleId
+              )
+            );
+          }
         }
       }
-      this.emitChange();
+
+      // For all updated subscribers: set new module data and emit change
+      for (const [updatedSubscriberId, moduleIds] of Array.from(
+        updatedSubscriberIds.entries()
+      )) {
+        this.subscribers.set(
+          updatedSubscriberId,
+          Object.fromEntries(
+            moduleIds.flatMap((moduleId) => {
+              const source = data.value.modules[moduleId].source;
+              if (!source) {
+                return [];
+              }
+              return [[moduleId, source]];
+            })
+          )
+        );
+        this.emitChange(updatedSubscriberId);
+      }
     } else {
-      console.error(data.error.message);
+      console.error("Val: failed to update modules", data.error.message);
     }
   }
 
-  subscribe = () => (listener: () => void) => {
-    this.listeners.push(listener);
+  subscribe = (moduleIds: ModuleId[]) => (listener: () => void) => {
+    const subscriberId = createSubscriberId(moduleIds);
+    if (!this.listeners[subscriberId]) {
+      this.listeners[subscriberId] = [];
+    }
+    this.listeners[subscriberId].push(listener);
+
     return () => {
-      this.listeners.splice(this.listeners.indexOf(listener), 1);
+      this.listeners[subscriberId].splice(
+        this.listeners[subscriberId].indexOf(listener),
+        1
+      );
     };
   };
 
-  emitChange() {
-    for (const listener of this.listeners) {
+  private emitChange(subscriberId: SubscriberId) {
+    console.log("emitChange");
+    for (const listener of this.listeners[subscriberId]) {
       listener();
     }
   }
 
-  getSnapshot = () => () => {
-    // return this.vals.get(moduleId);
+  getSnapshot = (moduleIds: ModuleId[]) => () => {
+    console.log("getSnapshot", moduleIds);
+    return this.get(moduleIds);
   };
 
-  getServerSnapshot = () => () => {
-    // return this.vals.get(moduleId);
+  getServerSnapshot = (moduleIds: ModuleId[]) => () => {
+    console.log("getServerSnapshot", moduleIds);
+    return this.get(moduleIds);
   };
+
+  get = (moduleIds: ModuleId[]): Record<ModuleId, Json> => {
+    const subscriberId = createSubscriberId(moduleIds);
+    return this.subscribers.get(subscriberId) || empty;
+  };
+}
+
+function createSubscriberId(moduleIds: ModuleId[]): SubscriberId {
+  return moduleIds.join("&") as SubscriberId;
 }

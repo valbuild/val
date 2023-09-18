@@ -1,5 +1,6 @@
+"use client";
 import blogsVal from "./blogs.val";
-import { fetchVal, useVal } from "@valbuild/next";
+import { useVal } from "@valbuild/next";
 import { ValRichText } from "@valbuild/next";
 
 export default async function Home() {
