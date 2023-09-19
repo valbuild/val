@@ -83,7 +83,7 @@ export class Service {
       return {
         path: sourcePath,
         schema:
-          resolved.schema instanceof Schema<SelectorSource>
+          resolved.schema instanceof Schema
             ? resolved.schema.serialize()
             : resolved.schema,
         source: resolved.source,
