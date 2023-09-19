@@ -1,15 +1,18 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema, SourceObject, initVal } from "..";
 import { ValModuleBrand } from "../module";
-import { GenericSelector, Selector } from "../selector";
+import { GenericSelector, GetSchema, Selector } from "../selector";
 import { SourceArray } from "../source";
-import { SourcePath } from "../val";
+import { SourcePath, getValPath } from "../val";
 import { array } from "./array";
 import { number } from "./number";
 import { object } from "./object";
 import { record } from "./record";
 import { string } from "./string";
-import { ValidationErrors } from "./validation/ValidationError";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
 
 export type SerializedKeyOfSchema = {
   type: "keyOf";
@@ -35,29 +38,101 @@ export class KeyOfSchema<
     super();
   }
   validate(path: SourcePath, src: KeyOfSelector<Sel>): ValidationErrors {
-    throw new Error("Method not implemented.");
+    if (this.opt && (src === null || src === undefined)) {
+      return false;
+    }
+    const schema = this.selector[GetSchema];
+    if (!schema) {
+      return {
+        [path]: [
+          {
+            message: `Schema not found for module. keyOf must be used with a Val Module`,
+          },
+        ],
+      };
+    }
+    const serializedSchema = schema.serialize();
+
+    if (
+      !(
+        serializedSchema.type === "array" ||
+        serializedSchema.type === "object" ||
+        serializedSchema.type === "record"
+      )
+    ) {
+      return {
+        [path]: [
+          {
+            message: `Schema in keyOf must be an 'array', 'object' or 'record'. Found '${serializedSchema.type}'`,
+          },
+        ],
+      };
+    }
+    if (serializedSchema.opt && (src === null || src === undefined)) {
+      return false;
+    }
+    if (serializedSchema.type === "array" && typeof src !== "number") {
+      return {
+        [path]: [
+          {
+            message: "Type of value in keyof (array) must be 'number'",
+          },
+        ],
+      };
+    }
+    if (serializedSchema.type === "record" && typeof src !== "string") {
+      return {
+        [path]: [
+          {
+            message: "Type of value in keyof (record) must be 'string'",
+          },
+        ],
+      };
+    }
+    if (serializedSchema.type === "object") {
+      const keys = Object.keys(serializedSchema.items);
+      if (!keys.includes(src as string)) {
+        return {
+          [path]: [
+            {
+              message: `Value of keyOf (object) must be: ${keys.join(
+                ", "
+              )}. Found: ${src}`,
+            },
+          ],
+        };
+      }
+    }
+    return false;
   }
+
   assert(src: KeyOfSelector<Sel>): boolean {
-    throw new Error("Method not implemented.");
+    if (this.opt && (src === null || src === undefined)) {
+      return false;
+    }
+    const schema = this.selector[GetSchema];
+    if (!schema) {
+      return false;
+    }
+    return error;
   }
+
   optional(): Schema<KeyOfSelector<Sel> | null> {
     return new KeyOfSchema(this.selector, true);
   }
 
   serialize(): SerializedSchema {
-    throw new Error("Method not implemented.");
-
-    // const path = getValPath(this.selector);
-    // if (!path) {
-    //   throw new Error(
-    //     "Cannot serialize oneOf schema with empty selector. Make sure a Val module is used."
-    //   );
-    // }
-    // return {
-    //   type: "oneOf",
-    //   selector: path,
-    //   opt: this.opt,
-    // };
+    const path = getValPath(this.selector);
+    if (!path) {
+      throw new Error(
+        "Cannot serialize oneOf schema with empty selector. keyOf must be used with a Val Module."
+      );
+    }
+    return {
+      type: "keyOf",
+      selector: path,
+      opt: this.opt,
+    };
   }
 }
 
