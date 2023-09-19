@@ -399,10 +399,8 @@ function WindowHeader({
                   }
                   return (
                     <span key={i + "."}>
+                      <span className="px-1 text-xs text-highlight">/</span>
                       <span>{name}</span>
-                      {i < segment.split(".").length - 1 && (
-                        <span className="px-1 text-xs text-highlight">/</span>
-                      )}
                     </span>
                   );
                 })}
