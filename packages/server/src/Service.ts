@@ -79,7 +79,9 @@ export class Service {
         valModule.source,
         valModule.schema
       );
-      const sourcePath = [moduleId, resolved.path].join(".") as SourcePath;
+      const sourcePath = (
+        resolved.path ? [moduleId, resolved.path].join(".") : moduleId
+      ) as SourcePath;
       return {
         path: sourcePath,
         schema:
