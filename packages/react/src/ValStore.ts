@@ -15,6 +15,11 @@ export class ValStore {
     this.listeners = {};
   }
 
+  async update(moduleIds: ModuleId[]) {
+    // TODO: update only the modules that have changed
+    return this.updateAll();
+  }
+
   async updateAll() {
     const data = await this.api.getModules({
       patch: true,

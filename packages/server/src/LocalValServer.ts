@@ -120,7 +120,6 @@ export class LocalValServer implements ValServer {
     });
     const modules = Object.fromEntries(
       serializedModuleContent.map((serializedModuleContent) => {
-        console.log(JSON.stringify(serializedModuleContent, null, 2));
         const module: ApiTreeResponse["modules"][keyof ApiTreeResponse["modules"]] =
           {
             schema: serializedModuleContent.schema,
@@ -133,8 +132,6 @@ export class LocalValServer implements ValServer {
       modules,
       git: this.options.git,
     };
-    console.log(apiTreeResponse);
-
     return walk(rootDir).then(async () => {
       res.send(JSON.stringify(apiTreeResponse));
     });

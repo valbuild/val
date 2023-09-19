@@ -12,7 +12,7 @@ import { Remote } from "../utils/Remote";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
 import { TextForm } from "./forms/TextForm";
-import { SerializedSchema, SourcePath } from "@valbuild/core";
+import { Internal, SerializedSchema, SourcePath } from "@valbuild/core";
 import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/react";
 import { ValStore } from "@valbuild/react/src/ValStore";
@@ -31,33 +31,10 @@ export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
   const [hoverTarget, setHoverTarget] = useHoverTarget(editMode);
   const [windowTarget, setWindowTarget] = useState<WindowTarget | null>(null);
   const [highlight, setHighlight] = useState(false);
-  const [modules, setModules] = useState<Modules>();
-
-  useEffect(() => {
-    //
-    store.updateAll();
-  }, []);
-
-  const resolvedModulePath =
-    windowTarget && modules && resolvePath(windowTarget.path, modules);
-
-  const {
-    error,
-    source: selectedSource,
-    schema: selectedSchema,
-  } = resolvedModulePath && result.isOk(resolvedModulePath)
-    ? {
-        ...resolvedModulePath.value,
-        error: null,
-      }
-    : {
-        error:
-          resolvedModulePath && result.isErr(resolvedModulePath)
-            ? resolvedModulePath.error.message
-            : null,
-        source: undefined,
-        schema: undefined,
-      };
+  const { selectedSchema, selectedSource, error, loading } = useValModules(
+    api,
+    windowTarget?.path
+  );
 
   return (
     <ValOverlayContext.Provider
@@ -98,9 +75,10 @@ export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
               />
             </div>
             <div className="p-4">
+              {loading && <div className="text-primary">Loading...</div>}
               {error && <div className="text-red">{error}</div>}
               {typeof selectedSource === "string" &&
-                selectedSchema.type === "string" && (
+                selectedSchema?.type === "string" && (
                   <TextForm
                     name={windowTarget.path}
                     text={selectedSource as string}
@@ -115,6 +93,89 @@ export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
       </div>
     </ValOverlayContext.Provider>
   );
+}
+
+function useValModules(api: ValApi, path: string | undefined) {
+  const [modules, setModules] = useState<Remote<Modules>>();
+
+  useEffect(() => {
+    if (path) {
+      setModules({ status: "loading" });
+      api
+        .getModules({
+          patch: true,
+          includeSchema: true,
+          includeSource: true,
+        })
+        .then((res) => {
+          if (result.isOk(res)) {
+            console.log(res.value);
+            setModules({ status: "success", data: res.value.modules });
+          } else {
+            console.error({ status: "error", error: res.error });
+          }
+        });
+    }
+  }, [path]);
+  if (!path || modules?.status === "not-asked") {
+    return {
+      error: null,
+      selectedSource: undefined,
+      selectedSchema: undefined,
+      loading: false,
+    };
+  }
+  if (modules?.status === "loading") {
+    return {
+      error: null,
+      selectedSource: undefined,
+      selectedSchema: undefined,
+      loading: true,
+    };
+  }
+  if (modules?.status === "error") {
+    return {
+      error: modules.error,
+      selectedSource: undefined,
+      selectedSchema: undefined,
+      loading: false,
+    };
+  }
+  if (!modules?.data) {
+    return {
+      error: "No modules",
+      selectedSource: undefined,
+      selectedSchema: undefined,
+      loading: false,
+    };
+  }
+
+  const resolvedModulePath = resolvePath(path as SourcePath, modules.data);
+
+  const {
+    error,
+    source: selectedSource,
+    schema: selectedSchema,
+  } = resolvedModulePath && result.isOk(resolvedModulePath)
+    ? {
+        ...resolvedModulePath.value,
+        error: null,
+      }
+    : {
+        error:
+          resolvedModulePath && result.isErr(resolvedModulePath)
+            ? resolvedModulePath.error.message
+            : null,
+        source: undefined,
+        schema: undefined,
+      };
+  console.log(path, "selectedSource", modules?.data);
+  return {
+    error,
+    selectedSource,
+    selectedSchema,
+    loading: false,
+  };
 }
 
 type WindowTarget = {

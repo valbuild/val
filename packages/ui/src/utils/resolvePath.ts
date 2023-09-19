@@ -1,50 +1,33 @@
 import {
+  ApiTreeResponse,
   Internal,
   Json,
-  ModuleId,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 
-export type Modules = Record<
-  ModuleId,
-  {
-    schema: SerializedSchema;
-    patches: {
-      applied: string[];
-      failed?: string[];
-    };
-    source?: Json;
-  }
->;
+export type Modules = ApiTreeResponse["modules"];
 
-export function resolvePath(
-  sourcePath: SourcePath,
-  modules: Record<
-    ModuleId,
-    {
-      schema: SerializedSchema;
-      patches: {
-        applied: string[];
-        failed?: string[];
-      };
-      source?: Json;
-    }
-  >
-) {
+export function resolvePath(sourcePath: SourcePath, modules: Modules) {
   const [moduleId, modulePath] =
     Internal.splitModuleIdAndModulePath(sourcePath);
   const valModule = modules[moduleId];
-  if (valModule?.source) {
-    return result.ok(
-      Internal.resolvePath(modulePath, valModule.source, valModule.schema) as {
-        source: Json;
-        schema: SerializedSchema;
-      }
-    );
+  console.log("resolvePath", sourcePath, moduleId, modulePath, modules);
+  if (!valModule?.source) {
+    return result.err({
+      message: `Module "${moduleId}" has no source`,
+    });
   }
-  return result.err({
-    message: `Module "${moduleId}" has no source`,
-  });
+  if (!valModule?.schema) {
+    return result.err({
+      message: `Module "${moduleId}" has no schema`,
+    });
+  }
+  return result.ok(
+    Internal.resolvePath(modulePath, valModule.source, valModule.schema) as {
+      source: Json;
+      schema: SerializedSchema;
+    }
+  );
 }
