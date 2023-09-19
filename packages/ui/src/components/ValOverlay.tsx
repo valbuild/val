@@ -104,13 +104,14 @@ function TextForm({
   return (
     <form
       className="flex flex-col justify-between h-full px-4"
-      onSubmit={() => {
+      onSubmit={(ev) => {
+        ev.preventDefault();
         setIsPatching(true);
         api
           .postPatches(moduleId, [
             {
               op: "replace",
-              path: modulePath,
+              path: Internal.createPatchJSONPath(modulePath),
               value: text,
             },
           ])
@@ -125,7 +126,12 @@ function TextForm({
         disabled={isPatching}
         onChange={setText}
       />
-      <button className="px-4 py-2 border border-highlight">Submit</button>
+      <button
+        className="px-4 py-2 border border-highlight disabled:border-border"
+        disabled={isPatching}
+      >
+        Submit
+      </button>
     </form>
   );
 }
