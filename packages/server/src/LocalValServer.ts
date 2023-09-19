@@ -39,19 +39,30 @@ export class LocalValServer implements ValServer {
     >,
     res: express.Response<any, Record<string, any>>
   ): Promise<void> {
-    // TODO: use the params: patch, schema, source
-    const treePath = req.params["0"].replace("~", "");
-    const rootDir = path.join(process.cwd(), treePath);
-    const moduleIds: string[] = [];
-    // iterate over all .val files in the root directory
-    const walk = async (dir: string) => {
-      const files = await fs.readdir(dir);
-      for (const file of files) {
-        if ((await fs.stat(path.join(dir, file))).isDirectory()) {
-          if (file === "node_modules") continue;
-          await walk(path.join(dir, file));
-        } else {
-          if (file.endsWith(".val.js") || file.endsWith(".val.ts")) {
+    try {
+      // TODO: use the params: patch, schema, source
+      const treePath = req.params["0"].replace("~", "");
+      const rootDir = process.cwd();
+      const moduleIds: string[] = [];
+      // iterate over all .val files in the root directory
+      const walk = async (dir: string) => {
+        const files = await fs.readdir(dir);
+        for (const file of files) {
+          if ((await fs.stat(path.join(dir, file))).isDirectory()) {
+            if (file === "node_modules") continue;
+            await walk(path.join(dir, file));
+          } else {
+            const isValFile =
+              file.endsWith(".val.js") || file.endsWith(".val.ts");
+            if (!isValFile) {
+              continue;
+            }
+            if (
+              treePath &&
+              !path.join(dir, file).replace(rootDir, "").startsWith(treePath)
+            ) {
+              continue;
+            }
             moduleIds.push(
               path
                 .join(dir, file)
@@ -61,37 +72,40 @@ export class LocalValServer implements ValServer {
             );
           }
         }
-      }
-    };
-    const serializedModuleContent = await walk(rootDir).then(async () => {
-      return Promise.all(
-        moduleIds.map(async (moduleId) => {
-          return await this.options.service.get(
-            moduleId as ModuleId,
-            "" as ModulePath
-          );
+      };
+      const serializedModuleContent = await walk(rootDir).then(async () => {
+        return Promise.all(
+          moduleIds.map(async (moduleId) => {
+            return await this.options.service.get(
+              moduleId as ModuleId,
+              "" as ModulePath
+            );
+          })
+        );
+      });
+
+      //
+      const modules = Object.fromEntries(
+        serializedModuleContent.map((serializedModuleContent) => {
+          const module: ApiTreeResponse["modules"][keyof ApiTreeResponse["modules"]] =
+            {
+              schema: serializedModuleContent.schema,
+              source: serializedModuleContent.source,
+            };
+          return [serializedModuleContent.path, module];
         })
       );
-    });
-
-    //
-    const modules = Object.fromEntries(
-      serializedModuleContent.map((serializedModuleContent) => {
-        const module: ApiTreeResponse["modules"][keyof ApiTreeResponse["modules"]] =
-          {
-            schema: serializedModuleContent.schema,
-            source: serializedModuleContent.source,
-          };
-        return [serializedModuleContent.path, module];
-      })
-    );
-    const apiTreeResponse: ApiTreeResponse = {
-      modules,
-      git: this.options.git,
-    };
-    return walk(rootDir).then(async () => {
-      res.send(JSON.stringify(apiTreeResponse));
-    });
+      const apiTreeResponse: ApiTreeResponse = {
+        modules,
+        git: this.options.git,
+      };
+      return walk(rootDir).then(async () => {
+        res.send(JSON.stringify(apiTreeResponse));
+      });
+    } catch (err) {
+      console.error(err);
+      res.sendStatus(500);
+    }
   }
 
   async enable(req: express.Request, res: express.Response): Promise<void> {
