@@ -38,10 +38,30 @@ export {
 } from "./selector";
 import { getSource, resolvePath, splitModuleIdAndModulePath } from "./module";
 import { getSchema } from "./selector";
-import { getValPath, isVal } from "./val";
+import { ModuleId, getValPath, isVal } from "./val";
 import { convertFileSource } from "./schema/image";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
+import { Json } from "./Json";
+import { SerializedSchema } from "./schema";
+
+export type ApiTreeResponse = {
+  git: {
+    commit: string;
+    branch: string;
+  };
+  modules: Record<
+    ModuleId,
+    {
+      schema: SerializedSchema;
+      patches: {
+        applied: string[];
+        failed?: string[];
+      };
+      source?: Json;
+    }
+  >;
+};
 
 const Internal = {
   convertFileSource,

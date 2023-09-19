@@ -5,6 +5,8 @@ import { createRequestHandler } from "./createRequestHandler";
 import { ValServer } from "./ValServer";
 import { LocalValServer, LocalValServerOptions } from "./LocalValServer";
 import { ProxyValServer, ProxyValServerOptions } from "./ProxyValServer";
+import { promises as fs } from "fs";
+import * as path from "path";
 
 type Opts = ValServerOverrides & ServiceOptions;
 
@@ -181,11 +183,55 @@ async function initHandlerOptions(
         opts.valDisableRedirectUrl || process.env.VAL_DISABLE_REDIRECT_URL,
     };
   } else {
-    const service = await createService(process.cwd(), opts);
+    const cwd = process.cwd();
+    const service = await createService(cwd, opts);
     return {
       mode: "local",
       service,
+      git: {
+        commit: process.env.VAL_GIT_COMMIT,
+        branch: process.env.VAL_GIT_BRANCH || (await safeReadGitBranch(cwd)),
+      },
     };
+  }
+}
+
+async function safeReadGitBranch(cwd: string) {
+  async function findGitHead(
+    currentDir: string,
+    depth: number
+  ): Promise<string | undefined> {
+    const gitHeadPath = path.join(currentDir, ".git", "HEAD");
+    if (depth > 100) {
+      console.error("Reached max depth of 100", cwd, currentDir);
+      return undefined;
+    }
+
+    try {
+      const headContents = await fs.readFile(gitHeadPath, "utf-8");
+      const match = headContents.match(/^ref: refs\/heads\/(.+)/);
+      if (match) {
+        const branchName = match[1];
+        return branchName;
+      } else {
+        return undefined;
+      }
+    } catch (error) {
+      const parentDir = path.dirname(currentDir);
+
+      // We've reached the root directory, return undefined
+      if (parentDir === currentDir) {
+        return undefined;
+      }
+      return findGitHead(parentDir, depth + 1);
+    }
+  }
+
+  try {
+    return findGitHead(cwd, 0);
+  } catch (err) {
+    console.error("Error while reading .git/HEAD", err);
+    return undefined;
   }
 }
 
