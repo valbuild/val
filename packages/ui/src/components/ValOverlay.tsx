@@ -12,7 +12,7 @@ import { Remote } from "../utils/Remote";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
 import { TextForm } from "./forms/TextForm";
-import { Internal, SerializedSchema, SourcePath } from "@valbuild/core";
+import { Internal, SerializedSchema, Source, SourcePath } from "@valbuild/core";
 import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/react";
 import { ValStore } from "@valbuild/react/src/ValStore";
@@ -97,6 +97,8 @@ export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
 
 function useValModules(api: ValApi, path: string | undefined) {
   const [modules, setModules] = useState<Remote<Modules>>();
+  const moduleId =
+    path && Internal.splitModuleIdAndModulePath(path as SourcePath)[0];
 
   useEffect(() => {
     if (path) {
@@ -106,13 +108,14 @@ function useValModules(api: ValApi, path: string | undefined) {
           patch: true,
           includeSchema: true,
           includeSource: true,
+          treePath: moduleId,
         })
         .then((res) => {
           if (result.isOk(res)) {
-            console.log(res.value);
             setModules({ status: "success", data: res.value.modules });
           } else {
             console.error({ status: "error", error: res.error });
+            setModules({ status: "error", error: res.error.message });
           }
         });
     }
@@ -169,7 +172,6 @@ function useValModules(api: ValApi, path: string | undefined) {
         source: undefined,
         schema: undefined,
       };
-  console.log(path, "selectedSource", modules?.data);
   return {
     error,
     selectedSource,
