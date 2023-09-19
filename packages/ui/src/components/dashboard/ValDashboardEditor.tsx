@@ -15,7 +15,7 @@ import { FC, useEffect, useState } from "react";
 import { Inputs, RichTextEditor } from "../../exports";
 import Button from "../Button";
 import { ImageForm } from "../forms/ImageForm";
-import { TextForm } from "../forms/TextForm";
+import { TextArea } from "../forms/TextArea";
 
 interface ValDashboardEditorProps {
   selectedPath: string;
@@ -233,7 +233,7 @@ export const ValDashboardEditor: FC<ValDashboardEditorProps> = ({
                     />
                   )}
                   {input.status === "completed" && input.type === "text" && (
-                    <TextForm
+                    <TextArea
                       name={path}
                       text={input.data}
                       onChange={(data) => {

@@ -63,6 +63,8 @@ export type ApiTreeResponse = {
   >;
 };
 
+export type ApiPatchResponse = string[];
+
 const Internal = {
   convertFileSource,
   getSchema,

@@ -3,7 +3,7 @@ import { RichText as RichTextType, SourcePath } from "@valbuild/core";
 import { RichTextEditor } from "../exports";
 import { FormContainer } from "./forms/FormContainer";
 import { ImageForm } from "./forms/ImageForm";
-import { TextForm } from "./forms/TextForm";
+import { TextArea } from "./forms/TextArea";
 
 import { ValWindow } from "./ValWindow";
 
@@ -31,7 +31,7 @@ export const ShortText: Story = {
           /* */
         }}
       >
-        <TextForm
+        <TextArea
           name="/apps/blogs.0.title"
           text="Hva skjer'a, Bagera?"
           onChange={() => {
@@ -51,7 +51,7 @@ export const LongText: Story = {
           /* */
         }}
       >
-        <TextForm
+        <TextArea
           name="/apps/blogs.0.title"
           text={EXAMPLE_TEXT}
           onChange={() => {
