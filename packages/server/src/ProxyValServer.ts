@@ -29,12 +29,6 @@ export type ProxyValServerOptions = {
 export class ProxyValServer implements ValServer {
   constructor(readonly options: ProxyValServerOptions) {}
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  getAllModules(_req: express.Request, _res: express.Response): Promise<void> {
-    // TODO:
-    throw new Error("Method not implemented.");
-  }
-
   async authorize(req: express.Request, res: express.Response): Promise<void> {
     const { redirect_to } = req.query;
     if (typeof redirect_to !== "string") {
@@ -168,29 +162,6 @@ export class ProxyValServer implements ValServer {
     });
   }
 
-  async getIds(
-    req: express.Request<{ 0: string }>,
-    res: express.Response
-  ): Promise<void> {
-    return this.withAuth(req, res, async ({ token }) => {
-      const id = getPathFromParams(req.params);
-      const url = new URL(
-        `/api/val/modules/${encodeURIComponent(this.options.gitCommit)}${id}`,
-        this.options.valBuildUrl
-      );
-      const fetchRes = await fetch(url, {
-        headers: this.getAuthHeaders(token),
-      });
-      if (fetchRes.ok) {
-        res.status(fetchRes.status).json(await fetchRes.json());
-      } else {
-        res.sendStatus(fetchRes.status);
-      }
-    }).catch((e) => {
-      res.status(500).send({ error: { message: e?.message, status: 500 } });
-    });
-  }
-
   async patchIds(
     req: express.Request<{ 0: string }>,
     res: express.Response
@@ -275,7 +246,7 @@ export class ProxyValServer implements ValServer {
       `/api/val/${this.options.valName}/auth/token`,
       this.options.valBuildUrl
     );
-    url.params.set("code", encodeURIComponent(code));
+    url.searchParams.set("code", encodeURIComponent(code));
     return fetch(url, {
       method: "POST",
       headers: this.getAuthHeaders(this.options.apiKey, "application/json"), // NOTE: we use apiKey as auth on this endpoint (we do not have a token yet)

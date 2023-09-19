@@ -5,12 +5,7 @@ import { parsePatch, PatchError } from "@valbuild/core/patch";
 import { getPathFromParams } from "./expressHelpers";
 import { PatchJSON } from "./patch/validation";
 import { ValServer } from "./ValServer";
-import {
-  ApiTreeResponse,
-  Internal,
-  ModuleId,
-  ModulePath,
-} from "@valbuild/core";
+import { ApiTreeResponse, ModuleId, ModulePath } from "@valbuild/core";
 import { disable, enable } from "./ProxyValServer";
 import { promises as fs } from "fs";
 import path from "path";
@@ -28,47 +23,6 @@ export type LocalValServerOptions = {
 export class LocalValServer implements ValServer {
   constructor(readonly options: LocalValServerOptions) {}
 
-  // TODO: remove
-  getAllModules(req: express.Request, res: express.Response): Promise<void> {
-    const rootDir = process.cwd();
-    const moduleIds: string[] = [];
-    // iterate over all .val files in the root directory
-    const walk = async (dir: string) => {
-      const files = await fs.readdir(dir);
-      for (const file of files) {
-        if ((await fs.stat(path.join(dir, file))).isDirectory()) {
-          if (file === "node_modules") continue;
-          await walk(path.join(dir, file));
-        } else {
-          if (file.endsWith(".val.js") || file.endsWith(".val.ts")) {
-            moduleIds.push(
-              path
-                .join(dir, file)
-                .replace(rootDir, "")
-                .replace(".val.js", "")
-                .replace(".val.ts", "")
-            );
-          }
-        }
-      }
-    };
-
-    return walk(rootDir).then(async () => {
-      res.send(
-        JSON.stringify(
-          await Promise.all(
-            moduleIds.map(async (moduleId) => {
-              return await this.options.service.get(
-                moduleId as ModuleId,
-                "" as ModulePath
-              );
-            })
-          )
-        )
-      );
-    });
-  }
-
   async session(_req: express.Request, res: express.Response): Promise<void> {
     res.json({
       mode: "local",
@@ -85,7 +39,9 @@ export class LocalValServer implements ValServer {
     >,
     res: express.Response<any, Record<string, any>>
   ): Promise<void> {
-    const rootDir = process.cwd();
+    // TODO: use the params: patch, schema, source
+    const treePath = req.params["0"].replace("~", "");
+    const rootDir = path.join(process.cwd(), treePath);
     const moduleIds: string[] = [];
     // iterate over all .val files in the root directory
     const walk = async (dir: string) => {
@@ -107,7 +63,6 @@ export class LocalValServer implements ValServer {
         }
       }
     };
-
     const serializedModuleContent = await walk(rootDir).then(async () => {
       return Promise.all(
         moduleIds.map(async (moduleId) => {
@@ -118,6 +73,8 @@ export class LocalValServer implements ValServer {
         })
       );
     });
+
+    //
     const modules = Object.fromEntries(
       serializedModuleContent.map((serializedModuleContent) => {
         const module: ApiTreeResponse["modules"][keyof ApiTreeResponse["modules"]] =
@@ -143,24 +100,6 @@ export class LocalValServer implements ValServer {
 
   async disable(req: express.Request, res: express.Response): Promise<void> {
     return disable(req, res);
-  }
-
-  async getIds(
-    req: express.Request<{ 0: string }>,
-    res: express.Response
-  ): Promise<void> {
-    try {
-      console.log(req.params);
-      const path = getPathFromParams(req.params);
-      const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
-
-      const valModule = await this.options.service.get(moduleId, modulePath);
-
-      res.json(valModule);
-    } catch (err) {
-      console.error(err);
-      res.sendStatus(500);
-    }
   }
 
   async patchIds(

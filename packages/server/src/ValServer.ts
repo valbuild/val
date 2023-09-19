@@ -9,16 +9,6 @@ export interface ValServer {
 
   session(req: express.Request, res: express.Response): Promise<void>;
 
-  getIds(
-    req: express.Request<{ 0: string }>,
-    res: express.Response
-  ): Promise<void>;
-
-  getAllModules(
-    req: express.Request<{ 0: string }>,
-    res: express.Response
-  ): Promise<void>;
-
   patchIds(
     req: express.Request<{ 0: string }>,
     res: express.Response
