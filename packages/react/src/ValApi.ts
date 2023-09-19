@@ -1,4 +1,4 @@
-import { Json, ModuleId, SerializedSchema } from "@valbuild/core";
+import { ApiTreeResponse } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 
 type FetchError = { message: string; statusCode?: number };
@@ -38,25 +38,7 @@ export class ValApi {
     params.set("source", includeSource.toString());
     return fetch(`${this.host}/tree/~${treePath}?${params.toString()}`, {
       headers,
-    }).then(
-      parse<{
-        git: {
-          commit: string;
-          branch: string;
-        };
-        modules: Record<
-          ModuleId,
-          {
-            schema: SerializedSchema;
-            patches: {
-              applied: string[];
-              failed?: string[];
-            };
-            source?: Json;
-          }
-        >;
-      }>
-    );
+    }).then(parse<ApiTreeResponse>);
   }
 }
 
