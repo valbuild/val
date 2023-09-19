@@ -5,7 +5,12 @@ import { parsePatch, PatchError } from "@valbuild/core/patch";
 import { getPathFromParams } from "./expressHelpers";
 import { PatchJSON } from "./patch/validation";
 import { ValServer } from "./ValServer";
-import { Internal, ModuleId, ModulePath } from "@valbuild/core";
+import {
+  ApiTreeResponse,
+  Internal,
+  ModuleId,
+  ModulePath,
+} from "@valbuild/core";
 import { disable, enable } from "./ProxyValServer";
 import { promises as fs } from "fs";
 import path from "path";
@@ -14,6 +19,10 @@ import { ParsedQs } from "qs";
 
 export type LocalValServerOptions = {
   service: Service;
+  git: {
+    commit?: string;
+    branch?: string;
+  };
 };
 
 export class LocalValServer implements ValServer {
@@ -75,8 +84,58 @@ export class LocalValServer implements ValServer {
     >,
     res: express.Response<any, Record<string, any>>
   ): Promise<void> {
-    console.error("TODO", req.url);
-    res.sendStatus(500);
+    const rootDir = process.cwd();
+    const moduleIds: string[] = [];
+    // iterate over all .val files in the root directory
+    const walk = async (dir: string) => {
+      const files = await fs.readdir(dir);
+      for (const file of files) {
+        if ((await fs.stat(path.join(dir, file))).isDirectory()) {
+          if (file === "node_modules") continue;
+          await walk(path.join(dir, file));
+        } else {
+          if (file.endsWith(".val.js") || file.endsWith(".val.ts")) {
+            moduleIds.push(
+              path
+                .join(dir, file)
+                .replace(rootDir, "")
+                .replace(".val.js", "")
+                .replace(".val.ts", "")
+            );
+          }
+        }
+      }
+    };
+
+    const serializedModuleContent = await walk(rootDir).then(async () => {
+      return Promise.all(
+        moduleIds.map(async (moduleId) => {
+          return await this.options.service.get(
+            moduleId as ModuleId,
+            "" as ModulePath
+          );
+        })
+      );
+    });
+    const modules = Object.fromEntries(
+      serializedModuleContent.map((serializedModuleContent) => {
+        //
+        return [
+          serializedModuleContent.path,
+          {
+            git: this.options,
+          } satisfies ApiTreeResponse,
+        ];
+      })
+    );
+
+    return walk(rootDir).then(async () => {
+      res.send(
+        JSON.stringify({
+          modules,
+        })
+      );
+    });
   }
 
   async enable(req: express.Request, res: express.Response): Promise<void> {
