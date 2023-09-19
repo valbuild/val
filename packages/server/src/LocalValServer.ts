@@ -27,8 +27,9 @@ export type LocalValServerOptions = {
 
 export class LocalValServer implements ValServer {
   constructor(readonly options: LocalValServerOptions) {}
+
+  // TODO: remove
   getAllModules(req: express.Request, res: express.Response): Promise<void> {
-    // TODO: this barely works,
     const rootDir = process.cwd();
     const moduleIds: string[] = [];
     // iterate over all .val files in the root directory
@@ -119,22 +120,23 @@ export class LocalValServer implements ValServer {
     });
     const modules = Object.fromEntries(
       serializedModuleContent.map((serializedModuleContent) => {
-        //
-        return [
-          serializedModuleContent.path,
+        console.log(JSON.stringify(serializedModuleContent, null, 2));
+        const module: ApiTreeResponse["modules"][keyof ApiTreeResponse["modules"]] =
           {
-            git: this.options,
-          } satisfies ApiTreeResponse,
-        ];
+            schema: serializedModuleContent.schema,
+            source: serializedModuleContent.source,
+          };
+        return [serializedModuleContent.path, module];
       })
     );
+    const apiTreeResponse: ApiTreeResponse = {
+      modules,
+      git: this.options.git,
+    };
+    console.log(apiTreeResponse);
 
     return walk(rootDir).then(async () => {
-      res.send(
-        JSON.stringify({
-          modules,
-        })
-      );
+      res.send(JSON.stringify(apiTreeResponse));
     });
   }
 

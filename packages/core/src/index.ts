@@ -47,14 +47,14 @@ import { SerializedSchema } from "./schema";
 
 export type ApiTreeResponse = {
   git: {
-    commit: string;
-    branch: string;
+    commit?: string;
+    branch?: string;
   };
   modules: Record<
     ModuleId,
     {
-      schema: SerializedSchema;
-      patches: {
+      schema?: SerializedSchema;
+      patches?: {
         applied: string[];
         failed?: string[];
       };
