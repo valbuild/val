@@ -16,10 +16,10 @@ import { Internal } from "@valbuild/core";
 globalThis.valModule = { 
   id: valModule?.default && Internal.getValPath(valModule?.default),
   schema: valModule?.default && Internal.getSchema(valModule?.default)?.serialize(),
-  source: valModule?.default && Internal.getRawSource(valModule?.default),
+  source: valModule?.default && Internal.getSource(valModule?.default),
   validation: valModule?.default && Internal.getSchema(valModule?.default)?.validate(
     valModule?.default && Internal.getValPath(valModule?.default) || "/",
-    valModule?.default && Internal.getRawSource(valModule?.default)
+    valModule?.default && Internal.getSource(valModule?.default)
   )
 };
 `;
