@@ -16,7 +16,6 @@ import {
   Internal,
   SourcePath,
   Schema,
-  SelectorSource,
 } from "@valbuild/core";
 
 export type ServiceOptions = {
