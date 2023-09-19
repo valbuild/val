@@ -116,12 +116,15 @@ export class LocalValServer implements ValServer {
     return disable(req, res);
   }
 
-  async patchIds(
+  async postPatches(
     req: express.Request<{ 0: string }>,
     res: express.Response
   ): Promise<void> {
+    const id = getPathFromParams(req.params)?.replace("/~", "");
+
     // First validate that the body has the right structure
     const patchJSON = PatchJSON.safeParse(req.body);
+    console.log("patch id", id, patchJSON);
     if (!patchJSON.success) {
       res.status(401).json(patchJSON.error.issues);
       return;
@@ -132,18 +135,17 @@ export class LocalValServer implements ValServer {
       res.status(401).json(patch.error);
       return;
     }
-    const id = getPathFromParams(req.params);
     try {
-      const valModule = await this.options.service.patch(id, patch.value);
-      res.json(valModule);
+      await this.options.service.patch(id, patch.value);
+      res.json({});
     } catch (err) {
       if (err instanceof PatchError) {
-        res.status(401).send(err.message);
+        res.status(400).send({ message: err.message });
       } else {
         console.error(err);
-        res
-          .status(500)
-          .send(err instanceof Error ? err.message : "Unknown error");
+        res.status(500).send({
+          message: err instanceof Error ? err.message : "Unknown error",
+        });
       }
     }
   }

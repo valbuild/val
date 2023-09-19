@@ -9,7 +9,7 @@ export interface ValServer {
 
   session(req: express.Request, res: express.Response): Promise<void>;
 
-  patchIds(
+  postPatches(
     req: express.Request<{ 0: string }>,
     res: express.Response
   ): Promise<void>;

@@ -14,11 +14,18 @@ export class ValApi {
   postPatches(
     moduleId: ModuleId,
     patches: PatchJSON,
+    commit?: string,
     headers?: Record<string, string> | undefined
   ) {
-    return fetch(`${this.host}/patches/~${moduleId}`, {
+    let params: string = "";
+    if (commit) {
+      const p = new URLSearchParams();
+      p.set("commit", commit);
+      params = `?${p.toString()}`;
+    }
+    return fetch(`${this.host}/patches/~${moduleId}${params}`, {
       headers: headers || {
-        "Content-Type": "application/json-patch+json",
+        "Content-Type": "application/json",
       },
       method: "POST",
       body: JSON.stringify(patches),

@@ -10,13 +10,13 @@ export function createRequestHandler(valServer: ValServer): RequestHandler {
   router.get("/authorize", valServer.authorize.bind(valServer));
   router.get("/callback", valServer.callback.bind(valServer));
   router.get("/logout", valServer.logout.bind(valServer));
-  router.patch<{ 0: string }>(
-    "/ids/*",
+  router.post<{ 0: string }>(
+    "/patches/*",
     express.json({
-      type: "application/json-patch+json",
+      type: "application/json",
       limit: "10mb",
     }),
-    valServer.patchIds.bind(valServer)
+    valServer.postPatches.bind(valServer)
   );
   router.post("/commit", valServer.commit.bind(valServer));
   router.get("/enable", valServer.enable.bind(valServer));

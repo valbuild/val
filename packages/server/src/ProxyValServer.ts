@@ -162,10 +162,18 @@ export class ProxyValServer implements ValServer {
     });
   }
 
-  async patchIds(
+  async postPatches(
     req: express.Request<{ 0: string }>,
     res: express.Response
   ): Promise<void> {
+    const { commit } = req.query;
+    if (typeof commit !== "string" || typeof commit === "undefined") {
+      res.status(401).json({ error: "Missing or invalid commit query param" });
+      return;
+    }
+    const params = new URLSearchParams({
+      commit,
+    });
     this.withAuth(req, res, async ({ token }) => {
       // First validate that the body has the right structure
       const patchJSON = PatchJSON.safeParse(req.body);
@@ -179,15 +187,14 @@ export class ProxyValServer implements ValServer {
         res.status(401).json(patch.error);
         return;
       }
-      const id = getPathFromParams(req.params);
       const url = new URL(
-        `/api/val/modules/${encodeURIComponent(this.options.gitCommit)}${id}`,
-        this.options.valBuildUrl
+        `/v1/tree/${this.options.valName}/heads/${this.options.gitBranch}/${req.params["0"]}/?${params}`,
+        this.options.valContentUrl
       );
       // Proxy patch to val.build
       const fetchRes = await fetch(url, {
-        method: "PATCH",
-        headers: this.getAuthHeaders(token, "application/json-patch+json"),
+        method: "POST",
+        headers: this.getAuthHeaders(token, "application/json"),
         body: JSON.stringify(patch),
       });
       if (fetchRes.ok) {

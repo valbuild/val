@@ -38,7 +38,7 @@ export {
 } from "./selector";
 import { getSource, resolvePath, splitModuleIdAndModulePath } from "./module";
 import { getSchema } from "./selector";
-import { ModuleId, getValPath, isVal } from "./val";
+import { ModuleId, ModulePath, getValPath, isVal } from "./val";
 import { convertFileSource } from "./schema/image";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
@@ -63,7 +63,7 @@ export type ApiTreeResponse = {
   >;
 };
 
-export type ApiPatchResponse = string[];
+export type ApiPatchResponse = Record<ModuleId, string[]>;
 
 const Internal = {
   convertFileSource,
@@ -75,6 +75,11 @@ const Internal = {
   splitModuleIdAndModulePath,
   isVal,
   createValPathOfItem,
+  createPatchJSONPath: (modulePath: ModulePath) =>
+    `/${modulePath
+      .split(".")
+      .map((segment) => JSON.parse(segment))
+      .join("/")}`,
   /**
    * Enables draft mode: updates all Val modules with patches
    */
