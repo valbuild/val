@@ -1,5 +1,6 @@
-import { ApiTreeResponse } from "@valbuild/core";
+import { ApiPatchResponse, ApiTreeResponse, ModuleId } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
+import { PatchJSON } from "@valbuild/core/src/patch/patch";
 
 type FetchError = { message: string; statusCode?: number };
 
@@ -8,6 +9,20 @@ export class ValApi {
 
   getDisableUrl() {
     return `${this.host}/disable`;
+  }
+
+  postPatches(
+    moduleId: ModuleId,
+    patches: PatchJSON,
+    headers?: Record<string, string> | undefined
+  ) {
+    return fetch(`${this.host}/patches/~${moduleId}`, {
+      headers: headers || {
+        "Content-Type": "application/json-patch+json",
+      },
+      method: "POST",
+      body: JSON.stringify(patches),
+    }).then(parse<ApiPatchResponse>);
   }
 
   getSession() {

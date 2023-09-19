@@ -11,10 +11,10 @@ import { EditMode, Theme, ValOverlayContext } from "./ValOverlayContext";
 import { Remote } from "../utils/Remote";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
-import { TextForm } from "./forms/TextForm";
+import { TextArea } from "./forms/TextArea";
 import { Internal, SerializedSchema, Source, SourcePath } from "@valbuild/core";
 import { Modules, resolvePath } from "../utils/resolvePath";
-import { ValApi } from "@valbuild/react";
+import { ValApi, useValApi } from "@valbuild/react";
 import { ValStore } from "@valbuild/react/src/ValStore";
 
 export type ValOverlayProps = {
@@ -74,24 +74,59 @@ export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
                 type={selectedSchema?.type}
               />
             </div>
-            <div className="p-4">
-              {loading && <div className="text-primary">Loading...</div>}
-              {error && <div className="text-red">{error}</div>}
-              {typeof selectedSource === "string" &&
-                selectedSchema?.type === "string" && (
-                  <TextForm
-                    name={windowTarget.path}
-                    text={selectedSource as string}
-                    onChange={(text) => {
-                      console.log(text);
-                    }}
-                  />
-                )}
-            </div>
+            {loading && <div className="text-primary">Loading...</div>}
+            {error && <div className="text-red">{error}</div>}
+            {typeof selectedSource === "string" &&
+              selectedSchema?.type === "string" && (
+                <TextForm
+                  path={windowTarget.path}
+                  defaultValue={selectedSource}
+                />
+              )}
           </ValWindow>
         )}
       </div>
     </ValOverlayContext.Provider>
+  );
+}
+
+function TextForm({
+  path,
+  defaultValue,
+}: {
+  path: SourcePath;
+  defaultValue?: string;
+}) {
+  const api = useValApi();
+  const [text, setText] = useState(defaultValue || "");
+  const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
+  const [isPatching, setIsPatching] = useState(false);
+  return (
+    <form
+      className="flex flex-col justify-between h-full px-4"
+      onSubmit={() => {
+        setIsPatching(true);
+        api
+          .postPatches(moduleId, [
+            {
+              op: "replace",
+              path: modulePath,
+              value: text,
+            },
+          ])
+          .finally(() => {
+            setIsPatching(false);
+          });
+      }}
+    >
+      <TextArea
+        name={path}
+        text={text}
+        disabled={isPatching}
+        onChange={setText}
+      />
+      <button className="px-4 py-2 border border-highlight">Submit</button>
+    </form>
   );
 }
 

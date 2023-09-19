@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { RichTextEditor } from "../RichTextEditor/RichTextEditor";
 import { FormContainer } from "./FormContainer";
 import { ImageForm, ImageData } from "./ImageForm";
-import { TextData, TextForm } from "./TextForm";
+import { TextData, TextArea } from "./TextArea";
 
 export type Inputs = {
   [path: string]:
@@ -89,7 +89,7 @@ export function Form({ onSubmit, inputs }: FormProps): React.ReactElement {
               />
             )}
             {input.status === "completed" && input.type === "text" && (
-              <TextForm
+              <TextArea
                 name={path}
                 text={input.data}
                 onChange={(data) => {
