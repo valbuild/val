@@ -100,9 +100,9 @@ export const ValDashboardGrid: FC<ValDashboardGridProps> = ({
   const [modules, setModules] = useState<SerializedModule[]>([]);
   const [selectedPath, setSelectedPath] = useState<string>("");
   useEffect(() => {
-    valApi.getAllModules().then((modules) => {
-      setModules(modules);
-    });
+    // valApi.getTree({}).then((modules) => {
+    //   setModules(modules);
+    // });
   }, [editMode]);
 
   const handleResize = (index: number) => (width: number) => {
