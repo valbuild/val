@@ -18,7 +18,6 @@ import {
 } from "./validation/ValidationError";
 import { richtext } from "./richtext";
 import { record } from "./record";
-import { Schema } from ".";
 import { keyOf } from "./keyOf";
 import { content } from "../module";
 
