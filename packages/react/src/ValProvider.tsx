@@ -1,4 +1,3 @@
-"use client";
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { lazy, useContext, useMemo } from "react";
 import { ValApi } from "./ValApi";
