@@ -37,7 +37,7 @@ describe("stega transform", () => {
         b: false,
       },
     ]);
-    const transformed = transform(valModule);
+    const transformed = transform(valModule, {});
 
     expect(transformed).toHaveLength(2);
 

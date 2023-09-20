@@ -1,4 +1,3 @@
-import { describe, test, expect } from "@jest/globals";
 import { JSONOps } from "./json";
 import * as result from "../fp/result";
 import { PatchError, JSONValue } from "./ops";

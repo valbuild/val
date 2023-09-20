@@ -1,4 +1,3 @@
-import { describe, test, expect } from "@jest/globals";
 import ts from "typescript";
 import { TSOps } from "./ops";
 import { result, array, pipe } from "@valbuild/core/fp";

@@ -127,7 +127,7 @@ const ValTreeNavigatorArrayModule: FC<{
           .join("/")}`,
       },
     ];
-    await valApi.patchModuleContent(moduleId, patch);
+    // await valApi.patchModuleContent(moduleId, patch);
     if (selectedModule === path) {
       setSelectedModule(`${newModuleId}.${newModulePath}`);
     }
