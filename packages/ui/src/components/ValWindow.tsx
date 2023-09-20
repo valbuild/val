@@ -35,7 +35,7 @@ export function ValWindow({
   return (
     <div
       className={classNames(
-        "absolute h-[100svh] w-full tablet:w-auto tablet:h-auto tablet:min-h-fit tablet:rounded bg-base drop-shadow-2xl min-w-[320px] transition-opacity duration-300 delay-75 max-w-full",
+        "absolute inset-0 h-[100svh] w-full tablet:w-auto tablet:h-auto tablet:min-h-fit tablet:rounded bg-base text-primary drop-shadow-2xl min-w-[320px] transition-opacity duration-300 delay-75 max-w-full",
         {
           "opacity-0": !isInitialized,
           "opacity-100": isInitialized,
@@ -51,7 +51,7 @@ export function ValWindow({
     >
       <div
         ref={dragRef}
-        className="relative flex justify-center px-2 pt-2 text-primary pb-[16px]"
+        className="relative flex justify-center px-2 pt-2 text-primary"
       >
         <AlignJustify
           size={16}
@@ -69,7 +69,7 @@ export function ValWindow({
           <X size={16} />
         </button>
       </div>
-      {children}
+      <div style={{ height: (size?.height || 320) - 64 }}>{children}</div>
       <div
         className="absolute bottom-0 right-0 hidden ml-auto select-none tablet:block text-border cursor-nwse-resize"
         style={{
@@ -138,6 +138,13 @@ function useDrag({
       setPosition({
         left: left < 0 ? 0 : left,
         top: top < 0 ? 0 : top,
+      });
+    } else {
+      const left = window.innerWidth / 2 - 320 / 2 - window.scrollX;
+      const top = window.innerHeight / 2 - 320 / 2 + window.scrollY;
+      setPosition({
+        left,
+        top,
       });
     }
   }, [initPosition]);

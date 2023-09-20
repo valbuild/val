@@ -4,16 +4,15 @@ import {
   GenericSelector,
   SelectorOf,
   SelectorSource,
-  SourceOrExpr,
+  GetSource,
+  GetSchema,
+  Path,
 } from "./selector";
-import { Source, SourceArray } from "./source";
-import { newSelectorProxy } from "./selector/SelectorProxy";
+import { Source } from "./source";
 import { ModuleId, ModulePath, SourcePath } from "./val";
 import { Expr } from "./expr";
 import { ArraySchema, SerializedArraySchema } from "./schema/array";
-import { I18nSchema, SerializedI18nSchema } from "./schema/i18n";
 import { UnionSchema, SerializedUnionSchema } from "./schema/union";
-import { OneOfSchema, SerializedOneOfSchema } from "./schema/oneOf";
 import { Json } from "./Json";
 import { RichTextSchema, SerializedRichTextSchema } from "./schema/richtext";
 import {
@@ -43,11 +42,15 @@ export function content<T extends Schema<SelectorSource>>(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   source: SchemaTypeOf<T>
 ): ValModule<SchemaTypeOf<T>> {
-  return newSelectorProxy(source, id as SourcePath, schema);
+  return {
+    [GetSource]: source,
+    [GetSchema]: schema,
+    [Path]: id as SourcePath,
+  } as unknown as ValModule<SchemaTypeOf<T>>;
 }
 
-export function getRawSource(valModule: ValModule<SelectorSource>): Source {
-  const sourceOrExpr = valModule[SourceOrExpr];
+export function getSource(valModule: ValModule<SelectorSource>): Source {
+  const sourceOrExpr = valModule[GetSource];
   if (sourceOrExpr instanceof Expr) {
     throw Error("Cannot get raw source of an Expr");
   }
@@ -100,14 +103,14 @@ function isArraySchema(
   );
 }
 
-function isI18nSchema(
-  schema: Schema<SelectorSource> | SerializedSchema
-): schema is I18nSchema<readonly string[]> | SerializedI18nSchema {
-  return (
-    schema instanceof I18nSchema ||
-    (typeof schema === "object" && "type" in schema && schema.type === "i18n")
-  );
-}
+// function isI18nSchema(
+//   schema: Schema<SelectorSource> | SerializedSchema
+// ): schema is I18nSchema<readonly string[]> | SerializedI18nSchema {
+//   return (
+//     schema instanceof I18nSchema ||
+//     (typeof schema === "object" && "type" in schema && schema.type === "i18n")
+//   );
+// }
 
 function isUnionSchema(
   schema: Schema<SelectorSource> | SerializedSchema
@@ -144,15 +147,14 @@ function isImageSchema(
   );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function isOneOfSchema(
-  schema: Schema<SelectorSource> | SerializedSchema
-): schema is OneOfSchema<GenericSelector<SourceArray>> | SerializedOneOfSchema {
-  return (
-    schema instanceof OneOfSchema ||
-    (typeof schema === "object" && "type" in schema && schema.type === "oneOf")
-  );
-}
+// function isOneOfSchema(
+//   schema: Schema<SelectorSource> | SerializedSchema
+// ): schema is OneOfSchema<GenericSelector<SourceArray>> | SerializedOneOfSchema {
+//   return (
+//     schema instanceof OneOfSchema ||
+//     (typeof schema === "object" && "type" in schema && schema.type === "oneOf")
+//   );
+// }
 
 export function resolvePath(
   path: ModulePath,
@@ -204,23 +206,23 @@ export function resolvePath(
       }
       resolvedSource = resolvedSource[part];
       resolvedSchema = resolvedSchema.items[part];
-    } else if (isI18nSchema(resolvedSchema)) {
-      if (!resolvedSchema.locales.includes(part)) {
-        throw Error(
-          `Invalid path: i18n schema ${resolvedSchema} supports locales ${resolvedSchema.locales.join(
-            ", "
-          )}, but found: ${part}`
-        );
-      }
-      if (!Object.keys(resolvedSource).includes(part)) {
-        throw Error(
-          `Schema type error: expected source to be type of i18n with locale ${part}, but got ${JSON.stringify(
-            Object.keys(resolvedSource)
-          )}`
-        );
-      }
-      resolvedSource = resolvedSource[part];
-      resolvedSchema = resolvedSchema.item;
+      // } else if (isI18nSchema(resolvedSchema)) {
+      //   if (!resolvedSchema.locales.includes(part)) {
+      //     throw Error(
+      //       `Invalid path: i18n schema ${resolvedSchema} supports locales ${resolvedSchema.locales.join(
+      //         ", "
+      //       )}, but found: ${part}`
+      //     );
+      //   }
+      //   if (!Object.keys(resolvedSource).includes(part)) {
+      //     throw Error(
+      //       `Schema type error: expected source to be type of i18n with locale ${part}, but got ${JSON.stringify(
+      //         Object.keys(resolvedSource)
+      //       )}`
+      //     );
+      //   }
+      //   resolvedSource = resolvedSource[part];
+      //   resolvedSchema = resolvedSchema.item;
     } else if (isImageSchema(resolvedSchema)) {
       return {
         path: origParts

@@ -1,6 +1,10 @@
 import path from "path";
 import meow from "meow";
-import { createRequestHandler, createService } from "@valbuild/server";
+import {
+  createRequestHandler,
+  createService,
+  safeReadGit,
+} from "@valbuild/server";
 import { error, info } from "./logger";
 import express from "express";
 import cors from "cors";
@@ -24,6 +28,7 @@ async function serve({
   const valReqHandler = createRequestHandler(
     new LocalValServer({
       service,
+      git: await safeReadGit(projectRoot),
     })
   );
   const app = express();

@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Path, GenericSelector, SourceOrExpr, GetSchema } from ".";
+import { Path, GenericSelector, GetSource, GetSchema } from "./index";
 import { Expr } from "../expr/expr";
 import { Schema } from "../schema";
-import { convertImageSource } from "../schema/image";
+import { convertFileSource } from "../schema/image";
 import { Source, SourcePrimitive, VAL_EXTENSION } from "../source";
 import { FILE_REF_PROP } from "../source/file";
 import { isSerializedVal, SourcePath } from "../val";
@@ -22,7 +22,7 @@ export function isSelector(source: any): source is GenericSelector<Source> {
   return (
     typeof source === "object" &&
     source !== null &&
-    (SourceOrExpr in source || Path in source)
+    (GetSource in source || Path in source)
   );
 }
 
@@ -44,7 +44,7 @@ export function newSelectorProxy(
     if (typeof fileRef !== "string") {
       throw Error("Invalid file ref: " + fileRef);
     }
-    return newSelectorProxy(convertImageSource(source), path, moduleSchema);
+    return newSelectorProxy(convertFileSource(source), path, moduleSchema);
   }
 
   switch (typeof source) {
@@ -57,7 +57,7 @@ export function newSelectorProxy(
         return new Proxy(source, {
           // TODO: see proxy docs if we want more traps
           has(target, prop: string | symbol) {
-            if (prop === SourceOrExpr) {
+            if (prop === GetSource) {
               return true;
             }
             if (prop === Path) {
@@ -72,7 +72,7 @@ export function newSelectorProxy(
             return prop in target;
           },
           get(target, prop: string | symbol) {
-            if (prop === SourceOrExpr) {
+            if (prop === GetSource) {
               return source;
             }
             if (prop === Path) {
@@ -154,7 +154,7 @@ export function newSelectorProxy(
         eq: (other: SourcePrimitive | GenericSelector<Source>) => {
           let otherValue: any = other;
           if (isSelector(other)) {
-            otherValue = other[SourceOrExpr];
+            otherValue = other[GetSource];
             if (otherValue instanceof Expr) {
               throw Error("TODO: Cannot evaluate equality with an Expr");
             }
@@ -164,7 +164,7 @@ export function newSelectorProxy(
         andThen: (f: any) => {
           return andThen(f, source === undefined ? null : source, path);
         },
-        [SourceOrExpr]: source === undefined ? null : source,
+        [GetSource]: source === undefined ? null : source,
         [Path]: path,
         [GetSchema]: moduleSchema,
       };
@@ -178,7 +178,7 @@ function selectorAsVal(sel: any): any {
   } else if (
     typeof sel === "object" &&
     sel &&
-    !(SourceOrExpr in sel) &&
+    !(GetSource in sel) &&
     !Array.isArray(sel)
   ) {
     // is object
@@ -188,7 +188,7 @@ function selectorAsVal(sel: any): any {
   } else if (
     typeof sel === "object" &&
     sel &&
-    !(SourceOrExpr in sel) &&
+    !(GetSource in sel) &&
     Array.isArray(sel)
   ) {
     // is array
@@ -196,9 +196,9 @@ function selectorAsVal(sel: any): any {
   } else if (
     typeof sel === "object" &&
     sel &&
-    (SourceOrExpr in sel || Path in sel)
+    (GetSource in sel || Path in sel)
   ) {
-    return selectorAsVal(sel?.[SourceOrExpr]);
+    return selectorAsVal(sel?.[GetSource]);
   } else if (sel === undefined) {
     return null;
   }
@@ -218,7 +218,7 @@ export function createValPathOfItem(
 }
 
 export function selectorToVal(s: any): any {
-  const v = selectorAsVal(s?.[SourceOrExpr]);
+  const v = selectorAsVal(s?.[GetSource]);
   return {
     val: v,
     [Path]: s?.[Path],
@@ -229,9 +229,9 @@ export function selectorToVal(s: any): any {
 function unValify(valueOrSelector: any) {
   if (
     typeof valueOrSelector === "object" &&
-    (SourceOrExpr in valueOrSelector || Path in valueOrSelector)
+    (GetSource in valueOrSelector || Path in valueOrSelector)
   ) {
-    const selectorValue = valueOrSelector[SourceOrExpr];
+    const selectorValue = valueOrSelector[GetSource];
     return selectorValue;
   }
   return valueOrSelector;

@@ -34,6 +34,18 @@ export async function newValQuickJSRuntime(
               "export const useVal = () => { throw Error(`Cannot use 'useVal' in this type of file`) }; export const fetchVal = () => { throw Error(`Cannot use 'fetchVal' in this type of file`) }; export const autoTagJSX = () => { /* ignore */ };",
           };
         }
+        if (modulePath.startsWith("next")) {
+          return {
+            value:
+              "export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'next' in this file`) } } } )",
+          };
+        }
+        if (modulePath.startsWith("react")) {
+          return {
+            value:
+              "export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'react' in this file`) } } } )",
+          };
+        }
         return { value: moduleLoader.getModule(modulePath) };
       } catch (e) {
         return {
@@ -47,6 +59,12 @@ export async function newValQuickJSRuntime(
           return { value: requestedName };
         }
         if (requestedName === "@valbuild/react/stega") {
+          return { value: requestedName };
+        }
+        if (requestedName.startsWith("next")) {
+          return { value: requestedName };
+        }
+        if (requestedName.startsWith("react")) {
           return { value: requestedName };
         }
         const modulePath = moduleLoader.resolveModulePath(

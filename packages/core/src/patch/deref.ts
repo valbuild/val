@@ -1,6 +1,6 @@
 import { FILE_REF_PROP, isFile } from "../source/file";
 import { result } from "../fp";
-import { isRemote, REMOTE_REF_PROP } from "../source/remote";
+import { isRemote, REMOTE_REF_PROP } from "../source/future/remote";
 import { Ops, PatchError } from "./ops";
 import { Patch } from "./patch";
 

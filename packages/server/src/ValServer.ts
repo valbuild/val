@@ -9,17 +9,7 @@ export interface ValServer {
 
   session(req: express.Request, res: express.Response): Promise<void>;
 
-  getIds(
-    req: express.Request<{ 0: string }>,
-    res: express.Response
-  ): Promise<void>;
-
-  getAllModules(
-    req: express.Request<{ 0: string }>,
-    res: express.Response
-  ): Promise<void>;
-
-  patchIds(
+  postPatches(
     req: express.Request<{ 0: string }>,
     res: express.Response
   ): Promise<void>;
@@ -27,4 +17,7 @@ export interface ValServer {
   commit(req: express.Request, res: express.Response): Promise<void>;
 
   enable(req: express.Request, res: express.Response): Promise<void>;
+  disable(req: express.Request, res: express.Response): Promise<void>;
+
+  getTree(req: express.Request, res: express.Response): Promise<void>;
 }

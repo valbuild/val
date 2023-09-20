@@ -5,30 +5,53 @@ import { parsePatch, PatchError } from "@valbuild/core/patch";
 import { getPathFromParams } from "./expressHelpers";
 import { PatchJSON } from "./patch/validation";
 import { ValServer } from "./ValServer";
-import { Internal, ModuleId, ModulePath } from "@valbuild/core";
-import { enable } from "./ProxyValServer";
+import { ApiTreeResponse, ModuleId, ModulePath } from "@valbuild/core";
+import { disable, enable } from "./ProxyValServer";
 import { promises as fs } from "fs";
 import path from "path";
 
 export type LocalValServerOptions = {
   service: Service;
+  git: {
+    commit?: string;
+    branch?: string;
+  };
 };
 
 export class LocalValServer implements ValServer {
   constructor(readonly options: LocalValServerOptions) {}
-  getAllModules(req: express.Request, res: express.Response): Promise<void> {
-    // TODO: this barely works,
-    const rootDir = process.cwd();
-    const moduleIds: string[] = [];
-    // iterate over all .val files in the root directory
-    const walk = async (dir: string) => {
-      const files = await fs.readdir(dir);
-      for (const file of files) {
-        if ((await fs.stat(path.join(dir, file))).isDirectory()) {
-          if (file === "node_modules") continue;
-          await walk(path.join(dir, file));
-        } else {
-          if (file.endsWith(".val.js") || file.endsWith(".val.ts")) {
+
+  async session(_req: express.Request, res: express.Response): Promise<void> {
+    res.json({
+      mode: "local",
+    });
+  }
+
+  async getTree(req: express.Request, res: express.Response): Promise<void> {
+    try {
+      // TODO: use the params: patch, schema, source
+      const treePath = req.params["0"].replace("~", "");
+      const rootDir = process.cwd();
+      const moduleIds: string[] = [];
+      // iterate over all .val files in the root directory
+      const walk = async (dir: string) => {
+        const files = await fs.readdir(dir);
+        for (const file of files) {
+          if ((await fs.stat(path.join(dir, file))).isDirectory()) {
+            if (file === "node_modules") continue;
+            await walk(path.join(dir, file));
+          } else {
+            const isValFile =
+              file.endsWith(".val.js") || file.endsWith(".val.ts");
+            if (!isValFile) {
+              continue;
+            }
+            if (
+              treePath &&
+              !path.join(dir, file).replace(rootDir, "").startsWith(treePath)
+            ) {
+              continue;
+            }
             moduleIds.push(
               path
                 .join(dir, file)
@@ -38,59 +61,59 @@ export class LocalValServer implements ValServer {
             );
           }
         }
-      }
-    };
+      };
+      const serializedModuleContent = await walk(rootDir).then(async () => {
+        return Promise.all(
+          moduleIds.map(async (moduleId) => {
+            return await this.options.service.get(
+              moduleId as ModuleId,
+              "" as ModulePath
+            );
+          })
+        );
+      });
 
-    return walk(rootDir).then(async () => {
-      res.send(
-        JSON.stringify(
-          await Promise.all(
-            moduleIds.map(async (moduleId) => {
-              return await this.options.service.get(
-                moduleId as ModuleId,
-                "" as ModulePath
-              );
-            })
-          )
-        )
+      //
+      const modules = Object.fromEntries(
+        serializedModuleContent.map((serializedModuleContent) => {
+          const module: ApiTreeResponse["modules"][keyof ApiTreeResponse["modules"]] =
+            {
+              schema: serializedModuleContent.schema,
+              source: serializedModuleContent.source,
+            };
+          return [serializedModuleContent.path, module];
+        })
       );
-    });
-  }
-
-  async session(_req: express.Request, res: express.Response): Promise<void> {
-    res.json({
-      mode: "local",
-    });
-  }
-
-  async enable(req: express.Request, res: express.Response): Promise<void> {
-    return enable(req, res);
-  }
-
-  async getIds(
-    req: express.Request<{ 0: string }>,
-    res: express.Response
-  ): Promise<void> {
-    try {
-      console.log(req.params);
-      const path = getPathFromParams(req.params);
-      const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
-
-      const valModule = await this.options.service.get(moduleId, modulePath);
-
-      res.json(valModule);
+      const apiTreeResponse: ApiTreeResponse = {
+        modules,
+        git: this.options.git,
+      };
+      return walk(rootDir).then(async () => {
+        res.send(JSON.stringify(apiTreeResponse));
+      });
     } catch (err) {
       console.error(err);
       res.sendStatus(500);
     }
   }
 
-  async patchIds(
+  async enable(req: express.Request, res: express.Response): Promise<void> {
+    return enable(req, res);
+  }
+
+  async disable(req: express.Request, res: express.Response): Promise<void> {
+    return disable(req, res);
+  }
+
+  async postPatches(
     req: express.Request<{ 0: string }>,
     res: express.Response
   ): Promise<void> {
+    const id = getPathFromParams(req.params)?.replace("/~", "");
+
     // First validate that the body has the right structure
     const patchJSON = PatchJSON.safeParse(req.body);
+    console.log("patch id", id, patchJSON);
     if (!patchJSON.success) {
       res.status(401).json(patchJSON.error.issues);
       return;
@@ -101,18 +124,17 @@ export class LocalValServer implements ValServer {
       res.status(401).json(patch.error);
       return;
     }
-    const id = getPathFromParams(req.params);
     try {
-      const valModule = await this.options.service.patch(id, patch.value);
-      res.json(valModule);
+      await this.options.service.patch(id, patch.value);
+      res.json({});
     } catch (err) {
       if (err instanceof PatchError) {
-        res.status(401).send(err.message);
+        res.status(400).send({ message: err.message });
       } else {
         console.error(err);
-        res
-          .status(500)
-          .send(err instanceof Error ? err.message : "Unknown error");
+        res.status(500).send({
+          message: err instanceof Error ? err.message : "Unknown error",
+        });
       }
     }
   }

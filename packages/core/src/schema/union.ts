@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
-import { SelectorSource } from "../selector";
+import { SelectorSource } from "../selector/index";
 import { SourceObject } from "../source";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";

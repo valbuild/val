@@ -1,13 +1,13 @@
 import React, { Dispatch, SetStateAction } from "react";
 import type { Remote } from "../utils/Remote";
 import type { Session } from "../dto/Session";
-import { FetchApi } from "../exports";
+import { ValApi } from "@valbuild/core";
 
 export type Theme = "dark" | "light";
 export type EditMode = "off" | "hover" | "window" | "full";
 
 export const ValOverlayContext = React.createContext<{
-  api: FetchApi;
+  api: ValApi;
   session: Remote<Session>;
   editMode: EditMode;
   highlight: boolean;

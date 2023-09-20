@@ -117,7 +117,7 @@ export const image = (
   return new ImageSchema(options);
 };
 
-export const convertImageSource = (
+export const convertFileSource = (
   src: FileSource<ImageMetadata>
 ): { url: string; metadata?: ImageMetadata } => {
   // TODO: /public should be configurable

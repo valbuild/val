@@ -1,4 +1,4 @@
-import { ValProvider } from "@valbuild/react";
+import { ValProvider } from "@valbuild/next";
 import "./globals.css";
 
 export default function RootLayout({

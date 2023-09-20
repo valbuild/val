@@ -16,7 +16,6 @@ import {
   Internal,
   SourcePath,
   Schema,
-  SelectorSource,
 } from "@valbuild/core";
 
 export type ServiceOptions = {
@@ -79,11 +78,13 @@ export class Service {
         valModule.source,
         valModule.schema
       );
-      const sourcePath = [moduleId, resolved.path].join(".") as SourcePath;
+      const sourcePath = (
+        resolved.path ? [moduleId, resolved.path].join(".") : moduleId
+      ) as SourcePath;
       return {
         path: sourcePath,
         schema:
-          resolved.schema instanceof Schema<SelectorSource>
+          resolved.schema instanceof Schema
             ? resolved.schema.serialize()
             : resolved.schema,
         source: resolved.source,

@@ -1,18 +1,16 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Internal } from "@valbuild/core";
-import { FetchApi, Style, ValOverlay } from "@valbuild/ui";
-import { useEffect, useMemo, useState } from "react";
+import { Style, ValOverlay } from "@valbuild/ui";
+import { useEffect, useState } from "react";
 import { ShadowRoot } from "./ShadowRoot";
+import { useValApi } from "./ValProvider";
 
-export type ValUIProps = {
-  host: string;
-};
-
-export default function ValUI({ host }: ValUIProps) {
-  const api = useMemo(() => new FetchApi(host), [host]);
-
+export default function ValUI() {
   const [isClient, setIsClient] = useState(false);
   const [enabled, setEnabled] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [isDraftMode, setDraftMode] = useState(false); // TODO: if enabled, but not in draft mode: show something
+  const api = useValApi();
   useEffect(() => {
     setIsClient(true);
     try {
@@ -23,12 +21,20 @@ export default function ValUI({ host }: ValUIProps) {
     } catch (e) {
       console.warn("Could not read Val enabled state", e);
     }
+    try {
+      const valDraftMode = document.cookie?.includes(
+        `${Internal.VAL_DRAFT_MODE_COOKIE}=true`
+      );
+      setDraftMode(valDraftMode);
+    } catch (e) {
+      console.warn("Could not read Val draft mode", e);
+    }
   }, []);
   if (isClient && !enabled && process.env.NODE_ENV === "development") {
     console.log(
-      `Val is disabled. Enable it by going here ${
-        window.origin
-      }${host}/enable?redirect_to=${encodeURIComponent(
+      `Val is disabled. Enable it by going here ${window.origin}${
+        api.host
+      }/enable?redirect_to=${encodeURIComponent(
         window.location.href
       )}. NOTE: this message appears because NODE_ENV is set to development.`
     );
