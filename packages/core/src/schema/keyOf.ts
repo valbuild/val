@@ -1,18 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema, SourceObject, initVal } from "..";
+import { Schema, SerializedSchema, SourceObject } from "..";
 import { ValModuleBrand } from "../module";
-import { GenericSelector, GetSchema, Selector } from "../selector";
+import { GenericSelector, GetSchema } from "../selector";
 import { SourceArray } from "../source";
 import { SourcePath, getValPath } from "../val";
-import { array } from "./array";
-import { number } from "./number";
-import { object } from "./object";
-import { record } from "./record";
-import { string } from "./string";
-import {
-  ValidationError,
-  ValidationErrors,
-} from "./validation/ValidationError";
+import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedKeyOfSchema = {
   type: "keyOf";
@@ -22,11 +14,15 @@ export type SerializedKeyOfSchema = {
 
 type KeyOfSelector<Sel extends GenericSelector<SourceArray | SourceObject>> =
   Sel extends GenericSelector<infer S>
-    ? S extends readonly any[]
+    ? // TODO: remove any:
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      S extends readonly any[]
       ? number
       : S extends SourceObject
       ? keyof S
-      : S extends Record<string, any>
+      : // TODO: remove any:
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      S extends Record<string, any>
       ? string
       : never
     : never;
@@ -108,13 +104,39 @@ export class KeyOfSchema<
 
   assert(src: KeyOfSelector<Sel>): boolean {
     if (this.opt && (src === null || src === undefined)) {
-      return false;
+      return true;
     }
     const schema = this.selector[GetSchema];
     if (!schema) {
       return false;
     }
-    return error;
+    const serializedSchema = schema.serialize();
+
+    if (
+      !(
+        serializedSchema.type === "array" ||
+        serializedSchema.type === "object" ||
+        serializedSchema.type === "record"
+      )
+    ) {
+      return false;
+    }
+    if (serializedSchema.opt && (src === null || src === undefined)) {
+      return true;
+    }
+    if (serializedSchema.type === "array" && typeof src !== "number") {
+      return false;
+    }
+    if (serializedSchema.type === "record" && typeof src !== "string") {
+      return false;
+    }
+    if (serializedSchema.type === "object") {
+      const keys = Object.keys(serializedSchema.items);
+      if (!keys.includes(src as string)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   optional(): Schema<KeyOfSelector<Sel> | null> {
