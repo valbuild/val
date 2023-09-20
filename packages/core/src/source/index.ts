@@ -15,6 +15,7 @@ export type Source =
 export type SourceObject = { [key in string]: Source } & {
   // TODO: update these restricted parameters:
   fold?: never;
+  assert?: never;
   andThen?: never;
   _ref?: never;
   _type?: never;
