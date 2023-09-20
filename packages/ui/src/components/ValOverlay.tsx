@@ -14,7 +14,7 @@ import { result } from "@valbuild/core/fp";
 import { TextArea } from "./forms/TextArea";
 import { Internal, SerializedSchema, SourcePath } from "@valbuild/core";
 import { Modules, resolvePath } from "../utils/resolvePath";
-import { ValApi, useValApi } from "@valbuild/react";
+import { ValApi } from "@valbuild/core";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -77,6 +77,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
             {typeof selectedSource === "string" &&
               selectedSchema?.type === "string" && (
                 <TextForm
+                  api={api}
                   path={windowTarget.path}
                   defaultValue={selectedSource}
                 />
@@ -91,11 +92,12 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
 function TextForm({
   path,
   defaultValue,
+  api,
 }: {
   path: SourcePath;
   defaultValue?: string;
+  api: ValApi;
 }) {
-  const api = useValApi();
   const [text, setText] = useState(defaultValue || "");
   const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
   const [isPatching, setIsPatching] = useState(false);

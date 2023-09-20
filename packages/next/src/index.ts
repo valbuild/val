@@ -34,13 +34,13 @@ export {
 } from "@valbuild/core";
 
 // React
-export { ValProvider } from "@valbuild/react";
 export { ValRichText } from "@valbuild/react";
 
 // Stega
 export { type ValEncodedString } from "@valbuild/react/stega";
 
 // Next specific
+export { ValProvider } from "./ValProvider";
 export { initVal } from "./initVal";
 
 // Auto-tag JSX with Val paths:

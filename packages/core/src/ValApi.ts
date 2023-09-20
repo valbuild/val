@@ -1,9 +1,11 @@
-import { ApiPatchResponse, ApiTreeResponse, ModuleId } from "@valbuild/core";
-import { result } from "@valbuild/core/fp";
-import { PatchJSON } from "@valbuild/core/src/patch/patch";
+import { ApiPatchResponse, ApiTreeResponse } from ".";
+import { result } from "./fp";
+import { PatchJSON } from "./patch";
+import { ModuleId } from "./val";
 
 type FetchError = { message: string; statusCode?: number };
 
+// TODO: move this to internal, only reason this is here is that react, ui and server all depend on it
 export class ValApi {
   constructor(public host: string) {}
 

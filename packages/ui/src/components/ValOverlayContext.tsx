@@ -1,7 +1,7 @@
 import React, { Dispatch, SetStateAction } from "react";
 import type { Remote } from "../utils/Remote";
 import type { Session } from "../dto/Session";
-import { ValApi } from "@valbuild/react";
+import { ValApi } from "@valbuild/core";
 
 export type Theme = "dark" | "light";
 export type EditMode = "off" | "hover" | "window" | "full";

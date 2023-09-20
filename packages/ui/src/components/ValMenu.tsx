@@ -1,6 +1,6 @@
 import { Edit2, Edit3, Moon, Power, Sun } from "react-feather";
 import { useValOverlayContext } from "./ValOverlayContext";
-import { ValApi } from "@valbuild/react";
+import { ValApi } from "@valbuild/core";
 
 export function ValMenu({ api }: { api: ValApi }) {
   const { theme, setTheme, editMode, setEditMode } = useValOverlayContext();

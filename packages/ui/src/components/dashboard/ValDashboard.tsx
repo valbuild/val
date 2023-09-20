@@ -1,6 +1,6 @@
 import { SerializedModule } from "@valbuild/core";
 import { Json } from "@valbuild/core/src/Json";
-import { ValApi } from "@valbuild/react";
+import { ValApi } from "@valbuild/core";
 import { FC, useEffect, useState } from "react";
 import { Dropdown } from "./Dropdown";
 import { FormGroup } from "./FormGroup";

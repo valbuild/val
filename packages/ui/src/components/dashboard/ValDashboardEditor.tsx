@@ -1,5 +1,5 @@
 import { SerializedModule } from "@valbuild/core";
-import { ValApi } from "@valbuild/react";
+import { ValApi } from "@valbuild/core";
 import { LexicalEditor } from "lexical";
 import { FC, useEffect, useState } from "react";
 import { Inputs, RichTextEditor } from "../../exports";
