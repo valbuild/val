@@ -1,14 +1,4 @@
-import {
-  FileSource,
-  FILE_REF_PROP,
-  Internal,
-  RichText,
-  SerializedModule,
-  SourcePath,
-  VAL_EXTENSION,
-} from "@valbuild/core";
-import { PatchJSON } from "@valbuild/core/patch";
-import { ImageMetadata } from "@valbuild/core/src/schema/image";
+import { SerializedModule } from "@valbuild/core";
 import { ValApi } from "@valbuild/react";
 import { LexicalEditor } from "lexical";
 import { FC, useEffect, useState } from "react";
@@ -24,8 +14,8 @@ interface ValDashboardEditorProps {
 
 export const ValDashboardEditor: FC<ValDashboardEditorProps> = ({
   selectedPath,
-  valApi,
 }) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [selectedModule, setSelectedModule] = useState<SerializedModule>();
   const [inputs, setInputs] = useState<Inputs>({});
   const [inputIsDirty, setInputIsDirty] = useState<{ [path: string]: boolean }>(
@@ -115,7 +105,8 @@ export const ValDashboardEditor: FC<ValDashboardEditorProps> = ({
     }
   }, [inputs]);
 
-  const patchElement = async (key: string) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const patchElement = async (path: string) => {
     // Promise.all(
     //   Object.entries(inputs)
     //     .filter(([k]) => k === key)

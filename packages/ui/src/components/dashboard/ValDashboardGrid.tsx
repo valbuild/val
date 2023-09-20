@@ -97,6 +97,7 @@ export const ValDashboardGrid: FC<ValDashboardGridProps> = ({
   editMode,
 }) => {
   const [widths, setWidths] = useState([300, (2 * window.innerWidth) / 3]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [modules, setModules] = useState<SerializedModule[]>([]);
   const [selectedPath, setSelectedPath] = useState<string>("");
   useEffect(() => {

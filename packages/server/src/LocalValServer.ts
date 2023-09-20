@@ -9,8 +9,6 @@ import { ApiTreeResponse, ModuleId, ModulePath } from "@valbuild/core";
 import { disable, enable } from "./ProxyValServer";
 import { promises as fs } from "fs";
 import path from "path";
-import { ParamsDictionary } from "express-serve-static-core";
-import { ParsedQs } from "qs";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -29,16 +27,7 @@ export class LocalValServer implements ValServer {
     });
   }
 
-  async getTree(
-    req: express.Request<
-      ParamsDictionary,
-      any,
-      any,
-      ParsedQs,
-      Record<string, any>
-    >,
-    res: express.Response<any, Record<string, any>>
-  ): Promise<void> {
+  async getTree(req: express.Request, res: express.Response): Promise<void> {
     try {
       // TODO: use the params: patch, schema, source
       const treePath = req.params["0"].replace("~", "");

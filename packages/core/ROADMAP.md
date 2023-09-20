@@ -5,39 +5,36 @@
 Example:
 
 ```tsx
-
 // file: ./blogs.val.ts
 
 export const schema = s.array(
   s.i18n(s.object({ title: s.string(), text: s.richtext() }))
-)
+);
 
-export default val.content('/blogs', schema, [
+export default val.content("/blogs", schema, [
   {
-    'en_US': {
-      title: 'Title 1',
-      text: val.richtext('Richtext 1'),
+    en_US: {
+      title: "Title 1",
+      text: val.richtext("Richtext 1"),
     },
-    'nb_NO': {
-      title: 'Tittel 1',
-      text: val.richtext('Riktekst?'),
+    nb_NO: {
+      title: "Tittel 1",
+      text: val.richtext("Riktekst?"),
     },
   },
 ]);
 
-
 // file: ./components/ServerComponent.ts
 
-import blogsVal from './blogs.val';
+import blogsVal from "./blogs.val";
 
 export async function ServerComponent({ index }: { index: number }) {
   const blogs = await fetchVal(blogVal, getLocale());
-  
+
   // NOTE: automatically resolves the locale
   const title = blogs[index].title; // is a string
-  return (<div>{title}</div>)
+  return <div>{title}</div>;
 }
-
 ```
 
 Missing infrastructure: none in particular.
@@ -49,36 +46,34 @@ Remote makes it possible to move content to cloud storage (and back again). It u
 Example:
 
 ```tsx
-
 // file: ./blogs.val.ts
 
-export const schema = s.array(
-  s.object({ title: s.string(), text: s.richtext() })
-).remote();
+export const schema = s
+  .array(s.object({ title: s.string(), text: s.richtext() }))
+  .remote();
 
-export default val.content('/blogs',
+export default val.content(
+  "/blogs",
   schema,
-  val.remote('4ba7c33b32a60be06b1b26dff8cc5d8d967660ab'), // a change in content, will result in a new reference
-); 
-
+  val.remote("4ba7c33b32a60be06b1b26dff8cc5d8d967660ab") // a change in content, will result in a new reference
+);
 
 // file: ./components/ServerComponent.ts
 
-import blogsVal from './blogs.val';
+import blogsVal from "./blogs.val";
 
 export async function ServerComponent({ index }: { index: number }) {
   const blog = await fetchVal(
     blogVal[index] // only fetch the blog at index
   );
   const title = blog.title;
-  return (<div>{title}</div>);
+  return <div>{title}</div>;
 }
-
 ```
 
 Missing infrastructure: cloud support, patch support, selectors proxy needs to be able to switch between remote and source (see selectors/future), editor plugin to improve DX (refactors, ...)?
 
-## oneOff
+## oneOf
 
 oneOf makes it possible to reference an item in an array of in another val module.
 
