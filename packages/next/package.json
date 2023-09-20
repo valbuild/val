@@ -20,12 +20,22 @@
       "module": "./dist/valbuild-next.esm.js",
       "default": "./dist/valbuild-next.cjs.js"
     },
+    "./client": {
+      "module": "./client/dist/valbuild-next-client.esm.js",
+      "default": "./client/dist/valbuild-next-client.cjs.js"
+    },
+    "./server": {
+      "module": "./server/dist/valbuild-next-server.esm.js",
+      "default": "./server/dist/valbuild-next-server.cjs.js"
+    },
     "./package.json": "./package.json"
   },
   "types": "dist/valbuild-next.cjs.d.ts",
   "preconstruct": {
     "entrypoints": [
-      "./index.ts"
+      "./index.ts",
+      "./server/index.ts",
+      "./client/index.ts"
     ],
     "exports": true
   },
@@ -35,7 +45,7 @@
     "@valbuild/server": "~0.16.0"
   },
   "peerDependencies": {
-    "next": ">=12.3.4",
+    "next": ">=13.4.0",
     "react": ">=18.2.0"
   },
   "externals": [

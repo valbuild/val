@@ -4,8 +4,8 @@ import { Val as ArrayVal } from "./array";
 import { Val as PrimitiveVal } from "./primitive";
 import { Json, JsonArray, JsonObject, JsonPrimitive } from "../Json";
 import { Path, Selector } from "../selector";
-import { I18nSource } from "../source/i18n";
-import { RemoteSource } from "../source/remote";
+import { I18nSource } from "../source/future/i18n";
+import { RemoteSource } from "../source/future/remote";
 import { FileSource } from "../source/file";
 
 export type SerializedVal = {

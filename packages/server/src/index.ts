@@ -1,7 +1,7 @@
 export type { ServiceOptions } from "./Service";
 export { createService, Service } from "./Service";
 export { createRequestHandler } from "./createRequestHandler";
-export { createRequestListener } from "./hosting";
+export { createRequestListener, safeReadGit } from "./hosting";
 export { ValModuleLoader } from "./ValModuleLoader";
 export { getCompilerOptions } from "./getCompilerOptions";
 export { ValSourceFileHandler } from "./ValSourceFileHandler";

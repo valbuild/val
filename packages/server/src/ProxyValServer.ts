@@ -3,14 +3,13 @@ import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { PatchJSON } from "./patch/validation";
 import { result } from "@valbuild/core/fp";
-import { getPathFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
 import { z } from "zod";
 import { parsePatch } from "@valbuild/core/patch";
 import { Internal } from "@valbuild/core";
 
-const VAL_SESSION_COOKIE = "val_session";
-const VAL_STATE_COOKIE = "val_state";
+const VAL_SESSION_COOKIE = Internal.VAL_SESSION_COOKIE;
+const VAL_STATE_COOKIE = Internal.VAL_STATE_COOKIE;
 const VAL_ENABLED_COOKIE = Internal.VAL_ENABLE_COOKIE_NAME;
 
 export type ProxyValServerOptions = {
@@ -18,19 +17,16 @@ export type ProxyValServerOptions = {
   route: string;
   valSecret: string;
   valBuildUrl: string;
+  valContentUrl: string;
   gitCommit: string;
   gitBranch: string;
   valName: string;
+  valEnableRedirectUrl?: string;
+  valDisableRedirectUrl?: string;
 };
 
 export class ProxyValServer implements ValServer {
   constructor(readonly options: ProxyValServerOptions) {}
-
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  getAllModules(_req: express.Request, _res: express.Response): Promise<void> {
-    // TODO:
-    throw new Error("Method not implemented.");
-  }
 
   async authorize(req: express.Request, res: express.Response): Promise<void> {
     const { redirect_to } = req.query;
@@ -56,7 +52,10 @@ export class ProxyValServer implements ValServer {
   }
 
   async enable(req: express.Request, res: express.Response): Promise<void> {
-    return enable(req, res);
+    return enable(req, res, this.options.valEnableRedirectUrl);
+  }
+  async disable(req: express.Request, res: express.Response): Promise<void> {
+    return disable(req, res, this.options.valEnableRedirectUrl);
   }
 
   async callback(req: express.Request, res: express.Response): Promise<void> {
@@ -143,33 +142,37 @@ export class ProxyValServer implements ValServer {
     });
   }
 
-  async getIds(
-    req: express.Request<{ 0: string }>,
-    res: express.Response
-  ): Promise<void> {
-    return this.withAuth(req, res, async ({ token }) => {
-      const id = getPathFromParams(req.params);
-      const url = new URL(
-        `/api/val/modules/${encodeURIComponent(this.options.gitCommit)}${id}`,
-        this.options.valBuildUrl
-      );
-      const fetchRes = await fetch(url, {
-        headers: this.getAuthHeaders(token),
+  async getTree(req: express.Request, res: express.Response): Promise<void> {
+    return this.withAuth(req, res, async (data) => {
+      const { patch, schema, source } = req.query;
+      const params = new URLSearchParams({
+        patch: (patch === "true").toString(),
+        schema: (schema === "true").toString(),
+        source: (source === "true").toString(),
       });
-      if (fetchRes.ok) {
-        res.status(fetchRes.status).json(await fetchRes.json());
-      } else {
-        res.sendStatus(fetchRes.status);
-      }
-    }).catch((e) => {
-      res.status(500).send({ error: { message: e?.message, status: 500 } });
+      const url = new URL(
+        `/v1/tree/${this.options.valName}/heads/${this.options.gitBranch}/${req.params["0"]}/?${params}`,
+        this.options.valContentUrl
+      );
+      const json = await fetch(url, {
+        headers: this.getAuthHeaders(data.token, "application/json"),
+      }).then((res) => res.json());
+      res.send(json);
     });
   }
 
-  async patchIds(
+  async postPatches(
     req: express.Request<{ 0: string }>,
     res: express.Response
   ): Promise<void> {
+    const { commit } = req.query;
+    if (typeof commit !== "string" || typeof commit === "undefined") {
+      res.status(401).json({ error: "Missing or invalid commit query param" });
+      return;
+    }
+    const params = new URLSearchParams({
+      commit,
+    });
     this.withAuth(req, res, async ({ token }) => {
       // First validate that the body has the right structure
       const patchJSON = PatchJSON.safeParse(req.body);
@@ -183,15 +186,14 @@ export class ProxyValServer implements ValServer {
         res.status(401).json(patch.error);
         return;
       }
-      const id = getPathFromParams(req.params);
       const url = new URL(
-        `/api/val/modules/${encodeURIComponent(this.options.gitCommit)}${id}`,
-        this.options.valBuildUrl
+        `/v1/tree/${this.options.valName}/heads/${this.options.gitBranch}/${req.params["0"]}/?${params}`,
+        this.options.valContentUrl
       );
       // Proxy patch to val.build
       const fetchRes = await fetch(url, {
-        method: "PATCH",
-        headers: this.getAuthHeaders(token, "application/json-patch+json"),
+        method: "POST",
+        headers: this.getAuthHeaders(token, "application/json"),
         body: JSON.stringify(patch),
       });
       if (fetchRes.ok) {
@@ -400,16 +402,44 @@ function getStateFromCookie(stateCookie: string):
 
 export async function enable(
   req: express.Request,
-  res: express.Response
+  res: express.Response,
+  redirectUrl?: string
 ): Promise<void> {
   const { redirect_to } = req.query;
   if (typeof redirect_to === "string" || typeof redirect_to === "undefined") {
+    let redirectUrlToUse = redirect_to || "/";
+    if (redirectUrl) {
+      redirectUrlToUse =
+        redirectUrl + "?redirect_to=" + encodeURIComponent(redirectUrlToUse);
+    }
     res
       .cookie(VAL_ENABLED_COOKIE, "true", {
         httpOnly: false,
         sameSite: "lax",
       })
-      .redirect(redirect_to || "/");
+      .redirect(redirectUrlToUse);
+  } else {
+    res.sendStatus(400);
+  }
+}
+export async function disable(
+  req: express.Request,
+  res: express.Response,
+  redirectUrl?: string
+): Promise<void> {
+  const { redirect_to } = req.query;
+  if (typeof redirect_to === "string" || typeof redirect_to === "undefined") {
+    let redirectUrlToUse = redirect_to || "/";
+    if (redirectUrl) {
+      redirectUrlToUse =
+        redirectUrl + "?redirect_to=" + encodeURIComponent(redirectUrlToUse);
+    }
+    res
+      .cookie(VAL_ENABLED_COOKIE, "false", {
+        httpOnly: false,
+        sameSite: "lax",
+      })
+      .redirect(redirectUrlToUse);
   } else {
     res.sendStatus(400);
   }

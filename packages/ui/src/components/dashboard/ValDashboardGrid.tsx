@@ -1,5 +1,5 @@
 import { SerializedModule } from "@valbuild/core";
-import { ValApi } from "@valbuild/react";
+import { ValApi } from "@valbuild/core";
 import classNames from "classnames";
 import React, { useState, FC, ReactNode, useEffect } from "react";
 import { ValDashboardEditor } from "./ValDashboardEditor";
@@ -97,12 +97,13 @@ export const ValDashboardGrid: FC<ValDashboardGridProps> = ({
   editMode,
 }) => {
   const [widths, setWidths] = useState([300, (2 * window.innerWidth) / 3]);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [modules, setModules] = useState<SerializedModule[]>([]);
   const [selectedPath, setSelectedPath] = useState<string>("");
   useEffect(() => {
-    valApi.getAllModules().then((modules) => {
-      setModules(modules);
-    });
+    // valApi.getTree({}).then((modules) => {
+    //   setModules(modules);
+    // });
   }, [editMode]);
 
   const handleResize = (index: number) => (width: number) => {

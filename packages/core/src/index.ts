@@ -4,7 +4,6 @@ export { Schema, type SerializedSchema } from "./schema";
 export type { ValModule, SerializedModule } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
-export type { RemoteSource } from "./source/remote";
 export type {
   RichTextSource,
   RichText,
@@ -31,35 +30,67 @@ export type { ValidationFix } from "./schema/validation/ValidationFix";
 export * as expr from "./expr/";
 export { FILE_REF_PROP } from "./source/file";
 export { VAL_EXTENSION, type SourceArray } from "./source";
-export type { I18nSource } from "./source/i18n";
 export { derefPatch } from "./patch/deref";
 export {
   type SelectorSource,
   type SelectorOf,
   GenericSelector,
 } from "./selector";
-import { getVal } from "./fetchVal";
-import {
-  getRawSource,
-  resolvePath,
-  splitModuleIdAndModulePath,
-} from "./module";
+import { getSource, resolvePath, splitModuleIdAndModulePath } from "./module";
 import { getSchema } from "./selector";
-import { getValPath, isVal } from "./val";
-import { convertImageSource } from "./schema/image";
-import { fetchVal } from "./fetchVal";
+import { ModuleId, ModulePath, getValPath, isVal } from "./val";
+import { convertFileSource } from "./schema/image";
+import { createValPathOfItem } from "./selector/SelectorProxy";
+import { getVal } from "./future/fetchVal";
+import { Json } from "./Json";
+import { SerializedSchema } from "./schema";
+export { ValApi } from "./ValApi";
+
+export type ApiTreeResponse = {
+  git: {
+    commit?: string;
+    branch?: string;
+  };
+  modules: Record<
+    ModuleId,
+    {
+      schema?: SerializedSchema;
+      patches?: {
+        applied: string[];
+        failed?: string[];
+      };
+      source?: Json;
+    }
+  >;
+};
+
+export type ApiPatchResponse = Record<ModuleId, string[]>;
 
 const Internal = {
-  convertImageSource,
+  convertFileSource,
   getSchema,
   getValPath,
   getVal,
-  getRawSource,
+  getSource,
   resolvePath,
   splitModuleIdAndModulePath,
-  fetchVal,
   isVal,
+  createValPathOfItem,
+  createPatchJSONPath: (modulePath: ModulePath) =>
+    `/${modulePath
+      .split(".")
+      .map((segment) => JSON.parse(segment))
+      .join("/")}`,
+  /**
+   * Enables draft mode: updates all Val modules with patches
+   */
+  VAL_DRAFT_MODE_COOKIE: "val_draft_mode",
+  /**
+   * Enables Val: show the overlay / menu
+   */
   VAL_ENABLE_COOKIE_NAME: "val_enable",
+  VAL_STATE_COOKIE: "val_state",
+  VAL_SESSION_COOKIE: "val_session",
 };
 
 export { Internal };
