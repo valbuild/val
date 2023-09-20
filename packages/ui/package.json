@@ -24,8 +24,7 @@
     "rollup-plugin-postcss": "^4.0.2",
     "rollup-plugin-typescript2": "^0.34.1",
     "zod": "^3.22.2",
-    "@valbuild/core": "~0.16.0",
-    "@valbuild/react": "~0.15.0"
+    "@valbuild/core": "~0.16.0"
   },
   "devDependencies": {
     "@storybook/addon-essentials": "^7.0.12",

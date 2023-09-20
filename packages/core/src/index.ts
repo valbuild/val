@@ -44,6 +44,7 @@ import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
 import { Json } from "./Json";
 import { SerializedSchema } from "./schema";
+export { ValApi } from "./ValApi";
 
 export type ApiTreeResponse = {
   git: {

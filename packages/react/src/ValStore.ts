@@ -1,5 +1,4 @@
-import { Json, ModuleId } from "@valbuild/core";
-import { ValApi } from "./ValApi";
+import { Json, ModuleId, ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 
 type SubscriberId = string & {

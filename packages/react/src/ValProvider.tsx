@@ -1,9 +1,7 @@
-"use client";
-
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { lazy, useContext, useMemo } from "react";
-import { ValApi } from "./ValApi";
 import { ValStore } from "./ValStore";
+import { ValApi } from "@valbuild/core";
 
 export function useValStore() {
   return useContext(ValContext).valStore;

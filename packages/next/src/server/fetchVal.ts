@@ -5,7 +5,7 @@ import {
   GenericSelector,
   ModuleId,
 } from "@valbuild/core";
-import { ValApi } from "@valbuild/react";
+import { ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { Internal } from "@valbuild/core";
 import { draftMode } from "next/headers";

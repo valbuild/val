@@ -1,5 +1,5 @@
 import { SerializedModule } from "@valbuild/core";
-import { ValApi } from "@valbuild/react";
+import { ValApi } from "@valbuild/core";
 import classNames from "classnames";
 import React, { useState, FC, ReactNode, useEffect } from "react";
 import { ValDashboardEditor } from "./ValDashboardEditor";
