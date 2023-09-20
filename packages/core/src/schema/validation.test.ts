@@ -17,6 +17,9 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { richtext } from "./richtext";
+import { record } from "./record";
+import { keyOf } from "./keyOf";
+import { content } from "../module";
 
 const testPath = "/test" as SourcePath;
 const pathOf = (p: string | symbol | number) => {
@@ -137,13 +140,76 @@ const ValidationTestCases: {
     expected: false,
   },
   {
-    description: "basic object(string)",
+    description: "failing object(string)",
     input: { one: "one val", two: 1 },
     schema: object({
       one: string(),
       two: string(),
     }),
     expected: [pathOf("two")],
+  },
+  // record
+  {
+    description: "basic record(string)",
+    input: { one: "one val", two: "two val" },
+    schema: record(string()),
+    expected: false,
+  },
+  {
+    description: "failing record(string)",
+    input: { one: "one val", two: 1 },
+    schema: object({
+      one: string(),
+      two: string(),
+    }),
+    expected: [pathOf("two")],
+  },
+  // keyof
+  {
+    description: "basic keyOf(array)",
+    input: 1,
+    schema: keyOf(content("/keyof-module", array(string()), [])),
+    expected: false,
+  },
+  {
+    description: "failing keyOf(record)",
+    input: "1",
+    schema: keyOf(content("/keyof-module", array(string()), [])),
+    expected: [testPath],
+  },
+  {
+    description: "basic keyOf(record)",
+    input: "one",
+    schema: keyOf(content("/keyof-module", record(string()), {})),
+    expected: false,
+  },
+  {
+    description: "failing keyOf(record)",
+    input: 1,
+    schema: keyOf(content("/keyof-module", record(string()), {})),
+    expected: [testPath],
+  },
+  {
+    description: "basic keyOf(object)",
+    input: "test1",
+    schema: keyOf(
+      content("/keyof-module", object({ test1: string(), test2: string() }), {
+        test1: "",
+        test2: "",
+      })
+    ),
+    expected: false,
+  },
+  {
+    description: "failing keyOf(object)",
+    input: "test",
+    schema: keyOf(
+      content("/keyof-module", object({ test1: string(), test2: string() }), {
+        test1: "",
+        test2: "",
+      })
+    ),
+    expected: [testPath],
   },
   // image / file
   {
