@@ -185,26 +185,34 @@ async function initHandlerOptions(
   } else {
     const cwd = process.cwd();
     const service = await createService(cwd, opts);
+    const git = await safeReadGit(cwd);
     return {
       mode: "local",
       service,
       git: {
-        commit: process.env.VAL_GIT_COMMIT,
-        branch: process.env.VAL_GIT_BRANCH || (await safeReadGitBranch(cwd)),
+        commit: process.env.VAL_GIT_COMMIT || git.commit,
+        branch: process.env.VAL_GIT_BRANCH || git.branch,
       },
     };
   }
 }
 
-async function safeReadGitBranch(cwd: string) {
+export async function safeReadGit(
+  cwd: string
+): Promise<{ commit?: string; branch?: string }> {
   async function findGitHead(
     currentDir: string,
     depth: number
-  ): Promise<string | undefined> {
+  ): Promise<{ commit?: string; branch?: string }> {
     const gitHeadPath = path.join(currentDir, ".git", "HEAD");
-    if (depth > 100) {
-      console.error("Reached max depth of 100", cwd, currentDir);
-      return undefined;
+    if (depth > 1000) {
+      console.error(
+        `Reached max depth while scanning for .git folder. Current working dir: ${cwd}.`
+      );
+      return {
+        commit: undefined,
+        branch: undefined,
+      };
     }
 
     try {
@@ -212,16 +220,25 @@ async function safeReadGitBranch(cwd: string) {
       const match = headContents.match(/^ref: refs\/heads\/(.+)/);
       if (match) {
         const branchName = match[1];
-        return branchName;
+        return {
+          branch: branchName,
+          commit: await readCommit(currentDir, branchName),
+        };
       } else {
-        return undefined;
+        return {
+          commit: undefined,
+          branch: undefined,
+        };
       }
     } catch (error) {
       const parentDir = path.dirname(currentDir);
 
-      // We've reached the root directory, return undefined
+      // We've reached the root directory
       if (parentDir === currentDir) {
-        return undefined;
+        return {
+          commit: undefined,
+          branch: undefined,
+        };
       }
       return findGitHead(parentDir, depth + 1);
     }
@@ -230,7 +247,26 @@ async function safeReadGitBranch(cwd: string) {
   try {
     return findGitHead(cwd, 0);
   } catch (err) {
-    console.error("Error while reading .git/HEAD", err);
+    console.error("Error while reading .git", err);
+    return {
+      commit: undefined,
+      branch: undefined,
+    };
+  }
+}
+
+async function readCommit(
+  gitDir: string,
+  branchName: string
+): Promise<string | undefined> {
+  try {
+    return (
+      await fs.readFile(
+        path.join(gitDir, ".git", "refs", "heads", branchName),
+        "utf-8"
+      )
+    ).trim();
+  } catch (err) {
     return undefined;
   }
 }
