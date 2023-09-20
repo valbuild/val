@@ -1,5 +1,4 @@
 import { SerializedModule } from "@valbuild/core";
-import { result } from "@valbuild/core/fp";
 import { Json } from "@valbuild/core/src/Json";
 import { ValApi } from "@valbuild/react";
 import { FC, useEffect, useState } from "react";
@@ -16,8 +15,8 @@ interface ValDashboardProps {
 export const ValDashboard: FC<ValDashboardProps> = ({
   showDashboard,
   editMode,
-  valApi,
 }) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [modules, setModules] = useState<SerializedModule[]>([]);
   const [selectedPath, setSelectedPath] = useState<string>("");
   const [selectedModule, setSelectedModule] = useState<
@@ -31,9 +30,9 @@ export const ValDashboard: FC<ValDashboardProps> = ({
   >();
 
   useEffect(() => {
-    valApi.getModules({ patch: true, includeSource: true }).then((modules) => {
-      // TODO:
-    });
+    // valApi.getModules({ patch: true, includeSource: true }).then((modules) => {
+    //   // TODO:
+    // });
   }, []);
 
   useEffect(() => {

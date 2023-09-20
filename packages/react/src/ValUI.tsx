@@ -3,14 +3,14 @@ import { Internal } from "@valbuild/core";
 import { Style, ValOverlay } from "@valbuild/ui";
 import { useEffect, useState } from "react";
 import { ShadowRoot } from "./ShadowRoot";
-import { useValApi, useValStore } from "./ValProvider";
+import { useValApi } from "./ValProvider";
 
 export default function ValUI() {
   const [isClient, setIsClient] = useState(false);
   const [enabled, setEnabled] = useState(false);
-  const [isDraftMode, setDraftMode] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [isDraftMode, setDraftMode] = useState(false); // TODO: if enabled, but not in draft mode: show something
   const api = useValApi();
-  const valStore = useValStore();
   useEffect(() => {
     setIsClient(true);
     try {
@@ -57,7 +57,7 @@ export default function ValUI() {
           rel="stylesheet"
         />
         <Style />
-        <ValOverlay api={api} store={valStore} />
+        <ValOverlay api={api} />
       </ShadowRoot>
     </>
   );

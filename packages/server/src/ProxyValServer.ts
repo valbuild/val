@@ -3,7 +3,6 @@ import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { PatchJSON } from "./patch/validation";
 import { result } from "@valbuild/core/fp";
-import { getPathFromParams } from "./expressHelpers";
 import { ValServer } from "./ValServer";
 import { z } from "zod";
 import { parsePatch } from "@valbuild/core/patch";

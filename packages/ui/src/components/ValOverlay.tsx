@@ -12,18 +12,16 @@ import { Remote } from "../utils/Remote";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
 import { TextArea } from "./forms/TextArea";
-import { Internal, SerializedSchema, Source, SourcePath } from "@valbuild/core";
+import { Internal, SerializedSchema, SourcePath } from "@valbuild/core";
 import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi, useValApi } from "@valbuild/react";
-import { ValStore } from "@valbuild/react/src/ValStore";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
   api: ValApi;
-  store: ValStore;
 };
 
-export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
+export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
   const [theme, setTheme] = useTheme(defaultTheme);
   const session = useSession(api);
 

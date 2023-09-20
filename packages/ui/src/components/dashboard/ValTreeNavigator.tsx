@@ -1,5 +1,4 @@
 import { Internal, SerializedModule, SourcePath } from "@valbuild/core";
-import { PatchJSON } from "@valbuild/core/patch";
 import { Json, JsonArray } from "@valbuild/core/src/Json";
 import { ValApi } from "@valbuild/react";
 import classNames from "classnames";
@@ -91,7 +90,7 @@ const ValTreeNavigatorArrayModule: FC<{
   selectedModule: string;
   setSelectedModule: Dispatch<SetStateAction<string>>;
   valApi: ValApi;
-}> = ({ module, selectedModule, setSelectedModule, valApi }) => {
+}> = ({ module, selectedModule, setSelectedModule }) => {
   const [collapsed, setCollapsed] = useState(true);
   const [items, setItems] = useState<Json[]>(
     (module.source as JsonArray).map((submodule) => submodule as Json)
@@ -103,30 +102,30 @@ const ValTreeNavigatorArrayModule: FC<{
       newIndex < 0 ? items.length - 1 : newIndex % items.length;
     const path = module.path + oldIndex.toString();
     const newPath = module.path + sanitizedNewIndex.toString();
-    const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(
-      path as SourcePath
-    );
+    // const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(
+    //   path as SourcePath
+    // );
 
     const [newModuleId, newModulePath] = Internal.splitModuleIdAndModulePath(
       newPath as SourcePath
     );
-    const patch: PatchJSON = [
-      {
-        op: "move",
-        from: `/${modulePath
-          .split(".")
-          .map((p) => {
-            return JSON.parse(p);
-          })
-          .join("/")}`,
-        path: `/${newModulePath
-          .split(".")
-          .map((p) => {
-            return JSON.parse(p);
-          })
-          .join("/")}`,
-      },
-    ];
+    // const patch: PatchJSON = [
+    //   {
+    //     op: "move",
+    //     from: `/${modulePath
+    //       .split(".")
+    //       .map((p) => {
+    //         return JSON.parse(p);
+    //       })
+    //       .join("/")}`,
+    //     path: `/${newModulePath
+    //       .split(".")
+    //       .map((p) => {
+    //         return JSON.parse(p);
+    //       })
+    //       .join("/")}`,
+    //   },
+    // ];
     // await valApi.patchModuleContent(moduleId, patch);
     if (selectedModule === path) {
       setSelectedModule(`${newModuleId}.${newModulePath}`);

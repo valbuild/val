@@ -17,7 +17,7 @@ export class ValApi {
     commit?: string,
     headers?: Record<string, string> | undefined
   ) {
-    let params: string = "";
+    let params = "";
     if (commit) {
       const p = new URLSearchParams();
       p.set("commit", commit);

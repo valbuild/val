@@ -15,6 +15,7 @@ export class ValStore {
     this.listeners = {};
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async update(moduleIds: ModuleId[]) {
     // TODO: update only the modules that have changed
     return this.updateAll();
