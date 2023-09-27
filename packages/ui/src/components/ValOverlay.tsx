@@ -3,6 +3,7 @@ import {
   SetStateAction,
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { Session } from "../dto/Session";
@@ -12,9 +13,18 @@ import { Remote } from "../utils/Remote";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
 import { TextArea } from "./forms/TextArea";
-import { Internal, SerializedSchema, SourcePath } from "@valbuild/core";
+import {
+  Internal,
+  RichText,
+  RichTextSource,
+  SerializedSchema,
+  SourcePath,
+  VAL_EXTENSION,
+} from "@valbuild/core";
 import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/core";
+import { RichTextEditor } from "../exports";
+import { LexicalEditor } from "lexical";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -82,10 +92,73 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
                   defaultValue={selectedSource}
                 />
               )}
+            {selectedSource &&
+              typeof selectedSource === "object" &&
+              VAL_EXTENSION in selectedSource &&
+              selectedSource[VAL_EXTENSION] === "richtext" &&
+              selectedSchema?.type === "richtext" && (
+                <RichTextForm
+                  api={api}
+                  path={windowTarget.path}
+                  defaultValue={selectedSource as RichTextSource}
+                />
+              )}
           </ValWindow>
         )}
       </div>
     </ValOverlayContext.Provider>
+  );
+}
+
+function RichTextForm({
+  path,
+  defaultValue,
+  api,
+}: {
+  path: SourcePath;
+  defaultValue?: RichText;
+  api: ValApi;
+}) {
+  const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
+  const [isPatching, setIsPatching] = useState(false);
+  const [editor, setEditor] = useState<LexicalEditor | null>(null);
+  return (
+    <form
+      onSubmit={(ev) => {
+        ev.preventDefault();
+        setIsPatching(true);
+        const value = editor?.toJSON()?.editorState.root || {};
+        api
+          .postPatches(moduleId, [
+            {
+              op: "replace",
+              path: Internal.createPatchJSONPath(modulePath),
+              value: {
+                ...value,
+                [VAL_EXTENSION]: "richtext",
+              },
+            },
+          ])
+          .finally(() => {
+            setIsPatching(false);
+          });
+      }}
+    >
+      <RichTextEditor
+        onEditor={(editor) => {
+          setEditor(editor);
+        }}
+        richtext={
+          defaultValue ||
+          ({
+            children: [],
+            type: "root",
+            valPath: path,
+          } as unknown as RichText)
+        }
+      />
+      <SubmitButton disabled={!editor || isPatching} />
+    </form>
   );
 }
 
@@ -98,7 +171,7 @@ function TextForm({
   defaultValue?: string;
   api: ValApi;
 }) {
-  const [text, setText] = useState(defaultValue || "");
+  const [value, setValue] = useState(defaultValue || "");
   const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
   const [isPatching, setIsPatching] = useState(false);
   return (
@@ -112,7 +185,7 @@ function TextForm({
             {
               op: "replace",
               path: Internal.createPatchJSONPath(modulePath),
-              value: text,
+              value: value,
             },
           ])
           .finally(() => {
@@ -122,17 +195,23 @@ function TextForm({
     >
       <TextArea
         name={path}
-        text={text}
+        text={value}
         disabled={isPatching}
-        onChange={setText}
+        onChange={setValue}
       />
-      <button
-        className="px-4 py-2 border border-highlight disabled:border-border"
-        disabled={isPatching}
-      >
-        Submit
-      </button>
+      <SubmitButton disabled={isPatching} />
     </form>
+  );
+}
+
+function SubmitButton({ disabled }: { disabled: boolean }) {
+  return (
+    <button
+      className="px-4 py-2 border border-highlight disabled:border-border"
+      disabled={disabled}
+    >
+      Submit
+    </button>
   );
 }
 
