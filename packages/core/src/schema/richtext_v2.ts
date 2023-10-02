@@ -114,11 +114,60 @@ type RichTextSource<O extends Options> = (
   | BlockQuote<O>
 )[];
 
+type options = { headings: [`h${1 | 2 | 3 | 4 | 5 | 6}`] };
+
+function parseTokens<O extends Options>(
+  tokens: marked.TokensList
+): RichTextSource<O> {
+  return tokens.flatMap((token) => {
+    if (token.type === "heading") {
+      return [
+        {
+          tag: `h${token.depth}` as options["headings"][number],
+          children: parseTokens(token.tokens),
+        },
+      ];
+    }
+    if (token.type === "paragraph") {
+      return [
+        {
+          tag: "p",
+          children: parseTokens(token.tokens),
+        },
+      ];
+    }
+    // For strong, em, og italic så kan vi i teorien bare returnere token.text 
+    // altså ikke kjøre rekursivt parseTokens
+    if (token.type === "strong") {
+      return [
+        {
+          tag: "span",
+          class: ["font-bold"],
+          children: parseTokens(token.tokens),
+        },
+      ];
+    }
+    if (token.type === "em") {
+      return [
+        {
+          tag: "span",
+          class: ["italic"],
+          children: parseTokens(token.tokens),
+        },
+      ];
+    }
+    if (token.type === "text") {
+      return [token.text];
+    }
+  });
+}
+
 export function richtext(
   templateStrings: TemplateStringsArray
-): RichTextSource<{}> {
-  templateStrings.map((templateString) => {
-    //
-    console.log(marked.lexer(templateString));
-  });
+): RichTextSource<options> {
+  return templateStrings.map((templateString) => {
+    const lex = marked.lexer(templateString);
+    console.log(JSON.stringify(lex, null, 2));
+    return parseTokens(lex);
+  })[0];
 }
