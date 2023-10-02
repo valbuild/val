@@ -115,7 +115,7 @@ function safeDraftModeEnabled() {
     return draftMode().isEnabled;
   } catch (err) {
     console.error(
-      "Val: could read draft mode! fetchVal can only be used server-side. Use useVal on clients.",
+      "Val: could not read draft mode! fetchVal can only be used server-side. Use useVal on clients.",
       err
     );
     return false;
