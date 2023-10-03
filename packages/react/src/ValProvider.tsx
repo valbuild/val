@@ -30,18 +30,23 @@ export const ValContext = React.createContext<ValContext>({
 
 export type ValProviderProps = {
   host?: string;
+  styles?: string;
   children?: React.ReactNode;
 };
 const ValUI =
   typeof window !== "undefined" ? lazy(() => import("./ValUI")) : null;
 
-export function ValProvider({ host = "/api/val", children }: ValProviderProps) {
+export function ValProvider({
+  host = "/api/val",
+  children,
+  styles,
+}: ValProviderProps) {
   const valApi = useMemo(() => new ValApi(host), [host]);
   const valStore = useMemo(() => new ValStore(valApi), [valApi]);
   return (
     <ValContext.Provider value={{ valApi, valStore }}>
       {children}
-      {ValUI && <ValUI />}
+      {ValUI && <ValUI styles={styles} />}
     </ValContext.Provider>
   );
 }

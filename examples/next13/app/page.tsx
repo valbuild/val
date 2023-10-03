@@ -6,6 +6,7 @@ import blogsVal from "./blogs.val";
 
 export default function Home() {
   const blogs = useVal(blogsVal);
+  console.log(blogs.map((b) => b.text));
   return (
     <main>
       <article>

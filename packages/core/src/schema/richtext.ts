@@ -1,98 +1,44 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
-import { VAL_EXTENSION } from "../source";
-import { RichTextSource } from "../source/richtext";
+import { RichTextSource, RichTextOptions } from "../source/richtext";
 import { SourcePath } from "../val";
-import {
-  ValidationError,
-  ValidationErrors,
-} from "./validation/ValidationError";
+import { ValidationErrors } from "./validation/ValidationError";
 
-export type SerializedRichTextSchema = {
+export type SerializedRichTextSchema = RichTextOptions & {
   type: "richtext";
   opt: boolean;
 };
 
 export class RichTextSchema<
-  Src extends RichTextSource | null
+  O extends RichTextOptions,
+  Src extends RichTextSource<O> | null
 > extends Schema<Src> {
+  constructor(readonly options: O, readonly opt: boolean = false) {
+    super();
+  }
+
   validate(path: SourcePath, src: Src): ValidationErrors {
-    if (this.opt && (src === null || src === undefined)) {
-      return false;
-    }
-    if (src === null || src === undefined) {
-      return {
-        [path]: [
-          { message: `Expected non-nullable got '${src}'` } as ValidationError,
-        ],
-      } as ValidationErrors;
-    }
-
-    if (typeof src !== "object" && !Array.isArray(src)) {
-      return {
-        [path]: [
-          {
-            message: `Expected 'object' (that is not of an array) or 'string', got '${typeof src}'`,
-            value: src,
-          } as ValidationError,
-        ],
-      } as ValidationErrors;
-    }
-
-    if (src[VAL_EXTENSION] !== "richtext") {
-      return {
-        [path]: [
-          {
-            message: `Expected _type key with value 'richtext' got '${src[VAL_EXTENSION]}'`,
-            value: src,
-          } as ValidationError,
-        ],
-      } as ValidationErrors;
-    }
-
-    if (src.type !== "root") {
-      return {
-        [path]: [
-          {
-            message: `Expected type key with value 'root' got '${src.type}'`,
-            value: src,
-          } as ValidationError,
-        ],
-      } as ValidationErrors;
-    }
-
-    if (typeof src.children !== "object" && !Array.isArray(src.children)) {
-      return {
-        [path]: [
-          {
-            message: `Expected children to be an array, but got '${src.type}'`,
-            value: src,
-          } as ValidationError,
-        ],
-      } as ValidationErrors;
-    }
-
-    return false;
+    return false; //TODO
   }
+
   assert(src: Src): boolean {
-    // TODO:
-    return true;
+    return true; // TODO
   }
 
-  optional(): Schema<RichTextSource | null> {
-    return new RichTextSchema(true);
+  optional(): Schema<RichTextSource<O> | null> {
+    return new RichTextSchema(this.options, true);
   }
+
   serialize(): SerializedSchema {
     return {
       type: "richtext",
       opt: this.opt,
     };
   }
-  constructor(readonly opt: boolean = false) {
-    super();
-  }
 }
 
-export const richtext = (): Schema<RichTextSource> => {
-  return new RichTextSchema();
+export const richtext = <O extends RichTextOptions>(
+  options: O
+): Schema<RichTextSource<O>> => {
+  return new RichTextSchema<O, RichTextSource<O>>(options);
 };

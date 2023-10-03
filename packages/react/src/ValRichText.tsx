@@ -1,177 +1,90 @@
 import {
-  HeadingNode,
-  ListItemNode,
-  ListNode,
-  ParagraphNode,
+  RichTextOptions,
   RichText,
+  RichTextNode,
   SourcePath,
-  TextNode,
 } from "@valbuild/core";
+import React from "react";
 import { createElement } from "react";
-import parse from "style-to-object";
 
+type AllOptions = {
+  headings: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];
+  image: true;
+  bulletList: true;
+  numberList: true;
+  underline: true;
+  lineThrough: true;
+  bold: true;
+  italic: true;
+  blockQuote: true;
+  fontFamily: Record<string, string[]>;
+  fontSize: Record<string, string[]>;
+};
 export function ValRichText({ children }: { children: RichText }) {
-  const root: RichText = children;
-  const path = root.valPath;
-  return (
-    <div data-val-path={path}>
-      {root.children.map((child, i) => {
-        const childType = child.type;
-        const childPath = `${path}.${i}` as SourcePath;
-        switch (childType) {
-          case "heading":
-            return (
-              <HeadingNodeComponent
-                key={childPath}
-                path={childPath}
-                node={child}
-              />
-            );
-          case "paragraph":
-            return (
-              <ParagraphNodeComponent
-                key={childPath}
-                path={childPath}
-                node={child}
-              />
-            );
-          case "list":
-            return (
-              <ListNodeComponent
-                key={childPath}
-                path={childPath}
-                node={child}
-              />
-            );
-          default:
-            throw Error("Unknown root node type: " + childType);
-        }
-      })}
-    </div>
-  );
-}
+  const root = children as RichText & { valPath: SourcePath };
 
-function TextNodeComponent({ node }: { node: TextNode }) {
-  const styleProps = node.style ? parse(node.style) ?? {} : {};
-  // TODO: Ugly! We should do this before serializing instead
-  if (styleProps["font-family"]) {
-    styleProps["fontFamily"] = styleProps["font-family"];
-    delete styleProps["font-family"];
-  }
-  if (styleProps["font-size"]) {
-    styleProps["fontSize"] = styleProps["font-size"];
-    delete styleProps["font-size"];
-  }
-  const bitmask = node.format?.toString(2);
-  const bitmaskOffset = bitmask ? bitmask.length - 1 : 0;
-  function isBitOne(bit: number) {
-    if (!bitmask) {
-      return false;
+  function toReact(
+    node: RichTextNode<AllOptions>,
+    key: number | string
+  ): React.ReactNode {
+    if (typeof node === "string") {
+      return node;
     }
-    return (
-      bitmask.length >= bitmaskOffset - bit &&
-      bitmask[bitmaskOffset - bit] === "1"
-    );
-  }
-  if (isBitOne(0)) {
-    styleProps["fontWeight"] = "bold";
-  }
-  if (isBitOne(1)) {
-    styleProps["fontStyle"] = "italic";
-  }
-  if (isBitOne(2)) {
-    if (!styleProps["textDecoration"]) {
-      styleProps["textDecoration"] = "line-through";
-    } else {
-      styleProps["textDecoration"] += " line-through";
+    if (node.tag === "p") {
+      return <p key={key}>{node.children.map(toReact)}</p>;
     }
-  }
-  if (isBitOne(3)) {
-    if (!styleProps["textDecoration"]) {
-      styleProps["textDecoration"] = "underline";
-    } else {
-      styleProps["textDecoration"] += " underline";
-    }
-  }
-  return <span style={styleProps}>{node.text}</span>;
-}
-
-function HeadingNodeComponent({
-  node,
-  path,
-}: {
-  path: SourcePath;
-  node: HeadingNode;
-}) {
-  return createElement(
-    node.tag,
-    {},
-    node.children.map((child, i) => {
-      const childPath = `${path}.${i}` as SourcePath;
-      return <TextNodeComponent key={childPath} node={child} />;
-    })
-  );
-}
-
-function ParagraphNodeComponent({
-  node,
-  path,
-}: {
-  path: SourcePath;
-  node: ParagraphNode;
-}) {
-  return (
-    <p>
-      {node.children.map((child, i) => {
-        const childPath = `${path}.${i}` as SourcePath;
-        switch (child.type) {
-          case "text":
-            return <TextNodeComponent key={childPath} node={child} />;
-          default:
-            throw Error("Unknown paragraph node type: " + child?.type);
-        }
-      })}
-    </p>
-  );
-}
-
-function ListNodeComponent({
-  node,
-  path,
-}: {
-  path: SourcePath;
-  node: ListNode;
-}) {
-  return createElement(
-    node.tag,
-    {},
-    node.children.map((child, i) => {
-      const childPath = `${path}.${i}` as SourcePath;
+    if (node.tag === "img") {
       return (
-        <ListItemComponent key={childPath} path={childPath} node={child} />
+        <div key={key}>
+          <img src={node.src} />
+        </div>
       );
-    })
-  );
-}
+    }
+    if (node.tag === "blockquote") {
+      return <blockquote key={key}>{node.children.map(toReact)}</blockquote>;
+    }
+    if (node.tag === "ul") {
+      return <ul key={key}>{node.children.map(toReact)}</ul>;
+    }
+    if (node.tag === "ol") {
+      return <ol key={key}>{node.children.map(toReact)}</ol>;
+    }
+    if (node.tag === "li") {
+      return <li key={key}>{node.children.map(toReact)}</li>;
+    }
+    if (node.tag === "span") {
+      return (
+        <span key={key} className={node.class.join(" ")}>
+          {node.children.map(toReact)}
+        </span>
+      );
+    }
+    if (node.tag === "h1") {
+      return <h1 key={key}>{node.children.map(toReact)}</h1>;
+    }
+    if (node.tag === "h2") {
+      return <h2 key={key}>{node.children.map(toReact)}</h2>;
+    }
+    if (node.tag === "h3") {
+      return <h3 key={key}>{node.children.map(toReact)}</h3>;
+    }
+    if (node.tag === "h4") {
+      return <h4 key={key}>{node.children.map(toReact)}</h4>;
+    }
+    if (node.tag === "h5") {
+      return <h5 key={key}>{node.children.map(toReact)}</h5>;
+    }
+    if (node.tag === "h6") {
+      return <h6 key={key}>{node.children.map(toReact)}</h6>;
+    }
+    console.error("Unknown tag", node.tag);
+    const anyNode = node as any;
+    return React.createElement(anyNode.tag, {
+      key,
+      className: anyNode.class?.join(" "),
+      children: anyNode.children.map(toReact),
+    });
+  }
 
-function ListItemComponent({
-  node,
-  path,
-}: {
-  path: SourcePath;
-  node: ListItemNode;
-}) {
-  return (
-    <li>
-      {node.children.map((child, i) => {
-        const childPath = `${path}.${i}` as SourcePath;
-        switch (child.type) {
-          case "text":
-            return <TextNodeComponent key={childPath} node={child} />;
-          default:
-            throw Error("Unknown list item node type: " + child?.type);
-        }
-      })}
-    </li>
-  );
+  return <div data-val-path={root.valPath}>{root.children.map(toReact)}</div>;
 }

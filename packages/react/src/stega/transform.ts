@@ -69,7 +69,7 @@ export function transform(
       if (VAL_EXTENSION in sourceOrSelector) {
         if (sourceOrSelector[VAL_EXTENSION] === "richtext") {
           return {
-            ...sourceOrSelector,
+            ...Internal.convertRichTextSource(sourceOrSelector),
             valPath: path,
           };
         }
