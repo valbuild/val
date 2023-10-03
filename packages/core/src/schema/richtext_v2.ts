@@ -1,8 +1,9 @@
 import * as marked from "marked";
+import { FileSource } from "../source/file";
 
 type Options = {
   headings?: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];
-  link?: boolean;
+  // link?: boolean;
   image?: boolean;
   bulletList?: boolean; // TODO: naming
   numberList?: boolean; // TODO: naming
@@ -112,9 +113,15 @@ type RichTextSource<O extends Options> = (
   | UnorderedListNode<O>
   | OrderedListNode<O>
   | BlockQuote<O>
+  | (O["image"] extends true
+      ? FileSource<{
+          // image
+          width: number;
+          height: number;
+          sha256: string;
+        }>
+      : never)
 )[];
-
-type options = { headings: [`h${1 | 2 | 3 | 4 | 5 | 6}`] };
 
 function parseTokens<O extends Options>(
   tokens: marked.Token[]
@@ -123,7 +130,7 @@ function parseTokens<O extends Options>(
     if (token.type === "heading") {
       return [
         {
-          tag: `h${token.depth}` as options["headings"][number],
+          tag: `h${token.depth}`,
           children: parseTokens(token.tokens ? token.tokens : []),
         },
       ];
@@ -136,8 +143,6 @@ function parseTokens<O extends Options>(
         },
       ];
     }
-    // For strong, em, og italic så kan vi i teorien bare returnere token.text
-    // altså ikke kjøre rekursivt parseTokens
     if (token.type === "strong") {
       return [
         {
@@ -159,15 +164,56 @@ function parseTokens<O extends Options>(
     if (token.type === "text") {
       return [token.text];
     }
+    if (token.type === "list") {
+      return [
+        {
+          tag: token.ordered ? "ol" : "ul",
+          children: parseTokens(token.items),
+        },
+      ];
+    }
+    if (token.type === "list_item") {
+      return [
+        {
+          tag: "li",
+          children: parseTokens(token.tokens ? token.tokens : []),
+        },
+      ];
+    }
+    if (token.type === "space") {
+      return [];
+    }
+
     throw Error(`Unexpected token type: ${token.type}`);
   });
 }
 
-export function richtext(
-  templateStrings: TemplateStringsArray
-): RichTextSource<options> {
-  return templateStrings.map((templateString) => {
+type NodeOf<O extends Options> = O["image"] extends true
+  ? FileSource<{
+      width: number;
+      height: number;
+      sha256: string;
+    }>
+  : never;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function nodeToTag(node: any): any {
+  if (node._type === "file") {
+    return node;
+  }
+  throw Error(`Unexpected node: ${JSON.stringify(node)}`);
+}
+
+// eslint-disable-next-line @typescript-eslint/ban-types
+export function richtext<O extends Options = {}>(
+  templateStrings: TemplateStringsArray,
+  ...expr: NodeOf<O>[]
+): RichTextSource<O> {
+  return templateStrings.flatMap((templateString, i) => {
     const lex = marked.lexer(templateString);
+    if (expr[i]) {
+      return parseTokens(lex).concat(nodeToTag(expr[i]));
+    }
     return parseTokens(lex);
-  })[0];
+  });
 }
