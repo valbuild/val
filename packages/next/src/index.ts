@@ -3,15 +3,7 @@ export { Schema, type SerializedSchema } from "@valbuild/core";
 export type { SourceObject, SourcePrimitive, Source } from "@valbuild/core";
 export type { ValModule, SerializedModule } from "@valbuild/core";
 export type { FileSource } from "@valbuild/core";
-export type {
-  RichTextSource,
-  RichText,
-  TextNode,
-  ParagraphNode,
-  HeadingNode,
-  ListItemNode,
-  ListNode,
-} from "@valbuild/core";
+export type { RichTextSource, RichText } from "@valbuild/core";
 export {
   type Val,
   type SerializedVal,

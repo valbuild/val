@@ -16,8 +16,8 @@ export type Selector<T extends Source> = Source extends T
   ? GenericSelector<T>
   : T extends FileSource
   ? FileSelector
-  : T extends RichTextSource
-  ? RichText
+  : T extends RichTextSource<infer O>
+  ? RichText<O>
   : T extends SourceObject
   ? ObjectSelector<T>
   : T extends SourceArray

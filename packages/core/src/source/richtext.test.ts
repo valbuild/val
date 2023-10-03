@@ -1,5 +1,5 @@
 import { file } from "../source/file";
-import { richtext } from "./richtext_v2";
+import { richtext } from "./richtext";
 
 //MD to HTML
 describe("richtext", () => {

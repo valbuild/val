@@ -254,9 +254,9 @@ const ValidationTestCases: {
   // richtext
   {
     description: "basic richtext",
-    input: richtextVal("test"),
+    input: richtextVal`test`,
     expected: false,
-    schema: richtext(),
+    schema: richtext({ bold: true }),
   },
   // TODO: more richtext cases
   // TODO: union

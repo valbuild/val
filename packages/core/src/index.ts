@@ -4,15 +4,7 @@ export { Schema, type SerializedSchema } from "./schema";
 export type { ValModule, SerializedModule } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
-export type {
-  RichTextSource,
-  RichText,
-  TextNode,
-  ParagraphNode,
-  HeadingNode,
-  ListItemNode,
-  ListNode,
-} from "./source/richtext";
+export type * from "./source/richtext";
 export {
   type Val,
   type SerializedVal,
@@ -44,6 +36,7 @@ import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
 import { Json } from "./Json";
 import { SerializedSchema } from "./schema";
+import { convertRichTextSource } from "./source/richtext";
 export { ValApi } from "./ValApi";
 
 export type ApiTreeResponse = {
@@ -68,6 +61,7 @@ export type ApiPatchResponse = Record<ModuleId, string[]>;
 
 const Internal = {
   convertFileSource,
+  convertRichTextSource,
   getSchema,
   getValPath,
   getVal,
