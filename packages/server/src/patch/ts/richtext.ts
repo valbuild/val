@@ -66,10 +66,14 @@ export function richTextToTaggedStringTemplate(source: RichTextSource) {
       }
     } else {
       nodes.push(node);
-      texts.push("");
+      texts.push("\n");
     }
   }
   source.children.forEach(rec);
 
+  if (texts[texts.length - 1]) {
+    // remove last \n\n
+    texts[texts.length - 1] = texts[texts.length - 1].slice(0, -2);
+  }
   return [texts, nodes];
 }
