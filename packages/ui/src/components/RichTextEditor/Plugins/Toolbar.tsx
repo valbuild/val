@@ -295,19 +295,6 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
             formatText(blockTypesLookup[selectedOption]);
           }}
         />
-        <Dropdown
-          onChange={changeFontFamily}
-          options={fontsFamilies ?? ["sans", "serif", "solina"]}
-          label={fontFamily}
-        />
-        <Dropdown
-          onChange={changeFontSize}
-          options={
-            fontSizes ??
-            [11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((size) => `${size}px`)
-          }
-          label={fontSize}
-        />
       </div>
       <div className="flex flex-row gap-2">
         <Button

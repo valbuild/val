@@ -40,7 +40,7 @@ const Button: FC<ButtonProps> = ({
     <button
       disabled={disabled}
       className={classNames(
-        "font-sans font-[12px] tracking-[0.04em] py-[8px] px-[12px] h-[40px] rounded whitespace-nowrap group relative text-primary",
+        "font-sans font-[12px] tracking-[0.04em] py-[8px] px-[12px] rounded whitespace-nowrap group relative text-primary",
         {
           "font-bold": variant === "primary",
           "bg-base hover:bg-base text-fill disabled:bg-fill disabled:text-base":
