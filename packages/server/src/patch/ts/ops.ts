@@ -18,8 +18,14 @@ import {
   JSONValue,
   parseAndValidateArrayIndex,
 } from "@valbuild/core/patch";
-import { FILE_REF_PROP, FileSource } from "@valbuild/core";
+import {
+  FILE_REF_PROP,
+  FileSource,
+  RichText,
+  VAL_EXTENSION,
+} from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core/src/Json";
+import { richTextToTaggedStringTemplate } from "./richtext";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
@@ -60,14 +66,51 @@ function createPropertyAssignment(key: string, value: JSONValue) {
   );
 }
 
-function createValFileReference(ref: string) {
+function createValFileReference(value: FileSource) {
+  const args: ts.Expression[] = [
+    ts.factory.createStringLiteral(value[FILE_REF_PROP]),
+  ];
+  if (value.metadata) {
+    args.push(toExpression(value.metadata));
+  }
+
   return ts.factory.createCallExpression(
     ts.factory.createPropertyAccessExpression(
       ts.factory.createIdentifier("val"),
       ts.factory.createIdentifier("file")
     ),
     undefined,
-    [ts.factory.createStringLiteral(ref)]
+    args
+  );
+}
+
+function createValRichTextTaggedStringTemplate(value: RichText): ts.Expression {
+  const [[head, ...others], nodes] = richTextToTaggedStringTemplate(value);
+  const tag = ts.factory.createPropertyAccessExpression(
+    ts.factory.createIdentifier("val"),
+    ts.factory.createIdentifier("richtext")
+  );
+  if (nodes.length > 0) {
+    return ts.factory.createTaggedTemplateExpression(
+      tag,
+      undefined,
+      ts.factory.createTemplateExpression(
+        ts.factory.createTemplateHead(head, head),
+        others.map((s, i) =>
+          ts.factory.createTemplateSpan(
+            toExpression(nodes[i]),
+            i < others.length - 1
+              ? ts.factory.createTemplateMiddle(s, s)
+              : ts.factory.createTemplateTail(s, s)
+          )
+        )
+      )
+    );
+  }
+  return ts.factory.createTaggedTemplateExpression(
+    tag,
+    undefined,
+    ts.factory.createNoSubstitutionTemplateLiteral(head, head)
   );
 }
 
@@ -85,7 +128,9 @@ function toExpression(value: JSONValue): ts.Expression {
     return ts.factory.createArrayLiteralExpression(value.map(toExpression));
   } else if (typeof value === "object") {
     if (isValFileValue(value)) {
-      return createValFileReference(value[FILE_REF_PROP]);
+      return createValFileReference(value);
+    } else if (isValRichTextValue(value)) {
+      return createValRichTextTaggedStringTemplate(value);
     }
     return ts.factory.createObjectLiteralExpression(
       Object.entries(value).map(([key, value]) =>
@@ -549,8 +594,23 @@ function isValFileValue(value: JSONValue): value is FileSource<{
   return !!(
     typeof value === "object" &&
     value &&
+    // TODO: replace the below with this:
+    // VAL_EXTENSION in value &&
+    // value[VAL_EXTENSION] === "file" &&
     FILE_REF_PROP in value &&
     typeof value[FILE_REF_PROP] === "string"
+  );
+}
+
+function isValRichTextValue(value: JSONValue): value is RichText {
+  return !!(
+    typeof value === "object" &&
+    value &&
+    VAL_EXTENSION in value &&
+    value[VAL_EXTENSION] === "richtext" &&
+    "children" in value &&
+    typeof value.children === "object" &&
+    Array.isArray(value.children)
   );
 }
 

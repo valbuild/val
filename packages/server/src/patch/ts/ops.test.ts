@@ -3,6 +3,7 @@ import { TSOps } from "./ops";
 import { result, array, pipe } from "@valbuild/core/fp";
 import { PatchError, JSONValue } from "@valbuild/core/patch";
 import { ValSyntaxError } from "./syntax";
+import { FILE_REF_PROP, VAL_EXTENSION } from "@valbuild/core";
 
 function testSourceFile(expression: string): ts.SourceFile {
   return ts.createSourceFile(
@@ -448,6 +449,106 @@ describe("TSOps", () => {
       path: ["image", "_ref", "zoo"],
       value: null,
       expected: result.err(PatchError),
+    },
+    {
+      name: "val.richtext basic no nodes",
+      input: "val.richtext`Test`",
+      path: [],
+      value: {
+        [VAL_EXTENSION]: "richtext",
+        children: [{ tag: "p", children: ["Test 2"] }],
+      },
+      expected: result.ok("val.richtext `Test 2`"),
+    },
+    {
+      name: "val.richtext advanced no nodes",
+      input: "val.richtext`Test`",
+      path: [],
+      value: {
+        [VAL_EXTENSION]: "richtext",
+        children: [
+          { tag: "h1", children: ["Title 1"] },
+          { tag: "p", children: ["Test 2"] },
+        ],
+      },
+      expected: result.ok(`val.richtext \`# Title 1
+
+Test 2\``),
+    },
+    {
+      name: "val.richtext basic nodes",
+      input: "val.richtext`Test`",
+      path: [],
+      value: {
+        [VAL_EXTENSION]: "richtext",
+        children: [
+          { tag: "h1", children: ["Title 1"] },
+          { tag: "p", children: ["Test 2"] },
+          {
+            [VAL_EXTENSION]: "file",
+            [FILE_REF_PROP]: "/public/test",
+            metadata: { width: 100, height: 100, sha256: "123" },
+          },
+        ],
+      },
+      expected: result.ok(`val.richtext \`# Title 1
+
+Test 2
+
+\${val.file("/public/test", { width: 100, height: 100, sha256: "123" })}\``),
+    },
+    {
+      name: "val.richtext advanced nodes",
+      input: "val.richtext`Test`",
+      path: [],
+      value: {
+        [VAL_EXTENSION]: "richtext",
+        children: [
+          { tag: "h1", children: ["Title 1"] },
+          {
+            [VAL_EXTENSION]: "file",
+            [FILE_REF_PROP]: "/public/test1",
+            metadata: { width: 100, height: 100, sha256: "123" },
+          },
+          {
+            [VAL_EXTENSION]: "file",
+            [FILE_REF_PROP]: "/public/test2",
+            metadata: { width: 100, height: 100, sha256: "123" },
+          },
+          { tag: "p", children: ["Test 2"] },
+        ],
+      },
+      expected: result.ok(`val.richtext \`# Title 1
+
+\${val.file("/public/test1", { width: 100, height: 100, sha256: "123" })}
+\${val.file("/public/test2", { width: 100, height: 100, sha256: "123" })}
+Test 2\``),
+    },
+    {
+      name: "val.richtext empty head",
+      input:
+        "{ text: val.richtext`${val.file('/public/test1', { height: 100 })}` }",
+      path: ["text"],
+      value: {
+        [VAL_EXTENSION]: "richtext",
+        children: [
+          {
+            [VAL_EXTENSION]: "file",
+            [FILE_REF_PROP]: "/public/test1",
+            metadata: { width: 100, height: 100, sha256: "123" },
+          },
+          {
+            [VAL_EXTENSION]: "file",
+            [FILE_REF_PROP]: "/public/test2",
+            metadata: { width: 100, height: 100, sha256: "123" },
+          },
+          { tag: "p", children: ["Test 2"] },
+        ],
+      },
+      expected:
+        result.ok(`{ text: val.richtext \`\${val.file("/public/test1", { width: 100, height: 100, sha256: "123" })}
+\${val.file("/public/test2", { width: 100, height: 100, sha256: "123" })}
+Test 2\` }`),
     },
   ])("replace $name", ({ input, path, value, expected }) => {
     const src = testSourceFile(input);
