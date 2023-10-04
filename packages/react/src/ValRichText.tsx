@@ -1,32 +1,10 @@
-import {
-  RichTextOptions,
-  RichText,
-  RichTextNode,
-  SourcePath,
-} from "@valbuild/core";
+import { RichText, RichTextNode, SourcePath } from "@valbuild/core";
 import React from "react";
-import { createElement } from "react";
 
-type AllOptions = {
-  headings: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];
-  image: true;
-  bulletList: true;
-  numberList: true;
-  underline: true;
-  lineThrough: true;
-  bold: true;
-  italic: true;
-  blockQuote: true;
-  fontFamily: Record<string, string[]>;
-  fontSize: Record<string, string[]>;
-};
 export function ValRichText({ children }: { children: RichText }) {
   const root = children as RichText & { valPath: SourcePath };
 
-  function toReact(
-    node: RichTextNode<AllOptions>,
-    key: number | string
-  ): React.ReactNode {
+  function toReact(node: RichTextNode, key: number | string): React.ReactNode {
     if (typeof node === "string") {
       return node;
     }
