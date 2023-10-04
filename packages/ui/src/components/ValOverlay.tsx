@@ -14,6 +14,7 @@ import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
 import { TextArea } from "./forms/TextArea";
 import {
+  AnyRichTextOptions,
   Internal,
   RichText,
   RichTextSource,
@@ -24,7 +25,7 @@ import {
 import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/core";
 import { RichTextEditor } from "../exports";
-import { LexicalEditor } from "lexical";
+import { LexicalEditor, LexicalNode } from "lexical";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -100,7 +101,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
                 <RichTextForm
                   api={api}
                   path={windowTarget.path}
-                  defaultValue={selectedSource as RichTextSource}
+                  defaultValue={selectedSource as RichText<AnyRichTextOptions>}
                 />
               )}
           </ValWindow>
@@ -116,7 +117,7 @@ function RichTextForm({
   api,
 }: {
   path: SourcePath;
-  defaultValue?: RichText;
+  defaultValue?: RichText<AnyRichTextOptions>;
   api: ValApi;
 }) {
   const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
