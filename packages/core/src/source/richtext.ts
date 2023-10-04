@@ -9,23 +9,20 @@ export type RichTextOptions = {
   image?: boolean;
   bulletList?: boolean; // TODO: naming
   numberList?: boolean; // TODO: naming
-  underline?: boolean;
   lineThrough?: boolean;
   bold?: boolean;
   italic?: boolean;
-  fontFamily?: Record<string, string[]>;
-  fontSize?: Record<string, string[]>;
+  // fontFamily?: Record<string, string[]>;
+  // fontSize?: Record<string, string[]>;
   blockQuote?: boolean; // TODO: naming
 };
 
 export type ParagraphNode<O extends RichTextOptions> = {
   tag: "p";
-  children: (string | SpanNode<O> | AnchorNode<O> | ImageNode<O>)[];
+  children: (string | SpanNode<O> | ImageNode<O>)[];
+  // AnchorNode<O>
 };
 
-export type Underline<O extends RichTextOptions> = O["underline"] extends true
-  ? "underline"
-  : never;
 export type LineThrough<O extends RichTextOptions> =
   O["lineThrough"] extends true ? "line-through" : never;
 export type Italic<O extends RichTextOptions> = O["italic"] extends true
@@ -34,24 +31,23 @@ export type Italic<O extends RichTextOptions> = O["italic"] extends true
 export type Bold<O extends RichTextOptions> = O["bold"] extends true
   ? "font-bold"
   : never;
-export type FontFamily<O extends RichTextOptions> =
-  O["fontFamily"] extends Record<string, unknown>
-    ? `font-${keyof O["fontFamily"] & string}`
-    : never;
-export type FontSize<O extends RichTextOptions> = O["fontSize"] extends Record<
-  string,
-  unknown
->
-  ? `text-${keyof O["fontSize"] & string}`
-  : never;
+// export type FontFamily<O extends RichTextOptions> =
+//   O["fontFamily"] extends Record<string, unknown>
+//     ? `font-${keyof O["fontFamily"] & string}`
+//     : never;
+// export type FontSize<O extends RichTextOptions> = O["fontSize"] extends Record<
+//   string,
+//   unknown
+// >
+//   ? `text-${keyof O["fontSize"] & string}`
+//   : never;
 
 export type Classes<O extends RichTextOptions> =
-  | Underline<O>
   | LineThrough<O>
   | Italic<O>
-  | Bold<O>
-  | FontFamily<O>
-  | FontSize<O>;
+  | Bold<O>;
+// | FontFamily<O>
+// | FontSize<O>;
 
 export type SpanNode<O extends RichTextOptions> = {
   tag: "span";
@@ -59,8 +55,7 @@ export type SpanNode<O extends RichTextOptions> = {
   children: [string | SpanNode<O>];
 };
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export type AnchorNode<O extends RichTextOptions> = never; // TODO:
+// export type AnchorNode<O extends RichTextOptions> = never; // TODO:
 // O["link"] extends true
 //   ? {
 //       tag: "a";
@@ -83,7 +78,7 @@ export type ListItemNode<O extends RichTextOptions> = {
   children: (
     | string
     | SpanNode<O>
-    | AnchorNode<O>
+    // | AnchorNode<O>
     | ImageNode<O>
     | UnorderedListNode<O>
     | OrderedListNode<O>
@@ -112,7 +107,8 @@ export type OrderedListNode<O extends RichTextOptions> =
 export type HeadingNode<O extends RichTextOptions> = O["headings"] extends any[]
   ? {
       tag: O["headings"][number];
-      children: (string | SpanNode<O> | AnchorNode<O>)[];
+      children: (string | SpanNode<O>)[];
+      // | AnchorNode<O>
     }
   : never;
 
@@ -131,9 +127,22 @@ export type SourceNode<O extends RichTextOptions> = O["image"] extends true
   ? ImageSource
   : never;
 
+type AllOptions = {
+  headings: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];
+  image: true;
+  bulletList: true;
+  numberList: true;
+  lineThrough: true;
+  bold: true;
+  italic: true;
+  blockQuote: true;
+  // fontFamily: Record<string, string[]>;
+  // fontSize: Record<string, string[]>;
+};
+
 export type RichTextSource<
   // eslint-disable-next-line @typescript-eslint/ban-types
-  O extends RichTextOptions = {}
+  O extends RichTextOptions = AllOptions
 > = {
   [VAL_EXTENSION]: "richtext";
   children: (
@@ -146,7 +155,7 @@ export type RichTextSource<
   )[];
 };
 
-export type RichTextNode<O extends RichTextOptions> =
+export type RichTextNode<O extends RichTextOptions = AllOptions> =
   | string
   | HeadingNode<O>
   | ParagraphNode<O>
@@ -205,6 +214,15 @@ function parseTokens<O extends RichTextOptions>(
         {
           tag: "span",
           class: ["italic"],
+          children: parseTokens(token.tokens ? token.tokens : []),
+        },
+      ];
+    }
+    if (token.type === "del") {
+      return [
+        {
+          tag: "span",
+          class: ["line-through"],
           children: parseTokens(token.tokens ? token.tokens : []),
         },
       ];

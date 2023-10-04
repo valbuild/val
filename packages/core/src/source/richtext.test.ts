@@ -4,8 +4,8 @@ import { richtext } from "./richtext";
 //MD to HTML
 describe("richtext", () => {
   test("basic h1", () => {
-    const easy = richtext`# Title 1`;
-    expect(easy).toStrictEqual([{ tag: "h1", children: ["Title 1"] }]);
+    const r = richtext`# Title 1`;
+    expect(r.children).toStrictEqual([{ tag: "h1", children: ["Title 1"] }]);
   });
 
   test("basic complete", () => {
@@ -14,7 +14,7 @@ describe("richtext", () => {
 
 Paragraph 1 2 3 4 5. Words *italic* **bold**
 `;
-    expect(r).toStrictEqual([
+    expect(r.children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       { tag: "h2", children: ["Title 2"] },
       {
@@ -34,7 +34,7 @@ Paragraph 1 2 3 4 5. Words *italic* **bold**
     const r = richtext`Which classes?
 ***All of them!***
 `;
-    expect(r).toStrictEqual([
+    expect(r.children).toStrictEqual([
       {
         tag: "p",
         children: [
@@ -49,15 +49,31 @@ Paragraph 1 2 3 4 5. Words *italic* **bold**
     ]);
   });
 
+  test("line through", () => {
+    // TODO: currently we do not merge
+    const r = richtext`~~line through~~`;
+    expect(r.children).toStrictEqual([
+      {
+        tag: "p",
+        children: [
+          {
+            tag: "span",
+            class: ["line-through"],
+            children: ["line through"],
+          },
+        ],
+      },
+    ]);
+  });
+
   test("2 paragraphs", () => {
-    type Opts = { image: true };
-    const r = richtext<Opts>`# Title 1
+    const r = richtext`# Title 1
 
 First paragraph
 
 Second paragraph
 `;
-    expect(r).toStrictEqual([
+    expect(r.children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       { tag: "p", children: ["First paragraph"] },
       { tag: "p", children: ["Second paragraph"] },
@@ -85,7 +101,7 @@ A nested list:
     - bullet 2.1
     - bullet 2.2
 `;
-    expect(r).toStrictEqual([
+    expect(r.children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       { tag: "p", children: ["A paragraph"] },
       { tag: "p", children: ["A bullet list:"] },
@@ -140,8 +156,7 @@ A nested list:
   });
 
   test("image", () => {
-    type Opts = { image: true };
-    const r = richtext<Opts>`# Title 1
+    const r = richtext`# Title 1
 
 Below we have an image block:
 
@@ -150,7 +165,7 @@ ${file("/public/foo.png", {
   height: 100,
   sha256: "123",
 })}`;
-    expect(r).toStrictEqual([
+    expect(r.children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       { tag: "p", children: ["Below we have an image block:"] },
       {
