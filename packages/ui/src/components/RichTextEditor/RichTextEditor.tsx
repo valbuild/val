@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { $getRoot, LexicalEditor } from "lexical";
+import { $getRoot, LexicalEditor, SerializedEditorState } from "lexical";
 import { ListItemNode, ListNode } from "@lexical/list";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import LexicalErrorBoundary from "@lexical/react/LexicalErrorBoundary";
@@ -14,7 +14,7 @@ import ImagesPlugin from "./Plugins/ImagePlugin";
 import Toolbar from "./Plugins/Toolbar";
 import { RichText } from "@valbuild/core";
 import { HeadingNode } from "@lexical/rich-text";
-import { toLexicalNode } from "./conversion.test";
+import { toLexical } from "./conversion";
 
 export interface RichTextEditorProps {
   richtext: RichText;
@@ -29,12 +29,10 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
   richtext,
   onEditor,
 }) => {
-  const prePopulatedState = () => {
-    const root = $getRoot();
-    $getRoot().append(
-      ...richtext.children.map((child) => toLexicalNode(child))
+  const prePopulatedState = (editor: LexicalEditor) => {
+    editor.setEditorState(
+      editor.parseEditorState({ root: toLexical(richtext) })
     );
-    root.selectEnd();
   };
   const initialConfig = {
     namespace: "val",

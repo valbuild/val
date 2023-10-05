@@ -30,16 +30,7 @@ export default val.content("/app/blogs", schema, [
       sha256:
         "41fe618d9db1a477debe0d72d9a8947be3623412281fec8ed4f70517188dfc5a",
     }),
-    text: val.richtext`# Den første teksten er viktig
-
-    Her er et bilde vettu Teddy:
-    ${val.file("/public/val/app/blogs/image2.jpg", {
-      width: 512,
-      height: 512,
-      sha256:
-        "9d39bf1a0b7efb117c5b6cfbca0911904c0be3d07588142db624dab183c33e20",
-    })}
-    `,
+    text: val.richtext`test`,
     rank: 100,
   },
   {
@@ -50,7 +41,7 @@ export default val.content("/app/blogs", schema, [
       sha256:
         "9d39bf1a0b7efb117c5b6cfbca0911904c0be3d07588142db624dab183c33e20",
     }),
-    text: val.richtext`Ja si det`,
+    text: val.richtext`# Nå er det lunsj`,
     rank: 10,
   },
   {
