@@ -24,6 +24,7 @@ import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/core";
 import { RichTextEditor } from "../exports";
 import { LexicalEditor } from "lexical";
+import { fromLexical } from "./RichTextEditor/conversion";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -126,7 +127,13 @@ function RichTextForm({
       onSubmit={(ev) => {
         ev.preventDefault();
         setIsPatching(true);
-        const value = editor?.toJSON()?.editorState.root || {};
+        const value: RichText<AnyRichTextOptions> = editor?.toJSON()
+          ?.editorState
+          ? fromLexical(editor?.toJSON()?.editorState.root as any)
+          : {
+              [VAL_EXTENSION]: "richtext",
+              children: [],
+            };
         api
           .postPatches(moduleId, [
             {
@@ -151,9 +158,9 @@ function RichTextForm({
           defaultValue ||
           ({
             children: [],
-            type: "root",
+            [VAL_EXTENSION]: "root",
             valPath: path,
-          } as unknown as RichText)
+          } as unknown as RichText<AnyRichTextOptions>)
         }
       />
       <SubmitButton disabled={!editor || isPatching} />
