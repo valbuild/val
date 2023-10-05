@@ -12,7 +12,10 @@ export const schema = s.array(
      */
     text: s.richtext({
       headings: ["h1", "h2"],
-      image: true,
+      img: true,
+      bold: true,
+      italic: true,
+      lineThrough: true,
     }),
     /**
      * The rank is some arbitrary number we sort by.
@@ -30,7 +33,11 @@ export default val.content("/app/blogs", schema, [
       sha256:
         "41fe618d9db1a477debe0d72d9a8947be3623412281fec8ed4f70517188dfc5a",
     }),
-    text: val.richtext`test`,
+    text: val.richtext `Test 1 2 3. ***~~Bold~~***
+
+
+
+##### **fdasfdsa**`,
     rank: 100,
   },
   {

@@ -13,7 +13,7 @@ describe("patch richtext", () => {
           children: [
             {
               tag: "span",
-              class: ["font-bold"],
+              classes: ["bold"],
               children: ["Bold text"],
             },
           ],
@@ -51,7 +51,7 @@ describe("patch richtext", () => {
             "Test 1 2 3. ",
             {
               tag: "span",
-              class: ["font-bold"],
+              classes: ["bold"],
               children: ["Bold text"],
             },
             ". More text. See image below",

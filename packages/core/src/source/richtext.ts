@@ -5,9 +5,9 @@ import { convertFileSource } from "../schema/image";
 
 export type RichTextOptions = {
   headings?: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];
-  image?: boolean;
-  bulletList?: boolean; // TODO: naming
-  numberList?: boolean; // TODO: naming
+  img?: boolean;
+  ul?: boolean; // TODO: naming
+  ol?: boolean; // TODO: naming
   lineThrough?: boolean;
   bold?: boolean;
   italic?: boolean;
@@ -29,7 +29,7 @@ export type Italic<O extends RichTextOptions> = O["italic"] extends true
   ? "italic"
   : never;
 export type Bold<O extends RichTextOptions> = O["bold"] extends true
-  ? "font-bold"
+  ? "bold"
   : never;
 // export type FontFamily<O extends RichTextOptions> =
 //   O["fontFamily"] extends Record<string, unknown>
@@ -64,7 +64,7 @@ export type SpanNode<O extends RichTextOptions> = {
 //     }
 //   : never;
 
-export type ImageNode<O extends RichTextOptions> = O["image"] extends true
+export type ImageNode<O extends RichTextOptions> = O["img"] extends true
   ? {
       tag: "img";
       src: string;
@@ -85,23 +85,21 @@ export type ListItemNode<O extends RichTextOptions> = {
   )[];
 };
 
-export type UnorderedListNode<O extends RichTextOptions> =
-  O["bulletList"] extends true
-    ? {
-        tag: "ul";
-        dir?: "ltr" | "rtl";
-        children: ListItemNode<O>[];
-      }
-    : never;
+export type UnorderedListNode<O extends RichTextOptions> = O["ul"] extends true
+  ? {
+      tag: "ul";
+      dir?: "ltr" | "rtl";
+      children: ListItemNode<O>[];
+    }
+  : never;
 
-export type OrderedListNode<O extends RichTextOptions> =
-  O["numberList"] extends true
-    ? {
-        tag: "ol";
-        dir?: "ltr" | "rtl";
-        children: ListItemNode<O>[];
-      }
-    : never;
+export type OrderedListNode<O extends RichTextOptions> = O["ol"] extends true
+  ? {
+      tag: "ol";
+      dir?: "ltr" | "rtl";
+      children: ListItemNode<O>[];
+    }
+  : never;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type HeadingNode<O extends RichTextOptions> = O["headings"] extends any[]
@@ -123,15 +121,15 @@ type ImageSource = FileSource<{
   sha256: string;
 }>;
 
-export type SourceNode<O extends RichTextOptions> = O["image"] extends true
+export type SourceNode<O extends RichTextOptions> = O["img"] extends true
   ? ImageSource
   : never;
 
 export type AnyRichTextOptions = {
   headings: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];
-  image: true;
-  bulletList: true;
-  numberList: true;
+  img: true;
+  ul: true;
+  ol: true;
   lineThrough: true;
   bold: true;
   italic: true;
@@ -201,7 +199,7 @@ function parseTokens<O extends RichTextOptions>(
       return [
         {
           tag: "span",
-          class: ["font-bold"],
+          classes: ["bold"],
           children: parseTokens(token.tokens ? token.tokens : []),
         },
       ];
@@ -210,7 +208,7 @@ function parseTokens<O extends RichTextOptions>(
       return [
         {
           tag: "span",
-          class: ["italic"],
+          classes: ["italic"],
           children: parseTokens(token.tokens ? token.tokens : []),
         },
       ];
@@ -219,7 +217,7 @@ function parseTokens<O extends RichTextOptions>(
       return [
         {
           tag: "span",
-          class: ["line-through"],
+          classes: ["line-through"],
           children: parseTokens(token.tokens ? token.tokens : []),
         },
       ];
@@ -251,7 +249,7 @@ function parseTokens<O extends RichTextOptions>(
       return [
         {
           tag: "span",
-          class: [],
+          classes: [],
           children: [token.text],
         },
       ];

@@ -21,22 +21,16 @@ export function richTextToTaggedStringTemplate(
         }
         texts[texts.length - 1] += " ";
       } else if (node.tag === "span") {
-        if (
-          node.class.includes("font-bold") &&
-          !node.class.includes("italic")
-        ) {
+        if (node.classes.includes("bold") && !node.classes.includes("italic")) {
           texts[texts.length - 1] += "**";
         }
-        if (
-          node.class.includes("italic") &&
-          !node.class.includes("font-bold")
-        ) {
+        if (node.classes.includes("italic") && !node.classes.includes("bold")) {
           texts[texts.length - 1] += "*";
         }
-        if (node.class.includes("italic") && node.class.includes("font-bold")) {
+        if (node.classes.includes("italic") && node.classes.includes("bold")) {
           texts[texts.length - 1] += "***";
         }
-        if (node.class.includes("line-through")) {
+        if (node.classes.includes("line-through")) {
           texts[texts.length - 1] += "~~";
         }
       }
@@ -45,23 +39,17 @@ export function richTextToTaggedStringTemplate(
 
       if (node.tag === "span") {
         didAppendNewLines = false;
-        if (
-          node.class.includes("font-bold") &&
-          !node.class.includes("italic")
-        ) {
-          texts[texts.length - 1] += "**";
+        if (node.classes.includes("line-through")) {
+          texts[texts.length - 1] += "~~";
         }
-        if (
-          node.class.includes("italic") &&
-          !node.class.includes("font-bold")
-        ) {
-          texts[texts.length - 1] += "*";
-        }
-        if (node.class.includes("italic") && node.class.includes("font-bold")) {
+        if (node.classes.includes("italic") && node.classes.includes("bold")) {
           texts[texts.length - 1] += "***";
         }
-        if (node.class.includes("line-through")) {
-          texts[texts.length - 1] += "~~";
+        if (node.classes.includes("italic") && !node.classes.includes("bold")) {
+          texts[texts.length - 1] += "*";
+        }
+        if (node.classes.includes("bold") && !node.classes.includes("italic")) {
+          texts[texts.length - 1] += "**";
         }
       } else if (node.tag === "p") {
         didAppendNewLines = true;

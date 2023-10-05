@@ -2,35 +2,33 @@ import { AnyRichTextOptions, RichText } from "@valbuild/core";
 import {
   fromLexical,
   fromLexicalFormat,
-  fromLexicalNode,
   toLexical,
   toLexicalFormat,
-  toLexicalNode,
 } from "./conversion";
 
 describe("richtext conversion", () => {
   test("format conversion", () => {
     //
     expect(toLexicalFormat([])).toStrictEqual(0);
-    expect(toLexicalFormat(["font-bold"])).toStrictEqual(1);
+    expect(toLexicalFormat(["bold"])).toStrictEqual(1);
     expect(toLexicalFormat(["italic"])).toStrictEqual(2);
-    expect(toLexicalFormat(["font-bold", "italic"])).toStrictEqual(3);
+    expect(toLexicalFormat(["bold", "italic"])).toStrictEqual(3);
     expect(toLexicalFormat(["line-through"])).toStrictEqual(4);
-    expect(toLexicalFormat(["font-bold", "line-through"])).toStrictEqual(5);
+    expect(toLexicalFormat(["bold", "line-through"])).toStrictEqual(5);
     expect(toLexicalFormat(["italic", "line-through"])).toStrictEqual(6);
-    expect(
-      toLexicalFormat(["font-bold", "italic", "line-through"])
-    ).toStrictEqual(7);
+    expect(toLexicalFormat(["bold", "italic", "line-through"])).toStrictEqual(
+      7
+    );
     //
     expect(fromLexicalFormat(0)).toStrictEqual([]);
-    expect(fromLexicalFormat(1)).toStrictEqual(["font-bold"]);
+    expect(fromLexicalFormat(1)).toStrictEqual(["bold"]);
     expect(fromLexicalFormat(2)).toStrictEqual(["italic"]);
-    expect(fromLexicalFormat(3)).toStrictEqual(["font-bold", "italic"]);
+    expect(fromLexicalFormat(3)).toStrictEqual(["bold", "italic"]);
     expect(fromLexicalFormat(4)).toStrictEqual(["line-through"]);
-    expect(fromLexicalFormat(5)).toStrictEqual(["font-bold", "line-through"]);
+    expect(fromLexicalFormat(5)).toStrictEqual(["bold", "line-through"]);
     expect(fromLexicalFormat(6)).toStrictEqual(["italic", "line-through"]);
     expect(fromLexicalFormat(7)).toStrictEqual([
-      "font-bold",
+      "bold",
       "italic",
       "line-through",
     ]);
@@ -50,7 +48,7 @@ describe("richtext conversion", () => {
           children: [
             {
               tag: "span",
-              classes: ["font-bold", "italic", "line-through"],
+              classes: ["bold", "italic", "line-through"],
               children: ["Formatted span"],
             },
           ],
@@ -98,7 +96,7 @@ describe("richtext conversion", () => {
           children: [
             {
               tag: "span",
-              classes: ["font-bold", "line-through"],
+              classes: ["bold", "line-through"],
               children: [
                 {
                   tag: "span",
@@ -121,7 +119,7 @@ describe("richtext conversion", () => {
           children: [
             {
               tag: "span",
-              classes: ["font-bold", "italic", "line-through"], // NOTE: classes was merged
+              classes: ["bold", "italic", "line-through"], // NOTE: classes was merged
               children: ["Formatted nested span"],
             },
           ],

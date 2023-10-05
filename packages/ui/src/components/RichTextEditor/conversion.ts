@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { $createListNode, $createListItemNode } from "@lexical/list";
 import {
   AnyRichTextOptions,
   RichTextNode as ValRichTextNode,
@@ -53,6 +51,9 @@ type LexicalNode =
 type LexicalRootNode = {
   type: "root";
   children: LexicalNode[];
+  version: 1;
+  format: "left" | "start" | "center" | "right" | "end" | "justify" | "";
+  direction: null | "ltr" | "rtl";
 } & CommonLexicalProps;
 
 const COMMON_LEXICAL_PROPS = {
@@ -108,6 +109,7 @@ export function toLexical(
 ): LexicalRootNode {
   return {
     ...COMMON_LEXICAL_PROPS,
+    format: "",
     type: "root",
     children: richtext.children.map(toLexicalNode),
   };
@@ -159,7 +161,7 @@ function toLexicalListNode(
 }
 
 const FORMAT_MAPPING = {
-  "font-bold": 1, // 0001
+  bold: 1, // 0001
   italic: 2, // 0010
   "line-through": 4, // 0100
   // underline: 8, // 1000
@@ -235,6 +237,19 @@ export function fromLexicalNode(
   }
 }
 
+function fromLexicalTextNode(
+  textNode: LexicalTextNode
+): ValSpanNode<AnyRichTextOptions> | string {
+  if (textNode.format === "" || textNode.format === 0) {
+    return textNode.text;
+  }
+  return {
+    tag: "span",
+    classes: fromLexicalFormat(textNode.format),
+    children: [textNode.text],
+  };
+}
+
 function fromLexicalHeadingNode(
   headingNode: LexicalHeadingNode
 ): ValHeadingNode<AnyRichTextOptions> {
@@ -254,19 +269,6 @@ function fromLexicalParagraphNode(
     children: paragraphNode.children.map(
       fromLexicalNode
     ) as ValParagraphNode<AnyRichTextOptions>["children"], // TODO: validate children
-  };
-}
-
-function fromLexicalTextNode(
-  textNode: LexicalTextNode
-): ValSpanNode<AnyRichTextOptions> | string {
-  if (textNode.format === "" || textNode.format === 0) {
-    return textNode.text;
-  }
-  return {
-    tag: "span",
-    classes: fromLexicalFormat(textNode.format),
-    children: [textNode.text],
   };
 }
 

@@ -152,15 +152,15 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
         }
       }
 
-      setFontSize(
-        $getSelectionStyleValueForProperty(selection, "font-size", "15px")
-      );
-      setFontColor(
-        $getSelectionStyleValueForProperty(selection, "color", "#000")
-      );
-      setFontFamily(
-        $getSelectionStyleValueForProperty(selection, "font-family", "Arial")
-      );
+      // setFontSize(
+      //   $getSelectionStyleValueForProperty(selection, "font-size", "15px")
+      // );
+      // setFontColor(
+      //   $getSelectionStyleValueForProperty(selection, "color", "#000")
+      // );
+      // setFontFamily(
+      //   $getSelectionStyleValueForProperty(selection, "font-family", "Arial")
+      // );
     }
   }, [activeEditor]);
 
