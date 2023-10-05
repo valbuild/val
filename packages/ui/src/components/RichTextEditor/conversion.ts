@@ -57,9 +57,9 @@ type LexicalRootNode = {
 
 const COMMON_LEXICAL_PROPS = {
   version: 1,
-  format: "",
+  format: "" as number | "",
   indent: 0,
-  direction: null,
+  direction: null as null | "ltr" | "rtl",
 } as const;
 
 type CommonLexicalProps = typeof COMMON_LEXICAL_PROPS;
