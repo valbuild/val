@@ -6,6 +6,7 @@ import {
   RichText,
   VAL_EXTENSION,
   FILE_REF_PROP,
+  RichTextOptions,
 } from "@valbuild/core";
 import { vercelStegaCombine } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
@@ -28,8 +29,8 @@ export type ValEncodedString = string & {
 
 export type StegaOfSource<T extends Source> = Json extends T
   ? Json
-  : T extends RichTextSource
-  ? RichText
+  : T extends RichTextSource<infer O>
+  ? RichText<O>
   : T extends FileSource
   ? { url: ValEncodedString }
   : T extends SourceObject

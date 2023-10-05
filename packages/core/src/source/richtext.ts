@@ -5,16 +5,16 @@ import { convertFileSource } from "../schema/image";
 
 export type RichTextOptions = {
   headings?: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];
-  // link?: boolean;
   image?: boolean;
   bulletList?: boolean; // TODO: naming
   numberList?: boolean; // TODO: naming
   lineThrough?: boolean;
   bold?: boolean;
   italic?: boolean;
+  // link?: boolean;
   // fontFamily?: Record<string, string[]>;
   // fontSize?: Record<string, string[]>;
-  blockQuote?: boolean; // TODO: naming
+  // blockQuote?: boolean; // TODO: naming
 };
 
 export type ParagraphNode<O extends RichTextOptions> = {
@@ -51,7 +51,7 @@ export type Classes<O extends RichTextOptions> =
 
 export type SpanNode<O extends RichTextOptions> = {
   tag: "span";
-  class: Classes<O>[];
+  classes: Classes<O>[];
   children: [string | SpanNode<O>];
 };
 
@@ -112,10 +112,10 @@ export type HeadingNode<O extends RichTextOptions> = O["headings"] extends any[]
     }
   : never;
 
-export type BlockQuoteNode<O extends RichTextOptions> =
-  O["blockQuote"] extends true
-    ? { tag: "blockquote"; children: [string] }
-    : never;
+// export type BlockQuoteNode<O extends RichTextOptions> =
+//   O["blockQuote"] extends true
+//     ? { tag: "blockquote"; children: [string] }
+//     : never;
 
 type ImageSource = FileSource<{
   width: number;
@@ -127,7 +127,7 @@ export type SourceNode<O extends RichTextOptions> = O["image"] extends true
   ? ImageSource
   : never;
 
-type AllOptions = {
+export type AnyRichTextOptions = {
   headings: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];
   image: true;
   bulletList: true;
@@ -135,27 +135,24 @@ type AllOptions = {
   lineThrough: true;
   bold: true;
   italic: true;
-  blockQuote: true;
+  // blockQuote: true;
   // fontFamily: Record<string, string[]>;
   // fontSize: Record<string, string[]>;
 };
 
-export type RichTextSource<
-  // eslint-disable-next-line @typescript-eslint/ban-types
-  O extends RichTextOptions = AllOptions
-> = {
+export type RichTextSource<O extends RichTextOptions> = {
   [VAL_EXTENSION]: "richtext";
   children: (
     | HeadingNode<O>
     | ParagraphNode<O>
     | UnorderedListNode<O>
     | OrderedListNode<O>
-    | BlockQuoteNode<O>
+    // | BlockQuoteNode<O>
     | SourceNode<O>
   )[];
 };
 
-export type RichTextNode<O extends RichTextOptions = AllOptions> =
+export type RichTextNode<O extends RichTextOptions> =
   | string
   | HeadingNode<O>
   | ParagraphNode<O>
@@ -163,7 +160,7 @@ export type RichTextNode<O extends RichTextOptions = AllOptions> =
   | OrderedListNode<O>
   | ListItemNode<O>
   | SpanNode<O>
-  | BlockQuoteNode<O>
+  // | BlockQuoteNode<O>
   | ImageNode<O>;
 
 export type RootNode<O extends RichTextOptions> =
@@ -171,11 +168,11 @@ export type RootNode<O extends RichTextOptions> =
   | ParagraphNode<O>
   | UnorderedListNode<O>
   | OrderedListNode<O>
-  | BlockQuoteNode<O>
+  // | BlockQuoteNode<O>
   | ImageNode<O>;
 
-// eslint-disable-next-line @typescript-eslint/ban-types
-export type RichText<O extends RichTextOptions = {}> = {
+// TODO: rename to RichTextSelector?
+export type RichText<O extends RichTextOptions> = {
   [VAL_EXTENSION]: "richtext";
   children: RootNode<O>[];
 };
@@ -266,7 +263,7 @@ function parseTokens<O extends RichTextOptions>(
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function nodeToTag(node: any): any {
-  if (node._type === "file") {
+  if (node[VAL_EXTENSION] === "file") {
     return node;
   }
   throw Error(`Unexpected node: ${JSON.stringify(node)}`);
@@ -299,7 +296,6 @@ export function convertRichTextSource<O extends RichTextOptions>(
   } as RichText<O>;
 }
 
-// eslint-disable-next-line @typescript-eslint/ban-types
 export function richtext<
   O extends RichTextOptions,
   Nodes extends never | ImageSource

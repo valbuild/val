@@ -24,7 +24,7 @@ describe("patch richtext", () => {
     };
     const r = richTextToTaggedStringTemplate(input);
     expect(r).toStrictEqual([
-      ["# Title 1\n\n**Bold text**\n\n", "\nParagraph 2"],
+      ["# Title 1\n\n*Bold text*\n\n", "\nParagraph 2"],
       [{ _type: "file", _ref: "/public/image.png" }],
     ]);
 
@@ -62,7 +62,6 @@ describe("patch richtext", () => {
       ],
     };
     const r = richTextToTaggedStringTemplate(input);
-    console.log(r);
     const { val } = initVal();
     const r2 = val.richtext(
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment

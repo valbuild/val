@@ -1,10 +1,25 @@
-import { RichText, RichTextNode, SourcePath } from "@valbuild/core";
+import {
+  RichText,
+  RichTextNode,
+  AnyRichTextOptions,
+  SourcePath,
+  RichTextOptions,
+} from "@valbuild/core";
 import React from "react";
 
-export function ValRichText({ children }: { children: RichText }) {
-  const root = children as RichText & { valPath: SourcePath };
+export function ValRichText({
+  children,
+}: {
+  children: RichText<RichTextOptions>;
+}) {
+  const root = children as RichText<AnyRichTextOptions> & {
+    valPath: SourcePath;
+  };
 
-  function toReact(node: RichTextNode, key: number | string): React.ReactNode {
+  function toReact(
+    node: RichTextNode<AnyRichTextOptions>,
+    key: number | string
+  ): React.ReactNode {
     if (typeof node === "string") {
       return node;
     }
@@ -18,9 +33,9 @@ export function ValRichText({ children }: { children: RichText }) {
         </div>
       );
     }
-    if (node.tag === "blockquote") {
-      return <blockquote key={key}>{node.children.map(toReact)}</blockquote>;
-    }
+    // if (node.tag === "blockquote") {
+    //   return <blockquote key={key}>{node.children.map(toReact)}</blockquote>;
+    // }
     if (node.tag === "ul") {
       return <ul key={key}>{node.children.map(toReact)}</ul>;
     }
@@ -32,7 +47,7 @@ export function ValRichText({ children }: { children: RichText }) {
     }
     if (node.tag === "span") {
       return (
-        <span key={key} className={node.class.join(" ")}>
+        <span key={key} className={node.classes.join(" ")}>
           {node.children.map(toReact)}
         </span>
       );

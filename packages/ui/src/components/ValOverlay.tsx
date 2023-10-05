@@ -3,7 +3,6 @@ import {
   SetStateAction,
   useCallback,
   useEffect,
-  useRef,
   useState,
 } from "react";
 import { Session } from "../dto/Session";
@@ -17,7 +16,6 @@ import {
   AnyRichTextOptions,
   Internal,
   RichText,
-  RichTextSource,
   SerializedSchema,
   SourcePath,
   VAL_EXTENSION,
@@ -25,7 +23,7 @@ import {
 import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/core";
 import { RichTextEditor } from "../exports";
-import { LexicalEditor, LexicalNode } from "lexical";
+import { LexicalEditor } from "lexical";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
