@@ -51,13 +51,15 @@ export const LongText: Story = {
           /* */
         }}
       >
-        <TextArea
-          name="/apps/blogs.0.title"
-          text={EXAMPLE_TEXT}
-          onChange={() => {
-            console.log("onChange");
-          }}
-        />
+        <div className="h-full grid grid-rows-[1fr,_min-content] ">
+          <TextArea
+            name="/apps/blogs.0.title"
+            text={EXAMPLE_TEXT}
+            onChange={() => {
+              console.log("onChange");
+            }}
+          />
+        </div>
       </FormContainer>
     ),
   },
@@ -136,27 +138,12 @@ export const Image: Story = {
   args: {
     isInitialized: true,
     children: (
-      <FormContainer
-        onSubmit={() => {
-          /* */
-        }}
-      >
-        <ImageForm
-          name="/apps/blogs.0.image"
-          error={null}
-          data={{
-            url: EXAMPLE_IMAGE,
-            metadata: {
-              width: 32,
-              height: 32,
-              sha256: "123",
-            },
-          }}
-          onChange={() => {
-            console.log("onChange");
-          }}
-        />
-      </FormContainer>
+      <div className="h-full grid grid-rows-[1fr,_min-content] overflow-scroll">
+        <img src={EXAMPLE_IMAGE} />
+        <div className="flex justify-end">
+          <button className="px-4 py-2 border border-highlight">Submit</button>
+        </div>
+      </div>
     ),
   },
 };

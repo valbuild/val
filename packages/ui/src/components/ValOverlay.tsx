@@ -3,6 +3,7 @@ import {
   SetStateAction,
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { Session } from "../dto/Session";
@@ -11,9 +12,9 @@ import { EditMode, Theme, ValOverlayContext } from "./ValOverlayContext";
 import { Remote } from "../utils/Remote";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
-import { TextArea } from "./forms/TextArea";
 import {
   AnyRichTextOptions,
+  FILE_REF_PROP,
   FileSource,
   Internal,
   RichText,
@@ -25,7 +26,8 @@ import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/core";
 import { RichTextEditor } from "../exports";
 import { LexicalEditor } from "lexical";
-import { fromLexical } from "./RichTextEditor/conversion";
+import { LexicalRootNode, fromLexical } from "./RichTextEditor/conversion";
+import { PatchJSON } from "@valbuild/core/patch";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -50,6 +52,36 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
     api,
     windowTarget?.path
   );
+
+  const [state, setState] = useState<{
+    [path: SourcePath]: () => PatchJSON;
+  }>({});
+  const initPatchCallback = useCallback((currentPath: SourcePath | null) => {
+    return (callback: PatchCallback) => {
+      // TODO: revaluate this logic when we have multiple paths
+      // NOTE: see cleanup of state in useEffect below
+      if (!currentPath) {
+        setState({});
+      } else {
+        const patchPath = Internal.createPatchJSONPath(
+          Internal.splitModuleIdAndModulePath(currentPath)[1]
+        );
+        setState((prev) => {
+          return {
+            ...prev,
+            [currentPath]: () => callback(patchPath),
+          };
+        });
+      }
+    };
+  }, []);
+  useEffect(() => {
+    setState((prev) => {
+      return Object.fromEntries(
+        Object.entries(prev).filter(([path]) => path === windowTarget?.path)
+      );
+    });
+  }, [windowTarget?.path]);
 
   return (
     <ValOverlayContext.Provider
@@ -83,42 +115,66 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
               setEditMode("hover");
             }}
           >
-            <div className="px-4 text-sm">
-              <WindowHeader
-                path={windowTarget.path}
-                type={selectedSchema?.type}
-              />
-            </div>
-            {loading && <div className="text-primary">Loading...</div>}
-            {error && <div className="text-red">{error}</div>}
-            {typeof selectedSource === "string" &&
-              selectedSchema?.type === "string" && (
-                <TextForm
-                  api={api}
+            <form
+              onSubmit={(ev) => {
+                ev.preventDefault();
+                if (state[windowTarget.path]) {
+                  console.log(state[windowTarget.path]);
+                  console.log(state[windowTarget.path]());
+                  const [moduleId] = Internal.splitModuleIdAndModulePath(
+                    windowTarget.path
+                  );
+                  const patch = state[windowTarget.path]();
+                  console.log("Submitting", patch);
+                  api
+                    .postPatches(moduleId, patch)
+                    .then((res) => {
+                      console.log(res);
+                    })
+                    .finally(() => {
+                      console.log("done");
+                    });
+                }
+              }}
+            >
+              <div className="px-4 text-sm">
+                <WindowHeader
                   path={windowTarget.path}
-                  defaultValue={selectedSource}
+                  type={selectedSchema?.type}
                 />
-              )}
-            {selectedSource &&
-              typeof selectedSource === "object" &&
-              VAL_EXTENSION in selectedSource &&
-              selectedSource[VAL_EXTENSION] === "richtext" && (
-                <RichTextForm
-                  api={api}
-                  path={windowTarget.path}
-                  defaultValue={selectedSource as RichText<AnyRichTextOptions>}
-                />
-              )}
-            {selectedSource &&
-              typeof selectedSource === "object" &&
-              VAL_EXTENSION in selectedSource &&
-              selectedSource[VAL_EXTENSION] === "file" && (
-                <ImageForm
-                  api={api}
-                  path={windowTarget.path}
-                  defaultValue={selectedSource as ImageSource}
-                />
-              )}
+              </div>
+              {loading && <div className="text-primary">Loading...</div>}
+              {error && <div className="text-red">{error}</div>}
+              {typeof selectedSource === "string" &&
+                selectedSchema?.type === "string" && (
+                  <TextField
+                    defaultValue={selectedSource}
+                    isLoading={loading}
+                    registerPatchCallback={initPatchCallback(windowTarget.path)}
+                  />
+                )}
+              {selectedSource &&
+                typeof selectedSource === "object" &&
+                VAL_EXTENSION in selectedSource &&
+                selectedSource[VAL_EXTENSION] === "richtext" && (
+                  <RichTextField
+                    registerPatchCallback={initPatchCallback(windowTarget.path)}
+                    defaultValue={
+                      selectedSource as RichText<AnyRichTextOptions>
+                    }
+                  />
+                )}
+              {selectedSource &&
+                typeof selectedSource === "object" &&
+                VAL_EXTENSION in selectedSource &&
+                selectedSource[VAL_EXTENSION] === "file" && (
+                  <ImageField
+                    registerPatchCallback={initPatchCallback(windowTarget.path)}
+                    defaultValue={selectedSource as ImageSource}
+                  />
+                )}
+              <SubmitButton disabled={false} />
+            </form>
           </ValWindow>
         )}
       </div>
@@ -126,127 +182,189 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
   );
 }
 
-function ImageForm({
-  path,
+type PatchCallback = (modulePath: string) => PatchJSON;
+
+function ImageField({
   defaultValue,
-  api,
+  registerPatchCallback,
 }: {
-  path: SourcePath;
+  registerPatchCallback: (callback: PatchCallback) => void;
   defaultValue?: ImageSource;
-  api: ValApi;
 }) {
-  const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
-  const [isPatching, setIsPatching] = useState(false);
+  const [data, setData] = useState<string | null>(null);
+  const [metadata, setMetadata] = useState<{
+    width?: number;
+    height?: number;
+    sha256: string;
+  } | null>(null);
   const url = defaultValue && Internal.convertFileSource(defaultValue).url;
+  useEffect(() => {
+    registerPatchCallback((path) => {
+      const pathParts = path.split("/");
+      if (!data) {
+        return [];
+      }
+      return [
+        {
+          value: {
+            ...defaultValue,
+            metadata,
+          },
+          op: "replace",
+          path,
+        },
+        // update the contents of the file:
+        {
+          value: data,
+          op: "replace",
+          path: `${pathParts.slice(0, -1).join("/")}/$${
+            pathParts[pathParts.length - 1]
+          }`,
+        },
+      ];
+    });
+  }, [data]);
 
   return (
-    <form>
-      <label htmlFor="img_input">
-        <img src={url} />
-        <input id="img_input" type="file" hidden />
+    <div>
+      <label htmlFor="img_input" className="">
+        <img src={data || url} />
+        <input
+          id="img_input"
+          type="file"
+          hidden
+          onChange={(ev) => {
+            const reader = new FileReader();
+            reader.addEventListener("load", () => {
+              const result = reader.result;
+              if (typeof result === "string") {
+                const image = new Image();
+                image.addEventListener("load", async () => {
+                  const sha256 = await Internal.getSHA256Hash(
+                    textEncoder.encode(result)
+                  );
+                  if (image.naturalWidth && image.naturalHeight) {
+                    setMetadata({
+                      width: image.naturalWidth,
+                      height: image.naturalHeight,
+                      sha256,
+                    });
+                  } else {
+                    setMetadata({
+                      sha256,
+                    });
+                  }
+                  setData(result);
+                });
+                image.src = result;
+              } else if (!result) {
+                setMetadata(null);
+                setData(null);
+              } else {
+                console.error("Unexpected image result type", result);
+              }
+            });
+            const imageFile = ev.currentTarget.files?.[0];
+            if (imageFile) {
+              reader.readAsDataURL(imageFile);
+            }
+          }}
+        />
       </label>
-      <SubmitButton disabled={isPatching} />
-    </form>
+    </div>
   );
 }
 
-function RichTextForm({
-  path,
+const textEncoder = new TextEncoder();
+
+function RichTextField({
   defaultValue,
-  api,
+  registerPatchCallback,
 }: {
-  path: SourcePath;
+  registerPatchCallback: (callback: PatchCallback) => void;
   defaultValue?: RichText<AnyRichTextOptions>;
-  api: ValApi;
 }) {
-  const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
-  const [isPatching, setIsPatching] = useState(false);
   const [editor, setEditor] = useState<LexicalEditor | null>(null);
-  return (
-    <form
-      onSubmit={(ev) => {
-        ev.preventDefault();
-        setIsPatching(true);
+  useEffect(() => {
+    if (editor) {
+      registerPatchCallback((path) => {
         const value: RichText<AnyRichTextOptions> = editor?.toJSON()
           ?.editorState
-          ? fromLexical(editor?.toJSON()?.editorState.root as any)
+          ? fromLexical(editor?.toJSON()?.editorState.root as LexicalRootNode)
           : {
               [VAL_EXTENSION]: "richtext",
               children: [],
             };
-        api
-          .postPatches(moduleId, [
-            {
-              op: "replace",
-              path: Internal.createPatchJSONPath(modulePath),
-              value: {
-                ...value,
-                [VAL_EXTENSION]: "richtext",
-              },
+        return [
+          {
+            op: "replace",
+            path,
+            value: {
+              ...value,
+              [VAL_EXTENSION]: "richtext",
             },
-          ])
-          .finally(() => {
-            setIsPatching(false);
-          });
+          },
+        ];
+      });
+    }
+  }, [editor]);
+  return (
+    <RichTextEditor
+      onEditor={(editor) => {
+        setEditor(editor);
       }}
-    >
-      <RichTextEditor
-        onEditor={(editor) => {
-          setEditor(editor);
-        }}
-        richtext={
-          defaultValue ||
-          ({
-            children: [],
-            [VAL_EXTENSION]: "root",
-            valPath: path,
-          } as unknown as RichText<AnyRichTextOptions>)
-        }
-      />
-      <SubmitButton disabled={!editor || isPatching} />
-    </form>
+      richtext={
+        defaultValue ||
+        ({
+          children: [],
+          [VAL_EXTENSION]: "root",
+        } as unknown as RichText<AnyRichTextOptions>)
+      }
+    />
   );
 }
 
-function TextForm({
-  path,
+function TextField({
+  isLoading,
   defaultValue,
-  api,
+  registerPatchCallback,
 }: {
-  path: SourcePath;
+  registerPatchCallback: (callback: PatchCallback) => void;
+  isLoading: boolean;
   defaultValue?: string;
-  api: ValApi;
 }) {
   const [value, setValue] = useState(defaultValue || "");
-  const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
-  const [isPatching, setIsPatching] = useState(false);
+
+  // ref is used to get the value of the textarea without closing over the value field
+  // to avoid registering a new callback every time the value changes
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    registerPatchCallback((path) => {
+      return [
+        {
+          op: "replace",
+          path,
+          value: ref.current?.value || "",
+        },
+      ];
+    });
+  }, []);
+
   return (
-    <form
-      className="flex flex-col justify-between h-full px-4"
-      onSubmit={(ev) => {
-        ev.preventDefault();
-        setIsPatching(true);
-        api
-          .postPatches(moduleId, [
-            {
-              op: "replace",
-              path: Internal.createPatchJSONPath(modulePath),
-              value: value,
-            },
-          ])
-          .finally(() => {
-            setIsPatching(false);
-          });
-      }}
-    >
-      <TextArea
-        name={path}
-        text={value}
-        disabled={isPatching}
-        onChange={setValue}
-      />
-      <SubmitButton disabled={isPatching} />
-    </form>
+    <div className="flex flex-col justify-between h-full px-4">
+      <div
+        className="w-full h-full py-2 overflow-y-scroll grow-wrap"
+        data-replicated-value={value} /* see grow-wrap */
+      >
+        <textarea
+          ref={ref}
+          disabled={isLoading}
+          className="p-2 border outline-none resize-none bg-fill text-primary border-border focus-visible:border-highlight"
+          defaultValue={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+      </div>
+    </div>
   );
 }
 
