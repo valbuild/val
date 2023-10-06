@@ -14,6 +14,7 @@ import { result } from "@valbuild/core/fp";
 import { TextArea } from "./forms/TextArea";
 import {
   AnyRichTextOptions,
+  FileSource,
   Internal,
   RichText,
   SerializedSchema,
@@ -30,6 +31,12 @@ export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
   api: ValApi;
 };
+
+type ImageSource = FileSource<{
+  height: number;
+  width: number;
+  sha256: string;
+}>;
 
 export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
   const [theme, setTheme] = useTheme(defaultTheme);
@@ -95,18 +102,51 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
             {selectedSource &&
               typeof selectedSource === "object" &&
               VAL_EXTENSION in selectedSource &&
-              selectedSource[VAL_EXTENSION] === "richtext" &&
-              selectedSchema?.type === "richtext" && (
+              selectedSource[VAL_EXTENSION] === "richtext" && (
                 <RichTextForm
                   api={api}
                   path={windowTarget.path}
                   defaultValue={selectedSource as RichText<AnyRichTextOptions>}
                 />
               )}
+            {selectedSource &&
+              typeof selectedSource === "object" &&
+              VAL_EXTENSION in selectedSource &&
+              selectedSource[VAL_EXTENSION] === "file" && (
+                <ImageForm
+                  api={api}
+                  path={windowTarget.path}
+                  defaultValue={selectedSource as ImageSource}
+                />
+              )}
           </ValWindow>
         )}
       </div>
     </ValOverlayContext.Provider>
+  );
+}
+
+function ImageForm({
+  path,
+  defaultValue,
+  api,
+}: {
+  path: SourcePath;
+  defaultValue?: ImageSource;
+  api: ValApi;
+}) {
+  const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
+  const [isPatching, setIsPatching] = useState(false);
+  const url = defaultValue && Internal.convertFileSource(defaultValue).url;
+
+  return (
+    <form>
+      <label htmlFor="img_input">
+        <img src={url} />
+        <input id="img_input" type="file" hidden />
+      </label>
+      <SubmitButton disabled={isPatching} />
+    </form>
   );
 }
 
