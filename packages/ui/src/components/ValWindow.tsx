@@ -3,7 +3,9 @@ import { AlignJustify, X } from "react-feather";
 import classNames from "classnames";
 
 export type ValWindowProps = {
-  children: [React.ReactNode, React.ReactNode] | React.ReactNode;
+  children:
+    | [React.ReactNode, React.ReactNode, React.ReactNode]
+    | React.ReactNode;
 
   onClose: () => void;
   position?: { left: number; top: number };
@@ -35,6 +37,7 @@ export function ValWindow({
 
   //
   const [size, resizeRef, onMouseDownResize] = useResize();
+  const bottomRef = useRef<HTMLDivElement>(null);
 
   return (
     <div
@@ -73,15 +76,27 @@ export function ValWindow({
           <X size={16} />
         </button>
       </div>
-      <div
-        className="relative px-4 overflow-scroll"
-        style={{
-          height: (size?.height || MIN_HEIGHT) - 64,
+      <form
+        onSubmit={(ev) => {
+          ev.preventDefault();
         }}
+        className="grid grid-rows-[1fr, _min_content]"
       >
-        {Array.isArray(children) ? children[0] : children}
-      </div>
-      {Array.isArray(children) && children[1]}
+        {Array.isArray(children) && children[0]}
+        <div
+          className="relative px-4 overflow-scroll"
+          style={{
+            height:
+              (size?.height || MIN_HEIGHT) -
+              (64 + (bottomRef.current?.getBoundingClientRect()?.height || 0)),
+          }}
+        >
+          {Array.isArray(children) ? children[1] : children}
+        </div>
+        <div ref={bottomRef} className="w-full px-4 pb-0">
+          {Array.isArray(children) && children[2]}
+        </div>
+      </form>
       <div
         className="absolute bottom-0 right-0 hidden ml-auto select-none tablet:block text-border cursor-nwse-resize"
         style={{
@@ -101,7 +116,6 @@ export function ValWindow({
             fill="currentColor"
           />
         </svg>
-        d
       </div>
     </div>
   );
