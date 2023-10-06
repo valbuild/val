@@ -37,6 +37,7 @@ import { getVal } from "./future/fetchVal";
 import { Json } from "./Json";
 import { SerializedSchema } from "./schema";
 import { convertRichTextSource } from "./source/richtext";
+import { getSHA256Hash } from "./getSha256";
 export { ValApi } from "./ValApi";
 
 export type ApiTreeResponse = {
@@ -70,6 +71,7 @@ const Internal = {
   splitModuleIdAndModulePath,
   isVal,
   createValPathOfItem,
+  getSHA256Hash,
   createPatchJSONPath: (modulePath: ModulePath) =>
     `/${modulePath
       .split(".")

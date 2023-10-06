@@ -3,11 +3,15 @@ import { AlignJustify, X } from "react-feather";
 import classNames from "classnames";
 
 export type ValWindowProps = {
-  children: React.ReactNode;
+  children: [React.ReactNode, React.ReactNode] | React.ReactNode;
+
   onClose: () => void;
   position?: { left: number; top: number };
   isInitialized?: true;
 };
+
+const MIN_WIDTH = 320;
+const MIN_HEIGHT = 320;
 
 export function ValWindow({
   position,
@@ -45,13 +49,13 @@ export function ValWindow({
       style={{
         left: draggedPosition.left,
         top: draggedPosition.top,
-        width: size?.width || 320,
-        height: size?.height || 320,
+        width: size?.width || MIN_WIDTH,
+        height: size?.height || MIN_HEIGHT,
       }}
     >
       <div
         ref={dragRef}
-        className="relative flex justify-center px-2 pt-2 text-primary"
+        className="relative flex justify-center px-2 pt-4 text-primary"
       >
         <AlignJustify
           size={16}
@@ -69,7 +73,15 @@ export function ValWindow({
           <X size={16} />
         </button>
       </div>
-      <div style={{ height: (size?.height || 320) - 64 }}>{children}</div>
+      <div
+        className="relative px-4 overflow-scroll"
+        style={{
+          height: (size?.height || MIN_HEIGHT) - 64,
+        }}
+      >
+        {Array.isArray(children) ? children[0] : children}
+      </div>
+      {Array.isArray(children) && children[1]}
       <div
         className="absolute bottom-0 right-0 hidden ml-auto select-none tablet:block text-border cursor-nwse-resize"
         style={{
@@ -89,6 +101,7 @@ export function ValWindow({
             fill="currentColor"
           />
         </svg>
+        d
       </div>
     </div>
   );
@@ -109,8 +122,8 @@ function useResize() {
         const nextHeight =
           startSize.height - startPosition.y + mouseMoveEvent.pageY;
         setSize({
-          width: nextWidth > 320 ? nextWidth : 320,
-          height: nextHeight > 320 ? nextHeight : 320,
+          width: nextWidth > MIN_WIDTH ? nextWidth : MIN_WIDTH,
+          height: nextHeight > MIN_HEIGHT ? nextHeight : MIN_HEIGHT,
         });
       }
     }
@@ -140,8 +153,8 @@ function useDrag({
         top: top < 0 ? 0 : top,
       });
     } else {
-      const left = window.innerWidth / 2 - 320 / 2 - window.scrollX;
-      const top = window.innerHeight / 2 - 320 / 2 + window.scrollY;
+      const left = window.innerWidth / 2 - MIN_WIDTH / 2 - window.scrollX;
+      const top = window.innerHeight / 2 - MIN_HEIGHT / 2 + window.scrollY;
       setPosition({
         left,
         top,
@@ -182,7 +195,7 @@ function useDrag({
   // TODO: rename hook from useDrag to usePosition or something since we also check for screen width here?
   useEffect(() => {
     const onResize = () => {
-      if (window.screen.width < 640) {
+      if (window.screen.width < MIN_WIDTH * 2) {
         setPosition({
           left: 0,
           top: 0,
