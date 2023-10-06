@@ -115,34 +115,13 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
               setEditMode("hover");
             }}
           >
-            <form
-              onSubmit={(ev) => {
-                ev.preventDefault();
-                if (state[windowTarget.path]) {
-                  console.log(state[windowTarget.path]);
-                  console.log(state[windowTarget.path]());
-                  const [moduleId] = Internal.splitModuleIdAndModulePath(
-                    windowTarget.path
-                  );
-                  const patch = state[windowTarget.path]();
-                  console.log("Submitting", patch);
-                  api
-                    .postPatches(moduleId, patch)
-                    .then((res) => {
-                      console.log(res);
-                    })
-                    .finally(() => {
-                      console.log("done");
-                    });
-                }
-              }}
-            >
-              <div className="px-4 text-sm">
-                <WindowHeader
-                  path={windowTarget.path}
-                  type={selectedSchema?.type}
-                />
-              </div>
+            <div className="px-4 text-sm">
+              <WindowHeader
+                path={windowTarget.path}
+                type={selectedSchema?.type}
+              />
+            </div>
+            <div className="overflow-scroll ">
               {loading && <div className="text-primary">Loading...</div>}
               {error && <div className="text-red">{error}</div>}
               {typeof selectedSource === "string" &&
@@ -173,8 +152,29 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
                     defaultValue={selectedSource as ImageSource}
                   />
                 )}
-              <SubmitButton disabled={false} />
-            </form>
+            </div>
+            <div className="flex items-end justify-end py-2">
+              <SubmitButton
+                disabled={false}
+                onClick={() => {
+                  if (state[windowTarget.path]) {
+                    const [moduleId] = Internal.splitModuleIdAndModulePath(
+                      windowTarget.path
+                    );
+                    const patch = state[windowTarget.path]();
+                    console.log("Submitting", patch);
+                    api
+                      .postPatches(moduleId, patch)
+                      .then((res) => {
+                        console.log(res);
+                      })
+                      .finally(() => {
+                        console.log("done");
+                      });
+                  }
+                }}
+              />
+            </div>
           </ValWindow>
         )}
       </div>
@@ -368,11 +368,18 @@ function TextField({
   );
 }
 
-function SubmitButton({ disabled }: { disabled: boolean }) {
+function SubmitButton({
+  disabled,
+  onClick,
+}: {
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
   return (
     <button
       className="px-4 py-2 border border-highlight disabled:border-border"
       disabled={disabled}
+      onClick={onClick}
     >
       Submit
     </button>
