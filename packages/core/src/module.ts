@@ -21,7 +21,7 @@ import {
   SerializedImageSchema,
 } from "./schema/image";
 import { FileSource } from "./source/file";
-import { RichText } from "./source/richtext";
+import { AnyRichTextOptions, RichText } from "./source/richtext";
 
 const brand = Symbol("ValModule");
 export type ValModule<T extends SelectorSource> = SelectorOf<T> &
@@ -126,7 +126,7 @@ function isUnionSchema(
 function isRichTextSchema(
   schema: Schema<SelectorSource> | SerializedSchema
 ): schema is
-  | Schema<RichText> // TODO: RichTextSchema
+  | Schema<RichText<AnyRichTextOptions>> // TODO: RichTextSchema
   | SerializedRichTextSchema {
   return (
     schema instanceof RichTextSchema ||

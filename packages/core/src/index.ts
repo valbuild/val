@@ -4,7 +4,26 @@ export { Schema, type SerializedSchema } from "./schema";
 export type { ValModule, SerializedModule } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
-export type * from "./source/richtext";
+export type {
+  AnyRichTextOptions,
+  Bold,
+  Classes,
+  HeadingNode,
+  ImageNode,
+  Italic,
+  LineThrough,
+  ListItemNode,
+  OrderedListNode,
+  ParagraphNode,
+  RichText,
+  RichTextNode,
+  RichTextOptions,
+  RichTextSource,
+  RootNode,
+  SourceNode,
+  SpanNode,
+  UnorderedListNode,
+} from "./source/richtext";
 export {
   type Val,
   type SerializedVal,
