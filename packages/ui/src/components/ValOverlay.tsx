@@ -14,7 +14,6 @@ import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
 import {
   AnyRichTextOptions,
-  FILE_REF_PROP,
   FileSource,
   Internal,
   RichText,
