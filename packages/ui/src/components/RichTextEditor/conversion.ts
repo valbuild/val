@@ -48,7 +48,7 @@ type LexicalNode =
   | LexicalListItemNode
   | LexicalListNode;
 
-type LexicalRootNode = {
+export type LexicalRootNode = {
   type: "root";
   children: LexicalNode[];
   version: 1;
