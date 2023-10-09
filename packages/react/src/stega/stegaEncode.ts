@@ -45,7 +45,7 @@ export type StegaOfSource<T extends Source> = Json extends T
   ? T
   : never;
 
-export function transform(
+export function stegaEncode(
   input: any,
   opts: {
     getModule?: (moduleId: string) => any;
