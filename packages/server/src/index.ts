@@ -11,6 +11,6 @@ export type { ValFS } from "./ValFS";
 export { patchSourceFile } from "./patchValFile";
 export { formatSyntaxErrorTree } from "./patch/ts/syntax";
 export { LocalValServer } from "./LocalValServer";
-export { createFixPatch, getSHA256Hash } from "./createFixPatch";
+export { createFixPatch } from "./createFixPatch";
 export { PatchJSON } from "./patch/validation";
 export * from "./jwt";
