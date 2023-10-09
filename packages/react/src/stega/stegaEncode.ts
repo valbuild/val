@@ -6,7 +6,6 @@ import {
   RichText,
   VAL_EXTENSION,
   FILE_REF_PROP,
-  RichTextOptions,
 } from "@valbuild/core";
 import { vercelStegaCombine } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
@@ -52,14 +51,18 @@ export function stegaEncode(
     disabled?: boolean;
   }
 ): any {
-  function rec(sourceOrSelector: any, path?: any): any {
+  function rec(
+    sourceOrSelector: any,
+    recOpts?: { path: any; schema: any }
+  ): any {
     if (typeof sourceOrSelector === "object") {
       const selectorPath = Internal.getValPath(sourceOrSelector);
       if (selectorPath) {
+        const newSchema = Internal.getSchema(sourceOrSelector);
         return rec(
           (opts.getModule && opts.getModule(selectorPath)) ||
             Internal.getSource(sourceOrSelector),
-          opts.disabled ? undefined : selectorPath
+          opts.disabled ? undefined : { path: selectorPath, schema: newSchema }
         );
       }
 
@@ -69,9 +72,17 @@ export function stegaEncode(
 
       if (VAL_EXTENSION in sourceOrSelector) {
         if (sourceOrSelector[VAL_EXTENSION] === "richtext") {
+          if (recOpts?.path === undefined) {
+            throw new Error(
+              `Expected path for RichText to be defined. Current data: ${JSON.stringify(
+                sourceOrSelector
+              )}`
+            );
+          }
+
           return {
             ...Internal.convertRichTextSource(sourceOrSelector),
-            valPath: path,
+            valPath: recOpts.path,
           };
         }
 
@@ -82,7 +93,7 @@ export function stegaEncode(
           const fileSelector = Internal.convertFileSource(sourceOrSelector);
           return {
             ...fileSelector,
-            url: rec(fileSelector.url, path),
+            url: rec(fileSelector.url, recOpts),
           };
         }
         console.error(
@@ -93,16 +104,26 @@ export function stegaEncode(
 
       if (Array.isArray(sourceOrSelector)) {
         return sourceOrSelector.map((el, i) =>
-          rec(el, path && Internal.createValPathOfItem(path, i))
+          rec(
+            el,
+            recOpts && {
+              path: Internal.createValPathOfItem(recOpts.path, i),
+              schema: recOpts.schema.item,
+            }
+          )
         );
       }
 
       if (!Array.isArray(sourceOrSelector)) {
+        // Record
         const res: Record<string, any> = {};
         for (const [key, value] of Object.entries(sourceOrSelector)) {
           res[key] = rec(
             value,
-            path && Internal.createValPathOfItem(path, key)
+            recOpts && {
+              path: Internal.createValPathOfItem(recOpts.path, key),
+              schema: recOpts.schema.items[key],
+            }
           );
         }
         return res;
@@ -118,14 +139,17 @@ export function stegaEncode(
     }
 
     if (typeof sourceOrSelector === "string") {
-      return vercelStegaCombine(
-        sourceOrSelector,
-        {
-          origin: "val.build",
-          data: { valPath: path },
-        },
-        false // auto detection on urls and dates is disabled, isDate could be used but it is also disabled (users should use a date schema instead): isDate(sourceOrSelector) // skip = true if isDate
-      );
+      const { schema, path } = recOpts || {};
+      return schema.isRaw
+        ? sourceOrSelector
+        : vercelStegaCombine(
+            sourceOrSelector,
+            {
+              origin: "val.build",
+              data: { valPath: path },
+            },
+            false // auto detection on urls and dates is disabled, isDate could be used but it is also disabled (users should use a date schema instead): isDate(sourceOrSelector) // skip = true if isDate
+          );
     }
 
     if (

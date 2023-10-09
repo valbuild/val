@@ -101,6 +101,15 @@ describe("stega transform", () => {
     });
   });
 
+  test("Dont stegaEncode raw strings schema", () => {
+    const schema = s.object({ str: s.string(), rawStr: s.string().raw() });
+    const transformed = stegaEncode(
+      val.content("/test1", schema, { str: "one", rawStr: "two" }),
+      {}
+    );
+    //expect(transformed.str).toStrictEqual("one");
+    expect(transformed.rawStr).toStrictEqual("two");
+  });
   test("transform with get modules", () => {
     const schema = s.array(s.string());
     const transformed = stegaEncode(
