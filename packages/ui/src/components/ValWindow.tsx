@@ -58,7 +58,7 @@ export function ValWindow({
     >
       <div
         ref={dragRef}
-        className="relative flex justify-center px-2 pt-4 text-primary"
+        className="relative flex items-center justify-center px-2 pt-2 text-primary"
       >
         <AlignJustify
           size={16}
@@ -80,21 +80,20 @@ export function ValWindow({
         onSubmit={(ev) => {
           ev.preventDefault();
         }}
-        className="grid grid-rows-[1fr, _min_content]"
       >
-        {Array.isArray(children) && children[0]}
+        {Array.isArray(children) && children.slice(0, 1)}
         <div
-          className="relative px-4 overflow-scroll"
+          className="relative overflow-scroll"
           style={{
             height:
               (size?.height || MIN_HEIGHT) -
               (64 + (bottomRef.current?.getBoundingClientRect()?.height || 0)),
           }}
         >
-          {Array.isArray(children) ? children[1] : children}
+          {Array.isArray(children) ? children.slice(1, -1) : children}
         </div>
         <div ref={bottomRef} className="w-full px-4 pb-0">
-          {Array.isArray(children) && children[2]}
+          {Array.isArray(children) && children.slice(-1)}
         </div>
       </form>
       <div

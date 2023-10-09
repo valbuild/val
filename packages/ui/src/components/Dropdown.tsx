@@ -48,7 +48,7 @@ const Dropdown: React.FC<DropdownProps> = ({
   }, []);
 
   return (
-    <div ref={dropdownRef}>
+    <div className="text-[12px]" ref={dropdownRef}>
       <Button
         onClick={(ev) => {
           ev.preventDefault();
@@ -68,7 +68,7 @@ const Dropdown: React.FC<DropdownProps> = ({
         </span>
       </Button>
       {isOpen && (
-        <div className="absolute left-0 mt-2 w-48 border shadow-lg font-mono font-[500] tracking-[0.04em] text-[14px] border-base text-primary bg-border z-10">
+        <div className="absolute left-0 mt-2 w-48 shadow-lg font-mono text-[14px] text-primary bg-border z-overlay">
           <div className="py-1 rounded-md">
             {options?.map((option, idx) => (
               <button

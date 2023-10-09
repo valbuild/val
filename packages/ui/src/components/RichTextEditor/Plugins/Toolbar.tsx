@@ -284,8 +284,8 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
   };
 
   return (
-    <div className="flex flex-row items-center gap-6 p-2 overflow-clip">
-      <div className="flex flex-row gap-2">
+    <div className="sticky top-0 border-b bg-base border-highlight">
+      <div className="flex flex-row gap-1">
         <Dropdown
           options={Object.values(blockTypes)}
           label={
@@ -295,8 +295,6 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
             formatText(blockTypesLookup[selectedOption]);
           }}
         />
-      </div>
-      <div className="flex flex-row gap-2">
         <Button
           variant="primary"
           onClick={(ev) => {
@@ -333,14 +331,14 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
           }}
           icon={<Underline className={`${isUnderline && "stroke-[3px]"}`} />}
         />
+        <Button
+          icon={<ImageIcon />}
+          onClick={(ev) => {
+            ev.preventDefault();
+            setShowModal(true);
+          }}
+        ></Button>
       </div>
-      <Button
-        icon={<ImageIcon />}
-        onClick={(ev) => {
-          ev.preventDefault();
-          setShowModal(true);
-        }}
-      ></Button>
       <UploadModal
         setShowModal={setShowModal}
         showModal={showModal}

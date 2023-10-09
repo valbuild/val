@@ -11,8 +11,8 @@ const Italic: FC<{ className?: string }> = ({ className }) => {
       strokeLinecap="round"
       strokeLinejoin="round"
       className={className}
-      width={25}
-      height={25}
+      width={12}
+      height={12}
     >
       <line x1="19" y1="4" x2="10" y2="4"></line>
       <line x1="14" y1="20" x2="5" y2="20"></line>

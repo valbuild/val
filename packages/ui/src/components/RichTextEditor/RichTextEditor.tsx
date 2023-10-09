@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { $getRoot, LexicalEditor, SerializedEditorState } from "lexical";
+import { LexicalEditor } from "lexical";
 import { ListItemNode, ListNode } from "@lexical/list";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import LexicalErrorBoundary from "@lexical/react/LexicalErrorBoundary";
@@ -12,12 +12,12 @@ import { ImageNode } from "./Nodes/ImageNode";
 import { AutoFocus } from "./Plugins/AutoFocus";
 import ImagesPlugin from "./Plugins/ImagePlugin";
 import Toolbar from "./Plugins/Toolbar";
-import { RichText } from "@valbuild/core";
+import { AnyRichTextOptions, RichText } from "@valbuild/core";
 import { HeadingNode } from "@lexical/rich-text";
 import { toLexical } from "./conversion";
 
 export interface RichTextEditorProps {
-  richtext: RichText;
+  richtext: RichText<AnyRichTextOptions>;
   onEditor?: (editor: LexicalEditor) => void; // Not the ideal way of passing the editor to the upper context, we need it to be able to save
 }
 
@@ -39,7 +39,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
     editorState: prePopulatedState,
     nodes: [HeadingNode, ImageNode, ListNode, ListItemNode],
     theme: {
-      root: "relative p-4 bg-base min-h-[200px] text-white font-roboto",
+      root: "p-4 bg-base text-white font-roboto border-b border-highlight",
       text: {
         bold: "font-semibold",
         underline: "underline",
@@ -64,25 +64,17 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
     onError,
   };
   return (
-    <div className="relative bg-base min-h-[200px] mt-2 border border-highlight overflow-none resize">
-      <LexicalComposer initialConfig={initialConfig}>
-        <Toolbar onEditor={onEditor} />
-        <ImagesPlugin />
-        <RichTextPlugin
-          contentEditable={
-            <LexicalContentEditable className="w-full h-full overflow-auto outline-none text-primary" />
-          }
-          placeholder={
-            <div className="absolute top-[calc(58px+1rem)] left-4 text-base/25 text-primary">
-              Enter some text...
-            </div>
-          }
-          ErrorBoundary={LexicalErrorBoundary}
-        />
-        <ListPlugin />
-        <AutoFocus />
-        <HistoryPlugin />
-      </LexicalComposer>
-    </div>
+    <LexicalComposer initialConfig={initialConfig}>
+      <AutoFocus />
+      <Toolbar onEditor={onEditor} />
+      <RichTextPlugin
+        contentEditable={<LexicalContentEditable className="outline-none" />}
+        placeholder={<div className="">Enter some text...</div>}
+        ErrorBoundary={LexicalErrorBoundary}
+      />
+      <ListPlugin />
+      <ImagesPlugin />
+      <HistoryPlugin />
+    </LexicalComposer>
   );
 };
