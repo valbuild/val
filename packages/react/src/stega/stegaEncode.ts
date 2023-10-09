@@ -72,18 +72,14 @@ export function stegaEncode(
 
       if (VAL_EXTENSION in sourceOrSelector) {
         if (sourceOrSelector[VAL_EXTENSION] === "richtext") {
-          if (recOpts?.path === undefined) {
-            throw new Error(
-              `Expected path for RichText to be defined. Current data: ${JSON.stringify(
-                sourceOrSelector
-              )}`
-            );
+          if (recOpts?.path) {
+            return {
+              ...Internal.convertRichTextSource(sourceOrSelector),
+              valPath: recOpts.path,
+            };
           }
 
-          return {
-            ...Internal.convertRichTextSource(sourceOrSelector),
-            valPath: recOpts.path,
-          };
+          return Internal.convertRichTextSource(sourceOrSelector);
         }
 
         if (
@@ -139,17 +135,20 @@ export function stegaEncode(
     }
 
     if (typeof sourceOrSelector === "string") {
-      const { schema, path } = recOpts || {};
-      return schema.isRaw
-        ? sourceOrSelector
-        : vercelStegaCombine(
-            sourceOrSelector,
-            {
-              origin: "val.build",
-              data: { valPath: path },
-            },
-            false // auto detection on urls and dates is disabled, isDate could be used but it is also disabled (users should use a date schema instead): isDate(sourceOrSelector) // skip = true if isDate
-          );
+      if (!recOpts) {
+        return sourceOrSelector;
+      }
+      if (recOpts.schema.isRaw) {
+        return sourceOrSelector;
+      }
+      return vercelStegaCombine(
+        sourceOrSelector,
+        {
+          origin: "val.build",
+          data: { valPath: recOpts.path },
+        },
+        false // auto detection on urls and dates is disabled, isDate could be used but it is also disabled (users should use a date schema instead): isDate(sourceOrSelector) // skip = true if isDate
+      );
     }
 
     if (
