@@ -19,9 +19,11 @@ import {
   parseAndValidateArrayIndex,
 } from "@valbuild/core/patch";
 import {
+  AnyRichTextOptions,
   FILE_REF_PROP,
   FileSource,
   RichText,
+  RichTextSource,
   VAL_EXTENSION,
 } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core/src/Json";
@@ -84,7 +86,9 @@ function createValFileReference(value: FileSource) {
   );
 }
 
-function createValRichTextTaggedStringTemplate(value: RichText): ts.Expression {
+function createValRichTextTaggedStringTemplate(
+  value: RichTextSource<AnyRichTextOptions>
+): ts.Expression {
   const [[head, ...others], nodes] = richTextToTaggedStringTemplate(value);
   const tag = ts.factory.createPropertyAccessExpression(
     ts.factory.createIdentifier("val"),
@@ -602,7 +606,9 @@ function isValFileValue(value: JSONValue): value is FileSource<{
   );
 }
 
-function isValRichTextValue(value: JSONValue): value is RichText {
+function isValRichTextValue(
+  value: JSONValue
+): value is RichTextSource<AnyRichTextOptions> {
   return !!(
     typeof value === "object" &&
     value &&
