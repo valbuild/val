@@ -8,8 +8,8 @@ const Strikethrough: FC<{ className?: string }> = ({ className }) => {
       stroke="currentColor"
       strokeWidth="1"
       className={className}
-      width={25}
-      height={25}
+      width={12}
+      height={12}
     >
       <path
         fillRule="evenodd"

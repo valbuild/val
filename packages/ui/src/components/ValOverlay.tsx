@@ -115,44 +115,40 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
               setEditMode("hover");
             }}
           >
-            <div className="px-4 text-sm">
+            <div className="px-4 py-2 text-sm border-b border-highlight">
               <WindowHeader
                 path={windowTarget.path}
                 type={selectedSchema?.type}
               />
             </div>
-            <div className="overflow-scroll ">
-              {loading && <div className="text-primary">Loading...</div>}
-              {error && <div className="text-red">{error}</div>}
-              {typeof selectedSource === "string" &&
-                selectedSchema?.type === "string" && (
-                  <TextField
-                    defaultValue={selectedSource}
-                    isLoading={loading}
-                    registerPatchCallback={initPatchCallback(windowTarget.path)}
-                  />
-                )}
-              {selectedSource &&
-                typeof selectedSource === "object" &&
-                VAL_EXTENSION in selectedSource &&
-                selectedSource[VAL_EXTENSION] === "richtext" && (
-                  <RichTextField
-                    registerPatchCallback={initPatchCallback(windowTarget.path)}
-                    defaultValue={
-                      selectedSource as RichText<AnyRichTextOptions>
-                    }
-                  />
-                )}
-              {selectedSource &&
-                typeof selectedSource === "object" &&
-                VAL_EXTENSION in selectedSource &&
-                selectedSource[VAL_EXTENSION] === "file" && (
-                  <ImageField
-                    registerPatchCallback={initPatchCallback(windowTarget.path)}
-                    defaultValue={selectedSource as ImageSource}
-                  />
-                )}
-            </div>
+            {loading && <div className="text-primary">Loading...</div>}
+            {error && <div className="text-red">{error}</div>}
+            {typeof selectedSource === "string" &&
+              selectedSchema?.type === "string" && (
+                <TextField
+                  defaultValue={selectedSource}
+                  isLoading={loading}
+                  registerPatchCallback={initPatchCallback(windowTarget.path)}
+                />
+              )}
+            {selectedSource &&
+              typeof selectedSource === "object" &&
+              VAL_EXTENSION in selectedSource &&
+              selectedSource[VAL_EXTENSION] === "richtext" && (
+                <RichTextField
+                  registerPatchCallback={initPatchCallback(windowTarget.path)}
+                  defaultValue={selectedSource as RichText<AnyRichTextOptions>}
+                />
+              )}
+            {selectedSource &&
+              typeof selectedSource === "object" &&
+              VAL_EXTENSION in selectedSource &&
+              selectedSource[VAL_EXTENSION] === "file" && (
+                <ImageField
+                  registerPatchCallback={initPatchCallback(windowTarget.path)}
+                  defaultValue={selectedSource as ImageSource}
+                />
+              )}
             <div className="flex items-end justify-end py-2">
               <SubmitButton
                 disabled={false}
