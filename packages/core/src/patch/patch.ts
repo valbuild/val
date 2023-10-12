@@ -27,6 +27,9 @@ function apply<T, E>(
       }
       return result.ok(document);
     }
+    case "file": {
+      return result.err(new PatchError("Cannot apply a file patch here"));
+    }
   }
 }
 

@@ -95,6 +95,7 @@ export function parseOperation(
   const path = parseJSONPointer(operation.path);
 
   switch (operation.op) {
+    case "file":
     case "add":
     case "replace":
     case "test":

@@ -69,11 +69,20 @@ export const patchValFile = async (
     //   Buffer.from(content, "base64").toString("binary")
     // );
     // sourceFileHandler.moveFile(tempFilePath, "." + filePath);
-    sourceFileHandler.writeFile(
-      "." + filePath,
-      convertDataUrlToBase64(content).toString("binary"),
-      "binary"
-    );
+    // TODO: ensure that directory exists
+    if (content.startsWith("data:/image/svg+xml")) {
+      sourceFileHandler.writeFile(
+        "." + filePath,
+        convertDataUrlToBase64(content).toString("utf8"),
+        "utf8"
+      );
+    } else {
+      sourceFileHandler.writeFile(
+        "." + filePath,
+        convertDataUrlToBase64(content).toString("binary"),
+        "binary"
+      );
+    }
   }
 
   for (const [ref, patch] of Object.entries(derefRes.value.remotePatches)) {

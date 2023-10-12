@@ -33,6 +33,11 @@ export type OperationJSON =
       op: "test";
       path: string;
       value: JSONValue;
+    }
+  | {
+      op: "file";
+      path: string;
+      value: JSONValue;
     };
 
 /**
@@ -69,6 +74,11 @@ export type Operation =
     }
   | {
       op: "test";
+      path: string[];
+      value: JSONValue;
+    }
+  | {
+      op: "file";
       path: string[];
       value: JSONValue;
     };
