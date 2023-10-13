@@ -511,6 +511,63 @@ function ValHover({
   );
 }
 
+function useHoverTarget(editMode: EditMode) {
+  const [targetElement, setTargetElement] = useState<HTMLElement>();
+  const [targetPath, setTargetPath] = useState<SourcePath>();
+  const [targetRect, setTargetRect] = useState<DOMRect>();
+  useEffect(() => {
+    if (editMode === "hover") {
+      let curr: HTMLElement | null = null;
+      const mouseOverListener = (e: MouseEvent) => {
+        const target = e.target as HTMLElement | null;
+        curr = target;
+        // TODO: use .contains?
+        do {
+          if (curr?.dataset.valPath) {
+            console.log("setter target");
+            setTargetElement(curr);
+            setTargetPath(curr.dataset.valPath as SourcePath);
+            setTargetRect(curr.getBoundingClientRect());
+            break;
+          }
+        } while ((curr = curr?.parentElement || null));
+      };
+
+      document.addEventListener("mouseover", mouseOverListener);
+
+      return () => {
+        setTargetElement(undefined);
+        setTargetPath(undefined);
+        document.removeEventListener("mouseover", mouseOverListener);
+      };
+    }
+  }, [editMode]);
+  useEffect(() => {
+    const scrollListener = () => {
+      if (targetElement) {
+        setTargetRect(targetElement.getBoundingClientRect());
+      }
+    };
+    document.addEventListener("scroll", scrollListener, { passive: true });
+    return () => {
+      document.removeEventListener("scroll", scrollListener);
+    };
+  }, [targetElement]);
+
+  return [
+    {
+      path: targetPath,
+      element: targetElement,
+      rect: targetRect,
+    } as HoverTarget,
+    (target: HoverTarget | null) => {
+      setTargetElement(target?.element);
+      setTargetPath(target?.path);
+      setTargetRect(target?.element?.getBoundingClientRect());
+    },
+  ] as const;
+}
+
 // TODO: do something fun on highlight?
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function useHighlight(
@@ -585,51 +642,6 @@ function useInitEditMode() {
     }
   }, []);
   return [editMode, setEditMode] as const;
-}
-
-function useHoverTarget(editMode: EditMode) {
-  const [target, setTarget] = useState<{
-    element?: HTMLElement;
-    rect?: DOMRect;
-    path: SourcePath;
-  } | null>(null);
-  useEffect(() => {
-    if (editMode === "hover") {
-      let curr: HTMLElement | null = null;
-      const mouseOverListener = (e: MouseEvent) => {
-        const target = e.target as HTMLElement | null;
-        curr = target;
-        // TODO: use .contains?
-        do {
-          if (curr?.dataset.valPath) {
-            setTarget({
-              element: curr,
-              path: curr.dataset.valPath as SourcePath,
-            });
-            break;
-          }
-        } while ((curr = curr?.parentElement || null));
-      };
-      const scrollListener = () => {
-        if (target?.element) {
-          setTarget({
-            ...target,
-          });
-        }
-      };
-
-      document.addEventListener("mouseover", mouseOverListener);
-      document.addEventListener("scroll", scrollListener, { passive: true });
-
-      return () => {
-        setTarget(null);
-        document.removeEventListener("mouseover", mouseOverListener);
-        document.removeEventListener("scroll", scrollListener);
-      };
-    }
-  }, [editMode]);
-
-  return [target, setTarget] as const;
 }
 
 function useTheme(defaultTheme: Theme = "dark") {
