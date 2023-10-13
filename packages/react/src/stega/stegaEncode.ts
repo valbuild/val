@@ -56,6 +56,9 @@ export function stegaEncode(
     recOpts?: { path: any; schema: any }
   ): any {
     if (typeof sourceOrSelector === "object") {
+      if (!sourceOrSelector) {
+        return null;
+      }
       const selectorPath = Internal.getValPath(sourceOrSelector);
       if (selectorPath) {
         const newSchema = Internal.getSchema(sourceOrSelector);
@@ -64,10 +67,6 @@ export function stegaEncode(
             Internal.getSource(sourceOrSelector),
           opts.disabled ? undefined : { path: selectorPath, schema: newSchema }
         );
-      }
-
-      if (!sourceOrSelector) {
-        return null;
       }
 
       if (VAL_EXTENSION in sourceOrSelector) {
@@ -170,13 +169,12 @@ export function getModuleIds(input: any): string[] {
   const modules: Set<string> = new Set();
   function rec(sourceOrSelector: any): undefined {
     if (typeof sourceOrSelector === "object") {
+      if (!sourceOrSelector) {
+        return;
+      }
       const selectorPath = Internal.getValPath(sourceOrSelector);
       if (selectorPath) {
         modules.add(selectorPath);
-        return;
-      }
-
-      if (!sourceOrSelector) {
         return;
       }
 
