@@ -43,7 +43,7 @@ export function ValRichText<O extends RichTextOptions>({
     clazz: keyof ThemeOptions<AnyRichTextOptions>["tags"],
     current?: string
   ) {
-    const renderClass = (theme as any).tags[clazz];
+    const renderClass = (theme as ThemeOptions<AnyRichTextOptions>).tags[clazz];
     if (renderClass && current) {
       return [current, renderClass].join(" ");
     }
@@ -56,7 +56,9 @@ export function ValRichText<O extends RichTextOptions>({
     clazz: keyof ThemeOptions<AnyRichTextOptions>["classes"],
     current?: string
   ) {
-    const renderClass = (theme as any).classes[clazz];
+    const renderClass = (theme as ThemeOptions<AnyRichTextOptions>).classes[
+      clazz
+    ];
     if (renderClass && current) {
       return [current, renderClass].join(" ");
     }
@@ -175,11 +177,15 @@ export function ValRichText<O extends RichTextOptions>({
       );
     }
     console.error("Unknown tag", node.tag);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const anyNode = node as any;
+    if (!anyNode?.tag) {
+      return null;
+    }
     return React.createElement(anyNode.tag, {
       key,
       className: anyNode.class?.join(" "),
-      children: anyNode.children.map(toReact),
+      children: anyNode.children?.map(toReact),
     });
   }
 
