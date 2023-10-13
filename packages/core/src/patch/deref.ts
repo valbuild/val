@@ -42,7 +42,7 @@ export type DerefPatchResult = {
 };
 
 export function derefPatch<D, E>(
-  patch: (Operation | { op: "file"; path: string[]; value: string })[],
+  patch: Operation[],
   document: D,
   ops: Ops<D, E>
 ): result.Result<DerefPatchResult, E | PatchError> {
