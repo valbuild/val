@@ -261,9 +261,9 @@ function parseTokens<O extends RichTextOptions>(
         },
       ];
     }
-    console.error(
-      `Could not parse markdown: unsupported token type: ${token.type}. Found: ${token.raw}`
-    );
+    // console.error(
+    //   `Could not parse markdown: unsupported token type: ${token.type}. Found: ${token.raw}`
+    // );
     return [token.raw];
   });
 }
