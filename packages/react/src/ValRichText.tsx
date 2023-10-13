@@ -12,7 +12,7 @@ import React from "react";
 type Tags = keyof Pick<RichTextOptions, "img" | "ul" | "ol">;
 type Classes = keyof Pick<RichTextOptions, "bold" | "italic" | "lineThrough">;
 
-type RenderOptions<O extends RichTextOptions> = {
+type ThemeOptions<O extends RichTextOptions> = {
   tags: (O["headings"] extends Array<unknown>
     ? {
         [Key in O["headings"][number]]: string;
@@ -30,20 +30,20 @@ type RenderOptions<O extends RichTextOptions> = {
 };
 
 export function ValRichText<O extends RichTextOptions>({
-  render,
+  theme,
   children,
 }: {
-  render: RenderOptions<O>;
+  theme: ThemeOptions<O>;
   children: RichText<O>;
 }) {
   const root = children as RichText<AnyRichTextOptions> & {
     valPath: SourcePath;
   };
   function withRenderTag(
-    clazz: keyof RenderOptions<AnyRichTextOptions>["tags"],
+    clazz: keyof ThemeOptions<AnyRichTextOptions>["tags"],
     current?: string
   ) {
-    const renderClass = (render as any).tags[clazz];
+    const renderClass = (theme as any).tags[clazz];
     if (renderClass && current) {
       return [current, renderClass].join(" ");
     }
@@ -53,10 +53,10 @@ export function ValRichText<O extends RichTextOptions>({
     return current;
   }
   function withRenderClass(
-    clazz: keyof RenderOptions<AnyRichTextOptions>["classes"],
+    clazz: keyof ThemeOptions<AnyRichTextOptions>["classes"],
     current?: string
   ) {
-    const renderClass = (render as any).classes[clazz];
+    const renderClass = (theme as any).classes[clazz];
     if (renderClass && current) {
       return [current, renderClass].join(" ");
     }
