@@ -1,4 +1,4 @@
-import { useState, useLayoutEffect, useRef } from "react";
+import { useState, useLayoutEffect, useRef, CSSProperties } from "react";
 import { createPortal } from "react-dom";
 
 function ShadowContent({
@@ -11,7 +11,13 @@ function ShadowContent({
   return createPortal(children, root);
 }
 
-export const ShadowRoot = ({ children }: { children: React.ReactNode }) => {
+export const ShadowRoot = ({
+  children,
+  style,
+}: {
+  children: React.ReactNode;
+  style?: CSSProperties;
+}) => {
   const node = useRef<HTMLDivElement>(null);
   const [root, setRoot] = useState<ShadowRoot | null>(null);
 
@@ -29,7 +35,7 @@ export const ShadowRoot = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   return (
-    <div ref={node}>
+    <div ref={node} style={style}>
       {root && <ShadowContent root={root}>{children}</ShadowContent>}
     </div>
   );
