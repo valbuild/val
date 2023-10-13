@@ -1,13 +1,11 @@
 import {
   AnyRichTextOptions,
-  RichTextNode as ValRichTextNode,
   HeadingNode as ValHeadingNode,
   ListItemNode as ValListItemNode,
   SpanNode as ValSpanNode,
   UnorderedListNode as ValUnorderedListNode,
   OrderedListNode as ValOrderedListNode,
   ParagraphNode as ValParagraphNode,
-  ImageNode as ValImageNode,
   RichTextSourceNode as ValRichTextSourceNode,
   RichText,
   RootNode,
@@ -17,7 +15,7 @@ import {
   RichTextSource,
   FileSource,
 } from "@valbuild/core";
-import { ImageNode, ImagePayload } from "./Nodes/ImageNode";
+import { ImagePayload } from "./Nodes/ImageNode";
 
 /// Serialized Lexical Nodes:
 // TODO: replace with Lexical libs types - not currently exported?

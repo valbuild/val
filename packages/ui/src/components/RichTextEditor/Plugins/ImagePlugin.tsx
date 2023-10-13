@@ -2,13 +2,10 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { $wrapNodeInElement, mergeRegister } from "@lexical/utils";
 import {
   $createParagraphNode,
-  $getNodeByKey,
   $insertNodes,
   $isRootOrShadowRoot,
   COMMAND_PRIORITY_EDITOR,
-  COMMAND_PRIORITY_LOW,
   createCommand,
-  KEY_DELETE_COMMAND,
   LexicalCommand,
 } from "lexical";
 import { useEffect } from "react";
