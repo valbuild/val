@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { RichText as RichTextType, SourcePath } from "@valbuild/core";
+import { AnyRichTextOptions, RichText as RichTextType } from "@valbuild/core";
 import { RichTextEditor } from "../exports";
 import { FormContainer } from "./forms/FormContainer";
 import { ImageForm } from "./forms/ImageForm";
@@ -77,34 +77,53 @@ export const RichText: Story = {
         <RichTextEditor
           richtext={
             {
-              valPath: "/foo" as SourcePath,
+              _type: "richtext",
               children: [
+                { tag: "h1", children: ["Title 1"] },
+                { tag: "h2", children: ["Title 2"] },
+                { tag: "h3", children: ["Title 3"] },
+                { tag: "h4", children: ["Title 4"] },
+                { tag: "h5", children: ["Title 5"] },
+                { tag: "h6", children: ["Title 6"] },
                 {
+                  tag: "p",
                   children: [
                     {
-                      detail: 0,
-                      format: 0,
-                      mode: "normal",
-                      style: "",
-                      text: "Heading 1",
-                      type: "text",
-                      version: 1,
+                      tag: "span",
+                      classes: ["bold", "italic", "line-through"],
+                      children: ["Formatted span"],
                     },
                   ],
-                  direction: "ltr",
-                  format: "",
-                  indent: 0,
-                  type: "heading",
-                  version: 1,
-                  tag: "h1",
+                },
+                {
+                  tag: "ul",
+                  children: [
+                    {
+                      tag: "li",
+                      children: [
+                        {
+                          tag: "ol",
+                          dir: "rtl",
+                          children: [
+                            {
+                              tag: "li",
+                              children: [
+                                {
+                                  tag: "span",
+                                  classes: ["italic"],
+                                  children: ["number 1.1"],
+                                },
+                              ],
+                            },
+                            { tag: "li", children: ["number 1.2"] },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
                 },
               ],
-              direction: "ltr",
-              format: "",
-              indent: 0,
-              type: "root",
-              version: 1,
-            } as RichTextType
+            } as RichTextType<AnyRichTextOptions>
           }
         />
       </FormContainer>

@@ -27,6 +27,7 @@ import { RichTextEditor } from "../exports";
 import { LexicalEditor } from "lexical";
 import { LexicalRootNode, fromLexical } from "./RichTextEditor/conversion";
 import { PatchJSON } from "@valbuild/core/patch";
+import { readImage } from "../utils/readImage";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -229,48 +230,26 @@ function ImageField({
           type="file"
           hidden
           onChange={(ev) => {
-            const reader = new FileReader();
-            reader.addEventListener("load", () => {
-              const result = reader.result;
-              if (typeof result === "string") {
-                const image = new Image();
-                image.addEventListener("load", async () => {
-                  const sha256 = await Internal.getSHA256Hash(
-                    textEncoder.encode(result)
-                  );
-                  if (image.naturalWidth && image.naturalHeight) {
-                    setMetadata({
-                      width: image.naturalWidth,
-                      height: image.naturalHeight,
-                      sha256,
-                    });
-                  } else {
-                    setMetadata({
-                      sha256,
-                    });
-                  }
-                  setData(result);
+            readImage(ev)
+              .then((res) => {
+                setData(res.src);
+                setMetadata({
+                  sha256: res.sha256,
+                  width: res.width,
+                  height: res.height,
                 });
-                image.src = result;
-              } else if (!result) {
-                setMetadata(null);
+              })
+              .catch((err) => {
+                console.error(err.message);
                 setData(null);
-              } else {
-                console.error("Unexpected image result type", result);
-              }
-            });
-            const imageFile = ev.currentTarget.files?.[0];
-            if (imageFile) {
-              reader.readAsDataURL(imageFile);
-            }
+                setMetadata(null);
+              });
           }}
         />
       </label>
     </div>
   );
 }
-
-const textEncoder = new TextEncoder();
 
 function RichTextField({
   defaultValue,
@@ -283,22 +262,31 @@ function RichTextField({
   useEffect(() => {
     if (editor) {
       registerPatchCallback((path) => {
-        const value: RichText<AnyRichTextOptions> = editor?.toJSON()
-          ?.editorState
+        const { node, files } = editor?.toJSON()?.editorState
           ? fromLexical(editor?.toJSON()?.editorState.root as LexicalRootNode)
           : {
-              [VAL_EXTENSION]: "richtext",
-              children: [],
+              node: {
+                [VAL_EXTENSION]: "richtext",
+                children: [],
+              } as RichText<AnyRichTextOptions>,
+              files: {},
             };
         return [
           {
             op: "replace",
             path,
             value: {
-              ...value,
+              ...node,
               [VAL_EXTENSION]: "richtext",
             },
           },
+          ...Object.entries(files).map(([path, value]) => {
+            return {
+              op: "file" as const,
+              path,
+              value,
+            };
+          }),
         ];
       });
     }

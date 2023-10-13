@@ -52,6 +52,7 @@ import Button from "../../Button";
 import Dropdown from "../../Dropdown";
 import UploadModal from "../../UploadModal";
 import { INSERT_IMAGE_COMMAND } from "./ImagePlugin";
+import { readImage } from "../../../utils/readImage";
 
 export interface ToolbarSettingsProps {
   fontsFamilies?: string[];
@@ -276,13 +277,6 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
     });
   };
 
-  const uploadImage = (url: string, alt?: string) => {
-    editor.dispatchCommand(INSERT_IMAGE_COMMAND, {
-      altText: "URL image",
-      src: url,
-    });
-  };
-
   return (
     <div className="sticky top-0 border-b bg-base border-highlight">
       <div className="flex flex-row gap-1">
@@ -301,7 +295,6 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
             ev.preventDefault();
             editor.dispatchCommand(FORMAT_TEXT_COMMAND, "bold");
           }}
-          tooltip="Format text as bold"
           active={isBold}
           icon={<Bold className={`${isBold && "stroke-[3px]"}`} />}
         />
@@ -323,27 +316,27 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
           }}
           icon={<Italic className={`${isItalic && "stroke-[3px]"}`} />}
         />
-        <Button
-          active={isUnderline}
-          onClick={(ev) => {
-            ev.preventDefault();
-            editor.dispatchCommand(FORMAT_TEXT_COMMAND, "underline");
-          }}
-          icon={<Underline className={`${isUnderline && "stroke-[3px]"}`} />}
-        />
-        <Button
-          icon={<ImageIcon />}
-          onClick={(ev) => {
-            ev.preventDefault();
-            setShowModal(true);
-          }}
-        ></Button>
+        <label className="flex items-center justify-center">
+          <ImageIcon />
+          <input
+            type="file"
+            hidden={true}
+            onChange={(ev) => {
+              ev.preventDefault();
+
+              readImage(ev)
+                .then((res) => {
+                  editor.dispatchCommand(INSERT_IMAGE_COMMAND, {
+                    ...res,
+                  });
+                })
+                .catch((err) => {
+                  console.error("Error reading image", err);
+                });
+            }}
+          />
+        </label>
       </div>
-      <UploadModal
-        setShowModal={setShowModal}
-        showModal={showModal}
-        uploadImage={uploadImage}
-      />
     </div>
   );
 };

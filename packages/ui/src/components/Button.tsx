@@ -53,7 +53,7 @@ const Button: FC<ButtonProps> = ({
     >
       {tooltip && (
         <div
-          className={`absolute bottom-[-75%] left-0 z-20 bg-black w-fit h-fit text-base hidden group-hover:block`}
+          className={`absolute bottom-[-75%] left-0 z-20 bg-black w-fit h-fit text-primary hidden group-hover:block`}
         >
           <div>{tooltip}</div>
         </div>

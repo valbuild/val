@@ -1,4 +1,4 @@
-import { AnyRichTextOptions, RichText } from "@valbuild/core";
+import { AnyRichTextOptions, RichText, RichTextSource } from "@valbuild/core";
 import {
   fromLexical,
   fromLexicalFormat,
@@ -34,7 +34,7 @@ describe("richtext conversion", () => {
     ]);
   });
   test("basic lexical text conversion to <-> from", () => {
-    const input: RichText<AnyRichTextOptions> = {
+    const input: RichTextSource<AnyRichTextOptions> = {
       _type: "richtext",
       children: [
         { tag: "h1", children: ["Title 1"] },
@@ -83,12 +83,12 @@ describe("richtext conversion", () => {
       ],
     };
 
-    expect(fromLexical(toLexical(input))).toStrictEqual(input);
+    expect(fromLexical(toLexical(input)).node).toStrictEqual(input);
   });
 
   // Uncertain whether Val RichText text nodes should allow nested spans - remove this test if that is not the case anymore
   test("merged lexical text nodes to <-> from", () => {
-    const input: RichText<AnyRichTextOptions> = {
+    const input: RichTextSource<AnyRichTextOptions> = {
       _type: "richtext",
       children: [
         {
@@ -127,6 +127,6 @@ describe("richtext conversion", () => {
       ],
     };
 
-    expect(fromLexical(toLexical(input))).toStrictEqual(output);
+    expect(fromLexical(toLexical(input)).node).toStrictEqual(output);
   });
 });

@@ -2,10 +2,13 @@ import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext
 import { $wrapNodeInElement, mergeRegister } from "@lexical/utils";
 import {
   $createParagraphNode,
+  $getNodeByKey,
   $insertNodes,
   $isRootOrShadowRoot,
   COMMAND_PRIORITY_EDITOR,
+  COMMAND_PRIORITY_LOW,
   createCommand,
+  KEY_DELETE_COMMAND,
   LexicalCommand,
 } from "lexical";
 import { useEffect } from "react";
@@ -29,12 +32,11 @@ export default function ImagesPlugin(): JSX.Element | null {
       editor.registerCommand<InsertImagePayload>(
         INSERT_IMAGE_COMMAND,
         (payload) => {
-          const imageNode = $createImageNode(payload.src);
+          const imageNode = $createImageNode(payload);
           $insertNodes([imageNode]);
           if ($isRootOrShadowRoot(imageNode.getParentOrThrow())) {
             $wrapNodeInElement(imageNode, $createParagraphNode).selectEnd();
           }
-
           return true;
         },
         COMMAND_PRIORITY_EDITOR
