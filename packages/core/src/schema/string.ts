@@ -19,7 +19,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
   constructor(
     readonly options?: StringOptions,
     readonly opt: boolean = false,
-    readonly isRaw: boolean = false
+    private readonly isRaw: boolean = false
   ) {
     super();
   }
