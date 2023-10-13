@@ -21,9 +21,9 @@ Paragraph 1 2 3 4 5. Words *italic* **bold**
         tag: "p",
         children: [
           "Paragraph 1 2 3 4 5. Words ",
-          { tag: "span", class: ["italic"], children: ["italic"] },
+          { tag: "span", classes: ["italic"], children: ["italic"] },
           " ",
-          { tag: "span", class: ["bold"], children: ["bold"] },
+          { tag: "span", classes: ["bold"], children: ["bold"] },
         ],
       },
     ]);
@@ -41,7 +41,7 @@ Paragraph 1 2 3 4 5. Words *italic* **bold**
           "Which classes?\n",
           {
             tag: "span",
-            class: ["italic", "bold"],
+            classes: ["italic", "bold"],
             children: ["All of them!"],
           },
         ],
@@ -58,7 +58,7 @@ Paragraph 1 2 3 4 5. Words *italic* **bold**
         children: [
           {
             tag: "span",
-            class: ["line-through"],
+            classes: ["line-through"],
             children: ["line through"],
           },
         ],
