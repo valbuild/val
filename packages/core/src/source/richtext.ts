@@ -261,8 +261,10 @@ function parseTokens<O extends RichTextOptions>(
         },
       ];
     }
-
-    throw Error(`Unexpected token type: ${token.type}`);
+    console.error(
+      `Could not parse markdown: unsupported token type: ${token.type}. Found: ${token.raw}`
+    );
+    return [token.raw];
   });
 }
 
