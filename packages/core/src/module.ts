@@ -22,6 +22,7 @@ import {
 } from "./schema/image";
 import { FileSource } from "./source/file";
 import { AnyRichTextOptions, RichText } from "./source/richtext";
+import { RecordSchema, SerializedRecordSchema } from "./schema/record";
 
 const brand = Symbol("ValModule");
 export type ValModule<T extends SelectorSource> = SelectorOf<T> &
@@ -91,6 +92,15 @@ function isObjectSchema(
   return (
     schema instanceof ObjectSchema ||
     (typeof schema === "object" && "type" in schema && schema.type === "object")
+  );
+}
+
+function isRecordSchema(
+  schema: Schema<SelectorSource> | SerializedSchema
+): schema is RecordSchema<Schema<SelectorSource>> | SerializedRecordSchema {
+  return (
+    schema instanceof RecordSchema ||
+    (typeof schema === "object" && "type" in schema && schema.type === "record")
   );
 }
 
@@ -188,6 +198,27 @@ export function resolvePath(
       if (!resolvedSource[part]) {
         throw Error(
           `Invalid path: array source (length: ${resolvedSource?.length}) did not have index ${part} from path: ${path}`
+        );
+      }
+      resolvedSource = resolvedSource[part];
+      resolvedSchema = resolvedSchema.item;
+    } else if (isRecordSchema(resolvedSchema)) {
+      if (typeof part !== "string") {
+        throw Error(
+          `Invalid path: record schema ${resolvedSchema} must have path: ${part} as string`
+        );
+      }
+      if (
+        typeof resolvedSource !== "object" &&
+        !Array.isArray(resolvedSource)
+      ) {
+        throw Error(
+          `Schema type error: expected source to be type of record, but got ${typeof resolvedSource}`
+        );
+      }
+      if (!resolvedSource[part]) {
+        throw Error(
+          `Invalid path: record source did not have key ${part} from path: ${path}`
         );
       }
       resolvedSource = resolvedSource[part];

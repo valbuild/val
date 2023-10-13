@@ -110,14 +110,15 @@ export function stegaEncode(
       }
 
       if (!Array.isArray(sourceOrSelector)) {
-        // Record
         const res: Record<string, any> = {};
         for (const [key, value] of Object.entries(sourceOrSelector)) {
           res[key] = rec(
             value,
             recOpts && {
               path: Internal.createValPathOfItem(recOpts.path, key),
-              schema: recOpts.schema.items[key],
+              schema:
+                recOpts.schema.item || // Record
+                recOpts.schema.items[key], // Object
             }
           );
         }
