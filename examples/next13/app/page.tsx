@@ -27,7 +27,7 @@ export default function Home() {
             <h1>{blog.title}</h1>
             <img src={blog.image.url} />
             <ValRichText
-              render={{
+              theme={{
                 tags: {
                   h1: "text-3xl font-bold",
                   h2: "text-xl font-bold",
