@@ -38,7 +38,7 @@ export class RichTextSchema<
 }
 
 export const richtext = <O extends RichTextOptions>(
-  options: O
+  options?: O
 ): Schema<RichTextSource<O>> => {
-  return new RichTextSchema<O, RichTextSource<O>>(options);
+  return new RichTextSchema<O, RichTextSource<O>>(options ?? ({} as O));
 };
