@@ -3,8 +3,8 @@ import { FC } from "react";
 const Chevron: FC<{ className?: string }> = ({ className }) => {
   return (
     <svg
-      width="16"
-      height="16"
+      width="10"
+      height="10"
       viewBox="0 0 12 12"
       xmlns="http://www.w3.org/2000/svg"
       className={className}

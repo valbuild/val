@@ -1,4 +1,4 @@
-import { transform, type StegaOfSource } from "@valbuild/react/stega";
+import { stegaEncode, type StegaOfSource } from "@valbuild/react/stega";
 import {
   SelectorSource,
   SelectorOf,
@@ -34,7 +34,7 @@ export function fetchVal<T extends SelectorSource>(
           .then((res) => {
             if (result.isOk(res)) {
               const { modules } = res.value;
-              return transform(selector, {
+              return stegaEncode(selector, {
                 getModule: (moduleId) => {
                   const module = modules[moduleId as ModuleId];
                   if (module) {
@@ -45,7 +45,7 @@ export function fetchVal<T extends SelectorSource>(
             } else {
               console.error("Val: could not fetch modules", res.error);
             }
-            return transform(selector, {});
+            return stegaEncode(selector, {});
           })
           .catch((err) => {
             console.error("Val: failed while checking modules", err);
@@ -56,7 +56,7 @@ export function fetchVal<T extends SelectorSource>(
       }
     });
   }
-  return transform(selector, {
+  return stegaEncode(selector, {
     disabled: !enabled,
   });
 }
@@ -115,7 +115,7 @@ function safeDraftModeEnabled() {
     return draftMode().isEnabled;
   } catch (err) {
     console.error(
-      "Val: could read draft mode! fetchVal can only be used server-side. Use useVal on clients.",
+      "Val: could not read draft mode! fetchVal can only be used server-side. Use useVal on clients.",
       err
     );
     return false;

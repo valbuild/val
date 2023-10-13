@@ -1,9 +1,13 @@
-import { FILE_REF_PROP, SourcePath, ValidationError } from "@valbuild/core";
+import {
+  FILE_REF_PROP,
+  Internal,
+  SourcePath,
+  ValidationError,
+} from "@valbuild/core";
 import { Patch, sourceToPatchPath } from "@valbuild/core/patch";
 import sizeOf from "image-size";
 import path from "path";
 import fs from "fs";
-import crypto from "crypto";
 
 // TODO: find a better name? transformFixesToPatch?
 export async function createFixPatch(
@@ -27,7 +31,7 @@ export async function createFixPatch(
     }
     const localFile = path.join(config.projectRoot, maybeRef);
     const buffer = fs.readFileSync(localFile);
-    const sha256 = await getSHA256Hash(buffer);
+    const sha256 = await Internal.getSHA256Hash(buffer);
     const imageSize = sizeOf(buffer);
     return {
       ...imageSize,
@@ -164,12 +168,3 @@ export async function createFixPatch(
     remainingErrors,
   };
 }
-
-const getSHA256Hash = async (bits: Uint8Array) => {
-  const hashBuffer = await crypto.subtle.digest("SHA-256", bits);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hash = hashArray
-    .map((item) => item.toString(16).padStart(2, "0"))
-    .join("");
-  return hash;
-};

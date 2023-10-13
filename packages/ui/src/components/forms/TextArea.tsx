@@ -1,6 +1,6 @@
 export type TextData = string;
 export type TextInputProps = {
-  name: string;
+  name?: string;
   text: TextData;
   disabled?: boolean;
   onChange: (value: string) => void;

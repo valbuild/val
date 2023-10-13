@@ -28,8 +28,8 @@ export type ValEncodedString = string & {
 
 export type StegaOfSource<T extends Source> = Json extends T
   ? Json
-  : T extends RichTextSource
-  ? RichText
+  : T extends RichTextSource<infer O>
+  ? RichText<O>
   : T extends FileSource
   ? { url: ValEncodedString }
   : T extends SourceObject
@@ -44,34 +44,41 @@ export type StegaOfSource<T extends Source> = Json extends T
   ? T
   : never;
 
-export function transform(
+export function stegaEncode(
   input: any,
   opts: {
     getModule?: (moduleId: string) => any;
     disabled?: boolean;
   }
 ): any {
-  function rec(sourceOrSelector: any, path?: any): any {
+  function rec(
+    sourceOrSelector: any,
+    recOpts?: { path: any; schema: any }
+  ): any {
     if (typeof sourceOrSelector === "object") {
+      if (!sourceOrSelector) {
+        return null;
+      }
       const selectorPath = Internal.getValPath(sourceOrSelector);
       if (selectorPath) {
+        const newSchema = Internal.getSchema(sourceOrSelector);
         return rec(
           (opts.getModule && opts.getModule(selectorPath)) ||
             Internal.getSource(sourceOrSelector),
-          opts.disabled ? undefined : selectorPath
+          opts.disabled ? undefined : { path: selectorPath, schema: newSchema }
         );
-      }
-
-      if (!sourceOrSelector) {
-        return null;
       }
 
       if (VAL_EXTENSION in sourceOrSelector) {
         if (sourceOrSelector[VAL_EXTENSION] === "richtext") {
-          return {
-            ...sourceOrSelector,
-            valPath: path,
-          };
+          if (recOpts?.path) {
+            return {
+              ...Internal.convertRichTextSource(sourceOrSelector),
+              valPath: recOpts.path,
+            };
+          }
+
+          return Internal.convertRichTextSource(sourceOrSelector);
         }
 
         if (
@@ -81,7 +88,7 @@ export function transform(
           const fileSelector = Internal.convertFileSource(sourceOrSelector);
           return {
             ...fileSelector,
-            url: rec(fileSelector.url, path),
+            url: rec(fileSelector.url, recOpts),
           };
         }
         console.error(
@@ -92,7 +99,13 @@ export function transform(
 
       if (Array.isArray(sourceOrSelector)) {
         return sourceOrSelector.map((el, i) =>
-          rec(el, path && Internal.createValPathOfItem(path, i))
+          rec(
+            el,
+            recOpts && {
+              path: Internal.createValPathOfItem(recOpts.path, i),
+              schema: recOpts.schema.item,
+            }
+          )
         );
       }
 
@@ -101,7 +114,12 @@ export function transform(
         for (const [key, value] of Object.entries(sourceOrSelector)) {
           res[key] = rec(
             value,
-            path && Internal.createValPathOfItem(path, key)
+            recOpts && {
+              path: Internal.createValPathOfItem(recOpts.path, key),
+              schema:
+                recOpts.schema.item || // Record
+                recOpts.schema.items[key], // Object
+            }
           );
         }
         return res;
@@ -117,11 +135,17 @@ export function transform(
     }
 
     if (typeof sourceOrSelector === "string") {
+      if (!recOpts) {
+        return sourceOrSelector;
+      }
+      if (recOpts.schema.isRaw) {
+        return sourceOrSelector;
+      }
       return vercelStegaCombine(
         sourceOrSelector,
         {
           origin: "val.build",
-          data: { valPath: path },
+          data: { valPath: recOpts.path },
         },
         false // auto detection on urls and dates is disabled, isDate could be used but it is also disabled (users should use a date schema instead): isDate(sourceOrSelector) // skip = true if isDate
       );
@@ -146,13 +170,12 @@ export function getModuleIds(input: any): string[] {
   const modules: Set<string> = new Set();
   function rec(sourceOrSelector: any): undefined {
     if (typeof sourceOrSelector === "object") {
+      if (!sourceOrSelector) {
+        return;
+      }
       const selectorPath = Internal.getValPath(sourceOrSelector);
       if (selectorPath) {
         modules.add(selectorPath);
-        return;
-      }
-
-      if (!sourceOrSelector) {
         return;
       }
 

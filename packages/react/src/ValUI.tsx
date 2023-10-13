@@ -44,7 +44,14 @@ export default function ValUI() {
   }
   return (
     <>
-      <ShadowRoot>
+      <ShadowRoot
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          zIndex: 8999, // 1 less than the NextJS error z-index: 9000
+        }}
+      >
         {/* TODO: */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link

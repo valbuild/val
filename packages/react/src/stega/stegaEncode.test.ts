@@ -1,4 +1,4 @@
-import { getModuleIds, transform } from "./transform";
+import { getModuleIds, stegaEncode } from "./stegaEncode";
 import { initVal } from "@valbuild/core";
 import { vercelStegaDecode, vercelStegaSplit } from "@vercel/stega";
 
@@ -9,7 +9,7 @@ describe("stega transform", () => {
     const schema = s.array(
       s.object({
         image: s.image(),
-        text: s.richtext(),
+        text: s.richtext({}),
         n: s.number(),
         b: s.boolean(),
       })
@@ -22,7 +22,7 @@ describe("stega transform", () => {
           width: 100,
           height: 100,
         }),
-        text: val.richtext("Test1"),
+        text: val.richtext`Test`,
         n: 1,
         b: true,
       },
@@ -32,12 +32,12 @@ describe("stega transform", () => {
           width: 100,
           height: 100,
         }),
-        text: val.richtext("Test2"),
+        text: val.richtext`Test`,
         n: 2,
         b: false,
       },
     ]);
-    const transformed = transform(valModule, {});
+    const transformed = stegaEncode(valModule, {});
 
     expect(transformed).toHaveLength(2);
 
@@ -81,7 +81,7 @@ describe("stega transform", () => {
 
   test("basic transform with get modules", () => {
     const schema = s.array(s.string());
-    const transformed = transform(
+    const transformed = stegaEncode(
       val.content("/test1", schema, ["one", "two"]),
       {
         getModule: (moduleId) => {
@@ -101,9 +101,18 @@ describe("stega transform", () => {
     });
   });
 
+  test("Dont stegaEncode raw strings schema", () => {
+    const schema = s.object({ str: s.string(), rawStr: s.string().raw() });
+    const transformed = stegaEncode(
+      val.content("/test1", schema, { str: "one", rawStr: "two" }),
+      {}
+    );
+    //expect(transformed.str).toStrictEqual("one");
+    expect(transformed.rawStr).toStrictEqual("two");
+  });
   test("transform with get modules", () => {
     const schema = s.array(s.string());
-    const transformed = transform(
+    const transformed = stegaEncode(
       {
         foo: [
           { test: val.content("/test1", schema, ["one", "two"]) },
