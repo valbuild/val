@@ -53,7 +53,6 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     return new StringSchema<Src>(this.options, this.opt, true);
   }
 
-
   serialize(): SerializedSchema {
     return {
       type: "string",
