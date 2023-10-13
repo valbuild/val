@@ -138,6 +138,13 @@ export type AnyRichTextOptions = {
   // fontSize: Record<string, string[]>;
 };
 
+export type RichTextSourceNode<O extends RichTextOptions> =
+  | Exclude<RichTextNode<O>, { tag: "img" }>
+  | ParagraphNode<O>
+  | ListItemNode<O>
+  | ImageNode<O>
+  | SourceNode<O>;
+
 export type RichTextSource<O extends RichTextOptions> = {
   [VAL_EXTENSION]: "richtext";
   children: (

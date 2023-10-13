@@ -6,80 +6,65 @@ import {
   Spread,
 } from "lexical";
 
-export interface ImagePayload {
-  altText: string;
-  height?: number;
-  key?: NodeKey;
-  maxWidth?: number;
+export type ImagePayload = {
   src: string;
+  sha256?: string;
+  fileExt?: string;
+  altText?: string;
+  height?: number;
   width?: number;
-}
+};
 
-export type SerializedImageNode = Spread<
-  {
-    altText: string;
-    width?: number;
-    maxWidth: number;
-    height?: number;
-    src: string;
-  },
-  SerializedLexicalNode
->;
+export type SerializedImageNode = Spread<ImagePayload, SerializedLexicalNode>;
 
 export class ImageNode extends DecoratorNode<JSX.Element> {
   __src: string;
-  __altText: string;
-  __width: "inherit" | number;
-  __height: "inherit" | number;
-  __maxWidth: number;
+  __sha256?: string;
+  __imageFileExt?: string;
+  __altText?: string;
+  __width?: number;
+  __height?: number;
 
   static getType(): string {
     return "image";
   }
 
   static clone(node: ImageNode): ImageNode {
-    return new ImageNode(
-      node.__src,
-      node.__altText,
-      node.__width,
-      node.__height,
-      node.__maxWidth,
-      node.__key
-    );
+    return new ImageNode({
+      src: node.__src,
+      sha256: node.__sha256,
+      altText: node.__altText,
+      width: node.__width,
+      height: node.__height,
+      fileExt: node.__fileExt,
+    });
   }
 
-  constructor(
-    src: string,
-    altText?: string,
-    width?: "inherit" | number,
-    height?: "inherit" | number,
-    maxWidth?: number,
-    key?: NodeKey
-  ) {
+  constructor(payload: ImagePayload, key?: NodeKey) {
     super(key);
-    this.__src = src;
-    this.__altText = altText || "";
-    this.__width = width || "inherit";
-    this.__height = height || "inherit";
-    this.__maxWidth = maxWidth || 0;
+    this.__src = payload.src;
+    this.__altText = payload.altText;
+    this.__width = payload.width;
+    this.__height = payload.height;
+    this.__imageFileExt = payload.fileExt;
+    this.__sha256 = payload.sha256;
   }
 
   exportJSON(): SerializedImageNode {
     return {
       altText: this.__altText,
-      height: this.__height === "inherit" ? 0 : this.__height,
-      maxWidth: this.__maxWidth,
+      height: this.__width,
       src: this.__src,
       type: "image",
       version: 1,
-      width: this.__width === "inherit" ? 0 : this.__width,
+      fileExt: this.__imageFileExt,
+      width: this.__width,
+      sha256: this.__sha256,
     };
   }
 
   static importJSON(serializedNode: SerializedImageNode): ImageNode {
-    const { src } = serializedNode;
-    const node = $createImageNode(src);
-    return node;
+    return $createImageNode(serializedNode);
   }
 
   createDOM(): HTMLElement {
@@ -92,24 +77,30 @@ export class ImageNode extends DecoratorNode<JSX.Element> {
 
   decorate(): JSX.Element {
     return (
-      <img
-        key={this.__key}
+      <ImageComponent
         src={this.__src}
-        alt={this.__altText}
-        width={this.__width}
+        altText={this.__altText}
+        empty={this.__empty}
         height={this.__height}
+        nodeKey={this.getKey()}
       />
     );
   }
 }
-export function $createImageNode(
-  src: string,
-  altText?: string,
-  width?: "inherit" | number,
-  height?: "inherit" | number,
-  maxWidth?: number
-): ImageNode {
-  return new ImageNode(src, altText, width, height, maxWidth);
+
+function ImageComponent(props: {
+  empty: boolean;
+  altText?: string;
+  height?: number;
+  nodeKey?: NodeKey;
+  src: string;
+  width?: number;
+}): JSX.Element {
+  return <img src={props.src}></img>;
+}
+
+export function $createImageNode(payload: ImagePayload): ImageNode {
+  return new ImageNode(payload);
 }
 
 export function $isImageNode(node: LexicalNode | null): boolean {

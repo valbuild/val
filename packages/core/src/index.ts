@@ -19,6 +19,7 @@ export type {
   RichTextNode,
   RichTextOptions,
   RichTextSource,
+  RichTextSourceNode,
   RootNode,
   SourceNode,
   SpanNode,

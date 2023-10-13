@@ -7,10 +7,17 @@ import {
   UnorderedListNode as ValUnorderedListNode,
   OrderedListNode as ValOrderedListNode,
   ParagraphNode as ValParagraphNode,
+  ImageNode as ValImageNode,
+  RichTextSourceNode as ValRichTextSourceNode,
   RichText,
   RootNode,
-  RichTextNode,
+  VAL_EXTENSION,
+  Internal,
+  FILE_REF_PROP,
+  RichTextSource,
+  FileSource,
 } from "@valbuild/core";
+import { ImageNode, ImagePayload } from "./Nodes/ImageNode";
 
 /// Serialized Lexical Nodes:
 // TODO: replace with Lexical libs types - not currently exported?
@@ -41,12 +48,17 @@ type LexicalListNode = CommonLexicalProps & {
   children: LexicalNode[];
 };
 
+type LexicalImageNode = CommonLexicalProps & {
+  type: "image";
+} & ImagePayload;
+
 type LexicalNode =
   | LexicalTextNode
   | LexicalParagraphNode
   | LexicalHeadingNode
   | LexicalListItemNode
-  | LexicalListNode;
+  | LexicalListNode
+  | LexicalImageNode;
 
 export type LexicalRootNode = {
   type: "root";
@@ -66,7 +78,7 @@ const COMMON_LEXICAL_PROPS = {
 type CommonLexicalProps = typeof COMMON_LEXICAL_PROPS;
 
 export function toLexicalNode(
-  node: ValRichTextNode<AnyRichTextOptions>
+  node: ValRichTextSourceNode<AnyRichTextOptions>
 ): LexicalNode {
   if (typeof node === "string") {
     return {
@@ -76,36 +88,75 @@ export function toLexicalNode(
       text: node,
     };
   }
-  switch (node.tag) {
-    case "h1":
-      return toLexicalHeadingNode(node);
-    case "h2":
-      return toLexicalHeadingNode(node);
-    case "h3":
-      return toLexicalHeadingNode(node);
-    case "h4":
-      return toLexicalHeadingNode(node);
-    case "h5":
-      return toLexicalHeadingNode(node);
-    case "h6":
-      return toLexicalHeadingNode(node);
-    case "li":
-      return toLexicalListItemNode(node);
-    case "p":
-      return toLexicalParagraphNode(node);
-    case "ul":
-      return toLexicalListNode(node);
-    case "ol":
-      return toLexicalListNode(node);
-    case "span":
-      return toLexicalTextNode(node);
-    default:
-      throw Error("Not implemented: " + node.tag);
+  if ("tag" in node) {
+    switch (node.tag) {
+      case "h1":
+        return toLexicalHeadingNode(node);
+      case "h2":
+        return toLexicalHeadingNode(node);
+      case "h3":
+        return toLexicalHeadingNode(node);
+      case "h4":
+        return toLexicalHeadingNode(node);
+      case "h5":
+        return toLexicalHeadingNode(node);
+      case "h6":
+        return toLexicalHeadingNode(node);
+      case "li":
+        return toLexicalListItemNode(node);
+      case "p":
+        return toLexicalParagraphNode(node);
+      case "ul":
+        return toLexicalListNode(node);
+      case "ol":
+        return toLexicalListNode(node);
+      case "span":
+        return toLexicalTextNode(node);
+      default:
+        throw Error("Unexpected node tag: " + JSON.stringify(node, null, 2));
+    }
+  } else if (VAL_EXTENSION in node) {
+    switch (node[VAL_EXTENSION]) {
+      case "file":
+        return toLexicalImageNode(node);
+      default:
+        throw Error(
+          "Unexpected val extension: " + JSON.stringify(node, null, 2)
+        );
+    }
+  } else {
+    throw Error("Unexpected node: " + JSON.stringify(node, null, 2));
+  }
+}
+
+function toLexicalImageNode(
+  node: FileSource<{ width: number; height: number; sha256: string }>
+): LexicalImageNode {
+  const url = Internal.convertFileSource(node).url;
+  const fileExt = getFileExtFromUrl(url); // TODO: add file extension to metadata and use this only as fallback
+  return {
+    ...COMMON_LEXICAL_PROPS,
+    type: "image",
+    src: url,
+    width: node.metadata?.width,
+    height: node.metadata?.height,
+    sha256: node.metadata?.sha256,
+    fileExt,
+    // TODO: altText
+  };
+}
+
+const URL_FILE_EXT_REGEX = /.*\/(.*)\?/;
+function getFileExtFromUrl(url: string): string | undefined {
+  const match = url.match(URL_FILE_EXT_REGEX);
+  if (match) {
+    const fileExtension = match[1].split(".").slice(-1)[0];
+    return fileExtension;
   }
 }
 
 export function toLexical(
-  richtext: RichText<AnyRichTextOptions>
+  richtext: RichTextSource<AnyRichTextOptions> | RichText<AnyRichTextOptions>
 ): LexicalRootNode {
   return {
     ...COMMON_LEXICAL_PROPS,
@@ -207,33 +258,70 @@ function toLexicalTextNode(
   }
 }
 
-export function fromLexical(
-  node: LexicalRootNode
-): RichText<AnyRichTextOptions> {
+export function fromLexical(node: LexicalRootNode): {
+  node: RichText<AnyRichTextOptions>;
+  files: Record<string, string>;
+} {
+  const files = {};
   return {
-    _type: "richtext",
-    children: node.children.map(
-      fromLexicalNode
-    ) as RootNode<AnyRichTextOptions>[], // TODO: validate
+    node: {
+      _type: "richtext",
+      children: node.children.map((node) =>
+        fromLexicalNode(node, files)
+      ) as RootNode<AnyRichTextOptions>[], // TODO: validate
+    },
+    files,
   };
 }
 
 export function fromLexicalNode(
-  node: LexicalNode
-): RichTextNode<AnyRichTextOptions> {
+  node: LexicalNode,
+  files: Record<string, string>
+) {
   switch (node.type) {
     case "heading":
-      return fromLexicalHeadingNode(node);
+      return fromLexicalHeadingNode(node, files);
     case "paragraph":
-      return fromLexicalParagraphNode(node);
+      return fromLexicalParagraphNode(node, files);
     case "text":
       return fromLexicalTextNode(node);
     case "list":
-      return fromLexicalListNode(node);
+      return fromLexicalListNode(node, files);
     case "listitem":
-      return fromLexicalListItemNode(node);
+      return fromLexicalListItemNode(node, files);
+    case "image":
+      return fromLexicalImageNode(node, files);
     default:
       throw Error(`Unknown lexical node: ${JSON.stringify(node)}`);
+  }
+}
+
+function fromLexicalImageNode(
+  node: LexicalImageNode,
+  files: Record<string, string>
+) {
+  if (node.src.startsWith("data:")) {
+    const filePath = `/public/${node.sha256}.${node.fileExt}`;
+    files[filePath] = node.src;
+    return {
+      [VAL_EXTENSION]: "file",
+      [FILE_REF_PROP]: filePath,
+      metadata: {
+        width: node.width,
+        height: node.width,
+        sha256: node.sha256,
+      },
+    };
+  } else {
+    return {
+      [VAL_EXTENSION]: "file",
+      [FILE_REF_PROP]: `/public${node.src.split("?")[0]}`,
+      metadata: {
+        width: node.width,
+        height: node.width,
+        sha256: node.sha256,
+      },
+    };
   }
 }
 
@@ -251,36 +339,39 @@ function fromLexicalTextNode(
 }
 
 function fromLexicalHeadingNode(
-  headingNode: LexicalHeadingNode
+  headingNode: LexicalHeadingNode,
+  files: Record<string, string>
 ): ValHeadingNode<AnyRichTextOptions> {
   return {
     tag: headingNode.tag,
-    children: headingNode.children.map(
-      fromLexicalNode
+    children: headingNode.children.map((node) =>
+      fromLexicalNode(node, files)
     ) as ValHeadingNode<AnyRichTextOptions>["children"], // TODO: validate children
   };
 }
 
 function fromLexicalParagraphNode(
-  paragraphNode: LexicalParagraphNode
+  paragraphNode: LexicalParagraphNode,
+  files: Record<string, string>
 ): ValParagraphNode<AnyRichTextOptions> {
   return {
     tag: "p",
-    children: paragraphNode.children.map(
-      fromLexicalNode
+    children: paragraphNode.children.map((node) =>
+      fromLexicalNode(node, files)
     ) as ValParagraphNode<AnyRichTextOptions>["children"], // TODO: validate children
   };
 }
 
 function fromLexicalListNode(
-  listNode: LexicalListNode
+  listNode: LexicalListNode,
+  files: Record<string, string>
 ):
   | ValOrderedListNode<AnyRichTextOptions>
   | ValUnorderedListNode<AnyRichTextOptions> {
   return {
     ...(listNode.direction ? { dir: listNode.direction } : {}),
     tag: listNode.listType === "number" ? "ol" : "ul",
-    children: listNode.children.map(fromLexicalNode) as (
+    children: listNode.children.map((node) => fromLexicalNode(node, files)) as (
       | ValOrderedListNode<AnyRichTextOptions>
       | ValUnorderedListNode<AnyRichTextOptions>
     )["children"], // TODO: validate children
@@ -288,12 +379,13 @@ function fromLexicalListNode(
 }
 
 function fromLexicalListItemNode(
-  listItemNode: LexicalListItemNode
+  listItemNode: LexicalListItemNode,
+  files: Record<string, string>
 ): ValListItemNode<AnyRichTextOptions> {
   return {
     tag: "li",
-    children: listItemNode.children.map(
-      fromLexicalNode
+    children: listItemNode.children.map((node) =>
+      fromLexicalNode(node, files)
     ) as ValListItemNode<AnyRichTextOptions>["children"],
   };
 }

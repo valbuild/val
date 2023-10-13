@@ -39,7 +39,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
     editorState: prePopulatedState,
     nodes: [HeadingNode, ImageNode, ListNode, ListItemNode],
     theme: {
-      root: "p-4 bg-base text-white font-roboto border-b border-highlight",
+      root: "p-4 bg-fill text-white font-roboto border-b border-highlight",
       text: {
         bold: "font-semibold",
         underline: "underline",
