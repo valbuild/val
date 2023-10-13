@@ -22,7 +22,6 @@ import {
   AnyRichTextOptions,
   FILE_REF_PROP,
   FileSource,
-  RichText,
   RichTextSource,
   VAL_EXTENSION,
 } from "@valbuild/core";
