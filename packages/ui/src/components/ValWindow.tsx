@@ -125,35 +125,6 @@ export function ValWindow({
   );
 }
 
-function useResize() {
-  const ref = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState<{ height: number; width: number }>();
-
-  const handler = (mouseDownEvent: React.MouseEvent) => {
-    const startSize = ref.current?.getBoundingClientRect();
-
-    const startPosition = { x: mouseDownEvent.pageX, y: mouseDownEvent.pageY };
-    function onMouseMove(mouseMoveEvent: MouseEvent) {
-      if (startSize) {
-        const nextWidth =
-          startSize.width - startPosition.x + mouseMoveEvent.pageX;
-        const nextHeight =
-          startSize.height - startPosition.y + mouseMoveEvent.pageY;
-        setSize({
-          width: nextWidth > MIN_WIDTH ? nextWidth : MIN_WIDTH,
-          height: nextHeight > MIN_HEIGHT ? nextHeight : MIN_HEIGHT,
-        });
-      }
-    }
-    function onMouseUp() {
-      document.body.removeEventListener("mousemove", onMouseMove);
-    }
-    document.body.addEventListener("mousemove", onMouseMove);
-    document.body.addEventListener("mouseup", onMouseUp, { once: true });
-  };
-  return [size, ref, handler] as const;
-}
-
 function useDrag({
   position: initPosition,
 }: {
