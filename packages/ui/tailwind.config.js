@@ -4,10 +4,10 @@ module.exports = {
   darkMode: ["class", '[data-mode="dark"]'],
   theme: {
     zIndex: {
-      overlay: 8999, // 1 less than the NextJS error z-index: 9000
-      hover: 8996,
-      window: 8997,
-      full: 8998,
+      hover: 1,
+      window: 2,
+      full: 3,
+      overlay: 4,
     },
     colors: {
       base: "var(--val-theme-base)",
