@@ -67,6 +67,13 @@ const OperationJSONT: z.ZodType<OperationJSONT> = z.discriminatedUnion("op", [
       value: JSONValueT,
     })
     .strict(),
+  z
+    .object({
+      op: z.literal("file"),
+      path: z.string(),
+      value: z.string(),
+    })
+    .strict(),
 ]);
 
 export const PatchJSON: z.ZodType<PatchJSONT> = z.array(OperationJSONT);

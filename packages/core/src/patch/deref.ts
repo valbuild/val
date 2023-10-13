@@ -3,6 +3,7 @@ import { result } from "../fp";
 import { isRemote, REMOTE_REF_PROP } from "../source/future/remote";
 import { Ops, PatchError } from "./ops";
 import { Patch } from "./patch";
+import { Operation } from "./operation";
 
 function derefPath(
   path: string[]
@@ -41,7 +42,7 @@ export type DerefPatchResult = {
 };
 
 export function derefPatch<D, E>(
-  patch: Patch,
+  patch: Operation[],
   document: D,
   ops: Ops<D, E>
 ): result.Result<DerefPatchResult, E | PatchError> {
@@ -107,6 +108,18 @@ export function derefPatch<D, E>(
       } else {
         dereferencedPatch.push(op);
       }
+    } else if (op.op === "file") {
+      if (op.path[0] !== "public") {
+        return result.err(new PatchError(`Path must start with public`));
+      }
+      if (typeof op.value !== "string") {
+        return result.err(
+          new PatchError(
+            `File operation must have a value that is typeof string. Found: ${typeof op.value}`
+          )
+        );
+      }
+      fileUpdates[`/${op.path.join("/")}`] = op.value;
     } else {
       const maybeDerefRes = derefPath(op.path);
       if (result.isErr(maybeDerefRes)) {

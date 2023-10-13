@@ -1,7 +1,7 @@
 import { FileSource } from "./file";
 import { I18nSource, I18nCompatibleSource } from "./future/i18n";
 import { RemoteSource, RemoteCompatibleSource } from "./future/remote";
-import { RichTextSource } from "./richtext";
+import { RichTextOptions, RichTextSource } from "./richtext";
 
 export type Source =
   | SourcePrimitive
@@ -10,7 +10,7 @@ export type Source =
   | I18nSource<string[], I18nCompatibleSource>
   | RemoteSource<RemoteCompatibleSource>
   | FileSource
-  | RichTextSource;
+  | RichTextSource<RichTextOptions>;
 
 export type SourceObject = { [key in string]: Source } & {
   // TODO: update these restricted parameters:

@@ -12,10 +12,15 @@ export type SerializedStringSchema = {
   type: "string";
   options?: StringOptions;
   opt: boolean;
+  raw: boolean;
 };
 
 export class StringSchema<Src extends string | null> extends Schema<Src> {
-  constructor(readonly options?: StringOptions, readonly opt: boolean = false) {
+  constructor(
+    readonly options?: StringOptions,
+    readonly opt: boolean = false,
+    readonly isRaw: boolean = false
+  ) {
     super();
   }
 
@@ -40,8 +45,12 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     return typeof src === "string";
   }
 
-  optional(): Schema<Src | null> {
-    return new StringSchema<Src | null>(this.options, true);
+  optional(): StringSchema<Src | null> {
+    return new StringSchema<Src | null>(this.options, true, this.isRaw);
+  }
+
+  raw(): StringSchema<Src> {
+    return new StringSchema<Src>(this.options, this.opt, true);
   }
 
   serialize(): SerializedSchema {
@@ -49,12 +58,13 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       type: "string",
       options: this.options,
       opt: this.opt,
+      raw: this.isRaw,
     };
   }
 }
 
 export const string = <T extends string>(
   options?: StringOptions
-): Schema<T> => {
+): StringSchema<T> => {
   return new StringSchema(options);
 };

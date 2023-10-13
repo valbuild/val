@@ -52,6 +52,7 @@ import Button from "../../Button";
 import Dropdown from "../../Dropdown";
 import UploadModal from "../../UploadModal";
 import { INSERT_IMAGE_COMMAND } from "./ImagePlugin";
+import { readImage } from "../../../utils/readImage";
 
 export interface ToolbarSettingsProps {
   fontsFamilies?: string[];
@@ -152,15 +153,15 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
         }
       }
 
-      setFontSize(
-        $getSelectionStyleValueForProperty(selection, "font-size", "15px")
-      );
-      setFontColor(
-        $getSelectionStyleValueForProperty(selection, "color", "#000")
-      );
-      setFontFamily(
-        $getSelectionStyleValueForProperty(selection, "font-family", "Arial")
-      );
+      // setFontSize(
+      //   $getSelectionStyleValueForProperty(selection, "font-size", "15px")
+      // );
+      // setFontColor(
+      //   $getSelectionStyleValueForProperty(selection, "color", "#000")
+      // );
+      // setFontFamily(
+      //   $getSelectionStyleValueForProperty(selection, "font-family", "Arial")
+      // );
     }
   }, [activeEditor]);
 
@@ -276,16 +277,9 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
     });
   };
 
-  const uploadImage = (url: string, alt?: string) => {
-    editor.dispatchCommand(INSERT_IMAGE_COMMAND, {
-      altText: "URL image",
-      src: url,
-    });
-  };
-
   return (
-    <div className="flex flex-row items-center gap-6 p-2 overflow-clip">
-      <div className="flex flex-row gap-2">
+    <div className="sticky top-0 border-b bg-base border-highlight">
+      <div className="flex flex-row gap-1">
         <Dropdown
           options={Object.values(blockTypes)}
           label={
@@ -295,28 +289,12 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
             formatText(blockTypesLookup[selectedOption]);
           }}
         />
-        <Dropdown
-          onChange={changeFontFamily}
-          options={fontsFamilies ?? ["sans", "serif", "solina"]}
-          label={fontFamily}
-        />
-        <Dropdown
-          onChange={changeFontSize}
-          options={
-            fontSizes ??
-            [11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((size) => `${size}px`)
-          }
-          label={fontSize}
-        />
-      </div>
-      <div className="flex flex-row gap-2">
         <Button
           variant="primary"
           onClick={(ev) => {
             ev.preventDefault();
             editor.dispatchCommand(FORMAT_TEXT_COMMAND, "bold");
           }}
-          tooltip="Format text as bold"
           active={isBold}
           icon={<Bold className={`${isBold && "stroke-[3px]"}`} />}
         />
@@ -338,27 +316,27 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
           }}
           icon={<Italic className={`${isItalic && "stroke-[3px]"}`} />}
         />
-        <Button
-          active={isUnderline}
-          onClick={(ev) => {
-            ev.preventDefault();
-            editor.dispatchCommand(FORMAT_TEXT_COMMAND, "underline");
-          }}
-          icon={<Underline className={`${isUnderline && "stroke-[3px]"}`} />}
-        />
+        <label className="flex items-center justify-center">
+          <ImageIcon />
+          <input
+            type="file"
+            hidden={true}
+            onChange={(ev) => {
+              ev.preventDefault();
+
+              readImage(ev)
+                .then((res) => {
+                  editor.dispatchCommand(INSERT_IMAGE_COMMAND, {
+                    ...res,
+                  });
+                })
+                .catch((err) => {
+                  console.error("Error reading image", err);
+                });
+            }}
+          />
+        </label>
       </div>
-      <Button
-        icon={<ImageIcon />}
-        onClick={(ev) => {
-          ev.preventDefault();
-          setShowModal(true);
-        }}
-      ></Button>
-      <UploadModal
-        setShowModal={setShowModal}
-        showModal={showModal}
-        uploadImage={uploadImage}
-      />
     </div>
   );
 };

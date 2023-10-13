@@ -1,177 +1,193 @@
+/* eslint-disable @typescript-eslint/ban-types */
 import {
-  HeadingNode,
-  ListItemNode,
-  ListNode,
-  ParagraphNode,
   RichText,
+  RichTextNode,
+  AnyRichTextOptions,
   SourcePath,
-  TextNode,
+  RichTextOptions,
 } from "@valbuild/core";
-import { createElement } from "react";
-import parse from "style-to-object";
+import React from "react";
 
-export function ValRichText({ children }: { children: RichText }) {
-  const root: RichText = children;
-  const path = root.valPath;
-  return (
-    <div data-val-path={path}>
-      {root.children.map((child, i) => {
-        const childType = child.type;
-        const childPath = `${path}.${i}` as SourcePath;
-        switch (childType) {
-          case "heading":
-            return (
-              <HeadingNodeComponent
-                key={childPath}
-                path={childPath}
-                node={child}
-              />
-            );
-          case "paragraph":
-            return (
-              <ParagraphNodeComponent
-                key={childPath}
-                path={childPath}
-                node={child}
-              />
-            );
-          case "list":
-            return (
-              <ListNodeComponent
-                key={childPath}
-                path={childPath}
-                node={child}
-              />
-            );
-          default:
-            throw Error("Unknown root node type: " + childType);
-        }
-      })}
-    </div>
-  );
-}
+// Pick is used to make sure we do not add a tag or class that is not in options:
+type Tags = keyof Pick<RichTextOptions, "img" | "ul" | "ol">;
+type Classes = keyof Pick<RichTextOptions, "bold" | "italic" | "lineThrough">;
 
-function TextNodeComponent({ node }: { node: TextNode }) {
-  const styleProps = node.style ? parse(node.style) ?? {} : {};
-  // TODO: Ugly! We should do this before serializing instead
-  if (styleProps["font-family"]) {
-    styleProps["fontFamily"] = styleProps["font-family"];
-    delete styleProps["font-family"];
-  }
-  if (styleProps["font-size"]) {
-    styleProps["fontSize"] = styleProps["font-size"];
-    delete styleProps["font-size"];
-  }
-  const bitmask = node.format?.toString(2);
-  const bitmaskOffset = bitmask ? bitmask.length - 1 : 0;
-  function isBitOne(bit: number) {
-    if (!bitmask) {
-      return false;
-    }
-    return (
-      bitmask.length >= bitmaskOffset - bit &&
-      bitmask[bitmaskOffset - bit] === "1"
-    );
-  }
-  if (isBitOne(0)) {
-    styleProps["fontWeight"] = "bold";
-  }
-  if (isBitOne(1)) {
-    styleProps["fontStyle"] = "italic";
-  }
-  if (isBitOne(2)) {
-    if (!styleProps["textDecoration"]) {
-      styleProps["textDecoration"] = "line-through";
-    } else {
-      styleProps["textDecoration"] += " line-through";
-    }
-  }
-  if (isBitOne(3)) {
-    if (!styleProps["textDecoration"]) {
-      styleProps["textDecoration"] = "underline";
-    } else {
-      styleProps["textDecoration"] += " underline";
-    }
-  }
-  return <span style={styleProps}>{node.text}</span>;
-}
+type ThemeOptions<O extends RichTextOptions> = {
+  tags: (O["headings"] extends Array<unknown>
+    ? {
+        [Key in O["headings"][number]]: string;
+      }
+    : {}) & {
+    [Key in Tags & keyof O as O[Key] extends true
+      ? Key extends "ul" | "ol"
+        ? Key | "li"
+        : Key
+      : never]: string;
+  } & { p?: string };
+  classes: {
+    [Key in Classes & keyof O as O[Key] extends true ? Key : never]: string;
+  } & (O["img"] extends true ? { imgContainer?: string } : {});
+};
 
-function HeadingNodeComponent({
-  node,
-  path,
+export function ValRichText<O extends RichTextOptions>({
+  theme,
+  children,
 }: {
-  path: SourcePath;
-  node: HeadingNode;
+  theme: ThemeOptions<O>;
+  children: RichText<O>;
 }) {
-  return createElement(
-    node.tag,
-    {},
-    node.children.map((child, i) => {
-      const childPath = `${path}.${i}` as SourcePath;
-      return <TextNodeComponent key={childPath} node={child} />;
-    })
-  );
-}
+  const root = children as RichText<AnyRichTextOptions> & {
+    valPath: SourcePath;
+  };
+  function withRenderTag(
+    clazz: keyof ThemeOptions<AnyRichTextOptions>["tags"],
+    current?: string
+  ) {
+    const renderClass = (theme as ThemeOptions<AnyRichTextOptions>).tags[clazz];
+    if (renderClass && current) {
+      return [current, renderClass].join(" ");
+    }
+    if (renderClass) {
+      return renderClass;
+    }
+    return current;
+  }
+  function withRenderClass(
+    clazz: keyof ThemeOptions<AnyRichTextOptions>["classes"],
+    current?: string
+  ) {
+    const renderClass = (theme as ThemeOptions<AnyRichTextOptions>).classes[
+      clazz
+    ];
+    if (renderClass && current) {
+      return [current, renderClass].join(" ");
+    }
+    if (renderClass) {
+      return renderClass;
+    }
+    return current;
+  }
 
-function ParagraphNodeComponent({
-  node,
-  path,
-}: {
-  path: SourcePath;
-  node: ParagraphNode;
-}) {
-  return (
-    <p>
-      {node.children.map((child, i) => {
-        const childPath = `${path}.${i}` as SourcePath;
-        switch (child.type) {
-          case "text":
-            return <TextNodeComponent key={childPath} node={child} />;
-          default:
-            throw Error("Unknown paragraph node type: " + child?.type);
-        }
-      })}
-    </p>
-  );
-}
-
-function ListNodeComponent({
-  node,
-  path,
-}: {
-  path: SourcePath;
-  node: ListNode;
-}) {
-  return createElement(
-    node.tag,
-    {},
-    node.children.map((child, i) => {
-      const childPath = `${path}.${i}` as SourcePath;
+  function toReact(
+    node: RichTextNode<AnyRichTextOptions>,
+    key: number | string
+  ): React.ReactNode {
+    if (typeof node === "string") {
+      return node;
+    }
+    if (node.tag === "p") {
       return (
-        <ListItemComponent key={childPath} path={childPath} node={child} />
+        <p className={withRenderTag("p")} key={key}>
+          {node.children.map(toReact)}
+        </p>
       );
-    })
-  );
-}
+    }
+    if (node.tag === "img") {
+      return (
+        <div className={withRenderClass("imgContainer")} key={key}>
+          <img className={withRenderTag("img")} src={node.src} />
+        </div>
+      );
+    }
+    // if (node.tag === "blockquote") {
+    //   return <blockquote key={key}>{node.children.map(toReact)}</blockquote>;
+    // }
+    if (node.tag === "ul") {
+      return (
+        <ul className={withRenderTag("ul")} key={key}>
+          {node.children.map(toReact)}
+        </ul>
+      );
+    }
+    if (node.tag === "ol") {
+      return (
+        <ol className={withRenderTag("ol")} key={key}>
+          {node.children.map(toReact)}
+        </ol>
+      );
+    }
+    if (node.tag === "li") {
+      return (
+        <li className={withRenderTag("li")} key={key}>
+          {node.children.map(toReact)}
+        </li>
+      );
+    }
+    if (node.tag === "span") {
+      return (
+        <span
+          key={key}
+          className={node.classes
+            .map((nodeClass) => {
+              switch (nodeClass) {
+                case "bold":
+                  return withRenderClass("bold");
+                case "line-through":
+                  return withRenderClass("lineThrough");
+                case "italic":
+                  return withRenderClass("italic");
+              }
+            })
+            .join(" ")}
+        >
+          {node.children.map(toReact)}
+        </span>
+      );
+    }
+    if (node.tag === "h1") {
+      return (
+        <h1 className={withRenderTag("h1")} key={key}>
+          {node.children.map(toReact)}
+        </h1>
+      );
+    }
+    if (node.tag === "h2") {
+      return (
+        <h2 className={withRenderTag("h2")} key={key}>
+          {node.children.map(toReact)}
+        </h2>
+      );
+    }
+    if (node.tag === "h3") {
+      return (
+        <h3 className={withRenderTag("h3")} key={key}>
+          {node.children.map(toReact)}
+        </h3>
+      );
+    }
+    if (node.tag === "h4") {
+      return (
+        <h4 className={withRenderTag("h4")} key={key}>
+          {node.children.map(toReact)}
+        </h4>
+      );
+    }
+    if (node.tag === "h5") {
+      return (
+        <h5 className={withRenderTag("h5")} key={key}>
+          {node.children.map(toReact)}
+        </h5>
+      );
+    }
+    if (node.tag === "h6") {
+      return (
+        <h6 className={withRenderTag("h6")} key={key}>
+          {node.children.map(toReact)}
+        </h6>
+      );
+    }
+    console.error("Unknown tag", node.tag);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyNode = node as any;
+    if (!anyNode?.tag) {
+      return null;
+    }
+    return React.createElement(anyNode.tag, {
+      key,
+      className: anyNode.class?.join(" "),
+      children: anyNode.children?.map(toReact),
+    });
+  }
 
-function ListItemComponent({
-  node,
-  path,
-}: {
-  path: SourcePath;
-  node: ListItemNode;
-}) {
-  return (
-    <li>
-      {node.children.map((child, i) => {
-        const childPath = `${path}.${i}` as SourcePath;
-        switch (child.type) {
-          case "text":
-            return <TextNodeComponent key={childPath} node={child} />;
-          default:
-            throw Error("Unknown list item node type: " + child?.type);
-        }
-      })}
-    </li>
-  );
+  return <div data-val-path={root.valPath}>{root.children.map(toReact)}</div>;
 }

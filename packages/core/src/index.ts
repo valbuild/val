@@ -5,13 +5,25 @@ export type { ValModule, SerializedModule } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
 export type {
-  RichTextSource,
-  RichText,
-  TextNode,
-  ParagraphNode,
+  AnyRichTextOptions,
+  Bold,
+  Classes,
   HeadingNode,
+  ImageNode,
+  Italic,
+  LineThrough,
   ListItemNode,
-  ListNode,
+  OrderedListNode,
+  ParagraphNode,
+  RichText,
+  RichTextNode,
+  RichTextOptions,
+  RichTextSource,
+  RichTextSourceNode,
+  RootNode,
+  SourceNode,
+  SpanNode,
+  UnorderedListNode,
 } from "./source/richtext";
 export {
   type Val,
@@ -44,6 +56,8 @@ import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
 import { Json } from "./Json";
 import { SerializedSchema } from "./schema";
+import { convertRichTextSource } from "./source/richtext";
+import { getSHA256Hash } from "./getSha256";
 export { ValApi } from "./ValApi";
 
 export type ApiTreeResponse = {
@@ -68,6 +82,7 @@ export type ApiPatchResponse = Record<ModuleId, string[]>;
 
 const Internal = {
   convertFileSource,
+  convertRichTextSource,
   getSchema,
   getValPath,
   getVal,
@@ -76,6 +91,7 @@ const Internal = {
   splitModuleIdAndModulePath,
   isVal,
   createValPathOfItem,
+  getSHA256Hash,
   createPatchJSONPath: (modulePath: ModulePath) =>
     `/${modulePath
       .split(".")

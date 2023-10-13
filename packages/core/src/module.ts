@@ -21,7 +21,8 @@ import {
   SerializedImageSchema,
 } from "./schema/image";
 import { FileSource } from "./source/file";
-import { RichText } from "./source/richtext";
+import { AnyRichTextOptions, RichText } from "./source/richtext";
+import { RecordSchema, SerializedRecordSchema } from "./schema/record";
 
 const brand = Symbol("ValModule");
 export type ValModule<T extends SelectorSource> = SelectorOf<T> &
@@ -94,6 +95,15 @@ function isObjectSchema(
   );
 }
 
+function isRecordSchema(
+  schema: Schema<SelectorSource> | SerializedSchema
+): schema is RecordSchema<Schema<SelectorSource>> | SerializedRecordSchema {
+  return (
+    schema instanceof RecordSchema ||
+    (typeof schema === "object" && "type" in schema && schema.type === "record")
+  );
+}
+
 function isArraySchema(
   schema: Schema<SelectorSource> | SerializedSchema
 ): schema is ArraySchema<Schema<SelectorSource>> | SerializedArraySchema {
@@ -126,7 +136,7 @@ function isUnionSchema(
 function isRichTextSchema(
   schema: Schema<SelectorSource> | SerializedSchema
 ): schema is
-  | Schema<RichText> // TODO: RichTextSchema
+  | Schema<RichText<AnyRichTextOptions>> // TODO: RichTextSchema
   | SerializedRichTextSchema {
   return (
     schema instanceof RichTextSchema ||
@@ -188,6 +198,27 @@ export function resolvePath(
       if (!resolvedSource[part]) {
         throw Error(
           `Invalid path: array source (length: ${resolvedSource?.length}) did not have index ${part} from path: ${path}`
+        );
+      }
+      resolvedSource = resolvedSource[part];
+      resolvedSchema = resolvedSchema.item;
+    } else if (isRecordSchema(resolvedSchema)) {
+      if (typeof part !== "string") {
+        throw Error(
+          `Invalid path: record schema ${resolvedSchema} must have path: ${part} as string`
+        );
+      }
+      if (
+        typeof resolvedSource !== "object" &&
+        !Array.isArray(resolvedSource)
+      ) {
+        throw Error(
+          `Schema type error: expected source to be type of record, but got ${typeof resolvedSource}`
+        );
+      }
+      if (!resolvedSource[part]) {
+        throw Error(
+          `Invalid path: record source did not have key ${part} from path: ${path}`
         );
       }
       resolvedSource = resolvedSource[part];

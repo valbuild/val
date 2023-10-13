@@ -5,7 +5,11 @@ import {
   SelectorOf,
   SelectorSource,
 } from "@valbuild/core";
-import { StegaOfSource, getModuleIds, transform } from "@valbuild/react/stega";
+import {
+  StegaOfSource,
+  getModuleIds,
+  stegaEncode,
+} from "@valbuild/react/stega";
 import { useValStore } from "@valbuild/react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
@@ -25,7 +29,7 @@ export function useVal<T extends SelectorSource>(
       document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`)
     );
   }, []);
-  return transform(selector, {
+  return stegaEncode(selector, {
     disabled: !enabled,
     getModule: (moduleId) => {
       if (moduleMap) {

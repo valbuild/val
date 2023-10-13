@@ -3,6 +3,7 @@ import {
   SetStateAction,
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { Session } from "../dto/Session";
@@ -11,15 +12,33 @@ import { EditMode, Theme, ValOverlayContext } from "./ValOverlayContext";
 import { Remote } from "../utils/Remote";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
-import { TextArea } from "./forms/TextArea";
-import { Internal, SerializedSchema, SourcePath } from "@valbuild/core";
+import {
+  AnyRichTextOptions,
+  FileSource,
+  Internal,
+  RichText,
+  SerializedSchema,
+  SourcePath,
+  VAL_EXTENSION,
+} from "@valbuild/core";
 import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/core";
+import { RichTextEditor } from "../exports";
+import { LexicalEditor } from "lexical";
+import { LexicalRootNode, fromLexical } from "./RichTextEditor/conversion";
+import { PatchJSON } from "@valbuild/core/patch";
+import { readImage } from "../utils/readImage";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
   api: ValApi;
 };
+
+type ImageSource = FileSource<{
+  height: number;
+  width: number;
+  sha256: string;
+}>;
 
 export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
   const [theme, setTheme] = useTheme(defaultTheme);
@@ -33,6 +52,36 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
     api,
     windowTarget?.path
   );
+
+  const [state, setState] = useState<{
+    [path: SourcePath]: () => PatchJSON;
+  }>({});
+  const initPatchCallback = useCallback((currentPath: SourcePath | null) => {
+    return (callback: PatchCallback) => {
+      // TODO: revaluate this logic when we have multiple paths
+      // NOTE: see cleanup of state in useEffect below
+      if (!currentPath) {
+        setState({});
+      } else {
+        const patchPath = Internal.createPatchJSONPath(
+          Internal.splitModuleIdAndModulePath(currentPath)[1]
+        );
+        setState((prev) => {
+          return {
+            ...prev,
+            [currentPath]: () => callback(patchPath),
+          };
+        });
+      }
+    };
+  }, []);
+  useEffect(() => {
+    setState((prev) => {
+      return Object.fromEntries(
+        Object.entries(prev).filter(([path]) => path === windowTarget?.path)
+      );
+    });
+  }, [windowTarget?.path]);
 
   return (
     <ValOverlayContext.Provider
@@ -66,7 +115,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
               setEditMode("hover");
             }}
           >
-            <div className="px-4 text-sm">
+            <div className="px-4 py-2 text-sm border-b border-highlight">
               <WindowHeader
                 path={windowTarget.path}
                 type={selectedSchema?.type}
@@ -76,12 +125,52 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
             {error && <div className="text-red">{error}</div>}
             {typeof selectedSource === "string" &&
               selectedSchema?.type === "string" && (
-                <TextForm
-                  api={api}
-                  path={windowTarget.path}
+                <TextField
                   defaultValue={selectedSource}
+                  isLoading={loading}
+                  registerPatchCallback={initPatchCallback(windowTarget.path)}
                 />
               )}
+            {selectedSource &&
+              typeof selectedSource === "object" &&
+              VAL_EXTENSION in selectedSource &&
+              selectedSource[VAL_EXTENSION] === "richtext" && (
+                <RichTextField
+                  registerPatchCallback={initPatchCallback(windowTarget.path)}
+                  defaultValue={selectedSource as RichText<AnyRichTextOptions>}
+                />
+              )}
+            {selectedSource &&
+              typeof selectedSource === "object" &&
+              VAL_EXTENSION in selectedSource &&
+              selectedSource[VAL_EXTENSION] === "file" && (
+                <ImageField
+                  registerPatchCallback={initPatchCallback(windowTarget.path)}
+                  defaultValue={selectedSource as ImageSource}
+                />
+              )}
+            <div className="flex items-end justify-end py-2">
+              <SubmitButton
+                disabled={false}
+                onClick={() => {
+                  if (state[windowTarget.path]) {
+                    const [moduleId] = Internal.splitModuleIdAndModulePath(
+                      windowTarget.path
+                    );
+                    const patch = state[windowTarget.path]();
+                    console.log("Submitting", patch);
+                    api
+                      .postPatches(moduleId, patch)
+                      .then((res) => {
+                        console.log(res);
+                      })
+                      .finally(() => {
+                        console.log("done");
+                      });
+                  }
+                }}
+              />
+            </div>
           </ValWindow>
         )}
       </div>
@@ -89,50 +178,194 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
   );
 }
 
-function TextForm({
-  path,
+type PatchCallback = (modulePath: string) => PatchJSON;
+
+function ImageField({
   defaultValue,
-  api,
+  registerPatchCallback,
 }: {
-  path: SourcePath;
-  defaultValue?: string;
-  api: ValApi;
+  registerPatchCallback: (callback: PatchCallback) => void;
+  defaultValue?: ImageSource;
 }) {
-  const [text, setText] = useState(defaultValue || "");
-  const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
-  const [isPatching, setIsPatching] = useState(false);
+  const [data, setData] = useState<string | null>(null);
+  const [metadata, setMetadata] = useState<{
+    width?: number;
+    height?: number;
+    sha256: string;
+  } | null>(null);
+  const url = defaultValue && Internal.convertFileSource(defaultValue).url;
+  useEffect(() => {
+    registerPatchCallback((path) => {
+      const pathParts = path.split("/");
+      if (!data) {
+        return [];
+      }
+      return [
+        {
+          value: {
+            ...defaultValue,
+            metadata,
+          },
+          op: "replace",
+          path,
+        },
+        // update the contents of the file:
+        {
+          value: data,
+          op: "replace",
+          path: `${pathParts.slice(0, -1).join("/")}/$${
+            pathParts[pathParts.length - 1]
+          }`,
+        },
+      ];
+    });
+  }, [data]);
+
   return (
-    <form
-      className="flex flex-col justify-between h-full px-4"
-      onSubmit={(ev) => {
-        ev.preventDefault();
-        setIsPatching(true);
-        api
-          .postPatches(moduleId, [
-            {
-              op: "replace",
-              path: Internal.createPatchJSONPath(modulePath),
-              value: text,
+    <div>
+      <label htmlFor="img_input" className="">
+        <img src={data || url} />
+        <input
+          id="img_input"
+          type="file"
+          hidden
+          onChange={(ev) => {
+            readImage(ev)
+              .then((res) => {
+                setData(res.src);
+                setMetadata({
+                  sha256: res.sha256,
+                  width: res.width,
+                  height: res.height,
+                });
+              })
+              .catch((err) => {
+                console.error(err.message);
+                setData(null);
+                setMetadata(null);
+              });
+          }}
+        />
+      </label>
+    </div>
+  );
+}
+
+function RichTextField({
+  defaultValue,
+  registerPatchCallback,
+}: {
+  registerPatchCallback: (callback: PatchCallback) => void;
+  defaultValue?: RichText<AnyRichTextOptions>;
+}) {
+  const [editor, setEditor] = useState<LexicalEditor | null>(null);
+  useEffect(() => {
+    if (editor) {
+      registerPatchCallback((path) => {
+        const { node, files } = editor?.toJSON()?.editorState
+          ? fromLexical(editor?.toJSON()?.editorState.root as LexicalRootNode)
+          : {
+              node: {
+                [VAL_EXTENSION]: "richtext",
+                children: [],
+              } as RichText<AnyRichTextOptions>,
+              files: {},
+            };
+        return [
+          {
+            op: "replace",
+            path,
+            value: {
+              ...node,
+              [VAL_EXTENSION]: "richtext",
             },
-          ])
-          .finally(() => {
-            setIsPatching(false);
-          });
+          },
+          ...Object.entries(files).map(([path, value]) => {
+            return {
+              op: "file" as const,
+              path,
+              value,
+            };
+          }),
+        ];
+      });
+    }
+  }, [editor]);
+  return (
+    <RichTextEditor
+      onEditor={(editor) => {
+        setEditor(editor);
       }}
-    >
-      <TextArea
-        name={path}
-        text={text}
-        disabled={isPatching}
-        onChange={setText}
-      />
-      <button
-        className="px-4 py-2 border border-highlight disabled:border-border"
-        disabled={isPatching}
+      richtext={
+        defaultValue ||
+        ({
+          children: [],
+          [VAL_EXTENSION]: "root",
+        } as unknown as RichText<AnyRichTextOptions>)
+      }
+    />
+  );
+}
+
+function TextField({
+  isLoading,
+  defaultValue,
+  registerPatchCallback,
+}: {
+  registerPatchCallback: (callback: PatchCallback) => void;
+  isLoading: boolean;
+  defaultValue?: string;
+}) {
+  const [value, setValue] = useState(defaultValue || "");
+
+  // ref is used to get the value of the textarea without closing over the value field
+  // to avoid registering a new callback every time the value changes
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    registerPatchCallback((path) => {
+      return [
+        {
+          op: "replace",
+          path,
+          value: ref.current?.value || "",
+        },
+      ];
+    });
+  }, []);
+
+  return (
+    <div className="flex flex-col justify-between h-full px-4">
+      <div
+        className="w-full h-full py-2 overflow-y-scroll grow-wrap"
+        data-replicated-value={value} /* see grow-wrap */
       >
-        Submit
-      </button>
-    </form>
+        <textarea
+          ref={ref}
+          disabled={isLoading}
+          className="p-2 border outline-none resize-none bg-fill text-primary border-border focus-visible:border-highlight"
+          defaultValue={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SubmitButton({
+  disabled,
+  onClick,
+}: {
+  disabled?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      className="px-4 py-2 border border-highlight disabled:border-border"
+      disabled={disabled}
+      onClick={onClick}
+    >
+      Submit
+    </button>
   );
 }
 
@@ -278,6 +511,63 @@ function ValHover({
   );
 }
 
+function useHoverTarget(editMode: EditMode) {
+  const [targetElement, setTargetElement] = useState<HTMLElement>();
+  const [targetPath, setTargetPath] = useState<SourcePath>();
+  const [targetRect, setTargetRect] = useState<DOMRect>();
+  useEffect(() => {
+    if (editMode === "hover") {
+      let curr: HTMLElement | null = null;
+      const mouseOverListener = (e: MouseEvent) => {
+        const target = e.target as HTMLElement | null;
+        curr = target;
+        // TODO: use .contains?
+        do {
+          if (curr?.dataset.valPath) {
+            console.log("setter target");
+            setTargetElement(curr);
+            setTargetPath(curr.dataset.valPath as SourcePath);
+            setTargetRect(curr.getBoundingClientRect());
+            break;
+          }
+        } while ((curr = curr?.parentElement || null));
+      };
+
+      document.addEventListener("mouseover", mouseOverListener);
+
+      return () => {
+        setTargetElement(undefined);
+        setTargetPath(undefined);
+        document.removeEventListener("mouseover", mouseOverListener);
+      };
+    }
+  }, [editMode]);
+  useEffect(() => {
+    const scrollListener = () => {
+      if (targetElement) {
+        setTargetRect(targetElement.getBoundingClientRect());
+      }
+    };
+    document.addEventListener("scroll", scrollListener, { passive: true });
+    return () => {
+      document.removeEventListener("scroll", scrollListener);
+    };
+  }, [targetElement]);
+
+  return [
+    {
+      path: targetPath,
+      element: targetElement,
+      rect: targetRect,
+    } as HoverTarget,
+    (target: HoverTarget | null) => {
+      setTargetElement(target?.element);
+      setTargetPath(target?.path);
+      setTargetRect(target?.element?.getBoundingClientRect());
+    },
+  ] as const;
+}
+
 // TODO: do something fun on highlight?
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function useHighlight(
@@ -352,51 +642,6 @@ function useInitEditMode() {
     }
   }, []);
   return [editMode, setEditMode] as const;
-}
-
-function useHoverTarget(editMode: EditMode) {
-  const [target, setTarget] = useState<{
-    element?: HTMLElement;
-    rect?: DOMRect;
-    path: SourcePath;
-  } | null>(null);
-  useEffect(() => {
-    if (editMode === "hover") {
-      let curr: HTMLElement | null = null;
-      const mouseOverListener = (e: MouseEvent) => {
-        const target = e.target as HTMLElement | null;
-        curr = target;
-        // TODO: use .contains?
-        do {
-          if (curr?.dataset.valPath) {
-            setTarget({
-              element: curr,
-              path: curr.dataset.valPath as SourcePath,
-            });
-            break;
-          }
-        } while ((curr = curr?.parentElement || null));
-      };
-      const scrollListener = () => {
-        if (target?.element) {
-          setTarget({
-            ...target,
-          });
-        }
-      };
-
-      document.addEventListener("mouseover", mouseOverListener);
-      document.addEventListener("scroll", scrollListener, { passive: true });
-
-      return () => {
-        setTarget(null);
-        document.removeEventListener("mouseover", mouseOverListener);
-        document.removeEventListener("scroll", scrollListener);
-      };
-    }
-  }, [editMode]);
-
-  return [target, setTarget] as const;
 }
 
 function useTheme(defaultTheme: Theme = "dark") {

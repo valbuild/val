@@ -10,7 +10,13 @@ export const schema = s.array(
     /**
      * The text is optional, by the way.
      */
-    text: s.richtext(),
+    text: s.richtext({
+      headings: ["h1", "h2"],
+      img: true,
+      bold: true,
+      italic: true,
+      lineThrough: true,
+    }),
     /**
      * The rank is some arbitrary number we sort by.
      */
@@ -27,205 +33,11 @@ export default val.content("/app/blogs", schema, [
       sha256:
         "41fe618d9db1a477debe0d72d9a8947be3623412281fec8ed4f70517188dfc5a",
     }),
-    text: val.richtext({
-      children: [
-        {
-          children: [
-            {
-              detail: 0,
-              format: 0,
-              mode: "normal",
-              style: "",
-              text: "Heading 1",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "heading",
-          version: 1,
-          tag: "h1",
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 0,
-              mode: "normal",
-              style: "",
-              text: "Heading 2",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "heading",
-          version: 1,
-          tag: "h2",
-        },
-        {
-          children: [],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 0,
-              mode: "normal",
-              style: "font-size: 11px;",
-              text: "Normal small",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 0,
-              mode: "normal",
-              style: "font-size: 20px;",
-              text: "Normal Font size 20",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 0,
-              mode: "normal",
-              style: "font-family: serif;",
-              text: "Normal font type serif",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 1,
-              mode: "normal",
-              style: "font-family: serif;",
-              text: "Serif and bold",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 2,
-              mode: "normal",
-              style: "",
-              text: "Arial and italic",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 8,
-              mode: "normal",
-              style: "",
-              text: "Underline",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 4,
-              mode: "normal",
-              style: "",
-              text: "strikethrough",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 12,
-              mode: "normal",
-              style: "",
-              text: "Underline then strikethrough",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-      ],
-      direction: "ltr",
-      format: "",
-      indent: 0,
-      type: "root",
-      version: 1,
-    }),
+    text: val.richtext`Test 1 2 3. ***~~Bold~~***
+
+
+
+##### **fdasfdsa**`,
     rank: 100,
   },
   {
@@ -236,14 +48,7 @@ export default val.content("/app/blogs", schema, [
       sha256:
         "9d39bf1a0b7efb117c5b6cfbca0911904c0be3d07588142db624dab183c33e20",
     }),
-    text: val.richtext({
-      direction: "ltr",
-      format: "",
-      indent: 0,
-      type: "root",
-      version: 1,
-      children: [],
-    }),
+    text: val.richtext`# Nå er det lunsj`,
     rank: 10,
   },
   {
@@ -254,201 +59,7 @@ export default val.content("/app/blogs", schema, [
       sha256:
         "5d70cf57c58aed863e79971cc78607ccd26529050ceb083e9face9670581ea7d",
     }),
-    text: val.richtext({
-      children: [
-        {
-          children: [
-            {
-              detail: 0,
-              format: 0,
-              mode: "normal",
-              style: "",
-              text: "Heading 1",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "heading",
-          version: 1,
-          tag: "h1",
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 0,
-              mode: "normal",
-              style: "",
-              text: "Heading 2",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "heading",
-          version: 1,
-          tag: "h2",
-        },
-        {
-          children: [],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 0,
-              mode: "normal",
-              style: "font-size: 11px;",
-              text: "Normal small",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 0,
-              mode: "normal",
-              style: "font-size: 20px;",
-              text: "Normal Font size 20",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 0,
-              mode: "normal",
-              style: "font-family: serif;",
-              text: "Normal font type serif",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 1,
-              mode: "normal",
-              style: "font-family: serif;",
-              text: "Serif and bold",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 2,
-              mode: "normal",
-              style: "",
-              text: "Arial and italic",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 8,
-              mode: "normal",
-              style: "",
-              text: "Underline",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 4,
-              mode: "normal",
-              style: "",
-              text: "strikethrough",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-        {
-          children: [
-            {
-              detail: 0,
-              format: 12,
-              mode: "normal",
-              style: "",
-              text: "Underline then strikethrough",
-              type: "text",
-              version: 1,
-            },
-          ],
-          direction: "ltr",
-          format: "",
-          indent: 0,
-          type: "paragraph",
-          version: 1,
-        },
-      ],
-      type: "root",
-    }),
+    text: val.richtext`Ja hvorfor ikke`,
     rank: 100,
   },
   {
@@ -459,7 +70,7 @@ export default val.content("/app/blogs", schema, [
       sha256:
         "9abaf6c805ba6379f0fcf1452041e53ec109aff978ea8a7b9d79d7d2f065abd0",
     }),
-    text: val.richtext("Ja si det"),
+    text: val.richtext`Ja si det`,
     rank: 10,
   },
   {
@@ -470,7 +81,7 @@ export default val.content("/app/blogs", schema, [
       sha256:
         "9db79a84245d1d806ad7554ea6dd47696779e8df62c2b7fe0fcc687687662551",
     }),
-    text: val.richtext("Vet ikke"),
+    text: val.richtext`Vet ikke`,
     rank: 1,
   },
 ]);

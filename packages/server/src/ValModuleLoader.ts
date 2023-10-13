@@ -10,7 +10,7 @@ const JsFileLookupMapping: [resolvedFileExt: string, replacements: string[]][] =
     [".cjs.d.ts", [".esm.js", ".mjs.js"]],
     [".cjs.js", [".esm.js", ".mjs.js"]],
     [".cjs", [".mjs"]],
-    [".d.ts", [".js"]],
+    [".d.ts", [".js", ".esm.js", ".mjs.js"]],
   ];
 
 export const createModuleLoader = (
