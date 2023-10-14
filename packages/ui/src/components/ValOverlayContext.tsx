@@ -5,6 +5,10 @@ import { ValApi } from "@valbuild/core";
 
 export type Theme = "dark" | "light";
 export type EditMode = "off" | "hover" | "window" | "full";
+export type WindowSize = {
+  width: number;
+  height: number;
+};
 
 export const ValOverlayContext = React.createContext<{
   api: ValApi;
@@ -15,6 +19,8 @@ export const ValOverlayContext = React.createContext<{
   setEditMode: Dispatch<SetStateAction<EditMode>>;
   theme: Theme;
   setTheme: (theme: Theme) => void;
+  setWindowSize: (size: WindowSize) => void;
+  windowSize?: WindowSize;
 }>({
   get api(): never {
     throw Error(
@@ -52,6 +58,16 @@ export const ValOverlayContext = React.createContext<{
     );
   },
   get setHighlight(): never {
+    throw Error(
+      "ValOverlayContext not found. Ensure components are wrapped by ValOverlayProvider!"
+    );
+  },
+  get setWindowSize(): never {
+    throw Error(
+      "ValOverlayContext not found. Ensure components are wrapped by ValOverlayProvider!"
+    );
+  },
+  get windowSize(): never {
     throw Error(
       "ValOverlayContext not found. Ensure components are wrapped by ValOverlayProvider!"
     );

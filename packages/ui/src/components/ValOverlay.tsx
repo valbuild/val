@@ -8,7 +8,12 @@ import {
 } from "react";
 import { Session } from "../dto/Session";
 import { ValMenu } from "./ValMenu";
-import { EditMode, Theme, ValOverlayContext } from "./ValOverlayContext";
+import {
+  EditMode,
+  Theme,
+  ValOverlayContext,
+  WindowSize,
+} from "./ValOverlayContext";
 import { Remote } from "../utils/Remote";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
@@ -83,6 +88,8 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
     });
   }, [windowTarget?.path]);
 
+  const [windowSize, setWindowSize] = useState<WindowSize>();
+
   return (
     <ValOverlayContext.Provider
       value={{
@@ -94,6 +101,8 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
         highlight,
         setHighlight,
         setTheme,
+        windowSize,
+        setWindowSize,
       }}
     >
       <div data-mode={theme}>
