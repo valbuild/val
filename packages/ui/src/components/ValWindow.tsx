@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { AlignJustify, X } from "react-feather";
 import classNames from "classnames";
 import { Resizable } from "react-resizable";
+import { useValOverlayContext } from "./ValOverlayContext";
 
 export type ValWindowProps = {
   children:
@@ -35,17 +36,16 @@ export function ValWindow({
       document.removeEventListener("keyup", closeOnEscape);
     };
   }, []);
-
   //
-  const [size, setSize] = useState<{ height: number; width: number }>();
+  const { windowSize, setWindowSize } = useValOverlayContext();
   //
   const bottomRef = useRef<HTMLDivElement>(null);
 
   return (
     <Resizable
-      width={size?.width || MIN_WIDTH}
-      height={size?.height || MIN_HEIGHT}
-      onResize={(_, { size }) => setSize(size)}
+      width={windowSize?.width || MIN_WIDTH}
+      height={windowSize?.height || MIN_HEIGHT}
+      onResize={(_, { size }) => setWindowSize(size)}
       handle={
         <div className="fixed bottom-0 right-0 cursor-se-resize">
           <svg
@@ -72,8 +72,8 @@ export function ValWindow({
     >
       <div
         style={{
-          width: size?.width || MIN_WIDTH,
-          height: size?.height || MIN_HEIGHT,
+          width: windowSize?.width || MIN_WIDTH,
+          height: windowSize?.height || MIN_HEIGHT,
           left: draggedPosition.left,
           top: draggedPosition.top,
         }}
@@ -109,7 +109,7 @@ export function ValWindow({
             className="relative overflow-scroll"
             style={{
               height:
-                (size?.height || MIN_HEIGHT) -
+                (windowSize?.height || MIN_HEIGHT) -
                 (64 +
                   (bottomRef.current?.getBoundingClientRect()?.height || 0)),
             }}
