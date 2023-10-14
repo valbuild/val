@@ -63,7 +63,7 @@ export function ValWindow({
       }
       draggableOpts={{}}
       className={classNames(
-        "absolute inset-0  w-full tablet:w-auto tablet:h-auto tablet:min-h-fit tablet:rounded bg-base text-primary drop-shadow-2xl min-w-[320px] transition-opacity duration-300 delay-75 max-w-full",
+        "absolute inset-0  tablet:w-auto tablet:h-auto tablet:min-h-fit tablet:rounded bg-base text-primary drop-shadow-2xl min-w-[320px] transition-opacity duration-300 delay-75",
         {
           "opacity-0": !isInitialized,
           "opacity-100": isInitialized,
