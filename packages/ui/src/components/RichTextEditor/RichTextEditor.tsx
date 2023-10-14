@@ -15,6 +15,7 @@ import Toolbar from "./Plugins/Toolbar";
 import { AnyRichTextOptions, RichText } from "@valbuild/core";
 import { HeadingNode } from "@lexical/rich-text";
 import { toLexical } from "./conversion";
+import { useValOverlayContext } from "../ValOverlayContext";
 
 export interface RichTextEditorProps {
   richtext: RichText<AnyRichTextOptions>;
@@ -25,10 +26,13 @@ function onError(error: any) {
   console.error(error);
 }
 
+const TOOLBAR_HEIGHT = 28;
+
 export const RichTextEditor: FC<RichTextEditorProps> = ({
   richtext,
   onEditor,
 }) => {
+  const { windowSize } = useValOverlayContext();
   const prePopulatedState = (editor: LexicalEditor) => {
     editor.setEditorState(
       editor.parseEditorState({ root: toLexical(richtext) })
@@ -39,7 +43,6 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
     editorState: prePopulatedState,
     nodes: [HeadingNode, ImageNode, ListNode, ListItemNode],
     theme: {
-      root: "p-4 bg-fill text-white font-roboto border-b border-highlight",
       text: {
         bold: "font-semibold",
         underline: "underline",
@@ -68,7 +71,18 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
       <AutoFocus />
       <Toolbar onEditor={onEditor} />
       <RichTextPlugin
-        contentEditable={<LexicalContentEditable className="outline-none" />}
+        contentEditable={
+          <div
+            className="p-4 text-white border-b border-highlight bg-fill font-roboto"
+            style={{
+              minHeight: windowSize?.innerHeight
+                ? windowSize?.innerHeight - TOOLBAR_HEIGHT
+                : undefined,
+            }}
+          >
+            <LexicalContentEditable className="outline-none" />
+          </div>
+        }
         placeholder={<div className="">Enter some text...</div>}
         ErrorBoundary={LexicalErrorBoundary}
       />
