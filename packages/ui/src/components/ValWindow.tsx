@@ -38,6 +38,17 @@ export function ValWindow({
   }, []);
   //
   const { windowSize, setWindowSize } = useValOverlayContext();
+  useEffect(() => {
+    if (!windowSize) {
+      setWindowSize({
+        height: MIN_HEIGHT,
+        width: MIN_WIDTH,
+        innerHeight:
+          MIN_HEIGHT -
+          (64 + (bottomRef.current?.getBoundingClientRect()?.height || 0)),
+      });
+    }
+  }, [windowSize]);
   //
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -45,7 +56,14 @@ export function ValWindow({
     <Resizable
       width={windowSize?.width || MIN_WIDTH}
       height={windowSize?.height || MIN_HEIGHT}
-      onResize={(_, { size }) => setWindowSize(size)}
+      onResize={(_, { size }) =>
+        setWindowSize({
+          ...size,
+          innerHeight:
+            (windowSize?.height || MIN_HEIGHT) -
+            (64 + (bottomRef.current?.getBoundingClientRect()?.height || 0)),
+        })
+      }
       handle={
         <div className="fixed bottom-0 right-0 cursor-se-resize">
           <svg
@@ -108,10 +126,7 @@ export function ValWindow({
           <div
             className="relative overflow-scroll"
             style={{
-              height:
-                (windowSize?.height || MIN_HEIGHT) -
-                (64 +
-                  (bottomRef.current?.getBoundingClientRect()?.height || 0)),
+              height: windowSize?.innerHeight,
             }}
           >
             {Array.isArray(children) ? children.slice(1, -1) : children}

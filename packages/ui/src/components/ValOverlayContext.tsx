@@ -8,6 +8,7 @@ export type EditMode = "off" | "hover" | "window" | "full";
 export type WindowSize = {
   width: number;
   height: number;
+  innerHeight: number;
 };
 
 export const ValOverlayContext = React.createContext<{

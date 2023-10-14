@@ -7,7 +7,6 @@ export interface ButtonProps
   icon?: React.ReactElement<SVGProps<SVGSVGElement>>;
   active?: boolean;
   disabled?: boolean;
-  tooltip?: string;
 }
 
 export function PrimaryButton({
@@ -34,7 +33,6 @@ const Button: FC<ButtonProps> = ({
   icon,
   // active = false,
   disabled = false,
-  tooltip,
 }) => {
   return (
     <button
@@ -51,13 +49,6 @@ const Button: FC<ButtonProps> = ({
       )}
       onClick={onClick}
     >
-      {tooltip && (
-        <div
-          className={`absolute bottom-[-75%] left-0 z-20 bg-black w-fit h-fit text-primary hidden group-hover:block`}
-        >
-          <div>{tooltip}</div>
-        </div>
-      )}
       <span className="flex flex-row items-center justify-center gap-2">
         {icon && icon}
         {children}

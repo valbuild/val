@@ -1,6 +1,7 @@
 import React, { SVGProps, useEffect, useRef, useState } from "react";
 import Chevron from "../assets/icons/Chevron";
 import Button from "./Button";
+import { useValOverlayContext } from "./ValOverlayContext";
 
 export interface DropdownProps {
   options: string[];
@@ -15,11 +16,11 @@ const Dropdown: React.FC<DropdownProps> = ({
   onChange,
   label,
   icon,
-  // variant = "primary",
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [selectedOption, setSelectedOption] = useState<number>(0);
+  const { windowSize } = useValOverlayContext();
 
   const handleToggle = () => {
     setIsOpen(!isOpen);
@@ -62,31 +63,37 @@ const Dropdown: React.FC<DropdownProps> = ({
           />
         }
       >
-        <span className="flex flex-row items-center justify-center gap-1">
-          {label}
-          {icon && icon}
-        </span>
-      </Button>
-      {isOpen && (
-        <div className="absolute left-0 mt-2 w-48 shadow-lg font-mono text-[14px] text-primary bg-border z-overlay">
-          <div className="py-1 rounded-md">
-            {options?.map((option, idx) => (
-              <button
-                key={option}
-                onClick={(ev) => {
-                  ev.preventDefault();
-                  handleSelect(option, idx);
-                }}
-                className={`w-full text-left px-4 py-2 hover:bg-base hover:text-highlight  ${
-                  idx === selectedOption && "font-bold bg-base hover:bg-base"
-                }`}
-              >
-                {option}
-              </button>
-            ))}
-          </div>
+        <div className="relative">
+          <span className="flex flex-row items-center justify-center gap-1">
+            {label}
+            {icon && icon}
+          </span>
+          {isOpen && (
+            <div
+              className="absolute -top-[4px] overflow-scroll shadow-lg -left-2 text-primary bg-border w-fit z-overlay"
+              style={{ maxHeight: windowSize?.innerHeight }}
+            >
+              <div className="flex flex-col ">
+                {options?.map((option, idx) => (
+                  <button
+                    key={option}
+                    onClick={(ev) => {
+                      ev.preventDefault();
+                      handleSelect(option, idx);
+                    }}
+                    className={`text-left px-2 py-1 hover:bg-base hover:text-highlight  ${
+                      idx === selectedOption &&
+                      "font-bold bg-base hover:bg-base truncate"
+                    }`}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+      </Button>
     </div>
   );
 };
