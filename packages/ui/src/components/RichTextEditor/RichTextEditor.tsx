@@ -73,14 +73,14 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
       <RichTextPlugin
         contentEditable={
           <div
-            className="p-4 text-white border-b border-highlight bg-fill font-roboto"
+            className="text-white border-b  border-highlight font-roboto"
             style={{
               minHeight: windowSize?.innerHeight
                 ? windowSize?.innerHeight - TOOLBAR_HEIGHT
                 : undefined,
             }}
           >
-            <LexicalContentEditable className="outline-none" />
+            <LexicalContentEditable className="p-4 outline-none bg-fill" />
           </div>
         }
         placeholder={<div className="">Enter some text...</div>}
