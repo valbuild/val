@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { AnyRichTextOptions, RichText as RichTextType } from "@valbuild/core";
+import {
+  AnyRichTextOptions,
+  RichTextSource as RichTextSourceType,
+} from "@valbuild/core";
 import { RichTextEditor } from "../exports";
 import { FormContainer } from "./forms/FormContainer";
 import { ImageForm } from "./forms/ImageForm";
@@ -123,7 +126,7 @@ export const RichText: Story = {
                   ],
                 },
               ],
-            } as RichTextType<AnyRichTextOptions>
+            } as RichTextSourceType<AnyRichTextOptions>
           }
         />
       </FormContainer>

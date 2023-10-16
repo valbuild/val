@@ -3,7 +3,7 @@ import {
   RichTextEditorProps,
 } from "../components/RichTextEditor/RichTextEditor";
 import { Meta, Story } from "@storybook/react";
-import { AnyRichTextOptions, RichText } from "@valbuild/core";
+import { AnyRichTextOptions, RichTextSource } from "@valbuild/core";
 
 export default {
   title: "RichTextEditor",
@@ -64,5 +64,5 @@ DropdownStory.args = {
         ],
       },
     ],
-  } as RichText<AnyRichTextOptions>,
+  } as RichTextSource<AnyRichTextOptions>,
 };
