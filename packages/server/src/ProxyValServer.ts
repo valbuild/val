@@ -422,6 +422,7 @@ export async function enable(
     res.sendStatus(400);
   }
 }
+
 export async function disable(
   req: express.Request,
   res: express.Response,

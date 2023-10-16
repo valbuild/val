@@ -64,6 +64,8 @@ export function richTextToTaggedStringTemplate(
         if (node.classes.includes("line-through")) {
           texts[texts.length - 1] += "~~";
         }
+      } else if (node.tag === "br") {
+        texts[texts.length - 1] += "<br/>";
       } else {
         //exhaustive match
         const exhaustiveCheck: never = node.tag;

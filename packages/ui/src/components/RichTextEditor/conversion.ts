@@ -6,6 +6,7 @@ import {
   UnorderedListNode as ValUnorderedListNode,
   OrderedListNode as ValOrderedListNode,
   ParagraphNode as ValParagraphNode,
+  BrNode as ValBrNode,
   RichTextSourceNode as ValRichTextSourceNode,
   RichText,
   RootNode,
@@ -351,7 +352,13 @@ function fromLexicalHeadingNode(
 function fromLexicalParagraphNode(
   paragraphNode: LexicalParagraphNode,
   files: Record<string, string>
-): ValParagraphNode<AnyRichTextOptions> {
+): ValBrNode<AnyRichTextOptions> | ValParagraphNode<AnyRichTextOptions> {
+  if (paragraphNode?.children?.length === 0) {
+    return {
+      tag: "br",
+      children: [],
+    };
+  }
   return {
     tag: "p",
     children: paragraphNode.children.map((node) =>
