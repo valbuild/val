@@ -59,6 +59,32 @@ describe("patch richtext", () => {
         },
         { _type: "file", _ref: "/public/image.png" },
         { tag: "p", children: ["Paragraph 2"] },
+        {
+          tag: "ol",
+          children: [
+            { tag: "li", children: ["OL:Item 1"] },
+            { tag: "li", children: ["OL:Item 2"] },
+          ],
+        },
+        {
+          tag: "ul",
+          children: [
+            { tag: "li", children: ["UL:Item 2"] },
+            { tag: "li", children: ["UL:Item 3"] },
+          ],
+        },
+        { tag: "h3", children: ["Title 3"] },
+        {
+          tag: "ul",
+          children: [
+            {
+              tag: "li",
+              children: [
+                { tag: "span", classes: ["bold"], children: ["UL:Item 4"] },
+              ],
+            },
+          ],
+        },
       ],
     };
     const r = richTextToTaggedStringTemplate(input);
