@@ -31,7 +31,10 @@ globalThis.valModule = {
     const fatalErrors: string[] = [];
     if (result.error) {
       const error = result.error.consume(context.dump);
-      console.error(`Fatal error reading val file: ${error.message}\n`, error.stack);
+      console.error(
+        `Fatal error reading val file: ${error.message}\n`,
+        error.stack
+      );
       return {
         errors: {
           invalidModuleId: id as ModuleId,
