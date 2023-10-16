@@ -19,7 +19,7 @@ export type RichTextOptions = {
 
 export type ParagraphNode<O extends RichTextOptions> = {
   tag: "p";
-  children: (string | SpanNode<O> | ImageNode<O>)[];
+  children: (string | SpanNode<O>)[];
   // AnchorNode<O>
 };
 
@@ -79,7 +79,6 @@ export type ListItemNode<O extends RichTextOptions> = {
     | string
     | SpanNode<O>
     // | AnchorNode<O>
-    | ImageNode<O>
     | UnorderedListNode<O>
     | OrderedListNode<O>
   )[];
@@ -140,9 +139,6 @@ export type AnyRichTextOptions = {
 
 export type RichTextSourceNode<O extends RichTextOptions> =
   | Exclude<RichTextNode<O>, { tag: "img" }>
-  | ParagraphNode<O>
-  | ListItemNode<O>
-  | ImageNode<O>
   | SourceNode<O>;
 
 export type RichTextSource<O extends RichTextOptions> = {
@@ -230,6 +226,9 @@ function parseTokens<O extends RichTextOptions>(
       ];
     }
     if (token.type === "text") {
+      if ("tokens" in token && Array.isArray(token.tokens)) {
+        return parseTokens(token.tokens);
+      }
       return [token.text];
     }
     if (token.type === "list") {
