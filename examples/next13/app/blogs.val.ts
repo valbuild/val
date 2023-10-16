@@ -33,7 +33,7 @@ export default val.content("/app/blogs", schema, [
       sha256:
         "41fe618d9db1a477debe0d72d9a8947be3623412281fec8ed4f70517188dfc5a",
     }),
-    text: val.richtext `
+    text: val.richtext`
 
 1. Test 1 2 3. ***~~Bold~~***
 1. **fdasfdsa**
