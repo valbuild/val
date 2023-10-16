@@ -22,6 +22,12 @@ export type ParagraphNode<O extends RichTextOptions> = {
   children: (string | SpanNode<O>)[];
   // AnchorNode<O>
 };
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export type BrNode<O extends RichTextOptions> = {
+  tag: "br";
+  children: [];
+  // AnchorNode<O>
+};
 
 export type LineThrough<O extends RichTextOptions> =
   O["lineThrough"] extends true ? "line-through" : never;
@@ -146,6 +152,7 @@ export type RichTextSource<O extends RichTextOptions> = {
   children: (
     | HeadingNode<O>
     | ParagraphNode<O>
+    | BrNode<O>
     | UnorderedListNode<O>
     | OrderedListNode<O>
     // | BlockQuoteNode<O>
@@ -155,10 +162,7 @@ export type RichTextSource<O extends RichTextOptions> = {
 
 export type RichTextNode<O extends RichTextOptions> =
   | string
-  | HeadingNode<O>
-  | ParagraphNode<O>
-  | UnorderedListNode<O>
-  | OrderedListNode<O>
+  | RootNode<O>
   | ListItemNode<O>
   | SpanNode<O>
   // | BlockQuoteNode<O>
@@ -167,9 +171,9 @@ export type RichTextNode<O extends RichTextOptions> =
 export type RootNode<O extends RichTextOptions> =
   | HeadingNode<O>
   | ParagraphNode<O>
+  | BrNode<O>
   | UnorderedListNode<O>
   | OrderedListNode<O>
-  // | BlockQuoteNode<O>
   | ImageNode<O>;
 
 // TODO: rename to RichTextSelector?
@@ -259,6 +263,9 @@ function parseTokens<O extends RichTextOptions>(
           children: [token.text],
         },
       ];
+    }
+    if (token.type === "html") {
+      // if (token)
     }
     // console.error(
     //   `Could not parse markdown: unsupported token type: ${token.type}. Found: ${token.raw}`

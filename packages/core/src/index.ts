@@ -15,6 +15,7 @@ export type {
   ListItemNode,
   OrderedListNode,
   ParagraphNode,
+  BrNode,
   RichText,
   RichTextNode,
   RichTextOptions,
