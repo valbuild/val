@@ -154,7 +154,7 @@ function getFileExtFromUrl(url: string): string | undefined {
 }
 
 export function toLexical(
-  richtext: RichTextSource<AnyRichTextOptions> | RichText<AnyRichTextOptions>
+  richtext: RichTextSource<AnyRichTextOptions>
 ): LexicalRootNode {
   return {
     ...COMMON_LEXICAL_PROPS,

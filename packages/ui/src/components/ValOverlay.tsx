@@ -22,6 +22,7 @@ import {
   FileSource,
   Internal,
   RichText,
+  RichTextSource,
   SerializedSchema,
   SourcePath,
   VAL_EXTENSION,
@@ -146,7 +147,9 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
               selectedSource[VAL_EXTENSION] === "richtext" && (
                 <RichTextField
                   registerPatchCallback={initPatchCallback(windowTarget.path)}
-                  defaultValue={selectedSource as RichText<AnyRichTextOptions>}
+                  defaultValue={
+                    selectedSource as RichTextSource<AnyRichTextOptions>
+                  }
                 />
               )}
             {selectedSource &&
@@ -265,7 +268,7 @@ function RichTextField({
   registerPatchCallback,
 }: {
   registerPatchCallback: (callback: PatchCallback) => void;
-  defaultValue?: RichText<AnyRichTextOptions>;
+  defaultValue?: RichTextSource<AnyRichTextOptions>;
 }) {
   const [editor, setEditor] = useState<LexicalEditor | null>(null);
   useEffect(() => {
@@ -310,7 +313,7 @@ function RichTextField({
         ({
           children: [],
           [VAL_EXTENSION]: "root",
-        } as unknown as RichText<AnyRichTextOptions>)
+        } as unknown as RichTextSource<AnyRichTextOptions>)
       }
     />
   );

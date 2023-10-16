@@ -12,13 +12,13 @@ import { ImageNode } from "./Nodes/ImageNode";
 import { AutoFocus } from "./Plugins/AutoFocus";
 import ImagesPlugin from "./Plugins/ImagePlugin";
 import Toolbar from "./Plugins/Toolbar";
-import { AnyRichTextOptions, RichText } from "@valbuild/core";
+import { AnyRichTextOptions, RichTextSource } from "@valbuild/core";
 import { HeadingNode } from "@lexical/rich-text";
 import { toLexical } from "./conversion";
 import { useValOverlayContext } from "../ValOverlayContext";
 
 export interface RichTextEditorProps {
-  richtext: RichText<AnyRichTextOptions>;
+  richtext: RichTextSource<AnyRichTextOptions>;
   onEditor?: (editor: LexicalEditor) => void; // Not the ideal way of passing the editor to the upper context, we need it to be able to save
 }
 
@@ -73,7 +73,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
       <RichTextPlugin
         contentEditable={
           <div
-            className="text-white border-b  border-highlight font-roboto"
+            className="text-white border-b border-highlight font-roboto"
             style={{
               minHeight: windowSize?.innerHeight
                 ? windowSize?.innerHeight - TOOLBAR_HEIGHT

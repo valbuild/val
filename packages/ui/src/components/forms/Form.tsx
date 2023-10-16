@@ -1,4 +1,4 @@
-import { AnyRichTextOptions, RichText } from "@valbuild/core";
+import { AnyRichTextOptions, RichTextSource } from "@valbuild/core";
 import { LexicalEditor } from "lexical";
 import { useEffect, useState } from "react";
 import { RichTextEditor } from "../RichTextEditor/RichTextEditor";
@@ -18,7 +18,7 @@ export type Inputs = {
     | {
         status: "completed";
         type: "richtext";
-        data: RichText<AnyRichTextOptions>;
+        data: RichTextSource<AnyRichTextOptions>;
       };
 };
 
