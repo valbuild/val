@@ -265,11 +265,20 @@ function parseTokens<O extends RichTextOptions>(
       ];
     }
     if (token.type === "html") {
-      // if (token)
+      const br_html_regex = /<br\s*\/?>/gi; // matches <br>, <br/>, <br />; case insensitive
+
+      if (token.text.trim().match(br_html_regex)) {
+        return [
+          {
+            tag: "br",
+            children: [],
+          },
+        ];
+      }
     }
-    // console.error(
-    //   `Could not parse markdown: unsupported token type: ${token.type}. Found: ${token.raw}`
-    // );
+    console.error(
+      `Could not parse markdown: unsupported token type: ${token.type}. Found: ${token.raw}`
+    );
     return [token.raw];
   });
 }

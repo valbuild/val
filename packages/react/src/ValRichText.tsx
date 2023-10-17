@@ -176,9 +176,14 @@ export function ValRichText<O extends RichTextOptions>({
         </h6>
       );
     }
+
+    if (node.tag === "br") {
+      return <br key={key} />;
+    }
     console.error("Unknown tag", node.tag);
+    const _exhaustiveCheck: never = node.tag;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyNode = node as any;
+    const anyNode = _exhaustiveCheck as any;
     if (!anyNode?.tag) {
       return null;
     }
