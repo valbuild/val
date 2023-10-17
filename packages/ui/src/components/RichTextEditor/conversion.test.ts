@@ -53,6 +53,8 @@ describe("richtext conversion", () => {
             },
           ],
         },
+        { tag: "br", children: [] },
+        { tag: "br", children: [] },
         {
           tag: "ul",
           children: [

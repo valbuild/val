@@ -90,7 +90,7 @@ export function richTextToTaggedStringTemplate(
         if (node.classes.includes("bold") && !node.classes.includes("italic")) {
           texts[texts.length - 1] += "**";
         }
-      } else if (node.tag === "p") {
+      } else if (node.tag === "p" || node.tag === "br") {
         didAppendNewLines = true;
         texts[texts.length - 1] += "\n\n";
       } else if (node.tag === "ul" || node.tag === "ol") {

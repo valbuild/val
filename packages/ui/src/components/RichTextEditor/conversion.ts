@@ -111,6 +111,8 @@ export function toLexicalNode(
         return toLexicalListNode(node);
       case "span":
         return toLexicalTextNode(node);
+      case "br":
+        return toLexicalPseudoLineBreakNode();
       default:
         throw Error("Unexpected node tag: " + JSON.stringify(node, null, 2));
     }
@@ -183,6 +185,15 @@ function toLexicalParagraphNode(
     ...COMMON_LEXICAL_PROPS,
     type: "paragraph",
     children: paragraph.children.map(toLexicalNode),
+  };
+}
+
+// Lexical does not support line breaks, so we convert them to empty paragraphs
+function toLexicalPseudoLineBreakNode(): LexicalParagraphNode {
+  return {
+    ...COMMON_LEXICAL_PROPS,
+    type: "paragraph",
+    children: [],
   };
 }
 

@@ -74,6 +74,9 @@ describe("patch richtext", () => {
           ],
         },
         { tag: "h3", children: ["Title 3"] },
+        { tag: "br", children: [] },
+        { tag: "br", children: [] },
+        { tag: "br", children: [] },
         {
           tag: "ul",
           children: [
