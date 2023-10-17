@@ -5,6 +5,7 @@ import { InitSchema, initSchema } from "./initSchema";
 import { getValPath as getPath } from "./val";
 import { file } from "./source/file";
 import { richtext } from "./source/richtext";
+import { link } from "./source/link";
 // import { i18n, I18n } from "./source/future/i18n";
 // import { remote } from "./source/future/remote";
 
@@ -13,6 +14,7 @@ type ValConstructor = {
   getPath: typeof getPath;
   // remote: typeof remote;
   file: typeof file;
+  link: typeof link;
   richtext: typeof richtext;
 };
 export type InitVal = {

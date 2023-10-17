@@ -525,6 +525,30 @@ Test 2
 Test 2\``),
     },
     {
+      name: "val.richtext link",
+      input: "val.richtext`Test`",
+      path: [],
+      value: {
+        [VAL_EXTENSION]: "richtext",
+        children: [
+          { tag: "h1", children: ["Title 1"] },
+          {
+            [VAL_EXTENSION]: "link",
+            href: "https://example.com",
+          },
+          {
+            [VAL_EXTENSION]: "file",
+            [FILE_REF_PROP]: "/public/test2",
+            metadata: { width: 100, height: 100, sha256: "123" },
+          },
+        ],
+      },
+      expected: result.ok(`val.richtext \`# Title 1
+
+\${val.link("https://example.com")}
+\${val.file("/public/test2", { width: 100, height: 100, sha256: "123" })}\``),
+    },
+    {
       name: "val.richtext empty head",
       input:
         "{ text: val.richtext`${val.file('/public/test1', { height: 100 })}` }",
