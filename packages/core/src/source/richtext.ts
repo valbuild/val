@@ -2,10 +2,12 @@ import * as marked from "marked";
 import { FileSource } from "./file";
 import { VAL_EXTENSION } from ".";
 import { convertFileSource } from "../schema/image";
+import { LinkSource } from "./link";
 
 export type RichTextOptions = {
   headings?: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];
   img?: boolean;
+  a?: boolean;
   ul?: boolean; // TODO: naming
   ol?: boolean; // TODO: naming
   lineThrough?: boolean;
@@ -23,10 +25,9 @@ export type ParagraphNode<O extends RichTextOptions> = {
   // AnchorNode<O>
 };
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export type BrNode<O extends RichTextOptions> = {
+export type BrNode<_O extends RichTextOptions> = {
   tag: "br";
   children: [];
-  // AnchorNode<O>
 };
 
 export type LineThrough<O extends RichTextOptions> =
@@ -79,6 +80,14 @@ export type ImageNode<O extends RichTextOptions> = O["img"] extends true
     }
   : never;
 
+export type LinkNode<O extends RichTextOptions> = O["a"] extends true
+  ? {
+      tag: "a";
+      href: string;
+      text?: string;
+    }
+  : never;
+
 export type ListItemNode<O extends RichTextOptions> = {
   tag: "li";
   children: (
@@ -126,13 +135,14 @@ type ImageSource = FileSource<{
   sha256: string;
 }>;
 
-export type SourceNode<O extends RichTextOptions> = O["img"] extends true
-  ? ImageSource
-  : never;
+export type SourceNode<O extends RichTextOptions> =
+  | (O["img"] extends true ? ImageSource : never)
+  | (O["a"] extends true ? LinkSource : never);
 
 export type AnyRichTextOptions = {
   headings: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];
   img: true;
+  a: true;
   ul: true;
   ol: true;
   lineThrough: true;
@@ -283,9 +293,13 @@ function parseTokens<O extends RichTextOptions>(
   });
 }
 
+// TODO make this type safe
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function nodeToTag(node: any): any {
   if (node[VAL_EXTENSION] === "file") {
+    return node;
+  }
+  if (node[VAL_EXTENSION] === "link") {
     return node;
   }
   throw Error(`Unexpected node: ${JSON.stringify(node)}`);
@@ -303,6 +317,16 @@ function imgSrcToImgTag<O extends RichTextOptions>(
   } as ImageNode<O>;
 }
 
+function linkSrcToLinkTag<O extends RichTextOptions>(
+  linkSrc: LinkSource
+): LinkNode<O> {
+  return {
+    tag: "a",
+    href: linkSrc.href,
+    ...("text" in linkSrc && { text: linkSrc.text }),
+  } as LinkNode<O>;
+}
+
 export function convertRichTextSource<O extends RichTextOptions>(
   src: RichTextSource<O>
 ): RichText<O> {
@@ -313,6 +337,10 @@ export function convertRichTextSource<O extends RichTextOptions>(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return imgSrcToImgTag(source as any);
       }
+      if (VAL_EXTENSION in source && source[VAL_EXTENSION] === "link") {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return linkSrcToLinkTag(source);
+      }
       return source;
     }),
   } as RichText<O>;
@@ -320,7 +348,7 @@ export function convertRichTextSource<O extends RichTextOptions>(
 
 export function richtext<
   O extends RichTextOptions,
-  Nodes extends never | ImageSource
+  Nodes extends never | ImageSource | LinkSource
 >(templateStrings: TemplateStringsArray, ...expr: Nodes[]): RichTextSource<O> {
   return {
     [VAL_EXTENSION]: "richtext",

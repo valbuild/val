@@ -74,6 +74,7 @@ describe("patch richtext", () => {
           ],
         },
         { tag: "h3", children: ["Title 3"] },
+        { _type: "link", href: "https://example.com" },
         { tag: "br", children: [] },
         { tag: "br", children: [] },
         { tag: "br", children: [] },
