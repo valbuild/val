@@ -27,6 +27,7 @@ import {
 } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core/src/Json";
 import { richTextToTaggedStringTemplate } from "./richtext";
+import { LinkSource } from "@valbuild/core/src/source/link";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
@@ -85,6 +86,21 @@ function createValFileReference(value: FileSource) {
   );
 }
 
+function createValLink(value: LinkSource) {
+  const args: ts.Expression[] = [
+    ts.factory.createStringLiteral(value.href),
+  ];
+
+  return ts.factory.createCallExpression(
+    ts.factory.createPropertyAccessExpression(
+      ts.factory.createIdentifier("val"),
+      ts.factory.createIdentifier("link")
+    ),
+    undefined,
+    args
+  );
+}
+
 function createValRichTextTaggedStringTemplate(
   value: RichTextSource<AnyRichTextOptions>
 ): ts.Expression {
@@ -132,6 +148,8 @@ function toExpression(value: JSONValue): ts.Expression {
   } else if (typeof value === "object") {
     if (isValFileValue(value)) {
       return createValFileReference(value);
+    } else if (isValLinkValue(value)) {
+      return createValLink(value);
     } else if (isValRichTextValue(value)) {
       return createValRichTextTaggedStringTemplate(value);
     }
@@ -602,6 +620,14 @@ function isValFileValue(value: JSONValue): value is FileSource<{
     // value[VAL_EXTENSION] === "file" &&
     FILE_REF_PROP in value &&
     typeof value[FILE_REF_PROP] === "string"
+  );
+}
+function isValLinkValue(value: JSONValue): value is LinkSource {
+  return !!(
+    typeof value === "object" &&
+    value &&
+    VAL_EXTENSION in value &&
+    value[VAL_EXTENSION] === "link"
   );
 }
 
