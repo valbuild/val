@@ -55,6 +55,7 @@ describe("richtext conversion", () => {
         },
         { tag: "br", children: [] },
         { tag: "br", children: [] },
+        { _type: "link", href: "https://example.com", text: "Link" },
         {
           tag: "ul",
           children: [

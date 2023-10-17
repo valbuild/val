@@ -609,7 +609,7 @@ function removeAtPath(
   );
 }
 
-function isValFileValue(value: JSONValue): value is FileSource<{
+export function isValFileValue(value: JSONValue): value is FileSource<{
   [key: string]: JsonPrimitive;
 }> {
   return !!(

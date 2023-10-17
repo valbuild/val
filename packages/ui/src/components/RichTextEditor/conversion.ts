@@ -16,6 +16,7 @@ import {
   RichTextSource,
   FileSource,
 } from "@valbuild/core";
+import { LinkSource } from "@valbuild/core/src/source/link";
 import { ImagePayload } from "./Nodes/ImageNode";
 
 /// Serialized Lexical Nodes:
@@ -51,13 +52,20 @@ type LexicalImageNode = CommonLexicalProps & {
   type: "image";
 } & ImagePayload;
 
+type LexicalLinkNode = CommonLexicalProps & {
+  type: "link";
+  url: string;
+  children: LexicalNode[];
+};
+
 type LexicalNode =
   | LexicalTextNode
   | LexicalParagraphNode
   | LexicalHeadingNode
   | LexicalListItemNode
   | LexicalListNode
-  | LexicalImageNode;
+  | LexicalImageNode
+  | LexicalLinkNode;
 
 export type LexicalRootNode = {
   type: "root";
@@ -120,6 +128,8 @@ export function toLexicalNode(
     switch (node[VAL_EXTENSION]) {
       case "file":
         return toLexicalImageNode(node);
+      case "link":
+        return toLexicalLinkNode(node);
       default:
         throw Error(
           "Unexpected val extension: " + JSON.stringify(node, null, 2)
@@ -144,6 +154,23 @@ function toLexicalImageNode(
     sha256: node.metadata?.sha256,
     fileExt,
     // TODO: altText
+  };
+}
+
+// TODO FIX THIS SHIT!!!!
+// Just create your own toLexicalTextNode
+// Also link should possibly be able to be bold etc
+// this complicates things
+// you would have to change the type
+function toLexicalLinkNode(link: LinkSource): LexicalLinkNode {
+  return {
+    ...COMMON_LEXICAL_PROPS,
+    type: "link",
+    url: link.href,
+    children:
+      "text" in link
+        ? [toLexicalTextNode({ children: [link.text], classes: [] } as any)]
+        : [], // todo fix
   };
 }
 
@@ -301,6 +328,8 @@ export function fromLexicalNode(
       return fromLexicalListItemNode(node, files);
     case "image":
       return fromLexicalImageNode(node, files);
+    case "link":
+      return fromLexicalLinkNode(node);
     default:
       throw Error(`Unknown lexical node: ${JSON.stringify(node)}`);
   }
@@ -333,6 +362,14 @@ function fromLexicalImageNode(
       },
     };
   }
+}
+
+function fromLexicalLinkNode(node: LexicalLinkNode): LinkSource {
+  return {
+    [VAL_EXTENSION]: "link",
+    href: node.url,
+    ...(node.children.length > 0 && { text: node.children[0].text }),
+  };
 }
 
 function fromLexicalTextNode(
