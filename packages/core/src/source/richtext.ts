@@ -21,7 +21,7 @@ export type RichTextOptions = {
 
 export type ParagraphNode<O extends RichTextOptions> = {
   tag: "p";
-  children: (string | SpanNode<O>)[];
+  children: (string | SpanNode<O> | LinkNode<O>)[];
   // AnchorNode<O>
 };
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -84,7 +84,7 @@ export type LinkNode<O extends RichTextOptions> = O["a"] extends true
   ? {
       tag: "a";
       href: string;
-      text?: string;
+      children: (string | SpanNode<O>)[];
     }
   : never;
 
@@ -277,6 +277,7 @@ function parseTokens<O extends RichTextOptions>(
     if (token.type === "html") {
       const br_html_regex = /<br\s*\/?>/gi; // matches <br>, <br/>, <br />; case insensitive
 
+      console.log("token", token);
       if (token.text.trim().match(br_html_regex)) {
         return [
           {
@@ -300,7 +301,7 @@ function nodeToTag(node: any): any {
     return node;
   }
   if (node[VAL_EXTENSION] === "link") {
-    return node;
+    return linkSrcToLinkTag(node);
   }
   throw Error(`Unexpected node: ${JSON.stringify(node)}`);
 }
@@ -320,10 +321,17 @@ function imgSrcToImgTag<O extends RichTextOptions>(
 function linkSrcToLinkTag<O extends RichTextOptions>(
   linkSrc: LinkSource
 ): LinkNode<O> {
+  const childNodes = linkSrc.children.flatMap((child) => {
+    const lex = marked.lexer(child, {
+      gfm: true,
+    });
+    return parseTokens(lex);
+  })
+
   return {
     tag: "a",
     href: linkSrc.href,
-    ...("text" in linkSrc && { text: linkSrc.text }),
+    children: childNodes as unknown as (string | SpanNode<O>)[],
   } as LinkNode<O>;
 }
 
@@ -356,7 +364,13 @@ export function richtext<
       const lex = marked.lexer(templateString, {
         gfm: true,
       });
+      console.log("lex", JSON.stringify(lex, null, 2));
       if (expr[i]) {
+          // if last token is paragraph? and not <br>
+          // <br>
+          // link  ->   link
+          // p          p
+          //
         return parseTokens(lex).concat(nodeToTag(expr[i]));
       }
       return parseTokens(lex);
