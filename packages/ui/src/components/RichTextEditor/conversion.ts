@@ -7,17 +7,17 @@ import {
   OrderedListNode as ValOrderedListNode,
   ParagraphNode as ValParagraphNode,
   BrNode as ValBrNode,
-  RichTextSourceNode as ValRichTextSourceNode,
+  RichTextNode as ValRichTextNode,
+  LinkNode as ValLinkNode,
+  ImageNode as ValImageNode,
   RichText,
   RootNode,
   VAL_EXTENSION,
   Internal,
   FILE_REF_PROP,
-  RichTextSource,
-  FileSource,
 } from "@valbuild/core";
 import { LinkSource } from "@valbuild/core/src/source/link";
-import { ImagePayload } from "./Nodes/ImageNode";
+import { mimeTypeToFileExt } from "../../utils/imageMimeType";
 
 /// Serialized Lexical Nodes:
 // TODO: replace with Lexical libs types - not currently exported?
@@ -85,7 +85,7 @@ const COMMON_LEXICAL_PROPS = {
 type CommonLexicalProps = typeof COMMON_LEXICAL_PROPS;
 
 export function toLexicalNode(
-  node: ValRichTextSourceNode<AnyRichTextOptions>
+  node: ValRichTextNode<AnyRichTextOptions>
 ): LexicalNode {
   if (typeof node === "string") {
     return {
@@ -119,21 +119,14 @@ export function toLexicalNode(
         return toLexicalListNode(node);
       case "span":
         return toLexicalTextNode(node);
+      case "a":
+        return toLexicalLinkNode(node);
+      case "img":
+        return toLexicalImageNode(node);
       case "br":
         return toLexicalPseudoLineBreakNode();
       default:
         throw Error("Unexpected node tag: " + JSON.stringify(node, null, 2));
-    }
-  } else if (VAL_EXTENSION in node) {
-    switch (node[VAL_EXTENSION]) {
-      case "file":
-        return toLexicalImageNode(node);
-      case "link":
-        return toLexicalLinkNode(node);
-      default:
-        throw Error(
-          "Unexpected val extension: " + JSON.stringify(node, null, 2)
-        );
     }
   } else {
     throw Error("Unexpected node: " + JSON.stringify(node, null, 2));
@@ -141,33 +134,29 @@ export function toLexicalNode(
 }
 
 function toLexicalImageNode(
-  node: FileSource<{ width: number; height: number; sha256: string }>
+  node: ValImageNode<AnyRichTextOptions>
 ): LexicalImageNode {
-  const url = Internal.convertFileSource(node).url;
-  const fileExt = getFileExtFromUrl(url); // TODO: add file extension to metadata and use this only as fallback
+  const url = node.src;
   return {
     ...COMMON_LEXICAL_PROPS,
     type: "image",
     src: url,
-    width: node.metadata?.width,
-    height: node.metadata?.height,
-    sha256: node.metadata?.sha256,
-    fileExt,
+    width: node.width,
+    height: node.height,
     // TODO: altText
   };
 }
 
 // TODO FIX THIS SHIT!!!!
 // Just create your own toLexicalTextNode
-function toLexicalLinkNode(link: LinkSource): LexicalLinkNode {
+function toLexicalLinkNode(
+  link: ValLinkNode<AnyRichTextOptions>
+): LexicalLinkNode {
   return {
     ...COMMON_LEXICAL_PROPS,
     type: "link",
     url: link.href,
-    children: toLexicalTextNode({
-      children: link.children,
-      classes: [],
-    } as any),
+    children: link.children.map(toLexicalNode),
   };
 }
 
@@ -180,8 +169,24 @@ function getFileExtFromUrl(url: string): string | undefined {
   }
 }
 
+function getParam(param: string, url: string) {
+  const urlParts = url.split("?");
+  if (urlParts.length < 2) {
+    return undefined;
+  }
+
+  const queryString = urlParts[1];
+  const params = new URLSearchParams(queryString);
+
+  if (params.has(param)) {
+    return params.get(param);
+  }
+
+  return undefined;
+}
+
 export function toLexical(
-  richtext: RichTextSource<AnyRichTextOptions>
+  richtext: RichText<AnyRichTextOptions>
 ): LexicalRootNode {
   return {
     ...COMMON_LEXICAL_PROPS,
@@ -292,23 +297,24 @@ function toLexicalTextNode(
   }
 }
 
-export function fromLexical(node: LexicalRootNode): {
+// NOTE: the reason this returns a Promise due to the sha256 hash which uses SubtleCrypto and, thus, is async
+export async function fromLexical(node: LexicalRootNode): Promise<{
   node: RichText<AnyRichTextOptions>;
   files: Record<string, string>;
-} {
+}> {
   const files = {};
   return {
     node: {
       _type: "richtext",
-      children: node.children.map((node) =>
-        fromLexicalNode(node, files)
-      ) as RootNode<AnyRichTextOptions>[], // TODO: validate
+      children: (await Promise.all(
+        node.children.map((node) => fromLexicalNode(node, files))
+      )) as RootNode<AnyRichTextOptions>[], // TODO: validate
     },
     files,
   };
 }
 
-export function fromLexicalNode(
+export async function fromLexicalNode(
   node: LexicalNode,
   files: Record<string, string>
 ) {
@@ -326,18 +332,21 @@ export function fromLexicalNode(
     case "image":
       return fromLexicalImageNode(node, files);
     case "link":
-      return fromLexicalLinkNode(node);
+      return fromLexicalLinkNode(node, files);
     default:
       throw Error(`Unknown lexical node: ${JSON.stringify(node)}`);
   }
 }
 
-function fromLexicalImageNode(
+const textEncoder = new TextEncoder();
+async function fromLexicalImageNode(
   node: LexicalImageNode,
   files: Record<string, string>
 ) {
   if (node.src.startsWith("data:")) {
-    const filePath = `/public/${node.sha256}.${node.fileExt}`;
+    const sha256 = await Internal.getSHA256Hash(textEncoder.encode(node.src));
+    const fileExt = mimeTypeToFileExt(node.src);
+    const filePath = `/public/${sha256}.${fileExt}`;
     files[filePath] = node.src;
     return {
       [VAL_EXTENSION]: "file",
@@ -345,27 +354,33 @@ function fromLexicalImageNode(
       metadata: {
         width: node.width,
         height: node.width,
-        sha256: node.sha256,
+        sha256,
       },
     };
   } else {
+    const sha256 = getParam("sha256", node.src);
     return {
       [VAL_EXTENSION]: "file",
       [FILE_REF_PROP]: `/public${node.src.split("?")[0]}`,
       metadata: {
         width: node.width,
         height: node.width,
-        sha256: node.sha256,
+        sha256,
       },
     };
   }
 }
 
-function fromLexicalLinkNode(node: LexicalLinkNode): LinkSource {
+async function fromLexicalLinkNode(
+  node: LexicalLinkNode,
+  files: Record<string, string>
+): Promise<LinkSource> {
   return {
     [VAL_EXTENSION]: "link",
     href: node.url,
-    ...(node.children.length > 0 && { text: node.children[0].text }),
+    children: (await Promise.all(
+      node.children.map((node) => fromLexicalNode(node, files))
+    )) as LinkSource["children"],
   };
 }
 
@@ -382,22 +397,24 @@ function fromLexicalTextNode(
   };
 }
 
-function fromLexicalHeadingNode(
+async function fromLexicalHeadingNode(
   headingNode: LexicalHeadingNode,
   files: Record<string, string>
-): ValHeadingNode<AnyRichTextOptions> {
+): Promise<ValHeadingNode<AnyRichTextOptions>> {
   return {
     tag: headingNode.tag,
-    children: headingNode.children.map((node) =>
-      fromLexicalNode(node, files)
-    ) as ValHeadingNode<AnyRichTextOptions>["children"], // TODO: validate children
+    children: (await Promise.all(
+      headingNode.children.map((node) => fromLexicalNode(node, files))
+    )) as ValHeadingNode<AnyRichTextOptions>["children"], // TODO: validate children
   };
 }
 
-function fromLexicalParagraphNode(
+async function fromLexicalParagraphNode(
   paragraphNode: LexicalParagraphNode,
   files: Record<string, string>
-): ValBrNode<AnyRichTextOptions> | ValParagraphNode<AnyRichTextOptions> {
+): Promise<
+  ValBrNode<AnyRichTextOptions> | ValParagraphNode<AnyRichTextOptions>
+> {
   if (paragraphNode?.children?.length === 0) {
     return {
       tag: "br",
@@ -406,36 +423,39 @@ function fromLexicalParagraphNode(
   }
   return {
     tag: "p",
-    children: paragraphNode.children.map((node) =>
-      fromLexicalNode(node, files)
-    ) as ValParagraphNode<AnyRichTextOptions>["children"], // TODO: validate children
+    children: (await Promise.all(
+      paragraphNode.children.map((node) => fromLexicalNode(node, files))
+    )) as ValParagraphNode<AnyRichTextOptions>["children"], // TODO: validate children
   };
 }
 
-function fromLexicalListNode(
+async function fromLexicalListNode(
   listNode: LexicalListNode,
   files: Record<string, string>
-):
+): Promise<
   | ValOrderedListNode<AnyRichTextOptions>
-  | ValUnorderedListNode<AnyRichTextOptions> {
+  | ValUnorderedListNode<AnyRichTextOptions>
+> {
   return {
     ...(listNode.direction ? { dir: listNode.direction } : {}),
     tag: listNode.listType === "number" ? "ol" : "ul",
-    children: listNode.children.map((node) => fromLexicalNode(node, files)) as (
+    children: (await Promise.all(
+      listNode.children.map((node) => fromLexicalNode(node, files))
+    )) as (
       | ValOrderedListNode<AnyRichTextOptions>
       | ValUnorderedListNode<AnyRichTextOptions>
     )["children"], // TODO: validate children
   };
 }
 
-function fromLexicalListItemNode(
+async function fromLexicalListItemNode(
   listItemNode: LexicalListItemNode,
   files: Record<string, string>
-): ValListItemNode<AnyRichTextOptions> {
+): Promise<ValListItemNode<AnyRichTextOptions>> {
   return {
     tag: "li",
-    children: listItemNode.children.map((node) =>
-      fromLexicalNode(node, files)
-    ) as ValListItemNode<AnyRichTextOptions>["children"],
+    children: (await Promise.all(
+      listItemNode.children.map((node) => fromLexicalNode(node, files))
+    )) as ValListItemNode<AnyRichTextOptions>["children"],
   };
 }

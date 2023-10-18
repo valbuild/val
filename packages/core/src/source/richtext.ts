@@ -140,6 +140,7 @@ export type AnyRichTextOptions = {
   lineThrough: true;
   bold: true;
   italic: true;
+  link: true;
   // blockQuote: true;
   // fontFamily: Record<string, string[]>;
   // fontSize: Record<string, string[]>;
@@ -391,7 +392,7 @@ export function richtext<
   templateStrings: TemplateStringsArray,
   ...sourceNodes: Nodes[]
 ): RichTextSource<O> {
-  // TODO: validate that templateStrings does not contain VAL_NODE_SUFFIX
+  // TODO: validate that templateStrings does not contain VAL_NODE_PREFIX
   const inputText = templateStrings
     .flatMap((templateString, i) => {
       if (sourceNodes[i]) {

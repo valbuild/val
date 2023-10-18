@@ -33,8 +33,8 @@ describe("richtext conversion", () => {
       "line-through",
     ]);
   });
-  test("basic lexical text conversion to <-> from", () => {
-    const input: RichTextSource<AnyRichTextOptions> = {
+  test("basic lexical text conversion to <-> from", async () => {
+    const input: RichText<AnyRichTextOptions> = {
       _type: "richtext",
       children: [
         { tag: "h1", children: ["Title 1"] },
@@ -55,7 +55,12 @@ describe("richtext conversion", () => {
         },
         { tag: "br", children: [] },
         { tag: "br", children: [] },
-        { _type: "link", href: "https://example.com", children: ["Link"] },
+        {
+          tag: "p",
+          children: [
+            { tag: "a", href: "https://example.com", children: ["Link"] },
+          ],
+        },
         {
           tag: "ul",
           children: [
@@ -85,13 +90,68 @@ describe("richtext conversion", () => {
         },
       ],
     };
-
-    expect(fromLexical(toLexical(input)).node).toStrictEqual(input);
+    const output: RichTextSource<AnyRichTextOptions> = {
+      _type: "richtext",
+      children: [
+        { tag: "h1", children: ["Title 1"] },
+        { tag: "h2", children: ["Title 2"] },
+        { tag: "h3", children: ["Title 3"] },
+        { tag: "h4", children: ["Title 4"] },
+        { tag: "h5", children: ["Title 5"] },
+        { tag: "h6", children: ["Title 6"] },
+        {
+          tag: "p",
+          children: [
+            {
+              tag: "span",
+              classes: ["bold", "italic", "line-through"],
+              children: ["Formatted span"],
+            },
+          ],
+        },
+        { tag: "br", children: [] },
+        { tag: "br", children: [] },
+        {
+          tag: "p",
+          children: [
+            { _type: "link", href: "https://example.com", children: ["Link"] },
+          ],
+        },
+        {
+          tag: "ul",
+          children: [
+            {
+              tag: "li",
+              children: [
+                {
+                  tag: "ol",
+                  dir: "rtl",
+                  children: [
+                    {
+                      tag: "li",
+                      children: [
+                        {
+                          tag: "span",
+                          classes: ["italic"],
+                          children: ["number 1.1"],
+                        },
+                      ],
+                    },
+                    { tag: "li", children: ["number 1.2"] },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect((await fromLexical(toLexical(input))).node).toStrictEqual(output);
   });
 
   // Uncertain whether Val RichText text nodes should allow nested spans - remove this test if that is not the case anymore
-  test("merged lexical text nodes to <-> from", () => {
-    const input: RichTextSource<AnyRichTextOptions> = {
+  test("merged lexical text nodes to <-> from", async () => {
+    const input: RichText<AnyRichTextOptions> = {
       _type: "richtext",
       children: [
         {
@@ -130,6 +190,6 @@ describe("richtext conversion", () => {
       ],
     };
 
-    expect(fromLexical(toLexical(input)).node).toStrictEqual(output);
+    expect((await fromLexical(toLexical(input))).node).toStrictEqual(output);
   });
 });
