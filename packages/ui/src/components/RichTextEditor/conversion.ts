@@ -159,18 +159,15 @@ function toLexicalImageNode(
 
 // TODO FIX THIS SHIT!!!!
 // Just create your own toLexicalTextNode
-// Also link should possibly be able to be bold etc
-// this complicates things
-// you would have to change the type
 function toLexicalLinkNode(link: LinkSource): LexicalLinkNode {
   return {
     ...COMMON_LEXICAL_PROPS,
     type: "link",
     url: link.href,
-    children:
-      "text" in link
-        ? [toLexicalTextNode({ children: [link.text], classes: [] } as any)]
-        : [], // todo fix
+    children: toLexicalTextNode({
+      children: link.children,
+      classes: [],
+    } as any),
   };
 }
 

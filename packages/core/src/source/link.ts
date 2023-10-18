@@ -2,16 +2,13 @@ import { VAL_EXTENSION } from ".";
 export type LinkSource = {
   [VAL_EXTENSION]: "link";
   href: string;
-  text?: string;
+  children: [string];
 };
 
-export function link({
-  href,
-  text,
-}: Pick<LinkSource, "href" | "text">): LinkSource {
+export function link(text: string, { href }: { href: string }): LinkSource {
   return {
     [VAL_EXTENSION]: "link",
     href,
-    ...(text !== undefined ? { text } : {}),
+    children: [text],
   };
 }

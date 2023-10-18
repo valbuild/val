@@ -63,6 +63,7 @@ InitVal => {
       getPath,
       file,
       richtext,
+      link,
     },
     s: {
       ...s,

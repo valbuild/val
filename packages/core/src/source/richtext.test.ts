@@ -1,4 +1,5 @@
 import { file } from "../source/file";
+import { link } from "./link";
 import { richtext } from "./richtext";
 
 //MD to HTML
@@ -172,6 +173,95 @@ ${file("/public/foo.png", {
         _ref: "/public/foo.png",
         _type: "file",
         metadata: { width: 100, height: 100, sha256: "123" },
+      },
+    ]);
+  });
+  test("block link", () => {
+    const r = richtext`# Title 1
+
+Below we have a url:
+
+${link("google", { href: "https://google.com" })}`;
+    expect(r.children).toStrictEqual([
+      { tag: "h1", children: ["Title 1"] },
+      { tag: "p", children: ["Below we have a url:"] },
+      {
+        tag: "p",
+        children: [
+          {
+            href: "https://google.com",
+            _type: "link",
+            children: ["google"],
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("inline link", () => {
+    const r = richtext`# Title 1
+
+Below we have a url: ${link("google", { href: "https://google.com" })}`;
+    expect(r.children).toStrictEqual([
+      { tag: "h1", children: ["Title 1"] },
+      {
+        tag: "p",
+        children: [
+          "Below we have a url:",
+
+          {
+            href: "https://google.com",
+            _type: "link",
+            children: ["google"],
+          },
+        ],
+      },
+    ]);
+  });
+  test("inline link with bold", () => {
+    const r = richtext`# Title 1
+
+ Inline link -> ${link("**google**", { href: "https://google.com" })}`;
+    expect(r.children).toStrictEqual([
+      { tag: "h1", children: ["Title 1"] },
+      {
+        tag: "p",
+        children: [
+          "Inline link -> ",
+
+          {
+            href: "https://google.com",
+            _type: "link",
+            children: [
+              { tag: "span", classes: ["bold"], children: ["google"] },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+  test("inline link with bold", () => {
+    const r = richtext`# Title 1
+heisann 
+
+<val value="1"/><br/><val value="1"/>
+
+ ${link("**google**", { href: "https://google.com" })} gurba`;
+    expect(r.children).toStrictEqual([
+      { tag: "h1", children: ["Title 1"] },
+      {
+        tag: "p",
+        children: [
+          "Inline link -> ",
+
+          {
+            href: "https://google.com",
+            _type: "link",
+            children: [
+              { tag: "span", classes: ["bold"], children: ["google"] },
+            ],
+          },
+        ],
       },
     ]);
   });
