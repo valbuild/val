@@ -1,6 +1,6 @@
 import { file } from "../source/file";
 import { link } from "./link";
-import { richtext } from "./richtext";
+import { convertRichTextSource, richtext } from "./richtext";
 
 //MD to HTML
 describe("richtext", () => {
@@ -172,6 +172,7 @@ ${file("/public/foo.png", {
       {
         _ref: "/public/foo.png",
         _type: "file",
+        isBlock: true,
         metadata: { width: 100, height: 100, sha256: "123" },
       },
     ]);
@@ -186,14 +187,10 @@ ${link("google", { href: "https://google.com" })}`;
       { tag: "h1", children: ["Title 1"] },
       { tag: "p", children: ["Below we have a url:"] },
       {
-        tag: "p",
-        children: [
-          {
-            href: "https://google.com",
-            _type: "link",
-            children: ["google"],
-          },
-        ],
+        href: "https://google.com",
+        _type: "link",
+        children: ["google"],
+        isBlock: true,
       },
     ]);
   });
@@ -207,12 +204,12 @@ Below we have a url: ${link("google", { href: "https://google.com" })}`;
       {
         tag: "p",
         children: [
-          "Below we have a url:",
-
+          "Below we have a url: ",
           {
             href: "https://google.com",
             _type: "link",
             children: ["google"],
+            isBlock: false,
           },
         ],
       },
@@ -221,17 +218,35 @@ Below we have a url: ${link("google", { href: "https://google.com" })}`;
   test("inline link with bold", () => {
     const r = richtext`# Title 1
 
- Inline link -> ${link("**google**", { href: "https://google.com" })}`;
+Inline link -> ${link("**google**", { href: "https://google.com" })}`;
+
+    // source:
     expect(r.children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       {
         tag: "p",
         children: [
-          "Inline link -> ",
-
+          "Inline link -&gt; ",
           {
             href: "https://google.com",
             _type: "link",
+            children: ["**google**"],
+            isBlock: false,
+          },
+        ],
+      },
+    ]);
+
+    // converted source (nodes with tags):
+    expect(convertRichTextSource(r).children).toStrictEqual([
+      { tag: "h1", children: ["Title 1"] },
+      {
+        tag: "p",
+        children: [
+          "Inline link -&gt; ",
+          {
+            href: "https://google.com",
+            tag: "a",
             children: [
               { tag: "span", classes: ["bold"], children: ["google"] },
             ],
@@ -240,28 +255,36 @@ Below we have a url: ${link("google", { href: "https://google.com" })}`;
       },
     ]);
   });
-  test("inline link with bold", () => {
-    const r = richtext`# Title 1
-heisann 
+  test("inline link", () => {
+    const r = convertRichTextSource(richtext`# Title 1
+heisann ${link("**google**", { href: "https://google.com" })}
 
-<val value="1"/><br/><val value="1"/>
-
- ${link("**google**", { href: "https://google.com" })} gurba`;
+gurba`);
     expect(r.children).toStrictEqual([
-      { tag: "h1", children: ["Title 1"] },
+      {
+        tag: "h1",
+        children: ["Title 1"],
+      },
       {
         tag: "p",
         children: [
-          "Inline link -> ",
-
+          "heisann ",
           {
+            tag: "a",
             href: "https://google.com",
-            _type: "link",
             children: [
-              { tag: "span", classes: ["bold"], children: ["google"] },
+              {
+                tag: "span",
+                classes: ["bold"],
+                children: ["google"],
+              },
             ],
           },
         ],
+      },
+      {
+        tag: "p",
+        children: ["gurba"],
       },
     ]);
   });
