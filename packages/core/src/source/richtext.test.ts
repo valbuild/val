@@ -177,6 +177,7 @@ ${file("/public/foo.png", {
       },
     ]);
   });
+
   test("block link", () => {
     const r = richtext`# Title 1
 
@@ -215,6 +216,7 @@ Below we have a url: ${link("google", { href: "https://google.com" })}`;
       },
     ]);
   });
+
   test("inline link with bold", () => {
     const r = richtext`# Title 1
 

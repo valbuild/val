@@ -13,6 +13,7 @@ export type {
   Italic,
   LineThrough,
   ListItemNode,
+  LinkNode,
   OrderedListNode,
   ParagraphNode,
   BrNode,
