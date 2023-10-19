@@ -8,129 +8,12 @@ export type RichTextOptions = {
   headings?: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];
   img?: boolean;
   a?: boolean;
-  ul?: boolean; // TODO: naming
-  ol?: boolean; // TODO: naming
+  ul?: boolean;
+  ol?: boolean;
   lineThrough?: boolean;
   bold?: boolean;
   italic?: boolean;
-  link?: boolean;
-  // fontFamily?: Record<string, string[]>;
-  // fontSize?: Record<string, string[]>;
-  // blockQuote?: boolean; // TODO: naming
 };
-
-export type ParagraphNode<O extends RichTextOptions> = {
-  tag: "p";
-  children: (string | SpanNode<O> | LinkNode<O>)[];
-  // AnchorNode<O>
-};
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export type BrNode<_O extends RichTextOptions> = {
-  tag: "br";
-  children: [];
-};
-
-export type LineThrough<O extends RichTextOptions> =
-  O["lineThrough"] extends true ? "line-through" : never;
-export type Italic<O extends RichTextOptions> = O["italic"] extends true
-  ? "italic"
-  : never;
-export type Bold<O extends RichTextOptions> = O["bold"] extends true
-  ? "bold"
-  : never;
-// export type FontFamily<O extends RichTextOptions> =
-//   O["fontFamily"] extends Record<string, unknown>
-//     ? `font-${keyof O["fontFamily"] & string}`
-//     : never;
-// export type FontSize<O extends RichTextOptions> = O["fontSize"] extends Record<
-//   string,
-//   unknown
-// >
-//   ? `text-${keyof O["fontSize"] & string}`
-//   : never;
-
-export type Classes<O extends RichTextOptions> =
-  | LineThrough<O>
-  | Italic<O>
-  | Bold<O>;
-// | FontFamily<O>
-// | FontSize<O>;
-
-export type SpanNode<O extends RichTextOptions> = {
-  tag: "span";
-  classes: Classes<O>[];
-  children: [string | SpanNode<O>];
-};
-
-export type ImageNode<O extends RichTextOptions> = O["img"] extends true
-  ? {
-      tag: "img";
-      src: string;
-      height?: number;
-      width?: number;
-      children: [];
-    }
-  : never;
-
-export type LinkNode<O extends RichTextOptions> = O["a"] extends true
-  ? {
-      tag: "a";
-      href: string;
-      children: (string | SpanNode<O>)[];
-    }
-  : never;
-
-export type ListItemNode<O extends RichTextOptions> = {
-  tag: "li";
-  children: (
-    | string
-    | SpanNode<O>
-    | LinkNode<O>
-    | UnorderedListNode<O>
-    | OrderedListNode<O>
-  )[];
-};
-
-export type UnorderedListNode<O extends RichTextOptions> = O["ul"] extends true
-  ? {
-      tag: "ul";
-      dir?: "ltr" | "rtl";
-      children: ListItemNode<O>[];
-    }
-  : never;
-
-export type OrderedListNode<O extends RichTextOptions> = O["ol"] extends true
-  ? {
-      tag: "ol";
-      dir?: "ltr" | "rtl";
-      children: ListItemNode<O>[];
-    }
-  : never;
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type HeadingNode<O extends RichTextOptions> = O["headings"] extends any[]
-  ? {
-      tag: O["headings"][number];
-      children: (string | SpanNode<O>)[];
-      // | AnchorNode<O>
-    }
-  : never;
-
-// export type BlockQuoteNode<O extends RichTextOptions> =
-//   O["blockQuote"] extends true
-//     ? { tag: "blockquote"; children: [string] }
-//     : never;
-
-type ImageSource = FileSource<{
-  width: number;
-  height: number;
-  sha256: string;
-}>;
-
-export type SourceNode<O extends RichTextOptions> =
-  | (O["img"] extends true ? ImageSource : never)
-  | (O["a"] extends true ? LinkSource : never);
-
 export type AnyRichTextOptions = {
   headings: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];
   img: true;
@@ -140,197 +23,321 @@ export type AnyRichTextOptions = {
   lineThrough: true;
   bold: true;
   italic: true;
-  link: true;
-  // blockQuote: true;
-  // fontFamily: Record<string, string[]>;
-  // fontSize: Record<string, string[]>;
 };
 
-export type RichTextSourceNode<O extends RichTextOptions> =
-  | Exclude<RichTextNode<O>, { tag: "img" } | { tag: "a" }>
-  | SourceNode<O>;
+// Classes
+export type LineThrough<O extends RichTextOptions> =
+  O["lineThrough"] extends true ? "line-through" : never;
 
-export type RichTextSource<O extends RichTextOptions> = {
-  [VAL_EXTENSION]: "richtext";
+export type Italic<O extends RichTextOptions> = O["italic"] extends true
+  ? "italic"
+  : never;
+
+export type Bold<O extends RichTextOptions> = O["bold"] extends true
+  ? "bold"
+  : never;
+
+export type Classes<O extends RichTextOptions> =
+  | LineThrough<O>
+  | Italic<O>
+  | Bold<O>;
+
+// Nodes
+type NodeType =
+  | "source" // internal format
+  | "node"; // user facing richtext;
+
+/// Paragraph
+export type ParagraphNode<O extends RichTextOptions, Type extends NodeType> = {
+  tag: "p";
   children: (
-    | HeadingNode<O>
-    | ParagraphNode<O>
-    | BrNode<O>
-    | UnorderedListNode<O>
-    | OrderedListNode<O>
-    // | BlockQuoteNode<O>
-    | SourceNode<O>
+    | string
+    | SpanNode<O, Type>
+    | LinkNode<O, Type>
+    | ImageNode<O, Type>
   )[];
 };
 
-export type RichTextNode<O extends RichTextOptions> =
-  | string
-  | RootNode<O>
-  | ListItemNode<O>
-  | SpanNode<O>
-  | LinkNode<O>
-  // | BlockQuoteNode<O>
-  | ImageNode<O>;
-
-export type RootNode<O extends RichTextOptions> =
-  | HeadingNode<O>
-  | ParagraphNode<O>
-  | BrNode<O>
-  | UnorderedListNode<O>
-  | OrderedListNode<O>
-  | ImageNode<O>;
-
-// TODO: rename to RichTextSelector?
-export type RichText<O extends RichTextOptions> = {
-  [VAL_EXTENSION]: "richtext";
-  children: RootNode<O>[];
+/// Break
+export type BrNode = {
+  tag: "br";
+  children: [];
 };
 
-const VAL_NODE_PREFIX = '<val value="';
-const VAL_NODE_SUFFIX = '" />';
+/// Span
+export type SpanNode<O extends RichTextOptions, Type extends NodeType> = {
+  tag: "span";
+  classes: Classes<O>[];
+  children: [string | SpanNode<O, Type>];
+};
 
-function parseTokens<O extends RichTextOptions>(
+/// Image
+type ImageTagNode = {
+  tag: "img";
+  src: string;
+  height?: number;
+  width?: number;
+  children: [];
+};
+type ImageSource = FileSource<{
+  width: number;
+  height: number;
+  sha256: string;
+}>;
+export type ImageNode<
+  O extends RichTextOptions,
+  Type extends NodeType
+> = O["img"] extends true
+  ? Type extends "source"
+    ? ImageSource
+    : Type extends "node"
+    ? ImageTagNode
+    : never
+  : never;
+
+/// Link
+type LinkTagNode<O extends RichTextOptions, Type extends NodeType> = {
+  tag: "a";
+  href: string;
+  children: (string | SpanNode<O, Type>)[];
+};
+export type LinkNode<
+  O extends RichTextOptions,
+  Type extends NodeType
+> = O["a"] extends true
+  ? Type extends "source"
+    ? LinkSource
+    : Type extends "node"
+    ? LinkTagNode<O, Type>
+    : never
+  : never;
+
+/// List
+export type ListItemNode<O extends RichTextOptions, Type extends NodeType> = {
+  tag: "li";
+  children: (
+    | string
+    | SpanNode<O, Type>
+    | LinkNode<O, Type>
+    | UnorderedListNode<O, Type>
+    | OrderedListNode<O, Type>
+  )[];
+};
+
+export type UnorderedListNode<
+  O extends RichTextOptions,
+  Type extends NodeType
+> = O["ul"] extends true
+  ? {
+      tag: "ul";
+      dir?: "ltr" | "rtl";
+      children: ListItemNode<O, Type>[];
+    }
+  : never;
+
+export type OrderedListNode<
+  O extends RichTextOptions,
+  Type extends NodeType
+> = O["ol"] extends true
+  ? {
+      tag: "ol";
+      dir?: "ltr" | "rtl";
+      children: ListItemNode<O, Type>[];
+    }
+  : never;
+
+/// Heading
+export type HeadingNode<
+  O extends RichTextOptions,
+  Type extends NodeType
+> = O["headings"] extends ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[]
+  ? {
+      tag: O["headings"][number];
+      children: (string | SpanNode<O, Type>)[];
+    }
+  : never;
+
+/// Root and nodes
+export type RichTextNode<
+  O extends RichTextOptions,
+  Type extends NodeType = "node"
+> =
+  | string
+  | RootNode<O, Type>
+  | ListItemNode<O, Type>
+  | SpanNode<O, Type>
+  | LinkNode<O, Type>
+  | ImageNode<O, Type>;
+
+export type RootNode<O extends RichTextOptions, Type extends NodeType> =
+  | HeadingNode<O, Type>
+  | ParagraphNode<O, Type>
+  | BrNode
+  | UnorderedListNode<O, Type>
+  | OrderedListNode<O, Type>;
+
+/// Main types
+
+/**
+ * RichTextSource is defined in ValModules
+ **/
+export type RichTextSource<O extends RichTextOptions> = {
+  [VAL_EXTENSION]: "richtext";
+  children: RootNode<O, "source">[];
+};
+
+type AnyList =
+  | UnorderedListNode<AnyRichTextOptions, "source">["children"]
+  | OrderedListNode<AnyRichTextOptions, "source">["children"];
+
+/**
+ * RichText is accessible by users (after conversion via useVal / fetchVal)
+ * Internally it is a Selector
+ **/
+export type RichText<O extends RichTextOptions> = {
+  [VAL_EXTENSION]: "richtext";
+  children: RootNode<O, "node">[];
+};
+
+const VAL_START_TAG_PREFIX = '<val value="';
+const VAL_START_TAG_SUFFIX = '">';
+const VAL_END_TAG = "</val>";
+
+function parseTokens(
   tokens: marked.Token[],
   sourceNodes: (ImageSource | LinkSource)[]
-): RichTextSource<O>["children"] {
-  return tokens.flatMap((token) => {
-    if (token.type === "heading") {
-      return [
-        {
-          tag: `h${token.depth}`,
-          children: parseTokens(token.tokens ? token.tokens : [], sourceNodes),
-        },
-      ];
-    }
-    if (token.type === "paragraph") {
-      return [
-        {
-          tag: "p",
-          children: parseTokens(token.tokens ? token.tokens : [], sourceNodes),
-        },
-      ];
-    }
-    if (token.type === "strong") {
-      return [
-        {
-          tag: "span",
-          classes: ["bold"],
-          children: parseTokens(token.tokens ? token.tokens : [], sourceNodes),
-        },
-      ];
-    }
-    if (token.type === "em") {
-      return [
-        {
-          tag: "span",
-          classes: ["italic"],
-          children: parseTokens(token.tokens ? token.tokens : [], sourceNodes),
-        },
-      ];
-    }
-    if (token.type === "del") {
-      return [
-        {
-          tag: "span",
-          classes: ["line-through"],
-          children: parseTokens(token.tokens ? token.tokens : [], sourceNodes),
-        },
-      ];
-    }
-    if (token.type === "text") {
-      if ("tokens" in token && Array.isArray(token.tokens)) {
-        return parseTokens(token.tokens, sourceNodes);
-      }
-      return [token.text];
-    }
-    if (token.type === "list") {
-      return [
-        {
-          tag: token.ordered ? "ol" : "ul",
-          children: parseTokens(token.items, sourceNodes),
-        },
-      ];
-    }
-    if (token.type === "list_item") {
-      return [
-        {
-          tag: "li",
-          children: parseTokens(token.tokens ? token.tokens : [], sourceNodes),
-        },
-      ];
-    }
-    if (token.type === "space") {
-      return [];
-    }
+): RichTextNode<AnyRichTextOptions, "source">[] {
+  const children: RichTextNode<AnyRichTextOptions, "source">[] = [];
 
-    if (token.type === "code") {
-      return [
-        {
-          tag: "span",
-          classes: [],
-          children: [token.text],
-        },
-      ];
-    }
-    if (token.type === "html") {
-      const suffixIndex = token.text.indexOf(VAL_NODE_SUFFIX);
-      if (token.text.startsWith(VAL_NODE_PREFIX) && suffixIndex > -1) {
+  for (const token of tokens) {
+    if (token.type === "heading") {
+      children.push({
+        tag: `h${token.depth as 1 | 2 | 3 | 4 | 5 | 6}`,
+        children: parseTokens(
+          token.tokens ? token.tokens : [],
+          sourceNodes
+        ) as HeadingNode<AnyRichTextOptions, "source">["children"],
+      });
+    } else if (token.type === "paragraph") {
+      children.push({
+        tag: "p",
+        children: parseTokens(
+          token.tokens ? token.tokens : [],
+          sourceNodes
+        ) as ParagraphNode<AnyRichTextOptions, "source">["children"],
+      });
+    } else if (token.type === "strong") {
+      children.push({
+        tag: "span",
+        classes: ["bold"],
+        children: parseTokens(
+          token.tokens ? token.tokens : [],
+          sourceNodes
+        ) as SpanNode<AnyRichTextOptions, "source">["children"],
+      });
+    } else if (token.type === "em") {
+      children.push({
+        tag: "span",
+        classes: ["italic"],
+        children: parseTokens(
+          token.tokens ? token.tokens : [],
+          sourceNodes
+        ) as SpanNode<AnyRichTextOptions, "source">["children"],
+      });
+    } else if (token.type === "del") {
+      children.push({
+        tag: "span",
+        classes: ["line-through"],
+        children: parseTokens(
+          token.tokens ? token.tokens : [],
+          sourceNodes
+        ) as SpanNode<AnyRichTextOptions, "source">["children"],
+      });
+    } else if (token.type === "text") {
+      if ("tokens" in token && Array.isArray(token.tokens)) {
+        children.push(...parseTokens(token.tokens, sourceNodes));
+      }
+      children.push(token.text);
+    } else if (token.type === "list") {
+      children.push({
+        tag: token.ordered ? "ol" : "ul",
+        children: parseTokens(token.items, sourceNodes) as AnyList,
+      });
+    } else if (token.type === "list_item") {
+      children.push({
+        tag: "li",
+        children: parseTokens(
+          token.tokens ? token.tokens : [],
+          sourceNodes
+        ) as ListItemNode<AnyRichTextOptions, "source">["children"],
+      });
+    } else if (token.type === "space") {
+      // do nothing
+    } else if (token.type === "html") {
+      if (token.text === VAL_END_TAG) {
+        // TODO
+      }
+      const suffixIndex = token.text.indexOf(VAL_START_TAG_SUFFIX);
+      if (token.text.startsWith(VAL_START_TAG_PREFIX) && suffixIndex > -1) {
         const number = Number(
-          token.text.slice(VAL_NODE_PREFIX.length, suffixIndex)
+          token.text.slice(VAL_START_TAG_PREFIX.length, suffixIndex)
         );
         if (Number.isNaN(number)) {
           throw Error(
             `Illegal val intermediate node: ${JSON.stringify(token)}`
           );
         }
-        return [{ ...sourceNodes[number], isBlock: token.block }];
+        if (token.block) {
+          children.push({
+            tag: "p",
+            children: [sourceNodes[number]] as ParagraphNode<
+              AnyRichTextOptions,
+              "source"
+            >["children"],
+          });
+        } else {
+          children.push({ ...sourceNodes[number] });
+        }
       }
       const br_html_regex = /<br\s*\/?>/gi; // matches <br>, <br/>, <br />; case insensitive
       if (token.text.trim().match(br_html_regex)) {
-        return [
-          {
-            tag: "br",
-            children: [],
-          },
-        ];
+        children.push({
+          tag: "br",
+          children: [],
+        });
       }
+    } else {
+      console.error(
+        `Could not parse markdown: unsupported token type: ${token.type}. Found: ${token.raw}`
+      );
     }
-    console.error(
-      `Could not parse markdown: unsupported token type: ${token.type}. Found: ${token.raw}`
-    );
-    return [token.raw];
-  });
+  }
+  return children;
 }
 
-function imgSrcToImgTag<O extends RichTextOptions>(
-  imageSrc: ImageSource
-): ImageNode<O> {
+function imgSrcToImgTag(
+  imageSrc: ImageNode<AnyRichTextOptions, "source">
+): ImageNode<AnyRichTextOptions, "node"> {
   const converted = convertFileSource(imageSrc);
   return {
     tag: "img",
     src: converted.url,
     width: imageSrc.metadata?.width,
     height: imageSrc.metadata?.height,
-  } as ImageNode<O>;
+  } as ImageNode<O, "node">;
 }
 
-function linkSrcToLinkTag<O extends RichTextOptions>(
-  linkSrc: LinkSource
-): LinkNode<O> | ParagraphNode<O> {
-  const childNodes = linkSrc.children.flatMap((child) => {
-    const lex = marked.lexer(child, {
-      gfm: true,
-    });
-    return parseTokens(lex, []);
-  });
+function linkSrcToLinkTag(
+  linkSrc: LinkNode<AnyRichTextOptions, "source">
+): LinkNode<AnyRichTextOptions, "node"> {
   if (childNodes.length === 1) {
     const childNode = childNodes[0];
-    if (childNode.tag === "p") {
+    if (typeof childNode !== "string" && childNode.tag === "p") {
       const linkTag = {
-        tag: "a",
+        tag: "a" as const,
         href: linkSrc.href,
         children: childNode.children,
-      } as LinkNode<O>;
+      } as LinkNode<O, "node">;
 
       // TODO: create intermediate type of RichTextSourceNode that includes isBlock and remove the 'isBlock' in predicate
       if ("isBlock" in linkSrc && linkSrc.isBlock) {
@@ -345,15 +352,13 @@ function linkSrcToLinkTag<O extends RichTextOptions>(
   throw Error(`Unexpected tokens in link: ${JSON.stringify(childNodes)}`);
 }
 
-function sourceToNode<O extends RichTextOptions>(
-  source: RichTextSourceNode<O>
-): RichTextNode<O> {
+function sourceToNode(
+  source: RichTextNode<AnyRichTextOptions, "source">
+): RichTextNode<AnyRichTextOptions> {
   if (typeof source === "object" && VAL_EXTENSION in source) {
     if (source[VAL_EXTENSION] === "file") {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return imgSrcToImgTag(source as any);
+      return imgSrcToImgTag(source);
     } else if (source[VAL_EXTENSION] === "link") {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return linkSrcToLinkTag(source);
     } else {
       const exhaustiveCheck: never = source[VAL_EXTENSION];
@@ -365,10 +370,8 @@ function sourceToNode<O extends RichTextOptions>(
     if ("children" in source) {
       return {
         ...source,
-        children: source.children.map((a) =>
-          sourceToNode(a as RichTextSourceNode<O>)
-        ),
-      } as RichTextNode<O>;
+        children: source.children.map((child) => sourceToNode(child)),
+      } as RichTextNode<AnyRichTextOptions>;
     }
   }
   return source;
@@ -379,9 +382,7 @@ export function convertRichTextSource<O extends RichTextOptions>(
 ): RichText<O> {
   return {
     [VAL_EXTENSION]: "richtext",
-    children: src.children.map((child) =>
-      sourceToNode(child as RichTextSourceNode<O>)
-    ),
+    children: src.children.map((child) => sourceToNode(child)),
   } as RichText<O>;
 }
 
@@ -392,12 +393,22 @@ export function richtext<
   templateStrings: TemplateStringsArray,
   ...sourceNodes: Nodes[]
 ): RichTextSource<O> {
+  return internalRichText(templateStrings, ...sourceNodes);
+}
+
+export function internalRichText<
+  O extends RichTextOptions,
+  Nodes extends never | ImageSource | LinkSource
+>(
+  templateStrings: readonly string[],
+  ...sourceNodes: Nodes[]
+): RichTextSource<O> {
   // TODO: validate that templateStrings does not contain VAL_NODE_PREFIX
   const inputText = templateStrings
     .flatMap((templateString, i) => {
       if (sourceNodes[i]) {
         return templateString.concat(
-          `${VAL_NODE_PREFIX}${i}${VAL_NODE_SUFFIX}`
+          `${VAL_START_TAG_PREFIX}${i}${VAL_START_TAG_SUFFIX}`
         );
       }
       return templateString;
@@ -409,5 +420,5 @@ export function richtext<
   return {
     [VAL_EXTENSION]: "richtext",
     children: parseTokens(lex, sourceNodes),
-  };
+  } as RichTextSource<O>;
 }

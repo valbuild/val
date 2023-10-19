@@ -1,21 +1,30 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   AnyRichTextOptions,
+  FileSource,
+  RichTextNode,
   RichTextSource,
-  RichTextSourceNode,
 } from "@valbuild/core";
+import { ImageMetadata } from "../schema/image";
+import { LinkSource } from "./link";
 
 const HeaderRegEx = /^h([\d+])$/;
 
 export function richTextToTaggedStringTemplate(
   source: RichTextSource<AnyRichTextOptions>
 ) {
+  return transformRichTextChildren(source.children);
+}
+
+function transformRichTextChildren(
+  source: RichTextNode<AnyRichTextOptions, "source">[]
+): [string[], (FileSource<ImageMetadata> | LinkSource)[]] {
   const texts: string[] = [""];
   const nodes: any[] = [];
   let didAppendNewLines = false;
   let listContext: "ul" | "ol" | null = null;
 
-  function rec(node: RichTextSourceNode<AnyRichTextOptions>) {
+  function rec(node: RichTextNode<AnyRichTextOptions, "source">) {
     if (typeof node === "string") {
       texts[texts.length - 1] += node;
     } else if ("tag" in node && node.tag) {
@@ -101,11 +110,29 @@ export function richTextToTaggedStringTemplate(
         texts[texts.length - 1] += "\n\n";
       }
     } else {
-      nodes.push(node); // ImageSource
-      texts.push("\n");
+      if (node._type === "link") {
+        const [t, n] = transformRichTextChildren(node.children);
+        texts.push("");
+        nodes.push({
+          ...node,
+          children: t,
+        });
+        if (n.length > 0) {
+          throw new Error(`Unexpected nodes in link: ${JSON.stringify(node)}`);
+        }
+      } else if (node._type === "file") {
+        nodes.push(node);
+        texts.push("\n");
+      } else {
+        // exhaustive
+        const exhaustiveCheck: never = node;
+        throw new Error(
+          "Unexpected node tag: " + JSON.stringify(node, exhaustiveCheck, 2)
+        );
+      }
     }
   }
-  source.children.forEach(rec);
+  source.forEach(rec);
 
   if (texts[texts.length - 1] && didAppendNewLines) {
     // remove last \n\n

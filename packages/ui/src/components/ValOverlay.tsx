@@ -190,7 +190,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
   );
 }
 
-type PatchCallback = (modulePath: string) => PatchJSON;
+type PatchCallback = (modulePath: string) => Promise<PatchJSON>;
 
 function ImageField({
   defaultValue,
@@ -207,7 +207,7 @@ function ImageField({
   } | null>(null);
   const url = defaultValue && Internal.convertFileSource(defaultValue).url;
   useEffect(() => {
-    registerPatchCallback((path) => {
+    registerPatchCallback(async (path) => {
       const pathParts = path.split("/");
       if (!data) {
         return [];
@@ -273,9 +273,11 @@ function RichTextField({
   const [editor, setEditor] = useState<LexicalEditor | null>(null);
   useEffect(() => {
     if (editor) {
-      registerPatchCallback((path) => {
+      registerPatchCallback(async (path) => {
         const { node, files } = editor?.toJSON()?.editorState
-          ? fromLexical(editor?.toJSON()?.editorState.root as LexicalRootNode)
+          ? await fromLexical(
+              editor?.toJSON()?.editorState.root as LexicalRootNode
+            )
           : {
               node: {
                 [VAL_EXTENSION]: "richtext",
@@ -285,7 +287,7 @@ function RichTextField({
             };
         return [
           {
-            op: "replace",
+            op: "replace" as const,
             path,
             value: {
               ...node,
@@ -334,7 +336,7 @@ function TextField({
   // to avoid registering a new callback every time the value changes
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    registerPatchCallback((path) => {
+    registerPatchCallback(async (path) => {
       return [
         {
           op: "replace",

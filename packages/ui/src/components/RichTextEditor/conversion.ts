@@ -11,13 +11,14 @@ import {
   LinkNode as ValLinkNode,
   ImageNode as ValImageNode,
   RichText,
-  RootNode,
   VAL_EXTENSION,
   Internal,
   FILE_REF_PROP,
+  RichTextSource,
 } from "@valbuild/core";
 import { LinkSource } from "@valbuild/core/src/source/link";
 import { mimeTypeToFileExt } from "../../utils/imageMimeType";
+import { ImagePayload } from "./Nodes/ImageNode";
 
 /// Serialized Lexical Nodes:
 // TODO: replace with Lexical libs types - not currently exported?
@@ -134,7 +135,7 @@ export function toLexicalNode(
 }
 
 function toLexicalImageNode(
-  node: ValImageNode<AnyRichTextOptions>
+  node: ValImageNode<AnyRichTextOptions, "node">
 ): LexicalImageNode {
   const url = node.src;
   return {
@@ -147,10 +148,8 @@ function toLexicalImageNode(
   };
 }
 
-// TODO FIX THIS SHIT!!!!
-// Just create your own toLexicalTextNode
 function toLexicalLinkNode(
-  link: ValLinkNode<AnyRichTextOptions>
+  link: ValLinkNode<AnyRichTextOptions, "node">
 ): LexicalLinkNode {
   return {
     ...COMMON_LEXICAL_PROPS,
@@ -197,7 +196,7 @@ export function toLexical(
 }
 
 function toLexicalHeadingNode(
-  heading: ValHeadingNode<AnyRichTextOptions>
+  heading: ValHeadingNode<AnyRichTextOptions, "node">
 ): LexicalHeadingNode {
   return {
     ...COMMON_LEXICAL_PROPS,
@@ -208,7 +207,7 @@ function toLexicalHeadingNode(
 }
 
 function toLexicalParagraphNode(
-  paragraph: ValParagraphNode<AnyRichTextOptions>
+  paragraph: ValParagraphNode<AnyRichTextOptions, "node">
 ): LexicalParagraphNode {
   return {
     ...COMMON_LEXICAL_PROPS,
@@ -227,7 +226,7 @@ function toLexicalPseudoLineBreakNode(): LexicalParagraphNode {
 }
 
 function toLexicalListItemNode(
-  listItem: ValListItemNode<AnyRichTextOptions>
+  listItem: ValListItemNode<AnyRichTextOptions, "node">
 ): LexicalListItemNode {
   return {
     ...COMMON_LEXICAL_PROPS,
@@ -238,8 +237,8 @@ function toLexicalListItemNode(
 
 function toLexicalListNode(
   list:
-    | ValUnorderedListNode<AnyRichTextOptions>
-    | ValOrderedListNode<AnyRichTextOptions>
+    | ValUnorderedListNode<AnyRichTextOptions, "node">
+    | ValOrderedListNode<AnyRichTextOptions, "node">
 ): LexicalListNode {
   return {
     ...COMMON_LEXICAL_PROPS,
@@ -278,7 +277,7 @@ export function fromLexicalFormat(
 }
 
 function toLexicalTextNode(
-  spanNode: ValSpanNode<AnyRichTextOptions>
+  spanNode: ValSpanNode<AnyRichTextOptions, "node">
 ): LexicalTextNode {
   const child = spanNode.children[0];
   if (typeof child === "string") {
@@ -299,7 +298,7 @@ function toLexicalTextNode(
 
 // NOTE: the reason this returns a Promise due to the sha256 hash which uses SubtleCrypto and, thus, is async
 export async function fromLexical(node: LexicalRootNode): Promise<{
-  node: RichText<AnyRichTextOptions>;
+  node: RichTextSource<AnyRichTextOptions>;
   files: Record<string, string>;
 }> {
   const files = {};
@@ -308,7 +307,7 @@ export async function fromLexical(node: LexicalRootNode): Promise<{
       _type: "richtext",
       children: (await Promise.all(
         node.children.map((node) => fromLexicalNode(node, files))
-      )) as RootNode<AnyRichTextOptions>[], // TODO: validate
+      )) as RichTextSource<AnyRichTextOptions>["children"], // TODO: validate
     },
     files,
   };
@@ -386,7 +385,7 @@ async function fromLexicalLinkNode(
 
 function fromLexicalTextNode(
   textNode: LexicalTextNode
-): ValSpanNode<AnyRichTextOptions> | string {
+): ValSpanNode<AnyRichTextOptions, "node"> | string {
   if (textNode.format === "" || textNode.format === 0) {
     return textNode.text;
   }
@@ -400,21 +399,19 @@ function fromLexicalTextNode(
 async function fromLexicalHeadingNode(
   headingNode: LexicalHeadingNode,
   files: Record<string, string>
-): Promise<ValHeadingNode<AnyRichTextOptions>> {
+): Promise<ValHeadingNode<AnyRichTextOptions, "node">> {
   return {
     tag: headingNode.tag,
     children: (await Promise.all(
       headingNode.children.map((node) => fromLexicalNode(node, files))
-    )) as ValHeadingNode<AnyRichTextOptions>["children"], // TODO: validate children
+    )) as ValHeadingNode<AnyRichTextOptions, "node">["children"], // TODO: validate children
   };
 }
 
 async function fromLexicalParagraphNode(
   paragraphNode: LexicalParagraphNode,
   files: Record<string, string>
-): Promise<
-  ValBrNode<AnyRichTextOptions> | ValParagraphNode<AnyRichTextOptions>
-> {
+): Promise<ValBrNode | ValParagraphNode<AnyRichTextOptions, "node">> {
   if (paragraphNode?.children?.length === 0) {
     return {
       tag: "br",
@@ -425,7 +422,7 @@ async function fromLexicalParagraphNode(
     tag: "p",
     children: (await Promise.all(
       paragraphNode.children.map((node) => fromLexicalNode(node, files))
-    )) as ValParagraphNode<AnyRichTextOptions>["children"], // TODO: validate children
+    )) as ValParagraphNode<AnyRichTextOptions, "node">["children"], // TODO: validate children
   };
 }
 
@@ -433,8 +430,8 @@ async function fromLexicalListNode(
   listNode: LexicalListNode,
   files: Record<string, string>
 ): Promise<
-  | ValOrderedListNode<AnyRichTextOptions>
-  | ValUnorderedListNode<AnyRichTextOptions>
+  | ValOrderedListNode<AnyRichTextOptions, "node">
+  | ValUnorderedListNode<AnyRichTextOptions, "node">
 > {
   return {
     ...(listNode.direction ? { dir: listNode.direction } : {}),
@@ -442,8 +439,8 @@ async function fromLexicalListNode(
     children: (await Promise.all(
       listNode.children.map((node) => fromLexicalNode(node, files))
     )) as (
-      | ValOrderedListNode<AnyRichTextOptions>
-      | ValUnorderedListNode<AnyRichTextOptions>
+      | ValOrderedListNode<AnyRichTextOptions, "node">
+      | ValUnorderedListNode<AnyRichTextOptions, "node">
     )["children"], // TODO: validate children
   };
 }
@@ -451,11 +448,11 @@ async function fromLexicalListNode(
 async function fromLexicalListItemNode(
   listItemNode: LexicalListItemNode,
   files: Record<string, string>
-): Promise<ValListItemNode<AnyRichTextOptions>> {
+): Promise<ValListItemNode<AnyRichTextOptions, "node">> {
   return {
     tag: "li",
     children: (await Promise.all(
       listItemNode.children.map((node) => fromLexicalNode(node, files))
-    )) as ValListItemNode<AnyRichTextOptions>["children"],
+    )) as ValListItemNode<AnyRichTextOptions, "node">["children"],
   };
 }
