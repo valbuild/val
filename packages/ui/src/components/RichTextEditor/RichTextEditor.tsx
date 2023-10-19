@@ -12,7 +12,7 @@ import { ImageNode } from "./Nodes/ImageNode";
 import { AutoFocus } from "./Plugins/AutoFocus";
 import ImagesPlugin from "./Plugins/ImagePlugin";
 import Toolbar from "./Plugins/Toolbar";
-import { AnyRichTextOptions, RichTextSource } from "@valbuild/core";
+import { AnyRichTextOptions, Internal, RichTextSource } from "@valbuild/core";
 import { HeadingNode } from "@lexical/rich-text";
 import { toLexical } from "./conversion";
 import { useValOverlayContext } from "../ValOverlayContext";
@@ -35,7 +35,9 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
   const { windowSize } = useValOverlayContext();
   const prePopulatedState = (editor: LexicalEditor) => {
     editor.setEditorState(
-      editor.parseEditorState({ root: toLexical(richtext) })
+      editor.parseEditorState({
+        root: toLexical(Internal.convertRichTextSource(richtext)),
+      })
     );
   };
   const initialConfig = {

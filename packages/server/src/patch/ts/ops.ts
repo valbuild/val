@@ -26,7 +26,7 @@ import {
   VAL_EXTENSION,
 } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core/src/Json";
-import { richTextToTaggedStringTemplate } from "./richtext";
+import { Internal } from "@valbuild/core";
 import { LinkSource } from "@valbuild/core/src/source/link";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
@@ -87,9 +87,7 @@ function createValFileReference(value: FileSource) {
 }
 
 function createValLink(value: LinkSource) {
-  const args: ts.Expression[] = [
-    ts.factory.createStringLiteral(value.href),
-  ];
+  const args: ts.Expression[] = [ts.factory.createStringLiteral(value.href)];
 
   return ts.factory.createCallExpression(
     ts.factory.createPropertyAccessExpression(
@@ -104,7 +102,8 @@ function createValLink(value: LinkSource) {
 function createValRichTextTaggedStringTemplate(
   value: RichTextSource<AnyRichTextOptions>
 ): ts.Expression {
-  const [[head, ...others], nodes] = richTextToTaggedStringTemplate(value);
+  const [[head, ...others], nodes] =
+    Internal.richTextToTaggedStringTemplate(value);
   const tag = ts.factory.createPropertyAccessExpression(
     ts.factory.createIdentifier("val"),
     ts.factory.createIdentifier("richtext")

@@ -180,6 +180,13 @@ export function ValRichText<O extends RichTextOptions>({
     if (node.tag === "br") {
       return <br key={key} />;
     }
+    if (node.tag === "a") {
+      return (
+        <a href={node.href} key={key}>
+          {node.children.map(toReact)}
+        </a>
+      );
+    }
     console.error("Unknown tag", node.tag);
     const _exhaustiveCheck: never = node.tag;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
