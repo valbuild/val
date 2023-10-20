@@ -274,23 +274,22 @@ function RichTextField({
   useEffect(() => {
     if (editor) {
       registerPatchCallback(async (path) => {
-        const { node, files } = editor?.toJSON()?.editorState
+        const { templateStrings, nodes } = editor?.toJSON()?.editorState
           ? await fromLexical(
               editor?.toJSON()?.editorState.root as LexicalRootNode
             )
-          : {
-              node: {
-                [VAL_EXTENSION]: "richtext",
-                children: [],
-              } as RichText<AnyRichTextOptions>,
-              files: {},
-            };
+          : ({
+              [VAL_EXTENSION]: "richtext",
+              templateStrings: [""],
+              nodes: [],
+            } as RichTextSource<AnyRichTextOptions>);
         return [
           {
             op: "replace" as const,
             path,
             value: {
-              ...node,
+              templateStrings,
+              nodes,
               [VAL_EXTENSION]: "richtext",
             },
           },

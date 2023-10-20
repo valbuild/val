@@ -1,6 +1,8 @@
 export { initVal } from "./initVal";
 export type { InitVal } from "./initVal";
 export { Schema, type SerializedSchema } from "./schema";
+export type { ImageMetadata } from "./schema/image";
+export type { LinkSource } from "./source/link";
 export type { ValModule, SerializedModule } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
@@ -56,7 +58,7 @@ import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
 import { Json } from "./Json";
 import { SerializedSchema } from "./schema";
-import { convertRichTextSource, internalRichText } from "./source/richtext";
+import { parseRichTextSource } from "./source/richtext";
 import { getSHA256Hash } from "./getSha256";
 import { richTextToTaggedStringTemplate } from "./source/richTextToTaggedStringTemplate";
 export { ValApi } from "./ValApi";
@@ -83,7 +85,6 @@ export type ApiPatchResponse = Record<ModuleId, string[]>;
 
 const Internal = {
   convertFileSource,
-  convertRichTextSource,
   getSchema,
   getValPath,
   getVal,
@@ -93,7 +94,7 @@ const Internal = {
   isVal,
   createValPathOfItem,
   getSHA256Hash,
-  internalRichText,
+  internalRichText: parseRichTextSource,
   richTextToTaggedStringTemplate,
   createPatchJSONPath: (modulePath: ModulePath) =>
     `/${modulePath

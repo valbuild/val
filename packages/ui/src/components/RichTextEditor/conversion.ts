@@ -49,17 +49,17 @@ type LexicalListNode = CommonLexicalProps & {
   children: LexicalNode[];
 };
 
-type LexicalImageNode = CommonLexicalProps & {
+export type LexicalImageNode = CommonLexicalProps & {
   type: "image";
 } & ImagePayload;
 
-type LexicalLinkNode = CommonLexicalProps & {
+export type LexicalLinkNode = CommonLexicalProps & {
   type: "link";
   url: string;
   children: LexicalNode[];
 };
 
-type LexicalNode =
+export type LexicalNode =
   | LexicalTextNode
   | LexicalParagraphNode
   | LexicalHeadingNode
@@ -76,7 +76,7 @@ export type LexicalRootNode = {
   direction: null | "ltr" | "rtl";
 } & CommonLexicalProps;
 
-const COMMON_LEXICAL_PROPS = {
+export const COMMON_LEXICAL_PROPS = {
   version: 1,
   format: "" as number | "",
   indent: 0,
@@ -135,7 +135,7 @@ export function toLexicalNode(
 }
 
 function toLexicalImageNode(
-  node: ValImageNode<AnyRichTextOptions, "node">
+  node: ValImageNode<AnyRichTextOptions>
 ): LexicalImageNode {
   const url = node.src;
   return {
@@ -149,7 +149,7 @@ function toLexicalImageNode(
 }
 
 function toLexicalLinkNode(
-  link: ValLinkNode<AnyRichTextOptions, "node">
+  link: ValLinkNode<AnyRichTextOptions>
 ): LexicalLinkNode {
   return {
     ...COMMON_LEXICAL_PROPS,
@@ -196,7 +196,7 @@ export function toLexical(
 }
 
 function toLexicalHeadingNode(
-  heading: ValHeadingNode<AnyRichTextOptions, "node">
+  heading: ValHeadingNode<AnyRichTextOptions>
 ): LexicalHeadingNode {
   return {
     ...COMMON_LEXICAL_PROPS,
@@ -207,7 +207,7 @@ function toLexicalHeadingNode(
 }
 
 function toLexicalParagraphNode(
-  paragraph: ValParagraphNode<AnyRichTextOptions, "node">
+  paragraph: ValParagraphNode<AnyRichTextOptions>
 ): LexicalParagraphNode {
   return {
     ...COMMON_LEXICAL_PROPS,
@@ -226,7 +226,7 @@ function toLexicalPseudoLineBreakNode(): LexicalParagraphNode {
 }
 
 function toLexicalListItemNode(
-  listItem: ValListItemNode<AnyRichTextOptions, "node">
+  listItem: ValListItemNode<AnyRichTextOptions>
 ): LexicalListItemNode {
   return {
     ...COMMON_LEXICAL_PROPS,
@@ -237,8 +237,8 @@ function toLexicalListItemNode(
 
 function toLexicalListNode(
   list:
-    | ValUnorderedListNode<AnyRichTextOptions, "node">
-    | ValOrderedListNode<AnyRichTextOptions, "node">
+    | ValUnorderedListNode<AnyRichTextOptions>
+    | ValOrderedListNode<AnyRichTextOptions>
 ): LexicalListNode {
   return {
     ...COMMON_LEXICAL_PROPS,
@@ -277,7 +277,7 @@ export function fromLexicalFormat(
 }
 
 function toLexicalTextNode(
-  spanNode: ValSpanNode<AnyRichTextOptions, "node">
+  spanNode: ValSpanNode<AnyRichTextOptions>
 ): LexicalTextNode {
   const child = spanNode.children[0];
   if (typeof child === "string") {
@@ -297,18 +297,17 @@ function toLexicalTextNode(
 }
 
 // NOTE: the reason this returns a Promise due to the sha256 hash which uses SubtleCrypto and, thus, is async
-export async function fromLexical(node: LexicalRootNode): Promise<{
-  node: RichTextSource<AnyRichTextOptions>;
-  files: Record<string, string>;
-}> {
+export async function fromLexical(
+  node: LexicalRootNode
+): Promise<
+  RichTextSource<AnyRichTextOptions> & { files: Record<string, string> }
+> {
   const files = {};
+
   return {
-    node: {
-      _type: "richtext",
-      children: (await Promise.all(
-        node.children.map((node) => fromLexicalNode(node, files))
-      )) as RichTextSource<AnyRichTextOptions>["children"], // TODO: validate
-    },
+    _type: "richtext",
+    nodes: [],
+    templateStrings: [], // TODO
     files,
   };
 }
