@@ -2,7 +2,7 @@ import { file } from "./file";
 import { link } from "./link";
 import {
   AnyRichTextOptions,
-  internalRichText,
+  parseRichTextSource,
   RichTextSource,
 } from "./richtext";
 import { richTextToTaggedStringTemplate } from "./richTextToTaggedStringTemplate";
@@ -50,7 +50,7 @@ describe("patch richtext", () => {
         file("/public/image.png", { width: 200, height: 200, sha256: "123" }),
       ],
     ]);
-    const r2 = internalRichText(r[0], ...r[1]);
+    const r2 = parseRichTextSource(r[0], ...r[1]);
     console.log(JSON.stringify(r2, null, 2));
     expect(r2).toStrictEqual(input);
   });
@@ -109,7 +109,7 @@ describe("patch richtext", () => {
       ],
     };
     const r = richTextToTaggedStringTemplate(input);
-    const r2 = internalRichText(r[0], ...r[1]);
+    const r2 = parseRichTextSource(r[0], ...r[1]);
     expect(r2).toStrictEqual(input);
   });
 });

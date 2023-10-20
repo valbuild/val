@@ -1,12 +1,14 @@
-import { file } from "../source/file";
+import { file } from "./file";
 import { link } from "./link";
-import { convertRichTextSource, richtext } from "./richtext";
+import { parseRichTextSource, richtext } from "./richtext";
 
 //MD to HTML
 describe("richtext", () => {
   test("basic h1", () => {
     const r = richtext`# Title 1`;
-    expect(r.children).toStrictEqual([{ tag: "h1", children: ["Title 1"] }]);
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      { tag: "h1", children: ["Title 1"] },
+    ]);
   });
 
   test("basic complete", () => {
@@ -15,7 +17,7 @@ describe("richtext", () => {
 
 Paragraph 1 2 3 4 5. Words *italic* **bold**
 `;
-    expect(r.children).toStrictEqual([
+    expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       { tag: "h2", children: ["Title 2"] },
       {
@@ -34,8 +36,8 @@ Paragraph 1 2 3 4 5. Words *italic* **bold**
     // TODO: currently we do not merge
     const r = richtext`Which classes?
 ***All of them!***
-`;
-    expect(r.children).toStrictEqual([
+  `;
+    expect(parseRichTextSource(r).children).toStrictEqual([
       {
         tag: "p",
         children: [
@@ -53,7 +55,7 @@ Paragraph 1 2 3 4 5. Words *italic* **bold**
   test("line through", () => {
     // TODO: currently we do not merge
     const r = richtext`~~line through~~`;
-    expect(r.children).toStrictEqual([
+    expect(parseRichTextSource(r).children).toStrictEqual([
       {
         tag: "p",
         children: [
@@ -74,10 +76,28 @@ First paragraph
 
 Second paragraph
 `;
-    expect(r.children).toStrictEqual([
+    expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       { tag: "p", children: ["First paragraph"] },
       { tag: "p", children: ["Second paragraph"] },
+    ]);
+  });
+
+  test("basic lists", () => {
+    const r = richtext`A bullet list:
+
+- bullet 1
+- bullet 2
+`;
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      { tag: "p", children: ["A bullet list:"] },
+      {
+        tag: "ul",
+        children: [
+          { tag: "li", children: ["bullet 1"] },
+          { tag: "li", children: ["bullet 2"] },
+        ],
+      },
     ]);
   });
 
@@ -102,7 +122,7 @@ A nested list:
     - bullet 2.1
     - bullet 2.2
 `;
-    expect(r.children).toStrictEqual([
+    expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       { tag: "p", children: ["A paragraph"] },
       { tag: "p", children: ["A bullet list:"] },
@@ -166,14 +186,20 @@ ${file("/public/foo.png", {
   height: 100,
   sha256: "123",
 })}`;
-    expect(r.children).toStrictEqual([
+    expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       { tag: "p", children: ["Below we have an image block:"] },
       {
-        _ref: "/public/foo.png",
-        _type: "file",
-        isBlock: true,
-        metadata: { width: 100, height: 100, sha256: "123" },
+        tag: "p",
+        children: [
+          {
+            src: "/foo.png?sha256=123",
+            tag: "img",
+            width: 100,
+            height: 100,
+            children: [],
+          },
+        ],
       },
     ]);
   });
@@ -184,14 +210,18 @@ ${file("/public/foo.png", {
 Below we have a url:
 
 ${link("google", { href: "https://google.com" })}`;
-    expect(r.children).toStrictEqual([
+    expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       { tag: "p", children: ["Below we have a url:"] },
       {
-        href: "https://google.com",
-        _type: "link",
-        children: ["google"],
-        isBlock: true,
+        tag: "p",
+        children: [
+          {
+            tag: "a",
+            href: "https://google.com",
+            children: ["google"],
+          },
+        ],
       },
     ]);
   });
@@ -200,7 +230,7 @@ ${link("google", { href: "https://google.com" })}`;
     const r = richtext`# Title 1
 
 Below we have a url: ${link("google", { href: "https://google.com" })}`;
-    expect(r.children).toStrictEqual([
+    expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       {
         tag: "p",
@@ -208,7 +238,7 @@ Below we have a url: ${link("google", { href: "https://google.com" })}`;
           "Below we have a url: ",
           {
             href: "https://google.com",
-            _type: "link",
+            tag: "a",
             children: ["google"],
           },
         ],
@@ -222,23 +252,7 @@ Below we have a url: ${link("google", { href: "https://google.com" })}`;
 Inline link -> ${link("**google**", { href: "https://google.com" })}`;
 
     // source:
-    expect(r.children).toStrictEqual([
-      { tag: "h1", children: ["Title 1"] },
-      {
-        tag: "p",
-        children: [
-          "Inline link -&gt; ",
-          {
-            href: "https://google.com",
-            _type: "link",
-            children: ["**google**"],
-          },
-        ],
-      },
-    ]);
-
-    // converted source (nodes with tags):
-    expect(convertRichTextSource(r).children).toStrictEqual([
+    expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       {
         tag: "p",
@@ -247,31 +261,6 @@ Inline link -> ${link("**google**", { href: "https://google.com" })}`;
           {
             href: "https://google.com",
             tag: "a",
-            children: [
-              { tag: "span", classes: ["bold"], children: ["google"] },
-            ],
-          },
-        ],
-      },
-    ]);
-  });
-  test("inline link", () => {
-    const r = convertRichTextSource(richtext`# Title 1
-heisann ${link("**google**", { href: "https://google.com" })}
-
-gurba`);
-    expect(r.children).toStrictEqual([
-      {
-        tag: "h1",
-        children: ["Title 1"],
-      },
-      {
-        tag: "p",
-        children: [
-          "heisann ",
-          {
-            tag: "a",
-            href: "https://google.com",
             children: [
               {
                 tag: "span",
@@ -282,9 +271,37 @@ gurba`);
           },
         ],
       },
+    ]);
+  });
+
+  test("breaks", () => {
+    const r = richtext`# Title 1
+
+Hopp
+<br>
+Hei
+`;
+
+    console.log(JSON.stringify(parseRichTextSource(r).children));
+    // source:
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      { tag: "h1", children: ["Title 1"] },
       {
         tag: "p",
-        children: ["gurba"],
+        children: [
+          "Inline link -&gt; ",
+          {
+            href: "https://google.com",
+            tag: "a",
+            children: [
+              {
+                tag: "span",
+                classes: ["bold"],
+                children: ["google"],
+              },
+            ],
+          },
+        ],
       },
     ]);
   });

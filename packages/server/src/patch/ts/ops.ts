@@ -102,8 +102,10 @@ function createValLink(value: LinkSource) {
 function createValRichTextTaggedStringTemplate(
   value: RichTextSource<AnyRichTextOptions>
 ): ts.Expression {
-  const [[head, ...others], nodes] =
-    Internal.richTextToTaggedStringTemplate(value);
+  const {
+    templateStrings: [head, ...others],
+    nodes,
+  } = value;
   const tag = ts.factory.createPropertyAccessExpression(
     ts.factory.createIdentifier("val"),
     ts.factory.createIdentifier("richtext")
@@ -638,9 +640,9 @@ function isValRichTextValue(
     value &&
     VAL_EXTENSION in value &&
     value[VAL_EXTENSION] === "richtext" &&
-    "children" in value &&
-    typeof value.children === "object" &&
-    Array.isArray(value.children)
+    "templateStrings" in value &&
+    typeof value.templateStrings === "object" &&
+    Array.isArray(value.templateStrings)
   );
 }
 

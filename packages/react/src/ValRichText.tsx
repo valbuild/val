@@ -26,7 +26,7 @@ type ThemeOptions<O extends RichTextOptions> = {
   } & { p?: string };
   classes: {
     [Key in Classes & keyof O as O[Key] extends true ? Key : never]: string;
-  } & (O["img"] extends true ? { imgContainer?: string } : {});
+  };
 };
 
 export function ValRichText<O extends RichTextOptions>({
@@ -83,15 +83,8 @@ export function ValRichText<O extends RichTextOptions>({
       );
     }
     if (node.tag === "img") {
-      return (
-        <div className={withRenderClass("imgContainer")} key={key}>
-          <img className={withRenderTag("img")} src={node.src} />
-        </div>
-      );
+      return <img className={withRenderTag("img")} key={key} src={node.src} />;
     }
-    // if (node.tag === "blockquote") {
-    //   return <blockquote key={key}>{node.children.map(toReact)}</blockquote>;
-    // }
     if (node.tag === "ul") {
       return (
         <ul className={withRenderTag("ul")} key={key}>

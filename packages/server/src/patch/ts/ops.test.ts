@@ -456,7 +456,8 @@ describe("TSOps", () => {
       path: [],
       value: {
         [VAL_EXTENSION]: "richtext",
-        children: [{ tag: "p", children: ["Test 2"] }],
+        templateStrings: ["Test 2"],
+        nodes: [],
       },
       expected: result.ok("val.richtext `Test 2`"),
     },
@@ -466,13 +467,10 @@ describe("TSOps", () => {
       path: [],
       value: {
         [VAL_EXTENSION]: "richtext",
-        children: [
-          { tag: "h1", children: ["Title 1"] },
-          { tag: "p", children: ["Test 2"] },
-        ],
+        templateStrings: ["# Title 1\nTest 2"],
+        nodes: [],
       },
       expected: result.ok(`val.richtext \`# Title 1
-
 Test 2\``),
     },
     {
@@ -481,9 +479,8 @@ Test 2\``),
       path: [],
       value: {
         [VAL_EXTENSION]: "richtext",
-        children: [
-          { tag: "h1", children: ["Title 1"] },
-          { tag: "p", children: ["Test 2"] },
+        templateStrings: ["# Title 1\nTest 2\n", ""],
+        nodes: [
           {
             [VAL_EXTENSION]: "file",
             [FILE_REF_PROP]: "/public/test",
@@ -492,9 +489,7 @@ Test 2\``),
         ],
       },
       expected: result.ok(`val.richtext \`# Title 1
-
 Test 2
-
 \${val.file("/public/test", { width: 100, height: 100, sha256: "123" })}\``),
     },
     {
@@ -503,8 +498,8 @@ Test 2
       path: [],
       value: {
         [VAL_EXTENSION]: "richtext",
-        children: [
-          { tag: "h1", children: ["Title 1"] },
+        templateStrings: ["# Title 1\n", "\n", "\nTest 2"],
+        nodes: [
           {
             [VAL_EXTENSION]: "file",
             [FILE_REF_PROP]: "/public/test1",
@@ -515,11 +510,9 @@ Test 2
             [FILE_REF_PROP]: "/public/test2",
             metadata: { width: 100, height: 100, sha256: "123" },
           },
-          { tag: "p", children: ["Test 2"] },
         ],
       },
       expected: result.ok(`val.richtext \`# Title 1
-
 \${val.file("/public/test1", { width: 100, height: 100, sha256: "123" })}
 \${val.file("/public/test2", { width: 100, height: 100, sha256: "123" })}
 Test 2\``),
@@ -530,8 +523,8 @@ Test 2\``),
       path: [],
       value: {
         [VAL_EXTENSION]: "richtext",
-        children: [
-          { tag: "h1", children: ["Title 1"] },
+        templateStrings: ["# Title 1\n", "\n", ""],
+        nodes: [
           {
             [VAL_EXTENSION]: "link",
             href: "https://example.com",
@@ -544,7 +537,6 @@ Test 2\``),
         ],
       },
       expected: result.ok(`val.richtext \`# Title 1
-
 \${val.link("https://example.com")}
 \${val.file("/public/test2", { width: 100, height: 100, sha256: "123" })}\``),
     },
@@ -555,7 +547,8 @@ Test 2\``),
       path: ["text"],
       value: {
         [VAL_EXTENSION]: "richtext",
-        children: [
+        templateStrings: ["", "\n", "\nTest 2"],
+        nodes: [
           {
             [VAL_EXTENSION]: "file",
             [FILE_REF_PROP]: "/public/test1",
@@ -566,7 +559,6 @@ Test 2\``),
             [FILE_REF_PROP]: "/public/test2",
             metadata: { width: 100, height: 100, sha256: "123" },
           },
-          { tag: "p", children: ["Test 2"] },
         ],
       },
       expected:
