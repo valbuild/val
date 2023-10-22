@@ -335,7 +335,7 @@ describe("richtext conversion", () => {
     // console.log(JSON.stringify(toLexical(input), null, 2));
     // expect(toLexical(input)).toStrictEqual(output);
 
-    console.log(await fromLexical(output));
+    console.log(JSON.stringify(fromLexical(output), null, 2));
   });
 
   // // Uncertain whether Val RichText text nodes should allow nested spans - remove this test if that is not the case anymore
