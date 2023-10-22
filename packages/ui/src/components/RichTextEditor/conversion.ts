@@ -29,20 +29,22 @@ export type LexicalTextNode = CommonLexicalProps & {
   format: "" | number;
 };
 
+type InlineNode = LexicalTextNode | LexicalLinkNode;
+
 export type LexicalParagraphNode = CommonLexicalProps & {
   type: "paragraph";
-  children: (LexicalTextNode | LexicalLinkNode)[];
+  children: InlineNode[];
 };
 
 export type LexicalHeadingNode = CommonLexicalProps & {
   type: "heading";
   tag: "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
-  children: (LexicalTextNode | LexicalLinkNode)[];
+  children: InlineNode[];
 };
 
 export type LexicalListItemNode = CommonLexicalProps & {
   type: "listitem";
-  children: (LexicalTextNode | LexicalListNode)[];
+  children: (InlineNode | LexicalListNode)[];
 };
 
 export type LexicalListNode = CommonLexicalProps & {
@@ -297,164 +299,4 @@ function toLexicalTextNode(
       classes: spanNode.classes.concat(child.classes),
     });
   }
-}
-
-// NOTE: the reason this returns a Promise due to the sha256 hash which uses SubtleCrypto and, thus, is async
-export async function fromLexical(
-  node: LexicalRootNode
-): Promise<
-  RichTextSource<AnyRichTextOptions> & { files: Record<string, string> }
-> {
-  const files = {};
-
-  return {
-    _type: "richtext",
-    nodes: [],
-    templateStrings: [], // TODO
-    files,
-  };
-}
-
-export async function fromLexicalNode(
-  node: LexicalNode,
-  files: Record<string, string>
-) {
-  switch (node.type) {
-    case "heading":
-      return fromLexicalHeadingNode(node, files);
-    case "paragraph":
-      return fromLexicalParagraphNode(node, files);
-    case "text":
-      return fromLexicalTextNode(node);
-    case "list":
-      return fromLexicalListNode(node, files);
-    case "listitem":
-      return fromLexicalListItemNode(node, files);
-    case "image":
-      return fromLexicalImageNode(node, files);
-    case "link":
-      return fromLexicalLinkNode(node, files);
-    default:
-      throw Error(`Unknown lexical node: ${JSON.stringify(node)}`);
-  }
-}
-
-const textEncoder = new TextEncoder();
-async function fromLexicalImageNode(
-  node: LexicalImageNode,
-  files: Record<string, string>
-) {
-  if (node.src.startsWith("data:")) {
-    const sha256 = await Internal.getSHA256Hash(textEncoder.encode(node.src));
-    const fileExt = mimeTypeToFileExt(node.src);
-    const filePath = `/public/${sha256}.${fileExt}`;
-    files[filePath] = node.src;
-    return {
-      [VAL_EXTENSION]: "file",
-      [FILE_REF_PROP]: filePath,
-      metadata: {
-        width: node.width,
-        height: node.width,
-        sha256,
-      },
-    };
-  } else {
-    const sha256 = getParam("sha256", node.src);
-    return {
-      [VAL_EXTENSION]: "file",
-      [FILE_REF_PROP]: `/public${node.src.split("?")[0]}`,
-      metadata: {
-        width: node.width,
-        height: node.width,
-        sha256,
-      },
-    };
-  }
-}
-
-async function fromLexicalLinkNode(
-  node: LexicalLinkNode,
-  files: Record<string, string>
-): Promise<LinkSource> {
-  return {
-    [VAL_EXTENSION]: "link",
-    href: node.url,
-    children: (await Promise.all(
-      node.children.map((node) => fromLexicalNode(node, files))
-    )) as LinkSource["children"],
-  };
-}
-
-function fromLexicalTextNode(
-  textNode: LexicalTextNode
-): ValSpanNode<AnyRichTextOptions, "node"> | string {
-  if (textNode.format === "" || textNode.format === 0) {
-    return textNode.text;
-  }
-  return {
-    tag: "span",
-    classes: fromLexicalFormat(textNode.format),
-    children: [textNode.text],
-  };
-}
-
-async function fromLexicalHeadingNode(
-  headingNode: LexicalHeadingNode,
-  files: Record<string, string>
-): Promise<ValHeadingNode<AnyRichTextOptions, "node">> {
-  return {
-    tag: headingNode.tag,
-    children: (await Promise.all(
-      headingNode.children.map((node) => fromLexicalNode(node, files))
-    )) as ValHeadingNode<AnyRichTextOptions, "node">["children"], // TODO: validate children
-  };
-}
-
-async function fromLexicalParagraphNode(
-  paragraphNode: LexicalParagraphNode,
-  files: Record<string, string>
-): Promise<ValBrNode | ValParagraphNode<AnyRichTextOptions, "node">> {
-  if (paragraphNode?.children?.length === 0) {
-    return {
-      tag: "br",
-      children: [],
-    };
-  }
-  return {
-    tag: "p",
-    children: (await Promise.all(
-      paragraphNode.children.map((node) => fromLexicalNode(node, files))
-    )) as ValParagraphNode<AnyRichTextOptions, "node">["children"], // TODO: validate children
-  };
-}
-
-async function fromLexicalListNode(
-  listNode: LexicalListNode,
-  files: Record<string, string>
-): Promise<
-  | ValOrderedListNode<AnyRichTextOptions, "node">
-  | ValUnorderedListNode<AnyRichTextOptions, "node">
-> {
-  return {
-    ...(listNode.direction ? { dir: listNode.direction } : {}),
-    tag: listNode.listType === "number" ? "ol" : "ul",
-    children: (await Promise.all(
-      listNode.children.map((node) => fromLexicalNode(node, files))
-    )) as (
-      | ValOrderedListNode<AnyRichTextOptions, "node">
-      | ValUnorderedListNode<AnyRichTextOptions, "node">
-    )["children"], // TODO: validate children
-  };
-}
-
-async function fromLexicalListItemNode(
-  listItemNode: LexicalListItemNode,
-  files: Record<string, string>
-): Promise<ValListItemNode<AnyRichTextOptions, "node">> {
-  return {
-    tag: "li",
-    children: (await Promise.all(
-      listItemNode.children.map((node) => fromLexicalNode(node, files))
-    )) as ValListItemNode<AnyRichTextOptions, "node">["children"],
-  };
 }
