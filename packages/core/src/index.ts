@@ -58,9 +58,7 @@ import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
 import { Json } from "./Json";
 import { SerializedSchema } from "./schema";
-import { parseRichTextSource } from "./source/richtext";
 import { getSHA256Hash } from "./getSha256";
-import { richTextToTaggedStringTemplate } from "./source/richTextToTaggedStringTemplate";
 export { ValApi } from "./ValApi";
 
 export type ApiTreeResponse = {
@@ -94,8 +92,6 @@ const Internal = {
   isVal,
   createValPathOfItem,
   getSHA256Hash,
-  internalRichText: parseRichTextSource,
-  richTextToTaggedStringTemplate,
   createPatchJSONPath: (modulePath: ModulePath) =>
     `/${modulePath
       .split(".")
