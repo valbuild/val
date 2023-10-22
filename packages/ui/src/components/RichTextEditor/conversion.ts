@@ -23,30 +23,33 @@ import { ImagePayload } from "./Nodes/ImageNode";
 /// Serialized Lexical Nodes:
 // TODO: replace with Lexical libs types - not currently exported?
 
-type LexicalTextNode = CommonLexicalProps & {
+export type LexicalTextNode = CommonLexicalProps & {
   type: "text";
   text: string;
   format: "" | number;
 };
 
-type LexicalParagraphNode = CommonLexicalProps & {
+export type LexicalParagraphNode = CommonLexicalProps & {
   type: "paragraph";
-  children: LexicalNode[];
+  children: (LexicalTextNode | LexicalLinkNode)[];
 };
-type LexicalHeadingNode = CommonLexicalProps & {
+
+export type LexicalHeadingNode = CommonLexicalProps & {
   type: "heading";
   tag: "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
-  children: LexicalNode[];
+  children: (LexicalTextNode | LexicalLinkNode)[];
 };
-type LexicalListItemNode = CommonLexicalProps & {
+
+export type LexicalListItemNode = CommonLexicalProps & {
   type: "listitem";
-  children: LexicalNode[];
+  children: (LexicalTextNode | LexicalListNode)[];
 };
-type LexicalListNode = CommonLexicalProps & {
+
+export type LexicalListNode = CommonLexicalProps & {
   type: "list";
   listType: "bullet" | "number" | "checked";
   direction: "ltr" | "rtl" | null;
-  children: LexicalNode[];
+  children: LexicalListItemNode[];
 };
 
 export type LexicalImageNode = CommonLexicalProps & {
@@ -56,7 +59,7 @@ export type LexicalImageNode = CommonLexicalProps & {
 export type LexicalLinkNode = CommonLexicalProps & {
   type: "link";
   url: string;
-  children: LexicalNode[];
+  children: LexicalTextNode[];
 };
 
 export type LexicalNode =
@@ -70,7 +73,7 @@ export type LexicalNode =
 
 export type LexicalRootNode = {
   type: "root";
-  children: LexicalNode[];
+  children: (LexicalHeadingNode | LexicalParagraphNode | LexicalListNode)[];
   version: 1;
   format: "left" | "start" | "center" | "right" | "end" | "justify" | "";
   direction: null | "ltr" | "rtl";

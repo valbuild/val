@@ -16,144 +16,99 @@ import {
   fromLexicalNode,
   LexicalImageNode,
   LexicalLinkNode,
+  LexicalListItemNode,
+  LexicalListNode,
   LexicalNode,
   LexicalRootNode,
+  LexicalTextNode,
 } from "./conversion";
 
 const HeaderRegEx = /^h([\d+])$/;
+// Promise<
+//   RichTextSource<AnyRichTextOptions> & { files: Record<string, string> }
+// >
 
-export async function fromLexical(
-  node: LexicalRootNode
-): Promise<
-  RichTextSource<AnyRichTextOptions> & { files: Record<string, string> }
-> {
-  return {
-    _type: "richtext",
-    ...(await transformRichTextChildren(node.children)),
-  };
-}
-async function transformRichTextChildren(
-  children: LexicalRootNode["children"]
-): Promise<{
-  templateStrings: string[];
-  nodes: (FileSource<ImageMetadata> | LinkSource)[];
-  files: Record<string, string>;
-}> {
-  const texts: string[] = [""];
-  const nodes: (FileSource<ImageMetadata> | LinkSource)[] = [];
-  const files: Record<string, string> = {};
-  let didAppendNewLines = false;
-  let listContext: "number" | "bullet" | null = null;
-  let listIndent = -2;
+type MarkdownIR = {
+  type: "block";
+  children: (string | LexicalImageNode | LexicalLinkNode)[];
+};
 
-  async function rec(node: LexicalNode) {
-    if (node.type === "heading") {
-      const depth = Number(node.tag.match(HeaderRegEx)?.[1]);
-      if (Number.isNaN(depth)) {
-        throw new Error("Invalid header depth");
-      }
-      texts[texts.length - 1] += "\n";
-      for (let i = 0; i < Number(depth); i++) {
-        texts[texts.length - 1] += "#";
-      }
-      texts[texts.length - 1] += " ";
-    } else if (node.type === "paragraph") {
-      if (node.children.length === 0) {
-        texts[texts.length - 1] += "\n<br>";
-      } else {
-        texts[texts.length - 1] += "\n";
-      }
-    } else if (node.type === "list") {
-      listIndent += 2;
-      if (node.listType === "checked") {
-        throw Error(`Checked lists are not supported yet`);
-      }
-      listContext = node.listType;
-      // texts[texts.length - 1] += "\n";
-    } else if (node.type === "listitem") {
-      if (listContext !== "bullet" && listContext !== "number") {
-        throw new Error("Unexpected list context: " + listContext);
-      }
-      texts[texts.length - 1] += "\n" + " ".repeat(listIndent);
-      if (listContext === "bullet") {
-        texts[texts.length - 1] += "-";
-      } else if (listContext === "number") {
-        texts[texts.length - 1] += "1.";
-      }
-      if (!(node.children.length === 1 && node.children[0].type === "list")) {
-        texts[texts.length - 1] += " ";
-      }
-    } else if (node.type === "text") {
-      const classes = fromLexicalFormat(node.format || 0);
-      if (classes.includes("bold") && !classes.includes("italic")) {
-        texts[texts.length - 1] += "**";
-      }
-      if (classes.includes("italic") && !classes.includes("bold")) {
-        texts[texts.length - 1] += "*";
-      }
-      if (classes.includes("italic") && classes.includes("bold")) {
-        texts[texts.length - 1] += "***";
-      }
-      if (classes.includes("line-through")) {
-        texts[texts.length - 1] += "~~";
-      }
-      texts[texts.length - 1] += node.text;
-    } else if (node.type === "image") {
-      nodes.push(await fromLexicalImageNode(node, files));
-      texts.push("");
-    } else if (node.type === "link") {
-      nodes.push(await fromLexicalLinkNode(node, files));
-      texts.push("");
+export function fromLexical(node: LexicalRootNode) {
+  function formatText(node: LexicalTextNode): string {
+    // TODO: formatting
+    return node.text;
+  }
+
+  function transformLeafNode(
+    node: LexicalTextNode | LexicalImageNode | LexicalLinkNode
+  ): string | LexicalImageNode | LexicalLinkNode {
+    if (node.type === "text") {
+      return formatText(node);
     } else {
-      //exhaustive match
+      return node;
+    }
+  }
+
+  function getListPrefix(node: LexicalListNode): string {
+    if (node.listType === "bullet") {
+      return "-";
+    } else if (node.listType === "number") {
+      return "1.";
+    } else {
+      throw new Error(`Unhandled list type: ${node.listType}`);
+    }
+  }
+
+  function formatListItemNode(
+    listPrefix: string,
+    node: LexicalListItemNode,
+    indent: number
+  ): (string | LexicalImageNode | LexicalLinkNode)[] {
+    return node.children.flatMap((child) => {
+      if (child.type === "list") {
+        const subChildren: (string | LexicalImageNode | LexicalLinkNode)[] = [
+          `${listPrefix}\n`,
+        ];
+        return subChildren.concat(
+          formatListItemNode(getListPrefix(child), child, indent + 4)
+        );
+      } else {
+        return [`\n${listPrefix} `, transformLeafNode(child)];
+      }
+    });
+  }
+
+  function createBlock(node: LexicalRootNode["children"][number]): MarkdownIR {
+    if (node.type === "heading") {
+      const headingTag = "#";
+      const headingText: MarkdownIR["children"] = [`${headingTag} `];
+      return {
+        type: "block",
+        children: headingText.concat(...node.children.map(transformLeafNode)),
+      };
+    } else if (node.type === "paragraph") {
+      return {
+        type: "block",
+        children: node.children.map(transformLeafNode),
+      };
+    } else if (node.type === "list") {
+      return {
+        type: "block",
+        children: node.children.flatMap((child) =>
+          formatListItemNode(getListPrefix(node), child, 0)
+        ),
+      };
+    } else {
       const exhaustiveCheck: never = node;
       throw new Error(
-        "Unexpected node tag: " + JSON.stringify(node, exhaustiveCheck, 2)
+        `Unhandled node type: ${
+          "type" in exhaustiveCheck ? "exhaustiveCheck.type" : "unknown"
+        }`
       );
     }
-
-    if (node.type !== "text" && node.type !== "image") {
-      for (const child of node.children) {
-        await rec(child);
-      }
-    }
-
-    didAppendNewLines = false;
-    if (node.type === "text") {
-      const classes = fromLexicalFormat(node.format || 0);
-      if (classes.includes("line-through")) {
-        texts[texts.length - 1] += "~~";
-      }
-      if (classes.includes("italic") && classes.includes("bold")) {
-        texts[texts.length - 1] += "***";
-      }
-      if (classes.includes("italic") && !classes.includes("bold")) {
-        texts[texts.length - 1] += "*";
-      }
-      if (classes.includes("bold") && !classes.includes("italic")) {
-        texts[texts.length - 1] += "**";
-      }
-    }
-
-    if (node.type === "paragraph") {
-      texts[texts.length - 1] += "\n\n";
-    } else if (node.type === "listitem") {
-      // texts[texts.length - 1] += "\n";
-    } else if (node.type === "list") {
-      listContext = null;
-      listIndent -= 2;
-    } else if (node.type === "heading") {
-      // didAppendNewLines = true;
-      texts[texts.length - 1] += "";
-    }
   }
-  children.forEach(rec);
 
-  if (texts[texts.length - 1] && didAppendNewLines) {
-    // remove last \n\n
-    // texts[texts.length - 1] = texts[texts.length - 1].slice(0, -2);
-  }
-  return { templateStrings: texts, nodes, files };
+  return node.children.map(createBlock);
 }
 
 const textEncoder = new TextEncoder();
