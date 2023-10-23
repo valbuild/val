@@ -21,7 +21,6 @@ import {
   AnyRichTextOptions,
   FileSource,
   Internal,
-  RichText,
   RichTextSource,
   SerializedSchema,
   SourcePath,
@@ -31,10 +30,7 @@ import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/core";
 import { RichTextEditor } from "../exports";
 import { LexicalEditor } from "lexical";
-import {
-  LexicalRootNode,
-  richTextSourceToLexical,
-} from "../richtext/conversion/richTextSourceToLexical";
+import { LexicalRootNode } from "../richtext/conversion/richTextSourceToLexical";
 import { PatchJSON } from "@valbuild/core/patch";
 import { readImage } from "../utils/readImage";
 import { lexicalToRichTextSource } from "../richtext/conversion/lexicalToRichTextSource";
