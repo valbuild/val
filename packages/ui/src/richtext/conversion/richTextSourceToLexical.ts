@@ -156,7 +156,7 @@ function toLexicalLinkNode(
     children: link.children.map(toLexicalNode) as LexicalLinkNode["children"],
   };
 }
-export function toLexical(
+export function richTextSourceToLexical(
   richtext: RichText<AnyRichTextOptions>
 ): LexicalRootNode {
   return {

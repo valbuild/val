@@ -285,8 +285,6 @@ Foo
 
 Bar
 `;
-
-    console.log(JSON.stringify(parseRichTextSource(r).children));
     // source:
     expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },

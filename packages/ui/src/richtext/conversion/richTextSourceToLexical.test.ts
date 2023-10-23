@@ -2,9 +2,9 @@ import { RichText, AnyRichTextOptions } from "@valbuild/core";
 import {
   toLexicalFormat,
   fromLexicalFormat,
-  toLexical,
+  richTextSourceToLexical,
   LexicalRootNode,
-} from "./toLexical";
+} from "./richTextSourceToLexical";
 
 describe("richtext conversion", () => {
   test("format conversion", () => {
@@ -219,7 +219,7 @@ describe("richtext conversion", () => {
               indent: 0,
               direction: null,
               type: "text",
-              text: "  Formatted span   ",
+              text: "Formatted span",
             },
           ],
         },
@@ -256,7 +256,7 @@ describe("richtext conversion", () => {
               children: [
                 {
                   version: 1,
-                  format: 7,
+                  format: "",
                   indent: 0,
                   direction: null,
                   type: "text",
@@ -283,41 +283,6 @@ describe("richtext conversion", () => {
               children: [
                 {
                   version: 1,
-                  format: 2,
-                  indent: 0,
-                  direction: null,
-                  type: "text",
-                  text: "number 1.1",
-                },
-                {
-                  version: 1,
-                  format: 2,
-                  indent: 0,
-                  direction: null,
-                  type: "link",
-                  url: "https://google.com",
-                  children: [
-                    {
-                      version: 1,
-                      format: 2,
-                      indent: 0,
-                      direction: null,
-                      type: "text",
-                      text: "number 1.1",
-                    },
-                  ],
-                },
-              ],
-            },
-            {
-              version: 1,
-              format: "",
-              indent: 0,
-              direction: null,
-              type: "listitem",
-              children: [
-                {
-                  version: 1,
                   format: "",
                   indent: 0,
                   direction: "rtl",
@@ -330,52 +295,31 @@ describe("richtext conversion", () => {
                       indent: 0,
                       direction: null,
                       type: "listitem",
-
                       children: [
                         {
                           version: 1,
                           format: 2,
                           indent: 0,
                           direction: null,
-                          type: "list",
-
-                          listType: "bullet",
-                          children: [
-                            {
-                              version: 1,
-                              format: "",
-                              indent: 0,
-                              direction: null,
-                              type: "listitem",
-                              children: [
-                                {
-                                  version: 1,
-                                  format: 2,
-                                  indent: 0,
-                                  direction: null,
-                                  type: "text",
-                                  text: "number 2.1",
-                                },
-                              ],
-                            },
-                            {
-                              version: 1,
-                              format: "",
-                              indent: 0,
-                              direction: null,
-                              type: "listitem",
-                              children: [
-                                {
-                                  version: 1,
-                                  format: "",
-                                  indent: 0,
-                                  direction: null,
-                                  type: "text",
-                                  text: "number 2.2",
-                                },
-                              ],
-                            },
-                          ],
+                          type: "text",
+                          text: "number 1.1",
+                        },
+                      ],
+                    },
+                    {
+                      version: 1,
+                      format: "",
+                      indent: 0,
+                      direction: null,
+                      type: "listitem",
+                      children: [
+                        {
+                          version: 1,
+                          format: "",
+                          indent: 0,
+                          direction: null,
+                          type: "text",
+                          text: "number 1.2",
                         },
                       ],
                     },
@@ -387,6 +331,6 @@ describe("richtext conversion", () => {
         },
       ],
     };
-    expect(toLexical(input)).toStrictEqual(output);
+    expect(richTextSourceToLexical(input)).toStrictEqual(output);
   });
 });

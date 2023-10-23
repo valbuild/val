@@ -31,7 +31,10 @@ import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/core";
 import { RichTextEditor } from "../exports";
 import { LexicalEditor } from "lexical";
-import { LexicalRootNode, fromLexical } from "../richtext/conversion/toLexical";
+import {
+  LexicalRootNode,
+  fromLexical,
+} from "../richtext/conversion/richTextSourceToLexical";
 import { PatchJSON } from "@valbuild/core/patch";
 import { readImage } from "../utils/readImage";
 

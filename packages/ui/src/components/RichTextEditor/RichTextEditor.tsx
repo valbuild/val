@@ -14,7 +14,7 @@ import ImagesPlugin from "./Plugins/ImagePlugin";
 import Toolbar from "./Plugins/Toolbar";
 import { AnyRichTextOptions, Internal, RichTextSource } from "@valbuild/core";
 import { HeadingNode } from "@lexical/rich-text";
-import { toLexical } from "../../richtext/conversion/toLexical";
+import { richTextSourceToLexical } from "../../richtext/conversion/richTextSourceToLexical";
 import { useValOverlayContext } from "../ValOverlayContext";
 
 export interface RichTextEditorProps {
@@ -36,7 +36,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
   const prePopulatedState = (editor: LexicalEditor) => {
     editor.setEditorState(
       editor.parseEditorState({
-        root: toLexical(Internal.convertRichTextSource(richtext)),
+        root: richTextSourceToLexical(Internal.convertRichTextSource(richtext)),
       })
     );
   };
