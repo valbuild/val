@@ -1,18 +1,19 @@
-import { file } from "./file";
-import { link } from "./link";
-import { parseRichTextSource, richtext } from "./richtext";
+import { initVal } from "@valbuild/core";
+import { parseRichTextSource } from "./parseRichTextSource";
+
+const { val } = initVal();
 
 //MD to HTML
 describe("richtext", () => {
   test("basic h1", () => {
-    const r = richtext`# Title 1`;
+    const r = val.richtext`# Title 1`;
     expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
     ]);
   });
 
   test("basic complete", () => {
-    const r = richtext`# Title 1
+    const r = val.richtext`# Title 1
 ## Title 2
 
 Paragraph 1 2 3 4 5. Words *italic* **bold**
@@ -34,7 +35,7 @@ Paragraph 1 2 3 4 5. Words *italic* **bold**
 
   test.skip("strong and emphasis merged spans", () => {
     // TODO: currently we do not merge
-    const r = richtext`Which classes?
+    const r = val.richtext`Which classes?
 ***All of them!***
   `;
     expect(parseRichTextSource(r).children).toStrictEqual([
@@ -54,7 +55,7 @@ Paragraph 1 2 3 4 5. Words *italic* **bold**
 
   test("line through", () => {
     // TODO: currently we do not merge
-    const r = richtext`~~line through~~`;
+    const r = val.richtext`~~line through~~`;
     expect(parseRichTextSource(r).children).toStrictEqual([
       {
         tag: "p",
@@ -70,7 +71,7 @@ Paragraph 1 2 3 4 5. Words *italic* **bold**
   });
 
   test("2 paragraphs", () => {
-    const r = richtext`# Title 1
+    const r = val.richtext`# Title 1
 
 First paragraph
 
@@ -84,7 +85,7 @@ Second paragraph
   });
 
   test("basic lists", () => {
-    const r = richtext`A bullet list:
+    const r = val.richtext`A bullet list:
 
 - bullet 1
 - bullet 2
@@ -102,7 +103,7 @@ Second paragraph
   });
 
   test("lists", () => {
-    const r = richtext`# Title 1
+    const r = val.richtext`# Title 1
 
 A paragraph
 
@@ -177,11 +178,11 @@ A nested list:
   });
 
   test("image", () => {
-    const r = richtext`# Title 1
+    const r = val.richtext`# Title 1
 
 Below we have an image block:
 
-${file("/public/foo.png", {
+${val.file("/public/foo.png", {
   width: 100,
   height: 100,
   sha256: "123",
@@ -205,11 +206,11 @@ ${file("/public/foo.png", {
   });
 
   test("block link", () => {
-    const r = richtext`# Title 1
+    const r = val.richtext`# Title 1
 
 Below we have a url:
 
-${link("google", { href: "https://google.com" })}`;
+${val.link("google", { href: "https://google.com" })}`;
     expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       { tag: "p", children: ["Below we have a url:"] },
@@ -227,9 +228,9 @@ ${link("google", { href: "https://google.com" })}`;
   });
 
   test("inline link", () => {
-    const r = richtext`# Title 1
+    const r = val.richtext`# Title 1
 
-Below we have a url: ${link("google", { href: "https://google.com" })}`;
+Below we have a url: ${val.link("google", { href: "https://google.com" })}`;
     expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       {
@@ -247,9 +248,9 @@ Below we have a url: ${link("google", { href: "https://google.com" })}`;
   });
 
   test("inline link with bold", () => {
-    const r = richtext`# Title 1
+    const r = val.richtext`# Title 1
 
-Inline link -> ${link("**google**", { href: "https://google.com" })}`;
+Inline link -> ${val.link("**google**", { href: "https://google.com" })}`;
 
     // source:
     expect(parseRichTextSource(r).children).toStrictEqual([
@@ -275,11 +276,14 @@ Inline link -> ${link("**google**", { href: "https://google.com" })}`;
   });
 
   test("breaks", () => {
-    const r = richtext`# Title 1
+    const r = val.richtext`
+# Title 1
 
-Hopp
+Foo
+
 <br>
-Hei
+
+Bar
 `;
 
     console.log(JSON.stringify(parseRichTextSource(r).children));
@@ -288,20 +292,15 @@ Hei
       { tag: "h1", children: ["Title 1"] },
       {
         tag: "p",
-        children: [
-          "Inline link -&gt; ",
-          {
-            href: "https://google.com",
-            tag: "a",
-            children: [
-              {
-                tag: "span",
-                classes: ["bold"],
-                children: ["google"],
-              },
-            ],
-          },
-        ],
+        children: ["Foo"],
+      },
+      {
+        tag: "br",
+        children: [],
+      },
+      {
+        tag: "p",
+        children: ["Bar"],
       },
     ]);
   });

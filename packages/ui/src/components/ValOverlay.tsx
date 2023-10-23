@@ -31,7 +31,7 @@ import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/core";
 import { RichTextEditor } from "../exports";
 import { LexicalEditor } from "lexical";
-import { LexicalRootNode, fromLexical } from "./RichTextEditor/conversion";
+import { LexicalRootNode, fromLexical } from "../richtext/conversion/toLexical";
 import { PatchJSON } from "@valbuild/core/patch";
 import { readImage } from "../utils/readImage";
 
@@ -281,7 +281,7 @@ function RichTextField({
           : ({
               [VAL_EXTENSION]: "richtext",
               templateStrings: [""],
-              nodes: [],
+              exprs: [],
             } as RichTextSource<AnyRichTextOptions>);
         return [
           {

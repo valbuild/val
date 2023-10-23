@@ -15,7 +15,7 @@ import {
   LexicalListNode,
   LexicalRootNode,
   LexicalTextNode,
-} from "./conversion";
+} from "./toLexical";
 
 const HeaderRegEx = /^h([\d+])$/;
 // Promise<
@@ -28,11 +28,10 @@ type MarkdownIR = {
 };
 
 const MAX_LINE_LENGTH = 80;
-export function fromLexical(
+export function lexicalToRichTextSource(
   node: LexicalRootNode
 ): Promise<RichTextSource<AnyRichTextOptions>> {
   const markdownIRBlocks: MarkdownIR[] = node.children.map(createBlock);
-  console.log(JSON.stringify(markdownIRBlocks, null, 2));
   return fromIRToRichTextSource(markdownIRBlocks);
 }
 
@@ -110,7 +109,7 @@ async function fromIRToRichTextSource(
       templateStrings[templateStrings.length - 1] += "\n\n";
     }
   }
-  return { [VAL_EXTENSION]: "richtext", templateStrings, nodes: exprs };
+  return { [VAL_EXTENSION]: "richtext", templateStrings, exprs: exprs };
 }
 
 function formatText(node: LexicalTextNode): string {

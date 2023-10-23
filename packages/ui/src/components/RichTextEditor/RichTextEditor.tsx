@@ -14,7 +14,7 @@ import ImagesPlugin from "./Plugins/ImagePlugin";
 import Toolbar from "./Plugins/Toolbar";
 import { AnyRichTextOptions, Internal, RichTextSource } from "@valbuild/core";
 import { HeadingNode } from "@lexical/rich-text";
-import { toLexical } from "./conversion";
+import { toLexical } from "../../richtext/conversion/toLexical";
 import { useValOverlayContext } from "../ValOverlayContext";
 
 export interface RichTextEditorProps {
