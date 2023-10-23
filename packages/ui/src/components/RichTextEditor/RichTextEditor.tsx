@@ -12,10 +12,11 @@ import { ImageNode } from "./Nodes/ImageNode";
 import { AutoFocus } from "./Plugins/AutoFocus";
 import ImagesPlugin from "./Plugins/ImagePlugin";
 import Toolbar from "./Plugins/Toolbar";
-import { AnyRichTextOptions, Internal, RichTextSource } from "@valbuild/core";
+import { AnyRichTextOptions, RichTextSource } from "@valbuild/core";
 import { HeadingNode } from "@lexical/rich-text";
 import { richTextSourceToLexical } from "../../richtext/conversion/richTextSourceToLexical";
 import { useValOverlayContext } from "../ValOverlayContext";
+import { parseRichTextSource } from "../../exports";
 
 export interface RichTextEditorProps {
   richtext: RichTextSource<AnyRichTextOptions>;
@@ -36,7 +37,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
   const prePopulatedState = (editor: LexicalEditor) => {
     editor.setEditorState(
       editor.parseEditorState({
-        root: richTextSourceToLexical(Internal.convertRichTextSource(richtext)),
+        root: richTextSourceToLexical(parseRichTextSource(richtext)),
       })
     );
   };

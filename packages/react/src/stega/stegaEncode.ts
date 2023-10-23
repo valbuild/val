@@ -11,6 +11,7 @@ import { vercelStegaCombine } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core";
 import { SourceArray } from "@valbuild/core";
+import { parseRichTextSource } from "@valbuild/ui";
 
 declare const brand: unique symbol;
 
@@ -73,12 +74,12 @@ export function stegaEncode(
         if (sourceOrSelector[VAL_EXTENSION] === "richtext") {
           if (recOpts?.path) {
             return {
-              ...Internal.convertRichTextSource(sourceOrSelector),
+              ...parseRichTextSource(sourceOrSelector),
               valPath: recOpts.path,
             };
           }
 
-          return Internal.convertRichTextSource(sourceOrSelector);
+          return parseRichTextSource(sourceOrSelector);
         }
 
         if (
