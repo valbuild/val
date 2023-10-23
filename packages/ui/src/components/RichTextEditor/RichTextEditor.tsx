@@ -8,6 +8,7 @@ import LexicalErrorBoundary from "@lexical/react/LexicalErrorBoundary";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { ListPlugin } from "@lexical/react/LexicalListPlugin";
+import { LinkPlugin } from "@lexical/react/LexicalLinkPlugin";
 import { FC } from "react";
 import LexicalContentEditable from "./ContentEditable";
 import { ImageNode } from "./Nodes/ImageNode";
@@ -19,6 +20,8 @@ import { HeadingNode } from "@lexical/rich-text";
 import { richTextSourceToLexical } from "../../richtext/conversion/richTextSourceToLexical";
 import { useValOverlayContext } from "../ValOverlayContext";
 import { parseRichTextSource } from "../../exports";
+import { LinkNode } from "@lexical/link";
+import LinkEditorPlugin from "./Plugins/LinkEditorPlugin";
 
 export interface RichTextEditorProps {
   richtext: RichTextSource<AnyRichTextOptions>;
@@ -46,7 +49,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
   const initialConfig = {
     namespace: "val",
     editorState: prePopulatedState,
-    nodes: [HeadingNode, ImageNode, ListNode, ListItemNode],
+    nodes: [HeadingNode, ImageNode, ListNode, ListItemNode, LinkNode],
     theme: {
       text: {
         bold: "font-semibold",
@@ -91,6 +94,8 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
         placeholder={<div className="">Enter some text...</div>}
         ErrorBoundary={LexicalErrorBoundary}
       />
+      <LinkPlugin />
+      <LinkEditorPlugin />
       <ListPlugin />
       <ImagesPlugin />
       <HistoryPlugin />

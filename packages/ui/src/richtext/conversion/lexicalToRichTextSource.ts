@@ -6,7 +6,7 @@ import {
   RichTextSource,
   AnyRichTextOptions,
 } from "@valbuild/core";
-import { mimeTypeToFileExt } from "../../utils/imageMimeType";
+import { getMimeType, mimeTypeToFileExt } from "../../utils/imageMimeType";
 
 import {
   LexicalImageNode,
@@ -222,8 +222,13 @@ async function fromLexicalImageNode(
   files: Record<string, string>
 ) {
   if (node.src.startsWith("data:")) {
+    console.log("node", node);
     const sha256 = await Internal.getSHA256Hash(textEncoder.encode(node.src));
-    const fileExt = mimeTypeToFileExt(node.src);
+    const mimeType = getMimeType(node.src);
+    if (mimeType === undefined) {
+      throw new Error(`Could not detect Mime Type for image: ${node.src}`);
+    }
+    const fileExt = mimeTypeToFileExt(mimeType);
     const filePath = `/public/${sha256}.${fileExt}`;
     files[filePath] = node.src;
     return {
@@ -266,6 +271,7 @@ function getParam(param: string, url: string) {
 }
 
 function fromLexicalLinkNode(node: LexicalLinkNode): LinkSource {
+  console.log("lexical link node", node);
   return {
     [VAL_EXTENSION]: "link",
     href: node.url,
