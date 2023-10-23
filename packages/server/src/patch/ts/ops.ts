@@ -104,13 +104,13 @@ function createValRichTextTaggedStringTemplate(
 ): ts.Expression {
   const {
     templateStrings: [head, ...others],
-    exprs: nodes,
+    exprs,
   } = value;
   const tag = ts.factory.createPropertyAccessExpression(
     ts.factory.createIdentifier("val"),
     ts.factory.createIdentifier("richtext")
   );
-  if (nodes.length > 0) {
+  if (exprs.length > 0) {
     return ts.factory.createTaggedTemplateExpression(
       tag,
       undefined,
@@ -118,7 +118,7 @@ function createValRichTextTaggedStringTemplate(
         ts.factory.createTemplateHead(head, head),
         others.map((s, i) =>
           ts.factory.createTemplateSpan(
-            toExpression(nodes[i]),
+            toExpression(exprs[i]),
             i < others.length - 1
               ? ts.factory.createTemplateMiddle(s, s)
               : ts.factory.createTemplateTail(s, s)

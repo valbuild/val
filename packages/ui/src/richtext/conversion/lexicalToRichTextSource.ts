@@ -30,7 +30,9 @@ type MarkdownIR = {
 const MAX_LINE_LENGTH = 80;
 export function lexicalToRichTextSource(
   node: LexicalRootNode
-): Promise<RichTextSource<AnyRichTextOptions>> {
+): Promise<
+  RichTextSource<AnyRichTextOptions> & { files: Record<string, string> }
+> {
   const markdownIRBlocks: MarkdownIR[] = node.children.map(createBlock);
   return fromIRToRichTextSource(markdownIRBlocks);
 }

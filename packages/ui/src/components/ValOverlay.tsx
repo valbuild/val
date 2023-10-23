@@ -33,10 +33,11 @@ import { RichTextEditor } from "../exports";
 import { LexicalEditor } from "lexical";
 import {
   LexicalRootNode,
-  fromLexical,
+  richTextSourceToLexical,
 } from "../richtext/conversion/richTextSourceToLexical";
 import { PatchJSON } from "@valbuild/core/patch";
 import { readImage } from "../utils/readImage";
+import { lexicalToRichTextSource } from "../richtext/conversion/lexicalToRichTextSource";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -277,22 +278,25 @@ function RichTextField({
   useEffect(() => {
     if (editor) {
       registerPatchCallback(async (path) => {
-        const { templateStrings, nodes } = editor?.toJSON()?.editorState
-          ? await fromLexical(
+        const { templateStrings, exprs, files } = editor?.toJSON()?.editorState
+          ? await lexicalToRichTextSource(
               editor?.toJSON()?.editorState.root as LexicalRootNode
             )
           : ({
               [VAL_EXTENSION]: "richtext",
               templateStrings: [""],
               exprs: [],
-            } as RichTextSource<AnyRichTextOptions>);
+              files: {},
+            } as RichTextSource<AnyRichTextOptions> & {
+              files: Record<string, string>;
+            });
         return [
           {
             op: "replace" as const,
             path,
             value: {
               templateStrings,
-              nodes,
+              exprs,
               [VAL_EXTENSION]: "richtext",
             },
           },

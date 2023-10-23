@@ -457,7 +457,7 @@ describe("TSOps", () => {
       value: {
         [VAL_EXTENSION]: "richtext",
         templateStrings: ["Test 2"],
-        nodes: [],
+        exprs: [],
       },
       expected: result.ok("val.richtext `Test 2`"),
     },
@@ -468,7 +468,7 @@ describe("TSOps", () => {
       value: {
         [VAL_EXTENSION]: "richtext",
         templateStrings: ["# Title 1\nTest 2"],
-        nodes: [],
+        exprs: [],
       },
       expected: result.ok(`val.richtext \`# Title 1
 Test 2\``),
@@ -480,7 +480,7 @@ Test 2\``),
       value: {
         [VAL_EXTENSION]: "richtext",
         templateStrings: ["# Title 1\nTest 2\n", ""],
-        nodes: [
+        exprs: [
           {
             [VAL_EXTENSION]: "file",
             [FILE_REF_PROP]: "/public/test",
@@ -499,7 +499,7 @@ Test 2
       value: {
         [VAL_EXTENSION]: "richtext",
         templateStrings: ["# Title 1\n", "\n", "\nTest 2"],
-        nodes: [
+        exprs: [
           {
             [VAL_EXTENSION]: "file",
             [FILE_REF_PROP]: "/public/test1",
@@ -524,7 +524,7 @@ Test 2\``),
       value: {
         [VAL_EXTENSION]: "richtext",
         templateStrings: ["# Title 1\n", "\n", ""],
-        nodes: [
+        exprs: [
           {
             [VAL_EXTENSION]: "link",
             href: "https://example.com",
@@ -548,7 +548,7 @@ Test 2\``),
       value: {
         [VAL_EXTENSION]: "richtext",
         templateStrings: ["", "\n", "\nTest 2"],
-        nodes: [
+        exprs: [
           {
             [VAL_EXTENSION]: "file",
             [FILE_REF_PROP]: "/public/test1",
