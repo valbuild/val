@@ -104,7 +104,7 @@ function createValRichTextTaggedStringTemplate(
 ): ts.Expression {
   const {
     templateStrings: [head, ...others],
-    nodes,
+    exprs: nodes,
   } = value;
   const tag = ts.factory.createPropertyAccessExpression(
     ts.factory.createIdentifier("val"),

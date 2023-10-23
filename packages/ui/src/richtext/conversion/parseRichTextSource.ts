@@ -153,7 +153,7 @@ function parseTokens(
 
 export function parseRichTextSource<O extends RichTextOptions>({
   templateStrings,
-  nodes,
+  exprs: nodes,
 }: RichTextSource<O>): RichText<O> {
   // TODO: validate that templateStrings does not contain VAL_NODE_PREFIX
   const inputText = templateStrings

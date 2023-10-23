@@ -149,7 +149,7 @@ export type RootNode<O extends RichTextOptions> =
 export type RichTextSource<O extends RichTextOptions> = {
   [VAL_EXTENSION]: "richtext";
   templateStrings: string[];
-  nodes: (
+  exprs: (
     | (O["img"] extends true ? FileSource<ImageMetadata> : never)
     | (O["a"] extends true ? LinkSource : never)
   )[];
@@ -170,7 +170,7 @@ export function richtext<O extends RichTextOptions>(
   return {
     [VAL_EXTENSION]: "richtext",
     templateStrings: templateStrings as unknown as string[],
-    nodes:
-      nodes as RichTextSource<AnyRichTextOptions>["nodes"] as RichTextSource<O>["nodes"],
+    exprs:
+      nodes as RichTextSource<AnyRichTextOptions>["exprs"] as RichTextSource<O>["exprs"],
   };
 }

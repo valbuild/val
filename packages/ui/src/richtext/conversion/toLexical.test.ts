@@ -1,21 +1,10 @@
+import { RichText, AnyRichTextOptions } from "@valbuild/core";
 import {
-  AnyRichTextOptions,
-  FileSource,
-  ImageMetadata,
-  LinkSource,
-  RichText,
-  RichTextSource,
-  initVal,
-} from "@valbuild/core";
-import {
-  COMMON_LEXICAL_PROPS,
-  fromLexicalFormat,
-  LexicalRootNode,
-  toLexical,
   toLexicalFormat,
-} from "./conversion";
-import { fromLexical } from "./fromLexical";
-import { parseRichTextSource } from "./parseRichTextSource";
+  fromLexicalFormat,
+  toLexical,
+  LexicalRootNode,
+} from "./toLexical";
 
 describe("richtext conversion", () => {
   test("format conversion", () => {
@@ -44,7 +33,8 @@ describe("richtext conversion", () => {
       "line-through",
     ]);
   });
-  test("basic lexical text conversion to <-> from", async () => {
+
+  test("basic toLexical", () => {
     const input: RichText<AnyRichTextOptions> = {
       _type: "richtext",
       children: [
@@ -101,7 +91,7 @@ describe("richtext conversion", () => {
         },
       ],
     };
-    const output1: LexicalRootNode = {
+    const output: LexicalRootNode = {
       version: 1,
       format: "",
       indent: 0,
@@ -397,123 +387,6 @@ describe("richtext conversion", () => {
         },
       ],
     };
-    // console.log(JSON.stringify(toLexical(input), null, 2));
-    // expect(toLexical(input)).toStrictEqual(output);
-
-    const res = await fromLexical(output1);
-    let lines = "";
-    for (let i = 0; i < res.templateStrings.length; i++) {
-      const line = res.templateStrings[i];
-      const expr = res.nodes[i];
-      lines += line;
-      if (expr) {
-        lines += "${val." + expr._type + "(" + expr + "})";
-      }
-    }
-    console.log("EOF>>" + lines + "<<EOF");
-
-    // console.log(JSON.stringify(, null, 2));
+    expect(toLexical(input)).toStrictEqual(output);
   });
-
-  test("todo", async () => {
-    const { val } = initVal();
-    const inputSource = val.richtext`
-# Test
-
-### Jippi
-
-${val.file("/test.jpg?sha256=123", {
-  width: 100,
-  height: 100,
-  sha256: "123",
-})}
-
-<br><br>
-
-- test 1: ${val.link("**link**", { href: "https://link.com" })}
-- test 2
-- number 1.1
--  
-    1. number 2.1
-    1. number 2.2
-    1. number 2.3
-    1.
-        - Test
-    `;
-
-    // console.log(JSON.stringify(parseRichTextSource(inputSource), null, 2));
-    // console.log(
-    //   JSON.stringify(toLexical(parseRichTextSource(inputSource)), null, 2)
-    // );
-    // console.log(
-    //   JSON.stringify(
-    //     await fromLexical(toLexical(parseRichTextSource(inputSource))),
-    //     null,
-    //     2
-    //   )
-    // );
-    const res = await fromLexical(toLexical(parseRichTextSource(inputSource)));
-    let lines = "";
-    for (let i = 0; i < res.templateStrings.length; i++) {
-      const line = res.templateStrings[i];
-      const expr = res.nodes[i];
-      lines += line;
-      if (expr) {
-        // TODO: not actually correct, but this is just for debug
-        lines += "${val.ext(" + JSON.stringify(expr) + "})";
-      }
-    }
-    console.log("EOF>>" + lines + "<<EOF");
-  });
-
-  // // Uncertain whether Val RichText text nodes should allow nested spans - remove this test if that is not the case anymore
-  // test("merged lexical text nodes to <-> from", async () => {
-  //   const input: RichText<AnyRichTextOptions> = {
-  //     _type: "richtext",
-  //     children: [
-  //       {
-  //         tag: "p",
-  //         children: [
-  //           {
-  //             tag: "span",
-  //             classes: ["bold", "line-through"],
-  //             children: [
-  //               {
-  //                 tag: "span",
-  //                 classes: ["italic"],
-  //                 children: ["Formatted nested span"],
-  //               },
-  //             ],
-  //           },
-  //         ],
-  //       },
-  //     ],
-  //   };
-
-  //   // See inline comments for what changed between input / output
-  //   const output: RichText<AnyRichTextOptions> = {
-  //     _type: "richtext",
-  //     children: [
-  //       {
-  //         tag: "p",
-  //         children: [
-  //           {
-  //             tag: "span",
-  //             classes: ["bold", "italic", "line-through"], // NOTE: classes was merged
-  //             children: ["Formatted nested span"],
-  //           },
-  //         ],
-  //       },
-  //     ],
-  //   };
-
-  //   expect((await fromLexical(toLexical(input))).node).toStrictEqual(output);
-  // });
 });
-
-function testRt(
-  s: TemplateStringsArray,
-  ...exprs: (FileSource<ImageMetadata> | LinkSource)[]
-) {
-  return [s, exprs] as const;
-}

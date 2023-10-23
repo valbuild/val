@@ -6,19 +6,12 @@ import {
   UnorderedListNode as ValUnorderedListNode,
   OrderedListNode as ValOrderedListNode,
   ParagraphNode as ValParagraphNode,
-  BrNode as ValBrNode,
   RichTextNode as ValRichTextNode,
   LinkNode as ValLinkNode,
   ImageNode as ValImageNode,
   RichText,
-  VAL_EXTENSION,
-  Internal,
-  FILE_REF_PROP,
-  RichTextSource,
 } from "@valbuild/core";
-import { LinkSource } from "@valbuild/core/src/source/link";
-import { mimeTypeToFileExt } from "../../utils/imageMimeType";
-import { ImagePayload } from "./Nodes/ImageNode";
+import { ImagePayload } from "../../components/RichTextEditor/Nodes/ImageNode";
 
 /// Serialized Lexical Nodes:
 // TODO: replace with Lexical libs types - not currently exported?
@@ -160,35 +153,9 @@ function toLexicalLinkNode(
     ...COMMON_LEXICAL_PROPS,
     type: "link",
     url: link.href,
-    children: link.children.map(toLexicalNode),
+    children: link.children.map(toLexicalNode) as LexicalLinkNode["children"],
   };
 }
-
-const URL_FILE_EXT_REGEX = /.*\/(.*)\?/;
-function getFileExtFromUrl(url: string): string | undefined {
-  const match = url.match(URL_FILE_EXT_REGEX);
-  if (match) {
-    const fileExtension = match[1].split(".").slice(-1)[0];
-    return fileExtension;
-  }
-}
-
-function getParam(param: string, url: string) {
-  const urlParts = url.split("?");
-  if (urlParts.length < 2) {
-    return undefined;
-  }
-
-  const queryString = urlParts[1];
-  const params = new URLSearchParams(queryString);
-
-  if (params.has(param)) {
-    return params.get(param);
-  }
-
-  return undefined;
-}
-
 export function toLexical(
   richtext: RichText<AnyRichTextOptions>
 ): LexicalRootNode {
@@ -196,7 +163,9 @@ export function toLexical(
     ...COMMON_LEXICAL_PROPS,
     format: "",
     type: "root",
-    children: richtext.children.map(toLexicalNode),
+    children: richtext.children.map(
+      toLexicalNode
+    ) as LexicalRootNode["children"],
   };
 }
 
@@ -207,7 +176,9 @@ function toLexicalHeadingNode(
     ...COMMON_LEXICAL_PROPS,
     type: "heading",
     tag: heading.tag,
-    children: heading.children.map(toLexicalNode),
+    children: heading.children.map(
+      toLexicalNode
+    ) as LexicalHeadingNode["children"],
   };
 }
 
@@ -217,7 +188,9 @@ function toLexicalParagraphNode(
   return {
     ...COMMON_LEXICAL_PROPS,
     type: "paragraph",
-    children: paragraph.children.map(toLexicalNode),
+    children: paragraph.children.map(
+      toLexicalNode
+    ) as LexicalParagraphNode["children"],
   };
 }
 
@@ -226,7 +199,7 @@ function toLexicalPseudoLineBreakNode(): LexicalParagraphNode {
   return {
     ...COMMON_LEXICAL_PROPS,
     type: "paragraph",
-    children: [],
+    children: [] as LexicalParagraphNode["children"],
   };
 }
 
@@ -236,7 +209,9 @@ function toLexicalListItemNode(
   return {
     ...COMMON_LEXICAL_PROPS,
     type: "listitem",
-    children: listItem.children.map(toLexicalNode),
+    children: listItem.children.map(
+      toLexicalNode
+    ) as LexicalListItemNode["children"],
   };
 }
 
@@ -249,7 +224,7 @@ function toLexicalListNode(
     ...COMMON_LEXICAL_PROPS,
     type: "list",
     listType: list.tag === "ol" ? "number" : "bullet",
-    children: list.children.map(toLexicalNode),
+    children: list.children.map(toLexicalNode) as LexicalListNode["children"],
     ...(list.dir ? { direction: list.dir } : { direction: null }),
   };
 }
