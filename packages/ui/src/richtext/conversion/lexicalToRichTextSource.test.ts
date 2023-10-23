@@ -1,6 +1,6 @@
 import { AnyRichTextOptions, initVal, RichText } from "@valbuild/core";
 import { parseRichTextSource } from "./parseRichTextSource";
-import { LexicalRootNode, toLexicalNode } from "./toLexical";
+import { LexicalRootNode, toLexicalNode } from "./richTextSourceToLexical";
 
 const { val } = initVal();
 

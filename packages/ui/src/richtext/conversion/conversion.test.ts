@@ -4,7 +4,7 @@ import {
   AnyRichTextOptions,
   FILE_REF_PROP,
 } from "@valbuild/core";
-import { toLexical } from "./toLexical";
+import { richTextSourceToLexical } from "./richTextSourceToLexical";
 import { lexicalToRichTextSource } from "./lexicalToRichTextSource";
 import { parseRichTextSource } from "./parseRichTextSource";
 
@@ -109,7 +109,7 @@ describe("isomorphic richtext <-> conversion", () => {
     const inputSource = input;
 
     const res = await lexicalToRichTextSource(
-      toLexical(parseRichTextSource(inputSource))
+      richTextSourceToLexical(parseRichTextSource(inputSource))
     );
 
     const output = stringifyRichTextSource(res);

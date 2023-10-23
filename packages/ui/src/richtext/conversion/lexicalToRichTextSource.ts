@@ -15,7 +15,7 @@ import {
   LexicalListNode,
   LexicalRootNode,
   LexicalTextNode,
-} from "./toLexical";
+} from "./richTextSourceToLexical";
 
 const HeaderRegEx = /^h([\d+])$/;
 // Promise<
@@ -80,7 +80,9 @@ function createBlock(node: LexicalRootNode["children"][number]): MarkdownIR {
 
 async function fromIRToRichTextSource(
   markdownIRBlocks: MarkdownIR[]
-): Promise<RichTextSource<AnyRichTextOptions>> {
+): Promise<
+  RichTextSource<AnyRichTextOptions> & { files: Record<string, string> }
+> {
   const templateStrings = ["\n"];
   const exprs = [];
   const files: Record<string, string> = {};
@@ -109,7 +111,7 @@ async function fromIRToRichTextSource(
       templateStrings[templateStrings.length - 1] += "\n\n";
     }
   }
-  return { [VAL_EXTENSION]: "richtext", templateStrings, exprs: exprs };
+  return { [VAL_EXTENSION]: "richtext", templateStrings, exprs: exprs, files };
 }
 
 function formatText(node: LexicalTextNode): string {
