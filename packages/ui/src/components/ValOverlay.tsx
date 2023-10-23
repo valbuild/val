@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Dispatch,
   SetStateAction,
@@ -60,7 +62,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
   );
 
   const [state, setState] = useState<{
-    [path: SourcePath]: () => PatchJSON;
+    [path: SourcePath]: () => Promise<PatchJSON>;
   }>({});
   const initPatchCallback = useCallback((currentPath: SourcePath | null) => {
     return (callback: PatchCallback) => {
@@ -169,16 +171,22 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
                     const [moduleId] = Internal.splitModuleIdAndModulePath(
                       windowTarget.path
                     );
-                    const patch = state[windowTarget.path]();
-                    console.log("Submitting", patch);
-                    api
-                      .postPatches(moduleId, patch)
-                      .then((res) => {
-                        console.log(res);
-                      })
-                      .finally(() => {
-                        console.log("done");
-                      });
+                    const res = state[windowTarget.path]();
+                    if (res) {
+                      res
+                        .then((patch) => {
+                          console.log("Submitting", patch);
+                          return api.postPatches(moduleId, patch);
+                        })
+                        .then((res) => {
+                          console.log(res);
+                        })
+                        .finally(() => {
+                          console.log("done");
+                        });
+                    } else {
+                      console.error("No patch");
+                    }
                   }
                 }}
               />

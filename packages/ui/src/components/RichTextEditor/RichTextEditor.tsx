@@ -1,3 +1,5 @@
+"use client";
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { LexicalEditor } from "lexical";
 import { ListItemNode, ListNode } from "@lexical/list";
@@ -64,7 +66,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
         h3: "text-2xl font-bold",
         h4: "text-xl font-bold",
         h5: "text-lg font-bold",
-        h6: "text-base font-bold",
+        h6: "text-md font-bold",
       },
     },
     onError,
