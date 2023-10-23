@@ -87,7 +87,10 @@ function createValFileReference(value: FileSource) {
 }
 
 function createValLink(value: LinkSource) {
-  const args: ts.Expression[] = [ts.factory.createStringLiteral(value.href)];
+  const args: ts.Expression[] = [
+    ts.factory.createStringLiteral(value.children[0]),
+    toExpression({ href: value.href }),
+  ];
 
   return ts.factory.createCallExpression(
     ts.factory.createPropertyAccessExpression(
