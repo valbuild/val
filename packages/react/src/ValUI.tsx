@@ -1,3 +1,5 @@
+"use client";
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Internal } from "@valbuild/core";
 import { Style, ValOverlay } from "@valbuild/ui";
