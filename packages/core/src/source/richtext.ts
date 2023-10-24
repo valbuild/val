@@ -44,7 +44,7 @@ export type Classes<O extends RichTextOptions> =
 /// Paragraph
 export type ParagraphNode<O extends RichTextOptions> = {
   tag: "p";
-  children: (string | SpanNode<O> | LinkNode<O> | ImageNode<O>)[];
+  children: (string | SpanNode<O> | BrNode | LinkNode<O> | ImageNode<O>)[];
 };
 
 /// Break
@@ -89,6 +89,7 @@ export type ListItemNode<O extends RichTextOptions> = {
     | string
     | SpanNode<O>
     | LinkNode<O>
+    | BrNode
     | UnorderedListNode<O>
     | OrderedListNode<O>
   )[];
@@ -130,6 +131,7 @@ export type RichTextNode<O extends RichTextOptions> =
   | string
   | RootNode<O>
   | ListItemNode<O>
+  | BrNode
   | SpanNode<O>
   | LinkNode<O>
   | ImageNode<O>;

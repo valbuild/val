@@ -35,10 +35,10 @@ type ImageSource = FileSource<{
 function parseTokens(
   tokens: marked.Token[],
   sourceNodes: (ImageSource | LinkSource)[],
-  cursor: number
+  cursor: number,
+  insideList = false
 ): { children: RichTextNode<AnyRichTextOptions>[]; cursor: number } {
   const children: RichTextNode<AnyRichTextOptions>[] = [];
-
   while (cursor < tokens.length) {
     const token = tokens[cursor];
     if (token.type === "heading") {
@@ -77,10 +77,21 @@ function parseTokens(
     } else if (token.type === "text") {
       if ("tokens" in token && Array.isArray(token.tokens)) {
         children.push(
-          ...parseTokens(token.tokens, sourceNodes, cursor).children
+          ...parseTokens(token.tokens, sourceNodes, cursor, insideList).children
         );
       } else {
-        children.push(token.text);
+        if (insideList && typeof token.text === "string") {
+          const lines = token.text.split("\n");
+          const tags: RichTextNode<AnyRichTextOptions>[] = lines.flatMap(
+            (line, i) => {
+              if (i === lines.length - 1) return [line];
+              return [line, { tag: "br", children: [] }];
+            }
+          );
+          children.push(...tags);
+        } else {
+          children.push(token.text);
+        }
       }
     } else if (token.type === "list") {
       children.push({
@@ -91,8 +102,12 @@ function parseTokens(
     } else if (token.type === "list_item") {
       children.push({
         tag: "li",
-        children: parseTokens(token.tokens ? token.tokens : [], sourceNodes, 0)
-          .children as ListItemNode<AnyRichTextOptions>["children"],
+        children: parseTokens(
+          token.tokens ? token.tokens : [],
+          sourceNodes,
+          0,
+          true
+        ).children as ListItemNode<AnyRichTextOptions>["children"],
       });
     } else if (token.type === "space") {
       // do nothing

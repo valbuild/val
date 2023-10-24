@@ -102,6 +102,35 @@ Second paragraph
     ]);
   });
 
+  test("lists with line breaks", () => {
+    const r = val.richtext`A bullet list:
+  
+  - bullet 1
+  - bullet 2
+break this line
+  `;
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      { tag: "p", children: ["A bullet list:"] },
+      {
+        tag: "ul",
+        children: [
+          {
+            tag: "li",
+            children: ["bullet 1"],
+          },
+          {
+            tag: "li",
+            children: [
+              "bullet 2",
+              { tag: "br", children: [] },
+              "break this line",
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
   test("lists", () => {
     const r = val.richtext`# Title 1
 

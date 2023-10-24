@@ -26,7 +26,7 @@ type InlineNode = LexicalTextNode | LexicalLinkNode;
 
 export type LexicalParagraphNode = CommonLexicalProps & {
   type: "paragraph";
-  children: InlineNode[];
+  children: (InlineNode | LexicalLineBreakNode)[];
 };
 
 export type LexicalHeadingNode = CommonLexicalProps & {
@@ -37,7 +37,7 @@ export type LexicalHeadingNode = CommonLexicalProps & {
 
 export type LexicalListItemNode = CommonLexicalProps & {
   type: "listitem";
-  children: (InlineNode | LexicalListNode)[];
+  children: (InlineNode | LexicalListNode | LexicalLineBreakNode)[];
 };
 
 export type LexicalListNode = CommonLexicalProps & {
@@ -57,6 +57,10 @@ export type LexicalLinkNode = CommonLexicalProps & {
   children: LexicalTextNode[];
 };
 
+export type LexicalLineBreakNode = CommonLexicalProps & {
+  type: "linebreak";
+};
+
 export type LexicalNode =
   | LexicalTextNode
   | LexicalParagraphNode
@@ -64,6 +68,7 @@ export type LexicalNode =
   | LexicalListItemNode
   | LexicalListNode
   | LexicalImageNode
+  | LexicalLineBreakNode
   | LexicalLinkNode;
 
 export type LexicalRootNode = {
@@ -84,7 +89,8 @@ export const COMMON_LEXICAL_PROPS = {
 type CommonLexicalProps = typeof COMMON_LEXICAL_PROPS;
 
 export function toLexicalNode(
-  node: ValRichTextNode<AnyRichTextOptions>
+  node: ValRichTextNode<AnyRichTextOptions>,
+  useBreakNode = false
 ): LexicalNode {
   if (typeof node === "string") {
     return {
@@ -123,6 +129,12 @@ export function toLexicalNode(
       case "img":
         return toLexicalImageNode(node);
       case "br":
+        if (useBreakNode) {
+          return {
+            ...COMMON_LEXICAL_PROPS,
+            type: "linebreak",
+          };
+        }
         return toLexicalPseudoLineBreakNode();
       default:
         throw Error("Unexpected node tag: " + JSON.stringify(node, null, 2));
@@ -153,7 +165,9 @@ function toLexicalLinkNode(
     ...COMMON_LEXICAL_PROPS,
     type: "link",
     url: link.href,
-    children: link.children.map(toLexicalNode) as LexicalLinkNode["children"],
+    children: link.children.map((child) =>
+      toLexicalNode(child)
+    ) as LexicalLinkNode["children"],
   };
 }
 export function richTextSourceToLexical(
@@ -163,8 +177,8 @@ export function richTextSourceToLexical(
     ...COMMON_LEXICAL_PROPS,
     format: "",
     type: "root",
-    children: richtext.children.map(
-      toLexicalNode
+    children: richtext.children.map((child) =>
+      toLexicalNode(child)
     ) as LexicalRootNode["children"],
   };
 }
@@ -176,8 +190,8 @@ function toLexicalHeadingNode(
     ...COMMON_LEXICAL_PROPS,
     type: "heading",
     tag: heading.tag,
-    children: heading.children.map(
-      toLexicalNode
+    children: heading.children.map((child) =>
+      toLexicalNode(child)
     ) as LexicalHeadingNode["children"],
   };
 }
@@ -188,8 +202,8 @@ function toLexicalParagraphNode(
   return {
     ...COMMON_LEXICAL_PROPS,
     type: "paragraph",
-    children: paragraph.children.map(
-      toLexicalNode
+    children: paragraph.children.map((child) =>
+      toLexicalNode(child, true)
     ) as LexicalParagraphNode["children"],
   };
 }
@@ -209,8 +223,8 @@ function toLexicalListItemNode(
   return {
     ...COMMON_LEXICAL_PROPS,
     type: "listitem",
-    children: listItem.children.map(
-      toLexicalNode
+    children: listItem.children.map((child) =>
+      toLexicalNode(child, true)
     ) as LexicalListItemNode["children"],
   };
 }
@@ -224,7 +238,9 @@ function toLexicalListNode(
     ...COMMON_LEXICAL_PROPS,
     type: "list",
     listType: list.tag === "ol" ? "number" : "bullet",
-    children: list.children.map(toLexicalNode) as LexicalListNode["children"],
+    children: list.children.map((child) =>
+      toLexicalNode(child)
+    ) as LexicalListNode["children"],
     ...(list.dir ? { direction: list.dir } : { direction: null }),
   };
 }
