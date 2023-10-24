@@ -71,7 +71,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
         h5: "text-lg font-bold",
         h6: "text-md font-bold",
       },
-      link: "text-highlight underline"
+      link: "text-highlight underline",
     },
     onError,
   };
