@@ -30,6 +30,7 @@ ${val.link("**link**", { href: "https://link.com" })}
 - List 1
     1. List 1.1
     1. List 1.2
+Test 123
 `);
     expect(output).toStrictEqual({
       _type: "richtext",
@@ -71,7 +72,11 @@ ${val.link("**link**", { href: "https://link.com" })}
                     },
                     {
                       tag: "li",
-                      children: ["List 1.2"],
+                      children: [
+                        "List 1.2",
+                        { tag: "br", children: [] },
+                        "Test 123",
+                      ],
                     },
                   ],
                 },

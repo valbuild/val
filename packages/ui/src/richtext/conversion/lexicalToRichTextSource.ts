@@ -10,6 +10,7 @@ import { getMimeType, mimeTypeToFileExt } from "../../utils/imageMimeType";
 
 import {
   LexicalImageNode,
+  LexicalLineBreakNode,
   LexicalLinkNode,
   LexicalListItemNode,
   LexicalListNode,
@@ -61,7 +62,7 @@ function createBlock(node: LexicalRootNode["children"][number]): MarkdownIR {
     }
     return {
       type: "block",
-      children: node.children.map(transformLeafNode),
+      children: node.children.map((child) => transformLeafNode(child)),
     };
   } else if (node.type === "list") {
     return {
@@ -139,10 +140,16 @@ function formatText(node: LexicalTextNode): string {
 }
 
 function transformLeafNode(
-  node: LexicalTextNode | LexicalImageNode | LexicalLinkNode
+  node:
+    | LexicalTextNode
+    | LexicalImageNode
+    | LexicalLinkNode
+    | LexicalLineBreakNode
 ): string | LexicalImageNode | LexicalLinkNode {
   if (node.type === "text") {
     return formatText(node);
+  } else if (node.type === "linebreak") {
+    return "\n";
   } else {
     return node;
   }
@@ -271,7 +278,6 @@ function getParam(param: string, url: string) {
 }
 
 function fromLexicalLinkNode(node: LexicalLinkNode): LinkSource {
-  console.log("lexical link node", node);
   return {
     [VAL_EXTENSION]: "link",
     href: node.url,
