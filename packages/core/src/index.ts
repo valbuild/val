@@ -1,6 +1,8 @@
 export { initVal } from "./initVal";
 export type { InitVal } from "./initVal";
 export { Schema, type SerializedSchema } from "./schema";
+export type { ImageMetadata } from "./schema/image";
+export type { LinkSource } from "./source/link";
 export type { ValModule, SerializedModule } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
@@ -13,15 +15,15 @@ export type {
   Italic,
   LineThrough,
   ListItemNode,
+  LinkNode,
   OrderedListNode,
   ParagraphNode,
+  BrNode,
   RichText,
   RichTextNode,
   RichTextOptions,
   RichTextSource,
-  RichTextSourceNode,
   RootNode,
-  SourceNode,
   SpanNode,
   UnorderedListNode,
 } from "./source/richtext";
@@ -56,7 +58,6 @@ import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
 import { Json } from "./Json";
 import { SerializedSchema } from "./schema";
-import { convertRichTextSource } from "./source/richtext";
 import { getSHA256Hash } from "./getSha256";
 export { ValApi } from "./ValApi";
 
@@ -82,7 +83,6 @@ export type ApiPatchResponse = Record<ModuleId, string[]>;
 
 const Internal = {
   convertFileSource,
-  convertRichTextSource,
   getSchema,
   getValPath,
   getVal,

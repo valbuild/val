@@ -26,7 +26,7 @@ import {
   VAL_EXTENSION,
 } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core/src/Json";
-import { richTextToTaggedStringTemplate } from "./richtext";
+import { LinkSource } from "@valbuild/core/src/source/link";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
@@ -85,15 +85,34 @@ function createValFileReference(value: FileSource) {
   );
 }
 
+function createValLink(value: LinkSource) {
+  const args: ts.Expression[] = [
+    ts.factory.createStringLiteral(value.children[0]),
+    toExpression({ href: value.href }),
+  ];
+
+  return ts.factory.createCallExpression(
+    ts.factory.createPropertyAccessExpression(
+      ts.factory.createIdentifier("val"),
+      ts.factory.createIdentifier("link")
+    ),
+    undefined,
+    args
+  );
+}
+
 function createValRichTextTaggedStringTemplate(
   value: RichTextSource<AnyRichTextOptions>
 ): ts.Expression {
-  const [[head, ...others], nodes] = richTextToTaggedStringTemplate(value);
+  const {
+    templateStrings: [head, ...others],
+    exprs,
+  } = value;
   const tag = ts.factory.createPropertyAccessExpression(
     ts.factory.createIdentifier("val"),
     ts.factory.createIdentifier("richtext")
   );
-  if (nodes.length > 0) {
+  if (exprs.length > 0) {
     return ts.factory.createTaggedTemplateExpression(
       tag,
       undefined,
@@ -101,7 +120,7 @@ function createValRichTextTaggedStringTemplate(
         ts.factory.createTemplateHead(head, head),
         others.map((s, i) =>
           ts.factory.createTemplateSpan(
-            toExpression(nodes[i]),
+            toExpression(exprs[i]),
             i < others.length - 1
               ? ts.factory.createTemplateMiddle(s, s)
               : ts.factory.createTemplateTail(s, s)
@@ -132,6 +151,8 @@ function toExpression(value: JSONValue): ts.Expression {
   } else if (typeof value === "object") {
     if (isValFileValue(value)) {
       return createValFileReference(value);
+    } else if (isValLinkValue(value)) {
+      return createValLink(value);
     } else if (isValRichTextValue(value)) {
       return createValRichTextTaggedStringTemplate(value);
     }
@@ -591,7 +612,7 @@ function removeAtPath(
   );
 }
 
-function isValFileValue(value: JSONValue): value is FileSource<{
+export function isValFileValue(value: JSONValue): value is FileSource<{
   [key: string]: JsonPrimitive;
 }> {
   return !!(
@@ -604,6 +625,14 @@ function isValFileValue(value: JSONValue): value is FileSource<{
     typeof value[FILE_REF_PROP] === "string"
   );
 }
+function isValLinkValue(value: JSONValue): value is LinkSource {
+  return !!(
+    typeof value === "object" &&
+    value &&
+    VAL_EXTENSION in value &&
+    value[VAL_EXTENSION] === "link"
+  );
+}
 
 function isValRichTextValue(
   value: JSONValue
@@ -613,9 +642,9 @@ function isValRichTextValue(
     value &&
     VAL_EXTENSION in value &&
     value[VAL_EXTENSION] === "richtext" &&
-    "children" in value &&
-    typeof value.children === "object" &&
-    Array.isArray(value.children)
+    "templateStrings" in value &&
+    typeof value.templateStrings === "object" &&
+    Array.isArray(value.templateStrings)
   );
 }
 

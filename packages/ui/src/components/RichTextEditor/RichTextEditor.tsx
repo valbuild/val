@@ -1,3 +1,5 @@
+"use client";
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { LexicalEditor } from "lexical";
 import { ListItemNode, ListNode } from "@lexical/list";
@@ -6,6 +8,7 @@ import LexicalErrorBoundary from "@lexical/react/LexicalErrorBoundary";
 import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
 import { ListPlugin } from "@lexical/react/LexicalListPlugin";
+import { LinkPlugin } from "@lexical/react/LexicalLinkPlugin";
 import { FC } from "react";
 import LexicalContentEditable from "./ContentEditable";
 import { ImageNode } from "./Nodes/ImageNode";
@@ -14,8 +17,11 @@ import ImagesPlugin from "./Plugins/ImagePlugin";
 import Toolbar from "./Plugins/Toolbar";
 import { AnyRichTextOptions, RichTextSource } from "@valbuild/core";
 import { HeadingNode } from "@lexical/rich-text";
-import { toLexical } from "./conversion";
+import { richTextSourceToLexical } from "../../richtext/conversion/richTextSourceToLexical";
 import { useValOverlayContext } from "../ValOverlayContext";
+import { parseRichTextSource } from "../../exports";
+import { LinkNode } from "@lexical/link";
+import LinkEditorPlugin from "./Plugins/LinkEditorPlugin";
 
 export interface RichTextEditorProps {
   richtext: RichTextSource<AnyRichTextOptions>;
@@ -35,13 +41,15 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
   const { windowSize } = useValOverlayContext();
   const prePopulatedState = (editor: LexicalEditor) => {
     editor.setEditorState(
-      editor.parseEditorState({ root: toLexical(richtext) })
+      editor.parseEditorState({
+        root: richTextSourceToLexical(parseRichTextSource(richtext)),
+      })
     );
   };
   const initialConfig = {
     namespace: "val",
     editorState: prePopulatedState,
-    nodes: [HeadingNode, ImageNode, ListNode, ListItemNode],
+    nodes: [HeadingNode, ImageNode, ListNode, ListItemNode, LinkNode],
     theme: {
       text: {
         bold: "font-semibold",
@@ -61,8 +69,9 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
         h3: "text-2xl font-bold",
         h4: "text-xl font-bold",
         h5: "text-lg font-bold",
-        h6: "text-base font-bold",
+        h6: "text-md font-bold",
       },
+      link: "text-highlight underline",
     },
     onError,
   };
@@ -86,6 +95,8 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
         placeholder={<div className="">Enter some text...</div>}
         ErrorBoundary={LexicalErrorBoundary}
       />
+      <LinkPlugin />
+      <LinkEditorPlugin />
       <ListPlugin />
       <ImagesPlugin />
       <HistoryPlugin />

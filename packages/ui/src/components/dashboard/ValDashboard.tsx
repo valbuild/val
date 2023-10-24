@@ -1,3 +1,5 @@
+"use client";
+
 import { SerializedModule } from "@valbuild/core";
 import { Json } from "@valbuild/core/src/Json";
 import { ValApi } from "@valbuild/core";

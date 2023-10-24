@@ -1,8 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import {
-  AnyRichTextOptions,
-  RichTextSource as RichTextSourceType,
-} from "@valbuild/core";
 import { RichTextEditor } from "../exports";
 import { FormContainer } from "./forms/FormContainer";
 import { ImageForm } from "./forms/ImageForm";
@@ -78,56 +74,11 @@ export const RichText: Story = {
         }}
       >
         <RichTextEditor
-          richtext={
-            {
-              _type: "richtext",
-              children: [
-                { tag: "h1", children: ["Title 1"] },
-                { tag: "h2", children: ["Title 2"] },
-                { tag: "h3", children: ["Title 3"] },
-                { tag: "h4", children: ["Title 4"] },
-                { tag: "h5", children: ["Title 5"] },
-                { tag: "h6", children: ["Title 6"] },
-                {
-                  tag: "p",
-                  children: [
-                    {
-                      tag: "span",
-                      classes: ["bold", "italic", "line-through"],
-                      children: ["Formatted span"],
-                    },
-                  ],
-                },
-                {
-                  tag: "ul",
-                  children: [
-                    {
-                      tag: "li",
-                      children: [
-                        {
-                          tag: "ol",
-                          dir: "rtl",
-                          children: [
-                            {
-                              tag: "li",
-                              children: [
-                                {
-                                  tag: "span",
-                                  classes: ["italic"],
-                                  children: ["number 1.1"],
-                                },
-                              ],
-                            },
-                            { tag: "li", children: ["number 1.2"] },
-                          ],
-                        },
-                      ],
-                    },
-                  ],
-                },
-              ],
-            } as RichTextSourceType<AnyRichTextOptions>
-          }
+          richtext={{
+            _type: "richtext",
+            templateStrings: ["# Title 1"],
+            exprs: [],
+          }}
         />
       </FormContainer>
     ),

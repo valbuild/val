@@ -53,6 +53,9 @@ import Dropdown from "../../Dropdown";
 import UploadModal from "../../UploadModal";
 import { INSERT_IMAGE_COMMAND } from "./ImagePlugin";
 import { readImage } from "../../../utils/readImage";
+import { $isLinkNode, LinkNode, TOGGLE_LINK_COMMAND } from "@lexical/link";
+import { getSelectedNode } from "./LinkEditorPlugin";
+import { Check, Link, X } from "react-feather";
 
 export interface ToolbarSettingsProps {
   fontsFamilies?: string[];
@@ -91,7 +94,12 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
   const [inputUrl, setInputUrl] = useState<boolean>(false);
   const [uploadMode, setUploadMode] = useState<"url" | "file">("url");
   const [file, setFile] = useState<File | null>(null);
-  const [url, setUrl] = useState<string>("");
+
+  const [url, setUrl] = useState<string | null>(null);
+
+  const dispatchLinkChange = (url: string | null) => {
+    editor.dispatchCommand(TOGGLE_LINK_COMMAND, url);
+  };
 
   const blockTypes: { [key: string]: string } = {
     paragraph: "Normal",
@@ -125,6 +133,20 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
       if (element === null) {
         element = anchorNode.getTopLevelElementOrThrow();
       }
+
+      // LINK STUFF
+      const node = getSelectedNode(selection);
+      const linkParent = $findMatchingParent(
+        node,
+        $isLinkNode
+      ) as LinkNode | null;
+      if (linkParent !== null) {
+        const href = linkParent.getURL();
+        setUrl(href);
+      } else {
+        setUrl(null);
+      }
+      // ====================
 
       const elementKey = element.getKey();
       const elementDOM = activeEditor.getElementByKey(elementKey);
@@ -278,7 +300,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
   };
 
   return (
-    <div className="sticky top-0 border-b bg-base border-highlight">
+    <div className="sticky top-0 border-b bg-base border-highlight flex flex-col">
       <div className="flex flex-row gap-1">
         <Dropdown
           options={Object.values(blockTypes)}
@@ -316,6 +338,21 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
           }}
           icon={<Italic className={`${isItalic && "stroke-[3px]"}`} />}
         />
+        <Button
+          active={url !== null}
+          onClick={(ev) => {
+            ev.preventDefault();
+            setUrl("");
+            dispatchLinkChange("");
+          }}
+          icon={
+            <Link
+              width={12}
+              height={12}
+              className={`${url !== null && "stroke-[3px]"}`}
+            />
+          }
+        />
         <label className="flex items-center justify-center">
           <ImageIcon />
           <input
@@ -337,6 +374,37 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
           />
         </label>
       </div>
+      {url !== null && (
+        <div className="flex flex-row p-2">
+          <input
+            type="text"
+            placeholder="Enter URL"
+            className="w-1/3 text-primary bg-base px-2"
+            value={url}
+            onChange={(ev) => {
+              ev.preventDefault();
+              setUrl(ev.target.value);
+            }}
+          ></input>
+          <Button
+            variant="primary"
+            onClick={(ev) => {
+              ev.preventDefault();
+              // empty url will remove link
+              dispatchLinkChange(url || null);
+            }}
+            icon={<Check size={14} />}
+          />
+          <Button
+            variant="primary"
+            onClick={(ev) => {
+              ev.preventDefault();
+              dispatchLinkChange(null);
+            }}
+            icon={<X size={14} />}
+          />
+        </div>
+      )}
     </div>
   );
 };
