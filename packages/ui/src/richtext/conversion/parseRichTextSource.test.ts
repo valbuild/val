@@ -224,6 +224,51 @@ A nested list:
     ]);
   });
 
+  test("br tokens", () => {
+    const r = val.richtext`1 år 400,- kinokveld  
+5 år 5000,- en kveld i tretoppene`;
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      {
+        tag: "p",
+        children: [
+          "1 år 400,- kinokveld",
+          { tag: "br", children: [] },
+          "5 år 5000,- en kveld i tretoppene",
+        ],
+      },
+    ]);
+  });
+
+  test("multiple br tokens", () => {
+    const r = val.richtext`1 år 400,- kinokveld  
+2 år 1000,- kulturell opplevelse  
+3 år 2000,- mat i fjeset  
+4 år 500,- nørding i bokhandel  
+5 år 5000,- en kveld i tretoppene  
+6 år 1200,- ta smaksløkene på trim  
+7 år 2500,- gjør en forskjell`;
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      {
+        tag: "p",
+        children: [
+          "1 år 400,- kinokveld",
+          { tag: "br", children: [] },
+          "2 år 1000,- kulturell opplevelse",
+          { tag: "br", children: [] },
+          "3 år 2000,- mat i fjeset",
+          { tag: "br", children: [] },
+          "4 år 500,- nørding i bokhandel",
+          { tag: "br", children: [] },
+          "5 år 5000,- en kveld i tretoppene",
+          { tag: "br", children: [] },
+          "6 år 1200,- ta smaksløkene på trim",
+          { tag: "br", children: [] },
+          "7 år 2500,- gjør en forskjell",
+        ],
+      },
+    ]);
+  });
+
   test("image", () => {
     const r = val.richtext`# Title 1
 
