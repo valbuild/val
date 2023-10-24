@@ -75,13 +75,14 @@ function parseTokens(
           .children as SpanNode<AnyRichTextOptions>["children"],
       });
     } else if (token.type === "text") {
+      console.log(token);
       if ("tokens" in token && Array.isArray(token.tokens)) {
         children.push(
           ...parseTokens(token.tokens, sourceNodes, cursor, insideList).children
         );
       } else {
-        if (insideList && typeof token.text === "string") {
-          const lines = token.text.split("\n");
+        if (insideList && typeof token.raw === "string") {
+          const lines = token.raw.split("\n");
           const tags: RichTextNode<AnyRichTextOptions>[] = lines.flatMap(
             (line, i) => {
               if (i === lines.length - 1) return [line];
@@ -90,7 +91,7 @@ function parseTokens(
           );
           children.push(...tags);
         } else {
-          children.push(token.text);
+          children.push(token.raw);
         }
       }
     } else if (token.type === "list") {
@@ -156,6 +157,13 @@ function parseTokens(
           children: [],
         });
       }
+    } else if (token.type === "link") {
+      children.push({
+        tag: "a",
+        href: token.href,
+        children: parseTokens(token.tokens ? token.tokens : [], sourceNodes, 0)
+          .children as LinkNode<AnyRichTextOptions>["children"],
+      });
     } else {
       console.error(
         `Could not parse markdown: unsupported token type: ${token.type}. Found: ${token.raw}`

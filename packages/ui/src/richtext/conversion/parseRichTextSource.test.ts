@@ -131,6 +131,19 @@ break this line
     ]);
   });
 
+  test("special chars", () => {
+    const r = val.richtext`# "Title 1"
+
+Beautiful "quotes" and 'single quotes'
+
+Some crocodiles: < >
+
+Ampersand: &
+
+  `;
+    expect(parseRichTextSource(r).children).toStrictEqual([]);
+  });
+
   test("lists", () => {
     const r = val.richtext`# Title 1
 
@@ -228,6 +241,26 @@ ${val.file("/public/foo.png", {
             width: 100,
             height: 100,
             children: [],
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("markdown link", () => {
+    const r = val.richtext`# Title 1
+
+Below we have a url: [google](https://google.com)`;
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      { tag: "h1", children: ["Title 1"] },
+      {
+        tag: "p",
+        children: [
+          "Below we have a url: ",
+          {
+            href: "https://google.com",
+            tag: "a",
+            children: ["google"],
           },
         ],
       },
