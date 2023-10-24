@@ -126,7 +126,16 @@ function parseTokens(
           );
         }
         const { children: subChildren, cursor: subCursor } = parseTokens(
-          tokens,
+          tokens.map((token) => {
+            if (token.type === "text" || token.type === "html") {
+              return token;
+            }
+            return {
+              type: "text",
+              raw: token.raw,
+              text: token.raw,
+            };
+          }),
           sourceNodes,
           cursor + 1
         );
@@ -157,12 +166,20 @@ function parseTokens(
         });
       }
     } else if (token.type === "link") {
-      children.push({
-        tag: "a",
-        href: token.href,
-        children: parseTokens(token.tokens ? token.tokens : [], sourceNodes, 0)
-          .children as LinkNode<AnyRichTextOptions>["children"],
-      });
+      if (token.raw === token.href) {
+        // avoid auto-linking (provided by github flavoured markdown, but we want strikethrough so keep it enabled)
+        children.push(token.raw);
+      } else {
+        children.push({
+          tag: "a",
+          href: token.href,
+          children: parseTokens(
+            token.tokens ? token.tokens : [],
+            sourceNodes,
+            0
+          ).children as LinkNode<AnyRichTextOptions>["children"],
+        });
+      }
     } else {
       console.error(
         `Could not parse markdown: unsupported token type: ${token.type}. Found: ${token.raw}`
@@ -196,7 +213,7 @@ export function parseRichTextSource<O extends RichTextOptions>({
     })
     .join("");
   const tokenList = marked.lexer(inputText, {
-    gfm: true,
+    gfm: false,
   });
   const { children, cursor } = parseTokens(tokenList, nodes, 0);
   if (cursor !== tokenList.length) {
