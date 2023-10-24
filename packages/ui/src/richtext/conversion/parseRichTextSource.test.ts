@@ -141,7 +141,12 @@ Some crocodiles: < >
 Ampersand: &
 
   `;
-    expect(parseRichTextSource(r).children).toStrictEqual([]);
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      { tag: "h1", children: ['"Title 1"'] },
+      { tag: "p", children: [`Beautiful "quotes" and 'single quotes'`] },
+      { tag: "p", children: ["Some crocodiles: < >"] },
+      { tag: "p", children: ["Ampersand: &"] },
+    ]);
   });
 
   test("lists", () => {
@@ -320,7 +325,7 @@ Inline link -> ${val.link("**google**", { href: "https://google.com" })}`;
       {
         tag: "p",
         children: [
-          "Inline link -&gt; ",
+          "Inline link -> ",
           {
             href: "https://google.com",
             tag: "a",

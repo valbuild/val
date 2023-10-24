@@ -75,7 +75,6 @@ function parseTokens(
           .children as SpanNode<AnyRichTextOptions>["children"],
       });
     } else if (token.type === "text") {
-      console.log(token);
       if ("tokens" in token && Array.isArray(token.tokens)) {
         children.push(
           ...parseTokens(token.tokens, sourceNodes, cursor, insideList).children
