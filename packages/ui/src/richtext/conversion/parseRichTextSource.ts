@@ -127,14 +127,14 @@ function parseTokens(
         }
         const { children: subChildren, cursor: subCursor } = parseTokens(
           tokens.map((token) => {
-            if (token.type === "text" || token.type === "html") {
-              return token;
+            if (token.type === "link" || token.type === "list") {
+              return {
+                type: "text",
+                raw: token.raw,
+                text: token.raw,
+              };
             }
-            return {
-              type: "text",
-              raw: token.raw,
-              text: token.raw,
-            };
+            return token;
           }),
           sourceNodes,
           cursor + 1
@@ -213,7 +213,7 @@ export function parseRichTextSource<O extends RichTextOptions>({
     })
     .join("");
   const tokenList = marked.lexer(inputText, {
-    gfm: false,
+    gfm: true,
   });
   const { children, cursor } = parseTokens(tokenList, nodes, 0);
   if (cursor !== tokenList.length) {

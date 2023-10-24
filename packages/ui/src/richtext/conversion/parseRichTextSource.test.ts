@@ -374,12 +374,11 @@ Transform this:
 [https://google.com](https://google.com)
 `;
 
-    console.log(JSON.stringify(parseRichTextSource(r).children));
     expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       {
         tag: "p",
-        children: ["No transform here -> https://google.com"],
+        children: ["No transform here -> ", "https://google.com"],
       },
       {
         tag: "p",
