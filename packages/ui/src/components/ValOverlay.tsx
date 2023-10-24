@@ -137,7 +137,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
             {error && <div className="text-red">{error}</div>}
             {typeof selectedSource === "string" &&
               selectedSchema?.type === "string" && (
-                <TextField
+                <StringField
                   defaultValue={selectedSource}
                   isLoading={loading}
                   registerPatchCallback={initPatchCallback(windowTarget.path)}
@@ -331,7 +331,7 @@ function RichTextField({
   );
 }
 
-function TextField({
+function StringField({
   isLoading,
   defaultValue,
   registerPatchCallback,
@@ -344,7 +344,7 @@ function TextField({
 
   // ref is used to get the value of the textarea without closing over the value field
   // to avoid registering a new callback every time the value changes
-  const ref = useRef<HTMLTextAreaElement>(null);
+  const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
     registerPatchCallback(async (path) => {
       return [
@@ -359,14 +359,11 @@ function TextField({
 
   return (
     <div className="flex flex-col justify-between h-full px-4">
-      <div
-        className="w-full h-full py-2 overflow-y-scroll grow-wrap"
-        data-replicated-value={value} /* see grow-wrap */
-      >
-        <textarea
+      <div className="w-full h-full py-2 overflow-y-scroll">
+        <input
           ref={ref}
           disabled={isLoading}
-          className="p-2 border outline-none resize-none bg-fill text-primary border-border focus-visible:border-highlight"
+          className="w-full p-2 border outline-none resize-none bg-fill text-primary border-border focus-visible:border-highlight"
           defaultValue={value}
           onChange={(e) => setValue(e.target.value)}
         />
