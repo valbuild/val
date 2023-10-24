@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/react",
-  "version": "0.21.1",
+  "version": "0.21.2",
   "private": false,
   "description": "Val - React internal helpers",
   "sideEffects": false,
@@ -9,8 +9,8 @@
     "test": "jest"
   },
   "dependencies": {
-    "@valbuild/core": "~0.21.1",
-    "@valbuild/ui": "~0.21.1",
+    "@valbuild/core": "~0.21.2",
+    "@valbuild/ui": "~0.21.2",
     "@vercel/stega": "^0.1.0",
     "base64-arraybuffer": "^1.0.2",
     "style-to-object": "^0.4.1"
