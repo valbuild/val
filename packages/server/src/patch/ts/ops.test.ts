@@ -528,6 +528,7 @@ Test 2\``),
           {
             [VAL_EXTENSION]: "link",
             href: "https://example.com",
+            children: ["https://example.com"],
           },
           {
             [VAL_EXTENSION]: "file",
@@ -537,7 +538,7 @@ Test 2\``),
         ],
       },
       expected: result.ok(`val.richtext \`# Title 1
-\${val.link("https://example.com")}
+\${val.link("https://example.com", { href: "https://example.com" })}
 \${val.file("/public/test2", { width: 100, height: 100, sha256: "123" })}\``),
     },
     {
