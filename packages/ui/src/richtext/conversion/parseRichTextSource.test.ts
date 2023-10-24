@@ -342,6 +342,59 @@ Inline link -> ${val.link("**google**", { href: "https://google.com" })}`;
     ]);
   });
 
+  test("https:// in link description", () => {
+    const r = val.richtext`# Title 1
+
+Inline link -> ${val.link("https://google.com", {
+      href: "https://google.com",
+    })}`;
+
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      { tag: "h1", children: ["Title 1"] },
+      {
+        tag: "p",
+        children: [
+          "Inline link -> ",
+          {
+            tag: "a",
+            href: "https://google.com",
+            children: ["https://google.com"],
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("auto link does nothing", () => {
+    const r = val.richtext`# Title 1
+
+No transform here -> https://google.com
+
+Transform this:
+[https://google.com](https://google.com)
+`;
+
+    console.log(JSON.stringify(parseRichTextSource(r).children));
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      { tag: "h1", children: ["Title 1"] },
+      {
+        tag: "p",
+        children: ["No transform here -> https://google.com"],
+      },
+      {
+        tag: "p",
+        children: [
+          "Transform this:\n",
+          {
+            tag: "a",
+            href: "https://google.com",
+            children: ["https://google.com"],
+          },
+        ],
+      },
+    ]);
+  });
+
   test("breaks", () => {
     const r = val.richtext`
 # Title 1
