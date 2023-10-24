@@ -26,7 +26,6 @@ import {
   VAL_EXTENSION,
 } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core/src/Json";
-import { Internal } from "@valbuild/core";
 import { LinkSource } from "@valbuild/core/src/source/link";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
