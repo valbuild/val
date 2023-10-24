@@ -6,14 +6,12 @@ import {
   $getSelection,
   $isRangeSelection,
   CLICK_COMMAND,
-  COMMAND_PRIORITY_CRITICAL,
   COMMAND_PRIORITY_LOW,
   ElementNode,
   RangeSelection,
-  SELECTION_CHANGE_COMMAND,
   TextNode,
 } from "lexical";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 export function getSelectedNode(
   selection: RangeSelection
