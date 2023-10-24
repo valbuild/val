@@ -75,6 +75,7 @@ function parseTokens(
           .children as SpanNode<AnyRichTextOptions>["children"],
       });
     } else if (token.type === "text") {
+      console.log("      ", token.raw.slice(0, 10));
       if ("tokens" in token && Array.isArray(token.tokens)) {
         children.push(
           ...parseTokens(token.tokens, sourceNodes, cursor, insideList).children
@@ -180,6 +181,11 @@ function parseTokens(
           ).children as LinkNode<AnyRichTextOptions>["children"],
         });
       }
+    } else if (token.type === "br") {
+      children.push({
+        tag: "br",
+        children: [],
+      });
     } else {
       console.error(
         `Could not parse markdown: unsupported token type: ${token.type}. Found: ${token.raw}`
