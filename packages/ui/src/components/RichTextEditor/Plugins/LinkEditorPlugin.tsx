@@ -35,34 +35,9 @@ export function getSelectedNode(
 
 export default function LinkEditorPlugin() {
   const [editor] = useLexicalComposerContext();
-  const [isLink, setIsLink] = useState(false);
 
   useEffect(() => {
-    function updateToolbar() {
-      const selection = $getSelection();
-      if ($isRangeSelection(selection)) {
-        const node = getSelectedNode(selection);
-        const linkParent = $findMatchingParent(node, $isLinkNode);
-        // We don't want this menu to open for auto links.
-        if (linkParent !== null) {
-          console.log("Parent", linkParent.exportJSON());
-          console.log("node", node.exportJSON());
-          setIsLink(true);
-        } else {
-          setIsLink(false);
-        }
-      }
-    }
     return mergeRegister(
-      editor.registerCommand(
-        SELECTION_CHANGE_COMMAND,
-        (_payload, newEditor) => {
-          updateToolbar();
-          //setActiveEditor(newEditor);
-          return false;
-        },
-        COMMAND_PRIORITY_CRITICAL
-      ),
       editor.registerCommand(
         CLICK_COMMAND,
         (payload) => {
