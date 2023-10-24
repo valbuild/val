@@ -26,7 +26,7 @@ type ThemeOptions<O extends RichTextOptions> = {
   } & { p?: string };
   classes: {
     [Key in Classes & keyof O as O[Key] extends true ? Key : never]: string;
-  } & (O["img"] extends true ? { imgContainer?: string } : {});
+  };
 };
 
 export function ValRichText<O extends RichTextOptions>({
@@ -83,15 +83,8 @@ export function ValRichText<O extends RichTextOptions>({
       );
     }
     if (node.tag === "img") {
-      return (
-        <div className={withRenderClass("imgContainer")} key={key}>
-          <img className={withRenderTag("img")} src={node.src} />
-        </div>
-      );
+      return <img className={withRenderTag("img")} key={key} src={node.src} />;
     }
-    // if (node.tag === "blockquote") {
-    //   return <blockquote key={key}>{node.children.map(toReact)}</blockquote>;
-    // }
     if (node.tag === "ul") {
       return (
         <ul className={withRenderTag("ul")} key={key}>
@@ -176,9 +169,21 @@ export function ValRichText<O extends RichTextOptions>({
         </h6>
       );
     }
+
+    if (node.tag === "br") {
+      return <br key={key} />;
+    }
+    if (node.tag === "a") {
+      return (
+        <a href={node.href} key={key}>
+          {node.children.map(toReact)}
+        </a>
+      );
+    }
     console.error("Unknown tag", node.tag);
+    const _exhaustiveCheck: never = node.tag;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyNode = node as any;
+    const anyNode = _exhaustiveCheck as any;
     if (!anyNode?.tag) {
       return null;
     }

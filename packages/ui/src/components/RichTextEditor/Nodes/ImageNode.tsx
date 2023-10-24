@@ -8,8 +8,6 @@ import {
 
 export type ImagePayload = {
   src: string;
-  sha256?: string;
-  fileExt?: string;
   altText?: string;
   height?: number;
   width?: number;
@@ -32,11 +30,9 @@ export class ImageNode extends DecoratorNode<JSX.Element> {
   static clone(node: ImageNode): ImageNode {
     return new ImageNode({
       src: node.__src,
-      sha256: node.__sha256,
       altText: node.__altText,
       width: node.__width,
       height: node.__height,
-      fileExt: node.__fileExt,
     });
   }
 
@@ -46,8 +42,6 @@ export class ImageNode extends DecoratorNode<JSX.Element> {
     this.__altText = payload.altText;
     this.__width = payload.width;
     this.__height = payload.height;
-    this.__imageFileExt = payload.fileExt;
-    this.__sha256 = payload.sha256;
   }
 
   exportJSON(): SerializedImageNode {
@@ -57,9 +51,7 @@ export class ImageNode extends DecoratorNode<JSX.Element> {
       src: this.__src,
       type: "image",
       version: 1,
-      fileExt: this.__imageFileExt,
       width: this.__width,
-      sha256: this.__sha256,
     };
   }
 

@@ -121,6 +121,11 @@ export const convertFileSource = (
   src: FileSource<ImageMetadata>
 ): { url: string; metadata?: ImageMetadata } => {
   // TODO: /public should be configurable
+  if (!src[FILE_REF_PROP].startsWith("/public")) {
+    throw Error(
+      `Invalid reference: ${src[FILE_REF_PROP]}. Did not start with /public`
+    );
+  }
   return {
     url:
       src[FILE_REF_PROP].slice("/public".length) +

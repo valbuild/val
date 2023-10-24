@@ -34,7 +34,6 @@ export default function Home() {
                   img: "",
                 },
                 classes: {
-                  imgContainer: "w-full",
                   bold: "font-bold",
                   italic: "italic",
                   lineThrough: "line-through",

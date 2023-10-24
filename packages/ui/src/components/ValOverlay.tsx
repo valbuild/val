@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Dispatch,
   SetStateAction,
@@ -21,7 +23,6 @@ import {
   AnyRichTextOptions,
   FileSource,
   Internal,
-  RichText,
   RichTextSource,
   SerializedSchema,
   SourcePath,
@@ -31,9 +32,10 @@ import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/core";
 import { RichTextEditor } from "../exports";
 import { LexicalEditor } from "lexical";
-import { LexicalRootNode, fromLexical } from "./RichTextEditor/conversion";
+import { LexicalRootNode } from "../richtext/conversion/richTextSourceToLexical";
 import { PatchJSON } from "@valbuild/core/patch";
 import { readImage } from "../utils/readImage";
+import { lexicalToRichTextSource } from "../richtext/conversion/lexicalToRichTextSource";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -60,7 +62,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
   );
 
   const [state, setState] = useState<{
-    [path: SourcePath]: () => PatchJSON;
+    [path: SourcePath]: () => Promise<PatchJSON>;
   }>({});
   const initPatchCallback = useCallback((currentPath: SourcePath | null) => {
     return (callback: PatchCallback) => {
@@ -169,16 +171,22 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
                     const [moduleId] = Internal.splitModuleIdAndModulePath(
                       windowTarget.path
                     );
-                    const patch = state[windowTarget.path]();
-                    console.log("Submitting", patch);
-                    api
-                      .postPatches(moduleId, patch)
-                      .then((res) => {
-                        console.log(res);
-                      })
-                      .finally(() => {
-                        console.log("done");
-                      });
+                    const res = state[windowTarget.path]();
+                    if (res) {
+                      res
+                        .then((patch) => {
+                          console.log("Submitting", patch);
+                          return api.postPatches(moduleId, patch);
+                        })
+                        .then((res) => {
+                          console.log(res);
+                        })
+                        .finally(() => {
+                          console.log("done");
+                        });
+                    } else {
+                      console.error("No patch");
+                    }
                   }
                 }}
               />
@@ -190,7 +198,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
   );
 }
 
-type PatchCallback = (modulePath: string) => PatchJSON;
+type PatchCallback = (modulePath: string) => Promise<PatchJSON>;
 
 function ImageField({
   defaultValue,
@@ -207,7 +215,7 @@ function ImageField({
   } | null>(null);
   const url = defaultValue && Internal.convertFileSource(defaultValue).url;
   useEffect(() => {
-    registerPatchCallback((path) => {
+    registerPatchCallback(async (path) => {
       const pathParts = path.split("/");
       if (!data) {
         return [];
@@ -273,22 +281,26 @@ function RichTextField({
   const [editor, setEditor] = useState<LexicalEditor | null>(null);
   useEffect(() => {
     if (editor) {
-      registerPatchCallback((path) => {
-        const { node, files } = editor?.toJSON()?.editorState
-          ? fromLexical(editor?.toJSON()?.editorState.root as LexicalRootNode)
-          : {
-              node: {
-                [VAL_EXTENSION]: "richtext",
-                children: [],
-              } as RichText<AnyRichTextOptions>,
+      registerPatchCallback(async (path) => {
+        const { templateStrings, exprs, files } = editor?.toJSON()?.editorState
+          ? await lexicalToRichTextSource(
+              editor?.toJSON()?.editorState.root as LexicalRootNode
+            )
+          : ({
+              [VAL_EXTENSION]: "richtext",
+              templateStrings: [""],
+              exprs: [],
               files: {},
-            };
+            } as RichTextSource<AnyRichTextOptions> & {
+              files: Record<string, string>;
+            });
         return [
           {
-            op: "replace",
+            op: "replace" as const,
             path,
             value: {
-              ...node,
+              templateStrings,
+              exprs,
               [VAL_EXTENSION]: "richtext",
             },
           },
@@ -334,7 +346,7 @@ function TextField({
   // to avoid registering a new callback every time the value changes
   const ref = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    registerPatchCallback((path) => {
+    registerPatchCallback(async (path) => {
       return [
         {
           op: "replace",
