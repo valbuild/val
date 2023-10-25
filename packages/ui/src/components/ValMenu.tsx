@@ -1,4 +1,4 @@
-import { Edit2, Edit3, Moon, Power, Sun } from "react-feather";
+import { Edit2, Edit3, Maximize, Moon, Power, Sun } from "react-feather";
 import { useValOverlayContext } from "./ValOverlayContext";
 import { ValApi } from "@valbuild/core";
 
@@ -13,7 +13,7 @@ export function ValMenu({ api }: { api: ValApi }) {
         }}
       >
         <div className="h-[24px] w-[24px] flex justify-center items-center">
-          {editMode === "off" ? <Edit2 size={18} /> : <Edit3 size={18} />}
+          {editMode === "hover" ? <Edit3 size={18} /> : <Edit2 size={18} />}
         </div>
       </button>
       <button
@@ -25,6 +25,16 @@ export function ValMenu({ api }: { api: ValApi }) {
         <div className="h-[24px] w-[24px] flex justify-center items-center">
           {theme === "dark" && <Sun size={15} />}
           {theme === "light" && <Moon size={15} />}
+        </div>
+      </button>
+      <button
+        className="p-1 border rounded-full shadow bg-base border-highlight"
+        onClick={() => {
+          setEditMode((prev) => (prev === "full" ? "off" : "full"));
+        }}
+      >
+        <div className="h-[24px] w-[24px] flex justify-center items-center">
+          <Maximize size={15} />
         </div>
       </button>
       <a

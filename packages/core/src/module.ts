@@ -62,6 +62,9 @@ export function getSource(valModule: ValModule<SelectorSource>): Source {
 export function splitModuleIdAndModulePath(
   path: SourcePath
 ): [moduleId: ModuleId, path: ModulePath] {
+  if (path.indexOf(".") === -1) {
+    return [path as unknown as ModuleId, "" as ModulePath];
+  }
   return [
     path.slice(0, path.indexOf(".")) as ModuleId,
     path.slice(path.indexOf(".") + 1) as ModulePath,

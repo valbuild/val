@@ -30,7 +30,7 @@ import {
 } from "@valbuild/core";
 import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/core";
-import { RichTextEditor } from "../exports";
+import { RichTextEditor, ValDashboard } from "../exports";
 import { LexicalEditor } from "lexical";
 import { LexicalRootNode } from "../richtext/conversion/richTextSourceToLexical";
 import { PatchJSON } from "@valbuild/core/patch";
@@ -119,6 +119,11 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
             setEditMode={setEditMode}
             setWindowTarget={setWindowTarget}
           />
+        )}
+        {editMode === "full" && (
+          <div className="fixed top-0 left-0 w-screen h-screen ">
+            <ValDashboard valApi={api} />
+          </div>
         )}
         {editMode === "window" && windowTarget && (
           <ValWindow
