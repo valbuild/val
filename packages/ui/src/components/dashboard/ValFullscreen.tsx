@@ -12,10 +12,10 @@ import { Grid } from "./Grid";
 import { result } from "@valbuild/core/fp";
 import { Tree } from "./Tree";
 
-interface ValDashboardProps {
+interface ValFullscreenProps {
   valApi: ValApi;
 }
-export const ValDashboard: FC<ValDashboardProps> = ({ valApi }) => {
+export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [modules, setModules] = useState<Record<
     ModuleId,
