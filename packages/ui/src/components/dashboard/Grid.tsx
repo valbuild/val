@@ -91,20 +91,23 @@ export function Grid({ children }: GridProps): React.ReactElement {
           {body2}
         </Grid.Column>
       </div>
-      <div
-        ref={rightColRef}
-        className="relative border-l border-dark-gray bg-warm-black"
-        style={{ width: 300 }}
-      >
-        <Grid.Column>
-          {header3}
-          {body3}
-        </Grid.Column>
-        <div
-          onMouseDown={handleMouseDown("right")}
-          className="absolute inset-y-0 left-0 cursor-col-resize w-[1px]  bg-dark-gray hover:w-[2px] hover:bg-light-gray"
-        ></div>
-      </div>
+      {header3 ||
+        (body3 && (
+          <div
+            ref={rightColRef}
+            className="relative border-l border-dark-gray bg-warm-black"
+            style={{ width: 300 }}
+          >
+            <Grid.Column>
+              {header3}
+              {body3}
+            </Grid.Column>
+            <div
+              onMouseDown={handleMouseDown("right")}
+              className="absolute inset-y-0 left-0 cursor-col-resize w-[1px]  bg-dark-gray hover:w-[2px] hover:bg-light-gray"
+            ></div>
+          </div>
+        ))}
     </div>
   );
 }

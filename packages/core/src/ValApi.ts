@@ -31,15 +31,15 @@ export class ValApi {
       },
       method: "POST",
       body: JSON.stringify(patches),
-    }).then(parse<ApiPatchResponse>);
+    }).then((res) => parse<ApiPatchResponse>(res));
   }
 
   getSession() {
-    return fetch(`${this.host}/session`).then(
+    return fetch(`${this.host}/session`).then((res) =>
       parse<{
         mode: "proxy" | "local";
         member_role: "owner" | "developer" | "editor";
-      }>
+      }>(res)
     );
   }
 
@@ -62,7 +62,7 @@ export class ValApi {
     params.set("source", includeSource.toString());
     return fetch(`${this.host}/tree/~${treePath}?${params.toString()}`, {
       headers,
-    }).then(parse<ApiTreeResponse>);
+    }).then((res) => parse<ApiTreeResponse>(res));
   }
 }
 
