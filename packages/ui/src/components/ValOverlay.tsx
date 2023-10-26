@@ -110,7 +110,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
         setWindowSize,
       }}
     >
-      <div data-mode={theme}>
+      <div data-mode={theme} className="antialiased">
         <div className="fixed -translate-x-1/2 z-overlay left-1/2 bottom-4">
           <ValMenu api={api} />
         </div>
