@@ -35,7 +35,7 @@ export {
   type SourcePath,
   type JsonOfSource,
 } from "./val";
-export type { Json, JsonPrimitive } from "./Json";
+export type { Json, JsonPrimitive, JsonArray, JsonObject } from "./Json";
 export type {
   ValidationErrors,
   ValidationError,
@@ -60,6 +60,8 @@ import { Json } from "./Json";
 import { SerializedSchema } from "./schema";
 import { getSHA256Hash } from "./getSha256";
 export { ValApi } from "./ValApi";
+export type { SerializedArraySchema } from "./schema/array";
+export type { SerializedObjectSchema } from "./schema/object";
 
 export type ApiTreeResponse = {
   git: {
