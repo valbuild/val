@@ -9,6 +9,7 @@ import {
   VAL_EXTENSION,
 } from "@valbuild/core";
 import { PatchJSON } from "@valbuild/core/patch";
+import { edit } from "helpers";
 import { LexicalEditor } from "lexical";
 import { useState, useEffect, useRef } from "react";
 import { RichTextEditor } from "../exports";
@@ -19,53 +20,64 @@ import { readImage } from "../utils/readImage";
 type ImageSource = FileSource<ImageMetadata>;
 
 export function ValFormField({
+  path,
   disabled,
-  source: selectedSource,
-  schema: selectedSchema,
+  source: source,
+  schema: schema,
   registerPatchCallback,
 }: {
+  path: string;
   disabled: boolean;
   source: Json;
   schema: SerializedSchema;
   registerPatchCallback: (callback: PatchCallback) => void;
 }) {
-  return (
-    <>
-      {typeof selectedSource === "string" &&
-        selectedSchema?.type === "string" && (
-          <StringField
-            defaultValue={selectedSource}
-            disabled={disabled}
-            registerPatchCallback={registerPatchCallback}
-          />
-        )}
-      {selectedSource &&
-        typeof selectedSource === "object" &&
-        VAL_EXTENSION in selectedSource &&
-        selectedSource[VAL_EXTENSION] === "richtext" && (
-          <RichTextField
-            registerPatchCallback={registerPatchCallback}
-            defaultValue={selectedSource as RichTextSource<AnyRichTextOptions>}
-          />
-        )}
-      {selectedSource &&
-        typeof selectedSource === "object" &&
-        VAL_EXTENSION in selectedSource &&
-        selectedSource[VAL_EXTENSION] === "file" && (
-          <ImageField
-            registerPatchCallback={registerPatchCallback}
-            defaultValue={selectedSource as ImageSource}
-          />
-        )}
-    </>
-  );
+  if (
+    (typeof source === "string" || source === null) &&
+    schema?.type === "string"
+  ) {
+    return (
+      <StringField
+        defaultValue={source}
+        disabled={disabled}
+        registerPatchCallback={registerPatchCallback}
+      />
+    );
+  }
+  if (
+    (typeof source === "object" || source === null) &&
+    schema?.type === "richtext"
+  ) {
+    return (
+      <RichTextField
+        registerPatchCallback={registerPatchCallback}
+        defaultValue={source as RichTextSource<AnyRichTextOptions>}
+      />
+    );
+  }
+  if (
+    (typeof source === "object" || source === null) &&
+    schema?.type === "image"
+  ) {
+    return (
+      <ImageField
+        path={path}
+        registerPatchCallback={registerPatchCallback}
+        defaultValue={source as ImageSource}
+      />
+    );
+  }
+  return <div>Unsupported schema: {schema.type}</div>;
 }
-type PatchCallback = (modulePath: string) => Promise<PatchJSON>;
+
+export type PatchCallback = (modulePath: string) => Promise<PatchJSON>;
 
 function ImageField({
+  path,
   defaultValue,
   registerPatchCallback,
 }: {
+  path: string;
   registerPatchCallback: (callback: PatchCallback) => void;
   defaultValue?: ImageSource;
 }) {
@@ -105,10 +117,10 @@ function ImageField({
 
   return (
     <div>
-      <label htmlFor="img_input" className="">
-        <img src={data || url} />
+      <label htmlFor={`img_input:${path}`} className="">
+        {data || url ? <img src={data || url} /> : <div>Empty</div>}
         <input
-          id="img_input"
+          id={`img_input:${path}`}
           type="file"
           hidden
           onChange={(ev) => {
@@ -144,9 +156,9 @@ function RichTextField({
   useEffect(() => {
     if (editor) {
       registerPatchCallback(async (path) => {
-        const { templateStrings, exprs, files } = editor?.toJSON()?.editorState
+        const { templateStrings, exprs, files } = editor
           ? await lexicalToRichTextSource(
-              editor?.toJSON()?.editorState.root as LexicalRootNode
+              editor.getEditorState().toJSON().root as LexicalRootNode
             )
           : ({
               [VAL_EXTENSION]: "richtext",
@@ -156,6 +168,7 @@ function RichTextField({
             } as RichTextSource<AnyRichTextOptions> & {
               files: Record<string, string>;
             });
+        console.log("->", editor?.toJSON());
         return [
           {
             op: "replace" as const,
@@ -200,7 +213,7 @@ function StringField({
 }: {
   registerPatchCallback: (callback: PatchCallback) => void;
   disabled: boolean;
-  defaultValue?: string;
+  defaultValue?: string | null;
 }) {
   const [value, setValue] = useState(defaultValue || "");
 
@@ -220,13 +233,13 @@ function StringField({
   }, []);
 
   return (
-    <div className="flex flex-col justify-between h-full px-4">
+    <div className="flex flex-col justify-between h-full">
       <div className="w-full h-full py-2 overflow-y-scroll">
         <input
           ref={ref}
           disabled={disabled}
           className="w-full p-2 border outline-none resize-none bg-fill text-primary border-border focus-visible:border-highlight"
-          defaultValue={value}
+          defaultValue={value ?? ""}
           onChange={(e) => setValue(e.target.value)}
         />
       </div>

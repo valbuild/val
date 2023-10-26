@@ -144,6 +144,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
             {error && <div className="text-red">{error}</div>}
             {selectedSchema !== undefined && selectedSource !== undefined && (
               <ValFormField
+                path={windowTarget.path}
                 disabled={loading}
                 source={selectedSource}
                 schema={selectedSchema}
