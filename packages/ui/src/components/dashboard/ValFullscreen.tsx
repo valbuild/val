@@ -62,9 +62,9 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
       });
   }, []);
   return (
-    <div className="text-primary">
+    <div className="val-text-primary">
       <Grid>
-        <div className="px-4">VAL</div>
+        <div className="val-px-4">VAL</div>
         {modules ? (
           <PathTree
             paths={Object.keys(modules)}
@@ -74,15 +74,17 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
           !error && <div>Loading...</div>
         )}
 
-        <div className="flex items-center justify-between w-full h-full px-3 font-serif text-xs text-white">
+        <div className="val-flex val-items-center val-justify-between val-w-full val-h-full val-px-3 val-font-serif val-text-xs val-text-white">
           <p>Content</p>
-          <button className="flex justify-between flex-shrink-0 gap-1">
-            <span className="w-fit">+</span>
-            <span className="w-fit">Add item</span>
+          <button className="val-flex val-justify-between val-flex-shrink-0 val-gap-1">
+            <span className="val-w-fit">+</span>
+            <span className="val-w-fit">Add item</span>
           </button>
         </div>
-        <div className="px-4">
-          {error && <div className="text-lg text-red">ERROR: {error}</div>}
+        <div className="val-px-4">
+          {error && (
+            <div className="val-text-lg val-text-red">ERROR: {error}</div>
+          )}
           {!modules && !error && <div>Loading...</div>}
           {modules && selectedModuleId && selectedSource && selectedSchema && (
             <ValModule
@@ -149,7 +151,7 @@ function ValObject({
   if (source === null) {
     return (
       <FormGroup key={path}>
-        <div className="flex items-center justify-center gap-2">
+        <div className="val-flex val-items-center val-justify-center val-gap-2">
           <span>{path}</span> <Folder size={16} />
         </div>
         <div>TODO: empty object</div>
@@ -158,7 +160,7 @@ function ValObject({
   }
   return (
     <FormGroup key={path} defaultExpanded={true}>
-      <div className="flex items-center justify-center gap-2">
+      <div className="val-flex val-items-center val-justify-center val-gap-2">
         <span>{path}</span>
         <Folder size={16} />
       </div>
@@ -192,7 +194,7 @@ function ValArray({
   if (source === null) {
     return (
       <FormGroup key={path}>
-        <div className="flex items-center justify-center gap-2">
+        <div className="val-flex val-items-center val-justify-center val-gap-2">
           <span>{path}</span> <List size={16} />
         </div>
         <div>TODO: empty array</div>
@@ -200,8 +202,8 @@ function ValArray({
     );
   }
   return (
-    <FormGroup key={path} className="px-2" defaultExpanded={false}>
-      <div className="flex items-center justify-center gap-2">
+    <FormGroup key={path} className="val-px-2" defaultExpanded={false}>
+      <div className="val-flex val-items-center val-justify-center val-gap-2">
         <span>{path}</span>
         <List size={16} />
       </div>

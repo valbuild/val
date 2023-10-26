@@ -46,7 +46,9 @@ export default function ValUI() {
   }
   return (
     <>
-      <ShadowRoot
+      <div
+        id="val-root"
+        className="val-root"
         style={{
           position: "absolute",
           top: 0,
@@ -67,7 +69,7 @@ export default function ValUI() {
         />
         <Style />
         <ValOverlay api={api} />
-      </ShadowRoot>
+      </div>
     </>
   );
 }

@@ -300,8 +300,8 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
   };
 
   return (
-    <div className="sticky top-0 border-b bg-base border-highlight flex flex-col">
-      <div className="flex flex-row gap-1">
+    <div className="val-sticky val-text-primary val-top-0 val-border-b val-bg-base val-border-highlight val-flex val-flex-col">
+      <div className="val-flex val-flex-row val-gap-1">
         <Dropdown
           options={Object.values(blockTypes)}
           label={
@@ -327,7 +327,9 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
             editor.dispatchCommand(FORMAT_TEXT_COMMAND, "strikethrough");
           }}
           icon={
-            <Strikethrough className={`${isStrikethrough && "stroke-[2px]"}`} />
+            <Strikethrough
+              className={`${isStrikethrough && "val-stroke-[2px]"}`}
+            />
           }
         />
         <Button
@@ -336,7 +338,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
             ev.preventDefault();
             editor.dispatchCommand(FORMAT_TEXT_COMMAND, "italic");
           }}
-          icon={<Italic className={`${isItalic && "stroke-[3px]"}`} />}
+          icon={<Italic className={`${isItalic && "val-stroke-[3px]"}`} />}
         />
         <Button
           active={url !== null}
@@ -349,11 +351,11 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
             <Link
               width={12}
               height={12}
-              className={`${url !== null && "stroke-[3px]"}`}
+              className={`${url !== null && "val-stroke-[3px]"}`}
             />
           }
         />
-        <label className="flex items-center justify-center">
+        <label className="val-flex val-items-center val-justify-center">
           <ImageIcon />
           <input
             type="file"
@@ -375,11 +377,11 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
         </label>
       </div>
       {url !== null && (
-        <div className="flex flex-row p-2">
+        <div className="val-flex val-flex-row val-p-2">
           <input
             type="text"
             placeholder="Enter URL"
-            className="w-1/3 text-primary bg-base px-2"
+            className="val-w-1/3 val-px-2 val-text-primary val-bg-base"
             value={url}
             onChange={(ev) => {
               ev.preventDefault();

@@ -24,22 +24,22 @@ export const DraggableList = ({
   }, [rawChildren]);
 
   return (
-    <div className="bg-transparent">
-      {[...children, <div className="h-[1px]"></div>].map((child, idx) => {
+    <div className="val-bg-transparent">
+      {[...children, <div className="val-h-[1px]"></div>].map((child, idx) => {
         const ref = createRef<HTMLDivElement>();
         return (
-          <div key={idx} className="relative">
+          <div key={idx} className="val-relative">
             {dragOver === idx && (
-              <div className="flex items-center">
-                <div className="border-[2px] border-yellow w-3 h-3 rounded-full" />
-                <div className="bg-yellow border-yellow w-full h-[1px]" />
-                <div className="border-[2px] border-yellow w-3 h-3 rounded-full" />
+              <div className="val-flex val-items-center">
+                <div className="val-border-[2px] val-border-yellow val-w-3 val-h-3 val-rounded-full" />
+                <div className="val-bg-yellow val-border-yellow val-w-full val-h-[1px]" />
+                <div className="val-border-[2px] val-border-yellow val-w-3 val-h-3 val-rounded-full" />
               </div>
             )}
             <div
               ref={ref}
               draggable
-              className={classNames("cursor-grab transition-opacity")}
+              className={classNames("val-cursor-grab val-transition-opacity")}
               onDragStart={(ev) => {
                 ev.dataTransfer.setDragImage(new Image(), 0, 0);
                 setFrom(idx);

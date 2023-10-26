@@ -14,7 +14,7 @@ const Checkbox: FC<CheckboxProps> = ({ label, checked, setChecked }) => {
 
   return (
     <div>
-      <label className="flex items-center">
+      <label className="val-flex val-items-center">
         <input
           type="checkbox"
           checked={checked}
@@ -23,10 +23,10 @@ const Checkbox: FC<CheckboxProps> = ({ label, checked, setChecked }) => {
         />
         <span
           className={classNames(
-            "w-[14px] h-[14px] border rounded border-gray-400 flex items-center justify-center",
+            "val-w-[14px] val-h-[14px] val-border val-rounded val-border-gray-400 val-flex val-items-center val-justify-center",
             {
-              "bg-highlight": checked,
-              "bg-fill": !checked,
+              "val-bg-highlight": checked,
+              "val-bg-fill": !checked,
             }
           )}
         >
@@ -42,7 +42,7 @@ const Checkbox: FC<CheckboxProps> = ({ label, checked, setChecked }) => {
             </svg>
           )}
         </span>
-        <span className="ml-2 font-mono text-primary">{label}</span>
+        <span className="val-ml-2 val-font-mono val-text-primary">{label}</span>
       </label>
     </div>
   );

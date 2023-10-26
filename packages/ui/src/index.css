@@ -4,9 +4,46 @@
 */
 @config "../tailwind.config.js";
 
+.val-root * {
+  border-width: 0;
+  appearance: none;
+  background: none;
+  border-style: solid;
+  border-color: currentColor;
+  padding: 0;
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.5;
+  font-family: inherit;
+  font-weight: inherit;
+  color: inherit;
+  text-align: inherit;
+  text-decoration: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  word-spacing: inherit;
+  text-indent: inherit;
+  text-shadow: inherit;
+  white-space: inherit;
+  vertical-align: inherit;
+  outline: none;
+  resize: none;
+  box-sizing: border-box;
+  color: inherit;
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-size: auto auto;
+  background-origin: padding-box;
+  background-clip: border-box;
+  border-radius: 0;
+  box-shadow: none;
+  cursor: inherit;
+  stroke: currentColor;
+}
+
+
 @layer base {
-  /* For use with Shadow DOM, copied from the TailwindCSS prelude */
-  :host {
+  #val-root {
     line-height: 1.5;
     -webkit-text-size-adjust: 100%;
     tab-size: 4;
@@ -43,12 +80,17 @@
     --val-theme-primary: var(--val-theme-white);
   }
 
+  /* manual reset */
+  #val-root *::after, *::before {
+    --tw-content: '';
+  }
+
   /* text area auto-grow */
-  .grow-wrap {
+  .val-grow-wrap {
     /* easy way to plop the elements on top of each other and have them both sized based on the tallest one's height */
     display: grid;
   }
-  .grow-wrap::after {
+  .val-grow-wrap::after {
     /* Note the weird space! Needed to preventy jumpy behavior */
     content: attr(data-replicated-value) " ";
 
@@ -58,12 +100,12 @@
     /* Hidden from view, clicks, and screen readers */
     visibility: hidden;
   }
-  .grow-wrap > textarea {
+  .val-grow-wrap > textarea {
     /* Firefox shows scrollbar on growth, you can hide like this. */
     overflow: hidden;
   }
-  .grow-wrap > textarea,
-  .grow-wrap::after {
+  .val-grow-wrap > textarea,
+  .val-grow-wrap::after {
     /* Identical styling required!! */
     border: 1px solid black;
     padding: 0.5rem;
@@ -74,6 +116,8 @@
   }
 }
 
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+

@@ -37,7 +37,7 @@ import { readImage } from "../utils/readImage";
 import { lexicalToRichTextSource } from "../richtext/conversion/lexicalToRichTextSource";
 import { ValFullscreen } from "../components/dashboard/ValFullscreen";
 import { RichTextEditor } from "../components/RichTextEditor/RichTextEditor";
-import { ValFormField } from "./ValFormField";
+import { PatchCallback, ValFormField } from "./ValFormField";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -110,8 +110,8 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
         setWindowSize,
       }}
     >
-      <div data-mode={theme} className="antialiased">
-        <div className="fixed -translate-x-1/2 z-overlay left-1/2 bottom-4">
+      <div data-mode={theme} className="val-antialiased">
+        <div className="val-fixed -val-translate-x-1/2 val-z-overlay val-left-1/2 val-bottom-4">
           <ValMenu api={api} />
         </div>
         {editMode === "hover" && hoverTarget && (
@@ -123,7 +123,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
           />
         )}
         {editMode === "full" && (
-          <div className="fixed top-0 left-0 w-screen h-screen ">
+          <div className="val-fixed val-top-0 val-left-0 val-w-screen val-h-screen ">
             <ValFullscreen valApi={api} />
           </div>
         )}
@@ -134,14 +134,14 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
               setEditMode("hover");
             }}
           >
-            <div className="px-4 py-2 text-sm border-b border-highlight">
+            <div className="val-px-4 val-py-2 val-text-sm val-border-b val-border-highlight">
               <WindowHeader
                 path={windowTarget.path}
                 type={selectedSchema?.type}
               />
             </div>
-            {loading && <div className="text-primary">Loading...</div>}
-            {error && <div className="text-red">{error}</div>}
+            {loading && <div className="val-text-primary">Loading...</div>}
+            {error && <div className="val-text-red">{error}</div>}
             {selectedSchema !== undefined && selectedSource !== undefined && (
               <ValFormField
                 path={windowTarget.path}
@@ -151,7 +151,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
                 registerPatchCallback={initPatchCallback(windowTarget.path)}
               />
             )}
-            <div className="flex items-end justify-end py-2">
+            <div className="val-flex val-items-end val-justify-end val-py-2">
               <SubmitButton
                 disabled={false}
                 onClick={() => {
@@ -195,7 +195,7 @@ function SubmitButton({
 }) {
   return (
     <button
-      className="px-4 py-2 border border-highlight disabled:border-border"
+      className="val-px-4 val-py-2 val-border val-border-highlight disabled:val-border-border"
       disabled={disabled}
       onClick={onClick}
     >
@@ -314,7 +314,7 @@ function ValHover({
   return (
     <div
       id="val-hover"
-      className="fixed border-2 cursor-pointer z-overlay-hover border-base"
+      className="val-fixed val-border-2 val-cursor-pointer val-z-overlay-hover val-border-base"
       style={{
         top: rect?.top,
         left: rect?.left,
@@ -330,9 +330,9 @@ function ValHover({
         setHoverTarget(null);
       }}
     >
-      <div className="flex items-center justify-end w-full text-xs">
+      <div className="val-flex val-items-center val-justify-end val-w-full val-text-xs">
         <div
-          className="flex items-center justify-center px-3 py-1 text-primary bg-base"
+          className="val-flex val-items-center val-justify-center val-px-3 val-py-1 val-text-primary val-bg-base"
           style={{
             maxHeight: rect?.height && rect.height - 4,
             fontSize:
@@ -563,13 +563,13 @@ function WindowHeader({
 }) {
   const segments = path.split("/").slice(1);
   return (
-    <span className="flex items-center justify-between">
+    <span className="val-flex val-items-center val-justify-between">
       <span>
-        <span className="pr-1 text-xs opacity-50">/</span>
+        <span className="val-pr-1 val-text-xs val-opacity-50">/</span>
         {segments.map((segment, i) => {
           if (i === segments.length - 1) {
             return (
-              <span key={i} className="text-primary">
+              <span key={i} className="val-text-primary">
                 {segment.split(".").map((s, i) => {
                   let name = s;
                   if (i === 0) {
@@ -583,7 +583,9 @@ function WindowHeader({
                   }
                   return (
                     <span key={i + "."}>
-                      <span className="px-1 text-xs text-highlight">/</span>
+                      <span className="val-px-1 val-text-xs val-text-highlight">
+                        /
+                      </span>
                       <span>{name}</span>
                     </span>
                   );
@@ -594,12 +596,12 @@ function WindowHeader({
           return (
             <span key={i}>
               <span>{segment}</span>
-              <span className="px-1 text-xs opacity-50">/</span>
+              <span className="val-px-1 val-text-xs val-opacity-50">/</span>
             </span>
           );
         })}
       </span>
-      {type && <span className="ml-4">({type})</span>}
+      {type && <span className="val-ml-4">({type})</span>}
     </span>
   );
 }

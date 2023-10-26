@@ -9,14 +9,14 @@ export function FormContainer({
 }) {
   return (
     <form
-      className="flex flex-col justify-between w-full px-4 py-2"
+      className="val-flex val-flex-col val-justify-between val-w-full val-px-4 val-py-2"
       onSubmit={(ev) => {
         ev.preventDefault();
         onSubmit();
       }}
     >
       {children}
-      <div className="flex justify-end">
+      <div className="val-flex val-justify-end">
         <PrimaryButton>Save</PrimaryButton>
       </div>
     </form>

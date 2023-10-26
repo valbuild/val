@@ -50,7 +50,7 @@ export const LongText: Story = {
           /* */
         }}
       >
-        <div className="h-full grid grid-rows-[1fr,_min-content] ">
+        <div className="val-h-full val-grid val-grid-rows-[1fr,_min-content] ">
           <TextArea
             name="/apps/blogs.0.title"
             text={EXAMPLE_TEXT}
@@ -111,10 +111,12 @@ export const Image: Story = {
   args: {
     isInitialized: true,
     children: (
-      <div className="h-full grid grid-rows-[1fr,_min-content] overflow-scroll">
+      <div className="val-h-full val-grid val-grid-rows-[1fr,_min-content] val-overflow-scroll">
         <img src={EXAMPLE_IMAGE} />
-        <div className="flex justify-end">
-          <button className="px-4 py-2 border border-highlight">Submit</button>
+        <div className="val-flex val-justify-end">
+          <button className="val-px-4 val-py-2 val-border val-border-highlight">
+            Submit
+          </button>
         </div>
       </div>
     ),

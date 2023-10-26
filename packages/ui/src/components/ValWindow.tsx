@@ -65,7 +65,7 @@ export function ValWindow({
         })
       }
       handle={
-        <div className="fixed bottom-0 right-0 cursor-se-resize">
+        <div className="val-fixed val-bottom-0 val-right-0 val-cursor-se-resize">
           <svg
             height="18"
             viewBox="0 0 18 18"
@@ -81,10 +81,10 @@ export function ValWindow({
       }
       draggableOpts={{}}
       className={classNames(
-        "absolute inset-0  tablet:w-auto tablet:h-auto tablet:min-h-fit tablet:rounded bg-base text-primary drop-shadow-2xl min-w-[320px] transition-opacity duration-300 delay-75",
+        "val-absolute val-inset-0 tablet:val-w-auto tablet:val-h-auto tablet:val-min-h-fit tablet:val-rounded val-bg-base val-text-primary val-drop-shadow-2xl val-min-w-[320px] val-transition-opacity val-duration-300 val-delay-75",
         {
-          "opacity-0": !isInitialized,
-          "opacity-100": isInitialized,
+          "val-opacity-0": !isInitialized,
+          "val-opacity-100": isInitialized,
         }
       )}
     >
@@ -98,11 +98,11 @@ export function ValWindow({
       >
         <div
           ref={dragRef}
-          className="relative flex items-center justify-center px-2 pt-2 text-primary"
+          className="val-relative val-flex val-items-center val-justify-center val-px-2 val-pt-2 val-text-primary"
         >
           <AlignJustify
             size={16}
-            className="hidden w-full cursor-grab tablet:block"
+            className="val-hidden val-w-full val-cursor-grab tablet:val-block"
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -110,28 +110,28 @@ export function ValWindow({
             }}
           />
           <button
-            className="absolute top-0 right-0 px-4 py-2 focus:outline-none focus-visible:outline-highlight"
+            className="val-absolute val-top-0 val-right-0 val-px-4 val-py-2 focus:val-outline-none focus-visible:val-outline-highlight"
             onClick={onClose}
           >
             <X size={16} />
           </button>
         </div>
         <form
-          className="h-full"
+          className="val-h-full"
           onSubmit={(ev) => {
             ev.preventDefault();
           }}
         >
           {Array.isArray(children) && children.slice(0, 1)}
           <div
-            className="relative overflow-scroll"
+            className="val-relative val-overflow-scroll"
             style={{
               height: windowSize?.innerHeight,
             }}
           >
             {Array.isArray(children) ? children.slice(1, -1) : children}
           </div>
-          <div ref={bottomRef} className="w-full px-4 pb-0">
+          <div ref={bottomRef} className="val-w-full val-px-4 val-pb-0">
             {Array.isArray(children) && children.slice(-1)}
           </div>
         </form>

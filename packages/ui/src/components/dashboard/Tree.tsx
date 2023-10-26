@@ -9,7 +9,7 @@ type TreeProps = {
 };
 export function Tree({ children, rootPath }: TreeProps): React.ReactElement {
   return (
-    <div className="flex flex-col bg-warm-black text-white font-sans text-xs w-full py-2">
+    <div className="val-flex val-flex-col val-bg-warm-black val-text-white val-font-sans val-text-xs val-w-full val-py-2">
       {Children.map(children, (child) => {
         return cloneElement(child as React.ReactElement, {
           paths: [rootPath],
@@ -39,20 +39,20 @@ Tree.Node = ({
     type === "string" ? (
       <TextIcon />
     ) : type === "image" ? (
-      <ImageIcon className="h-[9px] w-[9px]" />
+      <ImageIcon className="val-h-[9px] val-w-[9px]" />
     ) : (
       <Section />
     );
   return (
-    <div className="w-full">
+    <div className="val-w-full">
       <button
-        className="flex justify-between w-full text-white hover:bg-dark-gray group py-2 hover:text-warm-black text-xs font-[400] shrink-0"
+        className="val-flex val-justify-between val-w-full val-text-white hover:val-bg-dark-gray val-py-2 hover:val-text-warm-black val-text-xs font-[400] val-shrink-0"
         onClick={() => {
           setActivePath && setActivePath(path);
         }}
         style={{ paddingLeft: paddingLeft }}
       >
-        <div className="flex items-center justify-center gap-2">
+        <div className="val-flex val-items-center val-justify-center val-gap-2">
           {logo}
           <p>{path}</p>
         </div>

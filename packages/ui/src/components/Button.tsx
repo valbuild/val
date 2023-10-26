@@ -19,7 +19,7 @@ export function PrimaryButton({
   return (
     <button
       onClick={onClick}
-      className="px-4 py-[2px] font-serif border rounded-sm border-border bg-fill text-primary hover:dark:bg-yellow hover:bg-warm-black hover:dark:text-dark-gray hover:text-white focus-visible:border-highlight focus:outline-none"
+      className="val-px-4 val-py-[2px] val-font-serif val-border val-rounded-sm val-border-border val-bg-fill val-text-primary hover:dark:bg-yellow hover:val-bg-warm-black hover:dark:val-text-dark-gray hover:val-text-white focus-visible:val-border-highlight focus:val-outline-none"
     >
       {children}
     </button>
@@ -38,18 +38,18 @@ const Button: FC<ButtonProps> = ({
     <button
       disabled={disabled}
       className={classNames(
-        "font-sans font-[12px] tracking-[0.04em] py-1 px-2 rounded whitespace-nowrap group relative text-primary",
+        "val-font-sans val-font-[12px] val-tracking-[0.04em] val-py-1 val-px-2 val-rounded val-whitespace-nowrap val-group val-relative val-text-primary",
         {
-          "font-bold": variant === "primary",
-          "bg-base hover:bg-base text-fill disabled:bg-fill disabled:text-base":
+          "val-font-bold": variant === "primary",
+          "val-bg-base hover:val-bg-base disabled:val-bg-fill disabled:val-text-base":
             variant === "primary",
-          "bg-transparent border border-primary text-primary hover:border-highlight hover:text-highlight disabled:bg-fill disabled:text-base":
+          "val-bg-transparent val-border val-border-primary val-text-primary hover:val-border-highlight hover:val-text-highlight disabled:val-bg-fill disabled:val-text-base":
             variant !== "primary",
         }
       )}
       onClick={onClick}
     >
-      <span className="flex flex-row items-center justify-center gap-2">
+      <span className="val-flex val-flex-row val-items-center val-justify-center val-gap-2">
         {icon && icon}
         {children}
       </span>

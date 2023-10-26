@@ -52,26 +52,26 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
     nodes: [HeadingNode, ImageNode, ListNode, ListItemNode, LinkNode],
     theme: {
       text: {
-        bold: "font-semibold",
-        underline: "underline",
-        italic: "italic",
-        strikethrough: "line-through",
-        underlineStrikethrough: "underline line-through",
+        bold: "val-font-semibold",
+        underline: "val-underline",
+        italic: "val-italic",
+        strikethrough: "val-line-through",
+        underlineStrikethrough: "val-underline lval-ine-through",
       },
       list: {
-        listitem: "ml-[20px]",
-        ol: "list-decimal",
-        ul: "list-disc",
+        listitem: "val-ml-[20px]",
+        ol: "val-list-decimal",
+        ul: "val-list-disc",
       },
       heading: {
-        h1: "text-4xl font-bold",
-        h2: "text-3xl font-bold",
-        h3: "text-2xl font-bold",
-        h4: "text-xl font-bold",
-        h5: "text-lg font-bold",
-        h6: "text-md font-bold",
+        h1: "val-text-4xl val-font-bold",
+        h2: "val-text-3xl val-font-bold",
+        h3: "val-text-2xl val-font-bold",
+        h4: "val-text-xl val-font-bold",
+        h5: "val-text-lg val-font-bold",
+        h6: "val-text-md val-font-bold",
       },
-      link: "text-highlight underline",
+      link: "val-text-highlight val-underline",
     },
     onError,
   };
@@ -82,14 +82,14 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
       <RichTextPlugin
         contentEditable={
           <div
-            className="text-white border-b border-highlight font-roboto"
+            className="val-text-primary val-border-b val-border-highlight val-font-roboto"
             style={{
               minHeight: windowSize?.innerHeight
                 ? windowSize?.innerHeight - TOOLBAR_HEIGHT
                 : undefined,
             }}
           >
-            <LexicalContentEditable className="p-4 outline-none bg-fill" />
+            <LexicalContentEditable className="val-p-4 val-outline-none val-bg-fill" />
           </div>
         }
         placeholder={<div className="">Enter some text...</div>}

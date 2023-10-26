@@ -42,15 +42,15 @@ const UploadModal: FC<UploadModalProps> = ({
   };
 
   return (
-    <div className="absolute z-10 flex flex-col justify-center items-center top-[50%] left-[50%] font-mono">
+    <div className="val-absolute val-z-10 val-flex val-flex-col val-justify-center val-items-center val-top-[50%] val-left-[50%] val-font-mono">
       {showModal && (
-        <div className="flex flex-col items-center justify-center">
-          <div className="flex flex-col items-start justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-            <div className="fixed inset-0 transition-opacity">
-              <div className="absolute inset-0 bg-gray-500 opacity-75" />
+        <div className="val-flex val-flex-col val-items-center val-justify-center">
+          <div className="val-flex val-flex-col val-items-start val-justify-center val-min-h-screen val-px-4 val-pt-4 val-pb-20 val-text-center sm:val-block sm:val-p-0">
+            <div className="val-fixed val-inset-0 val-transition-opacity">
+              <div className="val-absolute val-inset-0 val-bg-gray-500 val-opacity-75" />
             </div>
 
-            <div className="flex flex-col items-center justify-between bg-fill rounded-lg transform transition-all min-h-[300px] min-w-[500px] h-full px-5 py-7">
+            <div className="val-flex val-flex-col val-items-center val-justify-between val-bg-fill val-rounded-lg val-transform val-transition-all val-min-h-[300px] min-w-[500px] val-h-full val-px-5 val-py-7">
               <div className="flex flex-col items-center w-full gap-5">
                 <div className="mb-4">
                   <Button

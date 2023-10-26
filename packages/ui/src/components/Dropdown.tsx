@@ -49,7 +49,7 @@ const Dropdown: React.FC<DropdownProps> = ({
   }, []);
 
   return (
-    <div className="text-[12px]" ref={dropdownRef}>
+    <div className="val-text-[12px]" ref={dropdownRef}>
       <Button
         onClick={(ev) => {
           ev.preventDefault();
@@ -57,23 +57,23 @@ const Dropdown: React.FC<DropdownProps> = ({
         }}
         icon={
           <Chevron
-            className={`rotate-[-90deg] transition-transform duration-150 ease-in-out ${
-              isOpen ? "" : "rotate-[90deg]"
+            className={`val-rotate-[-90deg] val-transition-transform val-duration-150 val-ease-in-out ${
+              isOpen ? "" : "val-rotate-[90deg]"
             }`}
           />
         }
       >
-        <div className="relative">
-          <span className="flex flex-row items-center justify-center gap-1">
+        <div className="val-relative">
+          <span className="val-flex val-flex-row val-items-center val-justify-center val-gap-1">
             {label}
             {icon && icon}
           </span>
           {isOpen && (
             <div
-              className="absolute -top-[4px] overflow-scroll shadow-lg -left-2 text-primary bg-border w-fit z-overlay"
+              className="val-absolute -val-top-[4px] val-overflow-scroll val-shadow-lg -val-left-2 val-text-primary val-bg-border val-w-fit val-z-overlay"
               style={{ maxHeight: windowSize?.innerHeight }}
             >
-              <div className="flex flex-col ">
+              <div className="val-flex val-flex-col ">
                 {options?.map((option, idx) => (
                   <button
                     key={option}
@@ -81,9 +81,9 @@ const Dropdown: React.FC<DropdownProps> = ({
                       ev.preventDefault();
                       handleSelect(option, idx);
                     }}
-                    className={`text-left px-2 py-1 hover:bg-base hover:text-highlight  ${
+                    className={`val-text-left val-px-2 val-py-1 hover:val-bg-base hover:val-text-highlight  ${
                       idx === selectedOption &&
-                      "font-bold bg-base hover:bg-base truncate"
+                      "val-font-bold val-bg-base hover:val-bg-base val-truncate"
                     }`}
                   >
                     {option}

@@ -24,11 +24,11 @@ export const Default: Story = {
           </Tree.Node>
         </Tree.Node>
       </Tree>
-      <div className="font-serif text-xs w-full h-full flex justify-between items-center px-3 text-white">
+      <div className="val-font-serif val-text-xs val-w-full val-h-full val-flex val-justify-between val-items-center val-px-3 val-text-white">
         <p>Content</p>
-        <button className="flex justify-between gap-1 flex-shrink-0">
-          <span className="w-fit">+</span>
-          <span className="w-fit">Add item</span>
+        <button className="val-flex val-justify-between val-gap-1 val-flex-shrink-0">
+          <span className="val-w-fit">+</span>
+          <span className="val-w-fit">Add item</span>
         </button>
       </div>
       <div>
@@ -45,8 +45,8 @@ export const Default: Story = {
           <div>Object 8</div>
         </FormGroup>
       </div>
-      <div className="text-white">History</div>
-      <div className="text-white">hey</div>
+      <div className="val-text-white">History</div>
+      <div className="val-text-white">hey</div>
     </Grid>
   ),
 };

@@ -2,14 +2,14 @@ import { FC } from "react";
 
 const User: FC<{ name: string }> = ({ name }) => {
   return (
-    <div className="flex flex-row items-center gap-2">
-      <div className="w-[32px] h-[32px] rounded-full bg-light-gray flex justify-center items-center">
+    <div className="val-flex val-flex-row val-items-center val-gap-2">
+      <div className="val-w-[32px] val-h-[32px] val-rounded-full val-bg-light-gray val-flex val-justify-center val-items-center">
         {name
           .split(" ")
           .map((name) => name.charAt(0))
           .join("")}
       </div>
-      <div className="text-white">{name}</div>
+      <div className="val-text-white">{name}</div>
     </div>
   );
 };

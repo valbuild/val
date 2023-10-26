@@ -9,7 +9,6 @@ import {
   VAL_EXTENSION,
 } from "@valbuild/core";
 import { PatchJSON } from "@valbuild/core/patch";
-import { edit } from "helpers";
 import { LexicalEditor } from "lexical";
 import { useState, useEffect, useRef } from "react";
 import { RichTextEditor } from "../exports";
@@ -233,12 +232,12 @@ function StringField({
   }, []);
 
   return (
-    <div className="flex flex-col justify-between h-full">
-      <div className="w-full h-full py-2 overflow-y-scroll">
+    <div className="val-flex val-flex-col val-justify-between val-h-full">
+      <div className="val-w-full val-h-full val-py-2 val-overflow-y-scroll">
         <input
           ref={ref}
           disabled={disabled}
-          className="w-full p-2 border outline-none resize-none bg-fill text-primary border-border focus-visible:border-highlight"
+          className="val-w-full val-p-2 val-border val-outline-none val-resize-none val-bg-fill val-text-primary val-border-border focus-visible:val-border-highlight"
           defaultValue={value ?? ""}
           onChange={(e) => setValue(e.target.value)}
         />
