@@ -314,7 +314,7 @@ function ValHover({
   return (
     <div
       id="val-hover"
-      className="fixed border-2 cursor-pointer z-overlay-hover border-base"
+      className="fixed border-2 cursor-pointer z-overlay-hover border-highlight drop-shadow-[0px_0px_12px_rgba(56,205,152,0.60)]"
       style={{
         top: rect?.top,
         left: rect?.left,
@@ -332,7 +332,7 @@ function ValHover({
     >
       <div className="flex items-center justify-end w-full text-xs">
         <div
-          className="flex items-center justify-center px-3 py-1 text-primary bg-base"
+          className="flex items-center justify-center px-3 py-1 text-primary bg-highlight"
           style={{
             maxHeight: rect?.height && rect.height - 4,
             fontSize:
