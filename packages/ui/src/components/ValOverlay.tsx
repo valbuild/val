@@ -69,6 +69,8 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
 
+  console.log(windowTarget?.path, editMode);
+
   return (
     <ValOverlayContext.Provider
       value={{

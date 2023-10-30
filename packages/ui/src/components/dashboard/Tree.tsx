@@ -9,7 +9,7 @@ type TreeProps = {
 };
 export function Tree({ children, rootPath }: TreeProps): React.ReactElement {
   return (
-    <div className="flex flex-col bg-warm-black text-white font-sans text-xs w-full py-2">
+    <div className="flex flex-col w-full py-2 text-xs">
       {Children.map(children, (child) => {
         return cloneElement(child as React.ReactElement, {
           paths: [rootPath],
@@ -46,7 +46,7 @@ Tree.Node = ({
   return (
     <div className="w-full">
       <button
-        className="flex justify-between w-full text-white hover:bg-dark-gray group py-2 hover:text-warm-black text-xs font-[400] shrink-0"
+        className="flex justify-between w-full group py-2 text-xs font-[400] shrink-0"
         onClick={() => {
           setActivePath && setActivePath(path);
         }}

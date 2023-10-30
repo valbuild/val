@@ -4,6 +4,7 @@ import classNames from "classnames";
 import { Resizable } from "react-resizable";
 import { useValOverlayContext } from "./ValOverlayContext";
 import { AlignJustifyIcon, XIcon } from "lucide-react";
+import { ScrollArea } from "./ui/scroll-area";
 
 export type ValWindowProps = {
   children:
@@ -53,13 +54,16 @@ export function ValWindow({
   //
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  console.log("window", windowSize, draggedPosition, dragRef);
   return (
     <Resizable
+      minConstraints={[MIN_WIDTH, MIN_HEIGHT]}
       width={windowSize?.width || MIN_WIDTH}
       height={windowSize?.height || MIN_HEIGHT}
       onResize={(_, { size }) =>
         setWindowSize({
           ...size,
+
           innerHeight:
             (windowSize?.height || MIN_HEIGHT) -
             (64 + (bottomRef.current?.getBoundingClientRect()?.height || 0)),
@@ -82,7 +86,7 @@ export function ValWindow({
       }
       draggableOpts={{}}
       className={classNames(
-        "absolute inset-0  tablet:w-auto tablet:h-auto tablet:min-h-fit tablet:rounded-lg bg-background text-primary drop-shadow-2xl min-w-[320px] transition-opacity duration-300 delay-75",
+        "absolute inset-0 tablet:w-auto tablet:h-auto tablet:min-h-fit rounded-lg bg-background text-primary drop-shadow-2xl min-w-[320px]",
         {
           "opacity-0": !isInitialized,
           "opacity-100": isInitialized,
@@ -124,14 +128,14 @@ export function ValWindow({
           }}
         >
           {Array.isArray(children) && children.slice(0, 1)}
-          <div
-            className="relative overflow-scroll"
+          <ScrollArea
+            className="relative"
             style={{
               height: windowSize?.innerHeight,
             }}
           >
             {Array.isArray(children) ? children.slice(1, -1) : children}
-          </div>
+          </ScrollArea>
           <div ref={bottomRef} className="w-full px-4 pb-0">
             {Array.isArray(children) && children.slice(-1)}
           </div>

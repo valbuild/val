@@ -234,7 +234,7 @@ function StringField({
   }, []);
 
   return (
-    <div className="flex flex-col justify-between h-full">
+    <div className="flex flex-col justify-between h-full p-4">
       <Input
         ref={ref}
         disabled={disabled}
