@@ -20,13 +20,13 @@ import { ValApi } from "@valbuild/core";
 import { FC, useEffect, useState } from "react";
 import { Grid } from "./Grid";
 import { result } from "@valbuild/core/fp";
-import { Tree } from "./Tree";
-import { ValFormField } from "../ValFormField";
+import { Tree } from "./dashboard/Tree";
+import { ValFormField } from "./ValFormField";
 import { ChevronLeft, Folder, Image as ImageIcon, List } from "react-feather";
 import React from "react";
-import { parseRichTextSource } from "../../exports";
+import { parseRichTextSource } from "../exports";
 import { createPortal } from "react-dom";
-import Logo from "../../assets/icons/Logo";
+import Logo from "../assets/icons/Logo";
 
 interface ValFullscreenProps {
   valApi: ValApi;
