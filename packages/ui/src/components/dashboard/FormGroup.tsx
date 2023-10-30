@@ -30,7 +30,7 @@ export const FormGroup = ({
           <div>{expanded ? "Collapse" : "Expand"}</div>
         </button>
         {expanded && (
-          <div className="flex flex-col bg-base">
+          <div className="flex flex-col bg-background">
             {Children.map(rest, (child) => (
               <div className={classNames(defaultClass)}>{child}</div>
             ))}

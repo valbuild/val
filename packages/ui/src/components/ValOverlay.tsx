@@ -39,6 +39,7 @@ import { ValFullscreen } from "./ValFullscreen";
 import { RichTextEditor } from "../components/RichTextEditor/RichTextEditor";
 import { ValFormField } from "./ValFormField";
 import { usePatch } from "./usePatch";
+import { Button } from "./ui/button";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -167,13 +168,13 @@ function SubmitButton({
   onClick?: () => void;
 }) {
   return (
-    <button
+    <Button
       className="px-4 py-2 border border-highlight disabled:border-border"
       disabled={disabled}
       onClick={onClick}
     >
       Submit
-    </button>
+    </Button>
   );
 }
 

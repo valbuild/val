@@ -9,13 +9,14 @@ import {
   VAL_EXTENSION,
 } from "@valbuild/core";
 import { PatchJSON } from "@valbuild/core/patch";
-import { edit } from "helpers";
 import { LexicalEditor } from "lexical";
 import { useState, useEffect, useRef } from "react";
 import { RichTextEditor } from "../exports";
 import { lexicalToRichTextSource } from "../richtext/conversion/lexicalToRichTextSource";
 import { LexicalRootNode } from "../richtext/conversion/richTextSourceToLexical";
 import { readImage } from "../utils/readImage";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 
 type ImageSource = FileSource<ImageMetadata>;
 
@@ -234,15 +235,12 @@ function StringField({
 
   return (
     <div className="flex flex-col justify-between h-full">
-      <div className="w-full h-full py-2 overflow-y-scroll">
-        <input
-          ref={ref}
-          disabled={disabled}
-          className="w-full p-2 border outline-none resize-none bg-fill text-primary border-border focus-visible:border-highlight"
-          defaultValue={value ?? ""}
-          onChange={(e) => setValue(e.target.value)}
-        />
-      </div>
+      <Input
+        ref={ref}
+        disabled={disabled}
+        defaultValue={value ?? ""}
+        onChange={(e) => setValue(e.target.value)}
+      />
     </div>
   );
 }
