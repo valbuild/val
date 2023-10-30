@@ -56,7 +56,7 @@ import { ModuleId, ModulePath, getValPath, isVal } from "./val";
 import { convertFileSource } from "./schema/image";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
-import { Json } from "./Json";
+import type { Json } from "./Json";
 import { SerializedSchema } from "./schema";
 import { getSHA256Hash } from "./getSha256";
 export { ValApi } from "./ValApi";
