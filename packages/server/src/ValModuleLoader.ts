@@ -3,7 +3,7 @@ import { getCompilerOptions } from "./getCompilerOptions";
 import type { IValFSHost } from "./ValFSHost";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
 import fs from "fs";
-
+import { transform } from "sucrase";
 const JsFileLookupMapping: [resolvedFileExt: string, replacements: string[]][] =
   [
     // NOTE: first one matching will be used
@@ -38,6 +38,7 @@ export const createModuleLoader = (
 export class ValModuleLoader {
   constructor(
     public readonly projectRoot: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private readonly compilerOptions: ts.CompilerOptions,
     private readonly sourceFileHandler: ValSourceFileHandler,
     private readonly host: IValFSHost = {
@@ -54,16 +55,13 @@ export class ValModuleLoader {
     if (!code) {
       throw Error(`Could not read file "${modulePath}"`);
     }
-    return ts.transpile(code, {
-      ...this.compilerOptions,
-      jsx: ts.JsxEmit.React,
-      // allowJs: true,
-      // rootDir: this.compilerOptions.rootDir,
-      module: ts.ModuleKind.ESNext,
-      target: ts.ScriptTarget.ES2015, // QuickJS supports a lot of ES2020: https://test262.report/, however not all cases are in that report (e.g. export const {} = {})
-      // moduleResolution: ts.ModuleResolutionKind.NodeNext,
-      // target: ts.ScriptTarget.ES2020, // QuickJs runs in ES2020 so we must use that
-    });
+
+    const compiledCode = transform(code, {
+      filePath: modulePath,
+      disableESTransforms: true,
+      transforms: ["typescript"],
+    }).code;
+    return compiledCode;
   }
 
   resolveModulePath(
