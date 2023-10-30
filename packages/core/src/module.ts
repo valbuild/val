@@ -187,7 +187,9 @@ export function resolvePath(
     if (isArraySchema(resolvedSchema)) {
       if (Number.isNaN(Number(part))) {
         throw Error(
-          `Invalid path: array schema ${resolvedSchema} must have ${part} a number as path`
+          `Invalid path: array schema ${JSON.stringify(
+            resolvedSchema
+          )} must have a number as path, but got ${part}. Path: ${path}`
         );
       }
       if (
