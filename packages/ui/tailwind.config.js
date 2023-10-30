@@ -16,6 +16,11 @@ module.exports = {
       full: 3,
       overlay: 4,
     },
+
+    fontFamily: {
+      sans: "'Roboto', sans-serif",
+      serif: "'Space Mono', monospace",
+    },
     extend: {
       colors: {
         border: "hsl(var(--border))",

@@ -70,10 +70,10 @@ export function Grid({ children }: GridProps): React.ReactElement {
   }, []);
 
   return (
-    <div className="flex w-full h-screen">
+    <div className="flex">
       <div
         ref={leftColRef}
-        className="relative h-full border-r border-dark-gray"
+        className="relative h-full h-screen border-r border-border"
         style={{ width: 300 }}
       >
         <Grid.Column>
@@ -81,11 +81,11 @@ export function Grid({ children }: GridProps): React.ReactElement {
           {body1}
         </Grid.Column>
         <div
-          className="absolute inset-y-0 right-0 cursor-col-resize w-[1px] bg-dark-gray hover:w-[2px] hover:bg-light-gray"
+          className="absolute inset-y-0 right-0 cursor-col-resize w-[1px] hover:w-[2px] hover:bg-border"
           onMouseDown={handleMouseDown("left")}
         ></div>
       </div>
-      <div className="flex-auto bg-warm-black">
+      <div className="flex-auto">
         <Grid.Column>
           {header2}
           {body2}
@@ -95,7 +95,7 @@ export function Grid({ children }: GridProps): React.ReactElement {
         (body3 && (
           <div
             ref={rightColRef}
-            className="relative border-l border-dark-gray bg-warm-black"
+            className="relative border-l border-border"
             style={{ width: 300 }}
           >
             <Grid.Column>
@@ -104,7 +104,7 @@ export function Grid({ children }: GridProps): React.ReactElement {
             </Grid.Column>
             <div
               onMouseDown={handleMouseDown("right")}
-              className="absolute inset-y-0 left-0 cursor-col-resize w-[1px]  bg-dark-gray hover:w-[2px] hover:bg-light-gray"
+              className="absolute inset-y-0 left-0 cursor-col-resize w-[1px] bg-border hover:w-[2px] hover:bg-border"
             ></div>
           </div>
         ))}
@@ -119,8 +119,8 @@ type GridChildProps = {
 Grid.Column = ({ children }: GridChildProps): React.ReactElement => {
   const [header, body] = Children.toArray(children);
   return (
-    <div className="flex flex-col h-full overflow-auto bg-warm-black">
-      <div className="h-[50px] flex items-center border-b border-dark-gray">
+    <div className="flex flex-col h-full overflow-auto">
+      <div className="h-[50px] flex items-center border-b border-border">
         {header}
       </div>
       {body}

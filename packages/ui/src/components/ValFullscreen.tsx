@@ -27,6 +27,7 @@ import React from "react";
 import { parseRichTextSource } from "../exports";
 import { createPortal } from "react-dom";
 import Logo from "../assets/icons/Logo";
+import { ScrollArea } from "./ui/scroll-area";
 
 interface ValFullscreenProps {
   valApi: ValApi;
@@ -91,7 +92,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   }, []);
 
   return (
-    <div className="relative">
+    <div className="relative font-serif">
       <div id="val-fullscreen-hover" ref={hoverElemRef}></div>
       <ValFullscreenHoverContext.Provider
         value={{
@@ -103,16 +104,18 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
             <div className="px-4">
               <Logo />
             </div>
-            {modules ? (
-              <PathTree
-                paths={Object.keys(modules)}
-                setSelectedModuleId={setSelectedPath}
-              />
-            ) : (
-              !error && <div>Loading...</div>
-            )}
+            <ScrollArea className="px-4">
+              {modules ? (
+                <PathTree
+                  paths={Object.keys(modules)}
+                  setSelectedModuleId={setSelectedPath}
+                />
+              ) : (
+                !error && <div>Loading...</div>
+              )}
+            </ScrollArea>
 
-            <div className="flex items-center justify-start w-full h-[50px] gap-2 font-serif text-xs text-foreground">
+            <div className="flex items-center justify-start w-full h-[50px] gap-2 font-serif text-xs">
               <button
                 onClick={() => {
                   history.back();
@@ -122,8 +125,12 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
               </button>
               <p>{selectedPath || "/"}</p>
             </div>
-            <div className="px-4">
-              {error && <div className="text-lg text-red">ERROR: {error}</div>}
+            <ScrollArea className="px-4">
+              {error && (
+                <div className="text-lg text-destructive-foreground">
+                  ERROR: {error}
+                </div>
+              )}
               {!modules && !error && <div>Loading...</div>}
               {modules &&
                 selectedPath &&
@@ -137,7 +144,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
                     setSelectedPath={setSelectedPath}
                   />
                 )}
-            </div>
+            </ScrollArea>
           </Grid>
         </div>
       </ValFullscreenHoverContext.Provider>
@@ -413,7 +420,7 @@ function ValPreview({
         {Object.entries(schema.items).map(([key]) => {
           if (schema.items[key].type === "image")
             return (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1" key={key}>
                 <span>{key}:</span>
                 <span>
                   <ValPreview
@@ -425,7 +432,7 @@ function ValPreview({
               </div>
             );
           return (
-            <div className="flex gap-1">
+            <div className="flex gap-1" key={key}>
               <span>{key}:</span>
               <span>
                 <ValPreview
@@ -610,7 +617,7 @@ function PathTree({
   return (
     <Tree>
       {Object.entries(tree).map(([name, subTree]) => (
-        <div className="px-4">
+        <div className="px-4" key={`/${name}`}>
           <PathNode
             name={name}
             tree={subTree}
@@ -644,7 +651,7 @@ function PathNode({
         {name}
       </button>
       {Object.entries(tree).map(([childName, childTree]) => (
-        <div className="px-4">
+        <div className="px-4" key={`${moduleId}/${childName}` as ModuleId}>
           <PathNode
             name={childName}
             tree={childTree}
