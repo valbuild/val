@@ -38,6 +38,7 @@ import { lexicalToRichTextSource } from "../richtext/conversion/lexicalToRichTex
 import { ValFullscreen } from "./dashboard/ValFullscreen";
 import { RichTextEditor } from "../components/RichTextEditor/RichTextEditor";
 import { ValFormField } from "./ValFormField";
+import { usePatch } from "./usePatch";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -63,35 +64,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
     windowTarget?.path
   );
 
-  const [state, setState] = useState<{
-    [path: SourcePath]: () => Promise<PatchJSON>;
-  }>({});
-  const initPatchCallback = useCallback((currentPath: SourcePath | null) => {
-    return (callback: PatchCallback) => {
-      // TODO: revaluate this logic when we have multiple paths
-      // NOTE: see cleanup of state in useEffect below
-      if (!currentPath) {
-        setState({});
-      } else {
-        const patchPath = Internal.createPatchJSONPath(
-          Internal.splitModuleIdAndModulePath(currentPath)[1]
-        );
-        setState((prev) => {
-          return {
-            ...prev,
-            [currentPath]: () => callback(patchPath),
-          };
-        });
-      }
-    };
-  }, []);
-  useEffect(() => {
-    setState((prev) => {
-      return Object.fromEntries(
-        Object.entries(prev).filter(([path]) => path === windowTarget?.path)
-      );
-    });
-  }, [windowTarget?.path]);
+  const { initPatchCallback, state } = usePatch(windowTarget?.path ?? null);
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
 
