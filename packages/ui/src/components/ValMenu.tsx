@@ -21,7 +21,7 @@ const className = "p-1 border rounded-full shadow bg-base border-highlight";
 export function ValMenu({ api }: { api: ValApi }) {
   const { theme, setTheme, editMode, setEditMode } = useValOverlayContext();
   return (
-    <div className="flex flex-row items-center justify-center w-full h-full gap-x-3 text-primary rounded-full bg-[#000] px-1 py-2 border-2 border-fill">
+    <div className="flex flex-row items-center justify-center w-full h-full px-1 py-2 border-2 rounded-full gap-x-3 text-primary bg-full border-fill">
       <MenuButton
         active={editMode === "hover"}
         onClick={() => {

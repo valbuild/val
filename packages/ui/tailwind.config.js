@@ -15,6 +15,7 @@ module.exports = {
       border: "var(--val-theme-border)",
       fill: "var(--val-theme-fill)",
       primary: "var(--val-theme-primary)",
+      full: "var(--val-theme-full)",
       //
       white: "#FCFCFC",
       "light-gray": "#D6D6D6",
@@ -37,7 +38,7 @@ module.exports = {
     },
     fontFamily: {
       sans: "'Roboto', sans-serif",
-      serif: "'JetBrains Mono', monospace",
+      serif: "'Space Mono', monospace",
     },
     keyframes: {
       rotateLeft: {
