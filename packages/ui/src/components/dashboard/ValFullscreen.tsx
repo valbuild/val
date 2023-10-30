@@ -26,6 +26,7 @@ import { ChevronLeft, Folder, Image as ImageIcon, List } from "react-feather";
 import React from "react";
 import { parseRichTextSource } from "../../exports";
 import { createPortal } from "react-dom";
+import Logo from "../../assets/icons/Logo";
 
 interface ValFullscreenProps {
   valApi: ValApi;
@@ -99,7 +100,9 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
       >
         <div className="text-primary">
           <Grid>
-            <div className="px-4">VAL</div>
+            <div className="px-4">
+              <Logo />
+            </div>
             {modules ? (
               <PathTree
                 paths={Object.keys(modules)}
