@@ -3,6 +3,7 @@ import { AlignJustify, X } from "react-feather";
 import classNames from "classnames";
 import { Resizable } from "react-resizable";
 import { useValOverlayContext } from "./ValOverlayContext";
+import { AlignJustifyIcon, XIcon } from "lucide-react";
 
 export type ValWindowProps = {
   children:
@@ -81,7 +82,7 @@ export function ValWindow({
       }
       draggableOpts={{}}
       className={classNames(
-        "absolute inset-0  tablet:w-auto tablet:h-auto tablet:min-h-fit tablet:rounded bg-base text-primary drop-shadow-2xl min-w-[320px] transition-opacity duration-300 delay-75",
+        "absolute inset-0  tablet:w-auto tablet:h-auto tablet:min-h-fit tablet:rounded-lg bg-background text-primary drop-shadow-2xl min-w-[320px] transition-opacity duration-300 delay-75",
         {
           "opacity-0": !isInitialized,
           "opacity-100": isInitialized,
@@ -100,9 +101,9 @@ export function ValWindow({
           ref={dragRef}
           className="relative flex items-center justify-center px-2 pt-2 text-primary"
         >
-          <AlignJustify
+          <AlignJustifyIcon
             size={16}
-            className="hidden w-full cursor-grab tablet:block"
+            className="w-full cursor-grab tablet:block"
             onMouseDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -110,10 +111,10 @@ export function ValWindow({
             }}
           />
           <button
-            className="absolute top-0 right-0 px-4 py-2 focus:outline-none focus-visible:outline-highlight"
+            className="absolute top-0 right-0 px-4 py-2 focus:outline-none focus-visible:outline-accent"
             onClick={onClose}
           >
-            <X size={16} />
+            <XIcon size={16} />
           </button>
         </div>
         <form

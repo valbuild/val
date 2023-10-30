@@ -98,7 +98,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
           hoverElem: hoverElemRef?.current,
         }}
       >
-        <div className="text-primary">
+        <div className="text-primary bg-background">
           <Grid>
             <div className="px-4">
               <Logo />
@@ -112,7 +112,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
               !error && <div>Loading...</div>
             )}
 
-            <div className="flex items-center justify-start w-full h-[50px] gap-2 font-serif text-xs text-white">
+            <div className="flex items-center justify-start w-full h-[50px] gap-2 font-serif text-xs text-foreground">
               <button
                 onClick={() => {
                   history.back();
@@ -375,7 +375,7 @@ function ValListItem({
 }): React.ReactElement {
   return (
     <div className="relative px-4 border rounded h-[5em] max-w-[15em] overflow-hidden pb-4 pt-2">
-      <div className="absolute top-0 left-0 p-2 text-base uppercase bg-primary">
+      <div className="absolute top-0 left-0 p-2 uppercase text-background bg-primary">
         {index + 1}
       </div>
       <div className="pl-4 text-xs">

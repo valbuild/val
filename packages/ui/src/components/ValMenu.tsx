@@ -1,27 +1,23 @@
+import { useValOverlayContext } from "./ValOverlayContext";
+import { ValApi } from "@valbuild/core";
+import classNames from "classnames";
 import {
-  Edit2,
-  Edit3,
   Maximize,
-  Maximize2,
   Minimize,
-  Minimize2,
   Moon,
   Pause,
   Play,
   Power,
   Sun,
-} from "react-feather";
-import { useValOverlayContext } from "./ValOverlayContext";
-import { ValApi } from "@valbuild/core";
-import classNames from "classnames";
+} from "lucide-react";
 import React from "react";
 
-const className = "p-1 border rounded-full shadow bg-base border-highlight";
+const className = "p-1 border rounded-full shadow border-accent";
 
 export function ValMenu({ api }: { api: ValApi }) {
   const { theme, setTheme, editMode, setEditMode } = useValOverlayContext();
   return (
-    <div className="flex flex-row items-center justify-center w-full h-full px-1 py-2 border-2 rounded-full gap-x-3 text-primary bg-full border-fill">
+    <div className="flex flex-row items-center justify-center w-full h-full px-1 py-2 border-2 rounded-full gap-x-3 text-primary bg-background border-fill">
       <MenuButton
         active={editMode === "hover"}
         onClick={() => {
@@ -49,8 +45,8 @@ export function ValMenu({ api }: { api: ValApi }) {
         }}
       >
         <div className="h-[24px] w-[24px] flex justify-center items-center">
-          {editMode === "full" && <Minimize2 size={15} />}
-          {editMode !== "full" && <Maximize2 size={15} />}
+          {editMode === "full" && <Minimize size={15} />}
+          {editMode !== "full" && <Maximize size={15} />}
         </div>
       </MenuButton>
       <a className={className} href={api.getDisableUrl()}>
@@ -74,7 +70,7 @@ function MenuButton({
   return (
     <button
       className={classNames(className, {
-        "bg-highlight drop-shadow-[0px_0px_12px_rgba(56,205,152,0.60)]": active,
+        "bg-accent drop-shadow-[0px_0px_12px_rgba(56,205,152,0.60)]": active,
       })}
       onClick={onClick}
     >
