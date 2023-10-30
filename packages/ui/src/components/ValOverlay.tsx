@@ -35,7 +35,7 @@ import { LexicalRootNode } from "../richtext/conversion/richTextSourceToLexical"
 import { PatchJSON } from "@valbuild/core/patch";
 import { readImage } from "../utils/readImage";
 import { lexicalToRichTextSource } from "../richtext/conversion/lexicalToRichTextSource";
-import { ValFullscreen } from "../components/dashboard/ValFullscreen";
+import { ValFullscreen } from "./dashboard/ValFullscreen";
 import { RichTextEditor } from "../components/RichTextEditor/RichTextEditor";
 import { ValFormField } from "./ValFormField";
 
