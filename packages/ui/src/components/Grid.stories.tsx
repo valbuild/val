@@ -1,8 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { Grid } from "./Grid";
-import { Tree } from "./Tree";
-import { Dropdown } from "./Dropdown";
-import { FormGroup } from "./FormGroup";
+import { Tree } from "./dashboard/Tree";
+import { Dropdown } from "./dashboard/Dropdown";
 
 const meta: Meta<typeof Grid> = { component: Grid };
 
@@ -24,26 +23,18 @@ export const Default: Story = {
           </Tree.Node>
         </Tree.Node>
       </Tree>
-      <div className="font-serif text-xs w-full h-full flex justify-between items-center px-3 text-white">
+      <div className="flex items-center justify-between w-full h-full px-3 font-serif text-xs text-white">
         <p>Content</p>
-        <button className="flex justify-between gap-1 flex-shrink-0">
+        <button className="flex justify-between flex-shrink-0 gap-1">
           <span className="w-fit">+</span>
           <span className="w-fit">Add item</span>
         </button>
       </div>
       <div>
-        <FormGroup>
-          <div>Object 1</div>
-          <div>Object 2</div>
-          <div>Object 3</div>
-          <div>Object 4</div>
-        </FormGroup>
-        <FormGroup>
-          <div>Object 5</div>
-          <div>Object 6</div>
-          <div>Object 7</div>
-          <div>Object 8</div>
-        </FormGroup>
+        <div>Object 1</div>
+        <div>Object 2</div>
+        <div>Object 3</div>
+        <div>Object 4</div>
       </div>
       <div className="text-white">History</div>
       <div className="text-white">hey</div>
