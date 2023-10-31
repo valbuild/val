@@ -9,6 +9,7 @@ import {
   RichText,
   RichTextNode,
   RichTextSource,
+  SerializedRecordSchema,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
@@ -136,7 +137,6 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
                 !error && <div className="py-4">Loading...</div>
               )}
             </ScrollArea>
-
             <div className="flex items-center justify-start w-full h-[50px] gap-2 font-serif text-xs">
               <button
                 onClick={() => {
@@ -274,6 +274,36 @@ function AnyVal({
         setSelectedPath={setSelectedPath}
       />
     );
+  } else if (schema.type === "record") {
+    if (typeof source !== "object") {
+      return (
+        <div>
+          ERROR: expected object for {schema.type}, but found {typeof source}
+        </div>
+      );
+    }
+    if (isJsonArray(source)) {
+      return <div>ERROR: did not expect array for {schema.type}</div>;
+    }
+    if (field) {
+      <div>
+        <div className="text-left">{field || path}</div>
+        <ValRecord
+          source={source}
+          path={path}
+          schema={schema}
+          setSelectedPath={setSelectedPath}
+        />
+      </div>;
+    }
+    return (
+      <ValRecord
+        source={source}
+        path={path}
+        schema={schema}
+        setSelectedPath={setSelectedPath}
+      />
+    );
   }
 
   return (
@@ -298,23 +328,13 @@ function ValObject({
   schema,
   setSelectedPath,
 }: {
-  source: JsonObject | null;
+  source: JsonObject;
   path: SourcePath;
   schema: SerializedObjectSchema;
   setSelectedPath: (path: SourcePath | ModuleId) => void;
 }): React.ReactElement {
-  if (source === null) {
-    return (
-      <div key={path}>
-        <div className="flex items-center justify-center gap-2">
-          <span>{path}</span> <Folder size={16} />
-        </div>
-        <div>TODO: empty object</div>
-      </div>
-    );
-  }
   return (
-    <div key={path}>
+    <div key={path} className="flex flex-col gap-y-3">
       {Object.entries(schema.items).map(([key, property]) => {
         const subPath = createValPathOfItem(path, key);
         return (
@@ -331,6 +351,83 @@ function ValObject({
     </div>
   );
 }
+function ValRecord({
+  path,
+  source,
+  schema,
+  setSelectedPath,
+}: {
+  source: JsonObject;
+  path: SourcePath;
+  schema: SerializedRecordSchema;
+  setSelectedPath: (path: SourcePath | ModuleId) => void;
+}): React.ReactElement {
+  return (
+    <div key={path} className="flex flex-col gap-4 p-2">
+      {Object.entries(source).map(([key, item]) => {
+        const subPath = createValPathOfItem(path, key);
+        return (
+          <button
+            key={path}
+            onClick={() => {
+              window.history.pushState({ path: subPath }, "");
+              setSelectedPath(subPath);
+            }}
+          >
+            <ValRecordItem
+              key={subPath}
+              recordKey={key}
+              path={subPath}
+              source={item}
+              schema={schema.item}
+            />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const RECORD_ITEM_MAX_HEIGHT = 170;
+function ValRecordItem({
+  recordKey,
+  path,
+  source,
+  schema,
+}: {
+  recordKey: string;
+  source: Json | null;
+  path: SourcePath;
+  schema: SerializedSchema;
+}): React.ReactElement {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [isTruncated, setIsTruncated] = useState<boolean>(false);
+  useEffect(() => {
+    if (ref.current) {
+      const height = ref.current.getBoundingClientRect().height;
+      if (height >= RECORD_ITEM_MAX_HEIGHT) {
+        setIsTruncated(true);
+      }
+    }
+  }, []);
+  return (
+    <Card
+      ref={ref}
+      className="relative px-4 pt-2 pb-4 overflow-hidden border gap-y-2"
+      style={{
+        maxHeight: RECORD_ITEM_MAX_HEIGHT,
+      }}
+    >
+      <div className="pb-4 font-serif text-left text-accent">{recordKey}</div>
+      <div className="text-xs">
+        <ValPreview path={path} source={source} schema={schema} />
+      </div>
+      {isTruncated && (
+        <div className="absolute bottom-0 left-0 w-full h-[20px] bg-gradient-to-b from-transparent to-background"></div>
+      )}
+    </Card>
+  );
+}
 
 function ValList({
   path,
@@ -338,30 +435,15 @@ function ValList({
   schema,
   setSelectedPath,
 }: {
-  source: JsonArray | null;
+  source: JsonArray;
   path: SourcePath;
   schema: SerializedArraySchema;
   setSelectedPath: (path: SourcePath | ModuleId) => void;
 }): React.ReactElement {
-  if (source === null) {
-    return (
-      <div key={path}>
-        <div className="flex items-center justify-center gap-2">
-          <span>{path}</span> <List size={16} />
-        </div>
-        <div>TODO: empty array</div>
-      </div>
-    );
-  }
   return (
     <div key={path} className="flex flex-col gap-4 p-2">
       {source.map((item, index) => {
-        const subPath = Internal.createValPathOfItem(path, index);
-        if (!subPath) {
-          throw Error(
-            "Could not create path for index " + index + " of path " + path
-          );
-        }
+        const subPath = createValPathOfItem(path, index);
         return (
           <button
             key={path}
@@ -384,7 +466,7 @@ function ValList({
   );
 }
 
-const LIST_ITEM_MAX_HEIGHT = 170;
+const LIST_ITEM_MAX_HEIGHT = RECORD_ITEM_MAX_HEIGHT;
 function ValListItem({
   index,
   path,
@@ -506,16 +588,36 @@ function ValPreview({
       </span>
     );
   } else if (schema.type === "richtext") {
+    if (source === null) {
+      return <span className="text-accent">Empty</span>;
+    }
     return (
       <ValRichText>
         {parseRichTextSource(source as RichTextSource<AnyRichTextOptions>)}
       </ValRichText>
     );
   } else if (schema.type === "string") {
+    if (source === null) {
+      return <span className="text-accent">Empty</span>;
+    }
     return <span>{source as string}</span>;
   } else if (schema.type === "image") {
     if (source === null) {
-      return <span>TODO: empty image</span>;
+      return <span className="text-accent">Empty</span>;
+    }
+    if (typeof source !== "object") {
+      return (
+        <div className="p-4 text-destructive-foreground bg-destructive">
+          ERROR: not an object
+        </div>
+      );
+    }
+    if (!(FILE_REF_PROP in source)) {
+      return (
+        <div className="p-4 text-destructive-foreground bg-destructive">
+          ERROR: object is not an image
+        </div>
+      );
     }
     const url = Internal.convertFileSource(
       source as FileSource<ImageMetadata>
@@ -551,6 +653,21 @@ function ValPreview({
         </a>
       </span>
     );
+  } else if (schema.type === "boolean") {
+    if (source === null) {
+      return <span className="text-accent">Empty</span>;
+    }
+    return <span className="text-accent">{source ? "true" : "false"}</span>;
+  } else if (schema.type === "number") {
+    if (source === null) {
+      return <span className="text-accent">Empty</span>;
+    }
+    return <span className="text-accent">{source.toString()}</span>;
+  } else if (schema.type === "keyOf") {
+    if (source === null) {
+      return <span className="text-accent">Empty</span>;
+    }
+    return <span className="text-accent">{source.toString()}</span>;
   }
 
   return <div>TODO: {schema.type}</div>;
@@ -609,42 +726,60 @@ function ValDefaultOf({
   schema,
   setSelectedPath,
 }: {
-  source: Json | null;
+  source: Json;
   path: SourcePath;
   schema: SerializedSchema;
   setSelectedPath: (path: SourcePath | ModuleId) => void;
 }): React.ReactElement {
   if (schema.type === "array") {
-    return (
-      <ValList
-        source={
-          source as JsonArray | null // TODO
-        }
-        path={path}
-        schema={schema}
-        setSelectedPath={setSelectedPath}
-      />
-    );
+    if (
+      typeof source === "object" &&
+      (source === null || isJsonArray(source))
+    ) {
+      return (
+        <ValList
+          source={source === null ? [] : source}
+          path={path}
+          schema={schema}
+          setSelectedPath={setSelectedPath}
+        />
+      );
+    }
   } else if (schema.type === "object") {
+    if (
+      typeof source === "object" &&
+      (source === null || !isJsonArray(source))
+    ) {
+      return (
+        <ValObject
+          source={source}
+          path={path}
+          schema={schema}
+          setSelectedPath={setSelectedPath}
+        />
+      );
+    }
+  } else if (
+    schema.type === "richtext" ||
+    schema.type === "string" ||
+    schema.type === "image"
+  ) {
     return (
-      <ValObject
-        source={
-          source as JsonObject | null // TODO
-        }
+      <ValFormField
         path={path}
+        disabled={false}
+        source={source}
         schema={schema}
-        setSelectedPath={setSelectedPath}
+        registerPatchCallback={() => {}}
       />
     );
   }
+
   return (
-    <ValFormField
-      path={path}
-      disabled={false}
-      source={source}
-      schema={schema}
-      registerPatchCallback={() => {}}
-    />
+    <div className="p-4 bg-destructive text-destructive-foreground">
+      ERROR: unexpected source type {typeof source} for schema type{" "}
+      {schema.type}
+    </div>
   );
 }
 
@@ -777,16 +912,12 @@ export function ValRichText({
 
   function toReact(
     node: RichTextNode<AnyRichTextOptions>,
-    key: number | string,
-    first?: boolean | undefined
+    key: number | string
   ): React.ReactNode {
     if (typeof node === "string") {
       return node;
     }
     if (node.tag === "p") {
-      if (first) {
-        return <>{node.children.map((child, key) => toReact(child, key))}</>;
-      }
       return (
         <p className={withRenderTag("p")} key={key}>
           {node.children.map((child, key) => toReact(child, key))}
@@ -908,9 +1039,6 @@ export function ValRichText({
   return (
     <span data-val-path={root.valPath}>
       {root.children.map((child, i) => {
-        if (i === 0) {
-          return toReact(child, i, true);
-        }
         return toReact(child, i);
       })}
     </span>

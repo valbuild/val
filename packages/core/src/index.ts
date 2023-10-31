@@ -62,6 +62,12 @@ import { getSHA256Hash } from "./getSha256";
 export { ValApi } from "./ValApi";
 export type { SerializedArraySchema } from "./schema/array";
 export type { SerializedObjectSchema } from "./schema/object";
+export type { SerializedRecordSchema } from "./schema/record";
+export type { SerializedStringSchema } from "./schema/string";
+export type { SerializedNumberSchema } from "./schema/number";
+export type { SerializedBooleanSchema } from "./schema/boolean";
+export type { SerializedImageSchema } from "./schema/image";
+export type { SerializedRichTextSchema } from "./schema/richtext";
 
 export type ApiTreeResponse = {
   git: {

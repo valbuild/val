@@ -82,7 +82,7 @@ export function Grid({ children }: GridProps): React.ReactElement {
           {body1}
         </Grid.Column>
         <div
-          className="absolute inset-y-0 right-0 cursor-col-resize w-[1px] hover:w-[2px] hover:bg-border"
+          className="absolute inset-y-0 right-0 cursor-col-resize w-[1px] hover:w-[3px] h-full hover:bg-border"
           onMouseDown={handleMouseDown("left")}
         ></div>
       </div>

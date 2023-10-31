@@ -16,7 +16,6 @@ import { lexicalToRichTextSource } from "../richtext/conversion/lexicalToRichTex
 import { LexicalRootNode } from "../richtext/conversion/richTextSourceToLexical";
 import { readImage } from "../utils/readImage";
 import { Input } from "./ui/input";
-import { Label } from "./ui/label";
 
 type ImageSource = FileSource<ImageMetadata>;
 
