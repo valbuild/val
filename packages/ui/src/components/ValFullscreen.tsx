@@ -133,7 +133,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
                   setSelectedModuleId={setSelectedPath}
                 />
               ) : (
-                !error && <div>Loading...</div>
+                !error && <div className="py-4">Loading...</div>
               )}
             </ScrollArea>
 
@@ -153,7 +153,6 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
                   ERROR: {error}
                 </div>
               )}
-              {!modules && !error && <div>Loading...</div>}
               {modules &&
                 selectedPath &&
                 selectedModuleId &&
