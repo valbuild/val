@@ -1,3 +1,4 @@
+import classNames from "classnames";
 import { Children, useEffect, useRef } from "react";
 
 type GridProps = {
@@ -73,7 +74,7 @@ export function Grid({ children }: GridProps): React.ReactElement {
     <div className="flex">
       <div
         ref={leftColRef}
-        className="relative h-full h-screen border-r border-border"
+        className="relative h-screen overflow-scroll border-r border-border"
         style={{ width: 300 }}
       >
         <Grid.Column>
@@ -85,7 +86,11 @@ export function Grid({ children }: GridProps): React.ReactElement {
           onMouseDown={handleMouseDown("left")}
         ></div>
       </div>
-      <div className="flex-auto">
+      <div
+        className={classNames("h-screen overflow-scroll", {
+          "w-full": !header3 && !body3,
+        })}
+      >
         <Grid.Column>
           {header2}
           {body2}
@@ -95,7 +100,7 @@ export function Grid({ children }: GridProps): React.ReactElement {
         (body3 && (
           <div
             ref={rightColRef}
-            className="relative border-l border-border"
+            className="relative h-screen overflow-scroll border-l border-border"
             style={{ width: 300 }}
           >
             <Grid.Column>
@@ -104,7 +109,7 @@ export function Grid({ children }: GridProps): React.ReactElement {
             </Grid.Column>
             <div
               onMouseDown={handleMouseDown("right")}
-              className="absolute inset-y-0 left-0 cursor-col-resize w-[1px] bg-border hover:w-[2px] hover:bg-border"
+              className="absolute inset-y-0 left-0 cursor-col-resize w-[1px] bg-border hover:w-[3px] hover:bg-border"
             ></div>
           </div>
         ))}
@@ -119,10 +124,8 @@ type GridChildProps = {
 Grid.Column = ({ children }: GridChildProps): React.ReactElement => {
   const [header, body] = Children.toArray(children);
   return (
-    <div className="flex flex-col h-full overflow-auto">
-      <div className="h-[50px] flex items-center border-b border-border">
-        {header}
-      </div>
+    <div className="flex flex-col">
+      <div className="flex items-center border-b border-border">{header}</div>
       {body}
     </div>
   );

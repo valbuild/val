@@ -1,11 +1,14 @@
 "use client";
 import {
   AnyRichTextOptions,
+  FileSource,
+  FILE_REF_PROP,
+  ImageMetadata,
   Internal,
   ModuleId,
   RichText,
   RichTextNode,
-  RichTextOptions,
+  RichTextSource,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
@@ -22,12 +25,14 @@ import { Grid } from "./Grid";
 import { result } from "@valbuild/core/fp";
 import { Tree } from "./dashboard/Tree";
 import { ValFormField } from "./ValFormField";
-import { ChevronLeft, Folder, Image as ImageIcon, List } from "react-feather";
 import React from "react";
 import { parseRichTextSource } from "../exports";
 import { createPortal } from "react-dom";
 import Logo from "../assets/icons/Logo";
 import { ScrollArea } from "./ui/scroll-area";
+import { Switch } from "./ui/switch";
+import { Card } from "./ui/card";
+import { ChevronLeft, Folder, List } from "lucide-react";
 
 interface ValFullscreenProps {
   valApi: ValApi;
@@ -69,10 +74,27 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   }, []);
 
   useEffect(() => {
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    for (const child of Array.from(document.body.children)) {
+      if (child instanceof HTMLElement && child.id !== "val-shadow-root") {
+        child.setAttribute("data-val-overflow", child.style.overflow);
+        child.style.overflow = "hidden";
+        child.setAttribute("data-val-height", child.style.height);
+        child.style.height = "0px";
+      }
+    }
     return () => {
-      document.body.style.overflow = prevOverflow;
+      for (const child of Array.from(document.body.children)) {
+        if (child instanceof HTMLElement) {
+          if (child.getAttribute("data-val-overflow") !== null) {
+            child.style.overflow =
+              child.getAttribute("data-val-overflow") || "auto";
+          }
+          if (child.getAttribute("data-val-height") !== null) {
+            child.style.height =
+              child.getAttribute("data-val-height") || "auto";
+          }
+        }
+      }
     };
   }, []);
 
@@ -92,7 +114,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   }, []);
 
   return (
-    <div className="relative font-serif">
+    <div id="val-fullscreen-container" className="relative font-serif">
       <div id="val-fullscreen-hover" ref={hoverElemRef}></div>
       <ValFullscreenHoverContext.Provider
         value={{
@@ -101,7 +123,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
       >
         <div className="text-primary bg-background">
           <Grid>
-            <div className="px-4">
+            <div className="px-4 h-[50px] flex items-center justify-center">
               <Logo />
             </div>
             <ScrollArea className="px-4">
@@ -125,7 +147,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
               </button>
               <p>{selectedPath || "/"}</p>
             </div>
-            <ScrollArea className="px-4">
+            <div className="p-4">
               {error && (
                 <div className="text-lg text-destructive-foreground">
                   ERROR: {error}
@@ -144,7 +166,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
                     setSelectedPath={setSelectedPath}
                   />
                 )}
-            </ScrollArea>
+            </div>
           </Grid>
         </div>
       </ValFullscreenHoverContext.Provider>
@@ -213,6 +235,7 @@ function AnyVal({
         path={path}
         source={source}
         schema={schema}
+        field={field}
         setSelectedPath={setSelectedPath}
       />
     );
@@ -255,7 +278,7 @@ function AnyVal({
   }
 
   return (
-    <div>
+    <div className="py-2">
       <div className="text-left">{field || path}</div>
       <ValFormField
         path={path}
@@ -294,23 +317,16 @@ function ValObject({
   return (
     <div key={path}>
       {Object.entries(schema.items).map(([key, property]) => {
-        const subPath = Internal.createValPathOfItem(path, key);
-        if (!subPath) {
-          throw Error(
-            "Could not create path for key " + key + " of path " + path
-          );
-        }
+        const subPath = createValPathOfItem(path, key);
         return (
-          <div key={subPath} className="grid">
-            <div>{key}</div>
-            <AnyVal
-              key={subPath}
-              path={subPath}
-              source={source[key]}
-              schema={property}
-              setSelectedPath={setSelectedPath}
-            />
-          </div>
+          <AnyVal
+            key={subPath}
+            path={subPath}
+            source={source[key]}
+            schema={property}
+            setSelectedPath={setSelectedPath}
+            field={key}
+          />
         );
       })}
     </div>
@@ -339,7 +355,7 @@ function ValList({
     );
   }
   return (
-    <div key={path} className="flex flex-wrap gap-4 p-2">
+    <div key={path} className="flex flex-col gap-4 p-2">
       {source.map((item, index) => {
         const subPath = Internal.createValPathOfItem(path, index);
         if (!subPath) {
@@ -369,6 +385,7 @@ function ValList({
   );
 }
 
+const LIST_ITEM_MAX_HEIGHT = 170;
 function ValListItem({
   index,
   path,
@@ -380,23 +397,49 @@ function ValListItem({
   path: SourcePath;
   schema: SerializedSchema;
 }): React.ReactElement {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [isTruncated, setIsTruncated] = useState<boolean>(false);
+  useEffect(() => {
+    if (ref.current) {
+      const height = ref.current.getBoundingClientRect().height;
+      if (height >= LIST_ITEM_MAX_HEIGHT) {
+        setIsTruncated(true);
+      }
+    }
+  }, []);
   return (
-    <div className="relative px-4 border rounded h-[5em] max-w-[15em] overflow-hidden pb-4 pt-2">
-      <div className="absolute top-0 left-0 p-2 uppercase text-background bg-primary">
-        {index + 1}
+    <Card
+      ref={ref}
+      className="relative px-4 pt-2 pb-4 overflow-hidden border gap-y-2"
+      style={{
+        maxHeight: LIST_ITEM_MAX_HEIGHT,
+      }}
+    >
+      <div className="pb-4 font-serif text-left uppercase text-accent">
+        {index + 1 < 10 ? `0${index + 1}` : index + 1}
       </div>
-      <div className="pl-4 text-xs">
+      <div className="text-xs">
         <ValPreview path={path} source={source} schema={schema} />
       </div>
-      <div
-        className="absolute bottom-0 left-0 w-full h-[1em]"
-        style={{
-          backgroundImage:
-            "linear-gradient(to bottom, rgba(26, 26, 26, 0) 7.52%, rgb(26, 26, 26, 0.8) 83.52%)",
-        }}
-      ></div>
-    </div>
+      {isTruncated && (
+        <div className="absolute bottom-0 left-0 w-full h-[20px] bg-gradient-to-b from-transparent to-background"></div>
+      )}
+    </Card>
   );
+}
+
+function createValPathOfItem(
+  arrayPath: SourcePath | undefined,
+  prop: string | number | symbol
+) {
+  const val = Internal.createValPathOfItem(arrayPath, prop);
+  if (!val) {
+    // Should never happen
+    throw Error(
+      `Could not create val path: ${arrayPath} of ${prop?.toString()}`
+    );
+  }
+  return val;
 }
 
 function ValPreview({
@@ -407,7 +450,7 @@ function ValPreview({
   source: Json | null;
   path: SourcePath;
   schema: SerializedSchema;
-}) {
+}): React.ReactElement {
   const [isMouseOver, setIsMouseOver] = useState<{
     x: number;
     y: number;
@@ -416,55 +459,68 @@ function ValPreview({
 
   if (schema.type === "object") {
     return (
-      <div className="flex flex-col gap-1 text-left">
+      <div className="grid grid-cols-[min-content_1fr] gap-2 text-left">
         {Object.entries(schema.items).map(([key]) => {
           if (schema.items[key].type === "image")
             return (
-              <div className="flex items-center gap-1" key={key}>
-                <span>{key}:</span>
+              <>
+                <span className="text-muted">{key}:</span>
                 <span>
                   <ValPreview
-                    source={source[key]}
+                    source={(source as JsonObject)[key]}
                     schema={schema.items[key]}
-                    path={Internal.createValPathOfItem(path, key)}
+                    path={createValPathOfItem(path, key)}
                   />
                 </span>
-              </div>
+              </>
             );
           return (
-            <div className="flex gap-1" key={key}>
-              <span>{key}:</span>
+            <>
+              <span className="text-muted">{key}:</span>
               <span>
                 <ValPreview
-                  source={source[key]}
+                  source={(source as JsonObject)[key]}
                   schema={schema.items[key]}
-                  path={Internal.createValPathOfItem(path, key)}
+                  path={createValPathOfItem(path, key)}
                 />
               </span>
-            </div>
+            </>
           );
         })}
       </div>
     );
   } else if (schema.type === "array") {
-    return null;
+    if (source === null) {
+      return <span className="text-accent">Empty</span>;
+    }
+    if (Array.isArray(source)) {
+      return (
+        <span>
+          <span className="text-accent">{source.length}</span>
+          <span>{source.length === 1 ? " item" : " items"}</span>
+        </span>
+      );
+    }
+    return (
+      <span className="px-2 bg-destructive text-destructive-foreground">
+        Unknown length
+      </span>
+    );
   } else if (schema.type === "richtext") {
     return (
-      <ValRichText
-        theme={{
-          tags: {
-            p: "inline",
-          },
-          classes: {},
-        }}
-      >
-        {parseRichTextSource(source)}
+      <ValRichText>
+        {parseRichTextSource(source as RichTextSource<AnyRichTextOptions>)}
       </ValRichText>
     );
   } else if (schema.type === "string") {
-    return <span>{source}</span>;
+    return <span>{source as string}</span>;
   } else if (schema.type === "image") {
-    const url = Internal.convertFileSource(source).url;
+    if (source === null) {
+      return <span>TODO: empty image</span>;
+    }
+    const url = Internal.convertFileSource(
+      source as FileSource<ImageMetadata>
+    ).url;
     return (
       <span
         onMouseOver={(ev) => {
@@ -478,8 +534,8 @@ function ValPreview({
         }}
         className="flex items-center justify-start gap-1"
       >
-        <a href={url} className="relative underline">
-          <img className="w-[1em]" src={url}></img>
+        <a href={url} className="relative overflow-hidden underline truncate">
+          {source[FILE_REF_PROP]}
           {isMouseOver &&
             hoverElem &&
             createPortal(
@@ -506,26 +562,36 @@ function ValOptional({
   source,
   schema,
   setSelectedPath,
+  field,
 }: {
   path: SourcePath;
   source: Json;
   schema: SerializedSchema;
   setSelectedPath: (path: SourcePath | ModuleId) => void;
+  field?: string;
 }) {
   const [enable, setEnable] = useState<boolean>(source !== null);
 
   return (
-    <div>
-      <div>
-        <input
-          type="checkbox"
+    <div className="flex flex-col">
+      {field ? (
+        <div className="flex items-center justify-start gap-2">
+          <Switch
+            checked={enable}
+            onClick={() => {
+              setEnable((prev) => !prev);
+            }}
+          />
+          <span>{field}</span>
+        </div>
+      ) : (
+        <Switch
           checked={enable}
           onClick={() => {
             setEnable((prev) => !prev);
           }}
         />
-        <span>ENABLE</span>
-      </div>
+      )}
       {enable && (
         <ValDefaultOf
           source={source}
@@ -613,11 +679,10 @@ function PathTree({
   setSelectedModuleId: (path: ModuleId | SourcePath) => void;
 }): React.ReactElement {
   const tree = pathsToTree(paths);
-  console.log(tree);
   return (
     <Tree>
       {Object.entries(tree).map(([name, subTree]) => (
-        <div className="px-4" key={`/${name}`}>
+        <div className="px-4 py-2" key={`/${name}`}>
           <PathNode
             name={name}
             tree={subTree}
@@ -651,7 +716,7 @@ function PathNode({
         {name}
       </button>
       {Object.entries(tree).map(([childName, childTree]) => (
-        <div className="px-4" key={`${moduleId}/${childName}` as ModuleId}>
+        <div className="px-4 py-1" key={`${moduleId}/${childName}` as ModuleId}>
           <PathNode
             name={childName}
             tree={childTree}
