@@ -35,7 +35,7 @@ export const ShadowRoot = ({
   }, []);
 
   return (
-    <div ref={node} style={style}>
+    <div id="val-shadow-root" ref={node} style={style}>
       {root && <ShadowContent root={root}>{children}</ShadowContent>}
     </div>
   );
