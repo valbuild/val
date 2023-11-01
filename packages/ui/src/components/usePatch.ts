@@ -1,19 +1,24 @@
-import { SourcePath, Internal } from "@valbuild/core";
+import { SourcePath, Internal, ModuleId, ValApi } from "@valbuild/core";
+import { result } from "@valbuild/core/fp";
 import { PatchJSON } from "@valbuild/core/patch";
 import { useCallback, useEffect, useState } from "react";
-import { PatchCallback } from "./ValFormField";
 
-export function usePatch(path: SourcePath | null) {
-  const [state, setState] = useState<{
-    [path: SourcePath]: () => Promise<PatchJSON>;
-  }>({});
-  const initPatchCallback = useCallback((currentPath: SourcePath | null) => {
-    return (callback: PatchCallback) => {
-      // TODO: revaluate this logic when we have multiple paths
-      // NOTE: see cleanup of state in useEffect below
-      if (!currentPath) {
-        setState({});
-      } else {
+export type PatchCallback = (modulePath: string) => Promise<PatchJSON>;
+
+export type InitPatchCallback = (
+  currentPath: SourcePath
+) => (callback: PatchCallback) => void;
+
+export type PatchCallbackState = {
+  [path: SourcePath]: () => Promise<PatchJSON>;
+};
+
+export function usePatch(paths: SourcePath[], api: ValApi) {
+  const [state, setState] = useState<PatchCallbackState>({});
+
+  const initPatchCallback: InitPatchCallback = useCallback(
+    (currentPath: SourcePath) => {
+      return (callback: PatchCallback) => {
         const patchPath = Internal.createPatchJSONPath(
           Internal.splitModuleIdAndModulePath(currentPath)[1]
         );
@@ -23,16 +28,48 @@ export function usePatch(path: SourcePath | null) {
             [currentPath]: () => callback(patchPath),
           };
         });
-      }
-    };
-  }, []);
+      };
+    },
+    []
+  );
   useEffect(() => {
     setState((prev) => {
-      return Object.fromEntries(
-        Object.entries(prev).filter(([currPath]) => currPath === path)
-      );
+      const newState: PatchCallbackState = {};
+      // filter out paths that no longer are selected
+      for (const path of paths) {
+        if (prev[path]) {
+          newState[path] = prev[path];
+        }
+      }
+      if (Object.keys(newState).length === Object.keys(prev).length) {
+        // avoid infinite loops
+        return prev;
+      }
+      return newState;
     });
-  }, [path]);
+  }, [paths]);
 
-  return { initPatchCallback, state };
+  const onSubmitPatch = useCallback(async () => {
+    const patches: Record<ModuleId, PatchJSON> = {};
+    for (const path in state) {
+      const [moduleId] = Internal.splitModuleIdAndModulePath(
+        path as SourcePath
+      );
+      const patch = await state[path as SourcePath]();
+      patches[moduleId] = patch;
+    }
+    return Promise.all(
+      Object.entries(patches).map(([moduleId, patch]) =>
+        api.postPatches(moduleId as ModuleId, patch).then((res) => {
+          if (result.isErr(res)) {
+            throw res.error;
+          } else {
+            res.value;
+          }
+        })
+      )
+    ).then(() => {});
+  }, [state]);
+
+  return { initPatchCallback, onSubmitPatch };
 }
