@@ -92,12 +92,10 @@ export class ValStore {
   }
 
   getSnapshot = (moduleIds: ModuleId[]) => () => {
-    console.log("getSnapshot", moduleIds);
     return this.get(moduleIds);
   };
 
   getServerSnapshot = (moduleIds: ModuleId[]) => () => {
-    console.log("getServerSnapshot", moduleIds);
     return this.get(moduleIds);
   };
 

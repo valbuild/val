@@ -54,7 +54,6 @@ export function ValWindow({
   //
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  console.log("window", windowSize, draggedPosition, dragRef);
   return (
     <Resizable
       minConstraints={[MIN_WIDTH, MIN_HEIGHT]}

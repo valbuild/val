@@ -301,7 +301,6 @@ function useHoverTarget(editMode: EditMode) {
         // TODO: use .contains?
         do {
           if (curr?.dataset.valPath) {
-            console.log("setter target");
             setTargetElement(curr);
             setTargetPath(curr.dataset.valPath as SourcePath);
             setTargetRect(curr.getBoundingClientRect());
