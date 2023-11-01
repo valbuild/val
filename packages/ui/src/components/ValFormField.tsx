@@ -8,7 +8,6 @@ import {
   SerializedSchema,
   VAL_EXTENSION,
 } from "@valbuild/core";
-import { PatchJSON } from "@valbuild/core/patch";
 import { LexicalEditor } from "lexical";
 import { useState, useEffect, useRef } from "react";
 import { RichTextEditor } from "../exports";
@@ -16,6 +15,7 @@ import { lexicalToRichTextSource } from "../richtext/conversion/lexicalToRichTex
 import { LexicalRootNode } from "../richtext/conversion/richTextSourceToLexical";
 import { readImage } from "../utils/readImage";
 import { Input } from "./ui/input";
+import { PatchCallback } from "./usePatch";
 
 type ImageSource = FileSource<ImageMetadata>;
 
@@ -69,8 +69,6 @@ export function ValFormField({
   }
   return <div>Unsupported schema: {schema.type}</div>;
 }
-
-export type PatchCallback = (modulePath: string) => Promise<PatchJSON>;
 
 function ImageField({
   path,

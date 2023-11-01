@@ -5,7 +5,6 @@ import {
   SetStateAction,
   useCallback,
   useEffect,
-  useRef,
   useState,
 } from "react";
 import { Session } from "../dto/Session";
@@ -20,25 +19,16 @@ import { Remote } from "../utils/Remote";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
 import {
-  AnyRichTextOptions,
   FileSource,
   Internal,
-  RichTextSource,
   SerializedSchema,
   SourcePath,
-  VAL_EXTENSION,
 } from "@valbuild/core";
 import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/core";
-import { LexicalEditor } from "lexical";
-import { LexicalRootNode } from "../richtext/conversion/richTextSourceToLexical";
-import { PatchJSON } from "@valbuild/core/patch";
-import { readImage } from "../utils/readImage";
-import { lexicalToRichTextSource } from "../richtext/conversion/lexicalToRichTextSource";
 import { ValFullscreen } from "./ValFullscreen";
-import { RichTextEditor } from "../components/RichTextEditor/RichTextEditor";
 import { ValFormField } from "./ValFormField";
-import { usePatch } from "./usePatch";
+import { PatchCallbackState, usePatch } from "./usePatch";
 import { Button } from "./ui/button";
 
 export type ValOverlayProps = {
@@ -65,11 +55,12 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
     windowTarget?.path
   );
 
-  const { initPatchCallback, state } = usePatch(windowTarget?.path ?? null);
+  const { initPatchCallback, onSubmitPatch } = usePatch(
+    windowTarget?.path ? [windowTarget.path] : [],
+    api
+  );
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
-
-  console.log(windowTarget?.path, editMode);
 
   return (
     <ValOverlayContext.Provider
@@ -128,32 +119,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
               />
             )}
             <div className="flex items-end justify-end py-2">
-              <SubmitButton
-                disabled={false}
-                onClick={() => {
-                  if (state[windowTarget.path]) {
-                    const [moduleId] = Internal.splitModuleIdAndModulePath(
-                      windowTarget.path
-                    );
-                    const res = state[windowTarget.path]();
-                    if (res) {
-                      res
-                        .then((patch) => {
-                          console.log("Submitting", patch);
-                          return api.postPatches(moduleId, patch);
-                        })
-                        .then((res) => {
-                          console.log(res);
-                        })
-                        .finally(() => {
-                          console.log("done");
-                        });
-                    } else {
-                      console.error("No patch");
-                    }
-                  }
-                }}
-              />
+              <SubmitButton disabled={false} onClick={onSubmitPatch} />
             </div>
           </ValWindow>
         )}
