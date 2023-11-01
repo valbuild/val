@@ -13,7 +13,6 @@ export function resolvePath(sourcePath: SourcePath, modules: Modules) {
   const [moduleId, modulePath] =
     Internal.splitModuleIdAndModulePath(sourcePath);
   const valModule = modules[moduleId];
-  console.log("resolvePath", sourcePath, moduleId, modulePath, modules);
   if (!valModule?.source) {
     return result.err({
       message: `Module "${moduleId}" has no source`,

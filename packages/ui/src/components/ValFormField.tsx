@@ -166,7 +166,6 @@ function RichTextField({
             } as RichTextSource<AnyRichTextOptions> & {
               files: Record<string, string>;
             });
-        console.log("->", editor?.toJSON());
         return [
           {
             op: "replace" as const,
