@@ -12,6 +12,7 @@ import {
   SerializedRecordSchema,
   SerializedSchema,
   SourcePath,
+  VAL_EXTENSION,
 } from "@valbuild/core";
 import {
   SerializedArraySchema,
@@ -548,7 +549,7 @@ function ValPreview({
                 <span className="text-muted">{key}:</span>
                 <span>
                   <ValPreview
-                    source={(source as JsonObject)[key]}
+                    source={(source as JsonObject)?.[key]}
                     schema={schema.items[key]}
                     path={createValPathOfItem(path, key)}
                   />
@@ -560,7 +561,7 @@ function ValPreview({
               <span className="text-muted">{key}:</span>
               <span>
                 <ValPreview
-                  source={(source as JsonObject)[key]}
+                  source={(source as JsonObject)?.[key]}
                   schema={schema.items[key]}
                   path={createValPathOfItem(path, key)}
                 />
@@ -591,6 +592,20 @@ function ValPreview({
     if (source === null) {
       return <span className="text-accent">Empty</span>;
     }
+    if (typeof source !== "object") {
+      return (
+        <div className="p-4 text-destructive-foreground bg-destructive">
+          ERROR: not an object
+        </div>
+      );
+    }
+    if (!(VAL_EXTENSION in source) || source[VAL_EXTENSION] !== "richtext") {
+      return (
+        <div className="p-4 text-destructive-foreground bg-destructive">
+          ERROR: object is not richtext
+        </div>
+      );
+    }
     return (
       <ValRichText>
         {parseRichTextSource(source as RichTextSource<AnyRichTextOptions>)}
@@ -612,7 +627,10 @@ function ValPreview({
         </div>
       );
     }
-    if (!(FILE_REF_PROP in source)) {
+    if (
+      !(FILE_REF_PROP in source) ||
+      typeof source[FILE_REF_PROP] !== "string"
+    ) {
       return (
         <div className="p-4 text-destructive-foreground bg-destructive">
           ERROR: object is not an image
@@ -633,24 +651,24 @@ function ValPreview({
         onMouseLeave={() => {
           setIsMouseOver(null);
         }}
-        className="flex items-center justify-start gap-1"
+        className="relative flex items-center justify-start gap-1"
       >
-        <a href={url} className="relative overflow-hidden underline truncate">
+        <a href={url} className="overflow-hidden underline truncate ">
           {source[FILE_REF_PROP]}
-          {isMouseOver &&
-            hoverElem &&
-            createPortal(
-              <img
-                className="absolute z-[5] max-w-[10vw]"
-                style={{
-                  left: isMouseOver.x + 10,
-                  top: isMouseOver.y + 10,
-                }}
-                src={url}
-              ></img>,
-              hoverElem
-            )}
         </a>
+        {isMouseOver &&
+          hoverElem &&
+          createPortal(
+            <img
+              className="absolute z-[5] max-w-[10vw]"
+              style={{
+                left: isMouseOver.x + 10,
+                top: isMouseOver.y + 10,
+              }}
+              src={url}
+            ></img>,
+            hoverElem
+          )}
       </span>
     );
   } else if (schema.type === "boolean") {
