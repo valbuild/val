@@ -34,13 +34,17 @@ import Logo from "../assets/icons/Logo";
 import { ScrollArea } from "./ui/scroll-area";
 import { Switch } from "./ui/switch";
 import { Card } from "./ui/card";
-import { ChevronLeft, Folder, List } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
+import { ValOverlayContext } from "./ValOverlayContext";
+import { useNavigate, useParams } from "react-router";
+import { useTheme } from "./useTheme";
 
 interface ValFullscreenProps {
   valApi: ValApi;
 }
 export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { "*": pathFromParams } = useParams();
   const [modules, setModules] = useState<Record<
     ModuleId,
     {
@@ -62,6 +66,13 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   const moduleSource = selectedModuleId && modules?.[selectedModuleId]?.source;
   const moduleSchema = selectedModuleId && modules?.[selectedModuleId]?.schema;
 
+  //
+  useEffect(() => {
+    setSelectedPath(
+      pathFromParams ? (`/${pathFromParams}` as ModuleId) : selectedPath
+    );
+  }, [pathFromParams]);
+
   useEffect(() => {
     valApi
       .getModules({ patch: true, includeSchema: true, includeSource: true })
@@ -75,102 +86,87 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
       });
   }, []);
 
-  useEffect(() => {
-    for (const child of Array.from(document.body.children)) {
-      if (child instanceof HTMLElement && child.id !== "val-shadow-root") {
-        child.setAttribute("data-val-overflow", child.style.overflow);
-        child.style.overflow = "hidden";
-        child.setAttribute("data-val-height", child.style.height);
-        child.style.height = "0px";
-      }
-    }
-    return () => {
-      for (const child of Array.from(document.body.children)) {
-        if (child instanceof HTMLElement) {
-          if (child.getAttribute("data-val-overflow") !== null) {
-            child.style.overflow =
-              child.getAttribute("data-val-overflow") || "auto";
-          }
-          if (child.getAttribute("data-val-height") !== null) {
-            child.style.height =
-              child.getAttribute("data-val-height") || "auto";
-          }
-        }
-      }
-    };
-  }, []);
+  const navigate = useNavigate();
+  const [theme, setTheme] = useTheme();
 
   const hoverElemRef = React.useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    const popStateListener = (ev: PopStateEvent) => {
-      console.log(JSON.stringify(ev.state));
-      if (ev.state?.path) {
-        setSelectedPath(ev.state.path);
-      }
-    };
-    window.addEventListener("popstate", popStateListener);
-    return () => {
-      window.removeEventListener("popstate", popStateListener);
-    };
-  }, []);
-
   return (
-    <div id="val-fullscreen-container" className="relative font-serif">
-      <div id="val-fullscreen-hover" ref={hoverElemRef}></div>
-      <ValFullscreenHoverContext.Provider
-        value={{
-          hoverElem: hoverElemRef?.current,
-        }}
+    <ValOverlayContext.Provider
+      value={{
+        theme,
+        setTheme,
+        api: valApi,
+        editMode: "full",
+        session: { status: "not-asked" },
+        highlight: false,
+        setHighlight: () => {},
+        setEditMode: () => {},
+        setWindowSize: () => {},
+      }}
+    >
+      <div
+        id="val-fullscreen-container"
+        className="relative font-serif antialiased"
+        data-mode={theme}
       >
-        <div className="text-primary bg-background">
-          <Grid>
-            <div className="px-4 h-[50px] flex items-center justify-center">
-              <Logo />
-            </div>
-            <ScrollArea className="px-4">
-              {modules ? (
-                <PathTree
-                  paths={Object.keys(modules)}
-                  setSelectedModuleId={setSelectedPath}
-                />
-              ) : (
-                !error && <div className="py-4">Loading...</div>
-              )}
-            </ScrollArea>
-            <div className="flex items-center justify-start w-full h-[50px] gap-2 font-serif text-xs">
-              <button
-                onClick={() => {
-                  history.back();
-                }}
-              >
-                <ChevronLeft />
-              </button>
-              <p>{selectedPath || "/"}</p>
-            </div>
-            <div className="p-4">
-              {error && (
-                <div className="text-lg text-destructive-foreground">
-                  ERROR: {error}
-                </div>
-              )}
-              {modules &&
-                selectedPath &&
-                selectedModuleId &&
-                moduleSource !== undefined &&
-                moduleSchema !== undefined && (
-                  <ValModule
-                    path={selectedPath}
-                    source={moduleSource}
-                    schema={moduleSchema}
-                    setSelectedPath={setSelectedPath}
+        <div id="val-fullscreen-hover" ref={hoverElemRef}></div>
+        <ValFullscreenHoverContext.Provider
+          value={{
+            hoverElem: hoverElemRef?.current,
+          }}
+        >
+          <div className="text-primary bg-background">
+            <Grid>
+              <div className="px-4 h-[50px] flex items-center justify-center">
+                <Logo />
+              </div>
+              <ScrollArea className="px-4">
+                {modules ? (
+                  <PathTree
+                    paths={Object.keys(modules)}
+                    setSelectedModuleId={(path) => {
+                      navigate(path);
+                    }}
                   />
+                ) : (
+                  !error && <div className="py-4">Loading...</div>
                 )}
-            </div>
-          </Grid>
-        </div>
-      </ValFullscreenHoverContext.Provider>
-    </div>
+              </ScrollArea>
+              <div className="flex items-center justify-start w-full h-[50px] gap-2 font-serif text-xs">
+                <button
+                  onClick={() => {
+                    history.back();
+                  }}
+                >
+                  <ChevronLeft />
+                </button>
+                <p>{selectedPath || "/"}</p>
+              </div>
+              <div className="p-4">
+                {error && (
+                  <div className="text-lg text-destructive-foreground">
+                    ERROR: {error}
+                  </div>
+                )}
+                {modules &&
+                  selectedPath &&
+                  selectedModuleId &&
+                  moduleSource !== undefined &&
+                  moduleSchema !== undefined && (
+                    <ValModule
+                      path={selectedPath}
+                      source={moduleSource}
+                      schema={moduleSchema}
+                      setSelectedPath={setSelectedPath}
+                    />
+                  )}
+              </div>
+            </Grid>
+          </div>
+        </ValFullscreenHoverContext.Provider>
+      </div>
+    </ValOverlayContext.Provider>
   );
 };
 
@@ -363,6 +359,7 @@ function ValRecord({
   schema: SerializedRecordSchema;
   setSelectedPath: (path: SourcePath | ModuleId) => void;
 }): React.ReactElement {
+  const navigate = useNavigate();
   return (
     <div key={path} className="flex flex-col gap-4 p-2">
       {Object.entries(source).map(([key, item]) => {
@@ -371,8 +368,8 @@ function ValRecord({
           <button
             key={path}
             onClick={() => {
-              window.history.pushState({ path: subPath }, "");
               setSelectedPath(subPath);
+              navigate(subPath);
             }}
           >
             <ValRecordItem
@@ -441,6 +438,7 @@ function ValList({
   schema: SerializedArraySchema;
   setSelectedPath: (path: SourcePath | ModuleId) => void;
 }): React.ReactElement {
+  const navigate = useNavigate();
   return (
     <div key={path} className="flex flex-col gap-4 p-2">
       {source.map((item, index) => {
@@ -449,8 +447,8 @@ function ValList({
           <button
             key={path}
             onClick={() => {
-              window.history.pushState({ path: subPath }, "");
               setSelectedPath(subPath);
+              navigate(subPath);
             }}
           >
             <ValListItem
@@ -770,7 +768,7 @@ function ValDefaultOf({
     ) {
       return (
         <ValObject
-          source={source}
+          source={source as JsonObject}
           path={path}
           schema={schema}
           setSelectedPath={setSelectedPath}
@@ -788,7 +786,9 @@ function ValDefaultOf({
         disabled={false}
         source={source}
         schema={schema}
-        registerPatchCallback={() => {}}
+        registerPatchCallback={() => {
+          //
+        }}
       />
     );
   }

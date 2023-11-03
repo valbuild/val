@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  base: "/api/val/static",
   plugins: [react()],
   resolve: {
     alias: {
@@ -35,5 +36,8 @@ export default defineConfig({
     rollupOptions: {
       external: ["react", "react/jsx-runtime", "react/jsx-dev-runtime"],
     },
+  },
+  optimizeDeps: {
+    include: ["react/jsx-runtime", "react/jsx-dev-runtime"],
   },
 });
