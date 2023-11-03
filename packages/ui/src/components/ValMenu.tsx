@@ -38,6 +38,7 @@ export function ValMenu({ api }: { api: ValApi }) {
           {theme === "light" && <Moon size={15} />}
         </div>
       </MenuButton>
+
       <MenuButton
         active={editMode === "full"}
         onClick={() => {

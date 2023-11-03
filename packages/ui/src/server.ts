@@ -24,6 +24,7 @@ export function createRequestHandler(): RequestHandler {
 
       return vite;
     })();
+    let viteR: any;
     return async (req, res, next) => {
       if (req.url === "/style.css") {
         const styleModule = await (await vite).ssrLoadModule("./src/index.css");
@@ -31,8 +32,38 @@ export function createRequestHandler(): RequestHandler {
         res.statusCode = 200;
         res.setHeader("Content-Type", "text/css");
         return res.end(style);
+      } else if (req.url.startsWith("/edit")) {
+        const html = (await vite).transformIndexHtml(
+          req.url,
+          `
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite + React</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+`
+        );
+        return res.end(await html);
       } else {
-        return next();
+        if (!viteR) viteR = await vite;
+        // TODO: error handling
+        try {
+          const { code, etag } = await viteR.transformRequest(req.url);
+          return res
+            .header({ "Content-Type": "application/javascript", Etag: etag })
+            .end(code);
+        } catch (e) {
+          viteR.ssrFixStacktrace(e);
+          return next(e);
+        }
       }
     };
   } else {
