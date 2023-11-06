@@ -22,11 +22,11 @@ import {
   JsonObject,
 } from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
-import { FC, useEffect, useState } from "react";
+import { FC, useCallback, useEffect, useState } from "react";
 import { Grid } from "./Grid";
 import { result } from "@valbuild/core/fp";
 import { Tree } from "./dashboard/Tree";
-import { ValFormField } from "./ValFormField";
+import { OnSubmit, ValFormField } from "./ValFormField";
 import React from "react";
 import { parseRichTextSource } from "../exports";
 import { createPortal } from "react-dom";
@@ -42,6 +42,8 @@ import { useTheme } from "./useTheme";
 interface ValFullscreenProps {
   valApi: ValApi;
 }
+
+type InitOnSubmit = (path: SourcePath) => OnSubmit;
 export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { "*": pathFromParams } = useParams();
@@ -73,7 +75,33 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
     );
   }, [pathFromParams]);
 
+  const [hmrHash, setHmrHash] = useState(null);
   useEffect(() => {
+    try {
+      // use websocket to update modules
+      const hot = new WebSocket(
+        `${window.location.origin.replace(
+          "http://",
+          "ws://"
+        )}/_next/webpack-hmr`
+      );
+      hot.addEventListener("message", (e) => {
+        let data;
+        try {
+          data = JSON.parse(e.data);
+        } catch (err) {
+          console.error("Failed to parse HMR");
+        }
+        if (typeof data?.hash === "string" && data?.action === "built") {
+          setHmrHash(data.hash);
+        }
+      });
+    } catch (err) {
+      // could not set up dev mode
+    }
+  }, []);
+  useEffect(() => {
+    console.log("(Re)-fetching modules");
     valApi
       .getModules({ patch: true, includeSchema: true, includeSource: true })
       .then((res) => {
@@ -84,7 +112,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
           console.error(res.error);
         }
       });
-  }, []);
+  }, [hmrHash]);
 
   const navigate = useNavigate();
   const [theme, setTheme] = useTheme();
@@ -103,6 +131,44 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
 
   const hoverElemRef = React.useRef<HTMLDivElement | null>(null);
 
+  const initOnSubmit: InitOnSubmit = useCallback(
+    (path) => async (callback) => {
+      const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
+      const patch = await callback(Internal.createPatchJSONPath(modulePath));
+      return valApi
+        .postPatches(moduleId, patch)
+        .then((res) => {
+          if (result.isErr(res)) {
+            throw res.error;
+          } else {
+            console.log("submitted", patch);
+            // TODO: we need to revisit this a bit, HMR might not be the best solution here
+            if (!hmrHash) {
+              // TODO: we should only refresh the module that was updated
+              return valApi
+                .getModules({
+                  patch: true,
+                  includeSchema: true,
+                  includeSource: true,
+                })
+                .then((res) => {
+                  if (result.isOk(res)) {
+                    setModules(res.value.modules);
+                  } else {
+                    setError("Could not load modules: " + res.error.message);
+                    console.error(res.error);
+                  }
+                });
+            }
+          }
+        })
+        .catch((e) => {
+          console.error(e);
+        });
+    },
+    []
+  );
+
   return (
     <ValOverlayContext.Provider
       value={{
@@ -112,9 +178,15 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
         editMode: "full",
         session: { status: "not-asked" },
         highlight: false,
-        setHighlight: () => {},
-        setEditMode: () => {},
-        setWindowSize: () => {},
+        setHighlight: () => {
+          //
+        },
+        setEditMode: () => {
+          //
+        },
+        setWindowSize: () => {
+          //
+        },
       }}
     >
       <div
@@ -171,6 +243,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
                       source={moduleSource}
                       schema={moduleSchema}
                       setSelectedPath={setSelectedPath}
+                      initOnSubmit={initOnSubmit}
                     />
                   )}
               </div>
@@ -197,11 +270,13 @@ function ValModule({
   source: moduleSource,
   schema: moduleSchema,
   setSelectedPath,
+  initOnSubmit,
 }: {
   path: SourcePath | ModuleId;
   source: Json;
   schema: SerializedSchema;
   setSelectedPath: (path: SourcePath | ModuleId) => void;
+  initOnSubmit: InitOnSubmit;
 }): React.ReactElement {
   const [, modulePath] = Internal.splitModuleIdAndModulePath(
     path as SourcePath
@@ -220,6 +295,7 @@ function ValModule({
       source={resolvedPath.source}
       schema={resolvedPath.schema as SerializedSchema}
       setSelectedPath={setSelectedPath}
+      initOnSubmit={initOnSubmit}
     />
   );
 }
@@ -230,12 +306,14 @@ function AnyVal({
   schema,
   setSelectedPath,
   field,
+  initOnSubmit,
 }: {
   path: SourcePath;
   source: Json;
   schema: SerializedSchema;
   setSelectedPath: (path: SourcePath | ModuleId) => void;
   field?: string;
+  initOnSubmit: InitOnSubmit;
 }): React.ReactElement {
   if (source === null || schema.opt) {
     return (
@@ -244,6 +322,7 @@ function AnyVal({
         source={source}
         schema={schema}
         field={field}
+        initOnSubmit={initOnSubmit}
         setSelectedPath={setSelectedPath}
       />
     );
@@ -257,6 +336,7 @@ function AnyVal({
         source={source}
         path={path}
         schema={schema}
+        initOnSubmit={initOnSubmit}
         setSelectedPath={setSelectedPath}
       />
     );
@@ -323,9 +403,7 @@ function AnyVal({
         disabled={false}
         source={source}
         schema={schema}
-        registerPatchCallback={() => {
-          // TODO
-        }}
+        onSubmit={initOnSubmit(path)}
       />
     </div>
   );
@@ -336,11 +414,13 @@ function ValObject({
   source,
   schema,
   setSelectedPath,
+  initOnSubmit,
 }: {
   source: JsonObject;
   path: SourcePath;
   schema: SerializedObjectSchema;
   setSelectedPath: (path: SourcePath | ModuleId) => void;
+  initOnSubmit: InitOnSubmit;
 }): React.ReactElement {
   return (
     <div
@@ -357,6 +437,7 @@ function ValObject({
             schema={property}
             setSelectedPath={setSelectedPath}
             field={key}
+            initOnSubmit={initOnSubmit}
           />
         );
       })}
@@ -757,12 +838,14 @@ function ValOptional({
   source,
   schema,
   setSelectedPath,
+  initOnSubmit,
   field,
 }: {
   path: SourcePath;
   source: Json;
   schema: SerializedSchema;
   setSelectedPath: (path: SourcePath | ModuleId) => void;
+  initOnSubmit: InitOnSubmit;
   field?: string;
 }) {
   const [enable, setEnable] = useState<boolean>(source !== null);
@@ -793,6 +876,7 @@ function ValOptional({
           schema={schema}
           path={path}
           setSelectedPath={setSelectedPath}
+          initOnSubmit={initOnSubmit}
         />
       )}
     </div>
@@ -804,11 +888,13 @@ function ValDefaultOf({
   path,
   schema,
   setSelectedPath,
+  initOnSubmit,
 }: {
   source: Json;
   path: SourcePath;
   schema: SerializedSchema;
   setSelectedPath: (path: SourcePath | ModuleId) => void;
+  initOnSubmit: InitOnSubmit;
 }): React.ReactElement {
   if (schema.type === "array") {
     if (
@@ -835,6 +921,7 @@ function ValDefaultOf({
           path={path}
           schema={schema}
           setSelectedPath={setSelectedPath}
+          initOnSubmit={initOnSubmit}
         />
       );
     }
@@ -845,13 +932,12 @@ function ValDefaultOf({
   ) {
     return (
       <ValFormField
+        key={path}
         path={path}
         disabled={false}
         source={source}
         schema={schema}
-        registerPatchCallback={() => {
-          //
-        }}
+        onSubmit={initOnSubmit(path)}
       />
     );
   }
