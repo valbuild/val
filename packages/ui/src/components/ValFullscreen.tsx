@@ -89,6 +89,18 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   const navigate = useNavigate();
   const [theme, setTheme] = useTheme();
 
+  useEffect(() => {
+    const popStateListener = (event: PopStateEvent) => {
+      console.log("popstate", event);
+    };
+
+    window.addEventListener("popstate", popStateListener);
+
+    return () => {
+      window.removeEventListener("popstate", popStateListener);
+    };
+  }, []);
+
   const hoverElemRef = React.useRef<HTMLDivElement | null>(null);
 
   return (
@@ -304,7 +316,7 @@ function AnyVal({
   }
 
   return (
-    <div className="py-2">
+    <div className="py-2 gap-y-4">
       <div className="text-left">{field || path}</div>
       <ValFormField
         path={path}
@@ -331,7 +343,10 @@ function ValObject({
   setSelectedPath: (path: SourcePath | ModuleId) => void;
 }): React.ReactElement {
   return (
-    <div key={path} className="flex flex-col gap-y-3">
+    <div
+      key={path}
+      className="flex flex-col pl-6 border-l-2 gap-y-8 border-border"
+    >
       {Object.entries(schema.items).map(([key, property]) => {
         const subPath = createValPathOfItem(path, key);
         return (
@@ -410,6 +425,7 @@ function ValRecordItem({
   }, []);
   return (
     <Card
+      key={path}
       ref={ref}
       className="relative px-4 pt-2 pb-4 overflow-hidden border gap-y-2"
       style={{
@@ -445,7 +461,7 @@ function ValList({
         const subPath = createValPathOfItem(path, index);
         return (
           <button
-            key={path}
+            key={subPath}
             onClick={() => {
               setSelectedPath(subPath);
               navigate(subPath);
@@ -539,25 +555,20 @@ function ValPreview({
 
   if (schema.type === "object") {
     return (
-      <div className="grid grid-cols-[min-content_1fr] gap-2 text-left">
+      <div
+        key={path}
+        className="grid grid-cols-[min-content_1fr] gap-2 text-left"
+      >
         {Object.entries(schema.items).map(([key]) => {
-          if (schema.items[key].type === "image")
-            return (
-              <>
-                <span className="text-muted">{key}:</span>
-                <span>
-                  <ValPreview
-                    source={(source as JsonObject)?.[key]}
-                    schema={schema.items[key]}
-                    path={createValPathOfItem(path, key)}
-                  />
-                </span>
-              </>
-            );
           return (
             <>
-              <span className="text-muted">{key}:</span>
-              <span>
+              <span
+                className="text-muted"
+                key={`key-${createValPathOfItem(path, key)}`}
+              >
+                {key}:
+              </span>
+              <span key={createValPathOfItem(path, key)}>
                 <ValPreview
                   source={(source as JsonObject)?.[key]}
                   schema={schema.items[key]}
@@ -571,56 +582,84 @@ function ValPreview({
     );
   } else if (schema.type === "array") {
     if (source === null) {
-      return <span className="text-accent">Empty</span>;
+      return (
+        <span key={path} className="text-accent">
+          Empty
+        </span>
+      );
     }
     if (Array.isArray(source)) {
       return (
-        <span>
+        <span key={path}>
           <span className="text-accent">{source.length}</span>
           <span>{source.length === 1 ? " item" : " items"}</span>
         </span>
       );
     }
     return (
-      <span className="px-2 bg-destructive text-destructive-foreground">
+      <span
+        key={path}
+        className="px-2 bg-destructive text-destructive-foreground"
+      >
         Unknown length
       </span>
     );
   } else if (schema.type === "richtext") {
     if (source === null) {
-      return <span className="text-accent">Empty</span>;
+      return (
+        <span key={path} className="text-accent">
+          Empty
+        </span>
+      );
     }
     if (typeof source !== "object") {
       return (
-        <div className="p-4 text-destructive-foreground bg-destructive">
+        <div
+          key={path}
+          className="p-4 text-destructive-foreground bg-destructive"
+        >
           ERROR: not an object
         </div>
       );
     }
     if (!(VAL_EXTENSION in source) || source[VAL_EXTENSION] !== "richtext") {
       return (
-        <div className="p-4 text-destructive-foreground bg-destructive">
+        <div
+          key={path}
+          className="p-4 text-destructive-foreground bg-destructive"
+        >
           ERROR: object is not richtext
         </div>
       );
     }
     return (
-      <ValRichText>
+      <ValRichText key={path}>
         {parseRichTextSource(source as RichTextSource<AnyRichTextOptions>)}
       </ValRichText>
     );
   } else if (schema.type === "string") {
     if (source === null) {
-      return <span className="text-accent">Empty</span>;
+      return (
+        <span key={path} className="text-accent">
+          Empty
+        </span>
+      );
     }
     return <span>{source as string}</span>;
   } else if (schema.type === "image") {
     if (source === null) {
-      return <span className="text-accent">Empty</span>;
+      return (
+        <span key={path} className="text-accent">
+          Empty
+        </span>
+      );
     }
     if (typeof source !== "object") {
       return (
-        <div className="p-4 text-destructive-foreground bg-destructive">
+        <div
+          key={path}
+          className="p-4 text-destructive-foreground bg-destructive"
+        >
           ERROR: not an object
         </div>
       );
@@ -630,7 +669,10 @@ function ValPreview({
       typeof source[FILE_REF_PROP] !== "string"
     ) {
       return (
-        <div className="p-4 text-destructive-foreground bg-destructive">
+        <div
+          key={path}
+          className="p-4 text-destructive-foreground bg-destructive"
+        >
           ERROR: object is not an image
         </div>
       );
@@ -640,6 +682,7 @@ function ValPreview({
     ).url;
     return (
       <span
+        key={path}
         onMouseOver={(ev) => {
           setIsMouseOver({
             x: ev.clientX,
@@ -671,22 +714,42 @@ function ValPreview({
     );
   } else if (schema.type === "boolean") {
     if (source === null) {
-      return <span className="text-accent">Empty</span>;
+      return (
+        <span key={path} className="text-accent">
+          Empty
+        </span>
+      );
     }
-    return <span className="text-accent">{source ? "true" : "false"}</span>;
+    return (
+      <span key={path} className="text-accent">
+        {source ? "true" : "false"}
+      </span>
+    );
   } else if (schema.type === "number") {
     if (source === null) {
-      return <span className="text-accent">Empty</span>;
+      return (
+        <span key={path} className="text-accent">
+          Empty
+        </span>
+      );
     }
     return <span className="text-accent">{source.toString()}</span>;
   } else if (schema.type === "keyOf") {
     if (source === null) {
-      return <span className="text-accent">Empty</span>;
+      return (
+        <span key={path} className="text-accent">
+          Empty
+        </span>
+      );
     }
-    return <span className="text-accent">{source.toString()}</span>;
+    return (
+      <span key={path} className="text-accent">
+        {source.toString()}
+      </span>
+    );
   }
 
-  return <div>TODO: {schema.type}</div>;
+  return <div key={path}>TODO: {schema.type}</div>;
 }
 
 function ValOptional({
@@ -705,9 +768,9 @@ function ValOptional({
   const [enable, setEnable] = useState<boolean>(source !== null);
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col gap-y-6" key={path}>
       {field ? (
-        <div className="flex items-center justify-start gap-2">
+        <div className="flex items-center justify-start gap-x-4">
           <Switch
             checked={enable}
             onClick={() => {
