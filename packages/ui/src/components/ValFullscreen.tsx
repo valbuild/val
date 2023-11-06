@@ -22,7 +22,7 @@ import {
   JsonObject,
 } from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
-import { FC, useCallback, useEffect, useState } from "react";
+import { FC, Fragment, useCallback, useEffect, useState } from "react";
 import { Grid } from "./Grid";
 import { result } from "@valbuild/core/fp";
 import { Tree } from "./dashboard/Tree";
@@ -642,21 +642,16 @@ function ValPreview({
       >
         {Object.entries(schema.items).map(([key]) => {
           return (
-            <>
-              <span
-                className="text-muted"
-                key={`key-${createValPathOfItem(path, key)}`}
-              >
-                {key}:
-              </span>
-              <span key={createValPathOfItem(path, key)}>
+            <Fragment key={createValPathOfItem(path, key)}>
+              <span className="text-muted">{key}:</span>
+              <span>
                 <ValPreview
                   source={(source as JsonObject)?.[key]}
                   schema={schema.items[key]}
                   path={createValPathOfItem(path, key)}
                 />
               </span>
-            </>
+            </Fragment>
           );
         })}
       </div>
