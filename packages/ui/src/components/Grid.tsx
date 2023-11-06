@@ -1,5 +1,6 @@
 import classNames from "classnames";
 import { Children, useEffect, useRef } from "react";
+import { ScrollArea } from "./ui/scroll-area";
 
 type GridProps = {
   children: React.ReactNode | React.ReactNode[];
@@ -71,15 +72,17 @@ export function Grid({ children }: GridProps): React.ReactElement {
   }, []);
 
   return (
-    <div className="flex">
+    <div className="flex h-screen">
       <div
         ref={leftColRef}
-        className="relative h-screen overflow-scroll border-r border-border"
+        className="relative border-r border-border"
         style={{ width: 300 }}
       >
         <Grid.Column>
           {header1}
-          {body1}
+          <ScrollArea style={{ height: "calc(100vh - 50px)" }}>
+            {body1}
+          </ScrollArea>
         </Grid.Column>
         <div
           className="absolute inset-y-0 right-0 cursor-col-resize w-[1px] hover:w-[3px] h-full hover:bg-border"
@@ -87,25 +90,29 @@ export function Grid({ children }: GridProps): React.ReactElement {
         ></div>
       </div>
       <div
-        className={classNames("h-screen overflow-scroll", {
+        className={classNames("", {
           "w-full": !header3 && !body3,
         })}
       >
         <Grid.Column>
           {header2}
-          {body2}
+          <ScrollArea style={{ height: "calc(100vh - 50px)" }}>
+            {body2}
+          </ScrollArea>
         </Grid.Column>
       </div>
       {header3 ||
         (body3 && (
           <div
             ref={rightColRef}
-            className="relative h-screen overflow-scroll border-l border-border"
+            className="relative h-screen border-l border-border"
             style={{ width: 300 }}
           >
             <Grid.Column>
               {header3}
-              {body3}
+              <ScrollArea style={{ height: "calc(100vh - 50px)" }}>
+                {body3}
+              </ScrollArea>
             </Grid.Column>
             <div
               onMouseDown={handleMouseDown("right")}
