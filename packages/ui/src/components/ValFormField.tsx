@@ -114,7 +114,7 @@ function ImageField({
   }, [data]);
 
   return (
-    <div>
+    <div className="max-w-4xl p-4">
       <label htmlFor={`img_input:${path}`} className="">
         {data || url ? <img src={data || url} /> : <div>Empty</div>}
         <input
@@ -188,18 +188,20 @@ function RichTextField({
     }
   }, [editor]);
   return (
-    <RichTextEditor
-      onEditor={(editor) => {
-        setEditor(editor);
-      }}
-      richtext={
-        defaultValue ||
-        ({
-          children: [],
-          [VAL_EXTENSION]: "root",
-        } as unknown as RichTextSource<AnyRichTextOptions>)
-      }
-    />
+    <div className="p-4 border rounded border-card">
+      <RichTextEditor
+        onEditor={(editor) => {
+          setEditor(editor);
+        }}
+        richtext={
+          defaultValue ||
+          ({
+            children: [],
+            [VAL_EXTENSION]: "root",
+          } as unknown as RichTextSource<AnyRichTextOptions>)
+        }
+      />
+    </div>
   );
 }
 
@@ -230,7 +232,7 @@ function StringField({
   }, []);
 
   return (
-    <div className="flex flex-col justify-between h-full p-4">
+    <div className="flex flex-col justify-between h-full">
       <Input
         ref={ref}
         disabled={disabled}
