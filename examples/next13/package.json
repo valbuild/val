@@ -13,7 +13,7 @@
     "@preconstruct/next": "^4.0.0",
     "@valbuild/next": "*",
     "@valbuild/cli": "*",
-    "next": "^13.4.5",
+    "next": "^13.5.4",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "styled-jsx": "^5.1.2"
