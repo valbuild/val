@@ -8,16 +8,19 @@ import {
   SerializedSchema,
   VAL_EXTENSION,
 } from "@valbuild/core";
+import type { PatchJSON } from "@valbuild/core/patch";
 import { LexicalEditor } from "lexical";
 import { useState, useEffect, useRef } from "react";
 import { RichTextEditor } from "../exports";
 import { lexicalToRichTextSource } from "../richtext/conversion/lexicalToRichTextSource";
 import { LexicalRootNode } from "../richtext/conversion/richTextSourceToLexical";
 import { readImage } from "../utils/readImage";
+import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { PatchCallback } from "./usePatch";
 
 type ImageSource = FileSource<ImageMetadata>;
+export type OnSubmit = (callback: PatchCallback) => Promise<void>;
 
 export function ValFormField({
   path,
@@ -25,12 +28,14 @@ export function ValFormField({
   source: source,
   schema: schema,
   registerPatchCallback,
+  onSubmit,
 }: {
   path: string;
   disabled: boolean;
   source: Json;
   schema: SerializedSchema;
-  registerPatchCallback: (callback: PatchCallback) => void;
+  onSubmit?: OnSubmit;
+  registerPatchCallback?: (callback: PatchCallback) => void;
 }) {
   if (
     (typeof source === "string" || source === null) &&
@@ -41,6 +46,7 @@ export function ValFormField({
         defaultValue={source}
         disabled={disabled}
         registerPatchCallback={registerPatchCallback}
+        onSubmit={onSubmit}
       />
     );
   }
@@ -63,6 +69,7 @@ export function ValFormField({
       <ImageField
         path={path}
         registerPatchCallback={registerPatchCallback}
+        onSubmit={onSubmit}
         defaultValue={source as ImageSource}
       />
     );
@@ -70,51 +77,65 @@ export function ValFormField({
   return <div>Unsupported schema: {schema.type}</div>;
 }
 
+async function createImagePatch(
+  path: string,
+  data: string | null,
+  metadata: ImageMetadata,
+  defaultValue?: ImageSource
+): Promise<PatchJSON> {
+  const pathParts = path.split("/");
+  if (!data || !metadata) {
+    return [];
+  }
+  return [
+    {
+      value: {
+        ...defaultValue,
+        metadata,
+      },
+      op: "replace",
+      path,
+    },
+    // update the contents of the file:
+    {
+      value: data,
+      op: "replace",
+      path: `${pathParts.slice(0, -1).join("/")}/$${
+        pathParts[pathParts.length - 1]
+      }`,
+    },
+  ];
+}
+
 function ImageField({
   path,
   defaultValue,
+  onSubmit,
   registerPatchCallback,
 }: {
   path: string;
-  registerPatchCallback: (callback: PatchCallback) => void;
+  registerPatchCallback?: (callback: PatchCallback) => void;
+  onSubmit?: OnSubmit;
   defaultValue?: ImageSource;
 }) {
   const [data, setData] = useState<string | null>(null);
-  const [metadata, setMetadata] = useState<{
-    width?: number;
-    height?: number;
-    sha256: string;
-  } | null>(null);
-  const url = defaultValue && Internal.convertFileSource(defaultValue).url;
+  const [loading, setLoading] = useState(false);
+  const [metadata, setMetadata] = useState<ImageMetadata>();
+  const [url, setUrl] = useState<string>();
   useEffect(() => {
-    registerPatchCallback(async (path) => {
-      const pathParts = path.split("/");
-      if (!data) {
-        return [];
-      }
-      return [
-        {
-          value: {
-            ...defaultValue,
-            metadata,
-          },
-          op: "replace",
-          path,
-        },
-        // update the contents of the file:
-        {
-          value: data,
-          op: "replace",
-          path: `${pathParts.slice(0, -1).join("/")}/$${
-            pathParts[pathParts.length - 1]
-          }`,
-        },
-      ];
-    });
-  }, [data]);
+    setUrl(defaultValue && Internal.convertFileSource(defaultValue).url);
+  }, [defaultValue]);
+
+  useEffect(() => {
+    if (registerPatchCallback) {
+      registerPatchCallback(async (path) => {
+        return createImagePatch(path, data, metadata, defaultValue);
+      });
+    }
+  }, [data, defaultValue]);
 
   return (
-    <div className="max-w-4xl p-4">
+    <div className="max-w-4xl p-4" key={path}>
       <label htmlFor={`img_input:${path}`} className="">
         {data || url ? <img src={data || url} /> : <div>Empty</div>}
         <input
@@ -125,20 +146,45 @@ function ImageField({
             readImage(ev)
               .then((res) => {
                 setData(res.src);
-                setMetadata({
-                  sha256: res.sha256,
-                  width: res.width,
-                  height: res.height,
-                });
+                if (res.width && res.height) {
+                  setMetadata({
+                    sha256: res.sha256,
+                    width: res.width,
+                    height: res.height,
+                  });
+                } else {
+                  setMetadata(undefined);
+                }
               })
               .catch((err) => {
                 console.error(err.message);
                 setData(null);
-                setMetadata(null);
+                setMetadata(undefined);
               });
           }}
         />
       </label>
+      {onSubmit && (
+        <div>
+          {data && (
+            <Button
+              disabled={loading}
+              onClick={() => {
+                setLoading(true);
+                onSubmit((path) =>
+                  createImagePatch(path, data, metadata, defaultValue)
+                ).finally(() => {
+                  setLoading(false);
+                  setData(null);
+                  setMetadata(undefined);
+                });
+              }}
+            >
+              {loading ? "Saving..." : "Submit"}
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -147,12 +193,12 @@ function RichTextField({
   defaultValue,
   registerPatchCallback,
 }: {
-  registerPatchCallback: (callback: PatchCallback) => void;
+  registerPatchCallback?: (callback: PatchCallback) => void;
   defaultValue?: RichTextSource<AnyRichTextOptions>;
 }) {
   const [editor, setEditor] = useState<LexicalEditor | null>(null);
   useEffect(() => {
-    if (editor) {
+    if (editor && registerPatchCallback) {
       registerPatchCallback(async (path) => {
         const { templateStrings, exprs, files } = editor
           ? await lexicalToRichTextSource(
@@ -209,36 +255,67 @@ function StringField({
   disabled,
   defaultValue,
   registerPatchCallback,
+  onSubmit,
 }: {
-  registerPatchCallback: (callback: PatchCallback) => void;
+  registerPatchCallback?: (callback: PatchCallback) => void;
+  onSubmit?: OnSubmit;
   disabled: boolean;
   defaultValue?: string | null;
 }) {
   const [value, setValue] = useState(defaultValue || "");
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    setLoading(disabled);
+  }, [disabled]);
 
   // ref is used to get the value of the textarea without closing over the value field
   // to avoid registering a new callback every time the value changes
   const ref = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    registerPatchCallback(async (path) => {
-      return [
-        {
-          op: "replace",
-          path,
-          value: ref.current?.value || "",
-        },
-      ];
-    });
+    if (registerPatchCallback) {
+      registerPatchCallback(async (path) => {
+        return [
+          {
+            op: "replace",
+            path,
+            value: ref.current?.value || "",
+          },
+        ];
+      });
+    }
   }, []);
 
   return (
-    <div className="flex flex-col justify-between h-full">
+    <div className="flex flex-col justify-between h-full gap-y-4">
       <Input
         ref={ref}
-        disabled={disabled}
+        disabled={loading}
         defaultValue={value ?? ""}
         onChange={(e) => setValue(e.target.value)}
       />
+      {onSubmit && (
+        <div>
+          {defaultValue !== value && (
+            <Button
+              disabled={loading}
+              onClick={() => {
+                setLoading(true);
+                onSubmit(async (path) => [
+                  {
+                    op: "replace",
+                    path,
+                    value: ref.current?.value || "",
+                  },
+                ]).finally(() => {
+                  setLoading(false);
+                });
+              }}
+            >
+              {loading ? "Saving..." : "Submit"}
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
