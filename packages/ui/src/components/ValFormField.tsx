@@ -57,6 +57,7 @@ export function ValFormField({
     return (
       <RichTextField
         registerPatchCallback={registerPatchCallback}
+        onSubmit={onSubmit}
         defaultValue={source as RichTextSource<AnyRichTextOptions>}
       />
     );
@@ -114,8 +115,8 @@ function ImageField({
   registerPatchCallback,
 }: {
   path: string;
-  registerPatchCallback?: (callback: PatchCallback) => void;
   onSubmit?: OnSubmit;
+  registerPatchCallback?: (callback: PatchCallback) => void;
   defaultValue?: ImageSource;
 }) {
   const [data, setData] = useState<string | null>(null);
@@ -189,48 +190,64 @@ function ImageField({
   );
 }
 
+async function createRichTextPatch(path: string, editor: LexicalEditor) {
+  const { templateStrings, exprs, files } = editor
+    ? await lexicalToRichTextSource(
+        editor.getEditorState().toJSON().root as LexicalRootNode
+      )
+    : ({
+        [VAL_EXTENSION]: "richtext",
+        templateStrings: [""],
+        exprs: [],
+        files: {},
+      } as RichTextSource<AnyRichTextOptions> & {
+        files: Record<string, string>;
+      });
+  return [
+    {
+      op: "replace" as const,
+      path,
+      value: {
+        templateStrings,
+        exprs,
+        [VAL_EXTENSION]: "richtext",
+      },
+    },
+    ...Object.entries(files).map(([path, value]) => {
+      return {
+        op: "file" as const,
+        path,
+        value,
+      };
+    }),
+  ];
+}
 function RichTextField({
   defaultValue,
+  onSubmit,
   registerPatchCallback,
 }: {
+  onSubmit?: OnSubmit;
   registerPatchCallback?: (callback: PatchCallback) => void;
   defaultValue?: RichTextSource<AnyRichTextOptions>;
 }) {
   const [editor, setEditor] = useState<LexicalEditor | null>(null);
+  const [didChange, setDidChange] = useState(false);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (editor) {
+      setDidChange(false);
+      editor.registerTextContentListener(() => {
+        setDidChange(true);
+      });
+      editor.registerDecoratorListener(() => {
+        setDidChange(true);
+      });
+    }
+  }, [editor]);
   useEffect(() => {
     if (editor && registerPatchCallback) {
-      registerPatchCallback(async (path) => {
-        const { templateStrings, exprs, files } = editor
-          ? await lexicalToRichTextSource(
-              editor.getEditorState().toJSON().root as LexicalRootNode
-            )
-          : ({
-              [VAL_EXTENSION]: "richtext",
-              templateStrings: [""],
-              exprs: [],
-              files: {},
-            } as RichTextSource<AnyRichTextOptions> & {
-              files: Record<string, string>;
-            });
-        return [
-          {
-            op: "replace" as const,
-            path,
-            value: {
-              templateStrings,
-              exprs,
-              [VAL_EXTENSION]: "richtext",
-            },
-          },
-          ...Object.entries(files).map(([path, value]) => {
-            return {
-              op: "file" as const,
-              path,
-              value,
-            };
-          }),
-        ];
-      });
+      registerPatchCallback(async (path) => createRichTextPatch(path, editor));
     }
   }, [editor]);
   return (
@@ -247,6 +264,28 @@ function RichTextField({
           } as unknown as RichTextSource<AnyRichTextOptions>)
         }
       />
+      {onSubmit && (
+        <div>
+          {didChange && (
+            <Button
+              disabled={loading || !editor}
+              onClick={() => {
+                if (editor) {
+                  setLoading(true);
+                  onSubmit((path) => createRichTextPatch(path, editor)).finally(
+                    () => {
+                      setLoading(false);
+                      setDidChange(false);
+                    }
+                  );
+                }
+              }}
+            >
+              {loading ? "Saving..." : "Submit"}
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
