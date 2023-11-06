@@ -9,11 +9,14 @@
 
 import type { RequestHandler } from "express";
 
+type Vite = typeof import("vite");
 export function createRequestHandler(): RequestHandler {
   if (typeof window === "undefined") {
     const vite = (async () => {
       const { fileURLToPath, URL: URL_noresolve } = await import("node:url");
-      const { createServer } = await import(/* @vite-ignore */ "v" + "ite");
+      const { createServer } = await (import(
+        /* @vite-ignore */ "v" + "ite"
+      ) as Promise<Vite>);
       const vite = await createServer({
         root: fileURLToPath(new URL_noresolve("..", import.meta.url)),
         configFile: fileURLToPath(
@@ -24,7 +27,6 @@ export function createRequestHandler(): RequestHandler {
 
       return vite;
     })();
-    let viteR: any;
     return async (req, res, next) => {
       if (req.url === "/style.css") {
         const styleModule = await (await vite).ssrLoadModule("./src/index.css");
@@ -40,9 +42,8 @@ export function createRequestHandler(): RequestHandler {
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React</title>
+    <title>Val</title>
   </head>
   <body>
     <div id="root"></div>
@@ -53,15 +54,20 @@ export function createRequestHandler(): RequestHandler {
         );
         return res.end(await html);
       } else {
-        if (!viteR) viteR = await vite;
         // TODO: error handling
         try {
-          const { code, etag } = await viteR.transformRequest(req.url);
-          return res
-            .header({ "Content-Type": "application/javascript", Etag: etag })
-            .end(code);
+          const transformed = await (await vite).transformRequest(req.url);
+          if (transformed) {
+            const { code, etag } = transformed;
+            return res
+              .header({ "Content-Type": "application/javascript", Etag: etag })
+              .end(code);
+          }
+          return next();
         } catch (e) {
-          viteR.ssrFixStacktrace(e);
+          if (e instanceof Error) {
+            (await vite).ssrFixStacktrace(e);
+          }
           return next(e);
         }
       }

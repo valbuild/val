@@ -6,7 +6,7 @@ const fs = require("fs");
 const path = require("path");
 
 const serverFile = "server/dist/valbuild-ui-server.esm.js";
-const inputFile = "server/.tmp/assets/index.js";
+const inputFile = "server/.tmp/index.js";
 const filePath = path.join(__dirname, serverFile);
 const replaceString = "/**REPLACE:SCRIPT*/";
 const fileToEncodePath = path.join(__dirname, inputFile);
