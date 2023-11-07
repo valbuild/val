@@ -95,19 +95,10 @@ export class Service {
             : resolved.schema,
         source: resolved.source,
         errors:
-          valModule.errors &&
-          valModule.errors.validation &&
-          valModule.errors.validation[sourcePath]
+          valModule.errors && valModule.errors.validation
             ? {
-                validation: valModule.errors.validation[sourcePath]
-                  ? {
-                      [sourcePath]: valModule.errors.validation[sourcePath],
-                    }
-                  : undefined,
-                fatal:
-                  valModule.errors && valModule.errors.fatal
-                    ? valModule.errors.fatal
-                    : undefined,
+                validation: valModule.errors.validation || undefined,
+                fatal: valModule.errors.fatal || undefined,
               }
             : false,
       };
