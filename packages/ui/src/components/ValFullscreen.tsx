@@ -98,6 +98,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
       });
     } catch (err) {
       // could not set up dev mode
+      console.warn("Failed to initialize HMR", err);
     }
   }, []);
   useEffect(() => {
@@ -462,14 +463,13 @@ function ValRecord({
         const subPath = createValPathOfItem(path, key);
         return (
           <button
-            key={path}
+            key={subPath}
             onClick={() => {
               setSelectedPath(subPath);
               navigate(subPath);
             }}
           >
             <ValRecordItem
-              key={subPath}
               recordKey={key}
               path={subPath}
               source={item}
@@ -646,7 +646,7 @@ function ValPreview({
               <span className="text-muted">{key}:</span>
               <span>
                 <ValPreview
-                  source={(source as JsonObject)?.[key]}
+                  source={(source as JsonObject | null)?.[key] ?? null}
                   schema={schema.items[key]}
                   path={createValPathOfItem(path, key)}
                 />
@@ -694,7 +694,7 @@ function ValPreview({
           key={path}
           className="p-4 text-destructive-foreground bg-destructive"
         >
-          ERROR: not an object
+          ERROR: {typeof source} not an object
         </div>
       );
     }
