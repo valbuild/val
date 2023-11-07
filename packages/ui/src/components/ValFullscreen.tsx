@@ -62,23 +62,34 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
     : [undefined, undefined];
   const moduleSource = selectedModuleId && modules?.[selectedModuleId]?.source;
   const moduleSchema = selectedModuleId && modules?.[selectedModuleId]?.schema;
-  const errors = selectedModuleId && modules?.[selectedModuleId]?.errors;
-
-  if (errors) {
-    if (errors.fatal && errors.fatal.length > 0) {
-      const message =
-        errors.fatal.length === 1
-          ? errors.fatal[0].message
-          : `Multiple errors detected: ${errors.fatal
-              .map((f) => f.message)
-              .join("\n")}. Showing stack trace of: ${errors.fatal[0].message}`;
-      const error = new Error(message);
-      error.stack = errors.fatal[0].stack;
-      console.error(error);
-      throw error;
-    } else {
-      console.error(errors);
+  const fatalErrors = Object.entries(modules || {}).flatMap(([, module]) => {
+    return module.errors
+      ? module.errors.fatal
+        ? module.errors.fatal
+        : []
+      : [];
+  });
+  const validationErrors = Object.entries(modules || {}).flatMap(
+    ([, module]) => {
+      return module.errors ? (module.errors.fatal ? [] : [module.errors]) : [];
     }
+  );
+
+  if (fatalErrors && fatalErrors.length > 0) {
+    const message =
+      fatalErrors.length === 1
+        ? fatalErrors[0].message
+        : `Multiple errors detected:\n${fatalErrors
+            .map((f, i) => `${i + 1}. ${f.message}`)
+            .join("\n")}\n\nShowing stack trace of: 0. ${
+            fatalErrors[0].message
+          }`;
+    const error = new Error(message);
+    error.stack = fatalErrors[0].stack;
+    throw error;
+  }
+  if (validationErrors && validationErrors.length > 0) {
+    console.warn("Val encountered validation errors:", validationErrors);
   }
   //
   useEffect(() => {
