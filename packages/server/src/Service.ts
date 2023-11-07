@@ -22,9 +22,15 @@ export type ServiceOptions = {
   /**
    * Relative path to the val.config.js file from the root directory.
    *
-   * @example src/val.config
+   * @example "./val.config"
    */
   valConfigPath: string;
+  /**
+   * Disable cache for transpilation
+   *
+   * @default false
+   *    */
+  disableCache?: boolean;
 };
 
 export async function createService(

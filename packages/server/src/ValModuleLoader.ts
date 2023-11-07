@@ -49,7 +49,8 @@ export class ValModuleLoader {
     private readonly host: IValFSHost = {
       ...ts.sys,
       writeFile: fs.writeFileSync,
-    }
+    },
+    private readonly disableCache: boolean = false
   ) {
     this.cache = {};
     this.cacheSize = 0;
@@ -64,24 +65,26 @@ export class ValModuleLoader {
       throw Error(`Could not read file "${modulePath}"`);
     }
     let compiledCode;
-    // TODO: use hash instead of code as key
-    if (!this.cache[code]) {
+    if (this.cache[code] && !this.disableCache) {
+      // TODO: use hash instead of code as key
+      compiledCode = this.cache[code];
+    } else {
       compiledCode = transform(code, {
         filePath: modulePath,
         disableESTransforms: true,
         transforms: ["typescript"],
       }).code;
-      if (this.cacheSize > MAX_CACHE_SIZE) {
-        console.warn("Cache size exceeded, clearing cache");
-        this.cache = {};
-        this.cacheSize = 0;
+      if (!this.disableCache) {
+        if (this.cacheSize > MAX_CACHE_SIZE) {
+          console.warn("Cache size exceeded, clearing cache");
+          this.cache = {};
+          this.cacheSize = 0;
+        }
+        if (code.length < MAX_OBJECT_KEY_SIZE) {
+          this.cache[code] = compiledCode;
+          this.cacheSize += code.length + compiledCode.length; // code is mostly ASCII so 1 byte per char
+        }
       }
-      if (code.length < MAX_OBJECT_KEY_SIZE) {
-        this.cache[code] = compiledCode;
-        this.cacheSize += code.length + compiledCode.length; // code is mostly ASCII so 1 byte per char
-      }
-    } else {
-      compiledCode = this.cache[code];
     }
     return compiledCode;
   }
