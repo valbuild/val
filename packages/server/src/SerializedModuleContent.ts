@@ -22,7 +22,7 @@ export type SerializedModuleContent =
   | {
       source?: Source;
       schema?: SerializedSchema;
-      path?: SourcePath;
+      path: SourcePath;
       errors: {
         invalidModuleId?: ModuleId;
         validation?: ValidationErrors;

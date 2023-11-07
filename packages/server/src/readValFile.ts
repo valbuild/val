@@ -1,4 +1,4 @@
-import { ModuleId } from "@valbuild/core";
+import { ModuleId, SourcePath } from "@valbuild/core";
 import path from "path";
 import { QuickJSRuntime } from "quickjs-emscripten";
 import { SerializedModuleContent } from "./SerializedModuleContent";
@@ -36,6 +36,7 @@ globalThis.valModule = {
         error.stack
       );
       return {
+        path: id as SourcePath,
         errors: {
           invalidModuleId: id as ModuleId,
           fatal: [
@@ -83,7 +84,7 @@ globalThis.valModule = {
         };
       }
       return {
-        path: valModule.id, // NOTE: we use path here, since SerializedModuleContent (maybe bad name?) can be used for whole modules as well as subparts of modules
+        path: valModule.id || id, // NOTE: we use path here, since SerializedModuleContent (maybe bad name?) can be used for whole modules as well as subparts of modules
         source: valModule.source,
         schema: valModule.schema,
         errors,
