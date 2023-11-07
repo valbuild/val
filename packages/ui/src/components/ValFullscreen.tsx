@@ -71,7 +71,9 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   });
   const validationErrors = Object.entries(modules || {}).flatMap(
     ([, module]) => {
-      return module.errors ? (module.errors.fatal ? [] : [module.errors]) : [];
+      return module.errors && module.errors.validation
+        ? [module.errors.validation]
+        : [];
     }
   );
 
@@ -88,6 +90,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
     error.stack = fatalErrors[0].stack;
     throw error;
   }
+
   if (validationErrors && validationErrors.length > 0) {
     console.warn("Val encountered validation errors:", validationErrors);
   }
