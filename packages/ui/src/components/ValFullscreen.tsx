@@ -39,6 +39,7 @@ import { ChevronLeft } from "lucide-react";
 import { ValOverlayContext } from "./ValOverlayContext";
 import { useNavigate, useParams } from "react-router";
 import { useTheme } from "./useTheme";
+import { resolvePath } from "src/utils/resolvePath";
 import classNames from "classnames";
 import { ValMenu } from "./ValMenu";
 
@@ -48,15 +49,54 @@ interface ValFullscreenProps {
 
 // TODO: move SerializedModuleContent to core
 type SerializedModuleContent = ApiTreeResponse["modules"][ModuleId];
+export const ValModulesContext = React.createContext<ValModules>(null);
+
+export const useValModuleFromPath = (
+  sourcePath: SourcePath
+): {
+  moduleId: ModuleId;
+  moduleSource: Json | undefined;
+  moduleSchema: SerializedSchema | undefined;
+} => {
+  const modules = React.useContext(ValModulesContext);
+  const [moduleId, modulePath] =
+    Internal.splitModuleIdAndModulePath(sourcePath);
+  const moduleSource = modules?.[moduleId]?.source;
+  const moduleSchema = modules?.[moduleId]?.schema;
+  if (!moduleSource || !moduleSchema) {
+    throw Error("Could not find module: " + moduleId);
+  }
+  const resolvedPath = Internal.resolvePath(
+    modulePath,
+    moduleSource,
+    moduleSchema
+  );
+  return {
+    moduleId,
+    moduleSource: resolvedPath.source,
+    moduleSchema: resolvedPath.schema, // denne typefeilen må du se på @freddy
+  };
+};
+
+type ValModules = Record<
+  ModuleId,
+  {
+    schema?: SerializedSchema | undefined;
+    patches?:
+      | {
+          applied: string[];
+          failed?: string[] | undefined;
+        }
+      | undefined;
+    source?: Json | undefined;
+  }
+> | null;
 
 type InitOnSubmit = (path: SourcePath) => OnSubmit;
 export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { "*": pathFromParams } = useParams();
-  const [modules, setModules] = useState<Record<
-    ModuleId,
-    SerializedModuleContent
-  > | null>(null);
+  const [modules, setModules] = useState<ValModules>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<SourcePath | ModuleId>();
   const [selectedModuleId] = selectedPath
@@ -275,13 +315,15 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
                   selectedModuleId &&
                   moduleSource !== undefined &&
                   moduleSchema !== undefined && (
-                    <ValModule
-                      path={selectedPath}
-                      source={moduleSource}
-                      schema={moduleSchema}
-                      setSelectedPath={setSelectedPath}
-                      initOnSubmit={initOnSubmit}
-                    />
+                    <ValModulesContext.Provider value={modules}>
+                      <ValModule
+                        path={selectedPath}
+                        source={moduleSource}
+                        schema={moduleSchema}
+                        setSelectedPath={setSelectedPath}
+                        initOnSubmit={initOnSubmit}
+                      />
+                    </ValModulesContext.Provider>
                   )}
               </div>
             </Grid>
@@ -967,7 +1009,9 @@ function ValDefaultOf({
   } else if (
     schema.type === "richtext" ||
     schema.type === "string" ||
-    schema.type === "image"
+    schema.type === "image" ||
+    schema.type === "number" ||
+    schema.type === "keyOf"
   ) {
     return (
       <ValFormField

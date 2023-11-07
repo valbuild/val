@@ -15,6 +15,7 @@ module.exports = {
       window: 2,
       full: 3,
       overlay: 4,
+      50: 50,
     },
 
     fontFamily: {
