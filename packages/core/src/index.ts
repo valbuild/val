@@ -37,9 +37,10 @@ export {
 } from "./val";
 export type { Json, JsonPrimitive, JsonArray, JsonObject } from "./Json";
 export type {
-  ValidationErrors,
   ValidationError,
+  ValidationErrors,
 } from "./schema/validation/ValidationError";
+import type { ValidationErrors } from "./schema/validation/ValidationError";
 export type { ValidationFix } from "./schema/validation/ValidationFix";
 export * as expr from "./expr/";
 export { FILE_REF_PROP } from "./source/file";
@@ -83,6 +84,17 @@ export type ApiTreeResponse = {
         failed?: string[];
       };
       source?: Json;
+      errors?:
+        | false
+        | {
+            invalidModuleId?: ModuleId;
+            validation?: ValidationErrors;
+            fatal?: {
+              message: string;
+              stack?: string;
+              type?: string;
+            }[];
+          };
     }
   >;
 };

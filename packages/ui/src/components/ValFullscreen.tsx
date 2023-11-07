@@ -1,6 +1,7 @@
 "use client";
 import {
   AnyRichTextOptions,
+  ApiTreeResponse,
   FileSource,
   FILE_REF_PROP,
   ImageMetadata,
@@ -43,22 +44,16 @@ interface ValFullscreenProps {
   valApi: ValApi;
 }
 
+// TODO: move SerializedModuleContent to core
+type SerializedModuleContent = ApiTreeResponse["modules"][ModuleId];
+
 type InitOnSubmit = (path: SourcePath) => OnSubmit;
 export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { "*": pathFromParams } = useParams();
   const [modules, setModules] = useState<Record<
     ModuleId,
-    {
-      schema?: SerializedSchema | undefined;
-      patches?:
-        | {
-            applied: string[];
-            failed?: string[] | undefined;
-          }
-        | undefined;
-      source?: Json | undefined;
-    }
+    SerializedModuleContent
   > | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<SourcePath | ModuleId>();
@@ -67,7 +62,24 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
     : [undefined, undefined];
   const moduleSource = selectedModuleId && modules?.[selectedModuleId]?.source;
   const moduleSchema = selectedModuleId && modules?.[selectedModuleId]?.schema;
+  const errors = selectedModuleId && modules?.[selectedModuleId]?.errors;
 
+  if (errors) {
+    if (errors.fatal && errors.fatal.length > 0) {
+      const message =
+        errors.fatal.length === 1
+          ? errors.fatal[0].message
+          : `Multiple errors detected: ${errors.fatal
+              .map((f) => f.message)
+              .join("\n")}. Showing stack trace of: ${errors.fatal[0].message}`;
+      const error = new Error(message);
+      error.stack = errors.fatal[0].stack;
+      console.error(error);
+      throw error;
+    } else {
+      console.error(errors);
+    }
+  }
   //
   useEffect(() => {
     setSelectedPath(

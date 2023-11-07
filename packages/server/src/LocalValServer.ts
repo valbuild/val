@@ -80,6 +80,7 @@ export class LocalValServer implements ValServer {
             {
               schema: serializedModuleContent.schema,
               source: serializedModuleContent.source,
+              errors: serializedModuleContent.errors,
             };
           return [serializedModuleContent.path, module];
         })
