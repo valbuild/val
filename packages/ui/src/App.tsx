@@ -29,19 +29,21 @@ function fallbackRender({ error, resetErrorBoundary }: any) {
           </div>
           <div className="text-4xl font-normal ">Message:</div>
           <pre>{error.message}</pre>
-          <Accordion
-            type="single"
-            className="font-serif"
-            collapsible
-            defaultValue="error"
-          >
-            <AccordionItem value={"error"}>
-              <AccordionTrigger>Stack trace:</AccordionTrigger>
-              <AccordionContent className="p-4 bg-popover text-popover-foreground">
-                {error.stack && <pre>{error.stack}</pre>}
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
+          {error.stack && (
+            <Accordion
+              type="single"
+              className="font-serif"
+              collapsible
+              defaultValue="error"
+            >
+              <AccordionItem value={"error"}>
+                <AccordionTrigger>Stack trace:</AccordionTrigger>
+                <AccordionContent className="p-4 bg-popover text-popover-foreground">
+                  {error.stack && <pre>{error.stack}</pre>}
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          )}
         </div>
       </div>
     </div>
