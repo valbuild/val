@@ -39,6 +39,7 @@ import { ChevronLeft } from "lucide-react";
 import { ValOverlayContext } from "./ValOverlayContext";
 import { useNavigate, useParams } from "react-router";
 import { useTheme } from "./useTheme";
+import classNames from "classnames";
 
 interface ValFullscreenProps {
   valApi: ValApi;
@@ -102,6 +103,11 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   }, [pathFromParams]);
 
   const [hmrHash, setHmrHash] = useState(null);
+  useEffect(() => {
+    if (modules) {
+      console.log("->", hmrHash);
+    }
+  }, [modules]);
   useEffect(() => {
     try {
       // use websocket to update modules
@@ -323,6 +329,7 @@ function ValModule({
       schema={resolvedPath.schema as SerializedSchema}
       setSelectedPath={setSelectedPath}
       initOnSubmit={initOnSubmit}
+      top
     />
   );
 }
@@ -334,6 +341,7 @@ function AnyVal({
   setSelectedPath,
   field,
   initOnSubmit,
+  top,
 }: {
   path: SourcePath;
   source: Json;
@@ -341,6 +349,7 @@ function AnyVal({
   setSelectedPath: (path: SourcePath | ModuleId) => void;
   field?: string;
   initOnSubmit: InitOnSubmit;
+  top?: boolean;
 }): React.ReactElement {
   if (source === null || schema.opt) {
     return (
@@ -365,6 +374,7 @@ function AnyVal({
         schema={schema}
         initOnSubmit={initOnSubmit}
         setSelectedPath={setSelectedPath}
+        top={top}
       />
     );
   } else if (schema.type === "array") {
@@ -442,17 +452,21 @@ function ValObject({
   schema,
   setSelectedPath,
   initOnSubmit,
+  top,
 }: {
   source: JsonObject;
   path: SourcePath;
   schema: SerializedObjectSchema;
   setSelectedPath: (path: SourcePath | ModuleId) => void;
   initOnSubmit: InitOnSubmit;
+  top?: boolean;
 }): React.ReactElement {
   return (
     <div
       key={path}
-      className="flex flex-col pl-6 border-l-2 gap-y-8 border-border"
+      className={classNames("flex flex-col gap-y-8", {
+        "border-l-2 border-border pl-6": !top,
+      })}
     >
       {Object.entries(schema.items).map(([key, property]) => {
         const subPath = createValPathOfItem(path, key);
