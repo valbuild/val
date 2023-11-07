@@ -89,8 +89,10 @@ export class LocalValServer implements ValServer {
         modules,
         git: this.options.git,
       };
-      return walk(rootDir).then(async () => {
         res.send(JSON.stringify(apiTreeResponse));
+        res.send(JSON.stringify(apiTreeResponse));
+      });
+      res.send(JSON.stringify(apiTreeResponse));
       });
     } catch (err) {
       console.error(err);
