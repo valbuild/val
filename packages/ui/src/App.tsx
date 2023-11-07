@@ -51,7 +51,11 @@ function App() {
     [
       {
         path: "/*",
-        element: <ValFullscreen valApi={new ValApi("/api/val")} />,
+        element: (
+          <ErrorBoundary fallbackRender={fallbackRender}>
+            <ValFullscreen valApi={new ValApi("/api/val")} />
+          </ErrorBoundary>
+        ),
       },
     ],
     {
@@ -59,11 +63,7 @@ function App() {
     }
   );
 
-  return (
-    <ErrorBoundary fallbackRender={fallbackRender}>
-      <RouterProvider router={router} />
-    </ErrorBoundary>
-  );
+  return <RouterProvider router={router} />;
 }
 
 export default App;
