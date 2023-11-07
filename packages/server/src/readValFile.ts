@@ -60,13 +60,13 @@ globalThis.valModule = {
       } else {
         if (valModule.id !== id) {
           fatalErrors.push(
-            `Expected val id: '${id}' but got: '${valModule.id}'`
+            `Wrong val.content id! In the file of with: '${id}', found: '${valModule.id}'`
           );
         }
         if (!valModule?.schema) {
           fatalErrors.push(`Expected val id: '${id}' to have a schema`);
         }
-        if (!valModule?.source) {
+        if (valModule?.source === undefined) {
           fatalErrors.push(`Expected val id: '${id}' to have a source`);
         }
       }
