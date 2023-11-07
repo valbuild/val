@@ -35,6 +35,24 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
         ],
       } as ValidationErrors;
     }
+    const errors = [];
+    if (this.options?.maxLength && src.length > this.options.maxLength) {
+      errors.push({
+        message: `Expected string to be at most ${this.options.maxLength} characters long, got ${src.length}`,
+        value: src,
+      });
+    }
+    if (this.options?.minLength && src.length < this.options.minLength) {
+      errors.push({
+        message: `Expected string to be at least ${this.options.minLength} characters long, got ${src.length}`,
+        value: src,
+      });
+    }
+    if (errors.length > 0) {
+      return {
+        [path]: errors,
+      } as ValidationErrors;
+    }
     return false;
   }
 
