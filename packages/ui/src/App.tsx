@@ -12,6 +12,7 @@ import Logo from "./assets/icons/Logo";
 import { X } from "lucide-react";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function fallbackRender({ error, resetErrorBoundary }: any) {
   console.error(error);
   return (
@@ -26,7 +27,8 @@ function fallbackRender({ error, resetErrorBoundary }: any) {
               <X />
             </button>
           </div>
-          <div className="text-4xl font-normal ">Message: {error.message}</div>
+          <div className="text-4xl font-normal ">Message:</div>
+          <pre>{error.message}</pre>
           <Accordion
             type="single"
             className="font-serif"
