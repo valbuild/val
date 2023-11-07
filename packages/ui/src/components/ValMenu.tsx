@@ -39,17 +39,12 @@ export function ValMenu({ api }: { api: ValApi }) {
         </div>
       </MenuButton>
 
-      <MenuButton
-        active={editMode === "full"}
-        onClick={() => {
-          setEditMode((prev) => (prev === "full" ? "off" : "full"));
-        }}
-      >
+      <a className={className} href={api.getEditUrl()}>
         <div className="h-[24px] w-[24px] flex justify-center items-center">
-          {editMode === "full" && <Minimize size={15} />}
-          {editMode !== "full" && <Maximize size={15} />}
+          <Maximize size={15} />
         </div>
-      </MenuButton>
+      </a>
+
       <a className={className} href={api.getDisableUrl()}>
         <div className="h-[24px] w-[24px] flex justify-center items-center">
           <Power size={18} />

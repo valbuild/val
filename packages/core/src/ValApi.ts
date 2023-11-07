@@ -12,6 +12,9 @@ export class ValApi {
   getDisableUrl() {
     return `${this.host}/disable`;
   }
+  getEditUrl() {
+    return `${this.host}/static/edit`;
+  }
 
   postPatches(
     moduleId: ModuleId,
