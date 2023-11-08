@@ -35,6 +35,7 @@ class ShadowSelection {
 function getActiveElement() {
   let active = document.activeElement;
 
+  // eslint-disable-next-line no-constant-condition
   while (true) {
     if (active && active.shadowRoot && active.shadowRoot.activeElement) {
       active = active.shadowRoot.activeElement;
