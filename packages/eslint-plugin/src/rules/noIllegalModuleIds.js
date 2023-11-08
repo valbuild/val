@@ -1,7 +1,7 @@
 // @ts-check
 import path from "path";
 
-const getExpectedValue = (context) => {
+const getExpectedValModuleName = (context) => {
   const filename = context.getFilename();
   if (filename.endsWith(".val.ts") || filename.endsWith(".val.js")) {
     const root = context.cwd || process.cwd();
@@ -24,7 +24,7 @@ export default {
     schema: [],
   },
   create: function (context) {
-    const expectedValue = getExpectedValue(context);
+    const expectedValue = getExpectedValModuleName(context);
     return {
       ExportDefaultDeclaration(node) {
         if (!expectedValue) {
