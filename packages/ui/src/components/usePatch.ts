@@ -2,6 +2,7 @@ import { SourcePath, Internal, ModuleId, ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { PatchJSON } from "@valbuild/core/patch";
 import { useCallback, useEffect, useState } from "react";
+import { IValStore } from "../exports";
 
 export type PatchCallback = (modulePath: string) => Promise<PatchJSON>;
 
@@ -13,7 +14,11 @@ export type PatchCallbackState = {
   [path: SourcePath]: () => Promise<PatchJSON>;
 };
 
-export function usePatch(paths: SourcePath[], api: ValApi) {
+export function usePatch(
+  paths: SourcePath[],
+  api: ValApi,
+  valStore: IValStore
+) {
   const [state, setState] = useState<PatchCallbackState>({});
 
   const initPatchCallback: InitPatchCallback = useCallback(
@@ -68,7 +73,13 @@ export function usePatch(paths: SourcePath[], api: ValApi) {
           }
         })
       )
-    ).then(() => {});
+    ).then(() => {
+      return valStore.update(
+        paths.map(
+          (path) => Internal.splitModuleIdAndModulePath(path as SourcePath)[0]
+        )
+      );
+    });
   }, [state]);
 
   return { initPatchCallback, onSubmitPatch };

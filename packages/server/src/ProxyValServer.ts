@@ -145,10 +145,19 @@ export class ProxyValServer implements ValServer {
   async getTree(req: express.Request, res: express.Response): Promise<void> {
     return this.withAuth(req, res, async (data) => {
       const { patch, schema, source } = req.query;
+      const commit = this.options.gitCommit;
+      if (!commit) {
+        res.status(401).json({
+          error:
+            "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
+        });
+        return;
+      }
       const params = new URLSearchParams({
         patch: (patch === "true").toString(),
         schema: (schema === "true").toString(),
         source: (source === "true").toString(),
+        commit,
       });
       const url = new URL(
         `/v1/tree/${this.options.valName}/heads/${this.options.gitBranch}/${req.params["0"]}/?${params}`,
@@ -157,6 +166,7 @@ export class ProxyValServer implements ValServer {
       const json = await fetch(url, {
         headers: this.getAuthHeaders(data.token, "application/json"),
       }).then((res) => res.json());
+      console.log(url, json);
       res.send(json);
     });
   }
@@ -165,9 +175,12 @@ export class ProxyValServer implements ValServer {
     req: express.Request<{ 0: string }>,
     res: express.Response
   ): Promise<void> {
-    const { commit } = req.query;
-    if (typeof commit !== "string" || typeof commit === "undefined") {
-      res.status(401).json({ error: "Missing or invalid commit query param" });
+    const commit = this.options.gitCommit;
+    if (!commit) {
+      res.status(401).json({
+        error:
+          "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
+      });
       return;
     }
     const params = new URLSearchParams({
@@ -175,19 +188,21 @@ export class ProxyValServer implements ValServer {
     });
     this.withAuth(req, res, async ({ token }) => {
       // First validate that the body has the right structure
-      const patchJSON = PatchJSON.safeParse(req.body);
+      const patchJSON = z.record(PatchJSON).safeParse(req.body);
       if (!patchJSON.success) {
         res.status(401).json(patchJSON.error.issues);
         return;
       }
       // Then parse/validate
-      const patch = parsePatch(patchJSON.data);
-      if (result.isErr(patch)) {
-        res.status(401).json(patch.error);
-        return;
-      }
+      // TODO:
+      const patch = patchJSON.data;
+      // const patch = parsePatch(patchJSON.data);
+      // if (result.isErr(patch)) {
+      //   res.status(401).json(patch.error);
+      //   return;
+      // }
       const url = new URL(
-        `/v1/tree/${this.options.valName}/heads/${this.options.gitBranch}/${req.params["0"]}/?${params}`,
+        `/v1/patches/${this.options.valName}/heads/${this.options.gitBranch}/${req.params["0"]}/?${params}`,
         this.options.valContentUrl
       );
       // Proxy patch to val.build
