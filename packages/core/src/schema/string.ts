@@ -15,6 +15,9 @@ export type SerializedStringSchema = {
   raw: boolean;
 };
 
+const brand = Symbol("string");
+export type RawString = string & { readonly [brand]: "raw" };
+
 export class StringSchema<Src extends string | null> extends Schema<Src> {
   constructor(
     readonly options?: StringOptions,
@@ -49,8 +52,12 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     return new StringSchema<Src | null>(this.options, true, this.isRaw);
   }
 
-  raw(): StringSchema<Src> {
-    return new StringSchema<Src>(this.options, this.opt, true);
+  raw(): StringSchema<Src extends null ? RawString | null : RawString> {
+    return new StringSchema<Src extends null ? RawString | null : RawString>(
+      this.options,
+      this.opt,
+      true
+    );
   }
 
   serialize(): SerializedSchema {
