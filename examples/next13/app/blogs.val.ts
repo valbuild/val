@@ -3,6 +3,7 @@ import { s, val } from "../val.config";
 export const schema = s.array(
   s.object({
     title: s.string(),
+    configString: s.string().optional().raw(),
     /**
      * Blog image. We only allow png and jpg.
      */
@@ -27,6 +28,7 @@ export const schema = s.array(
 export default val.content("/app/blogs", schema, [
   {
     title: "HVA? \n",
+    configString: "foo-bar",
     image: val.file("/public/val/app/blogs/image1.jpg", {
       width: 512,
       height: 512,
@@ -42,6 +44,7 @@ export default val.content("/app/blogs", schema, [
   },
   {
     title: "HVEM ER VI?",
+    configString: null,
     image: val.file("/public/val/app/blogs/image2.jpg", {
       width: 512,
       height: 512,
@@ -53,6 +56,7 @@ export default val.content("/app/blogs", schema, [
   },
   {
     title: "HVORFOR? ikke?",
+    configString: null,
     image: val.file("/public/val/app/blogs/image3.jpg", {
       width: 512,
       height: 512,
@@ -64,6 +68,7 @@ export default val.content("/app/blogs", schema, [
   },
   {
     title: "HVEM ER VI?",
+    configString: null,
     image: val.file("/public/val/app/blogs/image2.jpg", {
       width: 512,
       height: 512,
@@ -75,6 +80,7 @@ export default val.content("/app/blogs", schema, [
   },
   {
     title: "HVORFOR? ikke?",
+    configString: null,
     image: val.file("/public/val/app/blogs/image3.jpg", {
       width: 512,
       height: 512,

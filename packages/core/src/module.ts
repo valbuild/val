@@ -23,6 +23,7 @@ import {
 import { FileSource } from "./source/file";
 import { AnyRichTextOptions, RichText } from "./source/richtext";
 import { RecordSchema, SerializedRecordSchema } from "./schema/record";
+import { RawString } from "./schema/string";
 
 const brand = Symbol("ValModule");
 export type ValModule<T extends SelectorSource> = SelectorOf<T> &
@@ -35,13 +36,26 @@ export type ValModuleBrand = {
 export type TypeOfValModule<T extends ValModule<SelectorSource>> =
   T extends GenericSelector<infer S> ? S : never;
 
+type ReplaceRawStringWithString<T extends SelectorSource> =
+  SelectorSource extends T
+    ? T
+    : T extends RawString
+    ? string
+    : T extends { [key in string]: SelectorSource }
+    ? {
+        [key in keyof T]: ReplaceRawStringWithString<T[key]>;
+      }
+    : T extends SelectorSource[]
+    ? ReplaceRawStringWithString<T[number]>[]
+    : T;
+
 export function content<T extends Schema<SelectorSource>>(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   id: string,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   schema: T,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  source: SchemaTypeOf<T>
+  source: ReplaceRawStringWithString<SchemaTypeOf<T>>
 ): ValModule<SchemaTypeOf<T>> {
   return {
     [GetSource]: source,
