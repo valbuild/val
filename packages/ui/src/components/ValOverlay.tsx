@@ -20,13 +20,15 @@ import { ValFormField } from "./ValFormField";
 import { usePatch } from "./usePatch";
 import { Button } from "./ui/button";
 import { useTheme } from "./useTheme";
+import { IValStore } from "../lib/IValStore";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
   api: ValApi;
+  store: IValStore;
 };
 
-export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
+export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
   const [theme, setTheme] = useTheme(defaultTheme);
   const session = useSession(api);
 
@@ -41,10 +43,14 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
 
   const { initPatchCallback, onSubmitPatch } = usePatch(
     windowTarget?.path ? [windowTarget.path] : [],
-    api
+    api,
+    store
   );
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
+  useEffect(() => {
+    store.updateAll();
+  }, []);
 
   return (
     <ValOverlayContext.Provider

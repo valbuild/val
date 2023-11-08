@@ -9,6 +9,7 @@ import { ApiTreeResponse, ModuleId, ModulePath } from "@valbuild/core";
 import { disable, enable } from "./ProxyValServer";
 import { promises as fs } from "fs";
 import path from "path";
+import { z } from "zod";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -108,23 +109,24 @@ export class LocalValServer implements ValServer {
     req: express.Request<{ 0: string }>,
     res: express.Response
   ): Promise<void> {
-    const id = getPathFromParams(req.params)?.replace("/~", "");
-
     // First validate that the body has the right structure
-    const patchJSON = PatchJSON.safeParse(req.body);
-    console.log("patch id", id, patchJSON);
+    const patchJSON = z.record(PatchJSON).safeParse(req.body);
     if (!patchJSON.success) {
       res.status(401).json(patchJSON.error.issues);
       return;
     }
-    // Then parse/validate
-    const patch = parsePatch(patchJSON.data);
-    if (result.isErr(patch)) {
-      res.status(401).json(patch.error);
-      return;
-    }
+
     try {
-      await this.options.service.patch(id, patch.value);
+      for (const moduleId in patchJSON.data) {
+        // Then parse/validate
+        // TODO: validate all and then fail instead:
+        const patch = parsePatch(patchJSON.data[moduleId]);
+        if (result.isErr(patch)) {
+          res.status(401).json(patch.error);
+          return;
+        }
+        await this.options.service.patch(moduleId, patch.value);
+      }
       res.json({});
     } catch (err) {
       if (err instanceof PatchError) {
