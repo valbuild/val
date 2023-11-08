@@ -12,6 +12,7 @@ import { FileSource, Source, SourceObject } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core";
 import { SourceArray } from "@valbuild/core";
 import { parseRichTextSource } from "@valbuild/ui";
+import { RawString } from "@valbuild/core/src/schema/string";
 
 declare const brand: unique symbol;
 
@@ -39,6 +40,8 @@ export type StegaOfSource<T extends Source> = Json extends T
     }
   : T extends SourceArray
   ? StegaOfSource<T[number]>[]
+  : T extends RawString
+  ? string
   : T extends string
   ? ValEncodedString
   : T extends JsonPrimitive

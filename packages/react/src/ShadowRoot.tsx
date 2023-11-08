@@ -35,7 +35,7 @@ export const ShadowRoot = ({
   }, []);
 
   return (
-    <div id="val-shadow-root" ref={node} style={style}>
+    <div ref={node} style={style} id="val-ui">
       {root && <ShadowContent root={root}>{children}</ShadowContent>}
     </div>
   );
