@@ -40,6 +40,7 @@ import { ValOverlayContext } from "./ValOverlayContext";
 import { useNavigate, useParams } from "react-router";
 import { useTheme } from "./useTheme";
 import classNames from "classnames";
+import { ValMenu } from "./ValMenu";
 
 interface ValFullscreenProps {
   valApi: ValApi;
@@ -227,6 +228,9 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
         className="relative font-serif antialiased"
         data-mode={theme}
       >
+        <div className="fixed -translate-x-1/2 z-overlay left-1/2 bottom-4">
+          <ValMenu api={valApi} />
+        </div>
         <div id="val-fullscreen-hover" ref={hoverElemRef}></div>
         <ValFullscreenHoverContext.Provider
           value={{
