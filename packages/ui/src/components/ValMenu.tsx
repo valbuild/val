@@ -13,6 +13,7 @@ import {
 import React from "react";
 
 const className = "p-1 border rounded-full shadow border-accent";
+const PREV_URL_KEY = "valbuild:urlBeforeNavigation";
 
 export function ValMenu({ api }: { api: ValApi }) {
   const { theme, setTheme, editMode, setEditMode } = useValOverlayContext();
@@ -38,12 +39,27 @@ export function ValMenu({ api }: { api: ValApi }) {
           {theme === "light" && <Moon size={15} />}
         </div>
       </MenuButton>
-
-      <a className={className} href={api.getEditUrl()}>
+      <MenuButton
+        active={editMode === "full"}
+        onClick={() => {
+          // Save the current url so we can go back to it when returning from fullscreen mode
+          if (editMode !== "full") {
+            localStorage.setItem(PREV_URL_KEY, window.location.href);
+            window.location.href = api.getEditUrl();
+          } else if (editMode === "full") {
+            const prevUrl = localStorage.getItem(PREV_URL_KEY);
+            window.location.href = prevUrl || "/";
+          }
+        }}
+      >
         <div className="h-[24px] w-[24px] flex justify-center items-center">
-          <Maximize size={15} />
+          {editMode === "full" ? (
+            <Minimize size={15} />
+          ) : (
+            <Maximize size={15} />
+          )}
         </div>
-      </a>
+      </MenuButton>
 
       <a className={className} href={api.getDisableUrl()}>
         <div className="h-[24px] w-[24px] flex justify-center items-center">
