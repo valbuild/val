@@ -39,7 +39,6 @@ import { ChevronLeft } from "lucide-react";
 import { ValOverlayContext } from "./ValOverlayContext";
 import { useNavigate, useParams } from "react-router";
 import { useTheme } from "./useTheme";
-import { resolvePath } from "src/utils/resolvePath";
 import classNames from "classnames";
 import { ValMenu } from "./ValMenu";
 
@@ -74,23 +73,11 @@ export const useValModuleFromPath = (
   return {
     moduleId,
     moduleSource: resolvedPath.source,
-    moduleSchema: resolvedPath.schema, // denne typefeilen må du se på @freddy
+    moduleSchema: resolvedPath.schema,
   };
 };
 
-type ValModules = Record<
-  ModuleId,
-  {
-    schema?: SerializedSchema | undefined;
-    patches?:
-      | {
-          applied: string[];
-          failed?: string[] | undefined;
-        }
-      | undefined;
-    source?: Json | undefined;
-  }
-> | null;
+type ValModules = Record<ModuleId, SerializedModuleContent> | null;
 
 type InitOnSubmit = (path: SourcePath) => OnSubmit;
 export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
