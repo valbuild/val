@@ -86,7 +86,6 @@ export class ValStore implements IValStore {
   };
 
   private emitChange(subscriberId: SubscriberId) {
-    console.log("emitChange");
     for (const listener of this.listeners[subscriberId]) {
       listener();
     }

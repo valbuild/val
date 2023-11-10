@@ -85,14 +85,6 @@ export const patchValFile = async (
     }
   }
 
-  for (const [ref, patch] of Object.entries(derefRes.value.remotePatches)) {
-    throw Error(
-      `Cannot update remote ${ref} with ${JSON.stringify(
-        patch
-      )}: not implemented`
-    );
-  }
-
   sourceFileHandler.writeSourceFile(newSourceFile.value);
 
   return readValFile(id, valConfigPath, runtime);

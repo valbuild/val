@@ -71,6 +71,7 @@ const OperationJSONT: z.ZodType<OperationJSONT> = z.discriminatedUnion("op", [
     .object({
       op: z.literal("file"),
       path: z.string(),
+      filePath: z.string(),
       value: z.string(),
     })
     .strict(),

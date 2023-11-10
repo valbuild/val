@@ -7,6 +7,7 @@ import { ValServer } from "./ValServer";
 import { z } from "zod";
 import { parsePatch } from "@valbuild/core/patch";
 import { Internal } from "@valbuild/core";
+import { Readable } from "stream";
 
 const VAL_SESSION_COOKIE = Internal.VAL_SESSION_COOKIE;
 const VAL_STATE_COOKIE = Internal.VAL_STATE_COOKIE;
@@ -25,8 +26,67 @@ export type ProxyValServerOptions = {
   valDisableRedirectUrl?: string;
 };
 
+class BrowserReadableStreamWrapper extends Readable {
+  private reader: ReadableStreamDefaultReader<Uint8Array>;
+
+  constructor(readableStream: ReadableStream<Uint8Array>) {
+    super();
+    this.reader = readableStream.getReader();
+  }
+
+  _read() {
+    this.reader
+      .read()
+      .then(({ done, value }) => {
+        if (done) {
+          this.push(null); // No more data to read
+        } else {
+          this.push(Buffer.from(value));
+        }
+      })
+      .catch((error) => {
+        this.emit("error", error);
+      });
+  }
+}
+
 export class ProxyValServer implements ValServer {
   constructor(readonly options: ProxyValServerOptions) {}
+
+  async getFiles(req: express.Request, res: express.Response): Promise<void> {
+    return this.withAuth(req, res, async (data) => {
+      const url = new URL(
+        `/v1/files/${this.options.valName}/${req.params["0"]}`,
+        this.options.valContentUrl
+      );
+      if (typeof req.query.sha256 === "string") {
+        url.searchParams.append("sha256", req.query.sha256 as string);
+      } else {
+        console.warn("Missing sha256 query param");
+      }
+      const fetchRes = await fetch(url, {
+        headers: this.getAuthHeaders(data.token),
+      });
+      const contentType = fetchRes.headers.get("content-type");
+      if (contentType !== null) {
+        res.setHeader("Content-Type", contentType);
+      }
+      const contentLength = fetchRes.headers.get("content-length");
+      if (contentLength !== null) {
+        res.setHeader("Content-Length", contentLength);
+      }
+      if (fetchRes.ok) {
+        if (fetchRes.body) {
+          new BrowserReadableStreamWrapper(fetchRes.body).pipe(res);
+        } else {
+          console.warn("No body in response");
+          res.sendStatus(500);
+        }
+      } else {
+        res.sendStatus(fetchRes.status);
+      }
+    });
+  }
 
   async authorize(req: express.Request, res: express.Response): Promise<void> {
     const { redirect_to } = req.query;
@@ -166,7 +226,6 @@ export class ProxyValServer implements ValServer {
       const json = await fetch(url, {
         headers: this.getAuthHeaders(data.token, "application/json"),
       }).then((res) => res.json());
-      console.log(url, json);
       res.send(json);
     });
   }

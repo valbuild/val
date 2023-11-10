@@ -252,10 +252,11 @@ async function createRichTextPatch(path: string, editor: LexicalEditor) {
         [VAL_EXTENSION]: "richtext",
       },
     },
-    ...Object.entries(files).map(([path, value]) => {
+    ...Object.entries(files).map(([filePath, value]) => {
       return {
         op: "file" as const,
         path,
+        filePath,
         value,
       };
     }),
@@ -286,7 +287,7 @@ function RichTextField({
   }, [editor]);
   useEffect(() => {
     if (editor && registerPatchCallback) {
-      registerPatchCallback(async (path) => createRichTextPatch(path, editor));
+      registerPatchCallback((path) => createRichTextPatch(path, editor));
     }
   }, [editor]);
   return (
