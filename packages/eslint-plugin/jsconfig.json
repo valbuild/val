@@ -5,7 +5,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "exclude": [
-    "dist/**/*"
-  ]
+  "exclude": ["dist/**/*"]
 }
