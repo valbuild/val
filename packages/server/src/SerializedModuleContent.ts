@@ -11,6 +11,7 @@ export const FATAL_ERROR_TYPES = [
   "invalid-id",
   "no-module",
 ] as const;
+export type FatalErrorType = (typeof FATAL_ERROR_TYPES)[number];
 
 export type SerializedModuleContent =
   | {
@@ -22,14 +23,14 @@ export type SerializedModuleContent =
   | {
       source?: Source;
       schema?: SerializedSchema;
-      path?: SourcePath;
+      path: SourcePath;
       errors: {
         invalidModuleId?: ModuleId;
         validation?: ValidationErrors;
         fatal?: {
           message: string;
-          stack?: string[];
-          type?: (typeof FATAL_ERROR_TYPES)[number];
+          stack?: string;
+          type?: FatalErrorType;
         }[];
       };
     };

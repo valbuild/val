@@ -5,50 +5,30 @@ import {
   SetStateAction,
   useCallback,
   useEffect,
-  useRef,
   useState,
 } from "react";
 import { Session } from "../dto/Session";
 import { ValMenu } from "./ValMenu";
-import {
-  EditMode,
-  Theme,
-  ValOverlayContext,
-  WindowSize,
-} from "./ValOverlayContext";
+import { EditMode, ValOverlayContext, WindowSize } from "./ValOverlayContext";
 import { Remote } from "../utils/Remote";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
-import {
-  AnyRichTextOptions,
-  FileSource,
-  Internal,
-  RichTextSource,
-  SerializedSchema,
-  SourcePath,
-  VAL_EXTENSION,
-} from "@valbuild/core";
+import { Internal, SerializedSchema, SourcePath } from "@valbuild/core";
 import { Modules, resolvePath } from "../utils/resolvePath";
 import { ValApi } from "@valbuild/core";
-import { RichTextEditor } from "../exports";
-import { LexicalEditor } from "lexical";
-import { LexicalRootNode } from "../richtext/conversion/richTextSourceToLexical";
-import { PatchJSON } from "@valbuild/core/patch";
-import { readImage } from "../utils/readImage";
-import { lexicalToRichTextSource } from "../richtext/conversion/lexicalToRichTextSource";
+import { ValFormField } from "./ValFormField";
+import { usePatch } from "./usePatch";
+import { Button } from "./ui/button";
+import { useTheme } from "./useTheme";
+import { IValStore } from "../lib/IValStore";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
   api: ValApi;
+  store: IValStore;
 };
 
-type ImageSource = FileSource<{
-  height: number;
-  width: number;
-  sha256: string;
-}>;
-
-export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
+export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
   const [theme, setTheme] = useTheme(defaultTheme);
   const session = useSession(api);
 
@@ -61,37 +41,16 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
     windowTarget?.path
   );
 
-  const [state, setState] = useState<{
-    [path: SourcePath]: () => Promise<PatchJSON>;
-  }>({});
-  const initPatchCallback = useCallback((currentPath: SourcePath | null) => {
-    return (callback: PatchCallback) => {
-      // TODO: revaluate this logic when we have multiple paths
-      // NOTE: see cleanup of state in useEffect below
-      if (!currentPath) {
-        setState({});
-      } else {
-        const patchPath = Internal.createPatchJSONPath(
-          Internal.splitModuleIdAndModulePath(currentPath)[1]
-        );
-        setState((prev) => {
-          return {
-            ...prev,
-            [currentPath]: () => callback(patchPath),
-          };
-        });
-      }
-    };
-  }, []);
-  useEffect(() => {
-    setState((prev) => {
-      return Object.fromEntries(
-        Object.entries(prev).filter(([path]) => path === windowTarget?.path)
-      );
-    });
-  }, [windowTarget?.path]);
+  const { initPatchCallback, onSubmitPatch } = usePatch(
+    windowTarget?.path ? [windowTarget.path] : [],
+    api,
+    store
+  );
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
+  useEffect(() => {
+    store.updateAll();
+  }, []);
 
   return (
     <ValOverlayContext.Provider
@@ -108,7 +67,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
         setWindowSize,
       }}
     >
-      <div data-mode={theme}>
+      <div data-mode={theme} className="antialiased">
         <div className="fixed -translate-x-1/2 z-overlay left-1/2 bottom-4">
           <ValMenu api={api} />
         </div>
@@ -135,240 +94,22 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
             </div>
             {loading && <div className="text-primary">Loading...</div>}
             {error && <div className="text-red">{error}</div>}
-            {typeof selectedSource === "string" &&
-              selectedSchema?.type === "string" && (
-                <StringField
-                  defaultValue={selectedSource}
-                  isLoading={loading}
-                  registerPatchCallback={initPatchCallback(windowTarget.path)}
-                />
-              )}
-            {selectedSource &&
-              typeof selectedSource === "object" &&
-              VAL_EXTENSION in selectedSource &&
-              selectedSource[VAL_EXTENSION] === "richtext" && (
-                <RichTextField
-                  registerPatchCallback={initPatchCallback(windowTarget.path)}
-                  defaultValue={
-                    selectedSource as RichTextSource<AnyRichTextOptions>
-                  }
-                />
-              )}
-            {selectedSource &&
-              typeof selectedSource === "object" &&
-              VAL_EXTENSION in selectedSource &&
-              selectedSource[VAL_EXTENSION] === "file" && (
-                <ImageField
-                  registerPatchCallback={initPatchCallback(windowTarget.path)}
-                  defaultValue={selectedSource as ImageSource}
-                />
-              )}
-            <div className="flex items-end justify-end py-2">
-              <SubmitButton
-                disabled={false}
-                onClick={() => {
-                  if (state[windowTarget.path]) {
-                    const [moduleId] = Internal.splitModuleIdAndModulePath(
-                      windowTarget.path
-                    );
-                    const res = state[windowTarget.path]();
-                    if (res) {
-                      res
-                        .then((patch) => {
-                          console.log("Submitting", patch);
-                          return api.postPatches(moduleId, patch);
-                        })
-                        .then((res) => {
-                          console.log(res);
-                        })
-                        .finally(() => {
-                          console.log("done");
-                        });
-                    } else {
-                      console.error("No patch");
-                    }
-                  }
-                }}
+            {selectedSchema !== undefined && selectedSource !== undefined && (
+              <ValFormField
+                path={windowTarget.path}
+                disabled={loading}
+                source={selectedSource}
+                schema={selectedSchema}
+                registerPatchCallback={initPatchCallback(windowTarget.path)}
               />
+            )}
+            <div className="flex items-end justify-end py-2">
+              <SubmitButton disabled={false} onClick={onSubmitPatch} />
             </div>
           </ValWindow>
         )}
       </div>
     </ValOverlayContext.Provider>
-  );
-}
-
-type PatchCallback = (modulePath: string) => Promise<PatchJSON>;
-
-function ImageField({
-  defaultValue,
-  registerPatchCallback,
-}: {
-  registerPatchCallback: (callback: PatchCallback) => void;
-  defaultValue?: ImageSource;
-}) {
-  const [data, setData] = useState<string | null>(null);
-  const [metadata, setMetadata] = useState<{
-    width?: number;
-    height?: number;
-    sha256: string;
-  } | null>(null);
-  const url = defaultValue && Internal.convertFileSource(defaultValue).url;
-  useEffect(() => {
-    registerPatchCallback(async (path) => {
-      const pathParts = path.split("/");
-      if (!data) {
-        return [];
-      }
-      return [
-        {
-          value: {
-            ...defaultValue,
-            metadata,
-          },
-          op: "replace",
-          path,
-        },
-        // update the contents of the file:
-        {
-          value: data,
-          op: "replace",
-          path: `${pathParts.slice(0, -1).join("/")}/$${
-            pathParts[pathParts.length - 1]
-          }`,
-        },
-      ];
-    });
-  }, [data]);
-
-  return (
-    <div>
-      <label htmlFor="img_input" className="">
-        <img src={data || url} />
-        <input
-          id="img_input"
-          type="file"
-          hidden
-          onChange={(ev) => {
-            readImage(ev)
-              .then((res) => {
-                setData(res.src);
-                setMetadata({
-                  sha256: res.sha256,
-                  width: res.width,
-                  height: res.height,
-                });
-              })
-              .catch((err) => {
-                console.error(err.message);
-                setData(null);
-                setMetadata(null);
-              });
-          }}
-        />
-      </label>
-    </div>
-  );
-}
-
-function RichTextField({
-  defaultValue,
-  registerPatchCallback,
-}: {
-  registerPatchCallback: (callback: PatchCallback) => void;
-  defaultValue?: RichTextSource<AnyRichTextOptions>;
-}) {
-  const [editor, setEditor] = useState<LexicalEditor | null>(null);
-  useEffect(() => {
-    if (editor) {
-      registerPatchCallback(async (path) => {
-        const { templateStrings, exprs, files } = editor?.toJSON()?.editorState
-          ? await lexicalToRichTextSource(
-              editor?.toJSON()?.editorState.root as LexicalRootNode
-            )
-          : ({
-              [VAL_EXTENSION]: "richtext",
-              templateStrings: [""],
-              exprs: [],
-              files: {},
-            } as RichTextSource<AnyRichTextOptions> & {
-              files: Record<string, string>;
-            });
-        return [
-          {
-            op: "replace" as const,
-            path,
-            value: {
-              templateStrings,
-              exprs,
-              [VAL_EXTENSION]: "richtext",
-            },
-          },
-          ...Object.entries(files).map(([path, value]) => {
-            return {
-              op: "file" as const,
-              path,
-              value,
-            };
-          }),
-        ];
-      });
-    }
-  }, [editor]);
-  return (
-    <RichTextEditor
-      onEditor={(editor) => {
-        setEditor(editor);
-      }}
-      richtext={
-        defaultValue ||
-        ({
-          children: [],
-          [VAL_EXTENSION]: "root",
-        } as unknown as RichTextSource<AnyRichTextOptions>)
-      }
-    />
-  );
-}
-
-function StringField({
-  isLoading,
-  defaultValue,
-  registerPatchCallback,
-}: {
-  registerPatchCallback: (callback: PatchCallback) => void;
-  isLoading: boolean;
-  defaultValue?: string;
-}) {
-  const [value, setValue] = useState(defaultValue || "");
-
-  // ref is used to get the value of the textarea without closing over the value field
-  // to avoid registering a new callback every time the value changes
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    registerPatchCallback(async (path) => {
-      return [
-        {
-          op: "replace",
-          path,
-          value: ref.current?.value || "",
-        },
-      ];
-    });
-  }, []);
-
-  return (
-    <div className="flex flex-col justify-between h-full px-4">
-      <div className="w-full h-full py-2 overflow-y-scroll">
-        <input
-          ref={ref}
-          disabled={isLoading}
-          className="w-full p-2 border outline-none resize-none bg-fill text-primary border-border focus-visible:border-highlight"
-          defaultValue={value}
-          onChange={(e) => setValue(e.target.value)}
-        />
-      </div>
-    </div>
   );
 }
 
@@ -380,13 +121,13 @@ function SubmitButton({
   onClick?: () => void;
 }) {
   return (
-    <button
+    <Button
       className="px-4 py-2 border border-highlight disabled:border-border"
       disabled={disabled}
       onClick={onClick}
     >
       Submit
-    </button>
+    </Button>
   );
 }
 
@@ -500,7 +241,7 @@ function ValHover({
   return (
     <div
       id="val-hover"
-      className="fixed border-2 cursor-pointer z-overlay-hover border-base"
+      className="fixed border-2 cursor-pointer z-overlay-hover border-highlight drop-shadow-[0px_0px_12px_rgba(56,205,152,0.60)]"
       style={{
         top: rect?.top,
         left: rect?.left,
@@ -518,7 +259,7 @@ function ValHover({
     >
       <div className="flex items-center justify-end w-full text-xs">
         <div
-          className="flex items-center justify-center px-3 py-1 text-primary bg-base"
+          className="flex items-center justify-center px-3 py-1 text-primary bg-highlight"
           style={{
             maxHeight: rect?.height && rect.height - 4,
             fontSize:
@@ -545,7 +286,6 @@ function useHoverTarget(editMode: EditMode) {
         // TODO: use .contains?
         do {
           if (curr?.dataset.valPath) {
-            console.log("setter target");
             setTargetElement(curr);
             setTargetPath(curr.dataset.valPath as SourcePath);
             setTargetRect(curr.getBoundingClientRect());
@@ -663,49 +403,6 @@ function useInitEditMode() {
     }
   }, []);
   return [editMode, setEditMode] as const;
-}
-
-function useTheme(defaultTheme: Theme = "dark") {
-  const [theme, setTheme] = useState<Theme>(defaultTheme);
-
-  useEffect(() => {
-    if (localStorage.getItem("val-theme") === "light") {
-      setTheme("light");
-    } else if (localStorage.getItem("val-theme") === "dark") {
-      setTheme("dark");
-    } else if (
-      window.matchMedia &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches
-    ) {
-      setTheme("dark");
-    } else if (
-      window.matchMedia &&
-      window.matchMedia("(prefers-color-scheme: light)").matches
-    ) {
-      setTheme("light");
-    }
-    const themeListener = (e: MediaQueryListEvent) => {
-      if (!localStorage.getItem("val-theme")) {
-        setTheme(e.matches ? "dark" : "light");
-      }
-    };
-    window
-      .matchMedia("(prefers-color-scheme: dark)")
-      .addEventListener("change", themeListener);
-    return () => {
-      window
-        .matchMedia("(prefers-color-scheme: dark)")
-        .removeEventListener("change", themeListener);
-    };
-  }, []);
-
-  return [
-    theme,
-    (theme: Theme) => {
-      localStorage.setItem("val-theme", theme);
-      setTheme(theme);
-    },
-  ] as const;
 }
 
 function useSession(api: ValApi) {

@@ -1,11 +1,12 @@
 import { Json, ModuleId, ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
+import { IValStore } from "@valbuild/ui";
 
 type SubscriberId = string & {
   readonly _tag: unique symbol;
 };
 
-export class ValStore {
+export class ValStore implements IValStore {
   private readonly subscribers: Map<SubscriberId, Record<ModuleId, Json>>; // uncertain whether this is the optimal way of returning
   private readonly listeners: Record<SubscriberId, (() => void)[]>;
 
@@ -85,19 +86,16 @@ export class ValStore {
   };
 
   private emitChange(subscriberId: SubscriberId) {
-    console.log("emitChange");
     for (const listener of this.listeners[subscriberId]) {
       listener();
     }
   }
 
   getSnapshot = (moduleIds: ModuleId[]) => () => {
-    console.log("getSnapshot", moduleIds);
     return this.get(moduleIds);
   };
 
   getServerSnapshot = (moduleIds: ModuleId[]) => () => {
-    console.log("getServerSnapshot", moduleIds);
     return this.get(moduleIds);
   };
 

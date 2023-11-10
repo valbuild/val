@@ -12,34 +12,30 @@ export class ValApi {
   getDisableUrl() {
     return `${this.host}/disable`;
   }
+  getEditUrl() {
+    return `${this.host}/static/edit`;
+  }
 
   postPatches(
     moduleId: ModuleId,
     patches: PatchJSON,
-    commit?: string,
     headers?: Record<string, string> | undefined
   ) {
-    let params = "";
-    if (commit) {
-      const p = new URLSearchParams();
-      p.set("commit", commit);
-      params = `?${p.toString()}`;
-    }
-    return fetch(`${this.host}/patches/~${moduleId}${params}`, {
+    return fetch(`${this.host}/patches/~`, {
       headers: headers || {
         "Content-Type": "application/json",
       },
       method: "POST",
-      body: JSON.stringify(patches),
-    }).then(parse<ApiPatchResponse>);
+      body: JSON.stringify({ [moduleId]: patches }),
+    }).then((res) => parse<ApiPatchResponse>(res));
   }
 
   getSession() {
-    return fetch(`${this.host}/session`).then(
+    return fetch(`${this.host}/session`).then((res) =>
       parse<{
         mode: "proxy" | "local";
         member_role: "owner" | "developer" | "editor";
-      }>
+      }>(res)
     );
   }
 
@@ -62,7 +58,7 @@ export class ValApi {
     params.set("source", includeSource.toString());
     return fetch(`${this.host}/tree/~${treePath}?${params.toString()}`, {
       headers,
-    }).then(parse<ApiTreeResponse>);
+    }).then((res) => parse<ApiTreeResponse>(res));
   }
 }
 

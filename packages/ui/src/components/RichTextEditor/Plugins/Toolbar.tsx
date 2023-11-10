@@ -300,7 +300,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
   };
 
   return (
-    <div className="sticky top-0 border-b bg-base border-highlight flex flex-col">
+    <div className="sticky top-0 border-b bg-background border-highlight flex flex-col">
       <div className="flex flex-row gap-1">
         <Dropdown
           options={Object.values(blockTypes)}
@@ -379,7 +379,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
           <input
             type="text"
             placeholder="Enter URL"
-            className="w-1/3 text-primary bg-base px-2"
+            className="w-1/3 text-primary bg-background px-2"
             value={url}
             onChange={(ev) => {
               ev.preventDefault();

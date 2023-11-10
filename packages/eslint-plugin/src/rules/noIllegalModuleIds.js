@@ -1,7 +1,9 @@
 // @ts-check
 import path from "path";
 
-const getExpectedValModuleName = (context) => {
+const getExpectedValModuleName = (
+  /** @type {{ report?: (arg0: { node: any; message: string; fix: ((fixer: any) => any) | ((fixer: any) => any); }) => void; getFilename?: any; cwd?: any; }} */ context
+) => {
   const filename = context.getFilename();
   if (filename.endsWith(".val.ts") || filename.endsWith(".val.js")) {
     const root = context.cwd || process.cwd();
@@ -23,9 +25,14 @@ export default {
     fixable: "code",
     schema: [],
   },
-  create: function (context) {
+  create: function (
+    /** @type {{ report: (arg0: { node: any; message: string; fix: ((fixer: any) => any) | ((fixer: any) => any); }) => void; }} */ context
+  ) {
     const expectedValue = getExpectedValModuleName(context);
     return {
+      /**
+       * @param {{ declaration: { arguments: string | any[]; }; }} node
+       */
       ExportDefaultDeclaration(node) {
         if (!expectedValue) {
           return;
