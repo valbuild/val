@@ -2,10 +2,8 @@ import express from "express";
 import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { PatchJSON } from "./patch/validation";
-import { result } from "@valbuild/core/fp";
 import { ValServer } from "./ValServer";
 import { z } from "zod";
-import { parsePatch } from "@valbuild/core/patch";
 import { Internal } from "@valbuild/core";
 import { Readable } from "stream";
 
