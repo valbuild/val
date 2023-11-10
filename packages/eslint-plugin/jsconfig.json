@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "exclude": [
+    "dist/**/*"
+  ]
+}
