@@ -8,9 +8,11 @@ html {
   --val-theme-dark-gray: #575757;
   --val-theme-medium-black: #303030;
   --val-theme-warm-black: #1a1a1a;
-  --val-theme-yellow: #ffff00;
+  --val-theme-yellow: #38cd98;
   --val-theme-red: #f02929;
   --val-theme-green: #1ced1c;
+  --val-theme-full-black: black;
+  --val-theme-full-white: white;
 
   /* light theme */
   --val-theme-base: var(--val-theme-white);
@@ -18,6 +20,7 @@ html {
   --val-theme-border: var(--val-theme-medium-gray);
   --val-theme-fill: var(--val-theme-light-gray);
   --val-theme-primary: var(--val-theme-warm-black);
+  --val-theme-full: var(--val-theme-full-black);
 }
 
 /* dark theme */
@@ -27,4 +30,5 @@ html {
   --val-theme-border: var(--val-theme-dark-gray);
   --val-theme-fill: var(--val-theme-medium-black);
   --val-theme-primary: var(--val-theme-white);
+  --val-theme-full: var(--val-theme-full-white);
 }

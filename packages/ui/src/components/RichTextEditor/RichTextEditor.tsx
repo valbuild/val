@@ -82,7 +82,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
       <RichTextPlugin
         contentEditable={
           <div
-            className="text-white border-b border-highlight font-roboto"
+            className="font-sans border-b text-primary border-highlight"
             style={{
               minHeight: windowSize?.innerHeight
                 ? windowSize?.innerHeight - TOOLBAR_HEIGHT

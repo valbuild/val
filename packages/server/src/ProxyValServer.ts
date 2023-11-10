@@ -2,11 +2,10 @@ import express from "express";
 import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { PatchJSON } from "./patch/validation";
-import { result } from "@valbuild/core/fp";
 import { ValServer } from "./ValServer";
 import { z } from "zod";
-import { parsePatch } from "@valbuild/core/patch";
 import { Internal } from "@valbuild/core";
+import { Readable } from "stream";
 
 const VAL_SESSION_COOKIE = Internal.VAL_SESSION_COOKIE;
 const VAL_STATE_COOKIE = Internal.VAL_STATE_COOKIE;
@@ -25,8 +24,67 @@ export type ProxyValServerOptions = {
   valDisableRedirectUrl?: string;
 };
 
+class BrowserReadableStreamWrapper extends Readable {
+  private reader: ReadableStreamDefaultReader<Uint8Array>;
+
+  constructor(readableStream: ReadableStream<Uint8Array>) {
+    super();
+    this.reader = readableStream.getReader();
+  }
+
+  _read() {
+    this.reader
+      .read()
+      .then(({ done, value }) => {
+        if (done) {
+          this.push(null); // No more data to read
+        } else {
+          this.push(Buffer.from(value));
+        }
+      })
+      .catch((error) => {
+        this.emit("error", error);
+      });
+  }
+}
+
 export class ProxyValServer implements ValServer {
   constructor(readonly options: ProxyValServerOptions) {}
+
+  async getFiles(req: express.Request, res: express.Response): Promise<void> {
+    return this.withAuth(req, res, async (data) => {
+      const url = new URL(
+        `/v1/files/${this.options.valName}/${req.params["0"]}`,
+        this.options.valContentUrl
+      );
+      if (typeof req.query.sha256 === "string") {
+        url.searchParams.append("sha256", req.query.sha256 as string);
+      } else {
+        console.warn("Missing sha256 query param");
+      }
+      const fetchRes = await fetch(url, {
+        headers: this.getAuthHeaders(data.token),
+      });
+      const contentType = fetchRes.headers.get("content-type");
+      if (contentType !== null) {
+        res.setHeader("Content-Type", contentType);
+      }
+      const contentLength = fetchRes.headers.get("content-length");
+      if (contentLength !== null) {
+        res.setHeader("Content-Length", contentLength);
+      }
+      if (fetchRes.ok) {
+        if (fetchRes.body) {
+          new BrowserReadableStreamWrapper(fetchRes.body).pipe(res);
+        } else {
+          console.warn("No body in response");
+          res.sendStatus(500);
+        }
+      } else {
+        res.sendStatus(fetchRes.status);
+      }
+    });
+  }
 
   async authorize(req: express.Request, res: express.Response): Promise<void> {
     const { redirect_to } = req.query;
@@ -145,10 +203,19 @@ export class ProxyValServer implements ValServer {
   async getTree(req: express.Request, res: express.Response): Promise<void> {
     return this.withAuth(req, res, async (data) => {
       const { patch, schema, source } = req.query;
+      const commit = this.options.gitCommit;
+      if (!commit) {
+        res.status(401).json({
+          error:
+            "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
+        });
+        return;
+      }
       const params = new URLSearchParams({
         patch: (patch === "true").toString(),
         schema: (schema === "true").toString(),
         source: (source === "true").toString(),
+        commit,
       });
       const url = new URL(
         `/v1/tree/${this.options.valName}/heads/${this.options.gitBranch}/${req.params["0"]}/?${params}`,
@@ -165,9 +232,12 @@ export class ProxyValServer implements ValServer {
     req: express.Request<{ 0: string }>,
     res: express.Response
   ): Promise<void> {
-    const { commit } = req.query;
-    if (typeof commit !== "string" || typeof commit === "undefined") {
-      res.status(401).json({ error: "Missing or invalid commit query param" });
+    const commit = this.options.gitCommit;
+    if (!commit) {
+      res.status(401).json({
+        error:
+          "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
+      });
       return;
     }
     const params = new URLSearchParams({
@@ -175,19 +245,21 @@ export class ProxyValServer implements ValServer {
     });
     this.withAuth(req, res, async ({ token }) => {
       // First validate that the body has the right structure
-      const patchJSON = PatchJSON.safeParse(req.body);
+      const patchJSON = z.record(PatchJSON).safeParse(req.body);
       if (!patchJSON.success) {
         res.status(401).json(patchJSON.error.issues);
         return;
       }
       // Then parse/validate
-      const patch = parsePatch(patchJSON.data);
-      if (result.isErr(patch)) {
-        res.status(401).json(patch.error);
-        return;
-      }
+      // TODO:
+      const patch = patchJSON.data;
+      // const patch = parsePatch(patchJSON.data);
+      // if (result.isErr(patch)) {
+      //   res.status(401).json(patch.error);
+      //   return;
+      // }
       const url = new URL(
-        `/v1/tree/${this.options.valName}/heads/${this.options.gitBranch}/${req.params["0"]}/?${params}`,
+        `/v1/patches/${this.options.valName}/heads/${this.options.gitBranch}/${req.params["0"]}/?${params}`,
         this.options.valContentUrl
       );
       // Proxy patch to val.build

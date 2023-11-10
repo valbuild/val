@@ -22,5 +22,6 @@ export function createRequestHandler(valServer: ValServer): RequestHandler {
   router.get("/enable", valServer.enable.bind(valServer));
   router.get("/disable", valServer.disable.bind(valServer));
   router.get("/tree/*", valServer.getTree.bind(valServer));
+  router.get("/files/*", valServer.getFiles.bind(valServer));
   return router;
 }

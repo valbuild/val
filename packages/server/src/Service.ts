@@ -22,9 +22,15 @@ export type ServiceOptions = {
   /**
    * Relative path to the val.config.js file from the root directory.
    *
-   * @example src/val.config
+   * @example "./val.config"
    */
   valConfigPath: string;
+  /**
+   * Disable cache for transpilation
+   *
+   * @default false
+   *    */
+  disableCache?: boolean;
 };
 
 export async function createService(
@@ -89,19 +95,10 @@ export class Service {
             : resolved.schema,
         source: resolved.source,
         errors:
-          valModule.errors &&
-          valModule.errors.validation &&
-          valModule.errors.validation[sourcePath]
+          valModule.errors && valModule.errors.validation
             ? {
-                validation: valModule.errors.validation[sourcePath]
-                  ? {
-                      [sourcePath]: valModule.errors.validation[sourcePath],
-                    }
-                  : undefined,
-                fatal:
-                  valModule.errors && valModule.errors.fatal
-                    ? valModule.errors.fatal
-                    : undefined,
+                validation: valModule.errors.validation || undefined,
+                fatal: valModule.errors.fatal || undefined,
               }
             : false,
       };

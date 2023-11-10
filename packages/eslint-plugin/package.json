@@ -27,5 +27,8 @@
   },
   "devDependencies": {
     "eslint": "^7.10.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p jsconfig.json"
   }
 }

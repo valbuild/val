@@ -9,6 +9,10 @@ export interface ButtonProps
   disabled?: boolean;
 }
 
+/**
+ *
+ * @deprecated Use ui/Button
+ */
 export function PrimaryButton({
   children,
   onClick,
@@ -41,9 +45,9 @@ const Button: FC<ButtonProps> = ({
         "font-sans font-[12px] tracking-[0.04em] py-1 px-2 rounded whitespace-nowrap group relative text-primary",
         {
           "font-bold": variant === "primary",
-          "bg-base hover:bg-base text-fill disabled:bg-fill disabled:text-base":
+          "bg-background hover:bg-background text-fill disabled:bg-fill disabled:text-background":
             variant === "primary",
-          "bg-transparent border border-primary text-primary hover:border-highlight hover:text-highlight disabled:bg-fill disabled:text-base":
+          "bg-transparent border border-primary text-primary hover:border-highlight hover:text-highlight disabled:bg-fill disabled:text-background":
             variant !== "primary",
         }
       )}
@@ -57,4 +61,8 @@ const Button: FC<ButtonProps> = ({
   );
 };
 
+/**
+ *
+ * @deprecated Use ui/Button
+ */
 export default Button;

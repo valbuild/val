@@ -9,11 +9,14 @@
 
 import type { RequestHandler } from "express";
 
+type Vite = typeof import("vite");
 export function createRequestHandler(): RequestHandler {
   if (typeof window === "undefined") {
     const vite = (async () => {
       const { fileURLToPath, URL: URL_noresolve } = await import("node:url");
-      const { createServer } = await import(/* @vite-ignore */ "v" + "ite");
+      const { createServer } = await (import(
+        /* @vite-ignore */ "v" + "ite"
+      ) as Promise<Vite>);
       const vite = await createServer({
         root: fileURLToPath(new URL_noresolve("..", import.meta.url)),
         configFile: fileURLToPath(
@@ -31,8 +34,42 @@ export function createRequestHandler(): RequestHandler {
         res.statusCode = 200;
         res.setHeader("Content-Type", "text/css");
         return res.end(style);
+      } else if (req.url.startsWith("/edit")) {
+        const html = (await vite).transformIndexHtml(
+          req.url,
+          `
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Val</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+`
+        );
+        return res.end(await html);
       } else {
-        return next();
+        // TODO: error handling
+        try {
+          const transformed = await (await vite).transformRequest(req.url);
+          if (transformed) {
+            const { code, etag } = transformed;
+            return res
+              .header({ "Content-Type": "application/javascript", Etag: etag })
+              .end(code);
+          }
+          return next();
+        } catch (e) {
+          if (e instanceof Error) {
+            (await vite).ssrFixStacktrace(e);
+          }
+          return next(e);
+        }
       }
     };
   } else {

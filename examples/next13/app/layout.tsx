@@ -14,7 +14,7 @@ export default function RootLayout({
       */}
       <head />
       <body>
-        <ValProvider host="/api/val">{children}</ValProvider>
+        <ValProvider>{children}</ValProvider>
       </body>
     </html>
   );

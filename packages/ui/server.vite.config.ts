@@ -4,9 +4,11 @@ import { defineConfig } from "vite";
 export default defineConfig({
   build: {
     outDir: "./server/dist",
+    manifest: true,
     lib: {
       entry: {
         "valbuild-ui-server": "./src/vite-server.ts",
+        "valbuild-ui-main": "./src/main.jsx",
       },
       formats: ["cjs", "es"],
       /**

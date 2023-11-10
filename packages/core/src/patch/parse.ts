@@ -95,7 +95,6 @@ export function parseOperation(
   const path = parseJSONPointer(operation.path);
 
   switch (operation.op) {
-    case "file":
     case "add":
     case "replace":
     case "test":
@@ -109,6 +108,21 @@ export function parseOperation(
         result.map((path: string[]) => ({
           op: operation.op,
           path,
+          value: operation.value,
+        }))
+      );
+    case "file":
+      return pipe(
+        path,
+        result.mapErr(
+          (error: string): array.NonEmptyArray<StaticPatchIssue> => [
+            createIssueAtPath(["path"])(error),
+          ]
+        ),
+        result.map((path: string[]) => ({
+          op: operation.op,
+          path,
+          filePath: operation.filePath,
           value: operation.value,
         }))
       );

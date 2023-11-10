@@ -3,7 +3,7 @@ import { getCompilerOptions } from "./getCompilerOptions";
 import type { IValFSHost } from "./ValFSHost";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
 import fs from "fs";
-
+import { transform } from "sucrase";
 const JsFileLookupMapping: [resolvedFileExt: string, replacements: string[]][] =
   [
     // NOTE: first one matching will be used
@@ -35,16 +35,26 @@ export const createModuleLoader = (
   return loader;
 };
 
+const MAX_CACHE_SIZE = 100 * 1024 * 1024; // 100 mb
+const MAX_OBJECT_KEY_SIZE = 2 ** 27; // https://stackoverflow.com/questions/13367391/is-there-a-limit-on-length-of-the-key-string-in-js-object
+
 export class ValModuleLoader {
+  private cache: Record<string, string>;
+  private cacheSize: number;
   constructor(
     public readonly projectRoot: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     private readonly compilerOptions: ts.CompilerOptions,
     private readonly sourceFileHandler: ValSourceFileHandler,
     private readonly host: IValFSHost = {
       ...ts.sys,
       writeFile: fs.writeFileSync,
-    }
-  ) {}
+    },
+    private readonly disableCache: boolean = false
+  ) {
+    this.cache = {};
+    this.cacheSize = 0;
+  }
 
   getModule(modulePath: string): string {
     if (!modulePath) {
@@ -54,16 +64,29 @@ export class ValModuleLoader {
     if (!code) {
       throw Error(`Could not read file "${modulePath}"`);
     }
-    return ts.transpile(code, {
-      ...this.compilerOptions,
-      jsx: ts.JsxEmit.React,
-      // allowJs: true,
-      // rootDir: this.compilerOptions.rootDir,
-      module: ts.ModuleKind.ESNext,
-      target: ts.ScriptTarget.ES2015, // QuickJS supports a lot of ES2020: https://test262.report/, however not all cases are in that report (e.g. export const {} = {})
-      // moduleResolution: ts.ModuleResolutionKind.NodeNext,
-      // target: ts.ScriptTarget.ES2020, // QuickJs runs in ES2020 so we must use that
-    });
+    let compiledCode;
+    if (this.cache[code] && !this.disableCache) {
+      // TODO: use hash instead of code as key
+      compiledCode = this.cache[code];
+    } else {
+      compiledCode = transform(code, {
+        filePath: modulePath,
+        disableESTransforms: true,
+        transforms: ["typescript"],
+      }).code;
+      if (!this.disableCache) {
+        if (this.cacheSize > MAX_CACHE_SIZE) {
+          console.warn("Cache size exceeded, clearing cache");
+          this.cache = {};
+          this.cacheSize = 0;
+        }
+        if (code.length < MAX_OBJECT_KEY_SIZE) {
+          this.cache[code] = compiledCode;
+          this.cacheSize += code.length + compiledCode.length; // code is mostly ASCII so 1 byte per char
+        }
+      }
+    }
+    return compiledCode;
   }
 
   resolveModulePath(

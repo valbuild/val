@@ -1,4 +1,6 @@
+import classNames from "classnames";
 import { Children, useEffect, useRef } from "react";
+import { ScrollArea } from "./ui/scroll-area";
 
 type GridProps = {
   children: React.ReactNode | React.ReactNode[];
@@ -70,41 +72,54 @@ export function Grid({ children }: GridProps): React.ReactElement {
   }, []);
 
   return (
-    <div className="flex w-full h-screen">
+    <div className="flex h-screen">
       <div
         ref={leftColRef}
-        className="relative h-full border-r border-dark-gray"
+        className="relative border-r border-border"
         style={{ width: 300 }}
       >
         <Grid.Column>
           {header1}
-          {body1}
+          <ScrollArea style={{ height: "calc(100vh - 50px)" }}>
+            {body1}
+          </ScrollArea>
         </Grid.Column>
         <div
-          className="absolute inset-y-0 right-0 cursor-col-resize w-[1px] bg-dark-gray hover:w-[2px] hover:bg-light-gray"
+          className="absolute inset-y-0 right-0 cursor-col-resize w-[1px] hover:w-[3px] h-full hover:bg-border"
           onMouseDown={handleMouseDown("left")}
         ></div>
       </div>
-      <div className="flex-auto bg-warm-black">
-        <Grid.Column>
-          {header2}
-          {body2}
-        </Grid.Column>
-      </div>
       <div
-        ref={rightColRef}
-        className="relative border-l border-dark-gray bg-warm-black"
-        style={{ width: 300 }}
+        className={classNames("", {
+          "w-full": !header3 && !body3,
+        })}
       >
         <Grid.Column>
-          {header3}
-          {body3}
+          {header2}
+          <ScrollArea style={{ height: "calc(100vh - 50px)" }}>
+            {body2}
+          </ScrollArea>
         </Grid.Column>
-        <div
-          onMouseDown={handleMouseDown("right")}
-          className="absolute inset-y-0 left-0 cursor-col-resize w-[1px]  bg-dark-gray hover:w-[2px] hover:bg-light-gray"
-        ></div>
       </div>
+      {header3 ||
+        (body3 && (
+          <div
+            ref={rightColRef}
+            className="relative h-screen border-l border-border"
+            style={{ width: 300 }}
+          >
+            <Grid.Column>
+              {header3}
+              <ScrollArea style={{ height: "calc(100vh - 50px)" }}>
+                {body3}
+              </ScrollArea>
+            </Grid.Column>
+            <div
+              onMouseDown={handleMouseDown("right")}
+              className="absolute inset-y-0 left-0 cursor-col-resize w-[1px] bg-border hover:w-[3px] hover:bg-border"
+            ></div>
+          </div>
+        ))}
     </div>
   );
 }
@@ -116,10 +131,8 @@ type GridChildProps = {
 Grid.Column = ({ children }: GridChildProps): React.ReactElement => {
   const [header, body] = Children.toArray(children);
   return (
-    <div className="flex flex-col h-full overflow-auto bg-warm-black">
-      <div className="h-[50px] flex items-center border-b border-dark-gray">
-        {header}
-      </div>
+    <div className="flex flex-col">
+      <div className="flex items-center border-b border-border">{header}</div>
       {body}
     </div>
   );

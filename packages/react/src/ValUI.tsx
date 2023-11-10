@@ -5,7 +5,7 @@ import { Internal } from "@valbuild/core";
 import { Style, ValOverlay } from "@valbuild/ui";
 import { useEffect, useState } from "react";
 import { ShadowRoot } from "./ShadowRoot";
-import { useValApi } from "./ValProvider";
+import { useValApi, useValStore } from "./ValProvider";
 
 export default function ValUI() {
   const [isClient, setIsClient] = useState(false);
@@ -13,6 +13,7 @@ export default function ValUI() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [isDraftMode, setDraftMode] = useState(false); // TODO: if enabled, but not in draft mode: show something
   const api = useValApi();
+  const store = useValStore();
   useEffect(() => {
     setIsClient(true);
     try {
@@ -62,11 +63,15 @@ export default function ValUI() {
           crossOrigin="anonymous"
         />
         <link
-          href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;0,900;1,400;1,700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap"
+          rel="stylesheet"
+        />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;1,100;1,300;1,400;1,500;1,700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap"
           rel="stylesheet"
         />
         <Style />
-        <ValOverlay api={api} />
+        <ValOverlay api={api} store={store} />
       </ShadowRoot>
     </>
   );

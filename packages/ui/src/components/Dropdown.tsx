@@ -81,9 +81,9 @@ const Dropdown: React.FC<DropdownProps> = ({
                       ev.preventDefault();
                       handleSelect(option, idx);
                     }}
-                    className={`text-left px-2 py-1 hover:bg-base hover:text-highlight  ${
+                    className={`text-left px-2 py-1 hover:bg-background hover:text-highlight  ${
                       idx === selectedOption &&
-                      "font-bold bg-base hover:bg-base truncate"
+                      "font-bold bg-background hover:bg-background truncate"
                     }`}
                   >
                     {option}

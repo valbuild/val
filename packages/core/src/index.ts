@@ -35,11 +35,12 @@ export {
   type SourcePath,
   type JsonOfSource,
 } from "./val";
-export type { Json, JsonPrimitive } from "./Json";
+export type { Json, JsonPrimitive, JsonArray, JsonObject } from "./Json";
 export type {
-  ValidationErrors,
   ValidationError,
+  ValidationErrors,
 } from "./schema/validation/ValidationError";
+import type { ValidationErrors } from "./schema/validation/ValidationError";
 export type { ValidationFix } from "./schema/validation/ValidationFix";
 export * as expr from "./expr/";
 export { FILE_REF_PROP } from "./source/file";
@@ -56,10 +57,18 @@ import { ModuleId, ModulePath, getValPath, isVal } from "./val";
 import { convertFileSource } from "./schema/image";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
-import { Json } from "./Json";
+import type { Json } from "./Json";
 import { SerializedSchema } from "./schema";
 import { getSHA256Hash } from "./getSha256";
 export { ValApi } from "./ValApi";
+export type { SerializedArraySchema } from "./schema/array";
+export type { SerializedObjectSchema } from "./schema/object";
+export type { SerializedRecordSchema } from "./schema/record";
+export type { SerializedStringSchema } from "./schema/string";
+export type { SerializedNumberSchema } from "./schema/number";
+export type { SerializedBooleanSchema } from "./schema/boolean";
+export type { SerializedImageSchema } from "./schema/image";
+export type { SerializedRichTextSchema } from "./schema/richtext";
 
 export type ApiTreeResponse = {
   git: {
@@ -75,6 +84,17 @@ export type ApiTreeResponse = {
         failed?: string[];
       };
       source?: Json;
+      errors?:
+        | false
+        | {
+            invalidModuleId?: ModuleId;
+            validation?: ValidationErrors;
+            fatal?: {
+              message: string;
+              stack?: string;
+              type?: string;
+            }[];
+          };
     }
   >;
 };
