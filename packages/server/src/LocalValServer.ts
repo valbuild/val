@@ -2,7 +2,6 @@ import express from "express";
 import { Service } from "./Service";
 import { result } from "@valbuild/core/fp";
 import { parsePatch, PatchError } from "@valbuild/core/patch";
-import { getPathFromParams } from "./expressHelpers";
 import { PatchJSON } from "./patch/validation";
 import { ValServer } from "./ValServer";
 import { ApiTreeResponse, ModuleId, ModulePath } from "@valbuild/core";
@@ -160,6 +159,9 @@ export class LocalValServer implements ValServer {
   }
 
   logout(req: express.Request, res: express.Response): Promise<void> {
+    return this.badRequest(req, res);
+  }
+  getFiles(req: express.Request, res: express.Response): Promise<void> {
     return this.badRequest(req, res);
   }
 }

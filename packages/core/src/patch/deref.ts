@@ -38,7 +38,6 @@ function derefPath(
 export type DerefPatchResult = {
   dereferencedPatch: Patch;
   fileUpdates: { [path: string]: string };
-  remotePatches: { [ref: string]: Patch };
 };
 
 export function derefPatch<D, E>(
@@ -109,8 +108,8 @@ export function derefPatch<D, E>(
         dereferencedPatch.push(op);
       }
     } else if (op.op === "file") {
-      if (op.path[0] !== "public") {
-        return result.err(new PatchError(`Path must start with public`));
+      if (!op.filePath.startsWith("/public")) {
+        return result.err(new PatchError(`Path must start with /public`));
       }
       if (typeof op.value !== "string") {
         return result.err(
@@ -119,7 +118,7 @@ export function derefPatch<D, E>(
           )
         );
       }
-      fileUpdates[`/${op.path.join("/")}`] = op.value;
+      fileUpdates[op.filePath] = op.value;
     } else {
       const maybeDerefRes = derefPath(op.path);
       if (result.isErr(maybeDerefRes)) {

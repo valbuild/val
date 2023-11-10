@@ -229,7 +229,6 @@ async function fromLexicalImageNode(
   files: Record<string, string>
 ) {
   if (node.src.startsWith("data:")) {
-    console.log("node", node);
     const sha256 = await Internal.getSHA256Hash(textEncoder.encode(node.src));
     const mimeType = getMimeType(node.src);
     if (mimeType === undefined) {
