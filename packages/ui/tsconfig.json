@@ -5,10 +5,7 @@
     "allowJs": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
-    "lib": [
-      "es6",
-      "dom"
-    ],
+    "lib": ["es6", "dom"],
     "module": "esnext",
     "moduleResolution": "node",
     "noEmit": true,
@@ -16,9 +13,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "skipLibCheck": true,
-    "baseUrl": ".",
+    "baseUrl": "."
   },
-  "include": [
-    "src/**/*"
-  ]
+  "include": ["src/**/*"]
 }
