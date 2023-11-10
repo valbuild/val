@@ -183,14 +183,21 @@ function isImageSchema(
 //   );
 // }
 
-export function resolvePath(
+export function resolvePath<
+  Src extends ValModule<SelectorSource> | Source,
+  Sch extends Schema<SelectorSource> | SerializedSchema
+>(
   path: ModulePath,
-  valModule: ValModule<SelectorSource> | Source,
-  schema: Schema<SelectorSource> | SerializedSchema
-) {
+  valModule: Src,
+  schema: Sch
+): {
+  path: SourcePath;
+  schema: Sch;
+  source: Src;
+} {
   const parts = parsePath(path);
   const origParts = [...parts];
-  let resolvedSchema = schema;
+  let resolvedSchema: Schema<SelectorSource> | SerializedSchema = schema;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let resolvedSource: any /* TODO: any */ = valModule;
   while (parts.length > 0) {
@@ -278,8 +285,8 @@ export function resolvePath(
         path: origParts
           .slice(0, origParts.length - parts.length - 1)
           .map((p) => JSON.stringify(p))
-          .join("."), // TODO: create a function generate path from parts (not sure if this always works)
-        schema: resolvedSchema,
+          .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
+        schema: resolvedSchema as Sch,
         source: resolvedSource,
       };
     } else if (isUnionSchema(resolvedSchema)) {
@@ -306,8 +313,8 @@ export function resolvePath(
         path: origParts
           .slice(0, origParts.length - parts.length - 1)
           .map((p) => JSON.stringify(p))
-          .join("."), // TODO: create a function generate path from parts (not sure if this always works)
-        schema: resolvedSchema,
+          .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
+        schema: resolvedSchema as Sch,
         source: resolvedSource,
       };
     } else {
@@ -330,9 +337,9 @@ export function resolvePath(
           return JSON.stringify(p);
         }
       })
-      .join("."), // TODO: create a function generate path from parts (not sure if this always works)
-    schema: resolvedSchema,
-    source: resolvedSource,
+      .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
+    schema: resolvedSchema as Sch,
+    source: resolvedSource as Src,
   };
 }
 
