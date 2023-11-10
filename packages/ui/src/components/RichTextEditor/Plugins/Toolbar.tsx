@@ -353,7 +353,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
             />
           }
         />
-        <label className="flex items-center justify-center">
+        <label className="flex items-center justify-center cursor-pointer">
           <ImageIcon />
           <input
             type="file"
