@@ -45,9 +45,6 @@ export function derefPatch<D, E>(
   document: D,
   ops: Ops<D, E>
 ): result.Result<DerefPatchResult, E | PatchError> {
-  const remotePatches: {
-    [ref: string]: Patch;
-  } = {};
   const fileUpdates: {
     [file: string]: string;
   } = {};
@@ -83,15 +80,15 @@ export function derefPatch<D, E>(
               );
             }
             fileUpdates[value[FILE_REF_PROP]] = op.value;
-          } else if (isRemote(value)) {
-            if (!remotePatches[value[REMOTE_REF_PROP]]) {
-              remotePatches[value[REMOTE_REF_PROP]] = [];
-            }
-            remotePatches[value[REMOTE_REF_PROP]].push({
-              op: "replace",
-              path: referencedPath,
-              value: op.value,
-            });
+            // } else if (isRemote(value)) {
+            //   if (!remotePatches[value[REMOTE_REF_PROP]]) {
+            //     remotePatches[value[REMOTE_REF_PROP]] = [];
+            //   }
+            //   remotePatches[value[REMOTE_REF_PROP]].push({
+            //     op: "replace",
+            //     path: referencedPath,
+            //     value: op.value,
+            //   });
           } else {
             return result.err(
               new PatchError(
@@ -133,7 +130,6 @@ export function derefPatch<D, E>(
   }
 
   return result.ok({
-    remotePatches,
     fileUpdates,
     dereferencedPatch,
   });
