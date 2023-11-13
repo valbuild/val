@@ -26,19 +26,13 @@ export function createRequestHandler(): RequestHandler {
         if (req.url.endsWith(".js")) {
           res
             .header({ "Content-Type": "application/javascript" })
-            .end(
-              Buffer.from(files[(files[req.url], "base64")]).toString("utf-8")
-            );
+            .end(Buffer.from(files[req.url], "base64").toString("utf-8"));
         } else if (req.url.endsWith(".css")) {
           res
             .header({ "Content-Type": "text/css" })
-            .end(
-              Buffer.from(files[(files[req.url], "base64")]).toString("utf-8")
-            );
+            .end(Buffer.from(files[req.url], "base64").toString("utf-8"));
         } else {
-          res.end(
-            Buffer.from(files[(files[req.url], "base64")]).toString("utf-8")
-          );
+          res.end(Buffer.from(files[req.url], "base64").toString("utf-8"));
         }
       } else {
         next();
