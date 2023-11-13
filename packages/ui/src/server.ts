@@ -8,6 +8,7 @@
  */
 
 import type { RequestHandler } from "express";
+import fs from "fs";
 
 type Vite = typeof import("vite");
 export function createRequestHandler(): RequestHandler {
@@ -35,22 +36,13 @@ export function createRequestHandler(): RequestHandler {
         res.setHeader("Content-Type", "text/css");
         return res.end(style);
       } else if (req.url.startsWith("/edit")) {
+        const { URL: URL_noresolve } = await import("node:url");
         const html = (await vite).transformIndexHtml(
           req.url,
-          `
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Val</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
-</html>
-`
+          fs.readFileSync(
+            new URL_noresolve("../index.html", import.meta.url),
+            "utf-8"
+          )
         );
         return res.end(await html);
       } else {
