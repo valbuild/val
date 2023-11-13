@@ -356,7 +356,7 @@ function KeyOfField({
     };
   };
   const typeAndValues = getValuesFromModule(valModule);
-  const [value, setValue] = useState(defaultValue || typeAndValues.values[0]);
+  const [value, setValue] = useState(defaultValue ?? typeAndValues.values[0]);
   const [loading, setLoading] = useState(false);
   useEffect(() => {
     setLoading(disabled);
@@ -388,7 +388,6 @@ function KeyOfField({
       });
     }
   }, [value]);
-
   return (
     <div className="flex flex-col justify-between h-full gap-y-4">
       <Select
@@ -404,7 +403,7 @@ function KeyOfField({
         <SelectContent>
           {typeAndValues.values.map((value) => (
             <SelectItem key={value} value={value.toString()}>
-              {value}
+              {value.toString()}
             </SelectItem>
           ))}
         </SelectContent>
