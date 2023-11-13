@@ -11,7 +11,7 @@ import {
 } from "@valbuild/core";
 import type { PatchJSON } from "@valbuild/core/patch";
 import { LexicalEditor } from "lexical";
-import { useState, useEffect, useRef, useContext } from "react";
+import { useState, useEffect, useRef } from "react";
 import { RichTextEditor } from "../exports";
 import { lexicalToRichTextSource } from "../richtext/conversion/lexicalToRichTextSource";
 import { LexicalRootNode } from "../richtext/conversion/richTextSourceToLexical";
@@ -22,12 +22,11 @@ import {
   Select,
   SelectContent,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
 import { PatchCallback } from "./usePatch";
-import { useValModuleFromPath, ValModulesContext } from "./ValFullscreen";
+import { useValModuleFromPath } from "./ValFullscreen";
 
 type ImageSource = FileSource<ImageMetadata>;
 export type OnSubmit = (callback: PatchCallback) => Promise<void>;
