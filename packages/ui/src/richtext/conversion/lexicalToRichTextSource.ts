@@ -242,7 +242,7 @@ async function fromLexicalImageNode(
       [FILE_REF_PROP]: filePath,
       metadata: {
         width: node.width || 0,
-        height: node.width || 0,
+        height: node.height || 0,
         sha256: sha256 || "",
       },
     };
@@ -253,7 +253,7 @@ async function fromLexicalImageNode(
       [FILE_REF_PROP]: `/public${node.src.split("?")[0]}`,
       metadata: {
         width: node.width || 0,
-        height: node.width || 0,
+        height: node.height || 0,
         sha256: sha256 || "",
       },
     };
