@@ -120,5 +120,9 @@
     },
     "./package.json": "./package.json"
   },
-  "types": "dist/valbuild-ui.cjs.d.ts"
+  "types": "dist/valbuild-ui.cjs.d.ts",
+  "files": [
+    "dist",
+    "server"
+  ]
 }
