@@ -12,6 +12,7 @@ export function readImage(ev: ChangeEvent<HTMLInputElement>) {
     height?: number;
     mimeType?: string;
     fileExt?: string;
+    filename?: string;
   }>((resolve, reject) => {
     const imageFile = ev.currentTarget.files?.[0];
     const reader = new FileReader();
@@ -29,6 +30,7 @@ export function readImage(ev: ChangeEvent<HTMLInputElement>) {
               src: result,
               width: image.naturalWidth,
               height: image.naturalHeight,
+              filename: imageFile?.name,
               sha256,
               mimeType,
               fileExt: mimeType && mimeTypeToFileExt(mimeType),
@@ -36,6 +38,7 @@ export function readImage(ev: ChangeEvent<HTMLInputElement>) {
           } else {
             resolve({
               src: result,
+              filename: imageFile?.name,
               sha256,
             });
           }
