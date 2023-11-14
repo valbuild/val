@@ -39,10 +39,10 @@
     ],
     "exports": true
   },
-  "devDependencies": {
+  "devDependencies": {},
+  "dependencies": {
     "ts-toolbelt": "^9.6.0"
   },
-  "dependencies": {},
   "files": [
     "dist",
     "fp/dist",
