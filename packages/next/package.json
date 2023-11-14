@@ -50,5 +50,10 @@
   },
   "externals": [
     "next"
+  ],
+  "files": [
+    "dist",
+    "client",
+    "server"
   ]
 }

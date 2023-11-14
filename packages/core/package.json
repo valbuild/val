@@ -42,5 +42,14 @@
   "devDependencies": {
     "ts-toolbelt": "^9.6.0"
   },
-  "dependencies": {}
+  "dependencies": {},
+  "files": [
+    "dist",
+    "fp/dist",
+    "fp/package.json",
+    "expr/dist",
+    "expr/package.json",
+    "patch/dist",
+    "patch/package.json"
+  ]
 }

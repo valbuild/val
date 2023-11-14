@@ -88,5 +88,11 @@
     },
     "./package.json": "./package.json"
   },
-  "types": "dist/valbuild-react.cjs.d.ts"
+  "types": "dist/valbuild-react.cjs.d.ts",
+  "files": [
+    "dist",
+    "jsx-runtime",
+    "jsx-dev-runtime",
+    "stega"
+  ]
 }
