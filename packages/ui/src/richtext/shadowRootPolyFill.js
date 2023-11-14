@@ -6,10 +6,13 @@
 // https://github.com/codemirror/view/blob/5dfda8ed7929915f63bc82251f2b6229c789c4a4/src/domobserver.ts#L447
 
 const SUPPORTS_SHADOW_SELECTION =
+  typeof window !== "undefined" &&
   typeof window.ShadowRoot.prototype.getSelection === "function";
 const SUPPORTS_BEFORE_INPUT =
+  typeof window !== "undefined" &&
   typeof window.InputEvent.prototype.getTargetRanges === "function";
 const IS_FIREFOX =
+  typeof window !== "undefined" &&
   window.navigator.userAgent.toLowerCase().indexOf("firefox") > -1;
 
 class ShadowSelection {
