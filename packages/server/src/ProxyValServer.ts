@@ -365,7 +365,10 @@ export class ProxyValServer implements ValServer {
   }
 
   private getAppErrorUrl(error: string): string {
-    const url = new URL("/authorize", this.options.valBuildUrl);
+    const url = new URL(
+      `/auth/${this.options.valName}/authorize`,
+      this.options.valBuildUrl
+    );
     url.searchParams.set("error", encodeURIComponent(error));
     return url.toString();
   }
