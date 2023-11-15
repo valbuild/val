@@ -163,7 +163,7 @@ async function initHandlerOptions(
     if (!maybeGitBranch) {
       throw new Error("VAL_GIT_BRANCH env var must be set in proxy mode");
     }
-    const maybeValName = opts.gitBranch || process.env.VAL_NAME;
+    const maybeValName = opts.valName || process.env.VAL_NAME;
     if (!maybeValName) {
       throw new Error("VAL_NAME env var must be set in proxy mode");
     }
