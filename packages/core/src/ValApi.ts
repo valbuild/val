@@ -15,6 +15,11 @@ export class ValApi {
   getEditUrl() {
     return `${this.host}/static/edit`;
   }
+  getLoginUrl(redirectTo: string) {
+    return `${this.host}/authorize?redirect_to=${encodeURIComponent(
+      redirectTo
+    )}`;
+  }
 
   postPatches(
     moduleId: ModuleId,

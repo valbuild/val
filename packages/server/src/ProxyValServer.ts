@@ -223,7 +223,12 @@ export class ProxyValServer implements ValServer {
       );
       const json = await fetch(url, {
         headers: this.getAuthHeaders(data.token, "application/json"),
-      }).then((res) => res.json());
+      })
+        .then((res) => res.json())
+        .catch((err) => {
+          console.error(err);
+          throw err;
+        });
       res.send(json);
     });
   }

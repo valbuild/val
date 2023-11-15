@@ -2,6 +2,7 @@ import { useValOverlayContext } from "./ValOverlayContext";
 import { ValApi } from "@valbuild/core";
 import classNames from "classnames";
 import {
+  LogIn,
   Maximize,
   Minimize,
   Moon,
@@ -16,9 +17,23 @@ const className = "p-1 border rounded-full shadow border-accent";
 const PREV_URL_KEY = "valbuild:urlBeforeNavigation";
 
 export function ValMenu({ api }: { api: ValApi }) {
-  const { theme, setTheme, editMode, setEditMode } = useValOverlayContext();
+  const { theme, setTheme, editMode, setEditMode, session } =
+    useValOverlayContext();
+  if (session.status === "success" && session.data === "not-authenticated") {
+    return (
+      <div className="flex flex-row items-center justify-center w-full h-full font-sans border-2 rounded-full gap-x-3 text-primary bg-background border-fill">
+        <a className={className} href={api.getLoginUrl(window.location.href)}>
+          <div className="flex items-center justify-center px-2 gap-x-2">
+            <span>Login</span>
+            <LogIn size={18} />
+          </div>
+        </a>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-row items-center justify-center w-full h-full px-1 py-2 border-2 rounded-full gap-x-3 text-primary bg-background border-fill">
+    <MenuContainer>
       <MenuButton
         active={editMode === "hover"}
         onClick={() => {
@@ -66,6 +81,18 @@ export function ValMenu({ api }: { api: ValApi }) {
           <Power size={18} />
         </div>
       </a>
+    </MenuContainer>
+  );
+}
+
+function MenuContainer({
+  children,
+}: {
+  children: React.ReactNode | React.ReactNode[];
+}) {
+  return (
+    <div className="flex flex-row items-center justify-center w-full h-full px-2 py-2 font-sans border-2 rounded-full gap-x-3 text-primary bg-background border-fill">
+      {children}
     </div>
   );
 }

@@ -13,7 +13,7 @@ export type WindowSize = {
 
 export const ValOverlayContext = React.createContext<{
   api: ValApi;
-  session: Remote<Session>;
+  session: Remote<Session | "not-authenticated">;
   editMode: EditMode;
   highlight: boolean;
   setHighlight: Dispatch<SetStateAction<boolean>>;
