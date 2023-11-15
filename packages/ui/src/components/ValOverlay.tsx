@@ -406,9 +406,11 @@ function useInitEditMode() {
 }
 
 function useSession(api: ValApi) {
-  const [session, setSession] = useState<Remote<Session>>({
-    status: "not-asked",
-  });
+  const [session, setSession] = useState<Remote<Session | "not-authenticated">>(
+    {
+      status: "not-asked",
+    }
+  );
   const [sessionResetId, setSessionResetId] = useState(0);
   useEffect(() => {
     setSession({ status: "loading" });
@@ -418,7 +420,9 @@ function useSession(api: ValApi) {
           const session = res.value;
           setSession({ status: "success", data: Session.parse(session) });
         } else {
-          if (sessionResetId < 3) {
+          if (res.error.statusCode === 401) {
+            setSession({ status: "success", data: "not-authenticated" });
+          } else if (sessionResetId < 3) {
             setTimeout(() => {
               setSessionResetId(sessionResetId + 1);
             }, 200 * sessionResetId);
