@@ -175,7 +175,11 @@ export class ProxyValServer implements ValServer {
         res.sendStatus(401);
         return;
       }
-      return handler(verification.data);
+      return handler(verification.data).catch((err) => {
+        console.error(`Failed while processing: ${req.url}`, err);
+        res.sendStatus(500);
+        return undefined;
+      });
     } else {
       res.sendStatus(401);
     }
@@ -230,6 +234,38 @@ export class ProxyValServer implements ValServer {
           throw err;
         });
       res.send(json);
+    });
+  }
+  async getPatches(req: express.Request, res: express.Response): Promise<void> {
+    const patchIds =
+      typeof req.params["id"] === "string"
+        ? [req.params["id"]]
+        : Array.isArray(req.params["id"])
+        ? req.params["id"]
+        : [];
+    const params =
+      patchIds.length > 0
+        ? `?${patchIds.map((id) => `id=${encodeURIComponent(id)}`).join("&")}`
+        : "";
+    await this.withAuth(req, res, async ({ token }) => {
+      const url = new URL(
+        `/v1/patches/${this.options.valName}/heads/${this.options.gitBranch}/${req.params["0"]}${params}`,
+        this.options.valContentUrl
+      );
+      console.log(url);
+      // Proxy patch to val.build
+      const fetchRes = await fetch(url, {
+        method: "GET",
+        headers: this.getAuthHeaders(token, "application/json"),
+      });
+      if (fetchRes.ok) {
+        const json = await fetchRes.json();
+        res.status(fetchRes.status).json(json);
+      } else {
+        res.sendStatus(fetchRes.status);
+      }
+    }).catch((e) => {
+      res.status(500).send({ error: { message: e?.message, status: 500 } });
     });
   }
 

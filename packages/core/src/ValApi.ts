@@ -1,4 +1,4 @@
-import { ApiPatchResponse, ApiTreeResponse } from ".";
+import { ApiGetPatchResponse, ApiPostPatchResponse, ApiTreeResponse } from ".";
 import { result } from "./fp";
 import { PatchJSON } from "./patch";
 import { ModuleId } from "./val";
@@ -21,6 +21,23 @@ export class ValApi {
     )}`;
   }
 
+  async getPatches({
+    patchIds,
+    headers,
+  }: {
+    patchIds?: string[];
+    headers?: Record<string, string> | undefined;
+  }) {
+    const patchIdsParam = patchIds
+      ? `?${patchIds.map((id) => `${id}=${encodeURIComponent(id)}`).join("&")}`
+      : "";
+    return fetch(`${this.host}/patches/~${patchIdsParam}`, {
+      headers: headers || {
+        "Content-Type": "application/json",
+      },
+    }).then((res) => parse<ApiGetPatchResponse>(res));
+  }
+
   postPatches(
     moduleId: ModuleId,
     patches: PatchJSON,
@@ -32,7 +49,7 @@ export class ValApi {
       },
       method: "POST",
       body: JSON.stringify({ [moduleId]: patches }),
-    }).then((res) => parse<ApiPatchResponse>(res));
+    }).then((res) => parse<ApiPostPatchResponse>(res));
   }
 
   getSession() {

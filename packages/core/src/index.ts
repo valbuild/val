@@ -60,6 +60,7 @@ import { getVal } from "./future/fetchVal";
 import type { Json } from "./Json";
 import { SerializedSchema } from "./schema";
 import { getSHA256Hash } from "./getSha256";
+import { PatchJSON } from "./patch";
 export { ValApi } from "./ValApi";
 export type { SerializedArraySchema } from "./schema/array";
 export type { SerializedObjectSchema } from "./schema/object";
@@ -99,7 +100,17 @@ export type ApiTreeResponse = {
   >;
 };
 
-export type ApiPatchResponse = Record<ModuleId, string[]>;
+export type ApiGetPatchResponse = Record<
+  ModuleId,
+  {
+    patch: PatchJSON;
+    patch_id: string;
+    commit_sha: string;
+    author: string;
+    created_at: string;
+  }[]
+>;
+export type ApiPostPatchResponse = Record<ModuleId, string[]>;
 
 const Internal = {
   convertFileSource,

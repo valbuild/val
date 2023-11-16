@@ -164,4 +164,8 @@ export class LocalValServer implements ValServer {
   getFiles(req: express.Request, res: express.Response): Promise<void> {
     return this.badRequest(req, res);
   }
+
+  getPatches(req: express.Request, res: express.Response): Promise<void> {
+    return this.badRequest(req, res);
+  }
 }
