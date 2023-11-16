@@ -2,6 +2,7 @@
 import React, { lazy, useContext, useMemo } from "react";
 import { ValStore } from "./ValStore";
 import { ValApi } from "@valbuild/core";
+import { ValConfig } from "@valbuild/core/src/initVal";
 
 export function useValStore() {
   return useContext(ValContext).valStore;
@@ -30,6 +31,7 @@ export const ValContext = React.createContext<ValContext>({
 
 export type ValProviderProps = {
   // host?: string;
+  config: ValConfig;
   children?: React.ReactNode;
 };
 const ValUI =

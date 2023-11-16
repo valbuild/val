@@ -1,9 +1,7 @@
-import { createRequestListener } from "@valbuild/server";
 import { NextApiHandler } from "next";
+import { createValApi } from "../../../val.server";
 
-const handler: NextApiHandler = createRequestListener("/api/val", {
-  valConfigPath: "./val.config",
-});
+const handler: NextApiHandler = createValApi();
 
 export default handler;
 

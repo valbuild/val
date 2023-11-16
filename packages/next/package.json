@@ -20,6 +20,10 @@
       "module": "./dist/valbuild-next.esm.js",
       "default": "./dist/valbuild-next.cjs.js"
     },
+    "./rsc": {
+      "module": "./rsc/dist/valbuild-next-rsc.esm.js",
+      "default": "./rsc/dist/valbuild-next-rsc.cjs.js"
+    },
     "./client": {
       "module": "./client/dist/valbuild-next-client.esm.js",
       "default": "./client/dist/valbuild-next-client.cjs.js"
@@ -35,7 +39,8 @@
     "entrypoints": [
       "./index.ts",
       "./server/index.ts",
-      "./client/index.ts"
+      "./client/index.ts",
+      "./rsc/index.ts"
     ],
     "exports": true
   },
@@ -54,6 +59,7 @@
   "files": [
     "dist",
     "client",
-    "server"
+    "server",
+    "rsc"
   ]
 }

@@ -1,1 +1,1 @@
-export { useVal } from "./useVal";
+export { initValClient } from "./initValClient";
