@@ -248,7 +248,7 @@ export class ProxyValServer implements ValServer {
     const params = new URLSearchParams({
       commit,
     });
-    this.withAuth(req, res, async ({ token }) => {
+    await this.withAuth(req, res, async ({ token }) => {
       // First validate that the body has the right structure
       const patchJSON = z.record(PatchJSON).safeParse(req.body);
       if (!patchJSON.success) {
@@ -284,7 +284,7 @@ export class ProxyValServer implements ValServer {
   }
 
   async commit(req: express.Request, res: express.Response): Promise<void> {
-    this.withAuth(req, res, async ({ token }) => {
+    await this.withAuth(req, res, async ({ token }) => {
       const url = new URL(
         `/api/val/commit/${encodeURIComponent(this.options.gitBranch)}`,
         this.options.valBuildUrl
