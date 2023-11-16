@@ -71,7 +71,7 @@ export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
         <div className="fixed -translate-x-1/2 z-overlay left-1/2 bottom-4">
           <ValMenu api={api} />
         </div>
-        {editMode === "hover" && hoverTarget && (
+        {editMode === "hover" && hoverTarget.path && (
           <ValHover
             hoverTarget={hoverTarget}
             setHoverTarget={setHoverTarget}
@@ -224,7 +224,7 @@ type WindowTarget = {
 
 type HoverTarget = {
   element?: HTMLElement | undefined;
-  path: SourcePath;
+  path?: SourcePath;
 };
 function ValHover({
   hoverTarget,
@@ -249,12 +249,15 @@ function ValHover({
         height: rect?.height,
       }}
       onClick={(ev) => {
-        setWindowTarget({
-          ...hoverTarget,
-          mouse: { x: ev.pageX, y: ev.pageY },
-        });
-        setEditMode("window");
-        setHoverTarget(null);
+        if (hoverTarget.path) {
+          setWindowTarget({
+            ...hoverTarget,
+            path: hoverTarget.path as SourcePath,
+            mouse: { x: ev.pageX, y: ev.pageY },
+          });
+          setEditMode("window");
+          setHoverTarget(null);
+        }
       }}
     >
       <div className="flex items-center justify-end w-full text-xs">
