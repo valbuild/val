@@ -21,4 +21,5 @@ export interface ValServer {
 
   getTree(req: express.Request, res: express.Response): Promise<void>;
   getFiles(req: express.Request, res: express.Response): Promise<void>;
+  getPatches(req: express.Request, res: express.Response): Promise<void>;
 }

@@ -1,5 +1,6 @@
+import { result } from "@valbuild/core/fp";
 import { useValOverlayContext } from "./ValOverlayContext";
-import { ValApi } from "@valbuild/core";
+import { ModuleId, ValApi } from "@valbuild/core";
 import classNames from "classnames";
 import {
   LogIn,
@@ -9,9 +10,10 @@ import {
   Pause,
   Play,
   Power,
+  Send,
   Sun,
 } from "lucide-react";
-import React from "react";
+import React, { useEffect, useState } from "react";
 
 const className = "p-1 border rounded-full shadow border-accent";
 const PREV_URL_KEY = "valbuild:urlBeforeNavigation";
@@ -31,6 +33,23 @@ export function ValMenu({ api }: { api: ValApi }) {
       </div>
     );
   }
+  const [patchCount, setPatchCount] = useState<number>();
+
+  useEffect(() => {
+    if (session.status === "success" && session.data !== "not-authenticated") {
+      api.getPatches({}).then((patchRes) => {
+        if (result.isOk(patchRes)) {
+          let patchCount = 0;
+          for (const moduleId in patchRes.value) {
+            patchCount += patchRes.value[moduleId as ModuleId].length;
+          }
+          setPatchCount(patchCount);
+        } else {
+          console.error("Could not load patches", patchRes.error);
+        }
+      });
+    }
+  }, [session]);
 
   return (
     <MenuContainer>
@@ -75,7 +94,16 @@ export function ValMenu({ api }: { api: ValApi }) {
           )}
         </div>
       </MenuButton>
-
+      {patchCount && (
+        <MenuButton onClick={() => {}}>
+          <div className="relative h-[24px] w-[24px] flex justify-center items-center">
+            <div className="absolute -right-[10px] -top-[10px] border border-border rounded-full px-1 font-sans text-xs bg-card text-accent">
+              {patchCount}
+            </div>
+            <Send size={18} />
+          </div>
+        </MenuButton>
+      )}
       <a className={className} href={api.getDisableUrl()}>
         <div className="h-[24px] w-[24px] flex justify-center items-center">
           <Power size={18} />
