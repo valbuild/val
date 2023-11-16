@@ -12,8 +12,9 @@ import {
 } from "@valbuild/react/stega";
 import { useValStore } from "@valbuild/react";
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { ValConfig } from "@valbuild/core/src/initVal";
 
-export function useVal<T extends SelectorSource>(
+function useVal<T extends SelectorSource>(
   selector: T
 ): SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never {
   const valStore = useValStore();
@@ -37,4 +38,11 @@ export function useVal<T extends SelectorSource>(
       }
     },
   });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function initValClient(config: ValConfig): { useVal: typeof useVal } {
+  return {
+    useVal,
+  };
 }

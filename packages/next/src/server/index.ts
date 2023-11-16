@@ -1,1 +1,1 @@
-export { fetchVal } from "./fetchVal";
+export { initValServer } from "./initValServer";

@@ -9,13 +9,12 @@ import { ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { Internal } from "@valbuild/core";
 import { draftMode } from "next/headers";
+import { ValConfig } from "@valbuild/core/src/initVal";
 
 const valApiEndpoints = "/api/val"; // TODO: get from config
-export function fetchVal<T extends SelectorSource>(
+function fetchVal<T extends SelectorSource>(
   selector: T
-): SelectorOf<T> extends GenericSelector<infer S>
-  ? Promise<StegaOfSource<S>>
-  : never {
+): SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never {
   const enabled = safeDraftModeEnabled();
   if (enabled) {
     getHost().then((host) => {
@@ -120,4 +119,13 @@ function safeDraftModeEnabled() {
     );
     return false;
   }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function initValRsc(config: ValConfig): {
+  fetchVal: typeof fetchVal;
+} {
+  return {
+    fetchVal,
+  };
 }

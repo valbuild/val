@@ -1,5 +1,6 @@
 import { ValProvider } from "@valbuild/next";
 import "./globals.css";
+import { config } from "../val.config";
 
 export default function RootLayout({
   children,
@@ -14,7 +15,7 @@ export default function RootLayout({
       */}
       <head />
       <body>
-        <ValProvider>{children}</ValProvider>
+        <ValProvider config={config}>{children}</ValProvider>
       </body>
     </html>
   );
