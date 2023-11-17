@@ -1,6 +1,6 @@
 import { NextPage } from "next";
-import { useVal } from "@valbuild/next/client";
 import blogsVal from "../blogs.val";
+import { useVal } from "../val.client";
 
 const Home: NextPage = () => {
   const blogs = useVal(blogsVal);

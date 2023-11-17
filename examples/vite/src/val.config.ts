@@ -1,4 +1,4 @@
 import { initVal } from "@valbuild/core";
 
-const { s, val } = initVal();
-export { s, val };
+const { s, val, config } = initVal();
+export { s, val, config };
