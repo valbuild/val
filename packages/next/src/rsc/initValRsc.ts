@@ -14,7 +14,9 @@ import { ValConfig } from "@valbuild/core";
 const valApiEndpoints = "/api/val"; // TODO: get from config
 function fetchVal<T extends SelectorSource>(
   selector: T
-): SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never {
+): SelectorOf<T> extends GenericSelector<infer S>
+  ? Promise<StegaOfSource<S>>
+  : never {
   const enabled = safeDraftModeEnabled();
   if (enabled) {
     getHost().then((host) => {
