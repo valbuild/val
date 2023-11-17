@@ -9,7 +9,7 @@ import { ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { Internal } from "@valbuild/core";
 import { draftMode } from "next/headers";
-import { ValConfig } from "@valbuild/core/src/initVal";
+import { ValConfig } from "@valbuild/core";
 
 const valApiEndpoints = "/api/val"; // TODO: get from config
 function fetchVal<T extends SelectorSource>(
