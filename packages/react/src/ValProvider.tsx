@@ -2,7 +2,7 @@
 import React, { lazy, useContext, useMemo } from "react";
 import { ValStore } from "./ValStore";
 import { ValApi } from "@valbuild/core";
-import { ValConfig } from "@valbuild/core/src/initVal";
+import { ValConfig } from "@valbuild/core";
 
 export function useValStore() {
   return useContext(ValContext).valStore;

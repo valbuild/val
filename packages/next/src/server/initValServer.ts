@@ -1,4 +1,4 @@
-import { ValConfig } from "@valbuild/core/src/initVal";
+import { ValConfig } from "@valbuild/core";
 import { createRequestListener } from "@valbuild/server";
 
 const initCreateRequestHandler = (opts: ValConfig) => () =>
