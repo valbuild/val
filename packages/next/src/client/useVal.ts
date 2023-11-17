@@ -17,24 +17,28 @@ export function useVal<T extends SelectorSource>(
   selector: T
 ): SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never {
   const valStore = useValStore();
-  const moduleIds = getModuleIds(selector) as ModuleId[];
-  const moduleMap = useSyncExternalStore(
-    valStore.subscribe(moduleIds),
-    valStore.getSnapshot(moduleIds),
-    valStore.getServerSnapshot(moduleIds)
-  );
   const [enabled, setEnabled] = useState(false);
-  useEffect(() => {
-    setEnabled(
-      document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`)
+  if (valStore) {
+    const moduleIds = getModuleIds(selector) as ModuleId[];
+    const moduleMap = useSyncExternalStore(
+      valStore.subscribe(moduleIds),
+      valStore.getSnapshot(moduleIds),
+      valStore.getServerSnapshot(moduleIds)
     );
-  }, []);
-  return stegaEncode(selector, {
-    disabled: !enabled,
-    getModule: (moduleId) => {
-      if (moduleMap) {
-        return moduleMap[moduleId as ModuleId];
-      }
-    },
-  });
+    useEffect(() => {
+      setEnabled(
+        document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`)
+      );
+    }, []);
+
+    return stegaEncode(selector, {
+      disabled: !enabled,
+      getModule: (moduleId) => {
+        if (moduleMap) {
+          return moduleMap[moduleId as ModuleId];
+        }
+      },
+    });
+  }
+  return stegaEncode(selector, { disabled: !enabled });
 }
