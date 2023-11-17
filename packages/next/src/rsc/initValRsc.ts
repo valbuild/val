@@ -8,18 +8,22 @@ import {
 import { ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { Internal } from "@valbuild/core";
-import { draftMode } from "next/headers";
 import { ValConfig } from "@valbuild/core";
 
-const valApiEndpoints = "/api/val"; // TODO: get from config
-function fetchVal<T extends SelectorSource>(
-  selector: T
-): SelectorOf<T> extends GenericSelector<infer S>
-  ? Promise<StegaOfSource<S>>
-  : never {
-  const enabled = safeDraftModeEnabled();
-  if (enabled) {
-    getHost().then((host) => {
+const initFetchVal =
+  (
+    valApiEndpoints: string,
+    isEnabled: () => boolean,
+    getHeaders: () => Headers
+  ) =>
+  <T extends SelectorSource>(
+    selector: T
+  ): SelectorOf<T> extends GenericSelector<infer S>
+    ? Promise<StegaOfSource<S>>
+    : never => {
+    const enabled = isEnabled();
+    if (enabled) {
+      const host = getHost(getHeaders());
       //
       if (host) {
         // TODO: Use the content.val.build endpoints directly
@@ -30,7 +34,7 @@ function fetchVal<T extends SelectorSource>(
           .getModules({
             patch: true,
             includeSource: true,
-            headers: getValHeaders(),
+            headers: getValAuthHeaders(getHeaders()),
           })
           .then((res) => {
             if (result.isOk(res)) {
@@ -55,23 +59,20 @@ function fetchVal<T extends SelectorSource>(
           ? Promise<StegaOfSource<S>>
           : never;
       }
+    }
+    return stegaEncode(selector, {
+      disabled: !enabled,
     });
-  }
-  return stegaEncode(selector, {
-    disabled: !enabled,
-  });
-}
+  };
 
-async function getHost() {
+function getHost(headers: Headers) {
   // TODO: does NextJs have a way to determine this?
   try {
-    const { headers } = await import("next/headers");
-    const hs = headers();
-    const host = hs.get("host");
+    const host = headers.get("host");
     let proto = "https";
-    if (hs.get("x-forwarded-proto") === "http") {
+    if (headers.get("x-forwarded-proto") === "http") {
       proto = "http";
-    } else if (hs.get("referer")?.startsWith("http://")) {
+    } else if (headers.get("referer")?.startsWith("http://")) {
       proto = "http";
     } else if (host?.startsWith("localhost")) {
       proto = "http";
@@ -89,16 +90,18 @@ async function getHost() {
   }
 }
 
-function getValHeaders(): Record<string, string> {
+function getValAuthHeaders(headers: Headers): Record<string, string> {
   try {
-    // const cs = cookies(); // TODO: simply get all headers?
-    const cs = {
-      get: (s: string) => ({ value: s }),
-    };
-    const session = cs.get(Internal.VAL_SESSION_COOKIE);
+    // parse VAL_SESSION_COOKIE from cookie header:
+    const session = headers
+      .get("cookie")
+      ?.split(";")
+      .find((c) => {
+        return c.trim().startsWith(`${Internal.VAL_SESSION_COOKIE}=`);
+      });
     if (session) {
       return {
-        Cookie: `${Internal.VAL_SESSION_COOKIE}=${session.value}`,
+        Cookie: `${Internal.VAL_SESSION_COOKIE}=${session}`,
       };
     }
     return {};
@@ -111,23 +114,26 @@ function getValHeaders(): Record<string, string> {
   }
 }
 
-function safeDraftModeEnabled() {
-  try {
-    return draftMode().isEnabled;
-  } catch (err) {
-    console.error(
-      "Val: could not read draft mode! fetchVal can only be used server-side. Use useVal on clients.",
-      err
-    );
-    return false;
-  }
-}
+const valApiEndpoints = "/api/val";
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function initValRsc(config: ValConfig): {
-  fetchVal: typeof fetchVal;
+export function initValRsc(
+  config: ValConfig,
+  {
+    isEnabled,
+    getHeaders,
+  }: {
+    isEnabled: () => boolean;
+    getHeaders: () => Headers;
+  }
+): {
+  fetchVal: ReturnType<typeof initFetchVal>;
 } {
   return {
-    fetchVal,
+    fetchVal: initFetchVal(
+      valApiEndpoints, // TODO: get from config
+      isEnabled,
+      getHeaders
+    ),
   };
 }
