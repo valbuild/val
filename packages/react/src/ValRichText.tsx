@@ -31,9 +31,11 @@ type ThemeOptions<O extends RichTextOptions> = {
 
 export function ValRichText<O extends RichTextOptions>({
   theme,
+  className,
   children,
 }: {
-  theme: ThemeOptions<O>;
+  theme?: ThemeOptions<O>;
+  className?: string;
   children: RichText<O>;
 }) {
   const root = children as RichText<AnyRichTextOptions> & {
@@ -194,5 +196,9 @@ export function ValRichText<O extends RichTextOptions>({
     });
   }
 
-  return <div data-val-path={root.valPath}>{root.children.map(toReact)}</div>;
+  return (
+    <div className={className} data-val-path={root.valPath}>
+      {root.children.map(toReact)}
+    </div>
+  );
 }
