@@ -1,6 +1,5 @@
 "use client";
 import { useVal } from "@valbuild/next/client";
-
 import { ValRichText } from "@valbuild/next";
 import blogsVal from "./blogs.val";
 
