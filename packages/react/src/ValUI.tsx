@@ -5,7 +5,7 @@ import { Internal } from "@valbuild/core";
 import { Style, ValOverlay } from "@valbuild/ui";
 import { useEffect, useState } from "react";
 import { ShadowRoot } from "./ShadowRoot";
-import { useValApi, useValStore } from "./ValProvider";
+import { useValApi, useValStore } from "./ValProviderInternal";
 
 export default function ValUI() {
   const [isClient, setIsClient] = useState(false);
@@ -34,15 +34,21 @@ export default function ValUI() {
     }
   }, []);
   if (isClient && !enabled && process.env.NODE_ENV === "development") {
-    console.log(
-      `Val is disabled. Enable it by going here ${window.origin}${
-        api.host
-      }/enable?redirect_to=${encodeURIComponent(
-        window.location.href
-      )}. NOTE: this message appears because NODE_ENV is set to development.`
-    );
+    if (!api) {
+      console.warn(
+        "Val does not seem to be configured properly! Please check that you have wrapper your root layout (or _app) with the ValProvider."
+      );
+    } else {
+      console.log(
+        `Val is disabled. Enable it by going here ${window.origin}${
+          api.host
+        }/enable?redirect_to=${encodeURIComponent(
+          window.location.href
+        )}. NOTE: this message appears because NODE_ENV is set to development.`
+      );
+    }
   }
-  if (!isClient || !enabled) {
+  if (!isClient || !enabled || !store || !api) {
     return null;
   }
   return (
