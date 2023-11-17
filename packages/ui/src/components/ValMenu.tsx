@@ -95,7 +95,11 @@ export function ValMenu({ api }: { api: ValApi }) {
         </div>
       </MenuButton>
       {patchCount && (
-        <MenuButton onClick={() => {}}>
+        <MenuButton
+          onClick={() => {
+            //
+          }}
+        >
           <div className="relative h-[24px] w-[24px] flex justify-center items-center">
             <div className="absolute -right-[10px] -top-[10px] border border-border rounded-full px-1 font-sans text-xs bg-card text-accent">
               {patchCount}
