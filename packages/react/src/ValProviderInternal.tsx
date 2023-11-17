@@ -1,3 +1,4 @@
+"use client";
 import React, { useContext, useMemo } from "react";
 import { ValStore } from "./ValStore";
 import { ValApi } from "@valbuild/core";
