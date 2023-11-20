@@ -16,7 +16,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 export function useVal<T extends SelectorSource>(
   selector: T
 ): SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never {
-  const valStore = useValStore();
+  const valStore = useValStore && useValStore();
   const [enabled, setEnabled] = useState(false);
   if (valStore) {
     const moduleIds = getModuleIds(selector) as ModuleId[];

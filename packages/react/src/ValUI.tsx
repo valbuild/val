@@ -12,8 +12,8 @@ export default function ValUI() {
   const [enabled, setEnabled] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [isDraftMode, setDraftMode] = useState(false); // TODO: if enabled, but not in draft mode: show something
-  const api = useValApi();
-  const store = useValStore();
+  const api = useValApi && useValApi();
+  const store = useValStore && useValStore();
   useEffect(() => {
     setIsClient(true);
     try {
