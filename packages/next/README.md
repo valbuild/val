@@ -46,53 +46,110 @@ This is release is only for **INTERNAL** **TESTING** PURPOSES.
 
 ## Table of contents
 
-- [Table of contents](#table-of-contents)
 - [Introduction](#introduction)
 - [Installation](#installation)
 - [Getting started](#getting-started)
-- [Concepts](#concepts)
-- [String](#string)
-- [Number](#number)
-- [Boolean](#boolean)
-- [Optional](#optional)
-- [Array](#array)
-- [Object](#object)
-- [Rich text](#richtext)
-- [Image](#image)
-- [Internalization](#internalization)
-- [Union](#union)
-- [One-of references](#one-of-references)
-- [Remote](#remote)
-- [Selector](#selector)
+- [Schema types](#schema-types):
+  - [String](#string)
+  - [Number](#number)
+  - [Boolean](#boolean)
+  - [Optional](#optional)
+  - [Array](#array)
+  - [Record](#record)
+  - [Object](#object)
+  - [Rich text](#richtext)
+  - [Image](#image)
+  - [keyOf](#keyof)
 
 ## Introduction
 
-Val is a CMS where **content** is **code** in your git repo.
+Val is a CMS where **content** is **code** stored in your git repo.
 
-That means you get a CMS as normal where editors can:
+As a CMS, Val is useful because:
 
-- change content without developer interactions
-- change images
-- work with i18n
+- editors can **change content** without having to ask developers to do it for them (and nobody wants that)
+- a **well-documented** way to **structure content**
+- **images** support is built-in
+- **richtext** support is built-in
+- built-in **visual editing** which lets editors click-then-edit content (and therefore **code**!) directly in your app
 
-But, with all the benefits of having content hard-coded:
+  ![Visual editing](./docs/visual-editing.png)
 
-- works as normal with your favorite IDE without any plugins: search for content, references to usages, ...
-- content is type-checked so you see when something is wrong immediately
-- content can be refactored (change names, etc) just as if it was hard-coded (because it sort of is)
-- work locally or in branches just as if you didn't use a CMS
-- no need for code-gen and extra build steps
+<details>
+<summary>Definition: editor</summary>
+An editor in this context, is a non-technical person that edits content in your application (technical writer, proof-reader, legal, ...).
+</details>
+
+<br />
+
+But, with the benefits of **hard-coded** content:
+
+- works seamlessly **locally** or with git **branches**
+- content is **type-checked** so it you can spend less time on figuring out issues with your CMS
+  ![Type check error](./docs/type-check-error.png)
+- content can be refactored (change names, etc) just as if it was hard-coded (because it is)
+  ![Renaming](./docs/renaming.gif)
+- works as normal with your **favorite IDE** without any plugins: search for content, references to usages, ...
+  ![References](./docs/references.gif)
+- **no** need for **code-gen** and extra build steps
+- **fast** since the content is literally hosted with the application
+- content is **always there** and can never fail (since it is not loaded from somewhere)
+- no need to manage different **environments** containing different versions of content
+- **resolve conflicts** like you normally resolve conflicts in git
+
+Compared to other CMSs, Val has the following features:
+
+- **easy** to setup and to _grok_: Val is designed to have a minimum of boilerplate and there's **0** query languages to learn. If you know your way around JSON that's enough (if you don't you might want to learn it)
+- **no signup** required to use it locally
+- **no fees** for content that is in your code: your content is your code, and your code is... yours
+- **minimal** API surface: Val is designed to not "infect" your code base
+- **easy to remove**: since your content is already in your code and Val is designed to have a minimal surface, it's easy to remove if you want to switch
+
+<details>
+<summary>Upcoming feature: <strong>i18n</strong></summary>
+Val will soon have support for i18n. Follow this repository to get notified when this is the case.
+</details>
+
+<details>
+<summary>Upcoming feature: <strong>remote content</strong></summary>
+Having hard-coded content is great for landing pages, product pages and other pages where the amount of content is manageable.
+
+However, checking in the 10 000th blog entry in git might feel wrong (though we would say it is ok).
+
+Therefore, Val will add `remote content` support which enables you to seamlessly move content to the cloud and back again as desired.
+You code will still be the one truth, but the actual content will be hosted on [val.build](https://val.build).
+
+`.remote()` support will also make it possible to have remote images to avoid having to put them in your repository.
+
+There will also be specific support for remote i18n, which will make it possible to split which languages are defined in code, and which are fetched from remote.
+
+More details on `.remote()` will follow later.
+</details>
+
+## When to NOT use Val
+
+Val is designed to work well on a single web-app, and currently only supports Next 13.4+ (more meta-frameworks will supported) and GitHub (more Git providers will follow). Unless your application fits these requirements, you should have a look elsewhere (at least for now).
+
+In addition, if you have a "content model", i.e. content schemas, that rarely change and you plan on using them in a lot of different applications (web, mobile, etc), Val will most likely not be a great fit.
+
+Our experience is, however, that it is both hard to nail the content model down and that you actually want to present the exact same content on the different surfaces.
+
+However, if you believe you can do that, we recommend having a look at [sanity](https://sanity.io) instead.
+
+## Examples
+
+Check out this README or the [examples](./examples) directory for examples.
 
 ## Installation
 
 - Make sure you have TypeScript 5+, Next 13.4+ (other meta frameworks will come), React 18.20.+ (other frontend frameworks will come)
-- Install the packages:
+- Install the package:
 
 ```sh
 npm install @valbuild/next@latest
 ```
 
-- Create your val.config.ts file. NOTE: this file should be in the same directory as `tsconfig.json`:
+- Create a `val.config.ts` file. **NOTE**: this file should be in the same directory as `tsconfig.json`:
 
 ```ts
 // ./val.config.ts
@@ -166,88 +223,105 @@ Add the following to your `.eslintrc.json`:
   }
 ```
 
+### Add editor support
+
+To make it possible to do non-local edits, head over to [val.build](https://val.build) and import your repository.
+
+**NOTE**: your content is yours. No subscription (or similar) is required to host content from your repository.
+
+If you do not need to edit content online (i.e. not locally), you do not need to sign up.
+
+**WHY**: to update your code, we need to create a commit. This requires a server. We opted to create a service that does this easily, instead of having a self-hosted alternative, since time spent is money used. Also, the company behind [val.build](https://val.build) is the company that funds the development of this software.
+
 ## Getting started
 
 ### Create your first Val content file
 
-Content defined in Val is always defined `.val.{ts|js}` files.
+Content in Val is always defined in `.val.ts` files.
 
-They must export a default `val.content` where the first argument equals the path of the file relative to the `val.config.{js|ts}` file.
+**NOTE**: Val also works with `.js` files.
+
+They must export a default `val.content` where the first argument equals the path of the file relative to the `val.config.ts` file.
+
+**NOTE**: `val.ts` files are _evaluated_ by Val, therefore they have a specific set of requirements:
+
+- They must have a default export that is `val.content`, they must have a `export const schema` with the Schema; and
+- they CANNOT import anything other than `val.config` and `@valbuild/core`
+
+### Example of a `.val.ts` file
 
 ```ts
-// ./src/content/example/blogs.val.ts
+// ./src/app/content.val.ts
 
 import { s, val } from "../../../val.config";
 
+export const schema = s.object({
+  title: s.string().optional(), //  <- NOTE: optional()
+  sections: s.array(
+    s.object({
+      title: s.string(),
+      text: s.richtext({
+        bold: true, // <- Enables bold in richtext
+      }),
+    })
+  ),
+});
+
 export default val.content(
-  "/src/content/example/blogs", // <- NOTE: this must be the same path as the file
-  s.array(s.object({ title: s.string(), text: s.string() })),
-  [
-    {
-      title: "Title 1",
-      text: "Text 1",
-    },
-    {
-      title: "Title 2",
-      text: "Text 2",
-    },
-  ]
+  "/src/app/content", // <- NOTE: this must be the same path as the file
+  schema,
+  {
+    title: "My Page",
+    sections: [
+      {
+        title: "Section 1",
+        text: val.richtext`
+RichText is **awesome**`,
+      },
+    ],
+  }
 );
+
 ```
 
 ### Use your content
 
-```tsx
-// ./src/pages/example/index.tsx
+In client components you can access your content with the `useVal` hook:
 
+**NOTE**: Support for React Server Components and server side rendering will come soon.
+
+```tsx
+// ./src/app/page.tsx
+"use client";
 import { NextPage } from "next";
 import { useVal } from "@valbuild/next/client";
-import blogsVal from "@/content/example/blogs.val";
+import contentVal from "./content.val";
 
-const Blog: NextPage = () => {
-  const blog = useVal(blogsVal[0]);
+const Page: NextPage = () => {
+  const { title, sections } = useVal(contentVal);
   return (
     <main>
-      <article>
+      {title && (
         <section>
-          <h1>{blog.title}</h1>
-          <p>{blog.text}</p>
+          <h1>{title}</h1>
         </section>
-      </article>
+      )}
+      {sections.map((section) => (
+        <section>
+          <h2>{section.title}</h2>
+          <ValRichText theme={{
+            bold: "font-bold"
+          }}>{section.text}</ValRichText>
+        </section>
+      ))}
     </main>
   );
 };
 
-export default Blog;
+export default Page;
 ```
 
-## Concepts
-
-`.val.{ts|js}` files **MUST** have a default export which is a ValModule. A ValModule is a special type of [Selector](#selectors). Selectors makes it possible to select a subset of content from a ValModule or a another Selector.
-
-Selectors can be turned to Val types using `useVal` or `fetchVal`.
-
-### .val files
-
-`.val.{ts|js}` files are the files in which you store your content.
-
-They are evaluated when the content is run, therefore they have a specific set of requirements. They must have a default export that is `val.content`, they must have a `export const schema` with the Schema and they CANNOT import anything other than `val.config` and `@valbuild/core`.
-
-Example:
-
-```ts
-import { s, val } from "../val.config";
-
-export const schema = t.string();
-
-export default val.content(
-  "/file/path/relative/to/val/config",
-  schema,
-  "My string content"
-);
-```
-
-NOTE: IN THE FUTURE, they will be validated by the eslint-plugin.
+# Schema types
 
 ## String
 
@@ -255,16 +329,6 @@ NOTE: IN THE FUTURE, they will be validated by the eslint-plugin.
 import { s } from "./val.config";
 
 s.string(); // <- Schema<string>
-```
-
-### String selectors
-
-See [Selectors](#selector) for more info.
-
-### String `.eq`
-
-```ts
-useVal(stringVal.eq("")); // <- Val<boolean>
 ```
 
 ## Number
@@ -275,32 +339,12 @@ import { s } from "./val.config";
 s.number(); // <- Schema<number>
 ```
 
-### Number selectors
-
-See [Selectors](#selector) for more info.
-
-### Number `.eq`
-
-```ts
-useVal(numberVal.eq(2)); // <- Val<boolean>
-```
-
 ## Boolean
 
 ```ts
 import { s } from "./val.config";
 
 s.boolean(); // <- Schema<boolean>
-```
-
-### Boolean selectors
-
-See [Selectors](#selector) for more info.
-
-### Boolean `.eq`
-
-```ts
-useVal(booleanVal.eq(true)); // <- Val<boolean>
 ```
 
 ## Optional
@@ -313,34 +357,22 @@ import { s } from "./val.config";
 s.string().optional(); // <- Schema<string | null>
 ```
 
-### Selectors
-
-### Accessing the underlying type: `.andThen`
-
-To use and optional val, you can use the [.andThen](#andthen) selector.
-
 ## Array
 
 ```ts
-s.array(t.string());
+s.array(t.string()); // <- Schema<string[]>
 ```
 
-### Selecting arrays
+## Record
 
-### `.filter`
+The type of `s.record`  is `Record`.
 
-TODO: text
+It is similar to an array, in that editors can add and remove items in it, however it has a unique key which can be used as, for example, the slug or as a part of an route.
 
-```ts
-useVal(myArray.filter((item) => item.title.eq("Title 1")));
-```
-
-### `.map`
-
-TODO:
+**NOTE**: records can also be used with `keyOf`.
 
 ```ts
-useVal(myArray.map((item) => ({ test: item.title })));
+s.record(t.number()); // <- Schema<Record<string, number>>
 ```
 
 ## Object
@@ -351,24 +383,22 @@ s.object({
 });
 ```
 
-### Selecting objects
-
-You can select Selector objects almost as if they were normal objects. The exception is that you cannot use the spread (`...`) operator.
-
-Example:
-
-```ts
-useVal({ foo: myObjectVal.hello });
-```
-
 ## RichText
+
+<details>
+<summary>RichText in Val represented both in code and to the editors as <strong>semantic html5</strong>.</summary>
+
+This means that content will be accessible and according to spec out of the box. The flip-side is that Val will not support RichText that includes elements that is not part of the html 5 standard.
+
+This opinionated approach was chosen since rendering anything, makes it hard for developers to maintain and hard for editors to understand.
+</details>
 
 ### RichText Schema
 
 ```ts
-import { s } from "./val.config";
-
-s.richtext();
+s.richtext({
+  // options
+});
 ```
 
 ### Initializing RichText content
@@ -378,54 +408,55 @@ To initialize some text content using a RichText schema, you can use follow the 
 ```ts
 import { s, val } from "./val.config";
 
-// TODO: need some other way of doing this:
-export default val.content("/example/richtext.ts", s.richtext(), {
-  children: [
-    {
-      type: "paragraph",
-      version: 1,
-      indent: 0,
-      direction: "ltr",
-      format: "",
-      children: [
-        {
-          type: "text",
-          version: 1,
-          mode: "normal",
-          format: 0,
-          detail: 0,
-          style: "",
-          text: "TODO: update me",
-        },
-      ],
-    },
-  ],
-  direction: "ltr",
-  format: "",
-  indent: 0,
-  type: "root",
-  version: 1,
+export const schema = s.richtext({
+  // styling:
+  bold: true, // enables bold
+  //italic: true, // enables italic text
+  //lineThrough: true, // enables line/strike-through
+  // tags:
+  //headings: ["h1", "h2", "h3", "h4", "h5", "h6"], // sets which headings are available
+  //a: true, // enables links
+  //img: true, // enables images
+  //ul: true, // enables unordered lists
+  //ol: true, // enables ordered lists
 });
+
+export default val.content("/src/app/content", schema, val.richtext`
+NOTE: this is markdown.
+
+**Bold** text.
+`);
 ```
 
-### Render RichText
+### Rendering RichText
 
 You can use the `ValRichText` component to render content.
 
 ```tsx
 "use client";
-import { useVal, ValRichText } from "@valbuild/react";
-import richtextVal from "./richtext";
+import { ValRichText } from "@valbuild/next";
+import contentVal from "./content.val";
+import { useVal } from "@valbuild/next/client";
 
 export default function Page() {
-  const richtext = useVal(richtextVal);
-  return <ValRichText>{richtext}</ValRichText>;
+  const content = useVal(contentVal);
+  return (<main>
+    <ValRichText
+    
+      theme={{
+        bold: "font-bold" // <- maps bold to a class. NOTE: tailwind classes are supported
+        // 
+      }}
+    >
+      {content}
+    </ValRichText>
+  </main>);
 }
 ```
 
 ## Image
 
-### Schema
+### Image Schema
 
 ```ts
 s.image();
@@ -443,7 +474,7 @@ export const schema = s.image();
 export default val.content("/image", schema, val.file("/public/myfile.jpg"));
 ```
 
-NOTE: This will not validate, since images requires `width`, `height` and a `sha256` checksum. You can fix this validation in the UI by opening the image and clicking the Fix button.
+**NOTE**: This will not validate, since images requires `width`, `height` and a `sha256` checksum. You can fix this validation in the UI by opening the image and clicking the Fix button.
 
 ### Using images in components
 
@@ -458,100 +489,25 @@ const image = useVal(imageVal);
 return <img src={image.url} />;
 ```
 
-## Internalization
+## KeyOf
 
-**NOTE**: WORKS ONLY ON THE TYPE LEVEL
+If you need to reference content in another `.val` file you can use the `keyOf` schema.
 
-To enable i18n, you must update your Val with the locales you want to enforce.
-
-Example:
+### KeyOf Schema
 
 ```ts
-// ./val.config.ts
+import otherVal from "./other.val"; // NOTE: this must be an array or a record
 
-import { initVal } from "@valbuild/core";
-
-const { s, val } = initVal({
-  locales: {
-    required: ["en_US", "fr_FR"],
-    fallback: "en_US",
-  },
-});
-
-export { s, val };
+s.keyOf(otherVal);
 ```
 
-## Union
+### Initializing keyOf
 
-**NOTE**: WORKS ONLY ON THE TYPE LEVEL
+### Using keyOf to reference content
 
-TODO: fill in.
+```tsx
+const article = useVal(articleVal); // s.object({ author: s.keyOf(otherVal) })
+const authors = useVal(otherVal) // s.array(s.object({ name: s.string() }))
 
-```ts
-s.union(
-  "type",
-  s.object({ type: s.literal("type1"), bar: s.string() }),
-  s.object({ type: s.literal("type2"), foo: s.number() })
-);
-```
-
-### Selecting unions
-
-### `.fold`
-
-TODO: description
-
-```ts
-useVal(myUnionVal.fold("type")({
-
-})
-```
-
-## One of references
-
-**NOTE**: Currently not possible to change from UI
-
-```ts
-
-```
-
-# Remote
-
-**NOTE**: WORKS ONLY ON THE TYPE LEVEL
-
-All schemas can be converted into `.remote`.
-
-TODO: add description.
-
-Example:
-
-```ts
-export const schema = s.object({ stuff: s.string() });
-
-export default val.content("/remote/example", schema, val.remote("REFERENCE"));
-```
-
-## Selector
-
-To select parts of a your content you should use Selectors.
-If you make the content `.remote`
-
-### `.andThen`
-
-All selectors can use `andThen` method which is similar to the `&&` operator. You can use this to only do operations on optionals that are defined. NOTE: only TRUTHY arguments are passed in to `andThen` (i.e. the empty string, `''` is NOT truthy).
-
-Given the example schema:
-
-```ts
-// ./maybeArray.val.ts
-//...
-
-export const schema = t.array(t.string()).optional();
-
-//...
-```
-
-```ts
-import maybeArrayVal from "./maybeArray.val";
-useVal(maybeArrayVal.andThen((array) => array.filter((v) => v.eq("foo"))));
+const nameOfAuthor = authors[articleVal.author].name
 ```
