@@ -1,10 +1,17 @@
 "use client";
-import { useVal } from "@valbuild/next/client";
 import { ValRichText } from "@valbuild/next";
 import blogsVal from "./blogs.val";
+import { useVal } from "@valbuild/next/client";
+import { useEffect, useState } from "react";
 
 export default function Home() {
   const blogs = useVal(blogsVal);
+  const [state, setState] = useState(0);
+
+  useEffect(() => {
+    setState(1);
+  }, []);
+
   return (
     <main>
       <style>
@@ -21,6 +28,14 @@ export default function Home() {
         `}
       </style>
       <article>
+        {state}
+        <button
+          onClick={() => {
+            setState(2);
+          }}
+        >
+          dsafdsaf
+        </button>
         {blogs.map((blog, i) => (
           <section key={i}>
             <h1>{blog.title}</h1>

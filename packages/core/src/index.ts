@@ -6,6 +6,7 @@ export type { LinkSource } from "./source/link";
 export type { ValModule, SerializedModule } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
+export type { RawString } from "./schema/string";
 export type {
   AnyRichTextOptions,
   Bold,

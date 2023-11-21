@@ -42,7 +42,9 @@
   "dependencies": {
     "@valbuild/core": "~0.31.0",
     "@valbuild/react": "~0.31.0",
-    "@valbuild/server": "~0.31.0"
+    "@valbuild/server": "~0.31.0",
+    "client-only": "^0.0.1",
+    "server-only": "^0.0.1"
   },
   "peerDependencies": {
     "next": ">=13.4.0",

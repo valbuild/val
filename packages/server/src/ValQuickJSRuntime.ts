@@ -28,6 +28,12 @@ export async function newValQuickJSRuntime(
               "export const useVal = () => { throw Error(`Cannot use 'useVal' in this type of file`) }; export function ValProvider() { throw Error(`Cannot use 'ValProvider' in this type of file`) }; export function ValRichText() { throw Error(`Cannot use 'ValRichText' in this type of file`)};",
           };
         }
+        if (modulePath === "@valbuild/react/internal") {
+          return {
+            value:
+              "export const useVal = () => { throw Error(`Cannot use 'useVal' in this type of file`) }; export function ValProvider() { throw Error(`Cannot use 'ValProvider' in this type of file`) }; export function ValRichText() { throw Error(`Cannot use 'ValRichText' in this type of file`)};",
+          };
+        }
         if (modulePath === "@valbuild/react/stega") {
           return {
             value:
@@ -59,6 +65,9 @@ export async function newValQuickJSRuntime(
           return { value: requestedName };
         }
         if (requestedName === "@valbuild/react/stega") {
+          return { value: requestedName };
+        }
+        if (requestedName === "@valbuild/react/internal") {
           return { value: requestedName };
         }
         if (requestedName.startsWith("next")) {
