@@ -15,8 +15,17 @@ export const schema = s.object({
    */
   text: s
     .richtext({
-      bold: true,
-      ul: true,
+      // enables all features
+      // styling:
+      bold: true, // enables bold
+      italic: true, // enables italic text
+      lineThrough: true, // enables line/strike-through
+      // tags:
+      headings: ["h1", "h2", "h3", "h4", "h5", "h6"], // sets which headings are available
+      a: true, // enables links
+      img: true, // enables images
+      ul: true, // enables unordered lists
+      ol: true, // enables ordered lists
     })
     .optional(),
   /**
