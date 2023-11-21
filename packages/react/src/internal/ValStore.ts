@@ -65,7 +65,7 @@ export class ValStore implements IValStore {
         this.emitChange(updatedSubscriberId);
       }
     } else {
-      console.error("Val: failed to update modules", data.error.message);
+      console.error("Val: failed to update modules", data.error);
     }
   }
 
