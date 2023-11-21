@@ -11,7 +11,6 @@ import {
   ImageNode as ValImageNode,
   RichText,
 } from "@valbuild/core";
-import { ImagePayload } from "../../components/RichTextEditor/Nodes/ImageNode";
 
 /// Serialized Lexical Nodes:
 // TODO: replace with Lexical libs types - not currently exported?
@@ -47,9 +46,15 @@ export type LexicalListNode = CommonLexicalProps & {
   children: LexicalListItemNode[];
 };
 
+export type LexicalImagePayload = {
+  src: string;
+  altText?: string;
+  height?: number;
+  width?: number;
+};
 export type LexicalImageNode = CommonLexicalProps & {
   type: "image";
-} & ImagePayload;
+} & LexicalImagePayload;
 
 export type LexicalLinkNode = CommonLexicalProps & {
   type: "link";
@@ -260,18 +265,6 @@ export function toLexicalFormat(
     0
   );
 }
-
-export function fromLexicalFormat(
-  format: number
-): (keyof typeof FORMAT_MAPPING)[] {
-  return Object.entries(FORMAT_MAPPING).flatMap(([key, value]) => {
-    if ((value & /* bitwise and */ format) === value) {
-      return [key as keyof typeof FORMAT_MAPPING];
-    }
-    return [];
-  });
-}
-
 function toLexicalTextNode(
   spanNode: ValSpanNode<AnyRichTextOptions>
 ): LexicalTextNode {

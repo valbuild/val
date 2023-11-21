@@ -1,9 +1,26 @@
 import { initVal } from "@valbuild/core";
+import { fromLexicalFormat } from "./lexicalToRichTextSource";
 import { parseRichTextSource } from "./parseRichTextSource";
 
 const { val } = initVal();
 
 describe("lexical to RichTextSource", () => {
+  test("from lexical format", () => {
+    //
+    expect(fromLexicalFormat(0)).toStrictEqual([]);
+    expect(fromLexicalFormat(1)).toStrictEqual(["bold"]);
+    expect(fromLexicalFormat(2)).toStrictEqual(["italic"]);
+    expect(fromLexicalFormat(3)).toStrictEqual(["bold", "italic"]);
+    expect(fromLexicalFormat(4)).toStrictEqual(["line-through"]);
+    expect(fromLexicalFormat(5)).toStrictEqual(["bold", "line-through"]);
+    expect(fromLexicalFormat(6)).toStrictEqual(["italic", "line-through"]);
+    expect(fromLexicalFormat(7)).toStrictEqual([
+      "bold",
+      "italic",
+      "line-through",
+    ]);
+  });
+
   test("parse empty richtext source", () => {
     const output = parseRichTextSource({
       _type: "richtext",

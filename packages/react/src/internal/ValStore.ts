@@ -1,6 +1,6 @@
 import { Json, ModuleId, ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
-import { IValStore } from "@valbuild/ui";
+import type { IValStore } from "@valbuild/ui";
 
 type SubscriberId = string & {
   readonly _tag: unique symbol;

@@ -1,5 +1,3 @@
-"use client";
-
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { LexicalEditor } from "lexical";
 import { ListItemNode, ListNode } from "@lexical/list";
@@ -17,9 +15,9 @@ import ImagesPlugin from "./Plugins/ImagePlugin";
 import Toolbar from "./Plugins/Toolbar";
 import { AnyRichTextOptions, RichTextSource } from "@valbuild/core";
 import { HeadingNode } from "@lexical/rich-text";
-import { richTextSourceToLexical } from "../../richtext/conversion/richTextSourceToLexical";
+import { richTextSourceToLexical } from "@valbuild/shared/internal";
+import { parseRichTextSource } from "@valbuild/shared/internal";
 import { useValOverlayContext } from "../ValOverlayContext";
-import { parseRichTextSource } from "../../exports";
 import { LinkNode } from "@lexical/link";
 import LinkEditorPlugin from "./Plugins/LinkEditorPlugin";
 
