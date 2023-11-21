@@ -69,7 +69,7 @@ As a CMS, Val is useful because:
 
 - editors can **change content** without having to ask developers to do it for them (and nobody wants that)
 - a **well-documented** way to **structure content**
-- **images** support is built-in
+- **image** support is built-in
 - **richtext** support is built-in
 - built-in **visual editing** which lets editors click-then-edit content (and therefore **code**!) directly in your app
 
