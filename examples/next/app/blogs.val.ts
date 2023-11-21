@@ -1,4 +1,5 @@
 import { s, val } from "../val.config";
+import journalVal from "./journal.val";
 
 export const schema = s.array(
   s.object({
@@ -27,7 +28,7 @@ export const schema = s.array(
 
 export default val.content("/app/blogs", schema, [
   {
-    title: "HVA? \n",
+    title: "HVA? fasfdsa",
     configString: "foo-bar",
     image: val.file("/public/val/app/blogs/image1.jpg", {
       width: 512,
@@ -35,15 +36,13 @@ export default val.content("/app/blogs", schema, [
       sha256:
         "41fe618d9db1a477debe0d72d9a8947be3623412281fec8ed4f70517188dfc5a",
     }),
-    text: val.richtext`
-
-1. Test 1 2 3. ***~~Bold~~***
-1. **fdasfdsa**
+    text: val.richtext `
+1. dsafsad
 `,
     rank: 100,
   },
   {
-    title: "HVEM ER VI?",
+    title: "HVEM ER VI?ff",
     configString: null,
     image: val.file("/public/val/app/blogs/image2.jpg", {
       width: 512,
