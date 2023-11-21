@@ -85,7 +85,7 @@ An editor in this context, is a non-technical person that edits content in your 
 But, with the benefits of **hard-coded** content:
 
 - works seamlessly **locally** or with git **branches**
-- content is **type-checked** so it you can spend less time on figuring out issues with your CMS
+- content is **type-checked** so you can spend less time on figuring out why something isn't working
   ![Type check error](./docs/type-check-error.png)
 - content can be refactored (change names, etc) just as if it was hard-coded (because it is)
   ![Renaming](./docs/renaming.gif)
@@ -95,9 +95,9 @@ But, with the benefits of **hard-coded** content:
 - **fast** since the content is literally hosted with the application
 - content is **always there** and can never fail (since it is not loaded from somewhere)
 - no need to manage different **environments** containing different versions of content
-- **resolve conflicts** like you normally resolve conflicts in git
+- **resolve conflicts** like you normally resolve conflicts: **in git**
 
-Compared to other CMSs, Val has the following features:
+Compared to other CMSs, Val has the following advantages:
 
 - **easy** to setup and to _grok_: Val is designed to have a minimum of boilerplate and there's **0** query languages to learn. If you know your way around JSON that's enough (if you don't you might want to learn it)
 - **no signup** required to use it locally
@@ -128,13 +128,15 @@ More details on `.remote()` will follow later.
 
 ## When to NOT use Val
 
-Val is designed to work well on a single web-app, and currently only supports Next 13.4+ (more meta-frameworks will supported) and GitHub (more Git providers will follow). Unless your application fits these requirements, you should have a look elsewhere (at least for now).
+Val is designed to work well on a single web-app, and currently only supports Next 13.4+ (more meta-frameworks will supported) and GitHub (more Git providers will follow).
+
+Unless your application fits these requirements, you should have a look elsewhere (at least for now).
 
 In addition, if you have a "content model", i.e. content schemas, that rarely change and you plan on using them in a lot of different applications (web, mobile, etc), Val will most likely not be a great fit.
 
-Our experience is, however, that it is both hard to nail the content model down and that you actually want to present the exact same content on the different surfaces.
+If that is the case, we recommend having a look at [sanity](https://sanity.io) instead (we have no affiliation, but if we didn't have Val we would use Sanity).
 
-However, if you believe you can do that, we recommend having a look at [sanity](https://sanity.io) instead.
+**NOTE**: Our experience is that however nice it sounds, it is hard to "nail" the content model down. Usually content is derived from what you want to present, not vice-versa. In addition, you should think carefully whether you _really_ want to present the exact same content on all these different surfaces.
 
 ## Examples
 
