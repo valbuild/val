@@ -8,7 +8,7 @@
     "next",
     "react"
   ],
-  "version": "0.31.0",
+  "version": "0.32.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest"
@@ -40,9 +40,9 @@
     "exports": true
   },
   "dependencies": {
-    "@valbuild/core": "~0.31.0",
-    "@valbuild/react": "~0.31.0",
-    "@valbuild/server": "~0.31.0",
+    "@valbuild/core": "~0.32.0",
+    "@valbuild/react": "~0.32.0",
+    "@valbuild/server": "~0.32.0",
     "client-only": "^0.0.1",
     "server-only": "^0.0.1"
   },
