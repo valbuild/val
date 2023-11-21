@@ -13,10 +13,10 @@ import {
 import type { PatchJSON } from "@valbuild/core/patch";
 import { LexicalEditor } from "lexical";
 import { useState, useEffect, useRef } from "react";
-import { getMimeType, mimeTypeToFileExt } from "../utils/imageMimeType";
+import { getMimeType, mimeTypeToFileExt } from "@valbuild/shared/internal";
 import { RichTextEditor } from "../exports";
-import { lexicalToRichTextSource } from "../richtext/conversion/lexicalToRichTextSource";
-import { LexicalRootNode } from "../richtext/conversion/richTextSourceToLexical";
+import { lexicalToRichTextSource } from "@valbuild/shared/internal";
+import { LexicalRootNode } from "@valbuild/shared/internal";
 import { readImage } from "../utils/readImage";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";

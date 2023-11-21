@@ -1,5 +1,3 @@
-"use client";
-
 import {
   AnyRichTextOptions,
   ApiTreeResponse,
@@ -30,7 +28,6 @@ import { result } from "@valbuild/core/fp";
 import { Tree } from "./dashboard/Tree";
 import { OnSubmit, ValFormField } from "./ValFormField";
 import React from "react";
-import { parseRichTextSource } from "../exports";
 import { createPortal } from "react-dom";
 import Logo from "../assets/icons/Logo";
 import { ScrollArea } from "./ui/scroll-area";
@@ -42,6 +39,7 @@ import { useNavigate, useParams } from "react-router";
 import { useTheme } from "./useTheme";
 import classNames from "classnames";
 import { ValMenu } from "./ValMenu";
+import { parseRichTextSource } from "@valbuild/shared/internal";
 
 interface ValFullscreenProps {
   valApi: ValApi;

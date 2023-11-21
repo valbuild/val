@@ -6,8 +6,7 @@ import {
   RichTextSource,
   AnyRichTextOptions,
 } from "@valbuild/core";
-import { getMimeType, mimeTypeToFileExt } from "../../utils/imageMimeType";
-
+import { getMimeType, mimeTypeToFileExt } from "../../mimeType";
 import {
   LexicalImageNode,
   LexicalLineBreakNode,

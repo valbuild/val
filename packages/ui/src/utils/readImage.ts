@@ -1,6 +1,6 @@
 import { Internal } from "@valbuild/core";
 import { ChangeEvent } from "react";
-import { getMimeType, mimeTypeToFileExt } from "./imageMimeType";
+import { getMimeType, mimeTypeToFileExt } from "@valbuild/shared/internal";
 
 const textEncoder = new TextEncoder();
 
