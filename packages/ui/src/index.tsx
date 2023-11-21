@@ -1,5 +1,3 @@
-"use client";
-
 /*
  * This module is the entrypoint of @valbuild/ui until the package is built with
  * Vite. It is used only as a shim during local development, and is actually not

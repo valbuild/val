@@ -36,7 +36,8 @@
       "./index.ts",
       "./jsx-runtime.js",
       "./jsx-dev-runtime.js",
-      "./stega/index.ts"
+      "./stega/index.ts",
+      "./internal/index.ts"
     ],
     "exports": {
       "envConditions": [
@@ -78,6 +79,14 @@
       },
       "default": "./stega/dist/valbuild-react-stega.cjs.js"
     },
+    "./internal": {
+      "module": {
+        "worker": "./internal/dist/valbuild-react-internal.worker.esm.js",
+        "browser": "./internal/dist/valbuild-react-internal.browser.esm.js",
+        "default": "./internal/dist/valbuild-react-internal.esm.js"
+      },
+      "default": "./internal/dist/valbuild-react-internal.cjs.js"
+    },
     "./jsx-dev-runtime": {
       "module": {
         "worker": "./jsx-dev-runtime/dist/valbuild-react-jsx-dev-runtime.worker.esm.js",
@@ -93,6 +102,7 @@
     "dist",
     "jsx-runtime",
     "jsx-dev-runtime",
-    "stega"
+    "stega",
+    "internal"
   ]
 }
