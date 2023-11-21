@@ -124,6 +124,7 @@ You code will still be the one truth, but the actual content will be hosted on [
 There will also be specific support for remote i18n, which will make it possible to split which languages are defined in code, and which are fetched from remote.
 
 More details on `.remote()` will follow later.
+
 </details>
 
 ## When to NOT use Val
@@ -283,7 +284,6 @@ RichText is **awesome**`,
     ],
   }
 );
-
 ```
 
 ### Use your content
@@ -311,9 +311,13 @@ const Page: NextPage = () => {
       {sections.map((section) => (
         <section>
           <h2>{section.title}</h2>
-          <ValRichText theme={{
-            bold: "font-bold"
-          }}>{section.text}</ValRichText>
+          <ValRichText
+            theme={{
+              bold: "font-bold",
+            }}
+          >
+            {section.text}
+          </ValRichText>
         </section>
       ))}
     </main>
@@ -367,7 +371,7 @@ s.array(t.string()); // <- Schema<string[]>
 
 ## Record
 
-The type of `s.record`  is `Record`.
+The type of `s.record` is `Record`.
 
 It is similar to an array, in that editors can add and remove items in it, however it has a unique key which can be used as, for example, the slug or as a part of an route.
 
@@ -393,6 +397,7 @@ s.object({
 This means that content will be accessible and according to spec out of the box. The flip-side is that Val will not support RichText that includes elements that is not part of the html 5 standard.
 
 This opinionated approach was chosen since rendering anything, makes it hard for developers to maintain and hard for editors to understand.
+
 </details>
 
 ### RichText Schema
@@ -423,11 +428,15 @@ export const schema = s.richtext({
   //ol: true, // enables ordered lists
 });
 
-export default val.content("/src/app/content", schema, val.richtext`
+export default val.content(
+  "/src/app/content",
+  schema,
+  val.richtext`
 NOTE: this is markdown.
 
 **Bold** text.
-`);
+`
+);
 ```
 
 ### Rendering RichText
@@ -442,17 +451,18 @@ import { useVal } from "@valbuild/next/client";
 
 export default function Page() {
   const content = useVal(contentVal);
-  return (<main>
-    <ValRichText
-    
-      theme={{
-        bold: "font-bold" // <- maps bold to a class. NOTE: tailwind classes are supported
-        // 
-      }}
-    >
-      {content}
-    </ValRichText>
-  </main>);
+  return (
+    <main>
+      <ValRichText
+        theme={{
+          bold: "font-bold", // <- maps bold to a class. NOTE: tailwind classes are supported
+          //
+        }}
+      >
+        {content}
+      </ValRichText>
+    </main>
+  );
 }
 ```
 
@@ -509,7 +519,7 @@ s.keyOf(otherVal);
 
 ```tsx
 const article = useVal(articleVal); // s.object({ author: s.keyOf(otherVal) })
-const authors = useVal(otherVal) // s.array(s.object({ name: s.string() }))
+const authors = useVal(otherVal); // s.array(s.object({ name: s.string() }))
 
-const nameOfAuthor = authors[articleVal.author].name
+const nameOfAuthor = authors[articleVal.author].name;
 ```
