@@ -9,6 +9,7 @@ import { ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { Internal } from "@valbuild/core";
 import { ValConfig } from "@valbuild/core";
+import { draftMode, headers } from "next/headers";
 
 const initFetchVal =
   (
@@ -21,9 +22,34 @@ const initFetchVal =
   ): SelectorOf<T> extends GenericSelector<infer S>
     ? Promise<StegaOfSource<S>>
     : never => {
-    const enabled = isEnabled();
+    let enabled = false;
+    try {
+      enabled = isEnabled();
+    } catch (err) {
+      console.error(
+        "Val: could not check if Val is enabled! This might be due to an error to check draftMode. fetchVal can only be used server-side. Use useVal on clients.",
+        err
+      );
+    }
+
     if (enabled) {
-      const host = getHost(getHeaders());
+      let headers;
+      try {
+        headers = getHeaders();
+      } catch (err) {
+        console.error(
+          "Val: could not read headers! fetchVal can only be used server-side. Use useVal on clients.",
+          err
+        );
+        headers = null;
+      }
+
+      let host;
+      try {
+        host = headers && getHost(headers);
+      } catch {
+        host = null;
+      }
       //
       if (host) {
         // TODO: Use the content.val.build endpoints directly
@@ -83,7 +109,7 @@ function getHost(headers: Headers) {
     return null;
   } catch (err) {
     console.error(
-      "Val: could not read headers! fetchVal can only be used server-side. Use useVal on clients.",
+      "Val: could get host! fetchVal can only be used server-side. Use useVal on clients.",
       err
     );
     return null;
@@ -116,24 +142,27 @@ function getValAuthHeaders(headers: Headers): Record<string, string> {
 
 const valApiEndpoints = "/api/val";
 
+type ValNextRscConfig = {
+  draftMode: typeof draftMode;
+  headers: typeof headers;
+};
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function initValRsc(
   config: ValConfig,
-  {
-    isEnabled,
-    getHeaders,
-  }: {
-    isEnabled: () => boolean;
-    getHeaders: () => Headers;
-  }
+  rscNextConfig: ValNextRscConfig
 ): {
   fetchVal: ReturnType<typeof initFetchVal>;
 } {
   return {
     fetchVal: initFetchVal(
       valApiEndpoints, // TODO: get from config
-      isEnabled,
-      getHeaders
+      () => {
+        return rscNextConfig.draftMode().isEnabled;
+      },
+      () => {
+        return rscNextConfig.headers();
+      }
     ),
   };
 }

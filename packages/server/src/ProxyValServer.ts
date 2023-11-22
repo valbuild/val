@@ -49,7 +49,13 @@ class BrowserReadableStreamWrapper extends Readable {
 }
 
 export class ProxyValServer implements ValServer {
-  constructor(readonly options: ProxyValServerOptions) {}
+  constructor(
+    readonly options: ProxyValServerOptions,
+    readonly callbacks: {
+      onEnable: () => boolean;
+      onDisable: () => boolean;
+    }
+  ) {}
 
   async getFiles(req: express.Request, res: express.Response): Promise<void> {
     return this.withAuth(req, res, async (data) => {
@@ -110,10 +116,15 @@ export class ProxyValServer implements ValServer {
   }
 
   async enable(req: express.Request, res: express.Response): Promise<void> {
-    return enable(req, res, this.options.valEnableRedirectUrl);
+    return enable(
+      req,
+      res,
+      this.callbacks.onEnable,
+      this.options.valEnableRedirectUrl
+    );
   }
   async disable(req: express.Request, res: express.Response): Promise<void> {
-    return disable(req, res, this.options.valEnableRedirectUrl);
+    return disable(req, res, this.options.valEnableRedirectUrl, this.onDisable);
   }
 
   async callback(req: express.Request, res: express.Response): Promise<void> {
@@ -519,6 +530,7 @@ function getStateFromCookie(stateCookie: string):
 export async function enable(
   req: express.Request,
   res: express.Response,
+  onEnable: () => boolean,
   redirectUrl?: string
 ): Promise<void> {
   const { redirect_to } = req.query;
@@ -528,6 +540,7 @@ export async function enable(
       redirectUrlToUse =
         redirectUrl + "?redirect_to=" + encodeURIComponent(redirectUrlToUse);
     }
+
     res
       .cookie(VAL_ENABLED_COOKIE, "true", {
         httpOnly: false,

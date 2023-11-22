@@ -45,8 +45,6 @@ export function ValProvider({ children }: ValProviderProps) {
   const store = useMemo(() => new ValStore(api), [api]);
   const [isClient, setIsClient] = useState(false);
   const [enabled, setEnabled] = useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [isDraftMode, setDraftMode] = useState(false); // TODO: if enabled, but not in draft mode: show something
 
   useEffect(() => {
     setIsClient(true);
@@ -57,14 +55,6 @@ export function ValProvider({ children }: ValProviderProps) {
       setEnabled(valEnabled);
     } catch (e) {
       console.warn("Could not read Val enabled state", e);
-    }
-    try {
-      const valDraftMode = document.cookie?.includes(
-        `${Internal.VAL_DRAFT_MODE_COOKIE}=true`
-      );
-      setDraftMode(valDraftMode);
-    } catch (e) {
-      console.warn("Could not read Val draft mode", e);
     }
   }, []);
   if (isClient && !enabled && process.env.NODE_ENV === "development") {
