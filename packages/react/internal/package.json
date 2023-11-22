@@ -1,0 +1,7 @@
+{
+  "main": "dist/valbuild-react-internal.cjs.js",
+  "module": "dist/valbuild-react-internal.esm.js",
+  "browser": {
+    "./dist/valbuild-react-internal.esm.js": "./dist/valbuild-react-internal.browser.esm.js"
+  }
+}

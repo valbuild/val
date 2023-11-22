@@ -3,7 +3,7 @@ import {
   type SerializedSchema,
   ValidationErrors,
 } from "@valbuild/core";
-import { ModuleId, type SourcePath } from "@valbuild/core/src/val";
+import type { ModuleId, SourcePath } from "@valbuild/core";
 
 export const FATAL_ERROR_TYPES = [
   "no-schema",
