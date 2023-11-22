@@ -1,3 +1,4 @@
+import { LexicalImagePayload } from "@valbuild/shared/internal";
 import {
   DecoratorNode,
   LexicalNode,
@@ -6,12 +7,7 @@ import {
   Spread,
 } from "lexical";
 
-export type ImagePayload = {
-  src: string;
-  altText?: string;
-  height?: number;
-  width?: number;
-};
+export type ImagePayload = LexicalImagePayload;
 
 export type SerializedImageNode = Spread<ImagePayload, SerializedLexicalNode>;
 

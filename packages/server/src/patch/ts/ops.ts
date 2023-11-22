@@ -25,8 +25,8 @@ import {
   RichTextSource,
   VAL_EXTENSION,
 } from "@valbuild/core";
-import { JsonPrimitive } from "@valbuild/core/src/Json";
-import { LinkSource } from "@valbuild/core/src/source/link";
+import { JsonPrimitive } from "@valbuild/core";
+import { LinkSource } from "@valbuild/core";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
