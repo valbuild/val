@@ -3,12 +3,8 @@ import { config } from "./val.config";
 import { draftMode, headers } from "next/headers";
 
 const { fetchVal } = initValRsc(config, {
-  isEnabled: () => {
-    return draftMode().isEnabled;
-  },
-  getHeaders: () => {
-    return headers();
-  },
+  draftMode,
+  headers,
 });
 
 export { fetchVal };
