@@ -2,7 +2,14 @@ import express from "express";
 import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { PatchJSON } from "./patch/validation";
-import { ValServer, ValServerRedirectResult } from "./ValServer";
+import {
+  ValCookies,
+  ValServer,
+  ValServerError,
+  ValServerErrorStatus,
+  ValServerRedirectResult,
+  ValServerResult,
+} from "./ValServer";
 import { z } from "zod";
 import { Internal } from "@valbuild/core";
 import { Readable } from "stream";
@@ -49,60 +56,76 @@ class BrowserReadableStreamWrapper extends Readable {
 }
 
 export class ProxyValServer implements ValServer {
-  constructor(
-    readonly options: ProxyValServerOptions,
-    readonly callbacks: {
-      onEnable: () => boolean;
-      onDisable: () => boolean;
-    }
-  ) {}
+  constructor(readonly options: ProxyValServerOptions) {}
 
-  async getFiles(req: express.Request, res: express.Response): Promise<void> {
-    return this.withAuth(req, res, async (data) => {
+  async getFiles(
+    treePath: string,
+    query: { sha256?: string },
+    cookies: ValCookies
+  ): Promise<ValServerResult<ReadableStream<Uint8Array>>> {
+    return this.withAuth(cookies, "getFiles", async (data) => {
       const url = new URL(
-        `/v1/files/${this.options.valName}/${req.params["0"]}`,
+        `/v1/files/${this.options.valName}/${treePath}`,
         this.options.valContentUrl
       );
-      if (typeof req.query.sha256 === "string") {
-        url.searchParams.append("sha256", req.query.sha256 as string);
+      if (typeof query.sha256 === "string") {
+        url.searchParams.append("sha256", query.sha256 as string);
       } else {
         console.warn("Missing sha256 query param");
       }
       const fetchRes = await fetch(url, {
         headers: this.getAuthHeaders(data.token),
       });
-      const contentType = fetchRes.headers.get("content-type");
-      if (contentType !== null) {
-        res.setHeader("Content-Type", contentType);
-      }
-      const contentLength = fetchRes.headers.get("content-length");
-      if (contentLength !== null) {
-        res.setHeader("Content-Length", contentLength);
-      }
       if (fetchRes.ok) {
         if (fetchRes.body) {
-          new BrowserReadableStreamWrapper(fetchRes.body).pipe(res);
+          return {
+            status: fetchRes.status as 200 | 201,
+            headers: {
+              "Content-Type": fetchRes.headers.get("Content-Type") || "",
+              "Content-Length": fetchRes.headers.get("Content-Length") || "0",
+            },
+            body: fetchRes.body,
+          };
         } else {
-          console.warn("No body in response");
-          res.sendStatus(500);
+          return {
+            status: 500,
+            body: {
+              message: "No body in response",
+            },
+          };
         }
       } else {
-        res.sendStatus(fetchRes.status);
+        return {
+          status: fetchRes.status as ValServerErrorStatus,
+          body: {
+            message: "Failed to get files",
+          },
+        };
       }
     });
   }
 
-  async authorize(redirectTo: string): Promise<ValServerRedirectResult> {
+  async authorize(query: {
+    redirect_to?: string;
+  }): Promise<ValServerRedirectResult<"val_session">> {
+    if (typeof query.redirect_to !== "string") {
+      return {
+        status: 404,
+        body: {
+          message: "Missing redirect_to query param",
+        },
+      };
+    }
     const token = crypto.randomUUID();
-    const redirectUrl = new URL(redirectTo);
+    const redirectUrl = new URL(query.redirect_to);
     const appAuthorizeUrl = this.getAuthorizeUrl(
       `${redirectUrl.origin}/${this.options.route}`,
       token
     );
     return {
       cookies: {
-        [VAL_STATE_COOKIE]: {
-          value: createStateCookie({ redirect_to: redirectTo, token }),
+        val_session: {
+          value: createStateCookie({ redirect_to: query.redirect_to, token }),
           options: {
             httpOnly: true,
             sameSite: "lax",
@@ -115,36 +138,99 @@ export class ProxyValServer implements ValServer {
     };
   }
 
-  async enable(req: express.Request, res: express.Response): Promise<void> {
-    return enable(
-      req,
-      res,
-      this.callbacks.onEnable,
-      this.options.valEnableRedirectUrl
-    );
-  }
-  async disable(req: express.Request, res: express.Response): Promise<void> {
-    return disable(req, res, this.options.valEnableRedirectUrl);
+  async enable(query: {
+    redirect_to?: string;
+  }): Promise<ValServerRedirectResult> {
+    if (typeof query.redirect_to !== "string") {
+      return {
+        status: 404,
+        body: {
+          message: "Missing redirect_to query param",
+        },
+      };
+    }
+
+    let redirectUrlToUse = query.redirect_to;
+    const redirectUrl = this.options.valEnableRedirectUrl;
+    if (redirectUrl) {
+      redirectUrlToUse =
+        redirectUrl + "?redirect_to=" + encodeURIComponent(redirectUrlToUse);
+    }
+    return {
+      cookies: {
+        [VAL_ENABLED_COOKIE]: {
+          value: "true",
+          options: {
+            httpOnly: false,
+            sameSite: "lax",
+          },
+        },
+      },
+      status: 302,
+      redirectTo: redirectUrlToUse,
+    };
   }
 
-  async callback(req: express.Request, res: express.Response): Promise<void> {
+  async disable(query: {
+    redirect_to?: string;
+  }): Promise<ValServerRedirectResult> {
+    if (typeof query.redirect_to !== "string") {
+      return {
+        status: 404,
+        body: {
+          message: "Missing redirect_to query param",
+        },
+      };
+    }
+    let redirectUrlToUse = query.redirect_to;
+    const redirectUrl = this.options.valEnableRedirectUrl;
+    if (redirectUrl) {
+      redirectUrlToUse =
+        redirectUrl + "?redirect_to=" + encodeURIComponent(redirectUrlToUse);
+    }
+    return {
+      cookies: {
+        [VAL_ENABLED_COOKIE]: {
+          value: null,
+        },
+      },
+      status: 302,
+      redirectTo: redirectUrlToUse,
+    };
+  }
+
+  async callback(
+    query: { code?: string; state?: string },
+    cookies: ValCookies<"val_state">
+  ): Promise<ValServerRedirectResult<"val_state" | "val_session">> {
     const { success: callbackReqSuccess, error: callbackReqError } =
-      verifyCallbackReq(req.cookies[VAL_STATE_COOKIE], req.query);
-    res.clearCookie(VAL_STATE_COOKIE); // we don't need this anymore
+      verifyCallbackReq(cookies[VAL_STATE_COOKIE], query);
 
     if (callbackReqError !== null) {
-      res.redirect(
-        this.getAppErrorUrl(
+      return {
+        status: 302,
+        cookies: {
+          [VAL_STATE_COOKIE]: {
+            value: null,
+          },
+        },
+        redirectTo: this.getAppErrorUrl(
           `Authorization callback failed. Details: ${callbackReqError}`
-        )
-      );
-      return;
+        ),
+      };
     }
 
     const data = await this.consumeCode(callbackReqSuccess.code);
     if (data === null) {
-      res.redirect(this.getAppErrorUrl("Failed to exchange code for user"));
-      return;
+      return {
+        status: 302,
+        cookies: {
+          [VAL_STATE_COOKIE]: {
+            value: null,
+          },
+        },
+        redirectTo: this.getAppErrorUrl("Failed to exchange code for user"),
+      };
     }
     const exp = getExpire();
     const cookie = encodeJwt(
@@ -155,49 +241,84 @@ export class ProxyValServer implements ValServer {
       this.options.valSecret
     );
 
-    res
-      .cookie(VAL_SESSION_COOKIE, cookie, {
-        httpOnly: true,
-        sameSite: "strict",
-        secure: true,
-        expires: new Date(exp * 1000), // NOTE: this is not used for authorization, only for authentication
-      })
-      .redirect(callbackReqSuccess.redirect_uri || "/");
+    return {
+      status: 302,
+      cookies: {
+        [VAL_STATE_COOKIE]: {
+          value: null,
+        },
+        [VAL_SESSION_COOKIE]: {
+          value: cookie,
+          options: {
+            httpOnly: true,
+            sameSite: "strict",
+            secure: true,
+            expires: new Date(exp * 1000), // NOTE: this is not used for authorization, only for authentication
+          },
+        },
+      },
+      redirectTo: callbackReqSuccess.redirect_uri || "/",
+    };
   }
 
-  async logout(_req: express.Request, res: express.Response): Promise<void> {
-    res
-      .clearCookie(VAL_SESSION_COOKIE)
-      .clearCookie(VAL_STATE_COOKIE)
-      .sendStatus(200);
+  async logout(): Promise<ValServerResult> {
+    return {
+      status: 200,
+      cookies: {
+        [VAL_SESSION_COOKIE]: {
+          value: null,
+        },
+        [VAL_STATE_COOKIE]: {
+          value: null,
+        },
+      },
+    };
   }
 
   async withAuth<T>(
-    req: express.Request,
-    res: express.Response,
+    cookies: ValCookies,
+    errorMessageType: string,
     handler: (data: IntegratedServerJwtPayload) => Promise<T>
-  ): Promise<T | undefined> {
-    const cookie = req.cookies[VAL_SESSION_COOKIE];
+  ): Promise<T | ValServerError> {
+    const cookie = cookies[VAL_SESSION_COOKIE];
     if (typeof cookie === "string") {
       const verification = IntegratedServerJwtPayload.safeParse(
         decodeJwt(cookie, this.options.valSecret)
       );
       if (!verification.success) {
-        res.sendStatus(401);
-        return;
+        return {
+          status: 401,
+          body: {
+            message: "Invalid token",
+          },
+        };
       }
       return handler(verification.data).catch((err) => {
-        console.error(`Failed while processing: ${req.url}`, err);
-        res.sendStatus(500);
-        return undefined;
+        console.error(`Failed while processing: ${errorMessageType}`, err);
+        return {
+          status: 500,
+          body: {
+            message: err.message,
+          },
+        };
       });
     } else {
-      res.sendStatus(401);
+      return {
+        status: 401,
+        body: {
+          message: "No token",
+        },
+      };
     }
   }
 
-  async session(req: express.Request, res: express.Response): Promise<void> {
-    return this.withAuth(req, res, async (data) => {
+  async session(cookies: ValCookies): Promise<
+    ValServerResult<{
+      mode: "proxy" | "local";
+      member_role: "owner" | "developer" | "editor";
+    }>
+  > {
+    return this.withAuth(cookies, "session", async (data) => {
       const url = new URL(
         `/api/val/${this.options.valName}/auth/session`,
         this.options.valBuildUrl
@@ -206,25 +327,37 @@ export class ProxyValServer implements ValServer {
         headers: this.getAuthHeaders(data.token, "application/json"),
       });
       if (fetchRes.ok) {
-        res
-          .status(fetchRes.status)
-          .json({ mode: "proxy", ...(await fetchRes.json()) });
+        return {
+          status: fetchRes.status as 200 | 201,
+          body: { mode: "proxy", ...(await fetchRes.json()) },
+        };
       } else {
-        res.sendStatus(fetchRes.status);
+        return {
+          status: fetchRes.status as ValServerErrorStatus,
+          body: {
+            message: "Failed to get session",
+          },
+        };
       }
     });
   }
 
-  async getTree(req: express.Request, res: express.Response): Promise<void> {
-    return this.withAuth(req, res, async (data) => {
-      const { patch, schema, source } = req.query;
+  async getTree(
+    treePath: string,
+    query: { patch?: string; schema?: string; source?: string },
+    cookies: ValCookies
+  ): Promise<ValServerResult> {
+    return this.withAuth(cookies, "getTree", async (data) => {
+      const { patch, schema, source } = query;
       const commit = this.options.gitCommit;
       if (!commit) {
-        res.status(401).json({
-          error:
-            "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
-        });
-        return;
+        return {
+          status: 401,
+          body: {
+            message:
+              "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
+          },
+        };
       }
       const params = new URLSearchParams({
         patch: (patch === "true").toString(),
@@ -247,23 +380,21 @@ export class ProxyValServer implements ValServer {
       res.send(json);
     });
   }
-  async getPatches(req: express.Request, res: express.Response): Promise<void> {
-    const patchIds =
-      typeof req.params["id"] === "string"
-        ? [req.params["id"]]
-        : Array.isArray(req.params["id"])
-        ? req.params["id"]
-        : [];
+  async getPatches(
+    treePath: string,
+    query: { id?: string[] },
+    cookies: ValCookies
+  ): Promise<ValServerResult> {
+    const patchIds = query.id || [];
     const params =
       patchIds.length > 0
         ? `?${patchIds.map((id) => `id=${encodeURIComponent(id)}`).join("&")}`
         : "";
-    await this.withAuth(req, res, async ({ token }) => {
+    return this.withAuth(cookies, "getPatches", async ({ token }) => {
       const url = new URL(
-        `/v1/patches/${this.options.valName}/heads/${this.options.gitBranch}/${req.params["0"]}${params}`,
+        `/v1/patches/${this.options.valName}/heads/${this.options.gitBranch}/${treePath}${params}`,
         this.options.valContentUrl
       );
-      console.log(url);
       // Proxy patch to val.build
       const fetchRes = await fetch(url, {
         method: "GET",
@@ -271,26 +402,34 @@ export class ProxyValServer implements ValServer {
       });
       if (fetchRes.ok) {
         const json = await fetchRes.json();
-        res.status(fetchRes.status).json(json);
+        return {
+          status: fetchRes.status as 200,
+          body: json,
+        };
       } else {
-        res.sendStatus(fetchRes.status);
+        return {
+          status: fetchRes.status as ValServerErrorStatus,
+          body: {
+            message: "Failed to get patches",
+          },
+        };
       }
-    }).catch((e) => {
-      res.status(500).send({ error: { message: e?.message, status: 500 } });
     });
   }
 
   async postPatches(
-    req: express.Request<{ 0: string }>,
-    res: express.Response
-  ): Promise<void> {
+    treePath: string,
+    cookies: ValCookies
+  ): Promise<ValServerResult<ApiPostPatchResponse>> {
     const commit = this.options.gitCommit;
     if (!commit) {
-      res.status(401).json({
-        error:
-          "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
-      });
-      return;
+      return {
+        status: 401,
+        body: {
+          message:
+            "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
+        },
+      };
     }
     const params = new URLSearchParams({
       commit,
@@ -311,7 +450,7 @@ export class ProxyValServer implements ValServer {
       //   return;
       // }
       const url = new URL(
-        `/v1/patches/${this.options.valName}/heads/${this.options.gitBranch}/${req.params["0"]}/?${params}`,
+        `/v1/patches/${this.options.valName}/heads/${this.options.gitBranch}/${treePath}/?${params}`,
         this.options.valContentUrl
       );
       // Proxy patch to val.build
@@ -330,8 +469,8 @@ export class ProxyValServer implements ValServer {
     });
   }
 
-  async commit(req: express.Request, res: express.Response): Promise<void> {
-    await this.withAuth(req, res, async ({ token }) => {
+  async commit(): Promise<ValServerResult> {
+    return this.withAuth(req, res, async ({ token }) => {
       const url = new URL(
         `/api/val/commit/${encodeURIComponent(this.options.gitBranch)}`,
         this.options.valBuildUrl
@@ -427,7 +566,7 @@ export class ProxyValServer implements ValServer {
 }
 
 function verifyCallbackReq(
-  stateCookie: string,
+  stateCookie: string | undefined,
   queryParams: Record<string, unknown>
 ):
   | {
@@ -524,54 +663,6 @@ function getStateFromCookie(stateCookie: string):
       success: false,
       error: "Invalid state cookie: could not parse",
     };
-  }
-}
-
-export async function enable(
-  req: express.Request,
-  res: express.Response,
-  onEnable: () => boolean,
-  redirectUrl?: string
-): Promise<void> {
-  const { redirect_to } = req.query;
-  if (typeof redirect_to === "string" || typeof redirect_to === "undefined") {
-    let redirectUrlToUse = redirect_to || "/";
-    if (redirectUrl) {
-      redirectUrlToUse =
-        redirectUrl + "?redirect_to=" + encodeURIComponent(redirectUrlToUse);
-    }
-
-    res
-      .cookie(VAL_ENABLED_COOKIE, "true", {
-        httpOnly: false,
-        sameSite: "lax",
-      })
-      .redirect(redirectUrlToUse);
-  } else {
-    res.sendStatus(400);
-  }
-}
-
-export async function disable(
-  req: express.Request,
-  res: express.Response,
-  redirectUrl?: string
-): Promise<void> {
-  const { redirect_to } = req.query;
-  if (typeof redirect_to === "string" || typeof redirect_to === "undefined") {
-    let redirectUrlToUse = redirect_to || "/";
-    if (redirectUrl) {
-      redirectUrlToUse =
-        redirectUrl + "?redirect_to=" + encodeURIComponent(redirectUrlToUse);
-    }
-    res
-      .cookie(VAL_ENABLED_COOKIE, "false", {
-        httpOnly: false,
-        sameSite: "lax",
-      })
-      .redirect(redirectUrlToUse);
-  } else {
-    res.sendStatus(400);
   }
 }
 

@@ -1,5 +1,6 @@
 import { NextApiHandler } from "next";
 import { createValApi } from "../../../val.server";
+import { NextRequest } from "next/server";
 
 const handler: NextApiHandler = createValApi();
 
