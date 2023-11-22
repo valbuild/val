@@ -65,7 +65,7 @@ Val is a CMS, which is useful because:
 
 - editors can **change content** without developer interactions
 - **images** can be managed without checking in code
--  **i18n** support is easy to add
+- **i18n** support is easy to add
 - a **well-documented** way to **structure content**
 
 <br />

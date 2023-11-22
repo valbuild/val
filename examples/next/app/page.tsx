@@ -1,10 +1,11 @@
+"use client";
 import { ValRichText } from "@valbuild/next";
 import pageVal from "./content.val";
 import Image from "next/image";
-import { fetchVal } from "../val.rsc";
+import { useVal } from "../val.client";
 
-export default async function Home() {
-  const page = await fetchVal(pageVal);
+export default function Home() {
+  const page = useVal(pageVal);
   return (
     <main className="page content">
       <section className="hero full">
