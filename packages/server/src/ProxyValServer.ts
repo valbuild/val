@@ -2,7 +2,7 @@ import express from "express";
 import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { PatchJSON } from "./patch/validation";
-import { ValServer } from "./ValServer";
+import { ValServer, ValServerRedirectResult } from "./ValServer";
 import { z } from "zod";
 import { Internal } from "@valbuild/core";
 import { Readable } from "stream";
@@ -92,27 +92,27 @@ export class ProxyValServer implements ValServer {
     });
   }
 
-  async authorize(req: express.Request, res: express.Response): Promise<void> {
-    const { redirect_to } = req.query;
-    if (typeof redirect_to !== "string") {
-      res.redirect(
-        this.getAppErrorUrl("Login failed: missing redirect_to param")
-      );
-      return;
-    }
+  async authorize(redirectTo: string): Promise<ValServerRedirectResult> {
     const token = crypto.randomUUID();
-    const redirectUrl = new URL(redirect_to);
+    const redirectUrl = new URL(redirectTo);
     const appAuthorizeUrl = this.getAuthorizeUrl(
       `${redirectUrl.origin}/${this.options.route}`,
       token
     );
-    res
-      .cookie(VAL_STATE_COOKIE, createStateCookie({ redirect_to, token }), {
-        httpOnly: true,
-        sameSite: "lax",
-        expires: new Date(Date.now() + 1000 * 60 * 60), // 1 hour
-      })
-      .redirect(appAuthorizeUrl);
+    return {
+      cookies: {
+        [VAL_STATE_COOKIE]: {
+          value: createStateCookie({ redirect_to: redirectTo, token }),
+          options: {
+            httpOnly: true,
+            sameSite: "lax",
+            expires: new Date(Date.now() + 1000 * 60 * 60), // 1 hour
+          },
+        },
+      },
+      status: 302,
+      redirectTo: appAuthorizeUrl,
+    };
   }
 
   async enable(req: express.Request, res: express.Response): Promise<void> {
@@ -124,7 +124,7 @@ export class ProxyValServer implements ValServer {
     );
   }
   async disable(req: express.Request, res: express.Response): Promise<void> {
-    return disable(req, res, this.options.valEnableRedirectUrl, this.onDisable);
+    return disable(req, res, this.options.valEnableRedirectUrl);
   }
 
   async callback(req: express.Request, res: express.Response): Promise<void> {
