@@ -5,3 +5,4 @@ export { ValFullscreen } from "./components/ValFullscreen";
 // Types:
 export { type Inputs } from "./components/forms/Form";
 export { type IValStore } from "./lib/IValStore";
+export { type ValUIRequestHandler } from "./ValUIRequestHandler";

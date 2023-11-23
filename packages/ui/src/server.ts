@@ -7,64 +7,103 @@
  * which is optimized for consumers.
  */
 
-import type { RequestHandler } from "express";
+import {
+  ValServerGenericResult,
+  ValUIRequestHandler,
+} from "@valbuild/shared/internal";
 import fs from "fs";
 
 type Vite = typeof import("vite");
-export function createRequestHandler(): RequestHandler {
+
+export function createUIRequestHandler(): ValUIRequestHandler {
   if (typeof window === "undefined") {
     const vite = (async () => {
       const { fileURLToPath, URL: URL_noresolve } = await import("node:url");
       const { createServer } = await (import(
         /* @vite-ignore */ "v" + "ite"
       ) as Promise<Vite>);
-      const vite = await createServer({
+      const vite = createServer({
         root: fileURLToPath(new URL_noresolve("..", import.meta.url)),
         configFile: fileURLToPath(
           new URL_noresolve("../vite.config.ts", import.meta.url)
         ),
-        server: { middlewareMode: true },
+        server: { middlewareMode: true }, // TODO: check if this is still necessary
       });
-
       return vite;
     })();
-    return async (req, res, next) => {
-      if (req.url === "/style.css") {
+    return async (url): Promise<ValServerGenericResult> => {
+      if (url === "/style.css") {
         const styleModule = await (await vite).ssrLoadModule("./src/index.css");
         const style = styleModule.default as string;
-        res.statusCode = 200;
-        res.setHeader("Content-Type", "text/css");
-        return res.end(style);
-      } else if (req.url.startsWith("/edit")) {
+        return {
+          status: 200,
+          headers: {
+            "Content-Type": "text/css",
+          },
+          body: style,
+        };
+      } else if (url.startsWith("/edit")) {
         const { URL: URL_noresolve } = await import("node:url");
         const html = (await vite).transformIndexHtml(
-          req.url,
+          url,
           fs.readFileSync(
             new URL_noresolve("../index.html", import.meta.url),
             "utf-8"
           )
         );
-        return res.end(await html);
+        return {
+          status: 200,
+          headers: {
+            "Content-Type": "text/html",
+          },
+          body: await html,
+        };
       } else {
-        // TODO: error handling
         try {
-          const transformed = await (await vite).transformRequest(req.url);
+          const transformed = await (await vite).transformRequest(url);
           if (transformed) {
             const { code, etag } = transformed;
-            return res
-              .header({ "Content-Type": "application/javascript", Etag: etag })
-              .end(code);
+            return {
+              status: 200,
+              headers: {
+                "Content-Type": "application/javascript",
+                ...(etag ? { ETag: etag } : {}),
+              },
+              body: code,
+            };
+          } else {
+            return {
+              status: 404,
+              json: {
+                message: "Not found",
+              },
+            };
           }
-          return next();
         } catch (e) {
           if (e instanceof Error) {
             (await vite).ssrFixStacktrace(e);
+            return {
+              status: 500,
+              json: {
+                message: e.message,
+                details: {
+                  stack: e.stack,
+                },
+              },
+            };
           }
-          return next(e);
+          return {
+            status: 500,
+            json: {
+              message: "Unknown error",
+            },
+          };
         }
       }
     };
   } else {
-    throw Error("Cannot get middleware in browser");
+    throw Error(
+      "Val: cannot construct UI in browser. Check if you are using the Val router correctly"
+    );
   }
 }

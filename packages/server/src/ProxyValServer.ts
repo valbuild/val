@@ -1,18 +1,27 @@
-import express from "express";
 import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { PatchJSON } from "./patch/validation";
 import {
+  type VAL_SESSION_COOKIE,
+  type VAL_STATE_COOKIE,
+  type VAL_ENABLE_COOKIE_NAME,
   ValCookies,
   ValServer,
   ValServerError,
   ValServerErrorStatus,
   ValServerRedirectResult,
   ValServerResult,
+  ValServerJsonResult,
+  ENABLE_COOKIE_VALUE,
+  getRedirectUrl,
 } from "./ValServer";
 import { z } from "zod";
-import { Internal } from "@valbuild/core";
-import { Readable } from "stream";
+import {
+  ApiGetPatchResponse,
+  ApiPostPatchResponse,
+  ApiTreeResponse,
+  Internal,
+} from "@valbuild/core";
 
 const VAL_SESSION_COOKIE = Internal.VAL_SESSION_COOKIE;
 const VAL_STATE_COOKIE = Internal.VAL_STATE_COOKIE;
@@ -31,38 +40,14 @@ export type ProxyValServerOptions = {
   valDisableRedirectUrl?: string;
 };
 
-class BrowserReadableStreamWrapper extends Readable {
-  private reader: ReadableStreamDefaultReader<Uint8Array>;
-
-  constructor(readableStream: ReadableStream<Uint8Array>) {
-    super();
-    this.reader = readableStream.getReader();
-  }
-
-  _read() {
-    this.reader
-      .read()
-      .then(({ done, value }) => {
-        if (done) {
-          this.push(null); // No more data to read
-        } else {
-          this.push(Buffer.from(value));
-        }
-      })
-      .catch((error) => {
-        this.emit("error", error);
-      });
-  }
-}
-
 export class ProxyValServer implements ValServer {
   constructor(readonly options: ProxyValServerOptions) {}
 
   async getFiles(
     treePath: string,
     query: { sha256?: string },
-    cookies: ValCookies
-  ): Promise<ValServerResult<ReadableStream<Uint8Array>>> {
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
     return this.withAuth(cookies, "getFiles", async (data) => {
       const url = new URL(
         `/v1/files/${this.options.valName}/${treePath}`,
@@ -76,10 +61,10 @@ export class ProxyValServer implements ValServer {
       const fetchRes = await fetch(url, {
         headers: this.getAuthHeaders(data.token),
       });
-      if (fetchRes.ok) {
+      if (fetchRes.status === 200) {
         if (fetchRes.body) {
           return {
-            status: fetchRes.status as 200 | 201,
+            status: fetchRes.status,
             headers: {
               "Content-Type": fetchRes.headers.get("Content-Type") || "",
               "Content-Length": fetchRes.headers.get("Content-Length") || "0",
@@ -107,11 +92,11 @@ export class ProxyValServer implements ValServer {
 
   async authorize(query: {
     redirect_to?: string;
-  }): Promise<ValServerRedirectResult<"val_session">> {
+  }): Promise<ValServerRedirectResult<VAL_SESSION_COOKIE>> {
     if (typeof query.redirect_to !== "string") {
       return {
-        status: 404,
-        body: {
+        status: 400,
+        json: {
           message: "Missing redirect_to query param",
         },
       };
@@ -124,7 +109,7 @@ export class ProxyValServer implements ValServer {
     );
     return {
       cookies: {
-        val_session: {
+        [VAL_SESSION_COOKIE]: {
           value: createStateCookie({ redirect_to: query.redirect_to, token }),
           options: {
             httpOnly: true,
@@ -140,53 +125,32 @@ export class ProxyValServer implements ValServer {
 
   async enable(query: {
     redirect_to?: string;
-  }): Promise<ValServerRedirectResult> {
-    if (typeof query.redirect_to !== "string") {
-      return {
-        status: 404,
-        body: {
-          message: "Missing redirect_to query param",
-        },
-      };
-    }
-
-    let redirectUrlToUse = query.redirect_to;
-    const redirectUrl = this.options.valEnableRedirectUrl;
-    if (redirectUrl) {
-      redirectUrlToUse =
-        redirectUrl + "?redirect_to=" + encodeURIComponent(redirectUrlToUse);
+  }): Promise<ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>> {
+    const redirectToRes = getRedirectUrl(
+      query,
+      this.options.valEnableRedirectUrl
+    );
+    if (typeof redirectToRes !== "string") {
+      return redirectToRes;
     }
     return {
       cookies: {
-        [VAL_ENABLED_COOKIE]: {
-          value: "true",
-          options: {
-            httpOnly: false,
-            sameSite: "lax",
-          },
-        },
+        [VAL_ENABLED_COOKIE]: ENABLE_COOKIE_VALUE,
       },
       status: 302,
-      redirectTo: redirectUrlToUse,
+      redirectTo: redirectToRes,
     };
   }
 
   async disable(query: {
     redirect_to?: string;
-  }): Promise<ValServerRedirectResult> {
-    if (typeof query.redirect_to !== "string") {
-      return {
-        status: 404,
-        body: {
-          message: "Missing redirect_to query param",
-        },
-      };
-    }
-    let redirectUrlToUse = query.redirect_to;
-    const redirectUrl = this.options.valEnableRedirectUrl;
-    if (redirectUrl) {
-      redirectUrlToUse =
-        redirectUrl + "?redirect_to=" + encodeURIComponent(redirectUrlToUse);
+  }): Promise<ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>> {
+    const redirectToRes = getRedirectUrl(
+      query,
+      this.options.valDisableRedirectUrl
+    );
+    if (typeof redirectToRes !== "string") {
+      return redirectToRes;
     }
     return {
       cookies: {
@@ -195,7 +159,7 @@ export class ProxyValServer implements ValServer {
         },
       },
       status: 302,
-      redirectTo: redirectUrlToUse,
+      redirectTo: redirectToRes,
     };
   }
 
@@ -261,7 +225,9 @@ export class ProxyValServer implements ValServer {
     };
   }
 
-  async logout(): Promise<ValServerResult> {
+  async logout(): Promise<
+    ValServerResult<VAL_SESSION_COOKIE | VAL_STATE_COOKIE>
+  > {
     return {
       status: 200,
       cookies: {
@@ -276,7 +242,7 @@ export class ProxyValServer implements ValServer {
   }
 
   async withAuth<T>(
-    cookies: ValCookies,
+    cookies: ValCookies<VAL_SESSION_COOKIE>,
     errorMessageType: string,
     handler: (data: IntegratedServerJwtPayload) => Promise<T>
   ): Promise<T | ValServerError> {
@@ -288,7 +254,7 @@ export class ProxyValServer implements ValServer {
       if (!verification.success) {
         return {
           status: 401,
-          body: {
+          json: {
             message: "Invalid token",
           },
         };
@@ -305,15 +271,15 @@ export class ProxyValServer implements ValServer {
     } else {
       return {
         status: 401,
-        body: {
+        json: {
           message: "No token",
         },
       };
     }
   }
 
-  async session(cookies: ValCookies): Promise<
-    ValServerResult<{
+  async session(cookies: ValCookies<VAL_SESSION_COOKIE>): Promise<
+    ValServerJsonResult<{
       mode: "proxy" | "local";
       member_role: "owner" | "developer" | "editor";
     }>
@@ -326,10 +292,10 @@ export class ProxyValServer implements ValServer {
       const fetchRes = await fetch(url, {
         headers: this.getAuthHeaders(data.token, "application/json"),
       });
-      if (fetchRes.ok) {
+      if (fetchRes.status === 200) {
         return {
-          status: fetchRes.status as 200 | 201,
-          body: { mode: "proxy", ...(await fetchRes.json()) },
+          status: fetchRes.status,
+          json: { mode: "proxy", ...(await fetchRes.json()) },
         };
       } else {
         return {
@@ -345,8 +311,8 @@ export class ProxyValServer implements ValServer {
   async getTree(
     treePath: string,
     query: { patch?: string; schema?: string; source?: string },
-    cookies: ValCookies
-  ): Promise<ValServerResult> {
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerJsonResult<ApiTreeResponse>> {
     return this.withAuth(cookies, "getTree", async (data) => {
       const { patch, schema, source } = query;
       const commit = this.options.gitCommit;
@@ -366,25 +332,31 @@ export class ProxyValServer implements ValServer {
         commit,
       });
       const url = new URL(
-        `/v1/tree/${this.options.valName}/heads/${this.options.gitBranch}/${req.params["0"]}/?${params}`,
+        `/v1/tree/${this.options.valName}/heads/${this.options.gitBranch}/${treePath}/?${params}`,
         this.options.valContentUrl
       );
-      const json = await fetch(url, {
+      const fetchRes = await fetch(url, {
         headers: this.getAuthHeaders(data.token, "application/json"),
-      })
-        .then((res) => res.json())
-        .catch((err) => {
-          console.error(err);
-          throw err;
-        });
-      res.send(json);
+      });
+      if (fetchRes.status === 200) {
+        return {
+          status: fetchRes.status,
+          json: await fetchRes.json(),
+        };
+      } else {
+        return {
+          status: fetchRes.status as ValServerErrorStatus,
+          body: {
+            message: "Failed to get patches",
+          },
+        };
+      }
     });
   }
   async getPatches(
-    treePath: string,
     query: { id?: string[] },
-    cookies: ValCookies
-  ): Promise<ValServerResult> {
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerJsonResult<ApiGetPatchResponse>> {
     const patchIds = query.id || [];
     const params =
       patchIds.length > 0
@@ -392,7 +364,7 @@ export class ProxyValServer implements ValServer {
         : "";
     return this.withAuth(cookies, "getPatches", async ({ token }) => {
       const url = new URL(
-        `/v1/patches/${this.options.valName}/heads/${this.options.gitBranch}/${treePath}${params}`,
+        `/v1/patches/${this.options.valName}/heads/${this.options.gitBranch}/~${params}`,
         this.options.valContentUrl
       );
       // Proxy patch to val.build
@@ -400,11 +372,10 @@ export class ProxyValServer implements ValServer {
         method: "GET",
         headers: this.getAuthHeaders(token, "application/json"),
       });
-      if (fetchRes.ok) {
-        const json = await fetchRes.json();
+      if (fetchRes.status === 200) {
         return {
-          status: fetchRes.status as 200,
-          body: json,
+          status: fetchRes.status,
+          json: await fetchRes.json(),
         };
       } else {
         return {
@@ -418,14 +389,14 @@ export class ProxyValServer implements ValServer {
   }
 
   async postPatches(
-    treePath: string,
-    cookies: ValCookies
-  ): Promise<ValServerResult<ApiPostPatchResponse>> {
+    body: unknown,
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerJsonResult<ApiPostPatchResponse>> {
     const commit = this.options.gitCommit;
     if (!commit) {
       return {
         status: 401,
-        body: {
+        json: {
           message:
             "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
         },
@@ -434,12 +405,17 @@ export class ProxyValServer implements ValServer {
     const params = new URLSearchParams({
       commit,
     });
-    await this.withAuth(req, res, async ({ token }) => {
+    return this.withAuth(cookies, "postPatches", async ({ token }) => {
       // First validate that the body has the right structure
-      const patchJSON = z.record(PatchJSON).safeParse(req.body);
+      const patchJSON = z.record(PatchJSON).safeParse(body);
       if (!patchJSON.success) {
-        res.status(401).json(patchJSON.error.issues);
-        return;
+        return {
+          status: 401,
+          body: {
+            message: "Invalid patch",
+            details: patchJSON.error.issues,
+          },
+        };
       }
       // Then parse/validate
       // TODO:
@@ -450,7 +426,7 @@ export class ProxyValServer implements ValServer {
       //   return;
       // }
       const url = new URL(
-        `/v1/patches/${this.options.valName}/heads/${this.options.gitBranch}/${treePath}/?${params}`,
+        `/v1/patches/${this.options.valName}/heads/${this.options.gitBranch}/~?${params}`,
         this.options.valContentUrl
       );
       // Proxy patch to val.build
@@ -459,18 +435,24 @@ export class ProxyValServer implements ValServer {
         headers: this.getAuthHeaders(token, "application/json"),
         body: JSON.stringify(patch),
       });
-      if (fetchRes.ok) {
-        res.status(fetchRes.status).json(await fetchRes.json());
+      if (fetchRes.status === 200) {
+        return {
+          status: fetchRes.status,
+          json: await fetchRes.json(),
+        };
       } else {
-        res.sendStatus(fetchRes.status);
+        return {
+          status: fetchRes.status as ValServerErrorStatus,
+        };
       }
-    }).catch((e) => {
-      res.status(500).send({ error: { message: e?.message, status: 500 } });
     });
   }
 
-  async commit(): Promise<ValServerResult> {
-    return this.withAuth(req, res, async ({ token }) => {
+  async postCommit(
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+    // eslint-disable-next-line @typescript-eslint/ban-types
+  ): Promise<ValServerJsonResult<{}>> {
+    return this.withAuth(cookies, "postCommit", async ({ token }) => {
       const url = new URL(
         `/api/val/commit/${encodeURIComponent(this.options.gitBranch)}`,
         this.options.valBuildUrl
@@ -479,10 +461,15 @@ export class ProxyValServer implements ValServer {
         method: "POST",
         headers: this.getAuthHeaders(token),
       });
-      if (fetchRes.ok) {
-        res.status(fetchRes.status).json(await fetchRes.json());
+      if (fetchRes.status === 200) {
+        return {
+          status: fetchRes.status,
+          json: await fetchRes.json(),
+        };
       } else {
-        res.sendStatus(fetchRes.status);
+        return {
+          status: fetchRes.status as ValServerErrorStatus,
+        };
       }
     });
   }

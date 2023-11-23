@@ -10,6 +10,11 @@
 
 export * from "./exports";
 
-export function Style(): JSX.Element | null {
-  return <link rel="stylesheet" href="/api/val/static/style.css" />;
+export function Style(props: { route: string }): JSX.Element | null {
+  return (
+    <link
+      rel="stylesheet"
+      href={`${props?.route || "/api/val"}/static/style.css`}
+    />
+  );
 }
