@@ -1,14 +1,14 @@
-import type { RequestHandler } from "express";
+import { ValUIRequestHandler } from "@valbuild/shared/internal";
 
 const files: Record<string, string> = JSON.parse(
   `BUILD_REPLACE_THIS_WITH_RECORD`
 ) as unknown as Record<string, string>;
 
-export function createRequestHandler(): RequestHandler {
+export function createUIRequestHandler(): ValUIRequestHandler {
   if (typeof files !== "object") {
     throw new Error("Files is not an object! Your Val build is corrupted!");
   }
-  return (req, res, next) => {
+  return async (req) => {
     if (!files["/index.html"]) {
       console.error(
         "No index.html found! Your Val build is corrupted!",

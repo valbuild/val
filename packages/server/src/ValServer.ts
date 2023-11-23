@@ -2,67 +2,48 @@ import {
   ApiGetPatchResponse,
   ApiPostPatchResponse,
   ApiTreeResponse,
-  Internal,
-  Json,
 } from "@valbuild/core";
+import {
+  VAL_ENABLE_COOKIE_NAME,
+  VAL_SESSION_COOKIE,
+  VAL_STATE_COOKIE,
+  ValCookies,
+  ValServerError,
+  ValServerJsonResult,
+  ValServerRedirectResult,
+  ValServerResult,
+} from "@valbuild/shared/internal";
 
-const { VAL_SESSION_COOKIE, VAL_STATE_COOKIE, VAL_ENABLE_COOKIE_NAME } =
-  Internal;
-type VAL_SESSION_COOKIE = typeof VAL_SESSION_COOKIE;
-type VAL_STATE_COOKIE = typeof VAL_STATE_COOKIE;
-type VAL_ENABLE_COOKIE_NAME = typeof VAL_ENABLE_COOKIE_NAME;
+export const ENABLE_COOKIE_VALUE = {
+  value: "true",
+  options: {
+    httpOnly: false,
+    sameSite: "lax",
+  },
+} as const;
 
-type ValCookiesNames =
-  | VAL_SESSION_COOKIE
-  | VAL_STATE_COOKIE
-  | VAL_ENABLE_COOKIE_NAME;
-export type ValCookies<Names extends ValCookiesNames> = Partial<
-  Record<Names, string>
->;
-export type ValServerResultCookies<Names extends ValCookiesNames> =
-  Partial<Record<
-    Names,
-    {
-      value: string | null;
-      options?: {
-        httpOnly?: boolean;
-        secure?: boolean;
-        sameSite?: "lax" | "strict" | "none";
-        expires?: Date;
-      };
-    }
-  > | null>;
-export type ValServerErrorStatus = 400 | 401 | 403 | 404 | 500 | 501;
-export type ValServerError = {
-  status: ValServerErrorStatus;
-  headers?: Record<string, string>;
-  body?: { message: string; details?: string };
-};
-export type ValServerRedirectResult<Names extends ValCookiesNames> =
-  | {
-      status: 302;
-      cookies?: ValServerResultCookies<Names>;
-      redirectTo: string;
-      headers?: Record<string, string>;
-    }
-  | ValServerError;
-export type ValServerResult<
-  Names extends ValCookiesNames,
-  Body extends
-    | Json
-    | ApiTreeResponse // TODO: should not be necessary - JSON is enough, but readonly / non-readonly arrays fail
-    | ReadableStream<Uint8Array>
-    | never = never
-> =
-  | {
-      status: 200 | 201;
-      headers?: Record<string, string>;
-      cookies?: ValServerResultCookies<Names>;
-      body?: Body;
-    }
-  | ValServerError;
+export function getRedirectUrl(
+  query: { redirect_to?: string | undefined },
+  overrideHost: string | undefined
+): string | ValServerError {
+  if (typeof query.redirect_to !== "string") {
+    return {
+      status: 400,
+      json: {
+        message: "Missing redirect_to query param",
+      },
+    };
+  }
+  if (overrideHost) {
+    return (
+      overrideHost + "?redirect_to=" + encodeURIComponent(query.redirect_to)
+    );
+  }
+  return query.redirect_to;
+}
 
 export interface ValServer {
+  // Sets cookie state:
   authorize(query: {
     redirect_to?: string;
   }): Promise<ValServerRedirectResult<VAL_SESSION_COOKIE>>;
@@ -70,33 +51,42 @@ export interface ValServer {
     query: { code?: string; state?: string },
     cookies: ValCookies<VAL_STATE_COOKIE>
   ): Promise<ValServerRedirectResult<VAL_STATE_COOKIE | VAL_SESSION_COOKIE>>;
-  enable(query: { redirect_to?: string }): Promise<ValServerRedirectResult>;
-  disable(query: { redirect_to?: string }): Promise<ValServerRedirectResult>;
-  logout(): Promise<ValServerResult>;
-  session(cookies: ValCookies): Promise<
-    ValServerResult<{
+  enable(query: {
+    redirect_to?: string;
+  }): Promise<ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>>;
+  disable(query: {
+    redirect_to?: string;
+  }): Promise<ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>>;
+  logout(): Promise<ValServerResult<VAL_STATE_COOKIE | VAL_SESSION_COOKIE>>;
+  // Data:
+  session(cookies: ValCookies<VAL_SESSION_COOKIE>): Promise<
+    ValServerJsonResult<{
       mode: "proxy" | "local";
-      member_role: "owner" | "developer" | "editor";
+      member_role?: "owner" | "developer" | "editor";
     }>
   >;
-  postPatches(
-    treePath: string,
-    cookies: ValCookies
-  ): Promise<ValServerResult<ApiPostPatchResponse>>;
   getTree(
     treePath: string,
     query: { patch?: string; schema?: string; source?: string },
-    cookies: ValCookies
-  ): Promise<ValServerResult<ApiTreeResponse>>;
-  commit(cookies: ValCookies): Promise<ValServerResult>; // TODO: add bod type here
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerJsonResult<ApiTreeResponse>>;
+  getPatches(
+    query: { id?: string[] },
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerJsonResult<ApiGetPatchResponse>>;
+  postPatches(
+    treePath: string,
+    body: unknown,
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerJsonResult<ApiPostPatchResponse>>;
+  postCommit(
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+    // eslint-disable-next-line @typescript-eslint/ban-types
+  ): Promise<ValServerJsonResult<{}>>; // TODO: add body type here
+  // Streams:
   getFiles(
     treePath: string,
     query: { sha256?: string },
-    cookies: ValCookies
-  ): Promise<ValServerResult<ReadableStream<Uint8Array>>>;
-  getPatches(
-    treePath: string,
-    query: { id?: string[] },
-    cookies: ValCookies
-  ): Promise<ValServerResult<ApiGetPatchResponse>>;
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>>;
 }
