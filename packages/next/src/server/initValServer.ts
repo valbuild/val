@@ -4,11 +4,24 @@ import { createValServer } from "@valbuild/server";
 import type { draftMode } from "next/headers";
 import { NextResponse } from "next/server";
 
-const initValNextAppRouter = (config: ValConfig) => {
+const initValNextAppRouter = (
+  config: ValConfig,
+  nextConfig: ValServerNextConfig
+) => {
   const route = "/api/val"; // TODO: get from config
   return createValApiRouter(
     route,
-    createValServer(route, config),
+    createValServer(route, config, {
+      async isEnabled() {
+        return nextConfig.draftMode().isEnabled;
+      },
+      async onEnable() {
+        nextConfig.draftMode().enable();
+      },
+      async onDisable() {
+        nextConfig.draftMode().disable();
+      },
+    }),
     (valRes): NextResponse => {
       let headers = "headers" in valRes ? valRes.headers : {};
       if ("cookies" in valRes && valRes.cookies) {
@@ -56,18 +69,9 @@ const initValNextAppRouter = (config: ValConfig) => {
   );
 };
 
-type ValServerNextConfig =
-  | {
-      draftMode: typeof draftMode;
-    }
-  | {
-      onDraftEnable: (res: {
-        setDraftMode: (options: { enable: boolean }) => void;
-      }) => void;
-      onDraftDisable: (res: {
-        setDraftMode: (options: { enable: boolean }) => void;
-      }) => void;
-    };
+type ValServerNextConfig = {
+  draftMode: typeof draftMode;
+};
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function initValServer(
@@ -77,6 +81,6 @@ export function initValServer(
   valNextAppRouter: ReturnType<typeof initValNextAppRouter>;
 } {
   return {
-    valNextAppRouter: initValNextAppRouter(config),
+    valNextAppRouter: initValNextAppRouter(config, nextConfig),
   };
 }

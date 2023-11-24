@@ -21,7 +21,12 @@ import {
 import { promises as fs } from "fs";
 import path from "path";
 import { z } from "zod";
-import { ValServer, getRedirectUrl, ENABLE_COOKIE_VALUE } from "./ValServer";
+import {
+  ValServer,
+  getRedirectUrl,
+  ENABLE_COOKIE_VALUE,
+  ValServerCallbacks,
+} from "./ValServer";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -34,18 +39,23 @@ export type LocalValServerOptions = {
 };
 
 export class LocalValServer implements ValServer {
-  constructor(readonly options: LocalValServerOptions) {}
+  constructor(
+    readonly options: LocalValServerOptions,
+    readonly callbacks: ValServerCallbacks
+  ) {}
 
   async session(): Promise<
     ValServerJsonResult<{
       mode: "proxy" | "local";
       member_role?: "owner" | "developer" | "editor";
+      enabled: boolean;
     }>
   > {
     return {
       status: 200,
       json: {
         mode: "local",
+        enabled: await this.callbacks.isEnabled(),
       },
     };
   }
@@ -130,6 +140,7 @@ export class LocalValServer implements ValServer {
     if (typeof redirectToRes !== "string") {
       return redirectToRes;
     }
+    await this.callbacks.onEnable(true);
     return {
       cookies: {
         [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
@@ -149,6 +160,7 @@ export class LocalValServer implements ValServer {
     if (typeof redirectToRes !== "string") {
       return redirectToRes;
     }
+    await this.callbacks.onDisable(true);
     return {
       cookies: {
         [VAL_ENABLE_COOKIE_NAME]: {

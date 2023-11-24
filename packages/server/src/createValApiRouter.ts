@@ -1,5 +1,5 @@
 import { createService, ServiceOptions } from "./Service";
-import { ValServer } from "./ValServer";
+import { ValServer, ValServerCallbacks } from "./ValServer";
 import { LocalValServer, LocalValServerOptions } from "./LocalValServer";
 import { ProxyValServer, ProxyValServerOptions } from "./ProxyValServer";
 import { promises as fs } from "fs";
@@ -117,13 +117,14 @@ type ValServerOverrides = Partial<{
 
 export async function createValServer(
   route: string,
-  opts: Opts
+  opts: Opts,
+  callbacks: ValServerCallbacks
 ): Promise<ValServer> {
   const serverOpts = await initHandlerOptions(route, opts);
   if (serverOpts.mode === "proxy") {
-    return new ProxyValServer(serverOpts);
+    return new ProxyValServer(serverOpts, callbacks);
   } else {
-    return new LocalValServer(serverOpts);
+    return new LocalValServer(serverOpts, callbacks);
   }
 }
 
