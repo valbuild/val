@@ -403,14 +403,14 @@ export function createValApiRouter<Res>(
         )
       );
     } else if (method === "POST" && path.startsWith(PATCHES_PATH_PREFIX)) {
+      const body = (await req.json()) as unknown;
       return withTreePath(
         path,
         PATCHES_PATH_PREFIX
-      )(async (treePath) =>
+      )(async () =>
         convert(
           await valServer.postPatches(
-            treePath,
-            req.body,
+            body,
             getCookies(req, [VAL_SESSION_COOKIE])
           )
         )

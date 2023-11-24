@@ -82,7 +82,6 @@ export interface ValServer {
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerJsonResult<ApiGetPatchResponse>>;
   postPatches(
-    treePath: string,
     body: unknown,
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerJsonResult<ApiPostPatchResponse>>;

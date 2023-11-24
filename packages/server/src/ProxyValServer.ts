@@ -326,7 +326,7 @@ export class ProxyValServer implements ValServer {
       const commit = this.options.gitCommit;
       if (!commit) {
         return {
-          status: 401,
+          status: 400,
           body: {
             message:
               "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
@@ -418,7 +418,7 @@ export class ProxyValServer implements ValServer {
       const patchJSON = z.record(PatchJSON).safeParse(body);
       if (!patchJSON.success) {
         return {
-          status: 401,
+          status: 400,
           body: {
             message: "Invalid patch",
             details: patchJSON.error.issues,
