@@ -1,4 +1,4 @@
-import { valNextAppRouter } from "../../../../val/val.server";
+import { valNextAppRouter } from "../../../../val/server";
 
 export const GET = valNextAppRouter;
 export const POST = valNextAppRouter;
