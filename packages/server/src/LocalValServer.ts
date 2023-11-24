@@ -1,30 +1,27 @@
-import express from "express";
 import { Service } from "./Service";
 import { result } from "@valbuild/core/fp";
-import { parsePatch, PatchError } from "@valbuild/core/patch";
+import { parsePatch } from "@valbuild/core/patch";
 import { PatchJSON } from "./patch/validation";
 import {
-  ENABLE_COOKIE_VALUE,
-  getRedirectUrl,
+  ApiGetPatchResponse,
+  ApiPostPatchResponse,
+  ApiTreeResponse,
+  ModuleId,
+  ModulePath,
+} from "@valbuild/core";
+import {
   VAL_ENABLE_COOKIE_NAME,
   VAL_SESSION_COOKIE,
-  ValCookies,
-  ValServer,
+  VAL_STATE_COOKIE,
   ValServerError,
   ValServerJsonResult,
   ValServerRedirectResult,
   ValServerResult,
-} from "./ValServer";
-import {
-  ApiPostPatchResponse,
-  ApiTreeResponse,
-  Internal,
-  ModuleId,
-  ModulePath,
-} from "@valbuild/core";
+} from "@valbuild/shared/internal";
 import { promises as fs } from "fs";
 import path from "path";
 import { z } from "zod";
+import { ValServer, getRedirectUrl, ENABLE_COOKIE_VALUE } from "./ValServer";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -35,10 +32,6 @@ export type LocalValServerOptions = {
     branch?: string;
   };
 };
-
-const VAL_SESSION_COOKIE = Internal.VAL_SESSION_COOKIE;
-const VAL_ENABLED_COOKIE = Internal.VAL_ENABLE_COOKIE_NAME;
-type VAL_STATE_COOKIE = typeof Internal.VAL_STATE_COOKIE;
 
 export class LocalValServer implements ValServer {
   constructor(readonly options: LocalValServerOptions) {}
@@ -139,7 +132,7 @@ export class LocalValServer implements ValServer {
     }
     return {
       cookies: {
-        [VAL_ENABLED_COOKIE]: ENABLE_COOKIE_VALUE,
+        [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
       },
       status: 302,
       redirectTo: redirectToRes,
@@ -158,7 +151,7 @@ export class LocalValServer implements ValServer {
     }
     return {
       cookies: {
-        [VAL_ENABLED_COOKIE]: {
+        [VAL_ENABLE_COOKIE_NAME]: {
           value: null,
         },
       },
