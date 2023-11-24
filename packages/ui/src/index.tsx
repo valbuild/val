@@ -14,7 +14,7 @@ export function Style(props: { route: string }): JSX.Element | null {
   return (
     <link
       rel="stylesheet"
-      href={`${props?.route || "/api/val"}/static/style.css`}
+      href={`${props?.route || "/api/val"}/static/src/index.css`}
     />
   );
 }

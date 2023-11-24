@@ -1,11 +1,9 @@
-import { valNextAppRouter } from "../../../../val.server";
+import { valNextAppRouter } from "../../../../val/val.server";
 
-const apiHandler = valNextAppRouter;
-
-export const GET = apiHandler;
-export const POST = apiHandler;
-export const PATCH = apiHandler;
-export const DELETE = apiHandler;
-export const PUT = apiHandler;
-export const HEAD = apiHandler;
-export const OPTIONS = apiHandler;
+export const GET = valNextAppRouter;
+export const POST = valNextAppRouter;
+export const PATCH = valNextAppRouter;
+export const DELETE = valNextAppRouter;
+export const PUT = valNextAppRouter;
+export const HEAD = valNextAppRouter;
+export const OPTIONS = valNextAppRouter;

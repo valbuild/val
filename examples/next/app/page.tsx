@@ -2,7 +2,7 @@
 import { ValRichText } from "@valbuild/next";
 import pageVal from "./content.val";
 import Image from "next/image";
-import { useVal } from "../val.client";
+import { useVal } from "../val/client";
 
 export default function Home() {
   const page = useVal(pageVal);
@@ -23,7 +23,7 @@ export default function Home() {
             theme={{
               p: "rt-paragraph", // optional
               // required based on the content:
-              // NOTE: tailwind classes is supported:
+              // NOTE: tailwind classes is supported (though tailwind is not used here):
               bold: "font-bold",
               italic: "font-italic",
               lineThrough: "line-through",
