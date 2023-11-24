@@ -42,6 +42,12 @@ export function getRedirectUrl(
   return query.redirect_to;
 }
 
+export type ValServerCallbacks = {
+  isEnabled: () => Promise<boolean>;
+  onEnable: (success: boolean) => Promise<void>;
+  onDisable: (success: boolean) => Promise<void>;
+};
+
 export interface ValServer {
   // Sets cookie state:
   authorize(query: {
@@ -63,6 +69,7 @@ export interface ValServer {
     ValServerJsonResult<{
       mode: "proxy" | "local";
       member_role?: "owner" | "developer" | "editor";
+      enabled: boolean;
     }>
   >;
   getTree(

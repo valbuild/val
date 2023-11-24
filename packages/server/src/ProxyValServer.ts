@@ -2,30 +2,28 @@ import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { PatchJSON } from "./patch/validation";
 import {
-  type VAL_SESSION_COOKIE,
-  type VAL_STATE_COOKIE,
-  type VAL_ENABLE_COOKIE_NAME,
-  ValCookies,
   ValServer,
-  ValServerError,
-  ValServerErrorStatus,
-  ValServerRedirectResult,
-  ValServerResult,
-  ValServerJsonResult,
   ENABLE_COOKIE_VALUE,
   getRedirectUrl,
+  ValServerCallbacks,
 } from "./ValServer";
+import {
+  VAL_ENABLE_COOKIE_NAME,
+  VAL_SESSION_COOKIE,
+  VAL_STATE_COOKIE,
+  ValCookies,
+  ValServerError,
+  ValServerErrorStatus,
+  ValServerJsonResult,
+  ValServerRedirectResult,
+  ValServerResult,
+} from "@valbuild/shared/internal";
 import { z } from "zod";
 import {
   ApiGetPatchResponse,
   ApiPostPatchResponse,
   ApiTreeResponse,
-  Internal,
 } from "@valbuild/core";
-
-const VAL_SESSION_COOKIE = Internal.VAL_SESSION_COOKIE;
-const VAL_STATE_COOKIE = Internal.VAL_STATE_COOKIE;
-const VAL_ENABLED_COOKIE = Internal.VAL_ENABLE_COOKIE_NAME;
 
 export type ProxyValServerOptions = {
   apiKey: string;
@@ -41,7 +39,10 @@ export type ProxyValServerOptions = {
 };
 
 export class ProxyValServer implements ValServer {
-  constructor(readonly options: ProxyValServerOptions) {}
+  constructor(
+    readonly options: ProxyValServerOptions,
+    readonly callbacks: ValServerCallbacks
+  ) {}
 
   async getFiles(
     treePath: string,
@@ -133,9 +134,10 @@ export class ProxyValServer implements ValServer {
     if (typeof redirectToRes !== "string") {
       return redirectToRes;
     }
+    await this.callbacks.onEnable(true);
     return {
       cookies: {
-        [VAL_ENABLED_COOKIE]: ENABLE_COOKIE_VALUE,
+        [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
       },
       status: 302,
       redirectTo: redirectToRes,
@@ -152,9 +154,10 @@ export class ProxyValServer implements ValServer {
     if (typeof redirectToRes !== "string") {
       return redirectToRes;
     }
+    await this.callbacks.onDisable(true);
     return {
       cookies: {
-        [VAL_ENABLED_COOKIE]: {
+        [VAL_ENABLE_COOKIE_NAME]: {
           value: null,
         },
       },
@@ -282,6 +285,7 @@ export class ProxyValServer implements ValServer {
     ValServerJsonResult<{
       mode: "proxy" | "local";
       member_role: "owner" | "developer" | "editor";
+      enabled: boolean;
     }>
   > {
     return this.withAuth(cookies, "session", async (data) => {
@@ -295,7 +299,11 @@ export class ProxyValServer implements ValServer {
       if (fetchRes.status === 200) {
         return {
           status: fetchRes.status,
-          json: { mode: "proxy", ...(await fetchRes.json()) },
+          json: {
+            mode: "proxy",
+            enabled: await this.callbacks.isEnabled(),
+            ...(await fetchRes.json()),
+          },
         };
       } else {
         return {
