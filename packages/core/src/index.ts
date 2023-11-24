@@ -127,7 +127,7 @@ const Internal = {
   createPatchJSONPath: (modulePath: ModulePath) =>
     `/${modulePath
       .split(".")
-      .map((segment) => JSON.parse(segment))
+      .map((segment) => segment && JSON.parse(segment))
       .join("/")}`,
   VAL_ENABLE_COOKIE_NAME: "val_enable" as const,
   VAL_STATE_COOKIE: "val_state" as const,
