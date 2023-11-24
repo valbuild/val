@@ -179,7 +179,7 @@ export class LocalValServer implements ValServer {
     const patchJSON = z.record(PatchJSON).safeParse(body);
     if (!patchJSON.success) {
       return {
-        status: 401,
+        status: 404,
         json: {
           message: `Invalid patch: ${patchJSON.error.message}`,
           details: patchJSON.error.issues,
@@ -195,6 +195,7 @@ export class LocalValServer implements ValServer {
         console.error("Unexpected error parsing patch", patch.error);
         throw new Error("Unexpected error parsing patch");
       }
+      console.log("patching with", patch.value);
       await this.options.service.patch(moduleId, patch.value);
     }
     return {
