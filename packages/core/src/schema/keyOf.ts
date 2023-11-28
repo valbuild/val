@@ -147,7 +147,7 @@ export class KeyOfSchema<
     const path = getValPath(this.selector);
     if (!path) {
       throw new Error(
-        "Cannot serialize oneOf schema with empty selector. keyOf must be used with a Val Module."
+        "Cannot serialize keyOf schema with empty selector. TIP: keyOf must be used with a Val Module."
       );
     }
     return {
