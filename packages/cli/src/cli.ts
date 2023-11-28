@@ -1,71 +1,6 @@
-import path from "path";
 import meow from "meow";
-import {
-  createRequestHandler,
-  createService,
-  safeReadGit,
-} from "@valbuild/server";
-import { error, info } from "./logger";
-import express from "express";
-import cors from "cors";
-import { createServer, Server } from "node:http";
-import { LocalValServer } from "@valbuild/server";
+import { error } from "./logger";
 import { validate } from "./validate";
-
-async function serve({
-  root,
-  port,
-  cfg,
-}: {
-  root?: string;
-  port: number;
-  cfg?: string;
-}): Promise<void> {
-  const projectRoot = root ? path.resolve(root) : process.cwd();
-  const service = await createService(projectRoot, {
-    valConfigPath: cfg ?? "./val.config",
-  });
-  const valReqHandler = createRequestHandler(
-    new LocalValServer({
-      service,
-      git: await safeReadGit(projectRoot),
-    })
-  );
-  const app = express();
-  // TODO: Properly configure CORS
-  app.use(cors(), valReqHandler);
-  const server: Server = createServer(app);
-  await new Promise<void>((resolve) => {
-    server.listen(port, resolve);
-  });
-
-  info(`Root is ${projectRoot}`);
-  info(`Config is ${service.valConfigPath}`);
-  info(`Listening on port ${port}`);
-
-  let handled = false;
-  const handleInterrupt: NodeJS.SignalsListener = async () => {
-    if (handled) return;
-    handled = true;
-
-    info("Shutting down...");
-
-    server.close((err) => {
-      if (!err) return;
-      error(err.toString());
-    });
-  };
-
-  process.on("SIGINT", handleInterrupt);
-  process.on("SIGTERM", handleInterrupt);
-
-  return new Promise((resolve) => {
-    server.on("close", () => {
-      service.dispose();
-      resolve();
-    });
-  });
-}
 
 async function main(): Promise<void> {
   const { input, flags, showHelp } = meow(
@@ -116,12 +51,6 @@ async function main(): Promise<void> {
 
   const [command] = input;
   switch (command) {
-    case "serve":
-      return serve({
-        root: flags.root,
-        port: flags.port,
-        cfg: flags.cfg,
-      });
     case "validate":
     case "idate":
       return validate({
