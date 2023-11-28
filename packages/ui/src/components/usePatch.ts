@@ -3,6 +3,8 @@ import { result } from "@valbuild/core/fp";
 import { PatchJSON } from "@valbuild/core/patch";
 import { useCallback, useEffect, useState } from "react";
 import { IValStore } from "../exports";
+import { ValSession } from "@valbuild/shared/internal";
+import { Remote } from "../utils/Remote";
 
 export type PatchCallback = (modulePath: string) => Promise<PatchJSON>;
 
@@ -17,7 +19,9 @@ export type PatchCallbackState = {
 export function usePatch(
   paths: SourcePath[],
   api: ValApi,
-  valStore: IValStore
+  valStore: IValStore,
+  onSubmit: (refreshRequired: boolean) => void,
+  session: Remote<ValSession>
 ) {
   const [state, setState] = useState<PatchCallbackState>({});
 
@@ -73,14 +77,20 @@ export function usePatch(
           }
         })
       )
-    ).then(() => {
-      return valStore.update(
-        paths.map(
-          (path) => Internal.splitModuleIdAndModulePath(path as SourcePath)[0]
-        )
-      );
-    });
-  }, [state]);
+    )
+      .then(() => {
+        const refreshRequired =
+          session.status === "success" && session.data.mode === "proxy";
+        onSubmit(refreshRequired);
+      })
+      .then(() => {
+        return valStore.update(
+          paths.map(
+            (path) => Internal.splitModuleIdAndModulePath(path as SourcePath)[0]
+          )
+        );
+      });
+  }, [state, session]);
 
   return { initPatchCallback, onSubmitPatch };
 }

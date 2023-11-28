@@ -17,6 +17,7 @@ import {
   ValServerJsonResult,
   ValServerRedirectResult,
   ValServerResult,
+  ValSession,
 } from "@valbuild/shared/internal";
 import { promises as fs } from "fs";
 import path from "path";
@@ -44,13 +45,7 @@ export class LocalValServer implements ValServer {
     readonly callbacks: ValServerCallbacks
   ) {}
 
-  async session(): Promise<
-    ValServerJsonResult<{
-      mode: "proxy" | "local";
-      member_role?: "owner" | "developer" | "editor";
-      enabled: boolean;
-    }>
-  > {
+  async session(): Promise<ValServerJsonResult<ValSession>> {
     return {
       status: 200,
       json: {
@@ -187,6 +182,7 @@ export class LocalValServer implements ValServer {
       };
     }
 
+    console.time("patching");
     for (const moduleId in patchJSON.data) {
       // Then parse/validate
       // TODO: validate all and then fail instead:
@@ -195,9 +191,10 @@ export class LocalValServer implements ValServer {
         console.error("Unexpected error parsing patch", patch.error);
         throw new Error("Unexpected error parsing patch");
       }
-      console.log("patching with", patch.value);
       await this.options.service.patch(moduleId, patch.value);
     }
+    console.timeEnd("patching");
+
     return {
       status: 200,
       json: {}, // no patch ids created

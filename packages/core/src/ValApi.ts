@@ -9,16 +9,22 @@ type FetchError = { message: string; statusCode?: number };
 export class ValApi {
   constructor(public host: string) {}
 
-  getDisableUrl() {
-    return `${this.host}/disable`;
+  getDisableUrl(redirectTo: string) {
+    return `${this.host}/disable?redirect_to=${encodeURIComponent(redirectTo)}`;
   }
+
   getEditUrl() {
     return `${this.host}/static/edit`;
   }
+
   getLoginUrl(redirectTo: string) {
     return `${this.host}/authorize?redirect_to=${encodeURIComponent(
       redirectTo
     )}`;
+  }
+
+  getEnableUrl(redirectTo: string) {
+    return `${this.host}/enable?redirect_to=${encodeURIComponent(redirectTo)}`;
   }
 
   async getPatches({
@@ -61,7 +67,7 @@ export class ValApi {
     );
   }
 
-  getModules({
+  getTree({
     patch = false,
     includeSchema = false,
     includeSource = false,

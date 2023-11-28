@@ -75,3 +75,16 @@ export type ValServerGenericResult =
 export type ValUIRequestHandler = (
   url: string
 ) => Promise<ValServerGenericResult>;
+
+export type ValSession =
+  | { mode: "unauthorized"; enabled?: boolean }
+  | { mode: "local"; enabled?: boolean }
+  | {
+      mode: "proxy";
+      member_role?: "owner" | "developer" | "editor";
+      enabled?: boolean;
+      id: string;
+      full_name?: string;
+      username?: string;
+      avatar_url?: string;
+    };

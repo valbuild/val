@@ -6,4 +6,3 @@ export const PATCH = valNextAppRouter;
 export const DELETE = valNextAppRouter;
 export const PUT = valNextAppRouter;
 export const HEAD = valNextAppRouter;
-export const OPTIONS = valNextAppRouter;

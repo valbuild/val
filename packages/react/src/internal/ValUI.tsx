@@ -3,7 +3,10 @@ import { Style, ValOverlay } from "@valbuild/ui";
 import { ShadowRoot } from "./ShadowRoot";
 import { useValApi, useValStore } from "./ValProvider";
 
-export default function ValUI(props: { host: string }) {
+export default function ValUI(props: {
+  host: string;
+  onSubmit: (refreshRequired: boolean) => void;
+}) {
   const api = useValApi();
   const store = useValStore();
   if (!api || !store) {
@@ -35,7 +38,7 @@ export default function ValUI(props: { host: string }) {
           rel="stylesheet"
         />
         <Style route={props?.host} />
-        <ValOverlay api={api} store={store} />
+        <ValOverlay api={api} store={store} onSubmit={props.onSubmit} />
       </ShadowRoot>
     </>
   );

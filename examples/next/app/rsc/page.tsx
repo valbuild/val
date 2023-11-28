@@ -8,7 +8,7 @@ export default async function Home() {
   return (
     <main className="page content">
       <section className="hero full">
-        <Image
+        <img
           src={page.hero.image.data.url}
           alt={page.hero.image.alt}
           width={100}

@@ -21,22 +21,26 @@ const PREV_URL_KEY = "valbuild:urlBeforeNavigation";
 export function ValMenu({ api }: { api: ValApi }) {
   const { theme, setTheme, editMode, setEditMode, session } =
     useValOverlayContext();
-  if (session.status === "success" && session.data === "not-authenticated") {
+  if (session.status === "success" && session.data.mode === "unauthorized") {
     return (
-      <div className="flex flex-row items-center justify-center w-full h-full font-sans border-2 rounded-full gap-x-3 text-primary bg-background border-fill">
-        <a className={className} href={api.getLoginUrl(window.location.href)}>
-          <div className="flex items-center justify-center px-2 gap-x-2">
-            <span>Login</span>
-            <LogIn size={18} />
-          </div>
-        </a>
-      </div>
+      <SingleItemMenu href={api.getLoginUrl(window.location.href)}>
+        <span>Login</span>
+        <LogIn size={18} />
+      </SingleItemMenu>
+    );
+  }
+  if (session.status === "success" && !session.data.enabled) {
+    return (
+      <SingleItemMenu href={api.getEnableUrl(window.location.href)}>
+        <span>Enable</span>
+        <LogIn size={18} />
+      </SingleItemMenu>
     );
   }
   const [patchCount, setPatchCount] = useState<number>();
 
   useEffect(() => {
-    if (session.status === "success" && session.data !== "not-authenticated") {
+    if (session.status === "success" && session.data.mode === "proxy") {
       api.getPatches({}).then((patchRes) => {
         if (result.isOk(patchRes)) {
           let patchCount = 0;
@@ -108,12 +112,30 @@ export function ValMenu({ api }: { api: ValApi }) {
           </div>
         </MenuButton>
       )}
-      <a className={className} href={api.getDisableUrl()}>
+      <a className={className} href={api.getDisableUrl(window.location.href)}>
         <div className="h-[24px] w-[24px] flex justify-center items-center">
           <Power size={18} />
         </div>
       </a>
     </MenuContainer>
+  );
+}
+
+function SingleItemMenu({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode[];
+}) {
+  return (
+    <div className="flex flex-row items-center justify-center w-full h-full font-sans border-2 rounded-full gap-x-3 text-primary bg-background border-fill">
+      <a className={className} href={href}>
+        <div className="flex items-center justify-center px-2 gap-x-2">
+          {children}
+        </div>
+      </a>
+    </div>
   );
 }
 
