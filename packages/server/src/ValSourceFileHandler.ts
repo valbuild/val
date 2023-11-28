@@ -22,7 +22,12 @@ export class ValSourceFileHandler {
   }
 
   writeSourceFile(sourceFile: ts.SourceFile) {
-    return this.writeFile(sourceFile.fileName, sourceFile.text, "utf8");
+    return this.writeFile(
+      sourceFile.fileName,
+      // https://github.com/microsoft/TypeScript/issues/36174
+      unescape(sourceFile.text.replace(/\\u/g, "%u")),
+      "utf8"
+    );
   }
 
   writeFile(filePath: string, content: string, encoding: "binary" | "utf8") {
