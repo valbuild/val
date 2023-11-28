@@ -1,4 +1,8 @@
-import { stegaEncode, type StegaOfSource } from "@valbuild/react/stega";
+import {
+  getModuleIds,
+  stegaEncode,
+  type StegaOfSource,
+} from "@valbuild/react/stega";
 import {
   SelectorSource,
   SelectorOf,
@@ -10,9 +14,11 @@ import { result } from "@valbuild/core/fp";
 import { Internal } from "@valbuild/core";
 import { ValConfig } from "@valbuild/core";
 import { draftMode, headers } from "next/headers";
+import { optimizeTreePath } from "../optimizeTreePath";
 
 const initFetchVal =
   (
+    config: ValConfig,
     valApiEndpoints: string,
     isEnabled: () => boolean,
     getHeaders: () => Headers
@@ -36,6 +42,11 @@ const initFetchVal =
       let headers;
       try {
         headers = getHeaders();
+        if (!(headers instanceof Headers)) {
+          throw new Error(
+            "Expected an instance of Headers. Check Val rsc config."
+          );
+        }
       } catch (err) {
         console.error(
           "Val: could not read headers! fetchVal can only be used server-side. Use useVal on clients.",
@@ -44,20 +55,14 @@ const initFetchVal =
         headers = null;
       }
 
-      let host;
-      try {
-        host = headers && getHost(headers);
-      } catch {
-        host = null;
-      }
-      //
-      if (host) {
-        // TODO: Use the content.val.build endpoints directly
+      const host: string | null = headers && getHost(headers);
+      if (host && isProxyMode(config)) {
         const api = new ValApi(`${host}${valApiEndpoints}`);
-        // Optimize: only fetch the modules needed, also cache by module id and revalidate when patched
-        // const valModuleIds = getModuleIds(selector);
+        const valModuleIds = getModuleIds(selector);
         return api
-          .getModules({
+          .getTree({
+            // TODO: get tree should probably have a list of ids instead
+            treePath: optimizeTreePath(valModuleIds) ?? undefined,
             patch: true,
             includeSource: true,
             headers: getValAuthHeaders(getHeaders()),
@@ -93,27 +98,29 @@ const initFetchVal =
 
 function getHost(headers: Headers) {
   // TODO: does NextJs have a way to determine this?
-  try {
-    const host = headers.get("host");
-    let proto = "https";
-    if (headers.get("x-forwarded-proto") === "http") {
-      proto = "http";
-    } else if (headers.get("referer")?.startsWith("http://")) {
-      proto = "http";
-    } else if (host?.startsWith("localhost")) {
-      proto = "http";
-    }
-    if (host && proto) {
-      return `${proto}://${host}`;
-    }
-    return null;
-  } catch (err) {
-    console.error(
-      "Val: could get host! fetchVal can only be used server-side. Use useVal on clients.",
-      err
-    );
-    return null;
+  const host = headers.get("host");
+  let proto = "https";
+  if (headers.get("x-forwarded-proto") === "http") {
+    proto = "http";
+  } else if (headers.get("referer")?.startsWith("http://")) {
+    proto = "http";
+  } else if (host?.startsWith("localhost")) {
+    proto = "http";
   }
+  if (host && proto) {
+    return `${proto}://${host}`;
+  }
+  return null;
+}
+
+function isProxyMode(opts: Record<string, string>) {
+  const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
+  const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
+  const isProxyMode =
+    opts.mode === "proxy" ||
+    (opts.mode === undefined && (maybeApiKey || maybeValSecret));
+
+  return !!isProxyMode;
 }
 
 function getValAuthHeaders(headers: Headers): Record<string, string> {
@@ -156,6 +163,7 @@ export function initValRsc(
 } {
   return {
     fetchVal: initFetchVal(
+      config,
       valApiEndpoints, // TODO: get from config
       () => {
         return rscNextConfig.draftMode().isEnabled;

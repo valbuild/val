@@ -29,6 +29,7 @@ export const patchValFile = async (
   sourceFileHandler: ValSourceFileHandler,
   runtime: QuickJSRuntime
 ): Promise<SerializedModuleContent> => {
+  console.time("patchValFile" + id);
   const filePath = sourceFileHandler.resolveSourceModulePath(
     valConfigPath,
     `.${id}.val`
@@ -86,8 +87,9 @@ export const patchValFile = async (
   }
 
   sourceFileHandler.writeSourceFile(newSourceFile.value);
+  console.timeEnd("patchValFile" + id);
 
-  return readValFile(id, valConfigPath, runtime);
+  // return readValFile(id, valConfigPath, runtime);
 };
 
 function convertDataUrlToBase64(dataUrl: string): Buffer {

@@ -7,7 +7,7 @@ import {
   VAL_EXTENSION,
   FILE_REF_PROP,
 } from "@valbuild/core";
-import { vercelStegaCombine } from "@vercel/stega";
+import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core";
 import { SourceArray } from "@valbuild/core";
@@ -168,6 +168,10 @@ export function stegaEncode(
     return sourceOrSelector;
   }
   return rec(input);
+}
+
+export function stegaClean(source: string) {
+  return vercelStegaSplit(source).cleaned;
 }
 
 export function getModuleIds(input: any): string[] {

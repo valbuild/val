@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from "../schema";
 import { ValModuleBrand } from "../module";
-import { GenericSelector, GetSchema } from "../selector";
+import { GenericSelector, GetSchema, Path } from "../selector";
 import { SourceArray, SourceObject } from "../source";
 import { SourcePath, getValPath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";

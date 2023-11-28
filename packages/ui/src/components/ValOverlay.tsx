@@ -19,14 +19,21 @@ import { usePatch } from "./usePatch";
 import { Button } from "./ui/button";
 import { useTheme } from "./useTheme";
 import { IValStore } from "../lib/IValStore";
+import { ScrollArea } from "./ui/scroll-area";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
   api: ValApi;
   store: IValStore;
+  onSubmit: (refreshRequired: boolean) => void;
 };
 
-export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
+export function ValOverlay({
+  defaultTheme,
+  api,
+  store,
+  onSubmit,
+}: ValOverlayProps) {
   const [theme, setTheme] = useTheme(defaultTheme);
   const session = useSession(api);
 
@@ -42,7 +49,9 @@ export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
   const { initPatchCallback, onSubmitPatch } = usePatch(
     windowTarget?.path ? [windowTarget.path] : [],
     api,
-    store
+    store,
+    onSubmit,
+    session
   );
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
@@ -84,7 +93,7 @@ export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
               setEditMode("hover");
             }}
           >
-            <div className="px-4 py-2 text-sm border-b border-highlight">
+            <div className="max-w-full px-4 py-2 text-sm border-b border-highlight">
               <WindowHeader
                 path={windowTarget.path}
                 type={selectedSchema?.type}
@@ -138,7 +147,7 @@ function useValModules(api: ValApi, path: string | undefined) {
     if (path) {
       setModules({ status: "loading" });
       api
-        .getModules({
+        .getTree({
           patch: true,
           includeSchema: true,
           includeSource: true,
@@ -407,11 +416,9 @@ function useInitEditMode() {
 }
 
 function useSession(api: ValApi) {
-  const [session, setSession] = useState<Remote<Session | "not-authenticated">>(
-    {
-      status: "not-asked",
-    }
-  );
+  const [session, setSession] = useState<Remote<Session>>({
+    status: "not-asked",
+  });
   const [sessionResetId, setSessionResetId] = useState(0);
   useEffect(() => {
     setSession({ status: "loading" });
@@ -422,7 +429,12 @@ function useSession(api: ValApi) {
           setSession({ status: "success", data: Session.parse(session) });
         } else {
           if (res.error.statusCode === 401) {
-            setSession({ status: "success", data: "not-authenticated" });
+            setSession({
+              status: "success",
+              data: {
+                mode: "unauthorized",
+              },
+            });
           } else if (sessionResetId < 3) {
             setTimeout(() => {
               setSessionResetId(sessionResetId + 1);
@@ -486,7 +498,7 @@ function WindowHeader({
             </span>
           );
         })}
-      </span>
+      </ScrollArea>
       {type && <span className="ml-4">({type})</span>}
     </span>
   );

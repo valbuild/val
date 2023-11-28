@@ -35,11 +35,12 @@ export const ValContext =
 export type ValProviderProps = {
   // host?: string;
   children?: React.ReactNode;
+  onSubmit: (refreshRequired: boolean) => void;
 };
 
 const ValUI = lazy(() => import("./ValUI"));
 
-export function ValProvider({ children }: ValProviderProps) {
+export function ValProvider({ children, onSubmit }: ValProviderProps) {
   const host = "/api/val";
   const api = useMemo(() => new ValApi(host), [host]);
   const store = useMemo(() => new ValStore(api), [api]);
@@ -78,7 +79,7 @@ export function ValProvider({ children }: ValProviderProps) {
   return (
     <ValContext.Provider value={{ valApi: api, valStore: store }}>
       {children}
-      <ValUI host={host} />
+      <ValUI host={host} onSubmit={onSubmit} />
     </ValContext.Provider>
   );
 }

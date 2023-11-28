@@ -17,6 +17,7 @@ import {
   ValServerJsonResult,
   ValServerRedirectResult,
   ValServerResult,
+  ValSession,
 } from "@valbuild/shared/internal";
 import { z } from "zod";
 import {
@@ -281,13 +282,9 @@ export class ProxyValServer implements ValServer {
     }
   }
 
-  async session(cookies: ValCookies<VAL_SESSION_COOKIE>): Promise<
-    ValServerJsonResult<{
-      mode: "proxy" | "local";
-      member_role: "owner" | "developer" | "editor";
-      enabled: boolean;
-    }>
-  > {
+  async session(
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerJsonResult<ValSession>> {
     return this.withAuth(cookies, "session", async (data) => {
       const url = new URL(
         `/api/val/${this.options.valName}/auth/session`,

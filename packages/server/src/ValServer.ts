@@ -12,6 +12,7 @@ import {
   ValServerJsonResult,
   ValServerRedirectResult,
   ValServerResult,
+  ValSession,
 } from "@valbuild/shared/internal";
 
 export const ENABLE_COOKIE_VALUE = {
@@ -65,13 +66,9 @@ export interface ValServer {
   }): Promise<ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>>;
   logout(): Promise<ValServerResult<VAL_STATE_COOKIE | VAL_SESSION_COOKIE>>;
   // Data:
-  session(cookies: ValCookies<VAL_SESSION_COOKIE>): Promise<
-    ValServerJsonResult<{
-      mode: "proxy" | "local";
-      member_role?: "owner" | "developer" | "editor";
-      enabled: boolean;
-    }>
-  >;
+  session(
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerJsonResult<ValSession>>;
   getTree(
     treePath: string,
     query: { patch?: string; schema?: string; source?: string },
