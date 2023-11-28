@@ -451,8 +451,8 @@ function WindowHeader({
 }) {
   const segments = path.split("/").slice(1);
   return (
-    <span className="flex items-center justify-between">
-      <span>
+    <span className="h-[20px] flex items-center justify-between">
+      <ScrollArea className="whitespace-nowrap" dir="rtl">
         <span className="pr-1 text-xs opacity-50">/</span>
         {segments.map((segment, i) => {
           if (i === segments.length - 1) {
