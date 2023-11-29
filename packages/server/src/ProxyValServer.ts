@@ -94,7 +94,7 @@ export class ProxyValServer implements ValServer {
 
   async authorize(query: {
     redirect_to?: string;
-  }): Promise<ValServerRedirectResult<VAL_SESSION_COOKIE>> {
+  }): Promise<ValServerRedirectResult<VAL_STATE_COOKIE>> {
     if (typeof query.redirect_to !== "string") {
       return {
         status: 400,
@@ -111,7 +111,7 @@ export class ProxyValServer implements ValServer {
     );
     return {
       cookies: {
-        [VAL_SESSION_COOKIE]: {
+        [VAL_STATE_COOKIE]: {
           value: createStateCookie({ redirect_to: query.redirect_to, token }),
           options: {
             httpOnly: true,
@@ -259,7 +259,7 @@ export class ProxyValServer implements ValServer {
         return {
           status: 401,
           json: {
-            message: "Invalid token",
+            message: "Invalid token:",
           },
         };
       }

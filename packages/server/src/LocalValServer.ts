@@ -217,7 +217,7 @@ export class LocalValServer implements ValServer {
     return this.badRequest();
   }
 
-  async authorize(): Promise<ValServerRedirectResult<VAL_SESSION_COOKIE>> {
+  async authorize(): Promise<ValServerRedirectResult<VAL_STATE_COOKIE>> {
     return this.badRequest();
   }
 

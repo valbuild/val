@@ -53,7 +53,7 @@ export interface ValServer {
   // Sets cookie state:
   authorize(query: {
     redirect_to?: string;
-  }): Promise<ValServerRedirectResult<VAL_SESSION_COOKIE>>;
+  }): Promise<ValServerRedirectResult<VAL_STATE_COOKIE>>;
   callback(
     query: { code?: string; state?: string },
     cookies: ValCookies<VAL_STATE_COOKIE>
