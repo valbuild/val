@@ -11,6 +11,7 @@ import { ValSourceFileHandler } from "./ValSourceFileHandler";
 import { derefPatch } from "@valbuild/core";
 import { QuickJSRuntime } from "quickjs-emscripten";
 import ts from "typescript";
+import { randomUUID } from "crypto";
 
 const ops = new TSOps((document) => {
   return pipe(
@@ -28,7 +29,8 @@ export const patchValFile = async (
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   runtime: QuickJSRuntime
 ): Promise<void> => {
-  console.time("patchValFile" + id);
+  const timeId = randomUUID();
+  console.time("patchValFile" + timeId);
   const filePath = sourceFileHandler.resolveSourceModulePath(
     valConfigPath,
     `.${id}.val`
@@ -86,7 +88,7 @@ export const patchValFile = async (
   }
 
   sourceFileHandler.writeSourceFile(newSourceFile.value);
-  console.timeEnd("patchValFile" + id);
+  console.timeEnd("patchValFile" + timeId);
 };
 
 function convertDataUrlToBase64(dataUrl: string): Buffer {
