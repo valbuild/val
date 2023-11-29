@@ -24,17 +24,28 @@ export function usePatch(
   session: Remote<ValSession>
 ) {
   const [state, setState] = useState<PatchCallbackState>({});
+  const [error, setError] = useState<Error | null>(null);
+  const [progress, setProgress] = useState<
+    "ready" | "create_patch" | "patching" | "on_submit" | "update_store"
+  >("ready");
 
   const initPatchCallback: InitPatchCallback = useCallback(
-    (currentPath: SourcePath) => {
+    (pathsAttr: string) => {
       return (callback: PatchCallback) => {
-        const patchPath = Internal.createPatchJSONPath(
-          Internal.splitModuleIdAndModulePath(currentPath)[1]
-        );
         setState((prev) => {
+          const paths = pathsAttr.split(",");
+          const nextState = paths.reduce((acc, path) => {
+            const patchPath = Internal.createPatchJSONPath(
+              Internal.splitModuleIdAndModulePath(path as SourcePath)[1]
+            );
+            return {
+              ...acc,
+              [path]: () => callback(patchPath),
+            };
+          }, {} as PatchCallbackState);
           return {
             ...prev,
-            [currentPath]: () => callback(patchPath),
+            ...nextState,
           };
         });
       };
