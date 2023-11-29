@@ -3,6 +3,5 @@ export { ValOverlay } from "./components/ValOverlay";
 export { ValFullscreen } from "./components/ValFullscreen";
 
 // Types:
-export { type Inputs } from "./components/forms/Form";
-export { type IValStore } from "./lib/IValStore";
-export { type ValUIRequestHandler } from "./ValUIRequestHandler";
+export { type Inputs } from "./components/forms/Form"; // TODO: delete components/forms/Form
+export { type IValStore } from "./lib/IValStore"; // TODO: move to shared
