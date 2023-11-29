@@ -70,7 +70,10 @@ export function usePatch(
   }, [paths]);
 
   const onSubmitPatch = useCallback(async () => {
+    setError(null);
+    setProgress("create_patch");
     const patches: Record<ModuleId, PatchJSON> = {};
+
     for (const path in state) {
       const [moduleId] = Internal.splitModuleIdAndModulePath(
         path as SourcePath
@@ -78,30 +81,52 @@ export function usePatch(
       const patch = await state[path as SourcePath]();
       patches[moduleId] = patch;
     }
-    return Promise.all(
-      Object.entries(patches).map(([moduleId, patch]) =>
-        api.postPatches(moduleId as ModuleId, patch).then((res) => {
-          if (result.isErr(res)) {
-            throw res.error;
-          } else {
-            res.value;
-          }
-        })
+    return maybeStartViewTransition(() => {
+      setProgress("patching");
+      return Promise.all(
+        Object.entries(patches).map(([moduleId, patch]) =>
+          api.postPatches(moduleId as ModuleId, patch).then((res) => {
+            if (result.isErr(res)) {
+              throw res.error;
+            } else {
+              res.value;
+            }
+          })
+        )
       )
-    )
-      .then(() => {
-        const refreshRequired =
-          session.status === "success" && session.data.mode === "proxy";
-        onSubmit(refreshRequired);
+        .then(() => {
+          setProgress("on_submit");
+          const refreshRequired =
+            session.status === "success" && session.data.mode === "proxy";
+          return onSubmit(refreshRequired);
+        })
+        .then(() => {
+          setProgress("update_store");
+          return valStore.update(
+            paths.map(
+              (path) =>
+                Internal.splitModuleIdAndModulePath(path as SourcePath)[0]
+            )
+          );
+        });
+    })
+      .catch((err) => {
+        setError(err);
       })
-      .then(() => {
-        return valStore.update(
-          paths.map(
-            (path) => Internal.splitModuleIdAndModulePath(path as SourcePath)[0]
-          )
-        );
+      .finally(() => {
+        setProgress("ready");
       });
   }, [state, session]);
 
-  return { initPatchCallback, onSubmitPatch };
+  return { initPatchCallback, onSubmitPatch, error, progress };
+}
+
+async function maybeStartViewTransition(f: () => Promise<void>) {
+  if (
+    "startViewTransition" in document &&
+    typeof document.startViewTransition === "function"
+  ) {
+    await document.startViewTransition(f);
+  }
+  await f();
 }
