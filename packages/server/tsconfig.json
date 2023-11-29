@@ -1,8 +1,6 @@
 {
   "compilerOptions": {
-    "lib": [
-      "es2020"
-    ],
+    "lib": ["es2020"],
     "strict": true,
     "isolatedModules": true,
     "noEmit": true,
@@ -11,7 +9,5 @@
     "moduleResolution": "node",
     "skipLibCheck": true
   },
-  "exclude": [
-    "test/**/*"
-  ]
+  "exclude": ["test/**/*"]
 }
