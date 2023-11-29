@@ -16,7 +16,7 @@ import { ValConfig } from "@valbuild/core";
 import { draftMode, headers } from "next/headers";
 import { optimizeTreePath } from "../optimizeTreePath";
 
-const initFetchVal =
+const initFetchValStega =
   (
     config: ValConfig,
     valApiEndpoints: string,
@@ -159,10 +159,10 @@ export function initValRsc(
   config: ValConfig,
   rscNextConfig: ValNextRscConfig
 ): {
-  fetchVal: ReturnType<typeof initFetchVal>;
+  fetchValStega: ReturnType<typeof initFetchValStega>;
 } {
   return {
-    fetchVal: initFetchVal(
+    fetchValStega: initFetchValStega(
       config,
       valApiEndpoints, // TODO: get from config
       () => {
