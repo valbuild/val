@@ -48,7 +48,7 @@ function isArrayOrArraySelector(child: any) {
   if (isSelector(child)) {
     return (
       typeof child[GetSource] === "object" &&
-      typeof child[GetSource] !== null &&
+      child[GetSource] !== null &&
       Array.isArray(child[GetSource])
     );
   }
@@ -60,7 +60,7 @@ function isObjectOrObjectSelector(child: any) {
   if (isSelector(child)) {
     return (
       typeof child[GetSource] === "object" &&
-      typeof child[GetSource] !== null &&
+      child[GetSource] !== null &&
       !Array.isArray(child[GetSource])
     );
   }
