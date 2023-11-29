@@ -10,7 +10,8 @@ export default async function Home() {
       <section className="hero full">
         <img
           src={page.hero.image.data.url}
-          alt={page.hero.image.alt}
+          // TODO: multiple paths not supported yet: alt={page.hero.image.alt}
+          alt="TODO"
           width={100}
           height={100}
         />
