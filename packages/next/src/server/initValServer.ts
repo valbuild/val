@@ -36,7 +36,7 @@ const initValNextAppRouter = (
             cookie.options?.sameSite
               ? `; SameSite=${cookie.options.sameSite}`
               : ""
-          }${
+          }${cookie.options?.path ? `; Path=${cookie.options.path}` : ""}${
             cookie.options?.expires
               ? `; Expires=${cookie.options.expires.toISOString()}`
               : `${!cookie.value ? "; Max-Age=0" : ""}`

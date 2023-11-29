@@ -13,7 +13,7 @@ import { ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { Internal } from "@valbuild/core";
 import { ValConfig } from "@valbuild/core";
-import { draftMode, headers } from "next/headers";
+import { cookies, draftMode, headers } from "next/headers";
 import { optimizeTreePath } from "../optimizeTreePath";
 
 const initFetchValStega =
@@ -21,7 +21,10 @@ const initFetchValStega =
     config: ValConfig,
     valApiEndpoints: string,
     isEnabled: () => boolean,
-    getHeaders: () => Headers
+    getHeaders: () => Headers,
+    getCookies: () => {
+      get(name: string): { name: string; value: string } | undefined;
+    }
   ) =>
   <T extends SelectorSource>(
     selector: T
@@ -55,8 +58,19 @@ const initFetchValStega =
         headers = null;
       }
 
+      let cookies;
+      try {
+        cookies = getCookies();
+      } catch (err) {
+        console.error(
+          "Val: could not read cookies! fetchVal can only be used server-side. Use useVal on clients.",
+          err
+        );
+        cookies = null;
+      }
+
       const host: string | null = headers && getHost(headers);
-      if (host && isProxyMode(config)) {
+      if (host && cookies && isProxyMode(config)) {
         const api = new ValApi(`${host}${valApiEndpoints}`);
         const valModuleIds = getModuleIds(selector);
         return api
@@ -65,7 +79,7 @@ const initFetchValStega =
             treePath: optimizeTreePath(valModuleIds) ?? undefined,
             patch: true,
             includeSource: true,
-            headers: getValAuthHeaders(getHeaders()),
+            headers: getValAuthHeaders(cookies),
           })
           .then((res) => {
             if (result.isOk(res)) {
@@ -123,18 +137,16 @@ function isProxyMode(opts: Record<string, string>) {
   return !!isProxyMode;
 }
 
-function getValAuthHeaders(headers: Headers): Record<string, string> {
+function getValAuthHeaders(cookies: {
+  get(name: string): { name: string; value: string } | undefined;
+}): Record<string, string> {
   try {
-    // parse VAL_SESSION_COOKIE from cookie header:
-    const session = headers
-      .get("cookie")
-      ?.split(";")
-      .find((c) => {
-        return c.trim().startsWith(`${Internal.VAL_SESSION_COOKIE}=`);
-      });
+    const session = cookies.get(Internal.VAL_SESSION_COOKIE);
     if (session) {
       return {
-        Cookie: `${Internal.VAL_SESSION_COOKIE}=${session}`,
+        Cookie: `${Internal.VAL_SESSION_COOKIE}=${encodeURIComponent(
+          session.value
+        )}`,
       };
     }
     return {};
@@ -152,6 +164,7 @@ const valApiEndpoints = "/api/val";
 type ValNextRscConfig = {
   draftMode: typeof draftMode;
   headers: typeof headers;
+  cookies: typeof cookies;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -170,6 +183,9 @@ export function initValRsc(
       },
       () => {
         return rscNextConfig.headers();
+      },
+      () => {
+        return rscNextConfig.cookies();
       }
     ),
   };
