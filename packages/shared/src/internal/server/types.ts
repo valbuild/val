@@ -21,6 +21,7 @@ export type ValServerResultCookies<Names extends ValCookiesNames> =
     {
       value: string | null;
       options?: {
+        path?: string;
         httpOnly?: boolean;
         secure?: boolean;
         sameSite?: "lax" | "strict" | "none";

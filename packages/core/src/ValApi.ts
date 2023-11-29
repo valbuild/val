@@ -41,7 +41,9 @@ export class ValApi {
       headers: headers || {
         "Content-Type": "application/json",
       },
-    }).then((res) => parse<ApiGetPatchResponse>(res));
+    })
+      .then((res) => parse<ApiGetPatchResponse>(res))
+      .catch(createError<ApiGetPatchResponse>);
   }
 
   postPatches(
@@ -55,7 +57,9 @@ export class ValApi {
       },
       method: "POST",
       body: JSON.stringify({ [moduleId]: patches }),
-    }).then((res) => parse<ApiPostPatchResponse>(res));
+    })
+      .then((res) => parse<ApiPostPatchResponse>(res))
+      .catch(createError<ApiPostPatchResponse>);
   }
 
   getSession() {
@@ -63,7 +67,12 @@ export class ValApi {
       parse<{
         mode: "proxy" | "local";
         member_role: "owner" | "developer" | "editor";
-      }>(res)
+      }>(res).catch(
+        createError<{
+          mode: "proxy" | "local";
+          member_role: "owner" | "developer" | "editor";
+        }>
+      )
     );
   }
 
@@ -86,8 +95,17 @@ export class ValApi {
     params.set("source", includeSource.toString());
     return fetch(`${this.host}/tree/~${treePath}?${params.toString()}`, {
       headers,
-    }).then((res) => parse<ApiTreeResponse>(res));
+    })
+      .then((res) => parse<ApiTreeResponse>(res))
+      .catch(createError<ApiTreeResponse>);
   }
+}
+
+function createError<T>(err: unknown): result.Result<T, FetchError> {
+  return result.err({
+    statusCode: 500,
+    message: err instanceof Error ? err.message : "Unknown error",
+  });
 }
 
 // TODO: validate
@@ -96,10 +114,23 @@ async function parse<T>(res: Response): Promise<result.Result<T, FetchError>> {
     if (res.ok) {
       return result.ok(await res.json());
     } else {
-      return result.err({
-        statusCode: res.status,
-        message: await res.text(),
-      });
+      try {
+        const json = await res.json();
+        return result.err({
+          statusCode: res.status,
+          message: json.message || res.statusText,
+          details:
+            json.details ||
+            Object.fromEntries(
+              Object.entries(json).filter(([key]) => key !== "message")
+            ),
+        });
+      } catch (err) {
+        return result.err({
+          statusCode: res.status,
+          message: res.statusText,
+        });
+      }
     }
   } catch (err) {
     return result.err({

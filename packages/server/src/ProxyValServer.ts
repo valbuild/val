@@ -220,6 +220,7 @@ export class ProxyValServer implements ValServer {
           options: {
             httpOnly: true,
             sameSite: "strict",
+            path: "/",
             secure: true,
             expires: new Date(exp * 1000), // NOTE: this is not used for authorization, only for authentication
           },
@@ -252,14 +253,22 @@ export class ProxyValServer implements ValServer {
   ): Promise<T | ValServerError> {
     const cookie = cookies[VAL_SESSION_COOKIE];
     if (typeof cookie === "string") {
-      const verification = IntegratedServerJwtPayload.safeParse(
-        decodeJwt(cookie, this.options.valSecret)
-      );
+      const decodedToken = decodeJwt(cookie, this.options.valSecret);
+      if (!decodedToken) {
+        return {
+          status: 401,
+          json: {
+            message: "Invalid JWT token",
+          },
+        };
+      }
+      const verification = IntegratedServerJwtPayload.safeParse(decodedToken);
       if (!verification.success) {
         return {
           status: 401,
           json: {
-            message: "Invalid token:",
+            message: "Could not parse JWT",
+            details: verification.error,
           },
         };
       }
@@ -340,19 +349,42 @@ export class ProxyValServer implements ValServer {
         `/v1/tree/${this.options.valName}/heads/${this.options.gitBranch}/${treePath}/?${params}`,
         this.options.valContentUrl
       );
-      const fetchRes = await fetch(url, {
-        headers: this.getAuthHeaders(data.token, "application/json"),
-      });
-      if (fetchRes.status === 200) {
+      try {
+        const fetchRes = await fetch(url, {
+          headers: this.getAuthHeaders(data.token, "application/json"),
+        });
+        if (fetchRes.status === 200) {
+          return {
+            status: fetchRes.status,
+            json: await fetchRes.json(),
+          };
+        } else {
+          try {
+            if (
+              fetchRes.headers.get("Content-Type")?.includes("application/json")
+            ) {
+              const json = await fetchRes.json();
+              return {
+                status: fetchRes.status as ValServerErrorStatus,
+                json,
+              };
+            }
+          } catch (err) {
+            console.error(err);
+          }
+
+          return {
+            status: fetchRes.status as ValServerErrorStatus,
+            json: {
+              message: "Unknown failure while accessing Val",
+            },
+          };
+        }
+      } catch (err) {
         return {
-          status: fetchRes.status,
-          json: await fetchRes.json(),
-        };
-      } else {
-        return {
-          status: fetchRes.status as ValServerErrorStatus,
+          status: 500,
           body: {
-            message: "Failed to get patches",
+            message: "Failed to fetch: check network connection",
           },
         };
       }

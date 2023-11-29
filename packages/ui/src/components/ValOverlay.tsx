@@ -41,10 +41,8 @@ export function ValOverlay({
   const [hoverTarget, setHoverTarget] = useHoverTarget(editMode);
   const [windowTarget, setWindowTarget] = useState<WindowTarget | null>(null);
   const [highlight, setHighlight] = useState(false);
-  const { selectedSchema, selectedSource, error, loading } = useValModules(
-    api,
-    windowTarget?.path
-  );
+  const { selectedSchema, selectedSource, moduleId, error, loading } =
+    useValModules(api, windowTarget?.path);
 
   const {
     initPatchCallback,
@@ -61,8 +59,12 @@ export function ValOverlay({
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
   useEffect(() => {
-    store.updateAll();
-  }, []);
+    if (moduleId) {
+      store.update([moduleId]);
+    } else {
+      store.updateAll();
+    }
+  }, [moduleId]);
 
   useEffect(() => {
     if (patchError) {
@@ -172,6 +174,7 @@ function useValModules(api: ValApi, path: string | undefined) {
   }, [path]);
   if (!path || modules?.status === "not-asked") {
     return {
+      moduleId,
       error: null,
       selectedSource: undefined,
       selectedSchema: undefined,
@@ -180,6 +183,7 @@ function useValModules(api: ValApi, path: string | undefined) {
   }
   if (modules?.status === "loading") {
     return {
+      moduleId,
       error: null,
       selectedSource: undefined,
       selectedSchema: undefined,
@@ -188,6 +192,7 @@ function useValModules(api: ValApi, path: string | undefined) {
   }
   if (modules?.status === "error") {
     return {
+      moduleId,
       error: modules.error,
       selectedSource: undefined,
       selectedSchema: undefined,
@@ -196,7 +201,7 @@ function useValModules(api: ValApi, path: string | undefined) {
   }
   if (!modules?.data) {
     return {
-      error: "No modules",
+      error: "Not a module: " + moduleId,
       selectedSource: undefined,
       selectedSchema: undefined,
       loading: false,
@@ -223,6 +228,7 @@ function useValModules(api: ValApi, path: string | undefined) {
         schema: undefined,
       };
   return {
+    moduleId,
     error,
     selectedSource,
     selectedSchema,
