@@ -1,6 +1,5 @@
 import { ValRichText } from "@valbuild/next";
 import pageVal from "../content.val";
-import Image from "next/image";
 import { fetchVal } from "../../val/rsc";
 
 export default async function Home() {
