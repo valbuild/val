@@ -505,7 +505,9 @@ function getPointerFromPath(
     }
     if (childNode.value === undefined) {
       return result.err(
-        new PatchError("Path refers to non-existing object/array")
+        new PatchError(
+          `Path refers to non-existing object/array: ${path.join("/")}`
+        )
       );
     }
     targetNode = childNode.value;
