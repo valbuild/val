@@ -46,7 +46,12 @@ export function ValOverlay({
     windowTarget?.path
   );
 
-  const { initPatchCallback, onSubmitPatch } = usePatch(
+  const {
+    initPatchCallback,
+    onSubmitPatch,
+    progress: patchProgress,
+    error: patchError,
+  } = usePatch(
     windowTarget?.path ? [windowTarget.path] : [],
     api,
     store,
@@ -58,6 +63,12 @@ export function ValOverlay({
   useEffect(() => {
     store.updateAll();
   }, []);
+
+  useEffect(() => {
+    if (patchError) {
+      console.error(patchError);
+    }
+  }, [patchError]);
 
   return (
     <ValOverlayContext.Provider
@@ -111,30 +122,26 @@ export function ValOverlay({
               />
             )}
             <div className="flex items-end justify-end py-2">
-              <SubmitButton disabled={false} onClick={onSubmitPatch} />
+              <Button
+                className="px-4 py-2 border border-highlight disabled:border-border"
+                disabled={patchProgress !== "ready"}
+                onClick={onSubmitPatch}
+              >
+                {patchProgress === "patching"
+                  ? "Finalizing..."
+                  : patchProgress === "create_patch"
+                  ? "Patching..."
+                  : patchProgress === "on_submit"
+                  ? "Completing..."
+                  : patchProgress === "update_store"
+                  ? "Refreshing..."
+                  : "Submit"}
+              </Button>
             </div>
           </ValWindow>
         )}
       </div>
     </ValOverlayContext.Provider>
-  );
-}
-
-function SubmitButton({
-  disabled,
-  onClick,
-}: {
-  disabled?: boolean;
-  onClick?: () => void;
-}) {
-  return (
-    <Button
-      className="px-4 py-2 border border-highlight disabled:border-border"
-      disabled={disabled}
-      onClick={onClick}
-    >
-      Submit
-    </Button>
   );
 }
 
@@ -465,7 +472,6 @@ function WindowHeader({
   return (
     <span className="h-[20px] flex items-center justify-between">
       <ScrollArea className="whitespace-nowrap" dir="rtl">
-        <span className="pr-1 text-xs opacity-50">/</span>
         {segments.map((segment, i) => {
           if (i === segments.length - 1) {
             return (
