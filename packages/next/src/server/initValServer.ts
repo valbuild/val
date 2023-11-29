@@ -23,46 +23,42 @@ const initValNextAppRouter = (
       },
     }),
     (valRes): NextResponse => {
-      let headers = "headers" in valRes ? valRes.headers : {};
+      const headers =
+        "headers" in valRes ? new Headers(valRes.headers) : new Headers({});
       if ("cookies" in valRes && valRes.cookies) {
+        headers.set("Set-Cookie", "");
         for (const [cookieName, cookie] of Object.entries(valRes.cookies)) {
-          if (cookie) {
-            headers = {
-              ...headers,
-              "Set-Cookie": `${cookieName}=${cookie.value}${
-                cookie.options?.httpOnly ? "; HttpOnly" : ""
-              }${cookie.options?.secure ? "; Secure" : ""}${
-                cookie.options?.sameSite
-                  ? `; SameSite=${cookie.options.sameSite}`
-                  : ""
-              }${
-                cookie.options?.expires
-                  ? `; Expires=${cookie.options.expires}`
-                  : ""
-              }`,
-            };
-          }
+          const cookieValue = `${cookieName}=${encodeURIComponent(
+            cookie.value || ""
+          )}${cookie.options?.httpOnly ? "; HttpOnly" : ""}${
+            cookie.options?.secure ? "; Secure" : ""
+          }${
+            cookie.options?.sameSite
+              ? `; SameSite=${cookie.options.sameSite}`
+              : ""
+          }${
+            cookie.options?.expires
+              ? `; Expires=${cookie.options.expires.toISOString()}`
+              : `${!cookie.value ? "; Max-Age=0" : ""}`
+          }`;
+          headers.append("Set-Cookie", cookieValue);
         }
       }
       if ("json" in valRes) {
+        headers.set("Content-Type", "application/json");
         return NextResponse.json(valRes.json, {
-          headers: {
-            ...headers,
-            "Content-Type": "application/json",
-          },
+          headers,
           status: valRes.status,
         });
       } else if (valRes.status === 302) {
+        headers.set("Location", valRes.redirectTo);
         return NextResponse.redirect(valRes.redirectTo, {
           status: valRes.status,
-          headers: {
-            ...headers,
-            Location: valRes.redirectTo,
-          },
+          headers: headers,
         });
       }
       return new NextResponse("body" in valRes ? valRes.body : null, {
-        headers: valRes.headers,
+        headers,
         status: valRes.status,
       });
     }

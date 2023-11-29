@@ -449,8 +449,8 @@ function getCookies<Names extends string>(req: Request, names: Names[]) {
       ?.split("; ")
       .reduce((acc, cookie) => {
         const [name, value] = cookie.split("=");
-        if ((names as string[]).includes(name)) {
-          acc[name as Names] = value;
+        if ((names as string[]).includes(name.trim())) {
+          acc[name.trim() as Names] = decodeURIComponent(value.trim());
         }
         return acc;
       }, {} as { [K in Names]: string }) || ({} as { [K in Names]?: string })
