@@ -5,10 +5,7 @@
     "allowJs": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
-    "lib": [
-      "es2020",
-      "dom"
-    ],
+    "lib": ["es2020", "dom"],
     "module": "esnext",
     "moduleResolution": "node",
     "noEmit": true,
@@ -17,12 +14,6 @@
     "rootDir": "src",
     "skipLibCheck": true
   },
-  "include": [
-    "src/**/*"
-  ],
-  "exclude": [
-    "dist/**",
-    "jsx-runtime/dist/**",
-    "jsx-dev-runtime/dist/**"
-  ]
+  "include": ["src/**/*"],
+  "exclude": ["dist/**", "jsx-runtime/dist/**", "jsx-dev-runtime/dist/**"]
 }
