@@ -32,7 +32,7 @@ globalThis.valModule = {
     if (result.error) {
       const error = result.error.consume(context.dump);
       console.error(
-        `Fatal error reading val file: ${error.message}\n`,
+        `Fatal error reading val file: ${id}. Error: ${error.message}\n`,
         error.stack
       );
       return {
