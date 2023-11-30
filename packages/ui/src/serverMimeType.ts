@@ -10,7 +10,7 @@ export function getServerMimeType(path: string) {
     return "application/javascript";
   } else if (ext === "json") {
     return "application/json";
-  } else if (!ext || ext === "html") {
+  } else if (ext === "html" || path === "/edit") {
     return "text/html";
   }
 }
