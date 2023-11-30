@@ -85,7 +85,7 @@ export type ValSession =
       member_role?: "owner" | "developer" | "editor";
       enabled?: boolean;
       id: string;
-      full_name?: string;
-      username?: string;
-      avatar_url?: string;
+      full_name?: string | null;
+      username?: string | null;
+      avatar_url?: string | null;
     };
