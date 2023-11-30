@@ -1,5 +1,5 @@
 export { initVal } from "./initVal";
-export type { InitVal } from "./initVal";
+export type { InitVal, ValConfig } from "./initVal";
 export { Schema, type SerializedSchema } from "./schema";
 export type { ImageMetadata } from "./schema/image";
 export type { LinkSource } from "./source/link";
@@ -127,18 +127,18 @@ const Internal = {
   createPatchJSONPath: (modulePath: ModulePath) =>
     `/${modulePath
       .split(".")
-      .map((segment) => JSON.parse(segment))
+      .map((segment) => segment && tryJsonParse(segment))
       .join("/")}`,
-  /**
-   * Enables draft mode: updates all Val modules with patches
-   */
-  VAL_DRAFT_MODE_COOKIE: "val_draft_mode",
-  /**
-   * Enables Val: show the overlay / menu
-   */
-  VAL_ENABLE_COOKIE_NAME: "val_enable",
-  VAL_STATE_COOKIE: "val_state",
-  VAL_SESSION_COOKIE: "val_session",
+  VAL_ENABLE_COOKIE_NAME: "val_enable" as const,
+  VAL_STATE_COOKIE: "val_state" as const,
+  VAL_SESSION_COOKIE: "val_session" as const,
 };
+function tryJsonParse(str: string) {
+  try {
+    return JSON.parse(str);
+  } catch (err) {
+    return str;
+  }
+}
 
 export { Internal };

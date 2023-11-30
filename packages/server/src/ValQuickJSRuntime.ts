@@ -52,6 +52,12 @@ export async function newValQuickJSRuntime(
               "export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'react' in this file`) } } } )",
           };
         }
+        if (modulePath === "./ValNextProvider") {
+          return {
+            value:
+              "export const ValNextProvider = new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'ValProvider' in this file`) } } } )",
+          };
+        }
         return { value: moduleLoader.getModule(modulePath) };
       } catch (e) {
         return {
@@ -74,6 +80,9 @@ export async function newValQuickJSRuntime(
           return { value: requestedName };
         }
         if (requestedName.startsWith("react")) {
+          return { value: requestedName };
+        }
+        if (requestedName === "./ValNextProvider") {
           return { value: requestedName };
         }
         const modulePath = moduleLoader.resolveModulePath(

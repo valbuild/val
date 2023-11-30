@@ -158,7 +158,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   useEffect(() => {
     console.log("(Re)-fetching modules");
     valApi
-      .getModules({ patch: true, includeSchema: true, includeSource: true })
+      .getTree({ patch: true, includeSchema: true, includeSource: true })
       .then((res) => {
         if (result.isOk(res)) {
           setModules(res.value.modules);
@@ -196,12 +196,11 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
           if (result.isErr(res)) {
             throw res.error;
           } else {
-            console.log("submitted", patch);
             // TODO: we need to revisit this a bit, HMR might not be the best solution here
             if (!hmrHash) {
-              // TODO: we should only refresh the module that was updated
               return valApi
-                .getModules({
+                .getTree({
+                  treePath: moduleId,
                   patch: true,
                   includeSchema: true,
                   includeSource: true,

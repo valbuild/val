@@ -22,7 +22,7 @@ export class ValStore implements IValStore {
   }
 
   async updateAll() {
-    const data = await this.api.getModules({
+    const data = await this.api.getTree({
       patch: true,
       includeSource: true,
     });

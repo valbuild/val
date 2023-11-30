@@ -19,14 +19,21 @@ import { usePatch } from "./usePatch";
 import { Button } from "./ui/button";
 import { useTheme } from "./useTheme";
 import { IValStore } from "../lib/IValStore";
+import { ScrollArea } from "./ui/scroll-area";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
   api: ValApi;
   store: IValStore;
+  onSubmit: (refreshRequired: boolean) => void;
 };
 
-export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
+export function ValOverlay({
+  defaultTheme,
+  api,
+  store,
+  onSubmit,
+}: ValOverlayProps) {
   const [theme, setTheme] = useTheme(defaultTheme);
   const session = useSession(api);
 
@@ -34,21 +41,36 @@ export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
   const [hoverTarget, setHoverTarget] = useHoverTarget(editMode);
   const [windowTarget, setWindowTarget] = useState<WindowTarget | null>(null);
   const [highlight, setHighlight] = useState(false);
-  const { selectedSchema, selectedSource, error, loading } = useValModules(
-    api,
-    windowTarget?.path
-  );
+  const { selectedSchema, selectedSource, moduleId, error, loading } =
+    useValModules(api, windowTarget?.path);
 
-  const { initPatchCallback, onSubmitPatch } = usePatch(
+  const {
+    initPatchCallback,
+    onSubmitPatch,
+    progress: patchProgress,
+    error: patchError,
+  } = usePatch(
     windowTarget?.path ? [windowTarget.path] : [],
     api,
-    store
+    store,
+    onSubmit,
+    session
   );
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
   useEffect(() => {
-    store.updateAll();
-  }, []);
+    if (moduleId) {
+      store.update([moduleId]);
+    } else {
+      store.updateAll();
+    }
+  }, [moduleId]);
+
+  useEffect(() => {
+    if (patchError) {
+      console.error(patchError);
+    }
+  }, [patchError]);
 
   return (
     <ValOverlayContext.Provider
@@ -84,7 +106,7 @@ export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
               setEditMode("hover");
             }}
           >
-            <div className="px-4 py-2 text-sm border-b border-highlight">
+            <div className="max-w-full px-4 py-2 text-sm border-b border-highlight">
               <WindowHeader
                 path={windowTarget.path}
                 type={selectedSchema?.type}
@@ -102,30 +124,26 @@ export function ValOverlay({ defaultTheme, api, store }: ValOverlayProps) {
               />
             )}
             <div className="flex items-end justify-end py-2">
-              <SubmitButton disabled={false} onClick={onSubmitPatch} />
+              <Button
+                className="px-4 py-2 border border-highlight disabled:border-border"
+                disabled={patchProgress !== "ready"}
+                onClick={onSubmitPatch}
+              >
+                {patchProgress === "patching"
+                  ? "Finalizing..."
+                  : patchProgress === "create_patch"
+                  ? "Patching..."
+                  : patchProgress === "on_submit"
+                  ? "Completing..."
+                  : patchProgress === "update_store"
+                  ? "Refreshing..."
+                  : "Submit"}
+              </Button>
             </div>
           </ValWindow>
         )}
       </div>
     </ValOverlayContext.Provider>
-  );
-}
-
-function SubmitButton({
-  disabled,
-  onClick,
-}: {
-  disabled?: boolean;
-  onClick?: () => void;
-}) {
-  return (
-    <Button
-      className="px-4 py-2 border border-highlight disabled:border-border"
-      disabled={disabled}
-      onClick={onClick}
-    >
-      Submit
-    </Button>
   );
 }
 
@@ -138,7 +156,7 @@ function useValModules(api: ValApi, path: string | undefined) {
     if (path) {
       setModules({ status: "loading" });
       api
-        .getModules({
+        .getTree({
           patch: true,
           includeSchema: true,
           includeSource: true,
@@ -156,6 +174,7 @@ function useValModules(api: ValApi, path: string | undefined) {
   }, [path]);
   if (!path || modules?.status === "not-asked") {
     return {
+      moduleId,
       error: null,
       selectedSource: undefined,
       selectedSchema: undefined,
@@ -164,6 +183,7 @@ function useValModules(api: ValApi, path: string | undefined) {
   }
   if (modules?.status === "loading") {
     return {
+      moduleId,
       error: null,
       selectedSource: undefined,
       selectedSchema: undefined,
@@ -172,6 +192,7 @@ function useValModules(api: ValApi, path: string | undefined) {
   }
   if (modules?.status === "error") {
     return {
+      moduleId,
       error: modules.error,
       selectedSource: undefined,
       selectedSchema: undefined,
@@ -180,7 +201,7 @@ function useValModules(api: ValApi, path: string | undefined) {
   }
   if (!modules?.data) {
     return {
-      error: "No modules",
+      error: "Not a module: " + moduleId,
       selectedSource: undefined,
       selectedSchema: undefined,
       loading: false,
@@ -207,6 +228,7 @@ function useValModules(api: ValApi, path: string | undefined) {
         schema: undefined,
       };
   return {
+    moduleId,
     error,
     selectedSource,
     selectedSchema,
@@ -407,11 +429,9 @@ function useInitEditMode() {
 }
 
 function useSession(api: ValApi) {
-  const [session, setSession] = useState<Remote<Session | "not-authenticated">>(
-    {
-      status: "not-asked",
-    }
-  );
+  const [session, setSession] = useState<Remote<Session>>({
+    status: "not-asked",
+  });
   const [sessionResetId, setSessionResetId] = useState(0);
   useEffect(() => {
     setSession({ status: "loading" });
@@ -422,7 +442,12 @@ function useSession(api: ValApi) {
           setSession({ status: "success", data: Session.parse(session) });
         } else {
           if (res.error.statusCode === 401) {
-            setSession({ status: "success", data: "not-authenticated" });
+            setSession({
+              status: "success",
+              data: {
+                mode: "unauthorized",
+              },
+            });
           } else if (sessionResetId < 3) {
             setTimeout(() => {
               setSessionResetId(sessionResetId + 1);
@@ -451,9 +476,8 @@ function WindowHeader({
 }) {
   const segments = path.split("/").slice(1);
   return (
-    <span className="flex items-center justify-between">
-      <span>
-        <span className="pr-1 text-xs opacity-50">/</span>
+    <span className="h-[20px] flex items-center justify-between">
+      <ScrollArea className="whitespace-nowrap" dir="rtl">
         {segments.map((segment, i) => {
           if (i === segments.length - 1) {
             return (
@@ -486,7 +510,7 @@ function WindowHeader({
             </span>
           );
         })}
-      </span>
+      </ScrollArea>
       {type && <span className="ml-4">({type})</span>}
     </span>
   );

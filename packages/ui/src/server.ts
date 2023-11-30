@@ -7,64 +7,26 @@
  * which is optimized for consumers.
  */
 
-import type { RequestHandler } from "express";
-import fs from "fs";
+import { ValUIRequestHandler } from "@valbuild/shared/internal";
+import { getServerMimeType } from "./serverMimeType";
 
-type Vite = typeof import("vite");
-export function createRequestHandler(): RequestHandler {
-  if (typeof window === "undefined") {
-    const vite = (async () => {
-      const { fileURLToPath, URL: URL_noresolve } = await import("node:url");
-      const { createServer } = await (import(
-        /* @vite-ignore */ "v" + "ite"
-      ) as Promise<Vite>);
-      const vite = await createServer({
-        root: fileURLToPath(new URL_noresolve("..", import.meta.url)),
-        configFile: fileURLToPath(
-          new URL_noresolve("../vite.config.ts", import.meta.url)
-        ),
-        server: { middlewareMode: true },
-      });
-
-      return vite;
-    })();
-    return async (req, res, next) => {
-      if (req.url === "/style.css") {
-        const styleModule = await (await vite).ssrLoadModule("./src/index.css");
-        const style = styleModule.default as string;
-        res.statusCode = 200;
-        res.setHeader("Content-Type", "text/css");
-        return res.end(style);
-      } else if (req.url.startsWith("/edit")) {
-        const { URL: URL_noresolve } = await import("node:url");
-        const html = (await vite).transformIndexHtml(
-          req.url,
-          fs.readFileSync(
-            new URL_noresolve("../index.html", import.meta.url),
-            "utf-8"
-          )
-        );
-        return res.end(await html);
-      } else {
-        // TODO: error handling
-        try {
-          const transformed = await (await vite).transformRequest(req.url);
-          if (transformed) {
-            const { code, etag } = transformed;
-            return res
-              .header({ "Content-Type": "application/javascript", Etag: etag })
-              .end(code);
+export function createUIRequestHandler(): ValUIRequestHandler {
+  return async (path) => {
+    const acceptType = getServerMimeType(path);
+    // TODO: believe we can clean up and remove: api/val/static
+    const res = await fetch(`http://localhost:5173/api/val/static${path}`, {
+      headers: acceptType
+        ? {
+            Accept: acceptType,
           }
-          return next();
-        } catch (e) {
-          if (e instanceof Error) {
-            (await vite).ssrFixStacktrace(e);
-          }
-          return next(e);
-        }
-      }
-    };
-  } else {
-    throw Error("Cannot get middleware in browser");
-  }
+        : {},
+    });
+    return {
+      status: res.status,
+      headers: res.headers
+        ? Object.fromEntries(Array.from(res.headers.entries()))
+        : {},
+      body: res.body,
+    } as Awaited<ReturnType<ValUIRequestHandler>>;
+  };
 }
