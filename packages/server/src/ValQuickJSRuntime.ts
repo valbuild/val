@@ -40,10 +40,16 @@ export async function newValQuickJSRuntime(
               "export const useVal = () => { throw Error(`Cannot use 'useVal' in this type of file`) }; export const fetchVal = () => { throw Error(`Cannot use 'fetchVal' in this type of file`) }; export const autoTagJSX = () => { /* ignore */ };",
           };
         }
+        if (modulePath.startsWith("next/navigation")) {
+          return {
+            value:
+              "export const useRouter = () => { throw Error(`Cannot use 'useRouter' in this type of file`) }; export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'next' in this file`) } } } );",
+          };
+        }
         if (modulePath.startsWith("next")) {
           return {
             value:
-              "export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'next' in this file`) } } } )",
+              "export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'next' in this file`) } } } );",
           };
         }
         if (modulePath.startsWith("react")) {
@@ -52,7 +58,7 @@ export async function newValQuickJSRuntime(
               "export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'react' in this file`) } } } )",
           };
         }
-        if (modulePath === "./ValNextProvider") {
+        if (modulePath.includes("/ValNextProvider")) {
           return {
             value:
               "export const ValNextProvider = new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'ValProvider' in this file`) } } } )",
@@ -76,13 +82,16 @@ export async function newValQuickJSRuntime(
         if (requestedName === "@valbuild/react/internal") {
           return { value: requestedName };
         }
+        if (requestedName.startsWith("next/navigation")) {
+          return { value: requestedName };
+        }
         if (requestedName.startsWith("next")) {
           return { value: requestedName };
         }
         if (requestedName.startsWith("react")) {
           return { value: requestedName };
         }
-        if (requestedName === "./ValNextProvider") {
+        if (requestedName.includes("/ValNextProvider")) {
           return { value: requestedName };
         }
         const modulePath = moduleLoader.resolveModulePath(
