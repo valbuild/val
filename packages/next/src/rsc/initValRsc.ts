@@ -85,6 +85,7 @@ const initFetchValStega =
             if (result.isOk(res)) {
               const { modules } = res.value;
               return stegaEncode(selector, {
+                disabled: !enabled,
                 getModule: (moduleId) => {
                   const module = modules[moduleId as ModuleId];
                   if (module) {
@@ -94,12 +95,17 @@ const initFetchValStega =
               });
             } else {
               console.error("Val: could not fetch modules", res.error);
+              throw Error(JSON.stringify(res.error, null, 2));
             }
-            return stegaEncode(selector, {});
           })
           .catch((err) => {
-            console.error("Val: failed while checking modules", err);
-            return selector;
+            console.error("Val: failed while fetching modules", err);
+            if (process.env.NODE_ENV === "development") {
+              throw Error(
+                'You are running in "proxy" mode in development and Val could not fetch remote / proxy data. This is likely due to a misconfiguration. Check the console for more details.'
+              );
+            }
+            return stegaEncode(selector, {});
           }) as SelectorOf<T> extends GenericSelector<infer S>
           ? Promise<StegaOfSource<S>>
           : never;
