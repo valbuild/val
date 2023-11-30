@@ -5,9 +5,9 @@ export const Session: z.ZodType<ValSession> = z.union([
   z.object({
     id: z.string(),
     mode: z.literal("proxy"),
-    full_name: z.string().optional(),
-    username: z.string().optional(),
-    avatar_url: z.string().url().optional(),
+    full_name: z.string().optional().nullable(),
+    username: z.string().optional().nullable(),
+    avatar_url: z.string().url().optional().nullable(),
     enabled: z.boolean(),
   }),
   z.object({
