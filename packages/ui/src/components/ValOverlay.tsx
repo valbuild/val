@@ -113,7 +113,16 @@ export function ValOverlay({
               />
             </div>
             {loading && <div className="text-primary">Loading...</div>}
-            {error && <div className="text-red">{error}</div>}
+            {error && (
+              <div className="px-4 py-2 text-red">
+                <div className="font-bold">Error: {error.message}</div>
+                {"details" in error && (
+                  <pre className="bg-card text-card-foreground">
+                    {error.details}
+                  </pre>
+                )}
+              </div>
+            )}
             {selectedSchema !== undefined && selectedSource !== undefined && (
               <ValFormField
                 path={windowTarget.path}
@@ -193,7 +202,7 @@ function useValModules(api: ValApi, path: string | undefined) {
   if (modules?.status === "error") {
     return {
       moduleId,
-      error: modules.error,
+      error: { message: modules.error },
       selectedSource: undefined,
       selectedSchema: undefined,
       loading: false,
@@ -201,7 +210,10 @@ function useValModules(api: ValApi, path: string | undefined) {
   }
   if (!modules?.data) {
     return {
-      error: "Not a module: " + moduleId,
+      error: {
+        message: "Val could not fetch data for this element.",
+        details: "Module data not found for: " + moduleId,
+      },
       selectedSource: undefined,
       selectedSchema: undefined,
       loading: false,
@@ -222,7 +234,7 @@ function useValModules(api: ValApi, path: string | undefined) {
     : {
         error:
           resolvedModulePath && result.isErr(resolvedModulePath)
-            ? resolvedModulePath.error.message
+            ? resolvedModulePath.error
             : null,
         source: undefined,
         schema: undefined,
@@ -457,6 +469,7 @@ function useSession(api: ValApi) {
           }
         }
       } catch (e) {
+        console.error("Could not authorize:", e);
         setSession({
           status: "error",
           error: "Got an error while trying to get session",
