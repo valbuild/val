@@ -107,10 +107,7 @@ export class Service {
     }
   }
 
-  async patch(
-    moduleId: string,
-    patch: Patch
-  ): Promise<SerializedModuleContent> {
+  async patch(moduleId: string, patch: Patch): Promise<void> {
     return patchValFile(
       moduleId,
       this.valConfigPath,

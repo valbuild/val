@@ -35,7 +35,7 @@ export const createModuleLoader = (
   return loader;
 };
 
-const MAX_CACHE_SIZE = 100 * 1024 * 1024; // 100 mb
+const MAX_CACHE_SIZE = 10 * 1024 * 1024; // 10 mb
 const MAX_OBJECT_KEY_SIZE = 2 ** 27; // https://stackoverflow.com/questions/13367391/is-there-a-limit-on-length-of-the-key-string-in-js-object
 
 export class ValModuleLoader {

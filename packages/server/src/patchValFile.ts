@@ -9,10 +9,9 @@ import {
 } from "./patch/ts/syntax";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
 import { derefPatch } from "@valbuild/core";
-import { readValFile } from "./readValFile";
 import { QuickJSRuntime } from "quickjs-emscripten";
 import ts from "typescript";
-import { SerializedModuleContent } from "./SerializedModuleContent";
+import { randomUUID } from "crypto";
 
 const ops = new TSOps((document) => {
   return pipe(
@@ -27,8 +26,11 @@ export const patchValFile = async (
   valConfigPath: string,
   patch: Patch,
   sourceFileHandler: ValSourceFileHandler,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   runtime: QuickJSRuntime
-): Promise<SerializedModuleContent> => {
+): Promise<void> => {
+  const timeId = randomUUID();
+  console.time("patchValFile" + timeId);
   const filePath = sourceFileHandler.resolveSourceModulePath(
     valConfigPath,
     `.${id}.val`
@@ -86,8 +88,7 @@ export const patchValFile = async (
   }
 
   sourceFileHandler.writeSourceFile(newSourceFile.value);
-
-  return readValFile(id, valConfigPath, runtime);
+  console.timeEnd("patchValFile" + timeId);
 };
 
 function convertDataUrlToBase64(dataUrl: string): Buffer {

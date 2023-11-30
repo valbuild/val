@@ -10,15 +10,15 @@
   },
   "dependencies": {
     "@valbuild/core": "~0.34.0",
-    "@valbuild/ui": "~0.34.0",
     "@valbuild/shared": "~0.34.0",
+    "@valbuild/ui": "~0.34.0",
     "@vercel/stega": "^0.1.0",
     "base64-arraybuffer": "^1.0.2",
     "style-to-object": "^0.4.1"
   },
   "devDependencies": {
     "@testing-library/react": "^14.0.0",
-    "@types/react": "^18.0.26",
+    "@types/react": "^18.2.38",
     "jest-environment-jsdom": "^29.5.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"

@@ -1,2 +1,2 @@
 import "server-only";
-export { fetchVal } from "./fetchVal";
+export { initValServer } from "./initValServer";

@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "lib": ["es2020"],
     "strict": true,
     "isolatedModules": true,
     "noEmit": true,

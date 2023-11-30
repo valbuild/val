@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from "../schema";
 import { ValModuleBrand } from "../module";
-import { GenericSelector, GetSchema } from "../selector";
+import { GenericSelector, GetSchema, Path } from "../selector";
 import { SourceArray, SourceObject } from "../source";
 import { SourcePath, getValPath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
@@ -147,7 +147,7 @@ export class KeyOfSchema<
     const path = getValPath(this.selector);
     if (!path) {
       throw new Error(
-        "Cannot serialize oneOf schema with empty selector. keyOf must be used with a Val Module."
+        "Cannot serialize keyOf schema with empty selector. TIP: keyOf must be used with a Val Module."
       );
     }
     return {

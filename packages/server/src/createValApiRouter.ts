@@ -1,12 +1,12 @@
-import type { RequestListener } from "node:http";
-import express from "express";
 import { createService, ServiceOptions } from "./Service";
-import { createRequestHandler } from "./createRequestHandler";
-import { ValServer } from "./ValServer";
+import { ValServer, ValServerCallbacks } from "./ValServer";
 import { LocalValServer, LocalValServerOptions } from "./LocalValServer";
 import { ProxyValServer, ProxyValServerOptions } from "./ProxyValServer";
 import { promises as fs } from "fs";
 import * as path from "path";
+import { Internal } from "@valbuild/core";
+import { ValServerGenericResult } from "@valbuild/shared/internal";
+import { createUIRequestHandler } from "@valbuild/ui/server";
 
 type Opts = ValServerOverrides & ServiceOptions;
 
@@ -115,19 +115,17 @@ type ValServerOverrides = Partial<{
   valDisableRedirectUrl?: string;
 }>;
 
-async function _createRequestListener(
+export async function createValServer(
   route: string,
-  opts: Opts
-): Promise<RequestListener> {
+  opts: Opts,
+  callbacks: ValServerCallbacks
+): Promise<ValServer> {
   const serverOpts = await initHandlerOptions(route, opts);
-  let valServer: ValServer;
   if (serverOpts.mode === "proxy") {
-    valServer = new ProxyValServer(serverOpts);
+    return new ProxyValServer(serverOpts, callbacks);
   } else {
-    valServer = new LocalValServer(serverOpts);
+    return new LocalValServer(serverOpts, callbacks);
   }
-  const reqHandler = createRequestHandler(valServer);
-  return express().use(route, reqHandler);
 }
 
 type ValServerOptions =
@@ -189,6 +187,10 @@ async function initHandlerOptions(
     return {
       mode: "local",
       service,
+      valEnableRedirectUrl:
+        opts.valEnableRedirectUrl || process.env.VAL_ENABLE_REDIRECT_URL,
+      valDisableRedirectUrl:
+        opts.valDisableRedirectUrl || process.env.VAL_DISABLE_REDIRECT_URL,
       git: {
         commit: process.env.VAL_GIT_COMMIT || git.commit,
         branch: process.env.VAL_GIT_BRANCH || git.branch,
@@ -271,20 +273,186 @@ async function readCommit(
   }
 }
 
-// TODO: rename to createValApiHandlers?
-export function createRequestListener(
+const { VAL_SESSION_COOKIE, VAL_STATE_COOKIE } = Internal;
+
+const TREE_PATH_PREFIX = "/tree/~";
+const PATCHES_PATH_PREFIX = "/patches/~";
+const FILES_PATH_PREFIX = "/files";
+
+export function createValApiRouter<Res>(
   route: string,
-  opts: Opts
-): RequestListener {
-  const handler = _createRequestListener(route, opts);
-  return async (req, res) => {
-    try {
-      return (await handler)(req, res);
-    } catch (e) {
-      res.statusCode = 500;
-      res.write(e instanceof Error ? e.message : "Unknown error");
-      res.end();
-      return;
+  valServerPromise: Promise<ValServer>,
+  convert: (valServerRes: ValServerGenericResult) => Res
+): (req: Request) => Promise<Res> {
+  const uiRequestHandler = createUIRequestHandler();
+  return async (req): Promise<Res> => {
+    const valServer = await valServerPromise;
+    req.headers.get("content-type");
+    req.headers.get("Cookie");
+    const url = new URL(req.url);
+    if (!url.pathname.startsWith(route)) {
+      const error = {
+        message: "Val: routes are not configured correctly",
+        details: `Check you api routes. Expected pathname to start with "${route}", but it was: "${url.pathname}"`,
+      };
+      console.error(error);
+      return convert({
+        status: 500,
+        json: error,
+      });
+    }
+    const method = req.method?.toUpperCase();
+
+    function withTreePath(
+      path: string,
+      prefix: string
+    ): (useTreePath: (treePath: string) => Promise<Res>) => Promise<Res> {
+      return async (useTreePath) => {
+        const pathIndex = path.indexOf("~");
+        if (path.startsWith(prefix) && pathIndex !== -1) {
+          return useTreePath(path.slice(pathIndex + 1));
+        } else {
+          if (prefix.indexOf("/~") === -1) {
+            return convert({
+              status: 500,
+              json: {
+                message: `Route is incorrectly formed: ${prefix}!`,
+              },
+            });
+          }
+          return convert({
+            status: 404,
+            json: {
+              message: `Malformed ${prefix} path! Expected: '${prefix}'`,
+            },
+          });
+        }
+      };
+    }
+
+    const path = url.pathname.slice(route.length);
+    if (path.startsWith("/static")) {
+      return convert(await uiRequestHandler(path.slice("/static".length)));
+    } else if (path === "/session") {
+      return convert(
+        await valServer.session(getCookies(req, [VAL_SESSION_COOKIE]))
+      );
+    } else if (path === "/authorize") {
+      return convert(
+        await valServer.authorize({
+          redirect_to: url.searchParams.get("redirect_to") || undefined,
+        })
+      );
+    } else if (path === "/callback") {
+      return convert(
+        await valServer.callback(
+          {
+            code: url.searchParams.get("code") || undefined,
+            state: url.searchParams.get("state") || undefined,
+          },
+          getCookies(req, [VAL_STATE_COOKIE])
+        )
+      );
+    } else if (path === "/logout") {
+      return convert(await valServer.logout());
+    } else if (path === "/enable") {
+      return convert(
+        await valServer.enable({
+          redirect_to: url.searchParams.get("redirect_to") || undefined,
+        })
+      );
+    } else if (path === "/disable") {
+      return convert(
+        await valServer.disable({
+          redirect_to: url.searchParams.get("redirect_to") || undefined,
+        })
+      );
+    } else if (method === "POST" && path === "/commit") {
+      return convert(
+        await valServer.postCommit(getCookies(req, [VAL_SESSION_COOKIE]))
+      );
+    } else if (method === "GET" && path.startsWith(TREE_PATH_PREFIX)) {
+      return withTreePath(
+        path,
+        TREE_PATH_PREFIX
+      )(async (treePath) =>
+        convert(
+          await valServer.getTree(
+            treePath,
+            {
+              patch: url.searchParams.get("patch") || undefined,
+              schema: url.searchParams.get("schema") || undefined,
+              source: url.searchParams.get("source") || undefined,
+            },
+            getCookies(req, [VAL_SESSION_COOKIE])
+          )
+        )
+      );
+    } else if (method === "GET" && path.startsWith(PATCHES_PATH_PREFIX)) {
+      return withTreePath(
+        path,
+        PATCHES_PATH_PREFIX
+      )(async () =>
+        convert(
+          await valServer.getPatches(
+            {
+              id: url.searchParams.getAll("id"),
+            },
+            getCookies(req, [VAL_SESSION_COOKIE])
+          )
+        )
+      );
+    } else if (method === "POST" && path.startsWith(PATCHES_PATH_PREFIX)) {
+      const body = (await req.json()) as unknown;
+      return withTreePath(
+        path,
+        PATCHES_PATH_PREFIX
+      )(async () =>
+        convert(
+          await valServer.postPatches(
+            body,
+            getCookies(req, [VAL_SESSION_COOKIE])
+          )
+        )
+      );
+    } else if (path.startsWith(FILES_PATH_PREFIX)) {
+      const treePath = path.slice(FILES_PATH_PREFIX.length);
+      return convert(
+        await valServer.getFiles(
+          treePath,
+          {
+            sha256: url.searchParams.get("sha256") || undefined,
+          },
+          getCookies(req, [VAL_SESSION_COOKIE])
+        )
+      );
+    } else {
+      return convert({
+        status: 404,
+        json: {
+          message: "Not Found",
+          details: {
+            method,
+            path,
+          },
+        },
+      });
     }
   };
+}
+
+// TODO: is this naive implementation is too naive?
+function getCookies<Names extends string>(req: Request, names: Names[]) {
+  return (
+    req.headers
+      .get("Cookie")
+      ?.split("; ")
+      .reduce((acc, cookie) => {
+        const [name, value] = cookie.split("=");
+        if ((names as string[]).includes(name.trim())) {
+          acc[name.trim() as Names] = decodeURIComponent(value.trim());
+        }
+        return acc;
+      }, {} as { [K in Names]: string }) || ({} as { [K in Names]?: string })
+  );
 }

@@ -19,7 +19,7 @@
     "./package.json": "./package.json"
   },
   "engines": {
-    "node": ">=6"
+    "node": ">=18.17.14"
   },
   "license": "MIT",
   "peerDependencies": {
