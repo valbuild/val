@@ -52,7 +52,7 @@ export class ProxyValServer implements ValServer {
   ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
     return this.withAuth(cookies, "getFiles", async (data) => {
       const url = new URL(
-        `/v1/files/${this.options.valName}/${treePath}`,
+        `/v1/files/${this.options.valName}/~${treePath}`,
         this.options.valContentUrl
       );
       if (typeof query.sha256 === "string") {
@@ -346,7 +346,7 @@ export class ProxyValServer implements ValServer {
         commit,
       });
       const url = new URL(
-        `/v1/tree/${this.options.valName}/heads/${this.options.gitBranch}/${treePath}/?${params}`,
+        `/v1/tree/${this.options.valName}/heads/${this.options.gitBranch}/~${treePath}/?${params}`,
         this.options.valContentUrl
       );
       try {
