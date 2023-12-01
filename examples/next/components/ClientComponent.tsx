@@ -4,6 +4,7 @@ import clientContentVal from "./clientContent.val";
 
 export function ClientComponent() {
   const content = useVal(clientContentVal);
+
   return (
     <div>
       <h1>Client Component</h1>

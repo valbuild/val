@@ -24,9 +24,33 @@ declare const brand: unique symbol;
  * where the content comes from for contextual editing.
  *
  */
-export type ValEncodedString = string & {
-  [brand]: "ValEncodedString";
-};
+export type ValEncodedString =
+  // eslint-disable-next-line @typescript-eslint/ban-types
+  String /* Why String and not string: string is more accurate, but pragmatically many errors (=== or usage of substring) can be caught by the typechecker  */ & {
+    substring: never;
+    slice: never;
+    [brand]: "ValEncodedString";
+  };
+
+class VEString extends String {
+  constructor(str: string, private readonly enableWarning = true) {
+    super(str);
+  }
+  substring(start: number, end?: number | undefined): string {
+    this.enableWarning &&
+      console.warn(
+        "Using substring on a ValEncodedString will most likely not behave as expected"
+      );
+    return super.substring(start, end);
+  }
+  slice(start?: number | undefined, end?: number | undefined): string {
+    this.enableWarning &&
+      console.warn(
+        "Using slice on a ValEncodedString will most likely not behave as expected"
+      );
+    return super.slice(start, end);
+  }
+}
 
 export type StegaOfSource<T extends Source> = Json extends T
   ? Json
@@ -53,6 +77,7 @@ export function stegaEncode(
   opts: {
     getModule?: (moduleId: string) => any;
     disabled?: boolean;
+    showWarnings?: boolean;
   }
 ): any {
   function rec(
@@ -145,13 +170,16 @@ export function stegaEncode(
       if (recOpts.schema.isRaw) {
         return sourceOrSelector;
       }
-      return vercelStegaCombine(
-        sourceOrSelector,
-        {
-          origin: "val.build",
-          data: { valPath: recOpts.path },
-        },
-        false // auto detection on urls and dates is disabled, isDate could be used but it is also disabled (users should use a date schema instead): isDate(sourceOrSelector) // skip = true if isDate
+      return new VEString(
+        vercelStegaCombine(
+          sourceOrSelector,
+          {
+            origin: "val.build",
+            data: { valPath: recOpts.path },
+          },
+          false // auto detection on urls and dates is disabled, isDate could be used but it is also disabled (users should use a date schema instead): isDate(sourceOrSelector) // skip = true if isDate
+        ),
+        opts.showWarnings
       );
     }
 

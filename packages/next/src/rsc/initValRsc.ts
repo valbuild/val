@@ -113,6 +113,7 @@ const initFetchValStega =
     }
     return stegaEncode(selector, {
       disabled: !enabled,
+      showWarnings: config.showWarnings,
     });
   };
 
@@ -133,7 +134,7 @@ function getHost(headers: Headers) {
   return null;
 }
 
-function isProxyMode(opts: Record<string, string>) {
+function isProxyMode(opts: Record<string, string | booleann>) {
   const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
   const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
   const isProxyMode =

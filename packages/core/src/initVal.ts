@@ -22,6 +22,7 @@ export type ValConfig = {
   gitCommit?: string;
   gitBranch?: string;
   valConfigPath: string;
+  showWarnings?: boolean;
 };
 export type InitVal = {
   val: ValConstructor;

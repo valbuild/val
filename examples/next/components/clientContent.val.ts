@@ -5,5 +5,5 @@ export const schema = s.object({
 });
 
 export default val.content("/components/clientContent", schema, {
-  text: "Ææææææ!",
+  text: "Ææææææ! Test",
 });

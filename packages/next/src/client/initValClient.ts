@@ -13,6 +13,7 @@ import {
 import { useValStore } from "@valbuild/react/internal";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ValConfig } from "@valbuild/core";
+import { config } from "process";
 
 function useValStega<T extends SelectorSource>(
   selector: T
