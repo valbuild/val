@@ -21,7 +21,7 @@ type ValConstructor = {
 export type ValConfig = {
   gitCommit?: string;
   gitBranch?: string;
-  valConfigPath: string;
+  valConfigPath?: string;
 };
 export type InitVal = {
   val: ValConstructor;
