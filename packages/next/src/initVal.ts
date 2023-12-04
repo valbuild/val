@@ -1,6 +1,10 @@
-import { initVal as createValSystem, type InitVal } from "@valbuild/core";
+import {
+  initVal as createValSystem,
+  ValConfig,
+  type InitVal,
+} from "@valbuild/core";
 
-export const initVal = (config?: { valConfigPath?: string }): InitVal => {
+export const initVal = (config?: ValConfig): InitVal => {
   const { s, val, config: systemConfig } = createValSystem();
   const currentConfig = {
     ...systemConfig,
