@@ -9,6 +9,12 @@ export const readValFile = async (
   runtime: QuickJSRuntime
 ): Promise<SerializedModuleContent> => {
   const context = runtime.newContext();
+  // avoid failures when console.log is called
+  const logHandle = context.newFunction("log", () => {});
+  const consoleHandle = context.newObject();
+  context.setProp(consoleHandle, "log", logHandle);
+  context.setProp(context.global, "console", consoleHandle);
+
   try {
     const modulePath = `.${id}.val`;
     const code = `import * as valModule from ${JSON.stringify(modulePath)};
