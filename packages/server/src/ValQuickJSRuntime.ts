@@ -55,13 +55,13 @@ export async function newValQuickJSRuntime(
         if (modulePath.startsWith("react/jsx-runtime")) {
           return {
             value:
-              "export const jsx = () => { throw Error(`Cannot use 'jsx' in this type of file`) }; export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'next' in this file`) } } } ); export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'react' in this file`) } } } )",
+              "export const jsx = () => { throw Error(`Cannot use 'jsx' in this type of file`) }; export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'react' in this file`) } } } )",
           };
         }
         if (modulePath.startsWith("react")) {
           return {
             value:
-              "export const useTransition = () => { throw Error(`Cannot use 'useTransition' in this type of file`) }; export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'next' in this file`) } } } ); export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'react' in this file`) } } } )",
+              "export const useTransition = () => { throw Error(`Cannot use 'useTransition' in this type of file`) }; export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'react' in this file`) } } } )",
           };
         }
         if (modulePath.includes("/ValNextProvider")) {
