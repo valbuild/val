@@ -15,6 +15,12 @@ export const readValFile = async (
   context.setProp(consoleHandle, "log", logHandle);
   context.setProp(context.global, "console", consoleHandle);
 
+  // avoid failures when process.env is called
+  const envHandle = context.newObject();
+  const processHandle = context.newObject();
+  context.setProp(processHandle, "env", envHandle);
+  context.setProp(context.global, "process", processHandle);
+
   try {
     const modulePath = `.${id}.val`;
     const code = `import * as valModule from ${JSON.stringify(modulePath)};
