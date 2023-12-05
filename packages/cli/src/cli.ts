@@ -5,7 +5,7 @@ import { execSync } from "child_process";
 import { error, info } from "./logger";
 import { z } from "zod";
 import { fileURLToPath } from "url";
-import { debugPrint, error, info } from "./logger.js";
+import { error, info } from "./logger";
 import { z } from "zod";
 import confirm from "@inquirer/confirm";
 //import open from "open";
@@ -15,6 +15,9 @@ import installVal, {
   informUserOnHowToPatchAppRoute,
 } from "./utils/installVal.js";
 import { input } from "@inquirer/prompts";
+import { debugPrint, error, info } from "./logger";
+import { validate } from "./validate";
+import path from "path";
 
 const VAL_URL = "http://localhost:3420";
 
