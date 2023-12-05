@@ -196,7 +196,7 @@ export function stegaEncode(
       if (!recOpts) {
         return sourceOrSelector;
       }
-      if (recOpts.schema?.isRaw || recOpts.schema?.type === "literal") {
+      if (recOpts.schema?.raw || recOpts.schema?.type === "literal") {
         return sourceOrSelector;
       }
       return vercelStegaCombine(
