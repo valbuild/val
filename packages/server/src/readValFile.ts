@@ -9,17 +9,26 @@ export const readValFile = async (
   runtime: QuickJSRuntime
 ): Promise<SerializedModuleContent> => {
   const context = runtime.newContext();
+
   // avoid failures when console.log is called
-  const logHandle = context.newFunction("log", () => {});
+  const logHandle = context.newFunction("log", () => {
+    // do nothing
+  });
   const consoleHandle = context.newObject();
   context.setProp(consoleHandle, "log", logHandle);
   context.setProp(context.global, "console", consoleHandle);
+
+  consoleHandle.dispose();
+  logHandle.dispose();
 
   // avoid failures when process.env is called
   const envHandle = context.newObject();
   const processHandle = context.newObject();
   context.setProp(processHandle, "env", envHandle);
   context.setProp(context.global, "process", processHandle);
+
+  envHandle.dispose();
+  processHandle.dispose();
 
   try {
     const modulePath = `.${id}.val`;
