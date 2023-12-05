@@ -75,6 +75,17 @@ globalThis.valModule = {
             `Wrong val.content id! In the file of with: '${id}', found: '${valModule.id}'`
           );
         }
+        if (
+          encodeURIComponent(valModule.id).replace(/%2F/g, "/") !== valModule.id
+        ) {
+          fatalErrors.push(
+            `Invalid val.content id! Must be a web-safe path without escape characters, found: '${
+              valModule.id
+            }', which was encoded as: '${encodeURIComponent(
+              valModule.id
+            ).replace("%2F", "/")}'`
+          );
+        }
         if (!valModule?.schema) {
           fatalErrors.push(`Expected val id: '${id}' to have a schema`);
         }
