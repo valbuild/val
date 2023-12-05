@@ -28,22 +28,46 @@ export async function newValQuickJSRuntime(
               "export const useVal = () => { throw Error(`Cannot use 'useVal' in this type of file`) }; export function ValProvider() { throw Error(`Cannot use 'ValProvider' in this type of file`) }; export function ValRichText() { throw Error(`Cannot use 'ValRichText' in this type of file`)};",
           };
         }
+        if (modulePath === "@valbuild/react/internal") {
+          return {
+            value:
+              "export const useVal = () => { throw Error(`Cannot use 'useVal' in this type of file`) }; export function ValProvider() { throw Error(`Cannot use 'ValProvider' in this type of file`) }; export function ValRichText() { throw Error(`Cannot use 'ValRichText' in this type of file`)};",
+          };
+        }
         if (modulePath === "@valbuild/react/stega") {
           return {
             value:
               "export const useVal = () => { throw Error(`Cannot use 'useVal' in this type of file`) }; export const fetchVal = () => { throw Error(`Cannot use 'fetchVal' in this type of file`) }; export const autoTagJSX = () => { /* ignore */ };",
           };
         }
+        if (modulePath.startsWith("next/navigation")) {
+          return {
+            value:
+              "export const useRouter = () => { throw Error(`Cannot use 'useRouter' in this type of file`) }; export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'next' in this file`) } } } );",
+          };
+        }
         if (modulePath.startsWith("next")) {
           return {
             value:
-              "export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'next' in this file`) } } } )",
+              "export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'next' in this file`) } } } );",
+          };
+        }
+        if (modulePath.startsWith("react/jsx-runtime")) {
+          return {
+            value:
+              "export const jsx = () => { throw Error(`Cannot use 'jsx' in this type of file`) }; export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'react' in this file`) } } } )",
           };
         }
         if (modulePath.startsWith("react")) {
           return {
             value:
-              "export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'react' in this file`) } } } )",
+              "export const useTransition = () => { throw Error(`Cannot use 'useTransition' in this type of file`) }; export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'react' in this file`) } } } )",
+          };
+        }
+        if (modulePath.includes("/ValNextProvider")) {
+          return {
+            value:
+              "export const ValNextProvider = new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'ValNextProvider' in this file`) } } } )",
           };
         }
         return { value: moduleLoader.getModule(modulePath) };
@@ -61,10 +85,22 @@ export async function newValQuickJSRuntime(
         if (requestedName === "@valbuild/react/stega") {
           return { value: requestedName };
         }
+        if (requestedName === "@valbuild/react/internal") {
+          return { value: requestedName };
+        }
+        if (requestedName.startsWith("next/navigation")) {
+          return { value: requestedName };
+        }
         if (requestedName.startsWith("next")) {
           return { value: requestedName };
         }
+        if (requestedName.startsWith("react/jsx-runtime")) {
+          return { value: requestedName };
+        }
         if (requestedName.startsWith("react")) {
+          return { value: requestedName };
+        }
+        if (requestedName.includes("/ValNextProvider")) {
           return { value: requestedName };
         }
         const modulePath = moduleLoader.resolveModulePath(

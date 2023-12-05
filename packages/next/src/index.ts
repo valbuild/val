@@ -26,7 +26,7 @@ export {
 } from "@valbuild/core";
 
 // React
-export { ValRichText } from "@valbuild/react";
+export { ValRichText } from "@valbuild/react/internal";
 
 // Stega
 export { type ValEncodedString } from "@valbuild/react/stega";

@@ -1,0 +1,34 @@
+{
+  "name": "@valbuild/eslint-plugin",
+  "version": "0.40.0",
+  "description": "ESLint rules for val",
+  "keywords": [
+    "eslint",
+    "eslintplugin",
+    "eslint-plugin",
+    "val",
+    "valbuild"
+  ],
+  "main": "dist/valbuild-eslint-plugin.cjs.js",
+  "module": "dist/valbuild-eslint-plugin.esm.js",
+  "exports": {
+    ".": {
+      "module": "./dist/valbuild-eslint-plugin.esm.js",
+      "default": "./dist/valbuild-eslint-plugin.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=18.17.1"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "eslint": "6 || 7 || 8"
+  },
+  "devDependencies": {
+    "eslint": "^7.10.0"
+  },
+  "scripts": {
+    "typecheck": "tsc -p jsconfig.json"
+  }
+}

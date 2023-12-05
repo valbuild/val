@@ -35,7 +35,7 @@ export const createModuleLoader = (
   return loader;
 };
 
-const MAX_CACHE_SIZE = 100 * 1024 * 1024; // 100 mb
+const MAX_CACHE_SIZE = 10 * 1024 * 1024; // 10 mb
 const MAX_OBJECT_KEY_SIZE = 2 ** 27; // https://stackoverflow.com/questions/13367391/is-there-a-limit-on-length-of-the-key-string-in-js-object
 
 export class ValModuleLoader {
@@ -49,7 +49,8 @@ export class ValModuleLoader {
     private readonly host: IValFSHost = {
       ...ts.sys,
       writeFile: fs.writeFileSync,
-    }
+    },
+    private readonly disableCache: boolean = false
   ) {
     this.cache = {};
     this.cacheSize = 0;
@@ -64,24 +65,26 @@ export class ValModuleLoader {
       throw Error(`Could not read file "${modulePath}"`);
     }
     let compiledCode;
-    // TODO: use hash instead of code as key
-    if (!this.cache[code]) {
+    if (this.cache[code] && !this.disableCache) {
+      // TODO: use hash instead of code as key
+      compiledCode = this.cache[code];
+    } else {
       compiledCode = transform(code, {
         filePath: modulePath,
         disableESTransforms: true,
         transforms: ["typescript"],
       }).code;
-      if (this.cacheSize > MAX_CACHE_SIZE) {
-        console.warn("Cache size exceeded, clearing cache");
-        this.cache = {};
-        this.cacheSize = 0;
+      if (!this.disableCache) {
+        if (this.cacheSize > MAX_CACHE_SIZE) {
+          console.warn("Cache size exceeded, clearing cache");
+          this.cache = {};
+          this.cacheSize = 0;
+        }
+        if (code.length < MAX_OBJECT_KEY_SIZE) {
+          this.cache[code] = compiledCode;
+          this.cacheSize += code.length + compiledCode.length; // code is mostly ASCII so 1 byte per char
+        }
       }
-      if (code.length < MAX_OBJECT_KEY_SIZE) {
-        this.cache[code] = compiledCode;
-        this.cacheSize += code.length + compiledCode.length; // code is mostly ASCII so 1 byte per char
-      }
-    } else {
-      compiledCode = this.cache[code];
     }
     return compiledCode;
   }

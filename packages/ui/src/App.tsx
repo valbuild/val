@@ -12,6 +12,7 @@ import Logo from "./assets/icons/Logo";
 import { X } from "lucide-react";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function fallbackRender({ error, resetErrorBoundary }: any) {
   console.error(error);
   return (
@@ -26,20 +27,23 @@ function fallbackRender({ error, resetErrorBoundary }: any) {
               <X />
             </button>
           </div>
-          <div className="text-4xl font-normal ">Message: {error.message}</div>
-          <Accordion
-            type="single"
-            className="font-serif"
-            collapsible
-            defaultValue="error"
-          >
-            <AccordionItem value={"error"}>
-              <AccordionTrigger>Stack trace:</AccordionTrigger>
-              <AccordionContent className="p-4 bg-popover text-popover-foreground">
-                {error.stack && <pre>{error.stack}</pre>}
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
+          <div className="text-4xl font-normal ">Message:</div>
+          <pre>{error.message}</pre>
+          {error.stack && (
+            <Accordion
+              type="single"
+              className="font-serif"
+              collapsible
+              defaultValue="error"
+            >
+              <AccordionItem value={"error"}>
+                <AccordionTrigger>Stack trace:</AccordionTrigger>
+                <AccordionContent className="p-4 bg-popover text-popover-foreground">
+                  {error.stack && <pre>{error.stack}</pre>}
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          )}
         </div>
       </div>
     </div>
@@ -51,7 +55,11 @@ function App() {
     [
       {
         path: "/*",
-        element: <ValFullscreen valApi={new ValApi("/api/val")} />,
+        element: (
+          <ErrorBoundary fallbackRender={fallbackRender}>
+            <ValFullscreen valApi={new ValApi("/api/val")} />
+          </ErrorBoundary>
+        ),
       },
     ],
     {
@@ -59,11 +67,7 @@ function App() {
     }
   );
 
-  return (
-    <ErrorBoundary fallbackRender={fallbackRender}>
-      <RouterProvider router={router} />
-    </ErrorBoundary>
-  );
+  return <RouterProvider router={router} />;
 }
 
 export default App;

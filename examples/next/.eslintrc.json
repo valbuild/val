@@ -1,0 +1,7 @@
+{
+  "extends": "next/core-web-vitals",
+  "plugins": ["@valbuild"],
+  "rules": {
+    "@valbuild/no-illegal-module-ids": 2
+  }
+}

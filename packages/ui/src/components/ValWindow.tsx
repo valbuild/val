@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from "react";
-import { AlignJustify, X } from "react-feather";
 import classNames from "classnames";
 import { Resizable } from "react-resizable";
 import { useValOverlayContext } from "./ValOverlayContext";

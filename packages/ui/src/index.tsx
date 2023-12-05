@@ -1,3 +1,4 @@
+"use client";
 /*
  * This module is the entrypoint of @valbuild/ui until the package is built with
  * Vite. It is used only as a shim during local development, and is actually not
@@ -9,6 +10,11 @@
 
 export * from "./exports";
 
-export function Style(): JSX.Element | null {
-  return <link rel="stylesheet" href="/api/val/static/style.css" />;
+export function Style(props: { route: string }): JSX.Element | null {
+  return (
+    <link
+      rel="stylesheet"
+      href={`${props?.route || "/api/val"}/static/src/index.css`}
+    />
+  );
 }

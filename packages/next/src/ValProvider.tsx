@@ -1,5 +1,3 @@
-"use client";
+import { ValNextProvider } from "./ValNextProvider";
 
-// Adds "use client" directive for Next:
-import { ValProvider as ReactValProvider } from "@valbuild/react";
-export const ValProvider = ReactValProvider;
+export const ValProvider = ValNextProvider;

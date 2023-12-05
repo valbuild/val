@@ -5,35 +5,50 @@
 const fs = require("fs");
 const path = require("path");
 
-const serverFile = "server/dist/valbuild-ui-server.esm.js";
-const inputFile = "server/.tmp/index.js";
-const filePath = path.join(__dirname, serverFile);
-const replaceString = "/**REPLACE:SCRIPT*/";
-const fileToEncodePath = path.join(__dirname, inputFile);
+const serverFiles = [
+  "server/dist/valbuild-ui-server.esm.js",
+  "server/dist/valbuild-ui-server.cjs.js",
+];
+const inputDir = "server/.tmp";
+function walk(dir) {
+  return fs.readdirSync(dir).reduce((files, fileOrDirName) => {
+    const fileOrDirPath = path.join(dir, fileOrDirName);
+    if (fs.statSync(fileOrDirPath).isDirectory()) {
+      return {
+        ...files,
+        ...walk(fileOrDirPath),
+      };
+    }
+    const fileContent = fs.readFileSync(fileOrDirPath, "utf-8");
+    const encodedContent = Buffer.from(fileContent).toString("base64");
+    return {
+      ...files,
+      [fileOrDirPath.replace(inputDir, "")]: encodedContent,
+    };
+  }, {});
+}
 
-// Read the contents of the file to be encoded
-const fileToEncodeContent = fs.readFileSync(fileToEncodePath, "utf-8");
+const files = walk(inputDir);
+const stringifiedFiles = JSON.stringify(files);
 
-// Encode the file contents to base64
-const encodedContent = Buffer.from(fileToEncodeContent).toString("base64");
-
-// Read the main file and replace the placeholder string
-fs.readFile(filePath, "utf-8", (err, data) => {
-  if (err) {
-    console.error("Error reading file:", err);
-    return;
-  }
-
-  const result = data.replace(replaceString, encodedContent);
-
-  // Write the modified content back to the file
-  fs.writeFile(filePath, result, "utf-8", (err) => {
+for (const serverFile of serverFiles) {
+  const filePath = path.join(__dirname, serverFile);
+  const replaceString = "BUILD_REPLACE_THIS_WITH_RECORD";
+  fs.readFile(filePath, "utf-8", (err, data) => {
     if (err) {
-      console.error("Error writing file:", err);
+      console.error("Error reading file:", err);
       return;
     }
-    console.log(
-      `Replaced script in ${serverFile} with contents of ${inputFile}!`
-    );
+
+    const result = data.replace(replaceString, stringifiedFiles);
+
+    // Write the modified content back to the file
+    fs.writeFile(filePath, result, "utf-8", (err) => {
+      if (err) {
+        console.error("Error writing file:", err);
+        return;
+      }
+      console.log(`Replaced script in ${serverFile} with contents of build!`);
+    });
   });
-});
+}

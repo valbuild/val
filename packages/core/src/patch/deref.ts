@@ -1,6 +1,5 @@
 import { FILE_REF_PROP, isFile } from "../source/file";
 import { result } from "../fp";
-import { isRemote, REMOTE_REF_PROP } from "../source/future/remote";
 import { Ops, PatchError } from "./ops";
 import { Patch } from "./patch";
 import { Operation } from "./operation";
@@ -38,7 +37,6 @@ function derefPath(
 export type DerefPatchResult = {
   dereferencedPatch: Patch;
   fileUpdates: { [path: string]: string };
-  remotePatches: { [ref: string]: Patch };
 };
 
 export function derefPatch<D, E>(
@@ -46,9 +44,6 @@ export function derefPatch<D, E>(
   document: D,
   ops: Ops<D, E>
 ): result.Result<DerefPatchResult, E | PatchError> {
-  const remotePatches: {
-    [ref: string]: Patch;
-  } = {};
   const fileUpdates: {
     [file: string]: string;
   } = {};
@@ -84,15 +79,15 @@ export function derefPatch<D, E>(
               );
             }
             fileUpdates[value[FILE_REF_PROP]] = op.value;
-          } else if (isRemote(value)) {
-            if (!remotePatches[value[REMOTE_REF_PROP]]) {
-              remotePatches[value[REMOTE_REF_PROP]] = [];
-            }
-            remotePatches[value[REMOTE_REF_PROP]].push({
-              op: "replace",
-              path: referencedPath,
-              value: op.value,
-            });
+            // } else if (isRemote(value)) {
+            //   if (!remotePatches[value[REMOTE_REF_PROP]]) {
+            //     remotePatches[value[REMOTE_REF_PROP]] = [];
+            //   }
+            //   remotePatches[value[REMOTE_REF_PROP]].push({
+            //     op: "replace",
+            //     path: referencedPath,
+            //     value: op.value,
+            //   });
           } else {
             return result.err(
               new PatchError(
@@ -109,8 +104,8 @@ export function derefPatch<D, E>(
         dereferencedPatch.push(op);
       }
     } else if (op.op === "file") {
-      if (op.path[0] !== "public") {
-        return result.err(new PatchError(`Path must start with public`));
+      if (!op.filePath.startsWith("/public")) {
+        return result.err(new PatchError(`Path must start with /public`));
       }
       if (typeof op.value !== "string") {
         return result.err(
@@ -119,7 +114,7 @@ export function derefPatch<D, E>(
           )
         );
       }
-      fileUpdates[`/${op.path.join("/")}`] = op.value;
+      fileUpdates[op.filePath] = op.value;
     } else {
       const maybeDerefRes = derefPath(op.path);
       if (result.isErr(maybeDerefRes)) {
@@ -134,7 +129,6 @@ export function derefPatch<D, E>(
   }
 
   return result.ok({
-    remotePatches,
     fileUpdates,
     dereferencedPatch,
   });

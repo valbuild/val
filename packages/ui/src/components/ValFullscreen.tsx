@@ -1,6 +1,6 @@
-"use client";
 import {
   AnyRichTextOptions,
+  ApiTreeResponse,
   FileSource,
   FILE_REF_PROP,
   ImageMetadata,
@@ -28,7 +28,6 @@ import { result } from "@valbuild/core/fp";
 import { Tree } from "./dashboard/Tree";
 import { OnSubmit, ValFormField } from "./ValFormField";
 import React from "react";
-import { parseRichTextSource } from "../exports";
 import { createPortal } from "react-dom";
 import Logo from "../assets/icons/Logo";
 import { ScrollArea } from "./ui/scroll-area";
@@ -39,11 +38,16 @@ import { ValOverlayContext } from "./ValOverlayContext";
 import { useNavigate, useParams } from "react-router";
 import { useTheme } from "./useTheme";
 import { resolvePath } from "src/utils/resolvePath";
+import classNames from "classnames";
+import { ValMenu } from "./ValMenu";
+import { parseRichTextSource } from "@valbuild/shared/internal";
 
 interface ValFullscreenProps {
   valApi: ValApi;
 }
 
+// TODO: move SerializedModuleContent to core
+type SerializedModuleContent = ApiTreeResponse["modules"][ModuleId];
 export const ValModulesContext = React.createContext<ValModules>(null);
 
 export const useValModuleFromPath = (
@@ -69,23 +73,11 @@ export const useValModuleFromPath = (
   return {
     moduleId,
     moduleSource: resolvedPath.source,
-    moduleSchema: resolvedPath.schema, // denne typefeilen må du se på @freddy
+    moduleSchema: resolvedPath.schema,
   };
 };
 
-type ValModules = Record<
-  ModuleId,
-  {
-    schema?: SerializedSchema | undefined;
-    patches?:
-      | {
-          applied: string[];
-          failed?: string[] | undefined;
-        }
-      | undefined;
-    source?: Json | undefined;
-  }
-> | null;
+type ValModules = Record<ModuleId, SerializedModuleContent> | null;
 
 type InitOnSubmit = (path: SourcePath) => OnSubmit;
 export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
@@ -99,7 +91,38 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
     : [undefined, undefined];
   const moduleSource = selectedModuleId && modules?.[selectedModuleId]?.source;
   const moduleSchema = selectedModuleId && modules?.[selectedModuleId]?.schema;
+  const fatalErrors = Object.entries(modules || {}).flatMap(([, module]) => {
+    return module.errors
+      ? module.errors.fatal
+        ? module.errors.fatal
+        : []
+      : [];
+  });
+  const validationErrors = Object.entries(modules || {}).flatMap(
+    ([, module]) => {
+      return module.errors && module.errors.validation
+        ? [module.errors.validation]
+        : [];
+    }
+  );
 
+  if (fatalErrors && fatalErrors.length > 0) {
+    const message =
+      fatalErrors.length === 1
+        ? fatalErrors[0].message
+        : `Multiple errors detected:\n${fatalErrors
+            .map((f, i) => `${i + 1}. ${f.message}`)
+            .join("\n")}\n\nShowing stack trace of: 0. ${
+            fatalErrors[0].message
+          }`;
+    const error = new Error(message);
+    error.stack = fatalErrors[0].stack;
+    throw error;
+  }
+
+  if (validationErrors && validationErrors.length > 0) {
+    console.warn("Val encountered validation errors:", validationErrors);
+  }
   //
   useEffect(() => {
     setSelectedPath(
@@ -136,7 +159,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   useEffect(() => {
     console.log("(Re)-fetching modules");
     valApi
-      .getModules({ patch: true, includeSchema: true, includeSource: true })
+      .getTree({ patch: true, includeSchema: true, includeSource: true })
       .then((res) => {
         if (result.isOk(res)) {
           setModules(res.value.modules);
@@ -174,12 +197,11 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
           if (result.isErr(res)) {
             throw res.error;
           } else {
-            console.log("submitted", patch);
             // TODO: we need to revisit this a bit, HMR might not be the best solution here
             if (!hmrHash) {
-              // TODO: we should only refresh the module that was updated
               return valApi
-                .getModules({
+                .getTree({
+                  treePath: moduleId,
                   patch: true,
                   includeSchema: true,
                   includeSource: true,
@@ -227,6 +249,9 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
         className="relative font-serif antialiased"
         data-mode={theme}
       >
+        <div className="fixed -translate-x-1/2 z-overlay left-1/2 bottom-4">
+          <ValMenu api={valApi} />
+        </div>
         <div id="val-fullscreen-hover" ref={hoverElemRef}></div>
         <ValFullscreenHoverContext.Provider
           value={{
@@ -331,6 +356,7 @@ function ValModule({
       schema={resolvedPath.schema as SerializedSchema}
       setSelectedPath={setSelectedPath}
       initOnSubmit={initOnSubmit}
+      top
     />
   );
 }
@@ -342,6 +368,7 @@ function AnyVal({
   setSelectedPath,
   field,
   initOnSubmit,
+  top,
 }: {
   path: SourcePath;
   source: Json;
@@ -349,6 +376,7 @@ function AnyVal({
   setSelectedPath: (path: SourcePath | ModuleId) => void;
   field?: string;
   initOnSubmit: InitOnSubmit;
+  top?: boolean;
 }): React.ReactElement {
   if (source === null || schema.opt) {
     return (
@@ -373,6 +401,7 @@ function AnyVal({
         schema={schema}
         initOnSubmit={initOnSubmit}
         setSelectedPath={setSelectedPath}
+        top={top}
       />
     );
   } else if (schema.type === "array") {
@@ -450,17 +479,21 @@ function ValObject({
   schema,
   setSelectedPath,
   initOnSubmit,
+  top,
 }: {
   source: JsonObject;
   path: SourcePath;
   schema: SerializedObjectSchema;
   setSelectedPath: (path: SourcePath | ModuleId) => void;
   initOnSubmit: InitOnSubmit;
+  top?: boolean;
 }): React.ReactElement {
   return (
     <div
       key={path}
-      className="flex flex-col pl-6 border-l-2 gap-y-8 border-border"
+      className={classNames("flex flex-col gap-y-8", {
+        "border-l-2 border-border pl-6": !top,
+      })}
     >
       {Object.entries(schema.items).map(([key, property]) => {
         const subPath = createValPathOfItem(path, key);

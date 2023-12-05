@@ -1,4 +1,4 @@
-import { F } from "ts-toolbelt";
+import type { F } from "ts-toolbelt";
 import { SourcePrimitive, VAL_EXTENSION } from "..";
 import { FileSource } from "../file";
 

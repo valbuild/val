@@ -1,0 +1,4 @@
+{
+  "main": "dist/valbuild-shared-internal.cjs.js",
+  "module": "dist/valbuild-shared-internal.esm.js"
+}

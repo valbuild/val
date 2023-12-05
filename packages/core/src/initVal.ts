@@ -17,9 +17,16 @@ type ValConstructor = {
   link: typeof link;
   richtext: typeof richtext;
 };
+
+export type ValConfig = {
+  gitCommit?: string;
+  gitBranch?: string;
+  valConfigPath?: string;
+};
 export type InitVal = {
   val: ValConstructor;
   s: InitSchema;
+  config: ValConfig;
 };
 
 // type NarrowStrings<A> =
@@ -53,6 +60,7 @@ InitVal => {
   //       richtext,
   //     },
   //     s,
+  //     config: {},
   //     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   //   } as any;
   // }
@@ -65,9 +73,8 @@ InitVal => {
       richtext,
       link,
     },
-    s: {
-      ...s,
-    },
+    s,
+    config: {},
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
 };
