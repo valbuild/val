@@ -42,7 +42,7 @@ export type ValEncodedString =
      * @example
      * val.raw(myEncodedString) // returns a normal string
      */
-    substring: never
+    substring: never;
     /**
      *
      * NB: This is a Val ENCODED string, which means that you should not use this method.
@@ -53,7 +53,7 @@ export type ValEncodedString =
      *
      * @example
      * val.raw(myEncodedString) // returns a normal string
-     */;
+     */
     match: never;
     /**
      *
