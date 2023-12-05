@@ -7,14 +7,14 @@ import { useTransition } from "react";
 export const ValNextProvider = (props: {
   children: React.ReactNode | React.ReactNode[];
   config: ValConfig;
-  isPagesRouter?: boolean;
+  disableRefresh?: boolean;
 }) => {
   const router = useRouter();
   const [, startTransition] = useTransition();
   return (
     <ReactValProvider
       onSubmit={(refreshRequired) => {
-        if (refreshRequired && !props.isPagesRouter) {
+        if (refreshRequired && !props.disableRefresh) {
           startTransition(() => {
             router.refresh();
           });
