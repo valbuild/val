@@ -459,7 +459,7 @@ function KeyOfField({
         <SelectContent>
           {typeAndValues.values.map((value) => (
             <SelectItem key={value} value={value.toString()}>
-              {value}
+              {value.toString()}
             </SelectItem>
           ))}
         </SelectContent>
