@@ -291,6 +291,21 @@ export function resolvePath<
       };
     } else if (isUnionSchema(resolvedSchema)) {
       const key = resolvedSchema.key;
+      if (!key) {
+        return {
+          path: origParts
+            .map((p) => {
+              if (!Number.isNaN(Number(p))) {
+                return p;
+              } else {
+                return JSON.stringify(p);
+              }
+            })
+            .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
+          schema: resolvedSchema as Sch,
+          source: resolvedSource as Src,
+        };
+      }
       const keyValue = resolvedSource[key];
       if (!keyValue) {
         throw Error(
