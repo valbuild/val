@@ -29,9 +29,147 @@ declare const brand: unique symbol;
  * where the content comes from for contextual editing.
  *
  */
-export type ValEncodedString = string & {
-  [brand]: "ValEncodedString";
-};
+export type ValEncodedString =
+  `${string}__VAL_ENCODED_STRING_INVISIBLE_CHARS` & {
+    /**
+     *
+     * NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * Instead, get the raw string using `val.raw`
+     *
+     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * @example
+     * val.raw(myEncodedString) // returns a normal string
+     */
+    substring: never;
+    /**
+     *
+     * NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * Instead, get the raw string using `val.raw`
+     *
+     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * @example
+     * val.raw(myEncodedString) // returns a normal string
+     */
+    match: never;
+    /**
+     *
+     * NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * Instead, get the raw string using `val.raw`
+     *
+     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * @example
+     * val.raw(myEncodedString) // returns a normal string
+     */
+    charAt: never;
+    /**
+     *
+     * NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * Instead, get the raw string using `val.raw`
+     *
+     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * @example
+     * val.raw(myEncodedString) // returns a normal string
+     */
+    charCodeAt: never;
+    /**
+     *
+     * NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * Instead, get the raw string using `val.raw`
+     *
+     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * @example
+     * val.raw(myEncodedString) // returns a normal string
+     */
+    concat: never;
+    /**
+     *
+     * NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * Instead, get the raw string using `val.raw`
+     *
+     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * @example
+     * val.raw(myEncodedString) // returns a normal string
+     */
+    indexOf: never;
+    /**
+     *
+     * NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * Instead, get the raw string using `val.raw`
+     *
+     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * @example
+     * val.raw(myEncodedString) // returns a normal string
+     */
+    lastIndexOf: never;
+    /**
+     *
+     * NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * Instead, get the raw string using `val.raw`
+     *
+     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * @example
+     * val.raw(myEncodedString) // returns a normal string
+     */
+    slice: never;
+    /**
+     *
+     * NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * Instead, get the raw string using `val.raw`
+     *
+     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * @example
+     * val.raw(myEncodedString) // returns a normal string
+     */
+    toString: never;
+    /**
+     *
+     * NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * Instead, get the raw string using `val.raw`
+     *
+     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * @example
+     * val.raw(myEncodedString) // returns a normal string
+     */
+
+    // ---
+
+    /**
+     *
+     * NB: This is a Val ENCODED string, which means that you should not use length on it.
+     *
+     * Instead, get the raw string using `val.raw`
+     *
+     * @deprecated NB: This is a Val ENCODED string, which means that you should not use this method.
+     *
+     * @example
+     * val.raw(myEncodedString) // returns a normal string
+     */
+    length: never;
+
+    // includes, toLowerCase and toUpperCase should be fine
+
+    [brand]: "ValEncodedString";
+  };
 
 export type StegaOfSource<T extends Source> = Json extends T
   ? Json
