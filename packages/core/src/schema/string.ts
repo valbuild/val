@@ -15,6 +15,9 @@ export type SerializedStringSchema = {
   raw: boolean;
 };
 
+const brand = Symbol("string");
+export type RawString = string & { readonly [brand]: "raw" };
+
 export class StringSchema<Src extends string | null> extends Schema<Src> {
   constructor(
     readonly options?: StringOptions,
@@ -35,6 +38,24 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
         ],
       } as ValidationErrors;
     }
+    const errors = [];
+    if (this.options?.maxLength && src.length > this.options.maxLength) {
+      errors.push({
+        message: `Expected string to be at most ${this.options.maxLength} characters long, got ${src.length}`,
+        value: src,
+      });
+    }
+    if (this.options?.minLength && src.length < this.options.minLength) {
+      errors.push({
+        message: `Expected string to be at least ${this.options.minLength} characters long, got ${src.length}`,
+        value: src,
+      });
+    }
+    if (errors.length > 0) {
+      return {
+        [path]: errors,
+      } as ValidationErrors;
+    }
     return false;
   }
 
@@ -49,8 +70,12 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     return new StringSchema<Src | null>(this.options, true, this.isRaw);
   }
 
-  raw(): StringSchema<Src> {
-    return new StringSchema<Src>(this.options, this.opt, true);
+  raw(): StringSchema<Src extends null ? RawString | null : RawString> {
+    return new StringSchema<Src extends null ? RawString | null : RawString>(
+      this.options,
+      this.opt,
+      true
+    );
   }
 
   serialize(): SerializedSchema {

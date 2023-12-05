@@ -1,0 +1,41 @@
+{
+  "name": "@valbuild/shared",
+  "version": "0.40.0",
+  "private": false,
+  "description": "Val shared types and utilities",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "main": "dist/valbuild-shared.cjs.js",
+  "module": "dist/valbuild-shared.esm.js",
+  "exports": {
+    ".": {
+      "module": "./dist/valbuild-shared.esm.js",
+      "default": "./dist/valbuild-shared.cjs.js"
+    },
+    "./internal": {
+      "module": "./internal/dist/valbuild-shared-internal.esm.js",
+      "default": "./internal/dist/valbuild-shared-internal.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "dist/valbuild-shared.cjs.d.ts",
+  "preconstruct": {
+    "entrypoints": [
+      "./index.ts",
+      "./internal/index.ts"
+    ],
+    "exports": true
+  },
+  "devDependencies": {},
+  "dependencies": {
+    "@valbuild/core": "~0.40.0",
+    "marked": "^9.0.3"
+  },
+  "files": [
+    "dist",
+    "internal/dist",
+    "internal/package.json"
+  ]
+}

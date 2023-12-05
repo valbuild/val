@@ -6,17 +6,14 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "lib": ["es6", "dom"],
-    "module": "CommonJS",
+    "module": "ESNext",
+    "moduleResolution": "node",
     "noEmit": true,
     "target": "ES5",
     "outDir": "dist",
     "rootDir": "src",
     "skipLibCheck": true
   },
-  "include": [
-    "src/**/*",
-    "../react/stega/autoTagJSX.ts",
-    "../react/stega/fetchVal.ts"
-  ],
+  "include": ["src/**/*"],
   "exclude": ["dist/**"]
 }

@@ -1,6 +1,7 @@
 import {
   AnyRichTextOptions,
   FileSource,
+  FILE_REF_PROP,
   ImageMetadata,
   Internal,
   Json,
@@ -11,10 +12,11 @@ import {
 } from "@valbuild/core";
 import type { PatchJSON } from "@valbuild/core/patch";
 import { LexicalEditor } from "lexical";
-import { useState, useEffect, useRef, useContext } from "react";
+import { useState, useEffect, useRef } from "react";
+import { getMimeType, mimeTypeToFileExt } from "@valbuild/shared/internal";
 import { RichTextEditor } from "../exports";
-import { lexicalToRichTextSource } from "../richtext/conversion/lexicalToRichTextSource";
-import { LexicalRootNode } from "../richtext/conversion/richTextSourceToLexical";
+import { lexicalToRichTextSource } from "@valbuild/shared/internal";
+import { LexicalRootNode } from "@valbuild/shared/internal";
 import { readImage } from "../utils/readImage";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -22,14 +24,13 @@ import {
   Select,
   SelectContent,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
 import { PatchCallback } from "./usePatch";
 import { useValModuleFromPath, ValModulesContext } from "./ValFullscreen";
 
-type ImageSource = FileSource<ImageMetadata>;
+export type ImageSource = FileSource<ImageMetadata>;
 export type OnSubmit = (callback: PatchCallback) => Promise<void>;
 
 export function ValFormField({
@@ -90,6 +91,35 @@ export function ValFormField({
     );
   }
   if (
+    (typeof source === "number" || source === null) &&
+    schema?.type === "number"
+  ) {
+    return (
+      <NumberField
+        defaultValue={source}
+        disabled={disabled}
+        registerPatchCallback={registerPatchCallback}
+        onSubmit={onSubmit}
+      />
+    );
+  }
+  if (
+    (typeof source === "number" ||
+      typeof source === "string" ||
+      source === null) &&
+    schema?.type === "keyOf"
+  ) {
+    return (
+      <KeyOfField
+        defaultValue={source}
+        disabled={disabled}
+        registerPatchCallback={registerPatchCallback}
+        onSubmit={onSubmit}
+        selector={schema.selector}
+      />
+    );
+  }
+  if (
     (typeof source === "object" || source === null) &&
     schema?.type === "richtext"
   ) {
@@ -117,32 +147,42 @@ export function ValFormField({
   return <div>Unsupported schema: {schema.type}</div>;
 }
 
-async function createImagePatch(
+export function createImagePatch(
   path: string,
   data: string | null,
-  metadata: ImageMetadata,
-  defaultValue?: ImageSource
-): Promise<PatchJSON> {
-  const pathParts = path.split("/");
+  filename: string | null,
+  metadata: ImageMetadata
+): PatchJSON {
   if (!data || !metadata) {
     return [];
   }
+  const shaSuffix = metadata.sha256.slice(0, 5);
+  const newFilePath = (function () {
+    const mimeType = getMimeType(data) ?? "unknown";
+    const newExt = mimeTypeToFileExt(mimeType); // Dont trust the file extension
+    if (filename) {
+      const filenameWithoutExt =
+        filename.split(".").slice(0, -1).join(".") || filename; // remove extension if it exists
+      return `/public/${filenameWithoutExt}_${shaSuffix}.${newExt}`;
+    }
+    return `/public/${metadata.sha256}.${newExt}`;
+  })();
+
   return [
     {
       value: {
-        ...defaultValue,
+        [FILE_REF_PROP]: newFilePath,
+        [VAL_EXTENSION]: "file",
         metadata,
       },
       op: "replace",
       path,
     },
-    // update the contents of the file:
     {
       value: data,
-      op: "replace",
-      path: `${pathParts.slice(0, -1).join("/")}/$${
-        pathParts[pathParts.length - 1]
-      }`,
+      op: "file",
+      path,
+      filePath: newFilePath,
     },
   ];
 }
@@ -158,7 +198,9 @@ function ImageField({
   registerPatchCallback?: (callback: PatchCallback) => void;
   defaultValue?: ImageSource;
 }) {
-  const [data, setData] = useState<string | null>(null);
+  const [data, setData] = useState<{ filename?: string; src: string } | null>(
+    null
+  );
   const [loading, setLoading] = useState(false);
   const [metadata, setMetadata] = useState<ImageMetadata>();
   const [url, setUrl] = useState<string>();
@@ -169,7 +211,12 @@ function ImageField({
   useEffect(() => {
     if (registerPatchCallback) {
       registerPatchCallback(async (path) => {
-        return createImagePatch(path, data, metadata, defaultValue);
+        return createImagePatch(
+          path,
+          data?.src ?? null,
+          data?.filename ?? null,
+          metadata
+        );
       });
     }
   }, [data, defaultValue]);
@@ -177,7 +224,7 @@ function ImageField({
   return (
     <div className="max-w-4xl p-4" key={path}>
       <label htmlFor={`img_input:${path}`} className="">
-        {data || url ? <img src={data || url} /> : <div>Empty</div>}
+        {data || url ? <img src={data?.src || url} /> : <div>Empty</div>}
         <input
           id={`img_input:${path}`}
           type="file"
@@ -185,7 +232,7 @@ function ImageField({
           onChange={(ev) => {
             readImage(ev)
               .then((res) => {
-                setData(res.src);
+                setData({ src: res.src, filename: res.filename });
                 if (res.width && res.height) {
                   setMetadata({
                     sha256: res.sha256,
@@ -212,7 +259,14 @@ function ImageField({
               onClick={() => {
                 setLoading(true);
                 onSubmit((path) =>
-                  createImagePatch(path, data, metadata, defaultValue)
+                  Promise.resolve(
+                    createImagePatch(
+                      path,
+                      data.src,
+                      data.filename ?? null,
+                      metadata
+                    )
+                  )
                 ).finally(() => {
                   setLoading(false);
                   setData(null);
@@ -252,10 +306,11 @@ async function createRichTextPatch(path: string, editor: LexicalEditor) {
         [VAL_EXTENSION]: "richtext",
       },
     },
-    ...Object.entries(files).map(([path, value]) => {
+    ...Object.entries(files).map(([filePath, value]) => {
       return {
         op: "file" as const,
         path,
+        filePath,
         value,
       };
     }),
@@ -286,7 +341,7 @@ function RichTextField({
   }, [editor]);
   useEffect(() => {
     if (editor && registerPatchCallback) {
-      registerPatchCallback(async (path) => createRichTextPatch(path, editor));
+      registerPatchCallback((path) => createRichTextPatch(path, editor));
     }
   }, [editor]);
   return (

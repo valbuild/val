@@ -1,23 +1,62 @@
+import { result } from "@valbuild/core/fp";
 import { useValOverlayContext } from "./ValOverlayContext";
-import { ValApi } from "@valbuild/core";
+import { ModuleId, ValApi } from "@valbuild/core";
 import classNames from "classnames";
 import {
+  LogIn,
   Maximize,
   Minimize,
   Moon,
   Pause,
   Play,
   Power,
+  Send,
   Sun,
 } from "lucide-react";
-import React from "react";
+import React, { useEffect, useState } from "react";
 
 const className = "p-1 border rounded-full shadow border-accent";
+const PREV_URL_KEY = "valbuild:urlBeforeNavigation";
 
 export function ValMenu({ api }: { api: ValApi }) {
-  const { theme, setTheme, editMode, setEditMode } = useValOverlayContext();
+  const { theme, setTheme, editMode, setEditMode, session } =
+    useValOverlayContext();
+  if (session.status === "success" && session.data.mode === "unauthorized") {
+    return (
+      <SingleItemMenu href={api.getLoginUrl(window.location.href)}>
+        <span>Login</span>
+        <LogIn size={18} />
+      </SingleItemMenu>
+    );
+  }
+  if (session.status === "success" && !session.data.enabled) {
+    return (
+      <SingleItemMenu href={api.getEnableUrl(window.location.href)}>
+        <span>Enable</span>
+        <LogIn size={18} />
+      </SingleItemMenu>
+    );
+  }
+  const [patchCount, setPatchCount] = useState<number>();
+
+  useEffect(() => {
+    if (session.status === "success" && session.data.mode === "proxy") {
+      api.getPatches({}).then((patchRes) => {
+        if (result.isOk(patchRes)) {
+          let patchCount = 0;
+          for (const moduleId in patchRes.value) {
+            patchCount += patchRes.value[moduleId as ModuleId].length;
+          }
+          setPatchCount(patchCount);
+        } else {
+          console.error("Could not load patches", patchRes.error);
+        }
+      });
+    }
+  }, [session]);
+
   return (
-    <div className="flex flex-row items-center justify-center w-full h-full px-1 py-2 border-2 rounded-full gap-x-3 text-primary bg-background border-fill">
+    <MenuContainer>
       <MenuButton
         active={editMode === "hover"}
         onClick={() => {
@@ -38,18 +77,76 @@ export function ValMenu({ api }: { api: ValApi }) {
           {theme === "light" && <Moon size={15} />}
         </div>
       </MenuButton>
-
-      <a className={className} href={api.getEditUrl()}>
+      <MenuButton
+        active={editMode === "full"}
+        onClick={() => {
+          // Save the current url so we can go back to it when returning from fullscreen mode
+          if (editMode !== "full") {
+            localStorage.setItem(PREV_URL_KEY, window.location.href);
+            window.location.href = api.getEditUrl();
+          } else if (editMode === "full") {
+            const prevUrl = localStorage.getItem(PREV_URL_KEY);
+            window.location.href = prevUrl || "/";
+          }
+        }}
+      >
         <div className="h-[24px] w-[24px] flex justify-center items-center">
-          <Maximize size={15} />
+          {editMode === "full" ? (
+            <Minimize size={15} />
+          ) : (
+            <Maximize size={15} />
+          )}
         </div>
-      </a>
-
-      <a className={className} href={api.getDisableUrl()}>
+      </MenuButton>
+      {patchCount && (
+        <MenuButton
+          onClick={() => {
+            //
+          }}
+        >
+          <div className="relative h-[24px] w-[24px] flex justify-center items-center">
+            <div className="absolute -right-[10px] -top-[10px] border border-border rounded-full px-1 font-sans text-xs bg-card text-accent">
+              {patchCount}
+            </div>
+            <Send size={18} />
+          </div>
+        </MenuButton>
+      )}
+      <a className={className} href={api.getDisableUrl(window.location.href)}>
         <div className="h-[24px] w-[24px] flex justify-center items-center">
           <Power size={18} />
         </div>
       </a>
+    </MenuContainer>
+  );
+}
+
+function SingleItemMenu({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode[];
+}) {
+  return (
+    <div className="flex flex-row items-center justify-center w-full h-full font-sans border-2 rounded-full gap-x-3 text-primary bg-background border-fill">
+      <a className={className} href={href}>
+        <div className="flex items-center justify-center px-2 gap-x-2">
+          {children}
+        </div>
+      </a>
+    </div>
+  );
+}
+
+function MenuContainer({
+  children,
+}: {
+  children: React.ReactNode | React.ReactNode[];
+}) {
+  return (
+    <div className="flex flex-row items-center justify-center w-full h-full px-2 py-2 font-sans border-2 rounded-full gap-x-3 text-primary bg-background border-fill">
+      {children}
     </div>
   );
 }

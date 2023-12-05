@@ -23,6 +23,7 @@ import {
 import { FileSource } from "./source/file";
 import { AnyRichTextOptions, RichText } from "./source/richtext";
 import { RecordSchema, SerializedRecordSchema } from "./schema/record";
+import { RawString } from "./schema/string";
 
 const brand = Symbol("ValModule");
 export type ValModule<T extends SelectorSource> = SelectorOf<T> &
@@ -35,13 +36,26 @@ export type ValModuleBrand = {
 export type TypeOfValModule<T extends ValModule<SelectorSource>> =
   T extends GenericSelector<infer S> ? S : never;
 
+type ReplaceRawStringWithString<T extends SelectorSource> =
+  SelectorSource extends T
+    ? T
+    : T extends RawString
+    ? string
+    : T extends { [key in string]: SelectorSource }
+    ? {
+        [key in keyof T]: ReplaceRawStringWithString<T[key]>;
+      }
+    : T extends SelectorSource[]
+    ? ReplaceRawStringWithString<T[number]>[]
+    : T;
+
 export function content<T extends Schema<SelectorSource>>(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   id: string,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   schema: T,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  source: SchemaTypeOf<T>
+  source: ReplaceRawStringWithString<SchemaTypeOf<T>>
 ): ValModule<SchemaTypeOf<T>> {
   return {
     [GetSource]: source,
@@ -169,14 +183,21 @@ function isImageSchema(
 //   );
 // }
 
-export function resolvePath(
+export function resolvePath<
+  Src extends ValModule<SelectorSource> | Source,
+  Sch extends Schema<SelectorSource> | SerializedSchema
+>(
   path: ModulePath,
-  valModule: ValModule<SelectorSource> | Source,
-  schema: Schema<SelectorSource> | SerializedSchema
-) {
+  valModule: Src,
+  schema: Sch
+): {
+  path: SourcePath;
+  schema: Sch;
+  source: Src;
+} {
   const parts = parsePath(path);
   const origParts = [...parts];
-  let resolvedSchema = schema;
+  let resolvedSchema: Schema<SelectorSource> | SerializedSchema = schema;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let resolvedSource: any /* TODO: any */ = valModule;
   while (parts.length > 0) {
@@ -264,12 +285,27 @@ export function resolvePath(
         path: origParts
           .slice(0, origParts.length - parts.length - 1)
           .map((p) => JSON.stringify(p))
-          .join("."), // TODO: create a function generate path from parts (not sure if this always works)
-        schema: resolvedSchema,
+          .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
+        schema: resolvedSchema as Sch,
         source: resolvedSource,
       };
     } else if (isUnionSchema(resolvedSchema)) {
       const key = resolvedSchema.key;
+      if (!key) {
+        return {
+          path: origParts
+            .map((p) => {
+              if (!Number.isNaN(Number(p))) {
+                return p;
+              } else {
+                return JSON.stringify(p);
+              }
+            })
+            .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
+          schema: resolvedSchema as Sch,
+          source: resolvedSource as Src,
+        };
+      }
       const keyValue = resolvedSource[key];
       if (!keyValue) {
         throw Error(
@@ -292,8 +328,8 @@ export function resolvePath(
         path: origParts
           .slice(0, origParts.length - parts.length - 1)
           .map((p) => JSON.stringify(p))
-          .join("."), // TODO: create a function generate path from parts (not sure if this always works)
-        schema: resolvedSchema,
+          .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
+        schema: resolvedSchema as Sch,
         source: resolvedSource,
       };
     } else {
@@ -316,9 +352,9 @@ export function resolvePath(
           return JSON.stringify(p);
         }
       })
-      .join("."), // TODO: create a function generate path from parts (not sure if this always works)
-    schema: resolvedSchema,
-    source: resolvedSource,
+      .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
+    schema: resolvedSchema as Sch,
+    source: resolvedSource as Src,
   };
 }
 

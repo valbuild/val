@@ -8,7 +8,7 @@
     "next",
     "react"
   ],
-  "version": "0.21.2",
+  "version": "0.40.0",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest"
@@ -19,6 +19,10 @@
     ".": {
       "module": "./dist/valbuild-next.esm.js",
       "default": "./dist/valbuild-next.cjs.js"
+    },
+    "./rsc": {
+      "module": "./rsc/dist/valbuild-next-rsc.esm.js",
+      "default": "./rsc/dist/valbuild-next-rsc.cjs.js"
     },
     "./client": {
       "module": "./client/dist/valbuild-next-client.esm.js",
@@ -35,14 +39,20 @@
     "entrypoints": [
       "./index.ts",
       "./server/index.ts",
-      "./client/index.ts"
+      "./client/index.ts",
+      "./rsc/index.ts"
     ],
     "exports": true
   },
   "dependencies": {
-    "@valbuild/core": "~0.21.2",
-    "@valbuild/react": "~0.21.2",
-    "@valbuild/server": "~0.21.2"
+    "@valbuild/core": "~0.40.0",
+    "@valbuild/react": "~0.40.0",
+    "@valbuild/server": "~0.40.0",
+    "client-only": "^0.0.1",
+    "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "next": "^13.4.0"
   },
   "peerDependencies": {
     "next": ">=13.4.0",
@@ -50,5 +60,11 @@
   },
   "externals": [
     "next"
+  ],
+  "files": [
+    "dist",
+    "client",
+    "server",
+    "rsc"
   ]
 }

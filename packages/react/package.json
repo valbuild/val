@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/react",
-  "version": "0.21.2",
+  "version": "0.40.0",
   "private": false,
   "description": "Val - React internal helpers",
   "sideEffects": false,
@@ -9,15 +9,16 @@
     "test": "jest"
   },
   "dependencies": {
-    "@valbuild/core": "~0.21.2",
-    "@valbuild/ui": "~0.21.2",
+    "@valbuild/core": "~0.40.0",
+    "@valbuild/shared": "~0.40.0",
+    "@valbuild/ui": "~0.40.0",
     "@vercel/stega": "^0.1.0",
     "base64-arraybuffer": "^1.0.2",
     "style-to-object": "^0.4.1"
   },
   "devDependencies": {
     "@testing-library/react": "^14.0.0",
-    "@types/react": "^18.0.26",
+    "@types/react": "^18.2.38",
     "jest-environment-jsdom": "^29.5.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
@@ -36,7 +37,8 @@
       "./index.ts",
       "./jsx-runtime.js",
       "./jsx-dev-runtime.js",
-      "./stega/index.ts"
+      "./stega/index.ts",
+      "./internal/index.ts"
     ],
     "exports": {
       "envConditions": [
@@ -78,6 +80,14 @@
       },
       "default": "./stega/dist/valbuild-react-stega.cjs.js"
     },
+    "./internal": {
+      "module": {
+        "worker": "./internal/dist/valbuild-react-internal.worker.esm.js",
+        "browser": "./internal/dist/valbuild-react-internal.browser.esm.js",
+        "default": "./internal/dist/valbuild-react-internal.esm.js"
+      },
+      "default": "./internal/dist/valbuild-react-internal.cjs.js"
+    },
     "./jsx-dev-runtime": {
       "module": {
         "worker": "./jsx-dev-runtime/dist/valbuild-react-jsx-dev-runtime.worker.esm.js",
@@ -88,5 +98,12 @@
     },
     "./package.json": "./package.json"
   },
-  "types": "dist/valbuild-react.cjs.d.ts"
+  "types": "dist/valbuild-react.cjs.d.ts",
+  "files": [
+    "dist",
+    "jsx-runtime",
+    "jsx-dev-runtime",
+    "stega",
+    "internal"
+  ]
 }

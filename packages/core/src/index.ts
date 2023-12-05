@@ -1,11 +1,12 @@
 export { initVal } from "./initVal";
-export type { InitVal } from "./initVal";
+export type { InitVal, ValConfig } from "./initVal";
 export { Schema, type SerializedSchema } from "./schema";
 export type { ImageMetadata } from "./schema/image";
 export type { LinkSource } from "./source/link";
 export type { ValModule, SerializedModule } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
+export type { RawString } from "./schema/string";
 export type {
   AnyRichTextOptions,
   Bold,
@@ -37,9 +38,10 @@ export {
 } from "./val";
 export type { Json, JsonPrimitive, JsonArray, JsonObject } from "./Json";
 export type {
-  ValidationErrors,
   ValidationError,
+  ValidationErrors,
 } from "./schema/validation/ValidationError";
+import type { ValidationErrors } from "./schema/validation/ValidationError";
 export type { ValidationFix } from "./schema/validation/ValidationFix";
 export * as expr from "./expr/";
 export { FILE_REF_PROP } from "./source/file";
@@ -59,6 +61,7 @@ import { getVal } from "./future/fetchVal";
 import type { Json } from "./Json";
 import { SerializedSchema } from "./schema";
 import { getSHA256Hash } from "./getSha256";
+import { PatchJSON } from "./patch";
 export { ValApi } from "./ValApi";
 export type { SerializedArraySchema } from "./schema/array";
 export type { SerializedObjectSchema } from "./schema/object";
@@ -68,6 +71,8 @@ export type { SerializedNumberSchema } from "./schema/number";
 export type { SerializedBooleanSchema } from "./schema/boolean";
 export type { SerializedImageSchema } from "./schema/image";
 export type { SerializedRichTextSchema } from "./schema/richtext";
+export type { SerializedUnionSchema } from "./schema/union";
+export type { SerializedLiteralSchema } from "./schema/literal";
 
 export type ApiTreeResponse = {
   git: {
@@ -83,11 +88,32 @@ export type ApiTreeResponse = {
         failed?: string[];
       };
       source?: Json;
+      errors?:
+        | false
+        | {
+            invalidModuleId?: ModuleId;
+            validation?: ValidationErrors;
+            fatal?: {
+              message: string;
+              stack?: string;
+              type?: string;
+            }[];
+          };
     }
   >;
 };
 
-export type ApiPatchResponse = Record<ModuleId, string[]>;
+export type ApiGetPatchResponse = Record<
+  ModuleId,
+  {
+    patch: PatchJSON;
+    patch_id: string;
+    commit_sha: string;
+    author: string;
+    created_at: string;
+  }[]
+>;
+export type ApiPostPatchResponse = Record<ModuleId, string[]>;
 
 const Internal = {
   convertFileSource,
@@ -103,18 +129,18 @@ const Internal = {
   createPatchJSONPath: (modulePath: ModulePath) =>
     `/${modulePath
       .split(".")
-      .map((segment) => JSON.parse(segment))
+      .map((segment) => segment && tryJsonParse(segment))
       .join("/")}`,
-  /**
-   * Enables draft mode: updates all Val modules with patches
-   */
-  VAL_DRAFT_MODE_COOKIE: "val_draft_mode",
-  /**
-   * Enables Val: show the overlay / menu
-   */
-  VAL_ENABLE_COOKIE_NAME: "val_enable",
-  VAL_STATE_COOKIE: "val_state",
-  VAL_SESSION_COOKIE: "val_session",
+  VAL_ENABLE_COOKIE_NAME: "val_enable" as const,
+  VAL_STATE_COOKIE: "val_state" as const,
+  VAL_SESSION_COOKIE: "val_session" as const,
 };
+function tryJsonParse(str: string) {
+  try {
+    return JSON.parse(str);
+  } catch (err) {
+    return str;
+  }
+}
 
 export { Internal };

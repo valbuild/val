@@ -1,5 +1,3 @@
-"use client";
-
 import {
   Dispatch,
   SetStateAction,
@@ -20,13 +18,22 @@ import { ValFormField } from "./ValFormField";
 import { usePatch } from "./usePatch";
 import { Button } from "./ui/button";
 import { useTheme } from "./useTheme";
+import { IValStore } from "../lib/IValStore";
+import { ScrollArea } from "./ui/scroll-area";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
   api: ValApi;
+  store: IValStore;
+  onSubmit: (refreshRequired: boolean) => void;
 };
 
-export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
+export function ValOverlay({
+  defaultTheme,
+  api,
+  store,
+  onSubmit,
+}: ValOverlayProps) {
   const [theme, setTheme] = useTheme(defaultTheme);
   const session = useSession(api);
 
@@ -34,17 +41,36 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
   const [hoverTarget, setHoverTarget] = useHoverTarget(editMode);
   const [windowTarget, setWindowTarget] = useState<WindowTarget | null>(null);
   const [highlight, setHighlight] = useState(false);
-  const { selectedSchema, selectedSource, error, loading } = useValModules(
-    api,
-    windowTarget?.path
-  );
+  const { selectedSchema, selectedSource, moduleId, error, loading } =
+    useValModules(api, windowTarget?.path);
 
-  const { initPatchCallback, onSubmitPatch } = usePatch(
+  const {
+    initPatchCallback,
+    onSubmitPatch,
+    progress: patchProgress,
+    error: patchError,
+  } = usePatch(
     windowTarget?.path ? [windowTarget.path] : [],
-    api
+    api,
+    store,
+    onSubmit,
+    session
   );
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
+  useEffect(() => {
+    if (moduleId) {
+      store.update([moduleId]);
+    } else {
+      store.updateAll();
+    }
+  }, [moduleId]);
+
+  useEffect(() => {
+    if (patchError) {
+      console.error(patchError);
+    }
+  }, [patchError]);
 
   return (
     <ValOverlayContext.Provider
@@ -65,7 +91,7 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
         <div className="fixed -translate-x-1/2 z-overlay left-1/2 bottom-4">
           <ValMenu api={api} />
         </div>
-        {editMode === "hover" && hoverTarget && (
+        {editMode === "hover" && hoverTarget.path && (
           <ValHover
             hoverTarget={hoverTarget}
             setHoverTarget={setHoverTarget}
@@ -80,14 +106,23 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
               setEditMode("hover");
             }}
           >
-            <div className="px-4 py-2 text-sm border-b border-highlight">
+            <div className="max-w-full px-4 py-2 text-sm border-b border-highlight">
               <WindowHeader
                 path={windowTarget.path}
                 type={selectedSchema?.type}
               />
             </div>
             {loading && <div className="text-primary">Loading...</div>}
-            {error && <div className="text-red">{error}</div>}
+            {error && (
+              <div className="px-4 py-2 text-red">
+                <div className="font-bold">Error: {error.message}</div>
+                {"details" in error && (
+                  <pre className="bg-card text-card-foreground">
+                    {error.details}
+                  </pre>
+                )}
+              </div>
+            )}
             {selectedSchema !== undefined && selectedSource !== undefined && (
               <ValFormField
                 path={windowTarget.path}
@@ -98,30 +133,26 @@ export function ValOverlay({ defaultTheme, api }: ValOverlayProps) {
               />
             )}
             <div className="flex items-end justify-end py-2">
-              <SubmitButton disabled={false} onClick={onSubmitPatch} />
+              <Button
+                className="px-4 py-2 border border-highlight disabled:border-border"
+                disabled={patchProgress !== "ready"}
+                onClick={onSubmitPatch}
+              >
+                {patchProgress === "patching"
+                  ? "Finalizing..."
+                  : patchProgress === "create_patch"
+                  ? "Patching..."
+                  : patchProgress === "on_submit"
+                  ? "Completing..."
+                  : patchProgress === "update_store"
+                  ? "Refreshing..."
+                  : "Submit"}
+              </Button>
             </div>
           </ValWindow>
         )}
       </div>
     </ValOverlayContext.Provider>
-  );
-}
-
-function SubmitButton({
-  disabled,
-  onClick,
-}: {
-  disabled?: boolean;
-  onClick?: () => void;
-}) {
-  return (
-    <Button
-      className="px-4 py-2 border border-highlight disabled:border-border"
-      disabled={disabled}
-      onClick={onClick}
-    >
-      Submit
-    </Button>
   );
 }
 
@@ -134,7 +165,7 @@ function useValModules(api: ValApi, path: string | undefined) {
     if (path) {
       setModules({ status: "loading" });
       api
-        .getModules({
+        .getTree({
           patch: true,
           includeSchema: true,
           includeSource: true,
@@ -152,6 +183,7 @@ function useValModules(api: ValApi, path: string | undefined) {
   }, [path]);
   if (!path || modules?.status === "not-asked") {
     return {
+      moduleId,
       error: null,
       selectedSource: undefined,
       selectedSchema: undefined,
@@ -160,6 +192,7 @@ function useValModules(api: ValApi, path: string | undefined) {
   }
   if (modules?.status === "loading") {
     return {
+      moduleId,
       error: null,
       selectedSource: undefined,
       selectedSchema: undefined,
@@ -168,7 +201,8 @@ function useValModules(api: ValApi, path: string | undefined) {
   }
   if (modules?.status === "error") {
     return {
-      error: modules.error,
+      moduleId,
+      error: { message: modules.error },
       selectedSource: undefined,
       selectedSchema: undefined,
       loading: false,
@@ -176,7 +210,10 @@ function useValModules(api: ValApi, path: string | undefined) {
   }
   if (!modules?.data) {
     return {
-      error: "No modules",
+      error: {
+        message: "Val could not fetch data for this element.",
+        details: "Module data not found for: " + moduleId,
+      },
       selectedSource: undefined,
       selectedSchema: undefined,
       loading: false,
@@ -197,12 +234,13 @@ function useValModules(api: ValApi, path: string | undefined) {
     : {
         error:
           resolvedModulePath && result.isErr(resolvedModulePath)
-            ? resolvedModulePath.error.message
+            ? resolvedModulePath.error
             : null,
         source: undefined,
         schema: undefined,
       };
   return {
+    moduleId,
     error,
     selectedSource,
     selectedSchema,
@@ -218,7 +256,7 @@ type WindowTarget = {
 
 type HoverTarget = {
   element?: HTMLElement | undefined;
-  path: SourcePath;
+  path?: SourcePath;
 };
 function ValHover({
   hoverTarget,
@@ -243,12 +281,15 @@ function ValHover({
         height: rect?.height,
       }}
       onClick={(ev) => {
-        setWindowTarget({
-          ...hoverTarget,
-          mouse: { x: ev.pageX, y: ev.pageY },
-        });
-        setEditMode("window");
-        setHoverTarget(null);
+        if (hoverTarget.path) {
+          setWindowTarget({
+            ...hoverTarget,
+            path: hoverTarget.path as SourcePath,
+            mouse: { x: ev.pageX, y: ev.pageY },
+          });
+          setEditMode("window");
+          setHoverTarget(null);
+        }
       }}
     >
       <div className="flex items-center justify-end w-full text-xs">
@@ -412,7 +453,14 @@ function useSession(api: ValApi) {
           const session = res.value;
           setSession({ status: "success", data: Session.parse(session) });
         } else {
-          if (sessionResetId < 3) {
+          if (res.error.statusCode === 401) {
+            setSession({
+              status: "success",
+              data: {
+                mode: "unauthorized",
+              },
+            });
+          } else if (sessionResetId < 3) {
             setTimeout(() => {
               setSessionResetId(sessionResetId + 1);
             }, 200 * sessionResetId);
@@ -421,6 +469,7 @@ function useSession(api: ValApi) {
           }
         }
       } catch (e) {
+        console.error("Could not authorize:", e);
         setSession({
           status: "error",
           error: "Got an error while trying to get session",
@@ -440,9 +489,8 @@ function WindowHeader({
 }) {
   const segments = path.split("/").slice(1);
   return (
-    <span className="flex items-center justify-between">
-      <span>
-        <span className="pr-1 text-xs opacity-50">/</span>
+    <span className="h-[20px] flex items-center justify-between">
+      <ScrollArea className="whitespace-nowrap" dir="rtl">
         {segments.map((segment, i) => {
           if (i === segments.length - 1) {
             return (
@@ -475,7 +523,7 @@ function WindowHeader({
             </span>
           );
         })}
-      </span>
+      </ScrollArea>
       {type && <span className="ml-4">({type})</span>}
     </span>
   );

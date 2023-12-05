@@ -1,4 +1,4 @@
-import { ModuleId } from "@valbuild/core";
+import { ModuleId, SourcePath } from "@valbuild/core";
 import path from "path";
 import { QuickJSRuntime } from "quickjs-emscripten";
 import { SerializedModuleContent } from "./SerializedModuleContent";
@@ -9,6 +9,18 @@ export const readValFile = async (
   runtime: QuickJSRuntime
 ): Promise<SerializedModuleContent> => {
   const context = runtime.newContext();
+  // avoid failures when console.log is called
+  const logHandle = context.newFunction("log", () => {});
+  const consoleHandle = context.newObject();
+  context.setProp(consoleHandle, "log", logHandle);
+  context.setProp(context.global, "console", consoleHandle);
+
+  // avoid failures when process.env is called
+  const envHandle = context.newObject();
+  const processHandle = context.newObject();
+  context.setProp(processHandle, "env", envHandle);
+  context.setProp(context.global, "process", processHandle);
+
   try {
     const modulePath = `.${id}.val`;
     const code = `import * as valModule from ${JSON.stringify(modulePath)};
@@ -32,10 +44,11 @@ globalThis.valModule = {
     if (result.error) {
       const error = result.error.consume(context.dump);
       console.error(
-        `Fatal error reading val file: ${error.message}\n`,
+        `Fatal error reading val file: ${id}. Error: ${error.message}\n`,
         error.stack
       );
       return {
+        path: id as SourcePath,
         errors: {
           invalidModuleId: id as ModuleId,
           fatal: [
@@ -59,13 +72,24 @@ globalThis.valModule = {
       } else {
         if (valModule.id !== id) {
           fatalErrors.push(
-            `Expected val id: '${id}' but got: '${valModule.id}'`
+            `Wrong val.content id! In the file of with: '${id}', found: '${valModule.id}'`
+          );
+        }
+        if (
+          encodeURIComponent(valModule.id).replace(/%2F/g, "/") !== valModule.id
+        ) {
+          fatalErrors.push(
+            `Invalid val.content id! Must be a web-safe path without escape characters, found: '${
+              valModule.id
+            }', which was encoded as: '${encodeURIComponent(
+              valModule.id
+            ).replace("%2F", "/")}'`
           );
         }
         if (!valModule?.schema) {
           fatalErrors.push(`Expected val id: '${id}' to have a schema`);
         }
-        if (!valModule?.source) {
+        if (valModule?.source === undefined) {
           fatalErrors.push(`Expected val id: '${id}' to have a source`);
         }
       }
@@ -83,7 +107,7 @@ globalThis.valModule = {
         };
       }
       return {
-        path: valModule.id, // NOTE: we use path here, since SerializedModuleContent (maybe bad name?) can be used for whole modules as well as subparts of modules
+        path: valModule.id || id, // NOTE: we use path here, since SerializedModuleContent (maybe bad name?) can be used for whole modules as well as subparts of modules
         source: valModule.source,
         schema: valModule.schema,
         errors,

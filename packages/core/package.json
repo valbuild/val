@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/core",
-  "version": "0.21.2",
+  "version": "0.40.0",
   "private": false,
   "description": "Val - supercharged hard-coded content",
   "scripts": {
@@ -39,8 +39,17 @@
     ],
     "exports": true
   },
-  "devDependencies": {
+  "devDependencies": {},
+  "dependencies": {
     "ts-toolbelt": "^9.6.0"
   },
-  "dependencies": {}
+  "files": [
+    "dist",
+    "fp/dist",
+    "fp/package.json",
+    "expr/dist",
+    "expr/package.json",
+    "patch/dist",
+    "patch/package.json"
+  ]
 }
