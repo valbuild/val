@@ -1,0 +1,37 @@
+title VAL Auth with Client app
+fontawesome5brands e007 Client #orange
+note over IS: With $PROJECT_API_KEY and $VAL_CLIENT_SECRET set
+Client->IS:/val/api/authorize?redirect_to=https://blank.no
+note over IS: Generate $VAL_STATE_COOKIE:\n redirect_to and $RANDOM_TOKEN\nSigned with $VAL_CLIENT_SECRET
+Client<--IS:redirect app.val.build/authorize?redirect_uri=https://blank.no/api/val/callback?token=$RANDOM_TOKEN
+aboxleft over Client,IS: Set-Cookie $VAL_STATE_COOKIE 
+box over Client: $VAL_STATE_COOKIE
+
+Client->app.val.build:/authorize?redirect_uri=https://blank.no/api/val/callback?token=$RANDOM_TOKEN
+note over Client,app.val.build:This is not an API redirect, but to a Login page
+app.val.build ->Client:authorize with 3rd party, handled by NextAuth: callback=https://app.val.build/authorize?redirect_uri=https://blank.no/api/val/callback?state=$RANDOM_TOKEN
+fontawesome5brands f09b OauthProvider #black
+note over OauthProvider: this third party oauth process is mostly opaque to us.\n In the end the OauthProvider will redirect\nthe client to the given callback
+Client -> OauthProvider: Some auth url
+note over OauthProvider: the user logs in.\nIn our case with GitHub
+OauthProvider ->Client: ↩REDIRECT↩ https://app.val.build/authorize?redirect_uri=https://blank.no/api/val/callback?state=$RANDOM_TOKEN
+Client -> app.val.build: https://app.val.build/authorize?redirect_uri=https://blank.no/api/val/callback?state=$RANDOM_TOKEN (but logged in)
+note over Client,app.val.build:The /authorize page will redirect the user if it is already authed
+app.val.build -> Client:↩REDIRECT↩ https://app.val.build/api/val/$ORG/$PROJECT/auth/authorize?redirect_uri=https://blank.no/api/val/callback?state=$RANDOM_TOKEN
+Client -> app.val.build:https://app.val.build/api/val/$ORG/$PROJECT/auth/authorize?redirect_uri=https://blank.no/api/val/callback?state=$RANDOM_TOKEN
+note over app.val.build: generate a singleton\n$DATABASE_SINGLETON\nthat is stored in the DB.\n Redirect to redirect_uri:
+app.val.build -> Client: ↩REDIRECT↩ https://blank.no/api/val/callback?code=$DATABASE_SINGLETON?state=$RANDOM_TOKEN
+Client -> IS: https://blank.no/api/val/callback?code=$DATABASE_SINGLETON?state=$RANDOM_TOKEN
+note over Client: validate that $RANDOM_TOKEN matches with token\ninside $VAL_STATE_COOKIE
+IS -> app.val.build: /api/val/$ORG/$PROJECT/token?code=$DATABASE_SINGLETON
+note over IS, app.val.build: Header: Bearer $PROJECT_API_KEY
+note over app.val.build: Validate $PROJECT_API_KEY
+note over app.val.build: Validating and consuming token by\n making sure it's in the DB\n and then deleting it
+note over app.val.build: Generate $JWT-IS-VALBUILD with user data. Signed with $VAL_SERVER_SECRET
+note over IS: Generate $JWT-CLIENT-IS\nsigned with $VAL_CLIENT_SECRET\nIncludes inside $JWT-IS-VALBUILD. Save as a cookie $VAL_SESSION_COOKIE
+IS -> Client: ↩REDIRECT↩ blank.no (den original redirect_to)
+aboxleft over Client,IS: Set-Cookie $VAL_SESSION_COOKIE
+note over Client: Logged in 👍
+note over Client: $VAL_SESSION_COOKIE : \n { sub: Profile id,\n    org: org name,\n    project: project name\n    exp: client side expiry,\n    token:$JWT-IS-VALBUILD\n}\n signed with $VAL_CLIENT_SECRET
+
+

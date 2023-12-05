@@ -12,11 +12,6 @@ export class ValApi {
   getDisableUrl(redirectTo: string) {
     return `${this.host}/disable?redirect_to=${encodeURIComponent(redirectTo)}`;
   }
-
-  getEditUrl() {
-    return `${this.host}/static/edit`;
-  }
-
   getLoginUrl(redirectTo: string) {
     return `${this.host}/authorize?redirect_to=${encodeURIComponent(
       redirectTo
@@ -44,6 +39,9 @@ export class ValApi {
     })
       .then((res) => parse<ApiGetPatchResponse>(res))
       .catch(createError<ApiGetPatchResponse>);
+  }
+  getEditUrl() {
+    return `${this.host}/static/edit`;
   }
 
   postPatches(

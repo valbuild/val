@@ -6,6 +6,11 @@ import {
   RichText,
   VAL_EXTENSION,
   FILE_REF_PROP,
+  SerializedSchema,
+  SerializedRecordSchema,
+  SerializedObjectSchema,
+  SerializedUnionSchema,
+  SerializedLiteralSchema,
 } from "@valbuild/core";
 import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
@@ -180,7 +185,7 @@ export type StegaOfSource<T extends Source> = Json extends T
   ? StegaOfSource<T[number]>[]
   : T extends RawString
   ? string
-  : T extends string
+  : string extends T
   ? ValEncodedString
   : T extends JsonPrimitive
   ? T
@@ -197,6 +202,50 @@ export function stegaEncode(
     sourceOrSelector: any,
     recOpts?: { path: any; schema: any }
   ): any {
+    if (recOpts?.schema && isUnionSchema(recOpts?.schema)) {
+      if (
+        sourceOrSelector &&
+        typeof sourceOrSelector === "object" &&
+        recOpts.schema.key
+      ) {
+        const key = sourceOrSelector[recOpts.schema.key];
+        if (key) {
+          const schema = recOpts.schema.items.find((s) => {
+            if (isObjectSchema(s) && s.items && s.items[recOpts.schema.key]) {
+              const keySchema = s.items[recOpts.schema.key];
+              if (isLiteralSchema(keySchema)) {
+                return keySchema.value === key;
+              } else {
+                console.warn(
+                  "Expected literal schema at key in , but found: ",
+                  keySchema,
+                  { key, schema: s }
+                );
+              }
+            } else {
+              console.warn(
+                "Expected union containing object schema, but found: ",
+                s
+              );
+            }
+          });
+          if (schema) {
+            return rec(sourceOrSelector, {
+              path: recOpts.path,
+              schema: schema,
+            });
+          }
+        }
+      } else {
+        return rec(sourceOrSelector, {
+          path: recOpts.path,
+          schema: recOpts.schema.items.find(
+            (s) => isLiteralSchema(s) && s.value === sourceOrSelector
+          ),
+        });
+      }
+    }
+
     if (typeof sourceOrSelector === "object") {
       if (!sourceOrSelector) {
         return null;
@@ -207,7 +256,9 @@ export function stegaEncode(
         return rec(
           (opts.getModule && opts.getModule(selectorPath)) ||
             Internal.getSource(sourceOrSelector),
-          opts.disabled ? undefined : { path: selectorPath, schema: newSchema }
+          opts.disabled
+            ? undefined
+            : { path: selectorPath, schema: newSchema?.serialize() }
         );
       }
 
@@ -253,14 +304,17 @@ export function stegaEncode(
 
       if (!Array.isArray(sourceOrSelector)) {
         const res: Record<string, any> = {};
-        for (const [key, value] of Object.entries(sourceOrSelector)) {
+        const entries = Object.entries(sourceOrSelector);
+        for (const [key, value] of entries) {
           res[key] = rec(
             value,
-            recOpts && {
+            recOpts?.schema && {
               path: Internal.createValPathOfItem(recOpts.path, key),
-              schema:
-                recOpts.schema.item || // Record
-                recOpts.schema.items[key], // Object
+              schema: isRecordSchema(recOpts.schema)
+                ? recOpts.schema.item
+                : isObjectSchema(recOpts.schema)
+                ? recOpts.schema.items[key]
+                : unknownSchema(recOpts.schema),
             }
           );
         }
@@ -280,7 +334,7 @@ export function stegaEncode(
       if (!recOpts) {
         return sourceOrSelector;
       }
-      if (recOpts.schema.isRaw) {
+      if (recOpts.schema?.raw || recOpts.schema?.type === "literal") {
         return sourceOrSelector;
       }
       return vercelStegaCombine(
@@ -306,6 +360,35 @@ export function stegaEncode(
     return sourceOrSelector;
   }
   return rec(input);
+}
+
+function isRecordSchema(
+  schema: SerializedSchema | undefined
+): schema is SerializedRecordSchema {
+  return schema?.type === "record";
+}
+
+function isLiteralSchema(
+  schema: SerializedSchema | undefined
+): schema is SerializedLiteralSchema {
+  return schema?.type === "literal";
+}
+
+function unknownSchema(schema: unknown) {
+  console.debug("Found unknown schema", schema);
+  return schema;
+}
+
+function isUnionSchema(
+  schema: SerializedSchema | undefined
+): schema is SerializedUnionSchema {
+  return schema?.type === "union";
+}
+
+function isObjectSchema(
+  schema: SerializedSchema | undefined
+): schema is SerializedObjectSchema {
+  return schema?.type === "object";
 }
 
 export function stegaClean(source: string) {

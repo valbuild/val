@@ -1,13 +1,11 @@
-import { initVal as createValSystem, type InitVal } from "@valbuild/core";
+import {
+  initVal as createValSystem,
+  ValConfig,
+  type InitVal,
+} from "@valbuild/core";
 import { stegaClean, ValEncodedString } from "@valbuild/react/stega";
 
-export const initVal = (config?: {
-  valConfigPath?: string;
-}): InitVal & {
-  val: InitVal["val"] & {
-    raw: (encodedString: ValEncodedString) => string;
-  };
-} => {
+export const initVal = (config?: ValConfig): InitVal => {
   const { s, val, config: systemConfig } = createValSystem();
   const currentConfig = {
     ...systemConfig,

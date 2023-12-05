@@ -91,6 +91,35 @@ export function ValFormField({
     );
   }
   if (
+    (typeof source === "number" || source === null) &&
+    schema?.type === "number"
+  ) {
+    return (
+      <NumberField
+        defaultValue={source}
+        disabled={disabled}
+        registerPatchCallback={registerPatchCallback}
+        onSubmit={onSubmit}
+      />
+    );
+  }
+  if (
+    (typeof source === "number" ||
+      typeof source === "string" ||
+      source === null) &&
+    schema?.type === "keyOf"
+  ) {
+    return (
+      <KeyOfField
+        defaultValue={source}
+        disabled={disabled}
+        registerPatchCallback={registerPatchCallback}
+        onSubmit={onSubmit}
+        selector={schema.selector}
+      />
+    );
+  }
+  if (
     (typeof source === "object" || source === null) &&
     schema?.type === "richtext"
   ) {
@@ -382,7 +411,7 @@ function KeyOfField({
     };
   };
   const typeAndValues = getValuesFromModule(valModule);
-  const [value, setValue] = useState(defaultValue ?? typeAndValues.values[0]);
+  const [value, setValue] = useState(defaultValue || typeAndValues.values[0]);
   const [loading, setLoading] = useState(false);
   useEffect(() => {
     setLoading(disabled);
@@ -414,6 +443,7 @@ function KeyOfField({
       });
     }
   }, [value]);
+
   return (
     <div className="flex flex-col justify-between h-full gap-y-4">
       <Select

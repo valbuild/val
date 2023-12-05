@@ -7,37 +7,57 @@ import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedUnionSchema = {
   type: "union";
-  key: string;
+  key?: string;
   items: SerializedSchema[];
   opt: boolean;
 };
 
 type SourceOf<
-  Key extends string,
-  T extends Schema<SourceObject & { [k in Key]: string }>[]
+  Key extends string | Schema<string>,
+  T extends Schema<
+    Key extends string
+      ? SourceObject & { [k in Key]: string }
+      : Key extends Schema<string>
+      ? string
+      : unknown
+  >[]
 > = T extends Schema<infer S>[]
   ? S extends SelectorSource
-    ? S
+    ? S | (Key extends Schema<infer K> ? K : never)
     : never
   : never;
 
 export class UnionSchema<
-  Key extends string,
-  T extends Schema<SourceObject & { [k in Key]: string }>[]
+  Key extends string | Schema<string>,
+  T extends Schema<
+    Key extends string
+      ? SourceObject & { [k in Key]: string }
+      : Key extends Schema<string>
+      ? string
+      : unknown
+  >[]
 > extends Schema<SourceOf<Key, T>> {
   validate(path: SourcePath, src: SourceOf<Key, T>): ValidationErrors {
-    throw new Error("Method not implemented.");
+    // TODO:
+    return false;
   }
   assert(src: SourceOf<Key, T>): boolean {
-    throw new Error("Method not implemented.");
+    return true;
   }
   optional(): Schema<SourceOf<Key, T> | null> {
-    throw new Error("Method not implemented.");
+    return new UnionSchema(this.key, this.items, true);
   }
   serialize(): SerializedSchema {
+    if (typeof this.key === "string") {
+      return {
+        type: "union",
+        key: this.key,
+        items: this.items.map((o) => o.serialize()),
+        opt: this.opt,
+      };
+    }
     return {
       type: "union",
-      key: this.key,
       items: this.items.map((o) => o.serialize()),
       opt: this.opt,
     };
@@ -53,8 +73,14 @@ export class UnionSchema<
 }
 
 export const union = <
-  Key extends string,
-  T extends Schema<SourceObject & { [k in Key]: string }>[]
+  Key extends string | Schema<string>,
+  T extends Schema<
+    Key extends string
+      ? SourceObject & { [k in Key]: string }
+      : Key extends Schema<string>
+      ? string
+      : unknown
+  >[]
 >(
   key: Key,
   ...objects: T
