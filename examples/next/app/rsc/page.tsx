@@ -1,16 +1,17 @@
+"use client";
 import { ValRichText } from "@valbuild/next";
 import pageVal from "../content.val";
-import { fetchVal } from "../../val/rsc";
+import { useVal } from "../../val/client";
 
-export default async function Home() {
-  const page = await fetchVal(pageVal);
+export default function Home() {
+  // TODO: fetchVal instead
+  const page = useVal(pageVal);
   return (
     <main className="page content">
       <section className="hero full">
         <img
           src={page.hero.image.data.url}
-          // TODO: multiple paths not supported yet: alt={page.hero.image.alt}
-          alt="TODO"
+          // alt={page.hero.image.alt}
           width={100}
           height={100}
         />

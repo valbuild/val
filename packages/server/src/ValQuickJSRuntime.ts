@@ -5,8 +5,8 @@ export async function newValQuickJSRuntime(
   quickJSModule: Pick<QuickJSWASMModule, "newRuntime">,
   moduleLoader: ValModuleLoader,
   {
-    maxStackSize = 1024 * 640, // TODO: these were randomly chosen, we should figure out what the right values are:
-    memoryLimit = 1024 * 640,
+    maxStackSize = 1024 * 640 * 10, // TODO: these were randomly chosen, we should figure out what the right values are:
+    memoryLimit = 1024 * 640 * 10,
   }: {
     maxStackSize?: number;
     memoryLimit?: number;
