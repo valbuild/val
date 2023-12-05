@@ -9,7 +9,7 @@ import { Remote } from "../utils/Remote";
 export type PatchCallback = (modulePath: string) => Promise<PatchJSON>;
 
 export type InitPatchCallback = (
-  currentPath: SourcePath
+  paths: SourcePath[]
 ) => (callback: PatchCallback) => void;
 
 export type PatchCallbackState = {
@@ -30,10 +30,9 @@ export function usePatch(
   >("ready");
 
   const initPatchCallback: InitPatchCallback = useCallback(
-    (pathsAttr: string) => {
+    (paths: string[]) => {
       return (callback: PatchCallback) => {
         setState((prev) => {
-          const paths = pathsAttr.split(",");
           const nextState = paths.reduce((acc, path) => {
             const patchPath = Internal.createPatchJSONPath(
               Internal.splitModuleIdAndModulePath(path as SourcePath)[1]

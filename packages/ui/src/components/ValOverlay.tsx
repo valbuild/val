@@ -41,36 +41,34 @@ export function ValOverlay({
   const [hoverTarget, setHoverTarget] = useHoverTarget(editMode);
   const [windowTarget, setWindowTarget] = useState<WindowTarget | null>(null);
   const [highlight, setHighlight] = useState(false);
-  const { selectedSchema, selectedSource, moduleId, error, loading } =
+  const { selectedSchema, selectedSource, moduleIds, error, loading } =
     useValModules(api, windowTarget?.path);
-
+  const selectedPaths = windowTarget?.path
+    ? (windowTarget.path.split(",") as SourcePath[])
+    : [];
   const {
     initPatchCallback,
     onSubmitPatch,
     progress: patchProgress,
     error: patchError,
-  } = usePatch(
-    windowTarget?.path ? [windowTarget.path] : [],
-    api,
-    store,
-    onSubmit,
-    session
-  );
+  } = usePatch(selectedPaths, api, store, onSubmit, session);
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
   useEffect(() => {
-    if (moduleId) {
-      store.update([moduleId]);
+    if (moduleIds) {
+      store.update(moduleIds);
     } else {
       store.updateAll();
     }
-  }, [moduleId]);
+  }, [moduleIds]);
 
   useEffect(() => {
     if (patchError) {
       console.error(patchError);
     }
   }, [patchError]);
+
+  console.log(windowTarget?.path.split(","));
 
   return (
     <ValOverlayContext.Provider
@@ -107,47 +105,53 @@ export function ValOverlay({
             }}
           >
             <div className="max-w-full px-4 py-2 text-sm border-b border-highlight">
-              <WindowHeader
-                path={windowTarget.path}
-                type={selectedSchema?.type}
-              />
-            </div>
-            {loading && <div className="text-primary">Loading...</div>}
-            {error && (
-              <div className="px-4 py-2 text-red">
-                <div className="font-bold">Error: {error.message}</div>
-                {"details" in error && (
-                  <pre className="bg-card text-card-foreground">
-                    {error.details}
-                  </pre>
-                )}
+              {(error || loading) && (
+                <>
+                  <WindowHeader
+                    path={windowTarget.path}
+                    type={selectedSchema?.type}
+                  />
+                  {loading && <div className="text-primary">Loading...</div>}
+                  {error && (
+                    <div className="px-4 py-2 text-red">
+                      <div className="font-bold">Error: {error.message}</div>
+                      {"details" in error && (
+                        <pre className="bg-card text-card-foreground">
+                          {error.details}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+              {selectedSchema !== undefined &&
+                selectedSource !== undefined &&
+                selectedPaths.map((path) => (
+                  <ValFormField
+                    path={path}
+                    disabled={loading}
+                    source={selectedSource}
+                    schema={selectedSchema}
+                    registerPatchCallback={initPatchCallback([path])}
+                  />
+                ))}
+              <div className="flex items-end justify-end py-2">
+                <Button
+                  className="px-4 py-2 border border-highlight disabled:border-border"
+                  disabled={patchProgress !== "ready"}
+                  onClick={onSubmitPatch}
+                >
+                  {patchProgress === "patching"
+                    ? "Finalizing..."
+                    : patchProgress === "create_patch"
+                    ? "Patching..."
+                    : patchProgress === "on_submit"
+                    ? "Completing..."
+                    : patchProgress === "update_store"
+                    ? "Refreshing..."
+                    : "Submit"}
+                </Button>
               </div>
-            )}
-            {selectedSchema !== undefined && selectedSource !== undefined && (
-              <ValFormField
-                path={windowTarget.path}
-                disabled={loading}
-                source={selectedSource}
-                schema={selectedSchema}
-                registerPatchCallback={initPatchCallback(windowTarget.path)}
-              />
-            )}
-            <div className="flex items-end justify-end py-2">
-              <Button
-                className="px-4 py-2 border border-highlight disabled:border-border"
-                disabled={patchProgress !== "ready"}
-                onClick={onSubmitPatch}
-              >
-                {patchProgress === "patching"
-                  ? "Finalizing..."
-                  : patchProgress === "create_patch"
-                  ? "Patching..."
-                  : patchProgress === "on_submit"
-                  ? "Completing..."
-                  : patchProgress === "update_store"
-                  ? "Refreshing..."
-                  : "Submit"}
-              </Button>
             </div>
           </ValWindow>
         )}
@@ -156,34 +160,39 @@ export function ValOverlay({
   );
 }
 
-function useValModules(api: ValApi, path: string | undefined) {
+function useValModules(api: ValApi, paths: string | undefined) {
   const [modules, setModules] = useState<Remote<Modules>>();
-  const moduleId =
-    path && Internal.splitModuleIdAndModulePath(path as SourcePath)[0];
-
+  const moduleIds =
+    paths
+      ?.split(",")
+      .map(
+        (path) => Internal.splitModuleIdAndModulePath(path as SourcePath)[0]
+      ) || [];
   useEffect(() => {
-    if (path) {
+    if (paths) {
       setModules({ status: "loading" });
-      api
-        .getTree({
-          patch: true,
-          includeSchema: true,
-          includeSource: true,
-          treePath: moduleId,
-        })
-        .then((res) => {
-          if (result.isOk(res)) {
-            setModules({ status: "success", data: res.value.modules });
-          } else {
-            console.error({ status: "error", error: res.error });
-            setModules({ status: "error", error: res.error.message });
-          }
-        });
+      for (const moduleId of moduleIds) {
+        api
+          .getTree({
+            patch: true,
+            includeSchema: true,
+            includeSource: true,
+            treePath: moduleId,
+          })
+          .then((res) => {
+            if (result.isOk(res)) {
+              setModules({ status: "success", data: res.value.modules });
+            } else {
+              console.error({ status: "error", error: res.error });
+              setModules({ status: "error", error: res.error.message });
+            }
+          });
+      }
     }
-  }, [path]);
-  if (!path || modules?.status === "not-asked") {
+  }, [paths]);
+  if (!paths || modules?.status === "not-asked") {
     return {
-      moduleId,
+      moduleIds,
       error: null,
       selectedSource: undefined,
       selectedSchema: undefined,
@@ -192,7 +201,7 @@ function useValModules(api: ValApi, path: string | undefined) {
   }
   if (modules?.status === "loading") {
     return {
-      moduleId,
+      moduleIds,
       error: null,
       selectedSource: undefined,
       selectedSchema: undefined,
@@ -201,7 +210,7 @@ function useValModules(api: ValApi, path: string | undefined) {
   }
   if (modules?.status === "error") {
     return {
-      moduleId,
+      moduleIds,
       error: { message: modules.error },
       selectedSource: undefined,
       selectedSchema: undefined,
@@ -212,7 +221,7 @@ function useValModules(api: ValApi, path: string | undefined) {
     return {
       error: {
         message: "Val could not fetch data for this element.",
-        details: "Module data not found for: " + moduleId,
+        details: "Module data not found for: " + moduleIds.join(","),
       },
       selectedSource: undefined,
       selectedSchema: undefined,
@@ -220,7 +229,7 @@ function useValModules(api: ValApi, path: string | undefined) {
     };
   }
 
-  const resolvedModulePath = resolvePath(path as SourcePath, modules.data);
+  const resolvedModulePath = resolvePath(paths as SourcePath, modules.data);
 
   const {
     error,
@@ -240,7 +249,7 @@ function useValModules(api: ValApi, path: string | undefined) {
         schema: undefined,
       };
   return {
-    moduleId,
+    moduleIds,
     error,
     selectedSource,
     selectedSchema,

@@ -72,6 +72,7 @@ export class Service {
     moduleId: ModuleId,
     modulePath: ModulePath
   ): Promise<SerializedModuleContent> {
+    console.log({ moduleId, valConfigPath: this.valConfigPath });
     const valModule = await readValFile(
       moduleId,
       this.valConfigPath,
