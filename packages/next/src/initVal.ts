@@ -5,7 +5,13 @@ import {
 } from "@valbuild/core";
 import { stegaClean, ValEncodedString } from "@valbuild/react/stega";
 
-export const initVal = (config?: ValConfig): InitVal => {
+export const initVal = (
+  config?: ValConfig
+): InitVal & {
+  val: InitVal["val"] & {
+    raw: (encodedString: ValEncodedString) => string;
+  };
+} => {
   const { s, val, config: systemConfig } = createValSystem();
   const currentConfig = {
     ...systemConfig,
