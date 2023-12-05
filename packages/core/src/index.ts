@@ -71,6 +71,8 @@ export type { SerializedNumberSchema } from "./schema/number";
 export type { SerializedBooleanSchema } from "./schema/boolean";
 export type { SerializedImageSchema } from "./schema/image";
 export type { SerializedRichTextSchema } from "./schema/richtext";
+export type { SerializedUnionSchema } from "./schema/union";
+export type { SerializedLiteralSchema } from "./schema/literal";
 
 export type ApiTreeResponse = {
   git: {

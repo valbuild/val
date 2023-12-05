@@ -24,7 +24,7 @@ export type ServiceOptions = {
    *
    * @example "./val.config"
    */
-  valConfigPath: string;
+  valConfigPath?: string;
   /**
    * Disable cache for transpilation
    *
@@ -65,7 +65,7 @@ export class Service {
     private readonly sourceFileHandler: ValSourceFileHandler,
     private readonly runtime: QuickJSRuntime
   ) {
-    this.valConfigPath = valConfigPath;
+    this.valConfigPath = valConfigPath || "./val.config";
   }
 
   async get(

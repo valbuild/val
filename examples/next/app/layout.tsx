@@ -2,6 +2,7 @@ import { ValProvider } from "@valbuild/next";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import { config } from "../val.config";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -18,7 +19,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <ValProvider>{children}</ValProvider>
+        <ValProvider config={config}>{children}</ValProvider>
       </body>
     </html>
   );
