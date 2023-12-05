@@ -1,7 +1,7 @@
 import { s, val } from "../val.config";
 
 export const schema = s.object({
-  text: s.string().raw(),
+  text: s.string(),
   objectUnions: s.union(
     "type",
     s.object({
