@@ -37,7 +37,6 @@ import { ChevronLeft } from "lucide-react";
 import { ValOverlayContext } from "./ValOverlayContext";
 import { useNavigate, useParams } from "react-router";
 import { useTheme } from "./useTheme";
-import { resolvePath } from "src/utils/resolvePath";
 import classNames from "classnames";
 import { ValMenu } from "./ValMenu";
 import { parseRichTextSource } from "@valbuild/shared/internal";

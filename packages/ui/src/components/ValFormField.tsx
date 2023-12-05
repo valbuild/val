@@ -28,7 +28,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { PatchCallback } from "./usePatch";
-import { useValModuleFromPath, ValModulesContext } from "./ValFullscreen";
+import { useValModuleFromPath } from "./ValFullscreen";
 
 export type ImageSource = FileSource<ImageMetadata>;
 export type OnSubmit = (callback: PatchCallback) => Promise<void>;
