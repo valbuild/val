@@ -94,8 +94,12 @@ const initFetchValStega =
                 },
               });
             } else {
-              console.error("Val: could not fetch modules", res.error);
-              throw Error(JSON.stringify(res.error, null, 2));
+              if (res.error.statusCode === 401) {
+                console.warn("Val: authentication error: ", res.error.message);
+              } else {
+                console.error("Val: could not fetch modules", res.error);
+                throw Error(JSON.stringify(res.error, null, 2));
+              }
             }
           })
           .catch((err) => {
