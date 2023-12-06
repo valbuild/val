@@ -78,7 +78,7 @@ export const useValModuleFromPath = (
 
 type ValModules = Record<ModuleId, SerializedModuleContent> | null;
 
-type InitOnSubmit = (path: SourcePath) => OnSubmit;
+export type InitOnSubmit = (path: SourcePath) => OnSubmit;
 export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { "*": pathFromParams } = useParams();
@@ -360,7 +360,7 @@ function ValModule({
   );
 }
 
-function AnyVal({
+export function AnyVal({
   path,
   source,
   schema,

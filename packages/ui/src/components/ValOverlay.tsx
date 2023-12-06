@@ -11,15 +11,14 @@ import { EditMode, ValOverlayContext, WindowSize } from "./ValOverlayContext";
 import { Remote } from "../utils/Remote";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
-import { Internal, SerializedSchema, SourcePath } from "@valbuild/core";
-import { Modules, resolvePath } from "../utils/resolvePath";
+import { Internal, Json, SerializedSchema, SourcePath } from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
-import { ValFormField } from "./ValFormField";
 import { usePatch } from "./usePatch";
-import { Button } from "./ui/button";
 import { useTheme } from "./useTheme";
 import { IValStore } from "../lib/IValStore";
 import { ScrollArea } from "./ui/scroll-area";
+import { AnyVal } from "./ValFullscreen";
+import { InitOnSubmit } from "./ValFullscreen";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -41,36 +40,55 @@ export function ValOverlay({
   const [hoverTarget, setHoverTarget] = useHoverTarget(editMode);
   const [windowTarget, setWindowTarget] = useState<WindowTarget | null>(null);
   const [highlight, setHighlight] = useState(false);
-  const { selectedSchema, selectedSource, moduleId, error, loading } =
-    useValModules(api, windowTarget?.path);
+  const paths = windowTarget?.path ? windowTarget.path.split(",") : [];
 
-  const {
-    initPatchCallback,
-    onSubmitPatch,
-    progress: patchProgress,
-    error: patchError,
-  } = usePatch(
-    windowTarget?.path ? [windowTarget.path] : [],
-    api,
-    store,
-    onSubmit,
-    session
+  const [formData, setFormData] = useState<ValData>(
+    Object.fromEntries(
+      paths.map((path) => {
+        return [path, { status: "not-asked" }] as const;
+      })
+    )
   );
+  useEffect(() => {
+    setFormData(
+      Object.fromEntries(paths.map((path) => [path, { status: "loading" }]))
+    );
+    for (const path of paths) {
+      updateFormData(api, path, setFormData);
+    }
+  }, [paths.join(";")]);
+
+  const selectedPaths = windowTarget?.path ? (paths as SourcePath[]) : [];
+  const {
+    onSubmitPatch,
+    // progress: patchProgress,
+    error: patchError,
+  } = usePatch(selectedPaths, api, store, onSubmit, session);
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
   useEffect(() => {
-    if (moduleId) {
-      store.update([moduleId]);
-    } else {
-      store.updateAll();
-    }
-  }, [moduleId]);
+    store.updateAll();
+  }, []);
 
   useEffect(() => {
     if (patchError) {
       console.error(patchError);
     }
   }, [patchError]);
+
+  const initOnSubmit: InitOnSubmit = useCallback(
+    (path) => async (callback) => {
+      const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
+      const patch = await callback(Internal.createPatchJSONPath(modulePath));
+      await api.postPatches(moduleId, patch);
+      return onSubmitPatch()
+        .then(() => store.update([moduleId]))
+        .then(() => {
+          updateFormData(api, path, setFormData);
+        });
+    },
+    []
+  );
 
   return (
     <ValOverlayContext.Provider
@@ -91,14 +109,17 @@ export function ValOverlay({
         <div className="fixed -translate-x-1/2 z-overlay left-1/2 bottom-4">
           <ValMenu api={api} />
         </div>
-        {editMode === "hover" && hoverTarget.path && (
-          <ValHover
-            hoverTarget={hoverTarget}
-            setHoverTarget={setHoverTarget}
-            setEditMode={setEditMode}
-            setWindowTarget={setWindowTarget}
-          />
-        )}
+        {session.status === "success" &&
+          session.data.enabled &&
+          editMode === "hover" &&
+          hoverTarget.path && (
+            <ValHover
+              hoverTarget={hoverTarget}
+              setHoverTarget={setHoverTarget}
+              setEditMode={setEditMode}
+              setWindowTarget={setWindowTarget}
+            />
+          )}
         {editMode === "window" && windowTarget && (
           <ValWindow
             onClose={() => {
@@ -106,48 +127,40 @@ export function ValOverlay({
               setEditMode("hover");
             }}
           >
-            <div className="max-w-full px-4 py-2 text-sm border-b border-highlight">
-              <WindowHeader
-                path={windowTarget.path}
-                type={selectedSchema?.type}
-              />
-            </div>
-            {loading && <div className="text-primary">Loading...</div>}
-            {error && (
-              <div className="px-4 py-2 text-red">
-                <div className="font-bold">Error: {error.message}</div>
-                {"details" in error && (
-                  <pre className="bg-card text-card-foreground">
-                    {error.details}
-                  </pre>
-                )}
-              </div>
-            )}
-            {selectedSchema !== undefined && selectedSource !== undefined && (
-              <ValFormField
-                path={windowTarget.path}
-                disabled={loading}
-                source={selectedSource}
-                schema={selectedSchema}
-                registerPatchCallback={initPatchCallback(windowTarget.path)}
-              />
-            )}
-            <div className="flex items-end justify-end py-2">
-              <Button
-                className="px-4 py-2 border border-highlight disabled:border-border"
-                disabled={patchProgress !== "ready"}
-                onClick={onSubmitPatch}
-              >
-                {patchProgress === "patching"
-                  ? "Finalizing..."
-                  : patchProgress === "create_patch"
-                  ? "Patching..."
-                  : patchProgress === "on_submit"
-                  ? "Completing..."
-                  : patchProgress === "update_store"
-                  ? "Refreshing..."
-                  : "Submit"}
-              </Button>
+            <div
+              className="p-4"
+              style={{
+                maxHeight: windowSize?.innerHeight,
+              }}
+            >
+              {Object.entries(formData).map(([path, data]) => {
+                if (data.status !== "success") {
+                  return (
+                    <div key={path}>
+                      {path}: {data.status}
+                    </div>
+                  );
+                }
+                const { source, schema } = data.data;
+                if (!source || !schema) {
+                  return <div>Module: {path} is missing source or schema</div>;
+                }
+
+                return (
+                  <AnyVal
+                    initOnSubmit={initOnSubmit}
+                    path={path as SourcePath}
+                    key={path}
+                    schema={schema}
+                    source={source}
+                    setSelectedPath={() => {
+                      // TODO: go to full screen
+                    }}
+                    field={path}
+                    top
+                  />
+                );
+              })}
             </div>
           </ValWindow>
         )}
@@ -156,96 +169,73 @@ export function ValOverlay({
   );
 }
 
-function useValModules(api: ValApi, path: string | undefined) {
-  const [modules, setModules] = useState<Remote<Modules>>();
-  const moduleId =
-    path && Internal.splitModuleIdAndModulePath(path as SourcePath)[0];
+type ValData = Record<
+  string,
+  Remote<{
+    source: Json | undefined;
+    schema: SerializedSchema | undefined;
+  }>
+>;
 
-  useEffect(() => {
-    if (path) {
-      setModules({ status: "loading" });
-      api
-        .getTree({
-          patch: true,
-          includeSchema: true,
-          includeSource: true,
-          treePath: moduleId,
-        })
-        .then((res) => {
-          if (result.isOk(res)) {
-            setModules({ status: "success", data: res.value.modules });
-          } else {
-            console.error({ status: "error", error: res.error });
-            setModules({ status: "error", error: res.error.message });
-          }
-        });
-    }
-  }, [path]);
-  if (!path || modules?.status === "not-asked") {
-    return {
-      moduleId,
-      error: null,
-      selectedSource: undefined,
-      selectedSchema: undefined,
-      loading: false,
-    };
-  }
-  if (modules?.status === "loading") {
-    return {
-      moduleId,
-      error: null,
-      selectedSource: undefined,
-      selectedSchema: undefined,
-      loading: true,
-    };
-  }
-  if (modules?.status === "error") {
-    return {
-      moduleId,
-      error: { message: modules.error },
-      selectedSource: undefined,
-      selectedSchema: undefined,
-      loading: false,
-    };
-  }
-  if (!modules?.data) {
-    return {
-      error: {
-        message: "Val could not fetch data for this element.",
-        details: "Module data not found for: " + moduleId,
-      },
-      selectedSource: undefined,
-      selectedSchema: undefined,
-      loading: false,
-    };
-  }
+// TODO: smells bad:
+function updateFormData(
+  api: ValApi,
+  path: string,
+  setData: Dispatch<SetStateAction<ValData>>
+) {
+  const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(
+    path as SourcePath
+  );
+  api
+    .getTree({
+      patch: true,
+      includeSchema: true,
+      includeSource: true,
+      treePath: moduleId,
+    })
+    .then((res) => {
+      if (result.isOk(res)) {
+        const { schema, source } = res.value.modules[moduleId];
+        if (!schema || !source) {
+          return setData((prev) => ({
+            ...prev,
+            [path]: {
+              status: "success",
+              data: {
+                source: res.value.modules[moduleId].source,
+                schema: res.value.modules[moduleId].schema,
+              },
+            },
+          }));
+        }
 
-  const resolvedModulePath = resolvePath(path as SourcePath, modules.data);
+        const resolvedModulePath = Internal.resolvePath(
+          modulePath,
+          source,
+          schema
+        );
 
-  const {
-    error,
-    source: selectedSource,
-    schema: selectedSchema,
-  } = resolvedModulePath && result.isOk(resolvedModulePath)
-    ? {
-        ...resolvedModulePath.value,
-        error: null,
+        setData((prev) => ({
+          ...prev,
+          [path]: {
+            status: "success",
+            data: {
+              source: resolvedModulePath.source,
+              schema: resolvedModulePath.schema,
+            },
+          },
+        }));
+      } else {
+        console.error({ status: "error", error: res.error });
+        setData((prev) => ({
+          ...prev,
+          [path]: {
+            status: "error",
+            error: res.error.message,
+          },
+        }));
       }
-    : {
-        error:
-          resolvedModulePath && result.isErr(resolvedModulePath)
-            ? resolvedModulePath.error
-            : null,
-        source: undefined,
-        schema: undefined,
-      };
-  return {
-    moduleId,
-    error,
-    selectedSource,
-    selectedSchema,
-    loading: false,
-  };
+    });
 }
 
 type WindowTarget = {
@@ -480,6 +470,8 @@ function useSession(api: ValApi) {
   return session;
 }
 
+// TODO: remove?
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function WindowHeader({
   path,
   type,

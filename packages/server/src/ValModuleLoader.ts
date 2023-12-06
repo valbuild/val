@@ -44,7 +44,7 @@ export class ValModuleLoader {
   constructor(
     public readonly projectRoot: string,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    private readonly compilerOptions: ts.CompilerOptions,
+    private readonly compilerOptions: ts.CompilerOptions, // TODO: remove this?
     private readonly sourceFileHandler: ValSourceFileHandler,
     private readonly host: IValFSHost = {
       ...ts.sys,
