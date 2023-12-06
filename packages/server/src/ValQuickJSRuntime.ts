@@ -37,7 +37,7 @@ export async function newValQuickJSRuntime(
         if (modulePath === "@valbuild/react/stega") {
           return {
             value:
-              "export const useVal = () => { throw Error(`Cannot use 'useVal' in this type of file`) }; export const fetchVal = () => { throw Error(`Cannot use 'fetchVal' in this type of file`) }; export const autoTagJSX = () => { /* ignore */ };",
+              "export const useVal = () => { throw Error(`Cannot use 'useVal' in this type of file`) }; export const fetchVal = () => { throw Error(`Cannot use 'fetchVal' in this type of file`) }; export const autoTagJSX = () => { /* ignore */ };  export const stegaClean = () => { throw Error(`Cannot use 'stegaClean' in this type of file`) }; ",
           };
         }
         if (modulePath.startsWith("next/navigation")) {
