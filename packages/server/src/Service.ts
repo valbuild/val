@@ -52,7 +52,17 @@ export async function createService(
   const runtime = await newValQuickJSRuntime(
     module,
     loader ||
-      new ValModuleLoader(projectRoot, compilerOptions, sourceFileHandler, host)
+      new ValModuleLoader(
+        projectRoot,
+        compilerOptions,
+        sourceFileHandler,
+        host,
+        opts.disableCache === undefined
+          ? process.env.NODE_ENV === "development"
+            ? false
+            : true
+          : opts.disableCache
+      )
   );
   return new Service(opts, sourceFileHandler, runtime);
 }
@@ -72,7 +82,6 @@ export class Service {
     moduleId: ModuleId,
     modulePath: ModulePath
   ): Promise<SerializedModuleContent> {
-    console.log({ moduleId, valConfigPath: this.valConfigPath });
     const valModule = await readValFile(
       moduleId,
       this.valConfigPath,
