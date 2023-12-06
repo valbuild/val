@@ -274,7 +274,7 @@ function ImageField({
                 });
               }}
             >
-              {loading ? "Saving..." : "Submit"}
+              {loading ? "Saving..." : "Save"}
             </Button>
           )}
         </div>
@@ -375,7 +375,7 @@ function RichTextField({
                 }
               }}
             >
-              {loading ? "Saving..." : "Submit"}
+              {loading ? "Saving..." : "Save"}
             </Button>
           )}
         </div>
@@ -482,7 +482,7 @@ function KeyOfField({
                 });
               }}
             >
-              {loading ? "Saving..." : "Submit"}
+              {loading ? "Saving..." : "Save"}
             </Button>
           )}
         </div>
@@ -551,7 +551,7 @@ function NumberField({
                 });
               }}
             >
-              {loading ? "Saving..." : "Submit"}
+              {loading ? "Saving..." : "Save"}
             </Button>
           )}
         </div>
@@ -620,7 +620,7 @@ function StringField({
                 });
               }}
             >
-              {loading ? "Saving..." : "Submit"}
+              {loading ? "Saving..." : "Save"}
             </Button>
           )}
         </div>

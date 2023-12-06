@@ -41,8 +41,10 @@ export function ValOverlay({
   const [hoverTarget, setHoverTarget] = useHoverTarget(editMode);
   const [windowTarget, setWindowTarget] = useState<WindowTarget | null>(null);
   const [highlight, setHighlight] = useState(false);
-  const { selectedSchema, selectedSource, moduleIds, error, loading } =
-    useValModules(api, windowTarget?.path);
+  const { selectedSchema, selectedSource, error, loading } = useValModules(
+    api,
+    windowTarget?.path
+  );
   const selectedPaths = windowTarget?.path
     ? (windowTarget.path.split(",") as SourcePath[])
     : [];
@@ -143,7 +145,7 @@ export function ValOverlay({
                     ? "Completing..."
                     : patchProgress === "update_store"
                     ? "Refreshing..."
-                    : "Submit"}
+                    : "Update"}
                 </Button>
               </div>
             </div>
