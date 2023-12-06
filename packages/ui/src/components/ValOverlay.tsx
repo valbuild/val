@@ -55,20 +55,14 @@ export function ValOverlay({
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
   useEffect(() => {
-    if (moduleIds) {
-      store.update(moduleIds);
-    } else {
-      store.updateAll();
-    }
-  }, [moduleIds]);
+    store.updateAll();
+  }, []);
 
   useEffect(() => {
     if (patchError) {
       console.error(patchError);
     }
   }, [patchError]);
-
-  console.log(windowTarget?.path.split(","));
 
   return (
     <ValOverlayContext.Provider
