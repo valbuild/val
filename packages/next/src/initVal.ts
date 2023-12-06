@@ -1,8 +1,8 @@
 import {
   initVal as createValSystem,
-  ValConfig,
+  type ValConfig,
   type InitVal,
-  ValConstructor,
+  type ValConstructor,
 } from "@valbuild/core";
 import { stegaClean, ValEncodedString } from "@valbuild/react/stega";
 
