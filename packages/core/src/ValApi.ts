@@ -1,4 +1,9 @@
-import { ApiGetPatchResponse, ApiPostPatchResponse, ApiTreeResponse } from ".";
+import {
+  ApiCommitResponse,
+  ApiGetPatchResponse,
+  ApiPostPatchResponse,
+  ApiTreeResponse,
+} from ".";
 import { result } from "./fp";
 import { PatchJSON } from "./patch";
 import { ModuleId } from "./val";
@@ -96,6 +101,14 @@ export class ValApi {
     })
       .then((res) => parse<ApiTreeResponse>(res))
       .catch(createError<ApiTreeResponse>);
+  }
+
+  postCommit() {
+    return fetch(`${this.host}/commit`, {
+      method: "POST",
+    })
+      .then((res) => parse<ApiCommitResponse>(res))
+      .catch(createError<ApiCommitResponse>);
   }
 }
 

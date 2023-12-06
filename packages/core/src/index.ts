@@ -74,6 +74,13 @@ export type { SerializedRichTextSchema } from "./schema/richtext";
 export type { SerializedUnionSchema } from "./schema/union";
 export type { SerializedLiteralSchema } from "./schema/literal";
 
+export type ApiCommitResponse = {
+  git: {
+    commit?: string;
+    branch?: string;
+  };
+};
+
 export type ApiTreeResponse = {
   git: {
     commit?: string;
