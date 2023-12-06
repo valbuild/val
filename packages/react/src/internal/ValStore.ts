@@ -15,14 +15,17 @@ export class ValStore implements IValStore {
     this.listeners = {};
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async update(moduleIds: ModuleId[]) {
-    // TODO: update only the modules that have changed
-    return this.updateAll();
+    await Promise.all(moduleIds.map((moduleId) => this.updateTree(moduleId)));
   }
 
   async updateAll() {
+    await this.updateTree();
+  }
+
+  async updateTree(treePath?: string) {
     const data = await this.api.getTree({
+      treePath,
       patch: true,
       includeSource: true,
     });
