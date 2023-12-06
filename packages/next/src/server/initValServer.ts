@@ -71,7 +71,9 @@ type ValServerNextConfig = {
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function initValServer(
-  config: ValConfig,
+  config: ValConfig & {
+    disableCache?: boolean;
+  },
   nextConfig: ValServerNextConfig
 ): {
   valNextAppRouter: ReturnType<typeof initValNextAppRouter>;
