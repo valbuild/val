@@ -11,7 +11,7 @@ export default function Home() {
       <section className="hero full">
         <img
           src={page.hero.image.data.url}
-          // alt={page.hero.image.alt}
+          alt={page.hero.image.alt}
           width={100}
           height={100}
         />
