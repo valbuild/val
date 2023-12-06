@@ -2,13 +2,14 @@ import {
   initVal as createValSystem,
   ValConfig,
   type InitVal,
+  ValConstructor,
 } from "@valbuild/core";
 import { stegaClean, ValEncodedString } from "@valbuild/react/stega";
 
 export const initVal = (
   config?: ValConfig
 ): InitVal & {
-  val: InitVal["val"] & {
+  val: ValConstructor & {
     raw: (encodedString: ValEncodedString) => string;
   };
 } => {

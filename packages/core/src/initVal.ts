@@ -9,7 +9,7 @@ import { link } from "./source/link";
 // import { i18n, I18n } from "./source/future/i18n";
 // import { remote } from "./source/future/remote";
 
-type ValConstructor = {
+export type ValConstructor = {
   content: typeof content;
   getPath: typeof getPath;
   // remote: typeof remote;

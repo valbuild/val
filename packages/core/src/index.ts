@@ -1,5 +1,5 @@
 export { initVal } from "./initVal";
-export type { InitVal, ValConfig } from "./initVal";
+export type { InitVal, ValConfig, ValConstructor } from "./initVal";
 export { Schema, type SerializedSchema } from "./schema";
 export type { ImageMetadata } from "./schema/image";
 export type { LinkSource } from "./source/link";
