@@ -34,6 +34,7 @@ export const readValFile = async (
     const modulePath = `.${id}.val`;
     const code = `import * as valModule from ${JSON.stringify(modulePath)};
 import { Internal } from "@valbuild/core";
+
 globalThis.valModule = { 
   id: valModule?.default && Internal.getValPath(valModule?.default),
   schema: valModule?.default && Internal.getSchema(valModule?.default)?.serialize(),
@@ -41,7 +42,8 @@ globalThis.valModule = {
   validation: valModule?.default && Internal.getSchema(valModule?.default)?.validate(
     valModule?.default && Internal.getValPath(valModule?.default) || "/",
     valModule?.default && Internal.getSource(valModule?.default)
-  )
+  ),
+  defaultExport: !!valModule?.default,
 };
 `;
     const result = context.evalCode(
@@ -76,8 +78,13 @@ globalThis.valModule = {
         .getProp(context.global, "valModule")
         .consume(context.dump);
 
+      console.log(valModule);
       if (!valModule) {
         fatalErrors.push(`Could not find any modules at: ${id}`);
+      } else if (valModule.defaultExport === false) {
+        fatalErrors.push(
+          `Could not find a default export in: ${id}. Check if file has a export default val.content(...)`
+        );
       } else {
         if (valModule.id !== id) {
           fatalErrors.push(

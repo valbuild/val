@@ -90,10 +90,10 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
     : [undefined, undefined];
   const moduleSource = selectedModuleId && modules?.[selectedModuleId]?.source;
   const moduleSchema = selectedModuleId && modules?.[selectedModuleId]?.schema;
-  const fatalErrors = Object.entries(modules || {}).flatMap(([, module]) => {
+  const fatalErrors = Object.entries(modules || {}).flatMap(([id, module]) => {
     return module.errors
       ? module.errors.fatal
-        ? module.errors.fatal
+        ? module.errors.fatal.map((e) => ({ id, ...e }))
         : []
       : [];
   });
@@ -110,8 +110,8 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
       fatalErrors.length === 1
         ? fatalErrors[0].message
         : `Multiple errors detected:\n${fatalErrors
-            .map((f, i) => `${i + 1}. ${f.message}`)
-            .join("\n")}\n\nShowing stack trace of: 0. ${
+            .map((f, i) => `${i + 1}. [${f.id}]: ${f.message}`)
+            .join("\n")}\n\nShowing stack trace of: 1. ${
             fatalErrors[0].message
           }`;
     const error = new Error(message);
