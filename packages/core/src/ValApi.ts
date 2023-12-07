@@ -103,9 +103,19 @@ export class ValApi {
       .catch(createError<ApiTreeResponse>);
   }
 
-  postCommit() {
+  postCommit({
+    patches,
+    headers,
+  }: {
+    patches?: Record<ModuleId, string[]>;
+    headers?: Record<string, string> | undefined;
+  }) {
     return fetch(`${this.host}/commit`, {
       method: "POST",
+      body: JSON.stringify({ patches }),
+      headers: headers || {
+        "Content-Type": "application/json",
+      },
     })
       .then((res) => parse<ApiCommitResponse>(res))
       .catch(createError<ApiCommitResponse>);

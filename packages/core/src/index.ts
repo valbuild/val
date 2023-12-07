@@ -75,6 +75,14 @@ export type { SerializedUnionSchema } from "./schema/union";
 export type { SerializedLiteralSchema } from "./schema/literal";
 
 export type ApiCommitResponse = {
+  modules: Record<
+    ModuleId,
+    {
+      patches: {
+        applied: string[];
+      };
+    }
+  >;
   git: {
     commit?: string;
     branch?: string;
