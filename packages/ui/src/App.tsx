@@ -57,7 +57,7 @@ function App() {
         path: "/*",
         element: (
           <ErrorBoundary fallbackRender={fallbackRender}>
-            <ValFullscreen valApi={new ValApi("/api/val")} />
+            <ValFullscreen api={new ValApi("/api/val")} />
           </ErrorBoundary>
         ),
       },

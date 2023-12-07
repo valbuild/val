@@ -40,9 +40,11 @@ import { useTheme } from "./useTheme";
 import classNames from "classnames";
 import { ValMenu } from "./ValMenu";
 import { parseRichTextSource } from "@valbuild/shared/internal";
+import { usePatches } from "./usePatch";
+import { useSession } from "./useSession";
 
 interface ValFullscreenProps {
-  valApi: ValApi;
+  api: ValApi;
 }
 
 // TODO: move SerializedModuleContent to core
@@ -79,7 +81,7 @@ export const useValModuleFromPath = (
 type ValModules = Record<ModuleId, SerializedModuleContent> | null;
 
 export type InitOnSubmit = (path: SourcePath) => OnSubmit;
-export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
+export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { "*": pathFromParams } = useParams();
   const [modules, setModules] = useState<ValModules>(null);
@@ -157,7 +159,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   }, []);
   useEffect(() => {
     console.log("(Re)-fetching modules");
-    valApi
+    api
       .getTree({ patch: true, includeSchema: true, includeSource: true })
       .then((res) => {
         if (result.isOk(res)) {
@@ -168,35 +170,11 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
         }
       });
   }, [hmrHash]);
+  const session = useSession(api);
 
   const navigate = useNavigate();
   const [theme, setTheme] = useTheme();
-
-
-  useEffect(() => {
-    const popStateListener = (event: PopStateEvent) => {
-      console.log("popstate", event);
-    };
-
-    window.addEventListener("popstate", popStateListener);
-
-    return () => {
-      window.removeEventListener("popstate", popStateListener);
-    };
-  }, []);
-
-  
-  useEffect(() => {
-    const popStateListener = (event: PopStateEvent) => {
-      console.log("popstate", event);
-    };
-
-    window.addEventListener("popstate", popStateListener);
-
-    return () => {
-      window.removeEventListener("popstate", popStateListener);
-    };
-  }, []);
+  const { patches, setPatchResetId } = usePatches(session, api);
 
   const hoverElemRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -204,7 +182,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
     (path) => async (callback) => {
       const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
       const patch = await callback(Internal.createPatchJSONPath(modulePath));
-      return valApi
+      return api
         .postPatches(moduleId, patch)
         .then((res) => {
           if (result.isErr(res)) {
@@ -212,7 +190,8 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
           } else {
             // TODO: we need to revisit this a bit, HMR might not be the best solution here
             if (!hmrHash) {
-              return valApi
+              setPatchResetId((prev) => prev + 1);
+              return api
                 .getTree({
                   treePath: moduleId,
                   patch: true,
@@ -221,7 +200,10 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
                 })
                 .then((res) => {
                   if (result.isOk(res)) {
-                    setModules(res.value.modules);
+                    setModules((modules) => ({
+                      ...modules,
+                      ...res.value.modules,
+                    }));
                   } else {
                     setError("Could not load modules: " + res.error.message);
                     console.error(res.error);
@@ -242,9 +224,9 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
       value={{
         theme,
         setTheme,
-        api: valApi,
+        api: api,
         editMode: "full",
-        session: { status: "not-asked" },
+        session,
         highlight: false,
         setHighlight: () => {
           //
@@ -263,7 +245,11 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
         data-mode={theme}
       >
         <div className="fixed -translate-x-1/2 z-overlay left-1/2 bottom-4">
-          <ValMenu api={valApi} />
+          <ValMenu
+            api={api}
+            patches={patches}
+            onCommit={() => setPatchResetId((prev) => prev + 1)}
+          />
         </div>
         <div id="val-fullscreen-hover" ref={hoverElemRef}></div>
         <ValFullscreenHoverContext.Provider
