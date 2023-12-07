@@ -172,6 +172,20 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ valApi }) => {
   const navigate = useNavigate();
   const [theme, setTheme] = useTheme();
 
+
+  useEffect(() => {
+    const popStateListener = (event: PopStateEvent) => {
+      console.log("popstate", event);
+    };
+
+    window.addEventListener("popstate", popStateListener);
+
+    return () => {
+      window.removeEventListener("popstate", popStateListener);
+    };
+  }, []);
+
+  
   useEffect(() => {
     const popStateListener = (event: PopStateEvent) => {
       console.log("popstate", event);
