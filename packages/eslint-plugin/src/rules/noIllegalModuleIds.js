@@ -13,6 +13,9 @@ const getExpectedValModuleName = (
   }
 };
 
+/**
+ * @type {import('eslint').Rule.RuleModule}
+ */
 export default {
   meta: {
     type: "problem",
@@ -20,25 +23,21 @@ export default {
       description:
         "Check that the first argument of export default declaration matches the string from val.config.ts file.",
       category: "Best Practices",
-      recommended: "error",
+      recommended: true,
     },
     fixable: "code",
     schema: [],
   },
-  create: function (
-    /** @type {{ report: (arg0: { node: any; message: string; fix: ((fixer: any) => any) | ((fixer: any) => any); }) => void; }} */ context
-  ) {
+  create: function (context) {
     const expectedValue = getExpectedValModuleName(context);
     return {
-      /**
-       * @param {{ declaration: { arguments: string | any[]; }; }} node
-       */
       ExportDefaultDeclaration(node) {
         if (!expectedValue) {
           return;
         }
         if (
           node.declaration &&
+          node.declaration.type === "CallExpression" &&
           node.declaration.arguments &&
           node.declaration.arguments.length > 0
         ) {
@@ -56,15 +55,18 @@ export default {
             typeof firstArg.value === "string"
           ) {
             if (firstArg.value !== expectedValue) {
-              context.report({
-                node: firstArg,
-                message: "val.content first argument must match filename",
-                fix: (fixer) =>
-                  fixer.replaceText(
-                    firstArg,
-                    `${firstArg.raw[0]}${expectedValue}${firstArg.raw[0]}`
-                  ),
-              });
+              const rawArg = firstArg.raw?.[0];
+              if (rawArg) {
+                context.report({
+                  node: firstArg,
+                  message: "val.content first argument must match filename",
+                  fix: (fixer) =>
+                    fixer.replaceText(
+                      firstArg,
+                      `${rawArg}${expectedValue}${rawArg}`
+                    ),
+                });
+              }
             }
           }
         }
