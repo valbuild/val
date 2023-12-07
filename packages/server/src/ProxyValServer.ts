@@ -486,17 +486,33 @@ export class ProxyValServer implements ValServer {
   }
 
   async postCommit(
+    rawBody: unknown,
     cookies: ValCookies<VAL_SESSION_COOKIE>
     // eslint-disable-next-line @typescript-eslint/ban-types
   ): Promise<ValServerJsonResult<{}>> {
+    const commit = this.options.gitCommit;
+    if (!commit) {
+      return {
+        status: 401,
+        json: {
+          message:
+            "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
+        },
+      };
+    }
+    const params = new URLSearchParams({
+      commit,
+    });
     return this.withAuth(cookies, "postCommit", async ({ token }) => {
       const url = new URL(
-        `/api/val/commit/${encodeURIComponent(this.options.gitBranch)}`,
-        this.options.valBuildUrl
+        `/v1/commit/${this.options.valName}/heads/${this.options.gitBranch}/~?${params}`,
+        this.options.valContentUrl
       );
+      const body = JSON.stringify(rawBody);
       const fetchRes = await fetch(url, {
         method: "POST",
-        headers: this.getAuthHeaders(token),
+        headers: this.getAuthHeaders(token, "application/json"),
+        body,
       });
       if (fetchRes.status === 200) {
         return {

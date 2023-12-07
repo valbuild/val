@@ -18,7 +18,15 @@ import React, { useEffect, useState } from "react";
 const className = "p-1 border rounded-full shadow border-accent";
 const PREV_URL_KEY = "valbuild:urlBeforeNavigation";
 
-export function ValMenu({ api }: { api: ValApi }) {
+export function ValMenu({
+  api,
+  patches,
+  onCommit,
+}: {
+  api: ValApi;
+  patches: Record<ModuleId, string[]>;
+  onCommit: () => void;
+}) {
   const { theme, setTheme, editMode, setEditMode, session } =
     useValOverlayContext();
   if (session.status === "success" && session.data.mode === "unauthorized") {
@@ -40,20 +48,12 @@ export function ValMenu({ api }: { api: ValApi }) {
   const [patchCount, setPatchCount] = useState<number>();
 
   useEffect(() => {
-    if (session.status === "success" && session.data.mode === "proxy") {
-      api.getPatches({}).then((patchRes) => {
-        if (result.isOk(patchRes)) {
-          let patchCount = 0;
-          for (const moduleId in patchRes.value) {
-            patchCount += patchRes.value[moduleId as ModuleId].length;
-          }
-          setPatchCount(patchCount);
-        } else {
-          console.error("Could not load patches", patchRes.error);
-        }
-      });
+    let patchCount = 0;
+    for (const moduleId in patches) {
+      patchCount += patches[moduleId as ModuleId].length;
     }
-  }, [session]);
+    setPatchCount(patchCount);
+  }, [patches]);
 
   return (
     <MenuContainer>
@@ -98,10 +98,22 @@ export function ValMenu({ api }: { api: ValApi }) {
           )}
         </div>
       </MenuButton>
-      {patchCount && (
+      {patchCount !== undefined && (
         <MenuButton
           onClick={() => {
-            //
+            if (patchCount > 0) {
+              api.postCommit({ patches }).then((res) => {
+                if (result.isErr(res)) {
+                  console.error(res.error);
+                  alert("Could not commit patches: " + res.error.message);
+                } else {
+                  console.log("Committed patches: ", res.value);
+                  onCommit();
+                }
+              });
+            } else {
+              alert("No patches to commit");
+            }
           }}
         >
           <div className="relative h-[24px] w-[24px] flex justify-center items-center">
