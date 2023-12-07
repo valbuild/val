@@ -4,7 +4,7 @@ import { PatchJSON } from "@valbuild/core/patch";
 import { useCallback, useEffect, useState } from "react";
 import { IValStore } from "../exports";
 import { ValSession } from "@valbuild/shared/internal";
-import { Remote } from "../utils/Remote";
+import { type Remote } from "../utils/Remote";
 
 export type PatchCallback = (modulePath: string) => Promise<PatchJSON>;
 
@@ -16,7 +16,7 @@ export type PatchCallbackState = {
   [path: SourcePath]: () => Promise<PatchJSON>;
 };
 
-export function usePatch(
+export function usePatchSubmit(
   paths: SourcePath[],
   api: ValApi,
   valStore: IValStore,
@@ -128,4 +128,29 @@ async function maybeStartViewTransition(f: () => Promise<void>) {
     await document.startViewTransition(f);
   }
   await f();
+}
+
+export function usePatches(session: Remote<ValSession>, api: ValApi) {
+  const [patches, setPatches] = useState<Record<ModuleId, string[]>>({});
+  const [patchResetId, setPatchResetId] = useState(0);
+
+  useEffect(() => {
+    if (session.status === "success" && session.data.mode === "proxy") {
+      api.getPatches({}).then((patchRes) => {
+        if (result.isOk(patchRes)) {
+          const patchesByModuleId: Record<ModuleId, string[]> = {};
+          for (const moduleId in patchRes.value) {
+            patchesByModuleId[moduleId as ModuleId] = patchRes.value[
+              moduleId as ModuleId
+            ].map((patch) => patch.patch_id);
+          }
+          setPatches(patchesByModuleId);
+        } else {
+          console.error("Could not load patches", patchRes.error);
+        }
+      });
+    }
+  }, [session, patchResetId]);
+
+  return { patches, setPatchResetId };
 }

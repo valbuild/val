@@ -5,26 +5,20 @@ import {
   useEffect,
   useState,
 } from "react";
-import { Session } from "../dto/Session";
 import { ValMenu } from "./ValMenu";
 import { EditMode, ValOverlayContext, WindowSize } from "./ValOverlayContext";
 import { Remote } from "../utils/Remote";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
-import {
-  Internal,
-  Json,
-  ModuleId,
-  SerializedSchema,
-  SourcePath,
-} from "@valbuild/core";
+import { Internal, Json, SerializedSchema, SourcePath } from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
-import { usePatch } from "./usePatch";
+import { usePatchSubmit, usePatches } from "./usePatch";
 import { useTheme } from "./useTheme";
 import { IValStore } from "../lib/IValStore";
 import { ScrollArea } from "./ui/scroll-area";
 import { AnyVal } from "./ValFullscreen";
 import { InitOnSubmit } from "./ValFullscreen";
+import { useSession } from "./useSession";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -69,7 +63,7 @@ export function ValOverlay({
     onSubmitPatch,
     // progress: patchProgress,
     error: patchError,
-  } = usePatch(selectedPaths, api, store, onSubmit, session);
+  } = usePatchSubmit(selectedPaths, api, store, onSubmit, session);
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
   useEffect(() => {
@@ -82,26 +76,7 @@ export function ValOverlay({
     }
   }, [patchError]);
 
-  const [patches, setPatches] = useState<Record<ModuleId, string[]>>({});
-  const [patchResetId, setPatchResetId] = useState(0);
-
-  useEffect(() => {
-    if (session.status === "success" && session.data.mode === "proxy") {
-      api.getPatches({}).then((patchRes) => {
-        if (result.isOk(patchRes)) {
-          const patchesByModuleId: Record<ModuleId, string[]> = {};
-          for (const moduleId in patchRes.value) {
-            patchesByModuleId[moduleId as ModuleId] = patchRes.value[
-              moduleId as ModuleId
-            ].map((patch) => patch.patch_id);
-          }
-          setPatches(patchesByModuleId);
-        } else {
-          console.error("Could not load patches", patchRes.error);
-        }
-      });
-    }
-  }, [session, patchResetId]);
+  const { patches, setPatchResetId } = usePatches(session, api);
 
   const initOnSubmit: InitOnSubmit = useCallback(
     (path) => async (callback) => {
@@ -462,46 +437,6 @@ function useInitEditMode() {
     }
   }, []);
   return [editMode, setEditMode] as const;
-}
-
-function useSession(api: ValApi) {
-  const [session, setSession] = useState<Remote<Session>>({
-    status: "not-asked",
-  });
-  const [sessionResetId, setSessionResetId] = useState(0);
-  useEffect(() => {
-    setSession({ status: "loading" });
-    api.getSession().then(async (res) => {
-      try {
-        if (result.isOk(res)) {
-          const session = res.value;
-          setSession({ status: "success", data: Session.parse(session) });
-        } else {
-          if (res.error.statusCode === 401) {
-            setSession({
-              status: "success",
-              data: {
-                mode: "unauthorized",
-              },
-            });
-          } else if (sessionResetId < 3) {
-            setTimeout(() => {
-              setSessionResetId(sessionResetId + 1);
-            }, 200 * sessionResetId);
-          } else {
-            setSession({ status: "error", error: "Could not fetch session" });
-          }
-        }
-      } catch (e) {
-        console.error("Could not authorize:", e);
-        setSession({
-          status: "error",
-          error: "Got an error while trying to get session",
-        });
-      }
-    });
-  }, [sessionResetId]);
-  return session;
 }
 
 // TODO: remove?
