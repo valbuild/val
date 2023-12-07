@@ -394,14 +394,27 @@ export class ProxyValServer implements ValServer {
     query: { id?: string[] },
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerJsonResult<ApiGetPatchResponse>> {
-    const patchIds = query.id || [];
-    const params =
-      patchIds.length > 0
-        ? `?${patchIds.map((id) => `id=${encodeURIComponent(id)}`).join("&")}`
-        : "";
     return this.withAuth(cookies, "getPatches", async ({ token }) => {
+      const commit = this.options.gitCommit;
+      if (!commit) {
+        return {
+          status: 400,
+          body: {
+            message:
+              "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
+          },
+        };
+      }
+
+      const patchIds = query.id || [];
+      const params =
+        patchIds.length > 0
+          ? `commit=${encodeURIComponent(commit)}&${patchIds
+              .map((id) => `id=${encodeURIComponent(id)}`)
+              .join("&")}`
+          : `commit=${encodeURIComponent(commit)}`;
       const url = new URL(
-        `/v1/patches/${this.options.valName}/heads/${this.options.gitBranch}/~${params}`,
+        `/v1/patches/${this.options.valName}/heads/${this.options.gitBranch}/~?${params}`,
         this.options.valContentUrl
       );
       // Proxy patch to val.build
