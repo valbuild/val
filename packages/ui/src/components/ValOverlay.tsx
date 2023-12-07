@@ -11,7 +11,13 @@ import { EditMode, ValOverlayContext, WindowSize } from "./ValOverlayContext";
 import { Remote } from "../utils/Remote";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
-import { Internal, Json, SerializedSchema, SourcePath } from "@valbuild/core";
+import {
+  Internal,
+  Json,
+  ModuleId,
+  SerializedSchema,
+  SourcePath,
+} from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
 import { usePatch } from "./usePatch";
 import { useTheme } from "./useTheme";
@@ -76,11 +82,33 @@ export function ValOverlay({
     }
   }, [patchError]);
 
+  const [patches, setPatches] = useState<Record<ModuleId, string[]>>({});
+  const [patchResetId, setPatchResetId] = useState(0);
+
+  useEffect(() => {
+    if (session.status === "success" && session.data.mode === "proxy") {
+      api.getPatches({}).then((patchRes) => {
+        if (result.isOk(patchRes)) {
+          const patchesByModuleId: Record<ModuleId, string[]> = {};
+          for (const moduleId in patchRes.value) {
+            patchesByModuleId[moduleId as ModuleId] = patchRes.value[
+              moduleId as ModuleId
+            ].map((patch) => patch.patch_id);
+          }
+          setPatches(patchesByModuleId);
+        } else {
+          console.error("Could not load patches", patchRes.error);
+        }
+      });
+    }
+  }, [session, patchResetId]);
+
   const initOnSubmit: InitOnSubmit = useCallback(
     (path) => async (callback) => {
       const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
       const patch = await callback(Internal.createPatchJSONPath(modulePath));
       await api.postPatches(moduleId, patch);
+      setPatchResetId((patchResetId) => patchResetId + 1);
       return onSubmitPatch()
         .then(() => store.update([moduleId]))
         .then(() => {
@@ -107,7 +135,13 @@ export function ValOverlay({
     >
       <div data-mode={theme} className="antialiased">
         <div className="fixed -translate-x-1/2 z-overlay left-1/2 bottom-4">
-          <ValMenu api={api} />
+          <ValMenu
+            api={api}
+            patches={patches}
+            onCommit={() => {
+              setPatchResetId((patchResetId) => patchResetId + 1);
+            }}
+          />
         </div>
         {session.status === "success" &&
           session.data.enabled &&

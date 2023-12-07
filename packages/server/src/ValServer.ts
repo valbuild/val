@@ -83,6 +83,8 @@ export interface ValServer {
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerJsonResult<ApiPostPatchResponse>>;
   postCommit(
+    body: unknown,
+
     cookies: ValCookies<VAL_SESSION_COOKIE>
     // eslint-disable-next-line @typescript-eslint/ban-types
   ): Promise<ValServerJsonResult<{}>>; // TODO: add body type here
