@@ -30,8 +30,8 @@ export default {
             (n.source.value.endsWith("val.config") ||
               n.source.value.endsWith("val.config.ts") ||
               n.source.value.endsWith("val.config.js"))
-              ? [n.source.value]
-              : []
+              ? n.source.value
+              : false
           );
           if (
             maybeValConfigImportDeclaration?.type === "ImportDeclaration" &&
@@ -54,10 +54,13 @@ export default {
               const numberOfDirsToRoot = valConfigImportSource
                 .split("..")
                 .reduce((acc, curr) => (curr === "" ? acc + 1 : acc), 0);
-              expectedValue = `/${expectedValue
-                .split(path.sep)
-                .slice(numberOfDirsToRoot)
-                .join(path.sep)}`;
+              const pathSegments = expectedValue.split(path.sep);
+              expectedValue = `/${path.join(
+                ...pathSegments.slice(
+                  pathSegments.length - (numberOfDirsToRoot + 1),
+                  pathSegments.length
+                )
+              )}`;
             }
           }
         } else {
@@ -76,8 +79,7 @@ export default {
           if (firstArg.type === "TemplateLiteral") {
             context.report({
               node: firstArg,
-              message:
-                "val.content first argument should not be a template literal",
+              message: "Val: val.content id should not be a template literal",
               fix: (fixer) => fixer.replaceText(firstArg, `"${expectedValue}"`),
             });
           }
@@ -90,7 +92,7 @@ export default {
               if (rawArg) {
                 context.report({
                   node: firstArg,
-                  message: "val.content first argument must match filename",
+                  message: `Val: val.content path should match the filename. Expected: '${expectedValue}'. Found: '${firstArg.value}'`,
                   fix: (fixer) =>
                     fixer.replaceText(
                       firstArg,

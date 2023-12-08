@@ -33,7 +33,8 @@ ruleTester.run("no-illegal-module-ids", rule, {
       export default val.content('foo', schema, 'String')`,
       errors: [
         {
-          message: "val.content first argument must match filename",
+          message:
+            "Val: val.content path should match the filename. Expected: '/foo/test'. Found: 'foo'",
         },
       ],
       output: `import { val, s } from '../val.config.ts';
@@ -47,7 +48,8 @@ ruleTester.run("no-illegal-module-ids", rule, {
       export default val.content("foo", schema, 'String')`,
       errors: [
         {
-          message: "val.content first argument must match filename",
+          message:
+            "Val: val.content path should match the filename. Expected: '/foo/test'. Found: 'foo'",
         },
       ],
       output: `import { val, s } from "../val.config.ts";
@@ -61,8 +63,7 @@ ruleTester.run("no-illegal-module-ids", rule, {
       export default val.content(\`foo\`, schema, 'String')`,
       errors: [
         {
-          message:
-            "val.content first argument should not be a template literal",
+          message: "Val: val.content id should not be a template literal",
         },
       ],
       output: `import { val, s } from "../val.config.ts";
