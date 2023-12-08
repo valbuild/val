@@ -52,7 +52,7 @@ export default {
               // so we need to account for that
               // Assume the import of the val.config is correct and that it is in the root folder
               const numberOfDirsToRoot = valConfigImportSource
-                .split("..")
+                .split(".." + path.sep)
                 .reduce((acc, curr) => (curr === "" ? acc + 1 : acc), 0);
               const pathSegments = expectedValue.split(path.sep);
               expectedValue = `/${path.join(
