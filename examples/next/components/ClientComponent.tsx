@@ -1,6 +1,6 @@
 "use client";
 import { useVal } from "../val/client";
-import clientContentVal from "./clientContent.val";
+import clientContentVal, { ClientContent } from "./clientContent.val";
 
 export function ClientComponent() {
   const content = useVal(clientContentVal);
@@ -8,6 +8,14 @@ export function ClientComponent() {
   return (
     <div>
       <h1>Client Component</h1>
+      <SubComponent content={content} />
+    </div>
+  );
+}
+
+function SubComponent({ content }: { content: ClientContent }) {
+  return (
+    <div>
       <div>{content.text}</div>
       <h2>Example of union schema:</h2>
       <div

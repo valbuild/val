@@ -4,7 +4,7 @@ import {
   parsePath,
   splitModuleIdAndModulePath,
 } from "./module";
-import { SchemaTypeOf } from "./schema";
+import { SelectorOfSchema } from "./schema";
 import { array } from "./schema/array";
 import { number } from "./schema/number";
 import { object } from "./schema/object";
@@ -103,7 +103,7 @@ describe("module", () => {
           ],
           zoo: 1,
         },
-      ] as SchemaTypeOf<typeof basicSchema>,
+      ] as SelectorOfSchema<typeof basicSchema>,
       basicSchema
     );
     expect(schema).toBeInstanceOf(StringSchema);
@@ -161,7 +161,7 @@ describe("module", () => {
             bar: { zoo: 1 },
           },
         },
-      ] as SchemaTypeOf<typeof basicSchema>,
+      ] as SelectorOfSchema<typeof basicSchema>,
       basicSchema.serialize()
     );
     expect(res.schema).toStrictEqual(number().serialize());

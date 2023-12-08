@@ -1,3 +1,4 @@
+import type { InferSchemaType } from "@valbuild/next";
 import { s, val } from "../val.config";
 
 export const schema = s.object({
@@ -19,6 +20,7 @@ export const schema = s.object({
     s.literal("lit-2")
   ),
 });
+export type ClientContent = InferSchemaType<typeof schema>;
 
 export default val.content("/components/clientContent", schema, {
   text: "Client components works",

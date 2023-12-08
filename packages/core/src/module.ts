@@ -1,4 +1,4 @@
-import { Schema, SchemaTypeOf, SerializedSchema } from "./schema";
+import { Schema, SelectorOfSchema, SerializedSchema } from "./schema";
 import { ObjectSchema, SerializedObjectSchema } from "./schema/object";
 import {
   GenericSelector,
@@ -33,7 +33,7 @@ export type ValModuleBrand = {
   [brand]: "ValModule";
 };
 
-export type TypeOfValModule<T extends ValModule<SelectorSource>> =
+export type InferValModuleType<T extends ValModule<SelectorSource>> =
   T extends GenericSelector<infer S> ? S : never;
 
 type ReplaceRawStringWithString<T extends SelectorSource> =
@@ -55,13 +55,13 @@ export function content<T extends Schema<SelectorSource>>(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   schema: T,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  source: ReplaceRawStringWithString<SchemaTypeOf<T>>
-): ValModule<SchemaTypeOf<T>> {
+  source: ReplaceRawStringWithString<SelectorOfSchema<T>>
+): ValModule<SelectorOfSchema<T>> {
   return {
     [GetSource]: source,
     [GetSchema]: schema,
     [Path]: id as SourcePath,
-  } as unknown as ValModule<SchemaTypeOf<T>>;
+  } as unknown as ValModule<SelectorOfSchema<T>>;
 }
 
 export function getSource(valModule: ValModule<SelectorSource>): Source {

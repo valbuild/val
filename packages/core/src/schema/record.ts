@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SchemaTypeOf, SerializedSchema } from ".";
+import { Schema, SelectorOfSchema, SerializedSchema } from ".";
 import { initVal } from "../initVal";
 import { SelectorSource } from "../selector";
 import { createValPathOfItem } from "../selector/SelectorProxy";
@@ -14,7 +14,7 @@ export type SerializedRecordSchema = {
 };
 
 export class RecordSchema<T extends Schema<SelectorSource>> extends Schema<
-  Record<string, SchemaTypeOf<T>>
+  Record<string, SelectorOfSchema<T>>
 > {
   constructor(readonly item: T, readonly opt: boolean = false) {
     super();
@@ -22,7 +22,7 @@ export class RecordSchema<T extends Schema<SelectorSource>> extends Schema<
 
   validate(
     path: SourcePath,
-    src: Record<string, SchemaTypeOf<T>>
+    src: Record<string, SelectorOfSchema<T>>
   ): ValidationErrors {
     let error: ValidationErrors = false;
 
@@ -67,7 +67,7 @@ export class RecordSchema<T extends Schema<SelectorSource>> extends Schema<
     return error;
   }
 
-  assert(src: Record<string, SchemaTypeOf<T>>): boolean {
+  assert(src: Record<string, SelectorOfSchema<T>>): boolean {
     if (this.opt && (src === null || src === undefined)) {
       return true;
     }
@@ -83,7 +83,7 @@ export class RecordSchema<T extends Schema<SelectorSource>> extends Schema<
     return typeof src === "object" && !Array.isArray(src);
   }
 
-  optional(): Schema<Record<string, SchemaTypeOf<T>> | null> {
+  optional(): Schema<Record<string, SelectorOfSchema<T>> | null> {
     return new RecordSchema(this.item, true);
   }
 
@@ -98,6 +98,6 @@ export class RecordSchema<T extends Schema<SelectorSource>> extends Schema<
 
 export const record = <S extends Schema<SelectorSource>>(
   schema: S
-): Schema<Record<string, SchemaTypeOf<S>>> => {
+): Schema<Record<string, SelectorOfSchema<S>>> => {
   return new RecordSchema(schema);
 };

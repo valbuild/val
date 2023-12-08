@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SchemaTypeOf, SerializedSchema } from "..";
+import { Schema, SelectorOfSchema, SerializedSchema } from "..";
 import { I18nCompatibleSource, I18nSource } from "../../source/future/i18n";
 import { SourcePath } from "../../val";
 import { ValidationErrors } from "../validation/ValidationError";
@@ -12,11 +12,11 @@ export type SerializedI18nSchema = {
 };
 
 export class I18nSchema<Locales extends readonly string[]> extends Schema<
-  I18nSource<Locales, SchemaTypeOf<Schema<I18nCompatibleSource>>>
+  I18nSource<Locales, SelectorOfSchema<Schema<I18nCompatibleSource>>>
 > {
   constructor(
     readonly locales: Locales,
-    readonly item: Schema<SchemaTypeOf<Schema<I18nCompatibleSource>>>,
+    readonly item: Schema<SelectorOfSchema<Schema<I18nCompatibleSource>>>,
     readonly opt: boolean = false
   ) {
     super();
@@ -24,20 +24,20 @@ export class I18nSchema<Locales extends readonly string[]> extends Schema<
 
   validate(
     path: SourcePath,
-    src: I18nSource<Locales, SchemaTypeOf<Schema<I18nCompatibleSource>>>
+    src: I18nSource<Locales, SelectorOfSchema<Schema<I18nCompatibleSource>>>
   ): ValidationErrors {
     throw new Error("Method not implemented.");
   }
 
   assert(
-    src: I18nSource<Locales, SchemaTypeOf<Schema<I18nCompatibleSource>>>
+    src: I18nSource<Locales, SelectorOfSchema<Schema<I18nCompatibleSource>>>
   ): boolean {
     throw new Error("Method not implemented.");
   }
 
   optional(): Schema<I18nSource<
     Locales,
-    SchemaTypeOf<Schema<I18nCompatibleSource>>
+    SelectorOfSchema<Schema<I18nCompatibleSource>>
   > | null> {
     return new I18nSchema(this.locales, this.item, true);
   }
@@ -58,12 +58,12 @@ export type I18n<Locales extends readonly string[]> = <
   S extends Schema<I18nCompatibleSource>
 >(
   schema: S
-) => Schema<I18nSource<Locales, SchemaTypeOf<S>>>;
+) => Schema<I18nSource<Locales, SelectorOfSchema<S>>>;
 
 export const i18n =
   <Locales extends readonly string[]>(locales: Locales) =>
   <S extends Schema<I18nCompatibleSource>>(
     schema: S
-  ): Schema<I18nSource<Locales, SchemaTypeOf<S>>> => {
+  ): Schema<I18nSource<Locales, SelectorOfSchema<S>>> => {
     return new I18nSchema(locales, schema);
   };
