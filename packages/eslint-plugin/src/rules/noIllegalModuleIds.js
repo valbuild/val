@@ -1,18 +1,6 @@
 // @ts-check
 import path from "path";
 
-const getExpectedValModuleName = (
-  /** @type {{ report?: (arg0: { node: any; message: string; fix: ((fixer: any) => any) | ((fixer: any) => any); }) => void; getFilename?: any; cwd?: any; }} */ context
-) => {
-  const filename = context.getFilename();
-  if (filename.endsWith(".val.ts") || filename.endsWith(".val.js")) {
-    const root = context.cwd || process.cwd();
-    const relativePath = path.relative(root, filename);
-    const expectedValue = relativePath.replace(/\.val\.(ts|js)$/, "");
-    return `/${expectedValue}`;
-  }
-};
-
 /**
  * @type {import('eslint').Rule.RuleModule}
  */
@@ -29,9 +17,52 @@ export default {
     schema: [],
   },
   create: function (context) {
-    const expectedValue = getExpectedValModuleName(context);
     return {
       ExportDefaultDeclaration(node) {
+        /**
+         * @type {string | undefined}
+         */
+        let expectedValue;
+        if (node.parent.type === "Program") {
+          const maybeValConfigImportDeclaration = node.parent.body.find((n) =>
+            n.type === "ImportDeclaration" &&
+            typeof n.source.value === "string" &&
+            (n.source.value.endsWith("val.config") ||
+              n.source.value.endsWith("val.config.ts") ||
+              n.source.value.endsWith("val.config.js"))
+              ? [n.source.value]
+              : []
+          );
+          if (
+            maybeValConfigImportDeclaration?.type === "ImportDeclaration" &&
+            typeof maybeValConfigImportDeclaration.source.value === "string"
+          ) {
+            const valConfigImportSource =
+              maybeValConfigImportDeclaration.source.value;
+            const filename = context.filename || context.getFilename();
+            if (
+              filename?.endsWith(".val.ts") ||
+              filename?.endsWith(".val.js")
+            ) {
+              const root = context.cwd || process.cwd();
+              const relativePath = path.relative(root, filename);
+              expectedValue = relativePath.replace(/\.val\.(ts|js)$/, "");
+              // TODO: this feels like a weird way to figure out the correct relative path,
+              // in a monorepo, the root dir will be the root of the monorepo, not the root of the package
+              // so we need to account for that
+              // Assume the import of the val.config is correct and that it is in the root folder
+              const numberOfDirsToRoot = valConfigImportSource
+                .split("..")
+                .reduce((acc, curr) => (curr === "" ? acc + 1 : acc), 0);
+              expectedValue = `/${expectedValue
+                .split(path.sep)
+                .slice(numberOfDirsToRoot)
+                .join(path.sep)}`;
+            }
+          }
+        } else {
+          console.warn("Unexpected parent type", node.parent.type);
+        }
         if (!expectedValue) {
           return;
         }
