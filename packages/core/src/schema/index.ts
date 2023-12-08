@@ -1,5 +1,3 @@
-import { InferValModuleType, ValModule } from "../module";
-import { GenericSelector, SelectorSource } from "../selector";
 // import { RemoteCompatibleSource, RemoteSource } from "../source/remote";
 import { SourcePath } from "../val";
 import { SerializedArraySchema } from "./array";
