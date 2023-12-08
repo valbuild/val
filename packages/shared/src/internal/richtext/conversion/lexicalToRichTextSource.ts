@@ -30,9 +30,7 @@ type MarkdownIR = {
 const MAX_LINE_LENGTH = 80;
 export function lexicalToRichTextSource(
   node: LexicalRootNode
-): Promise<
-  RichTextSource<AnyRichTextOptions> & { files: Record<string, string> }
-> {
+): RichTextSource<AnyRichTextOptions> & { files: Record<string, string> } {
   const markdownIRBlocks: MarkdownIR[] = node.children.map(createBlock);
   return fromIRToRichTextSource(markdownIRBlocks);
 }
@@ -80,11 +78,9 @@ function createBlock(node: LexicalRootNode["children"][number]): MarkdownIR {
   }
 }
 
-async function fromIRToRichTextSource(
+function fromIRToRichTextSource(
   markdownIRBlocks: MarkdownIR[]
-): Promise<
-  RichTextSource<AnyRichTextOptions> & { files: Record<string, string> }
-> {
+): RichTextSource<AnyRichTextOptions> & { files: Record<string, string> } {
   const templateStrings = ["\n"];
   const exprs = [];
   const files: Record<string, string> = {};
@@ -95,7 +91,7 @@ async function fromIRToRichTextSource(
         templateStrings[templateStrings.length - 1] += child;
       } else {
         if (child.type === "image") {
-          exprs.push(await fromLexicalImageNode(child, files));
+          exprs.push(fromLexicalImageNode(child, files));
         } else if (child.type === "link") {
           exprs.push(fromLexicalLinkNode(child));
         } else {
@@ -223,12 +219,12 @@ function splitIntoChunks(str: string) {
 }
 
 const textEncoder = new TextEncoder();
-async function fromLexicalImageNode(
+function fromLexicalImageNode(
   node: LexicalImageNode,
   files: Record<string, string>
 ) {
   if (node.src.startsWith("data:")) {
-    const sha256 = await Internal.getSHA256Hash(textEncoder.encode(node.src));
+    const sha256 = Internal.getSHA256Hash(textEncoder.encode(node.src));
     const mimeType = getMimeType(node.src);
     if (mimeType === undefined) {
       throw new Error(`Could not detect Mime Type for image: ${node.src}`);

@@ -20,10 +20,8 @@ export function readImage(ev: ChangeEvent<HTMLInputElement>) {
       const result = reader.result;
       if (typeof result === "string") {
         const image = new Image();
-        image.addEventListener("load", async () => {
-          const sha256 = await Internal.getSHA256Hash(
-            textEncoder.encode(result)
-          );
+        image.addEventListener("load", () => {
+          const sha256 = Internal.getSHA256Hash(textEncoder.encode(result));
           if (image.naturalWidth && image.naturalHeight) {
             const mimeType = getMimeType(result);
             resolve({

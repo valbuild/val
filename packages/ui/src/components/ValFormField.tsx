@@ -283,9 +283,9 @@ function ImageField({
   );
 }
 
-async function createRichTextPatch(path: string, editor: LexicalEditor) {
+function createRichTextPatch(path: string, editor: LexicalEditor) {
   const { templateStrings, exprs, files } = editor
-    ? await lexicalToRichTextSource(
+    ? lexicalToRichTextSource(
         editor.getEditorState().toJSON().root as LexicalRootNode
       )
     : ({
@@ -341,7 +341,7 @@ function RichTextField({
   }, [editor]);
   useEffect(() => {
     if (editor && registerPatchCallback) {
-      registerPatchCallback((path) => createRichTextPatch(path, editor));
+      registerPatchCallback(async (path) => createRichTextPatch(path, editor));
     }
   }, [editor]);
   return (
@@ -366,12 +366,12 @@ function RichTextField({
               onClick={() => {
                 if (editor) {
                   setLoading(true);
-                  onSubmit((path) => createRichTextPatch(path, editor)).finally(
-                    () => {
-                      setLoading(false);
-                      setDidChange(false);
-                    }
-                  );
+                  onSubmit(async (path) =>
+                    createRichTextPatch(path, editor)
+                  ).finally(() => {
+                    setLoading(false);
+                    setDidChange(false);
+                  });
                 }
               }}
             >
