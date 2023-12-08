@@ -28,7 +28,6 @@ import {
   ENABLE_COOKIE_VALUE,
   ValServerCallbacks,
 } from "./ValServer";
-import { randomUUID } from "crypto";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -183,8 +182,8 @@ export class LocalValServer implements ValServer {
       };
     }
 
-    const id = randomUUID();
-    console.time("patching:" + id);
+    // const id = randomUUID();
+    // console.time("patching:" + id);
     for (const moduleId in patchJSON.data) {
       // Then parse/validate
       // TODO: validate all and then fail instead:
@@ -195,7 +194,7 @@ export class LocalValServer implements ValServer {
       }
       await this.options.service.patch(moduleId, patch.value);
     }
-    console.timeEnd("patching:" + id);
+    // console.timeEnd("patching:" + id);
 
     return {
       status: 200,
