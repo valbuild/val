@@ -3,7 +3,9 @@
     "strict": true,
     "isolatedModules": true,
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
   },
-  "exclude": ["dist/**/*"]
+  "exclude": [
+    "dist/**/*"
+  ]
 }
