@@ -46,4 +46,45 @@ export default val.content(
     expect(results[0].messages).toHaveLength(1);
     expect(results[0].messages[0].fix?.text).toEqual('"/app/test"');
   });
+
+  test("no illegal modules for monorepos (projects that are not at root) - nested", async () => {
+    const code = `import { s, val } from "../../../../val.config";
+
+export const schema = s.string();
+
+export default val.content(
+  "/something",
+  schema,
+  "React Server components also works"
+);`;
+    const results = await eslint.lintText(code, {
+      filePath: "./content/stuff/with/all/test.val.ts",
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].messages).toHaveLength(1);
+    expect(results[0].messages[0].fix?.text).toEqual(
+      '"/content/stuff/with/all/test"'
+    );
+  });
+  test("no illegal modules for monorepos (projects that are not at root) - src", async () => {
+    const code = `import { s, val } from "../../../../val.config";
+
+export const schema = s.string();
+
+export default val.content(
+  "/something",
+  schema,
+  "React Server components also works"
+);`;
+    const results = await eslint.lintText(code, {
+      filePath: "./src/content/stuff/with/all/test.val.ts",
+    });
+
+    expect(results).toHaveLength(1);
+    expect(results[0].messages).toHaveLength(1);
+    expect(results[0].messages[0].fix?.text).toEqual(
+      '"/content/stuff/with/all/test"'
+    );
+  });
 });
