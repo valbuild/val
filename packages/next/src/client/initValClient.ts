@@ -14,9 +14,9 @@ import { useValStore } from "@valbuild/react/internal";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ValConfig } from "@valbuild/core";
 
-function useValStega<T extends SelectorSource>(
-  selector: T
-): SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never {
+export type UseValType<T extends SelectorSource> =
+  SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never;
+function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
   const valStore = useValStore();
   const [enabled, setEnabled] = useState(false);
   useEffect(() => {

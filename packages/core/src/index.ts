@@ -1,9 +1,9 @@
 export { initVal } from "./initVal";
 export type { InitVal, ValConfig, ValConstructor } from "./initVal";
-export { Schema, type SerializedSchema } from "./schema";
+export { Schema, type SerializedSchema, type SelectorOfSchema } from "./schema";
 export type { ImageMetadata } from "./schema/image";
 export type { LinkSource } from "./source/link";
-export type { ValModule, SerializedModule } from "./module";
+export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
 export type { RawString } from "./schema/string";

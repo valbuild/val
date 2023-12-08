@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SchemaTypeOf, SerializedSchema } from ".";
+import { Schema, SelectorOfSchema, SerializedSchema } from ".";
 import { SelectorSource } from "../selector";
 import { createValPathOfItem } from "../selector/SelectorProxy";
 import { SourcePath } from "../val";
@@ -12,13 +12,13 @@ export type SerializedArraySchema = {
 };
 
 export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
-  SchemaTypeOf<T>[]
+  SelectorOfSchema<T>[]
 > {
   constructor(readonly item: T, readonly opt: boolean = false) {
     super();
   }
 
-  validate(path: SourcePath, src: SchemaTypeOf<T>[]): ValidationErrors {
+  validate(path: SourcePath, src: SelectorOfSchema<T>[]): ValidationErrors {
     let error: ValidationErrors = false;
 
     if (this.opt && (src === null || src === undefined)) {
@@ -57,7 +57,7 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
     return error;
   }
 
-  assert(src: SchemaTypeOf<T>[]): boolean {
+  assert(src: SelectorOfSchema<T>[]): boolean {
     if (this.opt && (src === null || src === undefined)) {
       return true;
     }
@@ -73,7 +73,7 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
     return typeof src === "object" && Array.isArray(src);
   }
 
-  optional(): Schema<SchemaTypeOf<T>[] | null> {
+  optional(): Schema<SelectorOfSchema<T>[] | null> {
     return new ArraySchema(this.item, true);
   }
 
@@ -88,6 +88,6 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
 
 export const array = <S extends Schema<SelectorSource>>(
   schema: S
-): Schema<SchemaTypeOf<S>[]> => {
+): Schema<SelectorOfSchema<S>[]> => {
   return new ArraySchema(schema);
 };

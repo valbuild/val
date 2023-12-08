@@ -1,4 +1,5 @@
-import { SelectorSource } from "../selector";
+import { InferValModuleType, ValModule } from "../module";
+import { GenericSelector, SelectorSource } from "../selector";
 // import { RemoteCompatibleSource, RemoteSource } from "../source/remote";
 import { SourcePath } from "../val";
 import { SerializedArraySchema } from "./array";
@@ -63,8 +64,5 @@ export abstract class Schema<Src extends SelectorSource> {
   }
 }
 
-export type SchemaTypeOf<T extends Schema<SelectorSource>> = T extends Schema<
-  infer Src
->
-  ? Src
-  : never; // TODO: SourceError<"Could not determine type of Schema">
+export type SelectorOfSchema<T extends Schema<SelectorSource>> =
+  T extends Schema<infer Src> ? Src : never; // TODO: SourceError<"Could not determine type of Schema">
