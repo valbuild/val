@@ -1,5 +1,5 @@
 export type { ServiceOptions } from "./Service";
-export { createService, Service } from "./Service";
+export { createService, createServiceSync, Service } from "./Service";
 export {
   createValApiRouter,
   createValServer,

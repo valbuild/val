@@ -4,20 +4,16 @@ import { ESLint } from "eslint";
 import path from "path";
 import plugin from "../src";
 
-/**
- * @param {string} fixtureConfigName ESLint JSON config fixture filename.
- */
-function initESLint(fixtureConfigName) {
+function initESLint() {
   return new ESLint({
     cwd: path.resolve(__dirname, "../fixtures/"),
     ignore: false,
-    useEslintrc: false,
     overrideConfigFile: path.resolve(
       __dirname,
       "../fixtures/",
-      fixtureConfigName
+      "eslintrc.json"
     ),
-    // plugins: { "@valbuild": plugin },
+    plugins: { "@valbuild": plugin },
   });
 }
 
@@ -28,7 +24,7 @@ describe("plugin", () => {
   let eslint;
 
   beforeAll(() => {
-    eslint = initESLint("eslintrc.json");
+    eslint = initESLint();
   });
 
   test("todo", async () => {
@@ -37,11 +33,13 @@ describe("plugin", () => {
 export const schema = s.string();
 
 export default val.content(
-  "/components/reactServerContent",
+  "/app/test",
   schema,
   "React Server components also works"
 );`;
-    const results = await eslint.lintText(code, { filePath: "test.val.js" });
+    const results = await eslint.lintText(code, {
+      filePath: "./app/test.val.ts",
+    });
 
     console.log(JSON.stringify(results, null, 2));
   });

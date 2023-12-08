@@ -1,4 +1,8 @@
-import { newQuickJSWASMModule, QuickJSRuntime } from "quickjs-emscripten";
+import {
+  newQuickJSWASMModule,
+  QuickJSRuntime,
+  QuickJSWASMModule,
+} from "quickjs-emscripten";
 import { patchValFile } from "./patchValFile";
 import { readValFile } from "./readValFile";
 import { Patch } from "@valbuild/core/patch";
@@ -33,6 +37,40 @@ export type ServiceOptions = {
   disableCache?: boolean;
 };
 
+export function createServiceSync(
+  projectRoot: string,
+  module: QuickJSWASMModule,
+  opts: ServiceOptions,
+  host: IValFSHost = {
+    ...ts.sys,
+    writeFile: fs.writeFileSync,
+  },
+  loader?: ValModuleLoader
+): Service {
+  const compilerOptions = getCompilerOptions(projectRoot, host);
+  const sourceFileHandler = new ValSourceFileHandler(
+    projectRoot,
+    compilerOptions,
+    host
+  );
+  const runtime = newValQuickJSRuntime(
+    module,
+    loader ||
+      new ValModuleLoader(
+        projectRoot,
+        compilerOptions,
+        sourceFileHandler,
+        host,
+        opts.disableCache === undefined
+          ? process.env.NODE_ENV === "development"
+            ? false
+            : true
+          : opts.disableCache
+      )
+  );
+  return new Service(opts, sourceFileHandler, runtime);
+}
+
 export async function createService(
   projectRoot: string,
   opts: ServiceOptions,
@@ -49,7 +87,7 @@ export async function createService(
     host
   );
   const module = await newQuickJSWASMModule();
-  const runtime = await newValQuickJSRuntime(
+  const runtime = newValQuickJSRuntime(
     module,
     loader ||
       new ValModuleLoader(

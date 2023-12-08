@@ -32,5 +32,11 @@
   },
   "scripts": {
     "typecheck": "tsc -p jsconfig.json"
+  },
+  "dependencies": {
+    "@babel/core": "^7.23.5",
+    "@babel/plugin-transform-typescript": "^7.23.5",
+    "deasync": "^0.1.29",
+    "synchronized-promise": "^0.3.1"
   }
 }
