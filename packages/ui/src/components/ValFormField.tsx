@@ -161,9 +161,17 @@ export function createImagePatch(
     const mimeType = getMimeType(data) ?? "unknown";
     const newExt = mimeTypeToFileExt(mimeType); // Dont trust the file extension
     if (filename) {
-      const filenameWithoutExt =
+      let cleanFilename =
         filename.split(".").slice(0, -1).join(".") || filename; // remove extension if it exists
-      return `/public/${filenameWithoutExt}_${shaSuffix}.${newExt}`;
+      const maybeShaSuffixPos = cleanFilename.lastIndexOf("_");
+      const currentShaSuffix = cleanFilename.slice(
+        maybeShaSuffixPos + 1,
+        cleanFilename.length
+      );
+      if (currentShaSuffix === shaSuffix) {
+        cleanFilename = cleanFilename.slice(0, maybeShaSuffixPos);
+      }
+      return `/public/${cleanFilename}_${shaSuffix}.${newExt}`;
     }
     return `/public/${metadata.sha256}.${newExt}`;
   })();
