@@ -21,3 +21,14 @@ export function mimeTypeToFileExt(mimeType: string) {
   }
   return mimeType;
 }
+
+export function filenameToMimeType(filename: string) {
+  const ext = filename.split(".").pop();
+  if (ext === "svg") {
+    return "image/svg+xml";
+  }
+  if (ext === "ico") {
+    return "image/vnd.microsoft.icon";
+  }
+  return `image/${ext}`;
+}

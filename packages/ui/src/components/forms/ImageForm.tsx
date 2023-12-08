@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { UploadCloud } from "react-feather";
 import { ErrorText } from "../ErrorText";
+import { Internal } from "@valbuild/core";
 
 type Error = "invalid-file" | "file-too-large";
 export type ImageData =
@@ -25,16 +26,6 @@ export type ImageInputProps = {
 };
 
 const textEncoder = new TextEncoder();
-// TODO: handle hashes some other way
-const getSHA256Hash = async (bits: Uint8Array) => {
-  const hashBuffer = await window.crypto.subtle.digest("SHA-256", bits);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hash = hashArray
-    .map((item) => item.toString(16).padStart(2, "0"))
-    .join("");
-  return hash;
-};
-
 export function ImageForm({
   name,
   data: data,
@@ -84,13 +75,15 @@ export function ImageForm({
                 const result = reader.result;
                 if (typeof result === "string") {
                   const image = new Image();
-                  image.onload = async () => {
+                  image.onload = () => {
                     const nextSource = {
                       src: result,
                       metadata: {
                         width: image.naturalWidth,
                         height: image.naturalHeight,
-                        sha256: await getSHA256Hash(textEncoder.encode(result)),
+                        sha256: Internal.getSHA256Hash(
+                          textEncoder.encode(result)
+                        ),
                       },
                       addMetadata: !currentData?.metadata,
                     };
@@ -126,12 +119,13 @@ export function ImageForm({
 
                   const image = new Image();
                   image.onload = async () => {
+                    console.log("DATAURL", image.src);
                     const nextSource = {
                       src: image.src,
                       metadata: {
                         width: image.naturalWidth,
                         height: image.naturalHeight,
-                        sha256: await getSHA256Hash(
+                        sha256: Internal.getSHA256Hash(
                           textEncoder.encode(image.src)
                         ),
                       },

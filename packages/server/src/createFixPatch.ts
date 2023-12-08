@@ -8,8 +8,10 @@ import { Patch, sourceToPatchPath } from "@valbuild/core/patch";
 import sizeOf from "image-size";
 import path from "path";
 import fs from "fs";
+import { filenameToMimeType } from "@valbuild/shared/internal";
 
 // TODO: find a better name? transformFixesToPatch?
+const textEncoder = new TextEncoder();
 export async function createFixPatch(
   config: { projectRoot: string },
   apply: boolean,
@@ -31,7 +33,14 @@ export async function createFixPatch(
     }
     const localFile = path.join(config.projectRoot, maybeRef);
     const buffer = fs.readFileSync(localFile);
-    const sha256 = await Internal.getSHA256Hash(buffer);
+    const sha256 = Internal.getSHA256Hash(
+      textEncoder.encode(
+        // TODO: we should probably store the mimetype in the metadata and reuse it here
+        `data:${filenameToMimeType(localFile)};base64,${buffer.toString(
+          "base64"
+        )}`
+      )
+    );
     const imageSize = sizeOf(buffer);
     return {
       ...imageSize,

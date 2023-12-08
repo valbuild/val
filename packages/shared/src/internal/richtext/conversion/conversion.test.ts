@@ -106,10 +106,10 @@ Test 123
 ];
 
 describe("isomorphic richtext <-> conversion", () => {
-  test.each(cases)("$description", async ({ input }) => {
+  test.each(cases)("$description", ({ input }) => {
     const inputSource = input;
 
-    const res = await lexicalToRichTextSource(
+    const res = lexicalToRichTextSource(
       richTextSourceToLexical(parseRichTextSource(inputSource))
     );
 
