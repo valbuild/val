@@ -77,8 +77,6 @@ globalThis.valModule = {
       const valModule = context
         .getProp(context.global, "valModule")
         .consume(context.dump);
-
-      console.log(valModule);
       if (!valModule) {
         fatalErrors.push(`Could not find any modules at: ${id}`);
       } else if (valModule.defaultExport === false) {
