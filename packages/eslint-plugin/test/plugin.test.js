@@ -2,7 +2,6 @@
 /* eslint-disable no-undef */
 import { ESLint } from "eslint";
 import path from "path";
-import plugin from "../src";
 
 /**
  * @param {string} fixtureConfigName ESLint JSON config fixture filename.
@@ -11,13 +10,11 @@ function initESLint(fixtureConfigName) {
   return new ESLint({
     cwd: path.resolve(__dirname, "../fixtures/"),
     ignore: false,
-    useEslintrc: false,
     overrideConfigFile: path.resolve(
       __dirname,
       "../fixtures/",
       fixtureConfigName
     ),
-    // plugins: { "@valbuild": plugin },
   });
 }
 
@@ -31,18 +28,22 @@ describe("plugin", () => {
     eslint = initESLint("eslintrc.json");
   });
 
-  test("todo", async () => {
+  test("no illegal modules for monorepos (projects that are not at root)", async () => {
     const code = `import { s, val } from "../val.config";
 
 export const schema = s.string();
 
 export default val.content(
-  "/components/reactServerContent",
+  "/something",
   schema,
   "React Server components also works"
 );`;
-    const results = await eslint.lintText(code, { filePath: "test.val.js" });
+    const results = await eslint.lintText(code, {
+      filePath: "./app/test.val.ts",
+    });
 
-    console.log(JSON.stringify(results, null, 2));
+    expect(results).toHaveLength(1);
+    expect(results[0].messages).toHaveLength(1);
+    expect(results[0].messages[0].fix?.text).toEqual('"/app/test"');
   });
 });
