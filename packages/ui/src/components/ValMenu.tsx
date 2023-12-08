@@ -98,32 +98,34 @@ export function ValMenu({
           )}
         </div>
       </MenuButton>
-      {patchCount !== undefined && (
-        <MenuButton
-          onClick={() => {
-            if (patchCount > 0) {
-              api.postCommit({ patches }).then((res) => {
-                if (result.isErr(res)) {
-                  console.error(res.error);
-                  alert("Could not commit patches: " + res.error.message);
-                } else {
-                  console.log("Committed patches: ", res.value);
-                  onCommit();
-                }
-              });
-            } else {
-              alert("No patches to commit");
-            }
-          }}
-        >
-          <div className="relative h-[24px] w-[24px] flex justify-center items-center">
-            <div className="absolute -right-[10px] -top-[10px] border border-border rounded-full px-1 font-sans text-xs bg-card text-accent">
-              {patchCount}
+      {patchCount !== undefined &&
+        session.status === "success" &&
+        session.data.mode === "proxy" && (
+          <MenuButton
+            onClick={() => {
+              if (patchCount > 0) {
+                api.postCommit({ patches }).then((res) => {
+                  if (result.isErr(res)) {
+                    console.error(res.error);
+                    alert("Could not commit patches: " + res.error.message);
+                  } else {
+                    console.log("Committed patches: ", res.value);
+                    onCommit();
+                  }
+                });
+              } else {
+                alert("No patches to commit");
+              }
+            }}
+          >
+            <div className="relative h-[24px] w-[24px] flex justify-center items-center">
+              <div className="absolute -right-[10px] -top-[10px] border border-border rounded-full px-1 font-sans text-xs bg-card text-accent">
+                {patchCount}
+              </div>
+              <Send size={18} />
             </div>
-            <Send size={18} />
-          </div>
-        </MenuButton>
-      )}
+          </MenuButton>
+        )}
       <a className={className} href={api.getDisableUrl(window.location.href)}>
         <div className="h-[24px] w-[24px] flex justify-center items-center">
           <Power size={18} />
