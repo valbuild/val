@@ -24,11 +24,15 @@ export function mimeTypeToFileExt(mimeType: string) {
 
 export function filenameToMimeType(filename: string) {
   const ext = filename.split(".").pop();
-  if (ext === "svg") {
+  return ext && imageTypeToMimeType(ext);
+}
+
+export function imageTypeToMimeType(imageType: string) {
+  if (imageType === "svg") {
     return "image/svg+xml";
   }
-  if (ext === "ico") {
+  if (imageType === "ico") {
     return "image/vnd.microsoft.icon";
   }
-  return `image/${ext}`;
+  return `image/${imageType}`;
 }
