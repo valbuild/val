@@ -230,62 +230,60 @@ function ImageField({
   }, [data, defaultValue]);
 
   return (
-    <div className="max-w-4xl p-4" key={path}>
-      <label htmlFor={`img_input:${path}`} className="">
-        {data || url ? <img src={data?.src || url} /> : <div>Empty</div>}
-        <input
-          id={`img_input:${path}`}
-          type="file"
-          hidden
-          onChange={(ev) => {
-            readImage(ev)
-              .then((res) => {
-                setData({ src: res.src, filename: res.filename });
-                if (res.width && res.height) {
-                  setMetadata({
-                    sha256: res.sha256,
-                    width: res.width,
-                    height: res.height,
-                  });
-                } else {
-                  setMetadata(undefined);
-                }
-              })
-              .catch((err) => {
-                console.error(err.message);
-                setData(null);
-                setMetadata(undefined);
-              });
-          }}
-        />
-      </label>
-      {onSubmit && (
-        <div>
-          {data && (
-            <SubmitButton
-              loading={loading}
-              onClick={() => {
-                setLoading(true);
-                onSubmit((path) =>
-                  Promise.resolve(
-                    createImagePatch(
-                      path,
-                      data.src,
-                      data.filename ?? null,
-                      metadata
-                    )
-                  )
-                ).finally(() => {
-                  setLoading(false);
+    <FieldContainer>
+      <div className="max-w-4xl p-4" key={path}>
+        <label htmlFor={`img_input:${path}`} className="">
+          {data || url ? <img src={data?.src || url} /> : <div>Empty</div>}
+          <input
+            id={`img_input:${path}`}
+            type="file"
+            hidden
+            onChange={(ev) => {
+              readImage(ev)
+                .then((res) => {
+                  setData({ src: res.src, filename: res.filename });
+                  if (res.width && res.height) {
+                    setMetadata({
+                      sha256: res.sha256,
+                      width: res.width,
+                      height: res.height,
+                    });
+                  } else {
+                    setMetadata(undefined);
+                  }
+                })
+                .catch((err) => {
+                  console.error(err.message);
                   setData(null);
                   setMetadata(undefined);
                 });
-              }}
-            />
-          )}
-        </div>
+            }}
+          />
+        </label>
+      </div>
+      {onSubmit && data && (
+        <SubmitButton
+          loading={loading}
+          onClick={() => {
+            setLoading(true);
+            onSubmit((path) =>
+              Promise.resolve(
+                createImagePatch(
+                  path,
+                  data.src,
+                  data.filename ?? null,
+                  metadata
+                )
+              )
+            ).finally(() => {
+              setLoading(false);
+              setData(null);
+              setMetadata(undefined);
+            });
+          }}
+        />
       )}
-    </div>
+    </FieldContainer>
   );
 }
 
@@ -351,7 +349,7 @@ function RichTextField({
     }
   }, [editor]);
   return (
-    <div className="p-4 border rounded border-card">
+    <FieldContainer>
       <RichTextEditor
         onEditor={(editor) => {
           setEditor(editor);
@@ -364,27 +362,23 @@ function RichTextField({
           } as unknown as RichTextSource<AnyRichTextOptions>)
         }
       />
-      {onSubmit && (
-        <div>
-          {didChange && (
-            <SubmitButton
-              loading={loading || !editor}
-              onClick={() => {
-                if (editor) {
-                  setLoading(true);
-                  onSubmit(async (path) =>
-                    createRichTextPatch(path, editor)
-                  ).finally(() => {
-                    setLoading(false);
-                    setDidChange(false);
-                  });
-                }
-              }}
-            />
-          )}
-        </div>
+      {onSubmit && didChange && (
+        <SubmitButton
+          loading={loading || !editor}
+          onClick={() => {
+            if (editor) {
+              setLoading(true);
+              onSubmit(async (path) =>
+                createRichTextPatch(path, editor)
+              ).finally(() => {
+                setLoading(false);
+                setDidChange(false);
+              });
+            }
+          }}
+        />
       )}
-    </div>
+    </FieldContainer>
   );
 }
 
@@ -449,7 +443,7 @@ function KeyOfField({
   }, [value]);
 
   return (
-    <div className="flex flex-col justify-between h-full gap-y-4">
+    <FieldContainer>
       <Select
         defaultValue={value.toString()}
         disabled={loading}
@@ -468,28 +462,24 @@ function KeyOfField({
           ))}
         </SelectContent>
       </Select>
-      {onSubmit && (
-        <div>
-          {defaultValue !== value && (
-            <SubmitButton
-              loading={loading}
-              onClick={() => {
-                setLoading(true);
-                onSubmit(async (path) => [
-                  {
-                    op: "replace",
-                    path,
-                    value: value,
-                  },
-                ]).finally(() => {
-                  setLoading(false);
-                });
-              }}
-            />
-          )}
-        </div>
+      {onSubmit && defaultValue !== value && (
+        <SubmitButton
+          loading={loading}
+          onClick={() => {
+            setLoading(true);
+            onSubmit(async (path) => [
+              {
+                op: "replace",
+                path,
+                value: value,
+              },
+            ]).finally(() => {
+              setLoading(false);
+            });
+          }}
+        />
       )}
-    </div>
+    </FieldContainer>
   );
 }
 function NumberField({
@@ -527,7 +517,7 @@ function NumberField({
   }, []);
 
   return (
-    <div className="flex flex-col justify-between h-full gap-y-4">
+    <FieldContainer>
       <Input
         ref={ref}
         disabled={loading}
@@ -535,28 +525,24 @@ function NumberField({
         onChange={(e) => setValue(Number(e.target.value))}
         type="number"
       />
-      {onSubmit && (
-        <div>
-          {defaultValue !== value && (
-            <SubmitButton
-              loading={loading}
-              onClick={() => {
-                setLoading(true);
-                onSubmit(async (path) => [
-                  {
-                    op: "replace",
-                    path,
-                    value: Number(ref.current?.value) || 0,
-                  },
-                ]).finally(() => {
-                  setLoading(false);
-                });
-              }}
-            />
-          )}
-        </div>
+      {onSubmit && defaultValue !== value && (
+        <SubmitButton
+          loading={loading}
+          onClick={() => {
+            setLoading(true);
+            onSubmit(async (path) => [
+              {
+                op: "replace",
+                path,
+                value: Number(ref.current?.value) || 0,
+              },
+            ]).finally(() => {
+              setLoading(false);
+            });
+          }}
+        />
       )}
-    </div>
+    </FieldContainer>
   );
 }
 
@@ -595,35 +581,37 @@ function StringField({
   }, []);
 
   return (
-    <div className="flex flex-col justify-between h-full gap-y-4">
+    <FieldContainer>
       <Input
         ref={ref}
         disabled={loading}
         defaultValue={value ?? ""}
         onChange={(e) => setValue(e.target.value)}
       />
-      {onSubmit && (
-        <div>
-          {defaultValue !== value && (
-            <SubmitButton
-              loading={loading}
-              onClick={() => {
-                setLoading(true);
-                onSubmit(async (path) => [
-                  {
-                    op: "replace",
-                    path,
-                    value: ref.current?.value || "",
-                  },
-                ]).finally(() => {
-                  setLoading(false);
-                });
-              }}
-            />
-          )}
-        </div>
+      {onSubmit && defaultValue !== value && (
+        <SubmitButton
+          loading={loading}
+          onClick={() => {
+            setLoading(true);
+            onSubmit(async (path) => [
+              {
+                op: "replace",
+                path,
+                value: ref.current?.value || "",
+              },
+            ]).finally(() => {
+              setLoading(false);
+            });
+          }}
+        />
       )}
-    </div>
+    </FieldContainer>
+  );
+}
+
+function FieldContainer({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative p-4 border rounded border-card">{children}</div>
   );
 }
 
@@ -635,8 +623,12 @@ function SubmitButton({
   onClick: () => void;
 }) {
   return (
-    <Button disabled={loading} onClick={onClick}>
-      {loading ? "Saving..." : "Save"}
-    </Button>
+    <div className="sticky bottom-0">
+      <div className="flex justify-end w-full p-4 bg-background">
+        <Button disabled={loading} onClick={onClick}>
+          {loading ? "Saving..." : "Save"}
+        </Button>
+      </div>
+    </div>
   );
 }
