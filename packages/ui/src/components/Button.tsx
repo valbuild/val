@@ -23,7 +23,7 @@ export function PrimaryButton({
   return (
     <button
       onClick={onClick}
-      className="px-4 py-[2px] font-serif border rounded-sm border-border bg-fill text-primary hover:dark:bg-yellow hover:bg-warm-black hover:dark:text-dark-gray hover:text-white focus-visible:border-highlight focus:outline-none"
+      className="px-4 py-[2px] font-serif border rounded-sm border-border text-primary hover:dark:bg-yellow hover:bg-warm-black hover:dark:text-dark-gray hover:text-white focus-visible:border-highlight focus:outline-none"
     >
       {children}
     </button>
@@ -45,9 +45,9 @@ const Button: FC<ButtonProps> = ({
         "font-sans font-[12px] tracking-[0.04em] py-1 px-2 rounded whitespace-nowrap group relative text-primary",
         {
           "font-bold": variant === "primary",
-          "bg-background hover:bg-background text-fill disabled:bg-fill disabled:text-background":
+          "text-fill disabled:bg-fill disabled:text-background":
             variant === "primary",
-          "bg-transparent border border-primary text-primary hover:border-highlight hover:text-highlight disabled:bg-fill disabled:text-background":
+          "border border-primary text-primary hover:border-highlight hover:text-highlight disabled:bg-fill disabled:text-background":
             variant !== "primary",
         }
       )}

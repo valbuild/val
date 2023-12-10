@@ -70,7 +70,7 @@ const Dropdown: React.FC<DropdownProps> = ({
           </span>
           {isOpen && (
             <div
-              className="absolute -top-[4px] overflow-scroll shadow-lg -left-2 text-primary bg-border w-fit z-overlay"
+              className="absolute -top-[4px] overflow-scroll shadow-lg -left-2 text-primary w-fit z-overlay"
               style={{ maxHeight: windowSize?.innerHeight }}
             >
               <div className="flex flex-col ">
@@ -81,9 +81,8 @@ const Dropdown: React.FC<DropdownProps> = ({
                       ev.preventDefault();
                       handleSelect(option, idx);
                     }}
-                    className={`text-left px-2 py-1 hover:bg-background hover:text-highlight  ${
-                      idx === selectedOption &&
-                      "font-bold bg-background hover:bg-background truncate"
+                    className={`text-left px-2 py-1 hover:text-highlight  ${
+                      idx === selectedOption && "font-bold truncate"
                     }`}
                   >
                     {option}
