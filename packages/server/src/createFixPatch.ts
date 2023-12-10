@@ -8,7 +8,11 @@ import { Patch, sourceToPatchPath } from "@valbuild/core/patch";
 import sizeOf from "image-size";
 import path from "path";
 import fs from "fs";
-import { filenameToMimeType } from "@valbuild/shared/internal";
+import {
+  filenameToMimeType,
+  imageTypeToMimeType,
+  mimeTypeToFileExt,
+} from "@valbuild/shared/internal";
 
 // TODO: find a better name? transformFixesToPatch?
 const textEncoder = new TextEncoder();
@@ -31,17 +35,20 @@ export async function createFixPatch(
       // TODO:
       throw Error("Cannot fix image without a file reference");
     }
-    const localFile = path.join(config.projectRoot, maybeRef);
-    const buffer = fs.readFileSync(localFile);
+    const filename = path.join(config.projectRoot, maybeRef);
+    const buffer = fs.readFileSync(filename);
+    const imageSize = sizeOf(buffer);
+
     const sha256 = Internal.getSHA256Hash(
       textEncoder.encode(
         // TODO: we should probably store the mimetype in the metadata and reuse it here
-        `data:${filenameToMimeType(localFile)};base64,${buffer.toString(
-          "base64"
-        )}`
+        `data:${
+          imageSize.type
+            ? imageTypeToMimeType(imageSize.type)
+            : filenameToMimeType(filename)
+        };base64,${buffer.toString("base64")}`
       )
     );
-    const imageSize = sizeOf(buffer);
     return {
       ...imageSize,
       sha256,
