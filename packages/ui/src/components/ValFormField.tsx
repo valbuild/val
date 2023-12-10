@@ -262,8 +262,8 @@ function ImageField({
       {onSubmit && (
         <div>
           {data && (
-            <Button
-              disabled={loading}
+            <SubmitButton
+              loading={loading}
               onClick={() => {
                 setLoading(true);
                 onSubmit((path) =>
@@ -281,9 +281,7 @@ function ImageField({
                   setMetadata(undefined);
                 });
               }}
-            >
-              {loading ? "Saving..." : "Save"}
-            </Button>
+            />
           )}
         </div>
       )}
@@ -369,8 +367,8 @@ function RichTextField({
       {onSubmit && (
         <div>
           {didChange && (
-            <Button
-              disabled={loading || !editor}
+            <SubmitButton
+              loading={loading || !editor}
               onClick={() => {
                 if (editor) {
                   setLoading(true);
@@ -382,9 +380,7 @@ function RichTextField({
                   });
                 }
               }}
-            >
-              {loading ? "Saving..." : "Save"}
-            </Button>
+            />
           )}
         </div>
       )}
@@ -475,8 +471,8 @@ function KeyOfField({
       {onSubmit && (
         <div>
           {defaultValue !== value && (
-            <Button
-              disabled={loading}
+            <SubmitButton
+              loading={loading}
               onClick={() => {
                 setLoading(true);
                 onSubmit(async (path) => [
@@ -489,9 +485,7 @@ function KeyOfField({
                   setLoading(false);
                 });
               }}
-            >
-              {loading ? "Saving..." : "Save"}
-            </Button>
+            />
           )}
         </div>
       )}
@@ -544,8 +538,8 @@ function NumberField({
       {onSubmit && (
         <div>
           {defaultValue !== value && (
-            <Button
-              disabled={loading}
+            <SubmitButton
+              loading={loading}
               onClick={() => {
                 setLoading(true);
                 onSubmit(async (path) => [
@@ -558,9 +552,7 @@ function NumberField({
                   setLoading(false);
                 });
               }}
-            >
-              {loading ? "Saving..." : "Save"}
-            </Button>
+            />
           )}
         </div>
       )}
@@ -613,8 +605,8 @@ function StringField({
       {onSubmit && (
         <div>
           {defaultValue !== value && (
-            <Button
-              disabled={loading}
+            <SubmitButton
+              loading={loading}
               onClick={() => {
                 setLoading(true);
                 onSubmit(async (path) => [
@@ -627,12 +619,24 @@ function StringField({
                   setLoading(false);
                 });
               }}
-            >
-              {loading ? "Saving..." : "Save"}
-            </Button>
+            />
           )}
         </div>
       )}
     </div>
+  );
+}
+
+function SubmitButton({
+  loading,
+  onClick,
+}: {
+  loading: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Button disabled={loading} onClick={onClick}>
+      {loading ? "Saving..." : "Save"}
+    </Button>
   );
 }
