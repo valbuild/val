@@ -11,7 +11,6 @@ import fs from "fs";
 import {
   filenameToMimeType,
   imageTypeToMimeType,
-  mimeTypeToFileExt,
 } from "@valbuild/shared/internal";
 
 // TODO: find a better name? transformFixesToPatch?
