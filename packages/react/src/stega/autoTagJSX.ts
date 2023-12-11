@@ -33,7 +33,7 @@ const addValPathIfFound = (type: any, props: any) => {
             props[key] = isIntrinsicElement(type)
               ? vercelStegaSplit(value).cleaned
               : value;
-            props[`data-val-attr-${key}`] = valPath;
+            props[`data-val-attr-${key.toLowerCase()}`] = valPath;
           }
         }
       }
