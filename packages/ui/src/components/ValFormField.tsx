@@ -624,7 +624,7 @@ function SubmitButton({
 }) {
   return (
     <div className="sticky bottom-0">
-      <div className="flex justify-end w-full p-4 bg-background">
+      <div className="flex justify-end w-full py-2">
         <Button disabled={loading} onClick={onClick}>
           {loading ? "Saving..." : "Save"}
         </Button>
