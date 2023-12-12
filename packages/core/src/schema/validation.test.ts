@@ -20,6 +20,7 @@ import { richtext } from "./richtext";
 import { record } from "./record";
 import { keyOf } from "./keyOf";
 import { content } from "../module";
+import { union } from "./union";
 
 const testPath = "/test" as SourcePath;
 const pathOf = (p: string | symbol | number) => {
@@ -259,7 +260,23 @@ const ValidationTestCases: {
     schema: richtext({ bold: true }),
   },
   // TODO: more richtext cases
-  // TODO: union
+  {
+    description: "basic union",
+    input: {
+      type: "multiItem",
+      text: "test",
+    },
+    schema: union(
+      "type",
+      object({ type: literal("singleItem"), text: string() }),
+      object({
+        type: literal("multiItem"),
+        items: array(object({ type: literal("singleItem"), text: string() })),
+      })
+    ),
+    expected: [pathOf("items")],
+  },
+
   // TODO: oneOf
   // TODO: i18n
 ];
