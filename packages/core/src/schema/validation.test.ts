@@ -261,9 +261,27 @@ const ValidationTestCases: {
   },
   // TODO: more richtext cases
   {
-    description: "basic union",
+    description: "basic union literals: key",
+    input: "one",
+    schema: union(literal("one"), literal("two"), literal("three")),
+    expected: false,
+  },
+  {
+    description: "basic union literals: item",
+    input: "three",
+    schema: union(literal("one"), literal("two"), literal("three")),
+    expected: false,
+  },
+  {
+    description: "failing union literals",
+    input: "four",
+    schema: union(literal("one"), literal("two"), literal("three")),
+    expected: [testPath],
+  },
+  {
+    description: "basic tagged union",
     input: {
-      type: "multiItem",
+      type: "singleItem",
       text: "test",
     },
     schema: union(
@@ -274,7 +292,75 @@ const ValidationTestCases: {
         items: array(object({ type: literal("singleItem"), text: string() })),
       })
     ),
+    expected: false,
+  },
+  {
+    description: "failing tagged union: 1",
+    input: {
+      type: "multiItem",
+      text: "test",
+    },
+    schema: union(
+      "type",
+      object({ type: literal("singleItem"), text: string() }),
+      object({
+        type: literal("multiItem"),
+        items: array(string()),
+      })
+    ),
     expected: [pathOf("items")],
+  },
+  {
+    description: "failing tagged union: 2",
+    input: {
+      type: "multiItem",
+      items: { test: "subItem2", text2: "" },
+    },
+    schema: union(
+      "type",
+      object({ type: literal("singleItem"), text: string() }),
+      object({
+        type: literal("multiItem"),
+        items: union(
+          "test",
+          object({ test: literal("subItem1"), text1: string() }),
+          object({ test: literal("subItem2"), text2: string({ minLength: 2 }) })
+        ),
+      })
+    ),
+    expected: [createValPathOfItem(pathOf("items"), "text2")],
+  },
+  {
+    description: "failing tagged union: 3",
+    input: {
+      type: "multiItem",
+      items: { test: "subItem1", text2: "" },
+    },
+    schema: union(
+      "type",
+      object({ type: literal("duplicateItem"), text: string() }),
+      object({
+        type: literal("duplicateItem"),
+        text2: string(),
+      })
+    ),
+    expected: [testPath],
+  },
+  {
+    description: "failing tagged union: 4",
+    input: {
+      type: "foobar",
+      items: { test: "subItem1", text2: "" },
+    },
+    schema: union(
+      "type",
+      object({ type: literal("test1"), text: string() }),
+      object({
+        type: literal("test2"),
+        text2: string(),
+      })
+    ),
+    expected: [pathOf("type")],
   },
 
   // TODO: oneOf

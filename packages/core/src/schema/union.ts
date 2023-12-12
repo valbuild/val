@@ -4,6 +4,8 @@ import { createValPathOfItem } from "../selector/SelectorProxy";
 import { SelectorSource } from "../selector/index";
 import { SourceObject } from "../source";
 import { SourcePath } from "../val";
+import { LiteralSchema } from "./literal";
+import { ObjectSchema, SerializedObjectSchema } from "./object";
 import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedUnionSchema = {
@@ -39,9 +41,10 @@ export class UnionSchema<
   >[]
 > extends Schema<SourceOf<Key, T>> {
   validate(path: SourcePath, src: SourceOf<Key, T>): ValidationErrors {
-    let errors: ValidationErrors = false;
+    const unknownSrc = src as unknown;
+    const errors: ValidationErrors = false;
 
-    if (this.opt && (src === null || src === undefined)) {
+    if (this.opt && (unknownSrc === null || unknownSrc === undefined)) {
       // TODO: src should never be undefined
       return false;
     }
@@ -56,39 +59,187 @@ export class UnionSchema<
       };
     }
 
-    if (typeof this.key === "string") {
-    } else {
-      if (!Array.isArray(this.items)) {
+    const key = this.key;
+    if (!Array.isArray(this.items)) {
+      return {
+        [path]: [
+          {
+            message: `A union schema must take more than 1 schema arguments`,
+            fatal: true,
+          },
+        ],
+      };
+    }
+    if (typeof key === "string") {
+      // tagged union
+      if (this.items.some((item) => !(item instanceof ObjectSchema))) {
         return {
-          [path]: [{ message: `Internal error: union items is not an array` }],
+          [path]: [
+            {
+              message: `Key is a string, so all schema items must be objects`,
+              fatal: true,
+            },
+          ],
         };
-
-        const subPath = createValPathOfItem(path, 0);
-        if (!subPath) {
-        }
       }
-      this.key.validate(createValPathOfItem(path, 0), src);
-      for (const [index, item] of Array.from(this.items.entries())) {
-        const subPath = createValPathOfItem(path, index + 1);
-        if (!subPath) {
-          errors = this.appendValidationError(
-            errors,
-            path,
-            `Internal error: could not create path at ${
-              !path && typeof path === "string" ? "<empty string>" : path
-            } at index ${index}`, // Should! never happen
-            src
-          );
-        } else {
-          const result = item.validate(subPath, src[index]);
-          if (result !== false) {
-            if (errors === false) errors = {};
-            errors = {
-              ...result,
+      const objectSchemas = this.items as unknown as ObjectSchema<{
+        [key: string]: Schema<SelectorSource>;
+      }>[];
+      const serializedSchemas = objectSchemas.map((schema) =>
+        schema.serialize()
+      );
+      const illegalSchemas = serializedSchemas.filter(
+        (schema) =>
+          !(schema.type === "object") || !(schema.items[key].type === "literal")
+      );
+
+      if (illegalSchemas.length > 0) {
+        return {
+          [path]: [
+            {
+              message: `All schema items must be objects with a key: ${key} that is a literal schema. Found: ${JSON.stringify(
+                illegalSchemas,
+                null,
+                2
+              )}`,
+              fatal: true,
+            },
+          ],
+        };
+      }
+      const serializedObjectSchemas =
+        serializedSchemas as SerializedObjectSchema[];
+      const optionalLiterals = serializedObjectSchemas.filter(
+        (schema) => schema.items[key].opt
+      );
+      if (optionalLiterals.length > 1) {
+        return {
+          [path]: [
+            {
+              message: `Schema cannot have an optional keys: ${key}`,
+              fatal: true,
+            },
+          ],
+        };
+      }
+
+      if (typeof unknownSrc !== "object") {
+        return {
+          [path]: [
+            {
+              message: `Expected an object`,
+            },
+          ],
+        };
+      }
+      const objectSrc = unknownSrc as { [key: string]: SelectorSource };
+
+      if (objectSrc[key] === undefined) {
+        return {
+          [path]: [
+            {
+              message: `Missing required key: ${key}`,
+            },
+          ],
+        };
+      }
+
+      const foundSchemaLiterals: string[] = [];
+      for (const schema of serializedObjectSchemas) {
+        const schemaKey = schema.items[key];
+        if (schemaKey.type === "literal") {
+          if (!foundSchemaLiterals.includes(schemaKey.value)) {
+            foundSchemaLiterals.push(schemaKey.value);
+          } else {
+            return {
+              [path]: [
+                {
+                  message: `Found duplicate key in schema: ${schemaKey.value}`,
+                  fatal: true,
+                },
+              ],
             };
           }
         }
       }
+      const objectSchemaAtKey = objectSchemas.find(
+        (schema) => !schema.items[key].validate(path, objectSrc[key])
+      );
+      if (!objectSchemaAtKey) {
+        const keyPath = createValPathOfItem(path, key);
+        if (!keyPath) {
+          throw new Error(
+            `Internal error: could not create path at ${
+              !path && typeof path === "string" ? "<empty string>" : path
+            } at key ${key}`
+          );
+        }
+        return {
+          [keyPath]: [
+            {
+              message: `Invalid key: "${key}". Value was: "${
+                objectSrc[key]
+              }". Valid values: ${serializedObjectSchemas
+                .map((schema) => {
+                  const keySchema = schema.items[key];
+                  if (keySchema.type === "literal" && keySchema.value) {
+                    return `"${keySchema.value}"`;
+                  } else {
+                    // should not happen here, we already checked this
+                    throw new Error(
+                      `Expected literal schema, got ${JSON.stringify(
+                        keySchema,
+                        null,
+                        2
+                      )}`
+                    );
+                  }
+                })
+                .join(", ")}`,
+            },
+          ],
+        };
+      }
+      const error = objectSchemaAtKey.validate(path, objectSrc);
+      if (error) {
+        return error;
+      }
+    } else if (key instanceof LiteralSchema) {
+      if (this.items.some((item) => !(item instanceof LiteralSchema))) {
+        return {
+          [path]: [
+            {
+              message: `Key is a literal schema, so all schema items must be literals`,
+              fatal: true,
+            },
+          ],
+        };
+      }
+      const literalItems = [key, ...this.items] as LiteralSchema<string>[];
+      if (typeof unknownSrc === "string") {
+        const isMatch = literalItems.some(
+          (item) => !item.validate(path, unknownSrc)
+        );
+        if (!isMatch) {
+          return {
+            [path]: [
+              {
+                message: `Union must match one of the following: ${literalItems
+                  .map((item) => `"${item.value}"`)
+                  .join(", ")}`,
+              },
+            ],
+          };
+        }
+      }
+    } else {
+      return {
+        [path]: [
+          {
+            message: `Expected a string or literal`,
+          },
+        ],
+      };
     }
     return errors;
   }

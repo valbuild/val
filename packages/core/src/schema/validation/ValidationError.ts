@@ -4,6 +4,7 @@ import { ValidationFix } from "./ValidationFix";
 export type ValidationError = {
   message: string;
   value?: unknown;
+  fatal?: boolean;
   fixes?: ValidationFix[];
 };
 
