@@ -26,6 +26,7 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
   validate(path: SourcePath, src: ObjectSchemaSrcOf<Props>): ValidationErrors {
     let error: ValidationErrors = false;
 
+    // TODO: src should never be undefined
     if (this.opt && (src === null || src === undefined)) {
       return false;
     }
