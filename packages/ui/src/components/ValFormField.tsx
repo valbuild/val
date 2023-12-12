@@ -11,7 +11,12 @@ import {
   VAL_EXTENSION,
 } from "@valbuild/core";
 import type { PatchJSON } from "@valbuild/core/patch";
-import { LexicalEditor } from "lexical";
+import {
+  COMMAND_PRIORITY_LOW,
+  FORMAT_TEXT_COMMAND,
+  LexicalEditor,
+  TextNode,
+} from "lexical";
 import { useState, useEffect, useRef } from "react";
 import { getMimeType, mimeTypeToFileExt } from "@valbuild/shared/internal";
 import { RichTextEditor } from "../exports";
@@ -29,6 +34,8 @@ import {
 } from "./ui/select";
 import { PatchCallback } from "./usePatch";
 import { useValModuleFromPath } from "./ValFullscreen";
+import { LinkNode } from "@lexical/link";
+import { ImageNode } from "./RichTextEditor/Nodes/ImageNode";
 
 export type ImageSource = FileSource<ImageMetadata>;
 export type OnSubmit = (callback: PatchCallback) => Promise<void>;
@@ -339,6 +346,15 @@ function RichTextField({
         setDidChange(true);
       });
       editor.registerDecoratorListener(() => {
+        setDidChange(true);
+      });
+      editor.registerMutationListener(LinkNode, () => {
+        setDidChange(true);
+      });
+      editor.registerMutationListener(ImageNode, () => {
+        setDidChange(true);
+      });
+      editor.registerMutationListener(TextNode, () => {
         setDidChange(true);
       });
     }
