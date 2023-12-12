@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
+import { createValPathOfItem } from "../selector/SelectorProxy";
 import { SelectorSource } from "../selector/index";
 import { SourceObject } from "../source";
 import { SourcePath } from "../val";
@@ -38,8 +39,58 @@ export class UnionSchema<
   >[]
 > extends Schema<SourceOf<Key, T>> {
   validate(path: SourcePath, src: SourceOf<Key, T>): ValidationErrors {
-    // TODO:
-    return false;
+    let errors: ValidationErrors = false;
+
+    if (this.opt && (src === null || src === undefined)) {
+      // TODO: src should never be undefined
+      return false;
+    }
+
+    if (!this.key) {
+      return {
+        [path]: [
+          {
+            message: `Missing required first argument in union`,
+          },
+        ],
+      };
+    }
+
+    if (typeof this.key === "string") {
+    } else {
+      if (!Array.isArray(this.items)) {
+        return {
+          [path]: [{ message: `Internal error: union items is not an array` }],
+        };
+
+        const subPath = createValPathOfItem(path, 0);
+        if (!subPath) {
+        }
+      }
+      this.key.validate(createValPathOfItem(path, 0), src);
+      for (const [index, item] of Array.from(this.items.entries())) {
+        const subPath = createValPathOfItem(path, index + 1);
+        if (!subPath) {
+          errors = this.appendValidationError(
+            errors,
+            path,
+            `Internal error: could not create path at ${
+              !path && typeof path === "string" ? "<empty string>" : path
+            } at index ${index}`, // Should! never happen
+            src
+          );
+        } else {
+          const result = item.validate(subPath, src[index]);
+          if (result !== false) {
+            if (errors === false) errors = {};
+            errors = {
+              ...result,
+            };
+          }
+        }
+      }
+    }
+    return errors;
   }
   assert(src: SourceOf<Key, T>): boolean {
     return true;
