@@ -227,7 +227,7 @@ const ValidationTestCases: {
   },
   {
     description: "failure image: replace metadata",
-    input: fileVal("test", {
+    input: fileVal("/public/test.png", {
       width: 100,
       height: 100,
       sha256: "test",
@@ -240,7 +240,7 @@ const ValidationTestCases: {
   },
   {
     description: "failure image: check metadata",
-    input: fileVal("test", {
+    input: fileVal("/public/test.png", {
       width: 100,
       height: 100,
       sha256:
@@ -367,7 +367,7 @@ const ValidationTestCases: {
     description: "failing tagged union: 5",
     input: {
       type: "test2",
-      image: fileVal("test"),
+      image: fileVal("/public/test.png"),
     },
     schema: union(
       "type",

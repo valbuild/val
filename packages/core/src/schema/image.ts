@@ -2,6 +2,7 @@
 import { Schema, SerializedSchema } from ".";
 import { VAL_EXTENSION } from "../source";
 import { FileSource, FILE_REF_PROP } from "../source/file";
+import { ImageSource } from "../source/image";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 
@@ -116,8 +117,6 @@ export class ImageSchema<
   }
 }
 
-export const image = (
-  options?: ImageOptions
-): Schema<FileSource<ImageMetadata>> => {
+export const image = (options?: ImageOptions): Schema<ImageSource> => {
   return new ImageSchema(options);
 };

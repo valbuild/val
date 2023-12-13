@@ -24,6 +24,8 @@ import { FileSource } from "./source/file";
 import { AnyRichTextOptions, RichText } from "./source/richtext";
 import { RecordSchema, SerializedRecordSchema } from "./schema/record";
 import { RawString } from "./schema/string";
+import { ImageSelector } from "./selector/image";
+import { ImageSource } from "./source/image";
 
 const brand = Symbol("ValModule");
 export type ValModule<T extends SelectorSource> = SelectorOf<T> &
@@ -41,6 +43,8 @@ type ReplaceRawStringWithString<T extends SelectorSource> =
     ? T
     : T extends RawString
     ? string
+    : T extends ImageSelector
+    ? ImageSource
     : T extends { [key in string]: SelectorSource }
     ? {
         [key in keyof T]: ReplaceRawStringWithString<T[key]>;
