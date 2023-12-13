@@ -1,11 +1,11 @@
 "use client";
 import { ValRichText } from "@valbuild/next";
-import pageVal from "../content.val";
+import pageVal, { Content } from "../content.val";
 import { useVal } from "../../val/client";
 
 export default function Home() {
   // TODO: fetchVal instead
-  const page = useVal(pageVal);
+  const page: Content = useVal(pageVal);
   return (
     <main className="page content">
       <section className="hero full">

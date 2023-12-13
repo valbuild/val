@@ -1,3 +1,4 @@
+import { InferSchemaType } from "@valbuild/next";
 import authorsVal from "../content/authors.val";
 import { s, val } from "../val.config";
 
@@ -41,6 +42,7 @@ export const schema = s.object({
   }),
 });
 
+export type Content = InferSchemaType<typeof schema>;
 export default val.content("/app/content", schema, {
   hero: {
     title: "Content as code",
