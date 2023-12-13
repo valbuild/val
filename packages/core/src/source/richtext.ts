@@ -66,6 +66,7 @@ type ImageTagNode = {
   src: string;
   height?: number;
   width?: number;
+  mimeType?: string;
   children: [];
 };
 export type ImageNode<O extends RichTextOptions> = O["img"] extends true

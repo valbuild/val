@@ -12,10 +12,10 @@ import {
   RichTextSource,
   RichText,
   VAL_EXTENSION,
-  FileSource,
   ParagraphNode,
   HeadingNode,
   Internal,
+  ImageSource,
 } from "@valbuild/core";
 
 const VAL_START_TAG_PREFIX = '<val value="';
@@ -25,12 +25,6 @@ const VAL_END_TAG = "</val>";
 type AnyListChildren =
   | OrderedListNode<AnyRichTextOptions>["children"]
   | UnorderedListNode<AnyRichTextOptions>["children"];
-
-type ImageSource = FileSource<{
-  width: number;
-  height: number;
-  sha256: string;
-}>;
 
 function parseTokens(
   tokens: marked.Token[],

@@ -2,7 +2,7 @@
 import { Path, GenericSelector, SourceOrExpr, GetSchema } from ".";
 import { Expr } from "../../expr/expr";
 import { Schema } from "../../schema";
-import { convertFileSource } from "../../schema/image";
+import { convertFileSource } from "../../schema/file";
 import { Source, SourcePrimitive, VAL_EXTENSION } from "../../source";
 import { FILE_REF_PROP } from "../../source/file";
 import { isSerializedVal, SourcePath } from "../../val";

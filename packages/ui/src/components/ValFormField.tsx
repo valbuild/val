@@ -1,8 +1,8 @@
 import {
   AnyRichTextOptions,
-  FileSource,
   FILE_REF_PROP,
   ImageMetadata,
+  ImageSource,
   Internal,
   Json,
   RichTextSource,
@@ -32,7 +32,6 @@ import { useValModuleFromPath } from "./ValFullscreen";
 import { LinkNode } from "@lexical/link";
 import { ImageNode } from "./RichTextEditor/Nodes/ImageNode";
 
-export type ImageSource = FileSource<ImageMetadata>;
 export type OnSubmit = (callback: PatchCallback) => Promise<void>;
 
 export function ValFormField({
@@ -153,7 +152,7 @@ export function createImagePatch(
   path: string,
   data: string | null,
   filename: string | null,
-  metadata: ImageMetadata
+  metadata: ImageMetadata | undefined
 ): PatchJSON {
   if (!data || !metadata) {
     return [];
@@ -244,11 +243,12 @@ function ImageField({
               readImage(ev)
                 .then((res) => {
                   setData({ src: res.src, filename: res.filename });
-                  if (res.width && res.height) {
+                  if (res.width && res.height && res.mimeType) {
                     setMetadata({
                       sha256: res.sha256,
                       width: res.width,
                       height: res.height,
+                      mimeType: res.mimeType,
                     });
                   } else {
                     setMetadata(undefined);

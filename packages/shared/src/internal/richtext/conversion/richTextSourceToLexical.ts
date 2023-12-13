@@ -51,6 +51,7 @@ export type LexicalImagePayload = {
   altText?: string;
   height?: number;
   width?: number;
+  mimeType?: string;
 };
 export type LexicalImageNode = CommonLexicalProps & {
   type: "image";
@@ -159,6 +160,7 @@ function toLexicalImageNode(
     src: url,
     width: node.width,
     height: node.height,
+    mimeType: node.mimeType,
     // TODO: altText
   };
 }

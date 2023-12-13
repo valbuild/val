@@ -1,5 +1,6 @@
 import {
   FILE_REF_PROP,
+  ImageMetadata,
   Internal,
   SourcePath,
   ValidationError,
@@ -21,7 +22,7 @@ export async function createFixPatch(
   sourcePath: SourcePath,
   validationError: ValidationError
 ): Promise<{ patch: Patch; remainingErrors: ValidationError[] } | undefined> {
-  async function getImageMetadata() {
+  async function getImageMetadata(): Promise<ImageMetadata> {
     const maybeRef =
       validationError.value &&
       typeof validationError.value === "object" &&
@@ -37,20 +38,29 @@ export async function createFixPatch(
     const filename = path.join(config.projectRoot, maybeRef);
     const buffer = fs.readFileSync(filename);
     const imageSize = sizeOf(buffer);
+    const mimeType = imageSize.type
+      ? imageTypeToMimeType(imageSize.type)
+      : filenameToMimeType(filename);
+
+    if (!mimeType) {
+      throw Error("Cannot determine mimetype of image");
+    }
+    const { width, height } = imageSize;
+    if (!width || !height) {
+      throw Error("Cannot determine image size");
+    }
 
     const sha256 = Internal.getSHA256Hash(
       textEncoder.encode(
         // TODO: we should probably store the mimetype in the metadata and reuse it here
-        `data:${
-          imageSize.type
-            ? imageTypeToMimeType(imageSize.type)
-            : filenameToMimeType(filename)
-        };base64,${buffer.toString("base64")}`
+        `data:${mimeType};base64,${buffer.toString("base64")}`
       )
     );
     return {
-      ...imageSize,
+      width,
+      height,
       sha256,
+      mimeType,
     };
   }
   const remainingErrors: ValidationError[] = [];
@@ -97,6 +107,7 @@ export async function createFixPatch(
                 width: imageMetadata.width,
                 height: imageMetadata.height,
                 sha256: imageMetadata.sha256,
+                mimeType: imageMetadata.mimeType,
               },
             });
           } else {
