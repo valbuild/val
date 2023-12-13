@@ -1,7 +1,7 @@
-import { FileSource } from "./file";
 import { VAL_EXTENSION } from ".";
 import { LinkSource } from "./link";
 import { ImageMetadata } from "../schema/image";
+import { ImageSource } from "./image";
 
 export type RichTextOptions = {
   headings?: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];
@@ -153,7 +153,7 @@ export type RichTextSource<O extends RichTextOptions> = {
   [VAL_EXTENSION]: "richtext";
   templateStrings: string[];
   exprs: (
-    | (O["img"] extends true ? FileSource<ImageMetadata> : never)
+    | (O["img"] extends true ? ImageSource : never)
     | (O["a"] extends true ? LinkSource : never)
   )[];
 };
@@ -168,7 +168,7 @@ export type RichText<O extends RichTextOptions> = {
 
 export function richtext<O extends RichTextOptions>(
   templateStrings: TemplateStringsArray,
-  ...nodes: (FileSource<ImageMetadata> | LinkSource)[]
+  ...nodes: (ImageSource | LinkSource)[]
 ): RichTextSource<O> {
   return {
     [VAL_EXTENSION]: "richtext",

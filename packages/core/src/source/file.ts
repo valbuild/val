@@ -20,13 +20,16 @@ export type FileSource<
 };
 
 export function file<Metadata extends { readonly [key: string]: Json }>(
-  ref: string,
+  ref: `/public/${string}`,
   metadata: Metadata
 ): FileSource<Metadata>;
-export function file(ref: string, metadata?: undefined): FileSource<undefined>;
+export function file(
+  ref: `/public/${string}`,
+  metadata?: undefined
+): FileSource<undefined>;
 export function file<
   Metadata extends { readonly [key: string]: Json } | undefined
->(ref: string, metadata?: Metadata): FileSource<Metadata> {
+>(ref: `/public/${string}`, metadata?: Metadata): FileSource<Metadata> {
   return {
     [FILE_REF_PROP]: ref,
     [VAL_EXTENSION]: "file",

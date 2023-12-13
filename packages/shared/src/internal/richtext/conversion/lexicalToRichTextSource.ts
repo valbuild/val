@@ -235,7 +235,7 @@ function fromLexicalImageNode(
     files[filePath] = node.src;
     return {
       [VAL_EXTENSION]: "file" as const,
-      [FILE_REF_PROP]: filePath,
+      [FILE_REF_PROP]: filePath as `/public/${string}`,
       metadata: {
         width: node.width || 0,
         height: node.height || 0,
@@ -247,7 +247,9 @@ function fromLexicalImageNode(
     const sha256 = getParam("sha256", node.src);
     return {
       [VAL_EXTENSION]: "file" as const,
-      [FILE_REF_PROP]: `/public${node.src.split("?")[0]}`,
+      [FILE_REF_PROP]: `/public${
+        node.src.split("?")[0]
+      }` as `/public/${string}`,
       metadata: {
         width: node.width || 0,
         height: node.height || 0,
