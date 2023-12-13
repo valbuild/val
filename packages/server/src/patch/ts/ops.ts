@@ -72,7 +72,7 @@ function createValFileReference(value: FileSource) {
     ts.factory.createStringLiteral(value[FILE_REF_PROP]),
   ];
   if (value.metadata) {
-    args.push(toExpression(value.metadata));
+    args.push(toExpression(value.metadata as JSONValue));
   }
 
   return ts.factory.createCallExpression(

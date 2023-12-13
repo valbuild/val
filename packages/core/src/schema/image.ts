@@ -17,15 +17,20 @@ export type SerializedImageSchema = {
   opt: boolean;
 };
 
-export type ImageMetadata =
-  | {
-      width: number;
-      height: number;
-      sha256: string;
-    }
-  | undefined;
+export type ImageMetadata = {
+  width: number;
+  height: number;
+  sha256: string;
+  mimeType: string;
+  hotspot?: {
+    x: number;
+    y: number;
+    height: number;
+    width: number;
+  };
+};
 export class ImageSchema<
-  Src extends FileSource<ImageMetadata> | null
+  Src extends FileSource<ImageMetadata | undefined> | null
 > extends Schema<Src> {
   constructor(readonly options?: ImageOptions, readonly opt: boolean = false) {
     super();
@@ -115,23 +120,4 @@ export const image = (
   options?: ImageOptions
 ): Schema<FileSource<ImageMetadata>> => {
   return new ImageSchema(options);
-};
-
-export const convertFileSource = (
-  src: FileSource<ImageMetadata>
-): { url: string; metadata?: ImageMetadata } => {
-  // TODO: /public should be configurable
-  if (!src[FILE_REF_PROP].startsWith("/public")) {
-    return {
-      url: src[FILE_REF_PROP] + `?sha256=${src.metadata?.sha256}`,
-      metadata: src.metadata,
-    };
-  }
-
-  return {
-    url:
-      src[FILE_REF_PROP].slice("/public".length) +
-      `?sha256=${src.metadata?.sha256}`,
-    metadata: src.metadata,
-  };
 };

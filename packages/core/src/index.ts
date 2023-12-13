@@ -7,6 +7,7 @@ export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
 export type { RawString } from "./schema/string";
+export type { ImageSource } from "./source/image";
 export type {
   AnyRichTextOptions,
   Bold,
@@ -55,7 +56,7 @@ export {
 import { getSource, resolvePath, splitModuleIdAndModulePath } from "./module";
 import { getSchema } from "./selector";
 import { ModuleId, ModulePath, getValPath, isVal } from "./val";
-import { convertFileSource } from "./schema/image";
+import { convertFileSource } from "./schema/file";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
 import type { Json } from "./Json";

@@ -29,7 +29,7 @@ export {
 export { ValRichText } from "@valbuild/react/internal";
 
 // Stega
-export { type ValEncodedString } from "@valbuild/react/stega";
+export { type ValEncodedString, type Image } from "@valbuild/react/stega";
 
 // Next specific
 export { ValProvider } from "./ValProvider";
