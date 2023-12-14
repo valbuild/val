@@ -11,11 +11,15 @@ import { Schema } from "../schema";
 import type { A } from "ts-toolbelt";
 import { FileSource } from "../source/file";
 import { RichText, RichTextOptions, RichTextSource } from "../source/richtext";
+import { ImageMetadata } from "../schema/image";
+import { ImageSelector } from "./image";
 
 export type Selector<T extends Source> = Source extends T
   ? GenericSelector<T>
-  : T extends FileSource
-  ? FileSelector
+  : T extends FileSource<infer M>
+  ? M extends ImageMetadata
+    ? ImageSelector
+    : FileSelector<M>
   : T extends RichTextSource<infer O>
   ? RichText<O>
   : T extends SourceObject

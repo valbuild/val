@@ -5,6 +5,7 @@ import {
   VAL_EXTENSION,
   RichTextSource,
   AnyRichTextOptions,
+  ImageSource,
 } from "@valbuild/core";
 import { getMimeType, mimeTypeToFileExt } from "../../mimeType";
 import {
@@ -222,7 +223,7 @@ const textEncoder = new TextEncoder();
 function fromLexicalImageNode(
   node: LexicalImageNode,
   files: Record<string, string>
-) {
+): ImageSource {
   if (node.src.startsWith("data:")) {
     const sha256 = Internal.getSHA256Hash(textEncoder.encode(node.src));
     const mimeType = getMimeType(node.src);
@@ -234,22 +235,26 @@ function fromLexicalImageNode(
     files[filePath] = node.src;
     return {
       [VAL_EXTENSION]: "file" as const,
-      [FILE_REF_PROP]: filePath,
+      [FILE_REF_PROP]: filePath as `/public/${string}`,
       metadata: {
         width: node.width || 0,
         height: node.height || 0,
         sha256: sha256 || "",
+        mimeType,
       },
     };
   } else {
     const sha256 = getParam("sha256", node.src);
     return {
       [VAL_EXTENSION]: "file" as const,
-      [FILE_REF_PROP]: `/public${node.src.split("?")[0]}`,
+      [FILE_REF_PROP]: `/public${
+        node.src.split("?")[0]
+      }` as `/public/${string}`,
       metadata: {
         width: node.width || 0,
         height: node.height || 0,
         sha256: sha256 || "",
+        mimeType: node.mimeType || "",
       },
     };
   }

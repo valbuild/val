@@ -4,13 +4,15 @@ import {
   type InitVal,
   type ValConstructor,
 } from "@valbuild/core";
-import { stegaClean, ValEncodedString } from "@valbuild/react/stega";
+import { raw } from "./raw";
+import { decodeValPathOfString } from "./decodeValPathOfString";
 
 export const initVal = (
   config?: ValConfig
 ): InitVal & {
   val: ValConstructor & {
-    raw: (encodedString: ValEncodedString) => string;
+    raw: typeof raw;
+    decodeValPathOfString: typeof decodeValPathOfString;
   };
 } => {
   const { s, val, config: systemConfig } = createValSystem();
@@ -23,9 +25,8 @@ export const initVal = (
     s,
     val: {
       ...val,
-      raw: (encodedString: ValEncodedString): string => {
-        return stegaClean(encodedString);
-      },
+      decodeValPathOfString,
+      raw,
     },
     config: currentConfig,
   };

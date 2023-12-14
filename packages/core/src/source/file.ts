@@ -1,7 +1,9 @@
 import { VAL_EXTENSION } from ".";
-import { JsonPrimitive } from "../Json";
+import { Json } from "../Json";
 
 export const FILE_REF_PROP = "_ref" as const;
+
+export type FileMetadata = { readonly [key: string]: Json };
 
 /**
  * A file source represents the path to a (local) file.
@@ -10,22 +12,24 @@ export const FILE_REF_PROP = "_ref" as const;
  *
  */
 export type FileSource<
-  Metadata extends { readonly [key: string]: JsonPrimitive } | undefined =
-    | { readonly [key: string]: JsonPrimitive }
-    | undefined
+  Metadata extends FileMetadata | undefined = FileMetadata | undefined
 > = {
   readonly [FILE_REF_PROP]: string;
   readonly [VAL_EXTENSION]: "file";
   readonly metadata?: Metadata;
 };
 
+export function file<Metadata extends { readonly [key: string]: Json }>(
+  ref: `/public/${string}`,
+  metadata: Metadata
+): FileSource<Metadata>;
+export function file(
+  ref: `/public/${string}`,
+  metadata?: undefined
+): FileSource<undefined>;
 export function file<
-  Metadata extends { readonly [key: string]: JsonPrimitive }
->(ref: string, metadata: Metadata): FileSource<Metadata>;
-export function file(ref: string, metadata?: undefined): FileSource<undefined>;
-export function file<
-  Metadata extends { readonly [key: string]: JsonPrimitive } | undefined
->(ref: string, metadata?: Metadata): FileSource<Metadata> {
+  Metadata extends { readonly [key: string]: Json } | undefined
+>(ref: `/public/${string}`, metadata?: Metadata): FileSource<Metadata> {
   return {
     [FILE_REF_PROP]: ref,
     [VAL_EXTENSION]: "file",

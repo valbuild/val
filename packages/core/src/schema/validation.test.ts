@@ -227,7 +227,7 @@ const ValidationTestCases: {
   },
   {
     description: "failure image: replace metadata",
-    input: fileVal("test", {
+    input: fileVal("/public/test.png", {
       width: 100,
       height: 100,
       sha256: "test",
@@ -240,7 +240,7 @@ const ValidationTestCases: {
   },
   {
     description: "failure image: check metadata",
-    input: fileVal("test", {
+    input: fileVal("/public/test.png", {
       width: 100,
       height: 100,
       sha256:
@@ -363,6 +363,26 @@ const ValidationTestCases: {
     expected: [pathOf("type")],
   },
 
+  {
+    description: "failing tagged union: 5",
+    input: {
+      type: "test2",
+      image: fileVal("/public/test.png"),
+    },
+    schema: union(
+      "type",
+      object({ type: literal("test1"), text: string() }),
+      object({
+        type: literal("test2"),
+        image: image(),
+      })
+    ),
+    expected: [pathOf("image")],
+    fixes: {
+      [pathOf("image") as string]: ["image:add-metadata"],
+    },
+  },
+
   // TODO: oneOf
   // TODO: i18n
 ];
@@ -372,6 +392,7 @@ describe("validation", () => {
     'validate ($description): "$expected"',
     ({ input, schema, expected, fixes }) => {
       const result = schema.validate(testPath, input);
+      console.log(JSON.stringify({ result }, null, 2));
       if (result) {
         expect(Object.keys(result)).toStrictEqual(expected);
         if (fixes) {
