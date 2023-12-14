@@ -230,7 +230,7 @@ function ImageField({
     x: number;
     y: number;
     width: number;
-    height: 1;
+    height: number;
   }>();
   const [url, setUrl] = useState<string>();
   useEffect(() => {
