@@ -2,19 +2,26 @@
 import { ValRichText } from "@valbuild/next";
 import pageVal, { Content } from "../content.val";
 import { useVal } from "../../val/client";
+import Image from "next/image";
 
 export default function Home() {
   // TODO: fetchVal instead
   const page: Content = useVal(pageVal);
+  const hotspot = page.hero.image.data.metadata?.hotspot;
+  const imageStyle = hotspot
+    ? { objectPosition: `${hotspot.x * 100}% ${hotspot.y * 100}%` }
+    : {};
+
   return (
     <main className="page content">
       <section className="hero full">
         <img
           src={page.hero.image.data.url}
           alt={page.hero.image.alt}
-          width={100}
           height={100}
-        />
+          width={100}
+          // sizes={sizes}
+        ></img>
         {<h1 className="h1">{page.hero.title}</h1>}
       </section>
       <section>
