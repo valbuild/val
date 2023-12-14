@@ -11,6 +11,7 @@ import {
   SerializedObjectSchema,
   SerializedUnionSchema,
   SerializedLiteralSchema,
+  ImageMetadata,
 } from "@valbuild/core";
 import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
@@ -171,12 +172,19 @@ export type ValEncodedString =
     [brand]: "ValEncodedString";
   };
 
+export type Image = {
+  readonly url: ValEncodedString;
+  readonly metadata?: ImageMetadata;
+};
+
 export type StegaOfSource<T extends Source> = Json extends T
   ? Json
   : T extends RichTextSource<infer O>
   ? RichText<O>
-  : T extends FileSource
-  ? { url: ValEncodedString }
+  : T extends FileSource<infer M>
+  ? M extends ImageMetadata
+    ? Image
+    : T
   : T extends SourceObject
   ? {
       [key in keyof T]: StegaOfSource<T[key]>;

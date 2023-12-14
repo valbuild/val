@@ -26,6 +26,11 @@ a {
   text-decoration: line-through;
 }
 
+img {
+  width: 100%;
+  height: auto;
+}
+
 .content {
   --gap: clamp(1rem, 6vw, 3rem);
   --full: minmax(var(--gap), 1fr);

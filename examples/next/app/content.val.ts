@@ -1,3 +1,4 @@
+import { InferSchemaType } from "@valbuild/next";
 import authorsVal from "../content/authors.val";
 import { s, val } from "../val.config";
 
@@ -41,6 +42,8 @@ export const schema = s.object({
   }),
 });
 
+export type Content = InferSchemaType<typeof schema>;
+export type Image = InferSchemaType<typeof image>;
 export default val.content("/app/content", schema, {
   hero: {
     title: "Content as code",
@@ -50,6 +53,8 @@ export default val.content("/app/content", schema, {
           "e211ba37284a7ed660ecbf4d80c6f9778ddf7a32664353a8ceeec0f33cf2130f",
         width: 944,
         height: 944,
+        mimeType: "image/png",
+        hotspot: { x: 0.5, y: 0.5, width: 1, height: 1 },
       }),
       alt: "Val logo",
     },

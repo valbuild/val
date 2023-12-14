@@ -1,20 +1,20 @@
 "use client";
-import { ValRichText } from "@valbuild/next";
-import pageVal from "../content.val";
+import { ValImage, ValRichText } from "@valbuild/next";
+import pageVal, { Content } from "../content.val";
 import { useVal } from "../../val/client";
 
 export default function Home() {
   // TODO: fetchVal instead
-  const page = useVal(pageVal);
+  const page: Content = useVal(pageVal);
   return (
     <main className="page content">
       <section className="hero full">
-        <img
-          src={page.hero.image.data.url}
+        <ValImage
+          src={page.hero.image.data}
           alt={page.hero.image.alt}
-          width={100}
-          height={100}
-        />
+          sizes={"(max-width: 400px) 200px, (max-width: 768px) 250px, 300px"}
+          priority
+        ></ValImage>
         {<h1 className="h1">{page.hero.title}</h1>}
       </section>
       <section>
