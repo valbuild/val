@@ -33,7 +33,7 @@ export { type ValEncodedString, type Image } from "@valbuild/react/stega";
 
 // Next specific
 export { ValProvider } from "./ValProvider";
-export { ValImage } from "./ValImage";
+export { ValImage, type ValImageProps } from "./ValImage";
 export { initVal } from "./initVal";
 
 // Auto-tag JSX with Val paths:
