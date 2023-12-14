@@ -86,13 +86,11 @@ type ValServerOverrides = Partial<{
    */
   valContentUrl: string;
   /**
-   * The full name of this Val project.
-   *
-   * Typically this is set using the VAL_NAME env var.
+   * The cloud name of this Val project.
    *
    * @example "myorg/my-project"
    */
-  valName: string;
+  valCloud: string;
   /**
    * After Val is enabled, redirect to this url.
    *
@@ -161,9 +159,10 @@ async function initHandlerOptions(
     if (!maybeGitBranch) {
       throw new Error("VAL_GIT_BRANCH env var must be set in proxy mode");
     }
-    const maybeValName = opts.valName || process.env.VAL_NAME;
+    const maybeValName =
+      opts.valCloud || process.env.VAL_CLOUD_NAME || process.env.VAL_NAME; // VAL_NAME is deprecated
     if (!maybeValName) {
-      throw new Error("VAL_NAME env var must be set in proxy mode");
+      throw new Error("VAL_CLOUD_NAME env var must be set in proxy mode");
     }
     return {
       mode: "proxy",

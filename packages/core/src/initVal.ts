@@ -19,6 +19,7 @@ export type ValConstructor = {
 };
 
 export type ValConfig = {
+  valCloud?: string;
   gitCommit?: string;
   gitBranch?: string;
   valConfigPath?: string;
