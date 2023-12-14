@@ -250,6 +250,7 @@ function ImageField({
     }
   }, [data, defaultValue]);
 
+  // TODO: this smells bad:
   useEffect(() => {
     if (hotspot) {
       if (metadata) {
