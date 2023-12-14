@@ -43,6 +43,7 @@ export const schema = s.object({
 });
 
 export type Content = InferSchemaType<typeof schema>;
+export type Image = InferSchemaType<typeof image>;
 export default val.content("/app/content", schema, {
   hero: {
     title: "Content as code",

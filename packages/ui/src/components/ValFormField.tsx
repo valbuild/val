@@ -196,6 +196,20 @@ export function createImagePatch(
   ];
 }
 
+export function createImageMetadataPatch(
+  path: string,
+  metadata: ImageMetadata
+): PatchJSON {
+  const metadataPath = path + "/metadata";
+  return [
+    {
+      value: metadata,
+      op: "replace",
+      path: metadataPath,
+    },
+  ];
+}
+
 function ImageField({
   path,
   defaultValue,
@@ -212,6 +226,12 @@ function ImageField({
   );
   const [loading, setLoading] = useState(false);
   const [metadata, setMetadata] = useState<ImageMetadata>();
+  const [hotspot, setHotspot] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: 1;
+  }>();
   const [url, setUrl] = useState<string>();
   useEffect(() => {
     setUrl(defaultValue && Internal.convertFileSource(defaultValue).url);
@@ -230,15 +250,72 @@ function ImageField({
     }
   }, [data, defaultValue]);
 
+  useEffect(() => {
+    if (hotspot) {
+      if (metadata) {
+        const newMetadata = {
+          ...metadata,
+          hotspot,
+        };
+        setMetadata(newMetadata);
+      } else if (defaultValue?.metadata) {
+        setMetadata({
+          ...defaultValue.metadata,
+          hotspot,
+        });
+      } else {
+        console.error("Neither image metadata nor value is set");
+      }
+    }
+  }, [hotspot, defaultValue]);
+
   return (
     <FieldContainer>
-      <div className="max-w-4xl p-4" key={path}>
+      <div className="flex flex-col max-w-4xl p-4 gap-y-4" key={path}>
+        {data || url ? (
+          <div className="relative">
+            {hotspot && (
+              <div
+                className="rounded-full h-[20px] w-[20px] bg-accent absolute"
+                style={{
+                  top: `${hotspot.y * 100}%`,
+                  left: `${hotspot.x * 100}%`,
+                }}
+              />
+            )}
+            <img
+              src={data?.src || url}
+              className="w-full cursor-crosshair"
+              onClick={(ev) => {
+                // console log where the user clicked
+                console.log(
+                  "Clicked image at",
+                  ev.nativeEvent.offsetX,
+                  ev.nativeEvent.offsetY
+                );
+
+                // compute hotspot position based on mouse click:
+                const x = ev.nativeEvent.offsetX;
+                const y = ev.nativeEvent.offsetY;
+                const width = ev.currentTarget.clientWidth;
+                const height = ev.currentTarget.clientHeight;
+                const hotspotX = Math.round((x / width) * 100) / 100;
+                const hotspotY = Math.round((y / height) * 100) / 100;
+                setHotspot({ x: hotspotX, y: hotspotY, width: 1, height: 1 });
+              }}
+            />
+          </div>
+        ) : (
+          <div>Select image below</div>
+        )}
         <label htmlFor={`img_input:${path}`} className="">
-          {data || url ? <img src={data?.src || url} /> : <div>Empty</div>}
+          <div className="px-1 py-2 text-center rounded-md bg-primary text-background">
+            Update image
+          </div>
           <input
+            hidden
             id={`img_input:${path}`}
             type="file"
-            hidden
             onChange={(ev) => {
               readImage(ev)
                 .then((res) => {
@@ -249,14 +326,17 @@ function ImageField({
                       width: res.width,
                       height: res.height,
                       mimeType: res.mimeType,
+                      hotspot,
                     });
                   } else {
                     setMetadata(undefined);
+                    setHotspot(undefined);
                   }
                 })
                 .catch((err) => {
                   console.error(err.message);
                   setData(null);
+                  setHotspot(undefined);
                   setMetadata(undefined);
                 });
             }}
@@ -277,6 +357,21 @@ function ImageField({
                   metadata
                 )
               )
+            ).finally(() => {
+              setLoading(false);
+              setData(null);
+              setMetadata(undefined);
+            });
+          }}
+        />
+      )}
+      {onSubmit && !data && metadata && (
+        <SubmitButton
+          loading={loading}
+          onClick={() => {
+            setLoading(true);
+            onSubmit((path) =>
+              Promise.resolve(createImageMetadataPatch(path, metadata))
             ).finally(() => {
               setLoading(false);
               setData(null);
