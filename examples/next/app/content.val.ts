@@ -54,6 +54,7 @@ export default val.content("/app/content", schema, {
         width: 944,
         height: 944,
         mimeType: "image/png",
+        hotspot: { x: 0.5, y: 0.5, width: 1, height: 1 },
       }),
       alt: "Val logo",
     },
