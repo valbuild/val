@@ -8,3 +8,4 @@ export {
   type StegaOfSource,
 } from "./stegaEncode";
 export { type Image } from "./stegaEncode";
+export { stegaDecodeString } from "./stegaDecodeString";

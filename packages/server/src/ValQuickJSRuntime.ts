@@ -37,7 +37,7 @@ export async function newValQuickJSRuntime(
         if (modulePath === "@valbuild/react/stega") {
           return {
             value:
-              "export const useVal = () => { throw Error(`Cannot use 'useVal' in this type of file`) }; export const fetchVal = () => { throw Error(`Cannot use 'fetchVal' in this type of file`) }; export const autoTagJSX = () => { /* ignore */ };  export const stegaClean = () => { throw Error(`Cannot use 'stegaClean' in this type of file`) }; ",
+              "export const useVal = () => { throw Error(`Cannot use 'useVal' in this type of file`) }; export const fetchVal = () => { throw Error(`Cannot use 'fetchVal' in this type of file`) }; export const autoTagJSX = () => { /* ignore */ }; export const stegaClean = () => { throw Error(`Cannot use 'stegaClean' in this type of file`) }; export const stegaDecodeString = () => { throw Error(`Cannot use 'stegaDecodeString' in this type of file`) }; ",
           };
         }
         if (modulePath.startsWith("next/navigation")) {
@@ -68,6 +68,12 @@ export async function newValQuickJSRuntime(
           return {
             value:
               "export const ValNextProvider = new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'ValNextProvider' in this file`) } } } )",
+          };
+        }
+        if (modulePath.includes("/ValImage")) {
+          return {
+            value:
+              "export const ValImage = new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'ValImage' in this file`) } } } )",
           };
         }
         return { value: moduleLoader.getModule(modulePath) };
@@ -101,6 +107,9 @@ export async function newValQuickJSRuntime(
           return { value: requestedName };
         }
         if (requestedName.includes("/ValNextProvider")) {
+          return { value: requestedName };
+        }
+        if (requestedName.includes("/ValImage")) {
           return { value: requestedName };
         }
         const modulePath = moduleLoader.resolveModulePath(

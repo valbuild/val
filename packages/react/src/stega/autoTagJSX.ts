@@ -2,11 +2,8 @@
 import jsxRuntime from "react/jsx-runtime";
 import jsxRuntimeDev from "react/jsx-dev-runtime";
 import React from "react";
-import {
-  vercelStegaSplit,
-  vercelStegaDecode,
-  VERCEL_STEGA_REGEX,
-} from "@vercel/stega";
+import { vercelStegaSplit, VERCEL_STEGA_REGEX } from "@vercel/stega";
+import { stegaDecodeString } from "./stegaDecodeString";
 
 const isIntrinsicElement = (type: any) => {
   // TODO: think this is not correct, but good enough for now?
@@ -18,28 +15,18 @@ const addValPathIfFound = (type: any, props: any) => {
   if (props && typeof props === "object") {
     for (const [key, value] of Object.entries(props)) {
       if (typeof value === "string" && value.match(VERCEL_STEGA_REGEX)) {
-        const encodedBits = vercelStegaDecode(value);
-        if (!encodedBits || typeof encodedBits !== "object") continue;
-        if (
-          "origin" in encodedBits &&
-          "data" in encodedBits &&
-          typeof encodedBits.data === "object" &&
-          encodedBits.data &&
-          "valPath" in encodedBits.data
-        ) {
-          const valPath = encodedBits?.data?.valPath;
-          if (valPath) {
-            valSources.push(valPath);
-            props[key] = isIntrinsicElement(type)
-              ? vercelStegaSplit(value).cleaned
-              : value;
-            props[`data-val-attr-${key.toLowerCase()}`] = valPath;
-          }
+        const valPath = stegaDecodeString(value);
+        const attr = `data-val-attr-${key.toLowerCase()}`;
+        if (valPath && !props[attr]) {
+          valSources.push(valPath);
+          props[key] = isIntrinsicElement(type)
+            ? vercelStegaSplit(value).cleaned
+            : value;
+          props[attr] = valPath;
         }
       }
     }
-
-    if (valSources.length > 0) {
+    if (valSources.length > 0 && !props["data-val-path"]) {
       props["data-val-path"] = valSources.join(",");
     }
   }
