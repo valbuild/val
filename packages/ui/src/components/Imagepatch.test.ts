@@ -1,5 +1,5 @@
-import { FILE_REF_PROP, VAL_EXTENSION } from "@valbuild/core";
-import { createImagePatch, ImageSource } from "./ValFormField";
+import { FILE_REF_PROP, ImageSource, VAL_EXTENSION } from "@valbuild/core";
+import { createImagePatch } from "./ValFormField";
 
 describe("Imagepatch", () => {
   test("Use filename of new image", () => {
@@ -9,6 +9,7 @@ describe("Imagepatch", () => {
         height: 875,
         sha256:
           "e0cc83d0f051d1e887bf9de64715512449443177b7f1565d369f8c04e307a954",
+        mimeType: "image/png",
       },
       [FILE_REF_PROP]: "/public/gurba.png",
       [VAL_EXTENSION]: "file" as const,
@@ -22,6 +23,7 @@ describe("Imagepatch", () => {
       0,
       5
     )}.png`;
+    const newMimeType = "image/jpeg";
 
     const imagePatch = [
       {
@@ -55,6 +57,7 @@ describe("Imagepatch", () => {
         height: 875,
         sha256:
           "e0cc83d0f051d1e887bf9de64715512449443177b7f1565d369f8c04e307a954",
+        mimeType: "image/png",
       },
       [FILE_REF_PROP]: "/public/gurba.png",
       [VAL_EXTENSION]: "file",
@@ -100,6 +103,7 @@ describe("Imagepatch", () => {
         height: 875,
         sha256:
           "e0cc83d0f051d1e887bf9de64715512449443177b7f1565d369f8c04e307a954",
+        mimeType: "image/png",
       },
       [FILE_REF_PROP]: "/public/gurba.png",
       [VAL_EXTENSION]: "file" as const,
@@ -142,6 +146,7 @@ describe("Imagepatch", () => {
         height: 875,
         sha256:
           "e0cc83d0f051d1e887bf9de64715512449443177b7f1565d369f8c04e307a954",
+        mimeType: "image/png",
       },
       [FILE_REF_PROP]: "/public/gurba.png",
       [VAL_EXTENSION]: "file" as const,

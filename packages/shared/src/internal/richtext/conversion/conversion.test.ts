@@ -88,6 +88,7 @@ ${val.file("/public/test.jpg", {
   width: 100,
   height: 100,
   sha256: "123",
+  mimeType: "image/jpeg",
 })}
 
 <br />
