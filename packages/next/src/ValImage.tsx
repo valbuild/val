@@ -1,6 +1,6 @@
 import NextImage from "next/image";
 import { raw } from "./raw";
-import { ValEncodedString, Image as ValImage } from "@valbuild/react/stega";
+import { ValEncodedString, Image } from "@valbuild/react/stega";
 import { decodeValPathOfString } from "./decodeValPathOfString";
 
 // all NextImage component props
@@ -8,7 +8,7 @@ export type ValImageProps = Omit<
   React.ComponentProps<typeof NextImage>,
   "src" | "srcset"
 > & {
-  src: ValImage;
+  src: Image;
 };
 export function ValImage(props: ValImageProps) {
   const { src, alt, style, width, height, ...rest } = props;
