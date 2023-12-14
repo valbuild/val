@@ -11,12 +11,7 @@ import {
   VAL_EXTENSION,
 } from "@valbuild/core";
 import type { PatchJSON } from "@valbuild/core/patch";
-import {
-  COMMAND_PRIORITY_LOW,
-  FORMAT_TEXT_COMMAND,
-  LexicalEditor,
-  TextNode,
-} from "lexical";
+import { LexicalEditor, TextNode } from "lexical";
 import { useState, useEffect, useRef } from "react";
 import { getMimeType, mimeTypeToFileExt } from "@valbuild/shared/internal";
 import { RichTextEditor } from "../exports";
