@@ -23,7 +23,6 @@ describe("Imagepatch", () => {
       0,
       5
     )}.png`;
-    const newMimeType = "image/jpeg";
 
     const imagePatch = [
       {
