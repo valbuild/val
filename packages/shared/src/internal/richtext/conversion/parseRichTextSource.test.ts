@@ -278,6 +278,7 @@ ${val.file("/public/foo.png", {
   width: 100,
   height: 100,
   sha256: "123",
+  mimeType: "image/png",
 })}`;
     expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
@@ -290,6 +291,7 @@ ${val.file("/public/foo.png", {
             tag: "img",
             width: 100,
             height: 100,
+            mimeType: "image/png",
             children: [],
           },
         ],

@@ -146,6 +146,7 @@ function parseTokens(
             src: Internal.convertFileSource(sourceNode).url,
             width: sourceNode.metadata?.width,
             height: sourceNode.metadata?.height,
+            mimeType: sourceNode.metadata?.mimeType,
             children: [],
           });
         }
