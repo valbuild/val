@@ -1,6 +1,5 @@
 import { VAL_EXTENSION } from ".";
 import { LinkSource } from "./link";
-import { ImageMetadata } from "../schema/image";
 import { ImageSource } from "./image";
 
 export type RichTextOptions = {
