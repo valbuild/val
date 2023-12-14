@@ -159,7 +159,7 @@ export class LocalValServer implements ValServer {
     return {
       cookies: {
         [VAL_ENABLE_COOKIE_NAME]: {
-          value: null,
+          value: "false",
         },
       },
       status: 302,
