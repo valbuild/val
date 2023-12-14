@@ -266,6 +266,10 @@ function ImageField({
       } else {
         console.error("Neither image metadata nor value is set");
       }
+    } else {
+      if (defaultValue?.metadata?.hotspot) {
+        setHotspot(defaultValue.metadata.hotspot);
+      }
     }
   }, [hotspot, defaultValue]);
 
@@ -287,13 +291,6 @@ function ImageField({
               src={data?.src || url}
               className="w-full cursor-crosshair"
               onClick={(ev) => {
-                // console log where the user clicked
-                console.log(
-                  "Clicked image at",
-                  ev.nativeEvent.offsetX,
-                  ev.nativeEvent.offsetY
-                );
-
                 // compute hotspot position based on mouse click:
                 const x = ev.nativeEvent.offsetX;
                 const y = ev.nativeEvent.offsetY;
