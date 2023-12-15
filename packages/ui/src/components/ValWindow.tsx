@@ -26,7 +26,6 @@ export function ValWindow({
   const [draggedPosition, isInitialized, dragRef, onMouseDownDrag] = useDrag({
     position,
   });
-  console.log({ draggedPosition });
   useEffect(() => {
     const closeOnEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -120,12 +119,7 @@ export function ValWindow({
             <XIcon size={16} />
           </button>
         </div>
-        <form
-          className="h-full"
-          onSubmit={(ev) => {
-            ev.preventDefault();
-          }}
-        >
+        <div>
           {Array.isArray(children) && children.slice(0, 1)}
           <ScrollArea
             className="relative"
@@ -138,7 +132,7 @@ export function ValWindow({
           <div ref={bottomRef} className="w-full px-4 pb-0">
             {Array.isArray(children) && children.slice(-1)}
           </div>
-        </form>
+        </div>
       </div>
     </Resizable>
   );
