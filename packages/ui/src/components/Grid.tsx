@@ -1,8 +1,7 @@
 import classNames from "classnames";
 import React, { Children, useEffect, useRef, useState } from "react";
 import { ScrollArea } from "./ui/scroll-area";
-import { Menu, X } from "lucide-react";
-import { set } from "date-fns";
+import { Menu } from "lucide-react";
 
 type GridProps = {
   children: React.ReactNode | React.ReactNode[];
@@ -80,7 +79,7 @@ export function Grid({ children }: GridProps): React.ReactElement {
       <div
         ref={leftColRef}
         className={classNames(
-          "absolute top-0 left-0 border-r border-border md:relative z-[1] bg-background",
+          "absolute top-0 left-0 border-r border-border md:relative z-[1] bg-card",
           {
             "w-[300px]": showMobileLeftMenu,
             "w-0 md:w-[300px]": !showMobileLeftMenu,
