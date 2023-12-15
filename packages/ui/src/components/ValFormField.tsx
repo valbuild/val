@@ -714,9 +714,7 @@ function StringField({
 }
 
 function FieldContainer({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="relative p-4 border rounded border-card">{children}</div>
-  );
+  return <div className="relative p-4">{children}</div>;
 }
 
 function SubmitButton({
@@ -730,7 +728,7 @@ function SubmitButton({
     <div className="sticky bottom-0">
       <div className="flex justify-end w-full py-2">
         <Button disabled={loading} onClick={onClick}>
-          {loading ? "Saving..." : "Save"}
+          {loading ? "Staging..." : "Stage"}
         </Button>
       </div>
     </div>
