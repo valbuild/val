@@ -11,7 +11,7 @@ export type ValWindowProps = {
     | React.ReactNode;
 
   onClose: () => void;
-  position?: { left: number; top: number };
+  position?: Position;
   isInitialized?: true;
 };
 
@@ -111,6 +111,8 @@ export function ValWindow({
           height: windowSize?.height || MIN_HEIGHT,
           left: draggedPosition.left,
           top: draggedPosition.top,
+          right: draggedPosition.right,
+          bottom: draggedPosition.bottom,
         }}
       >
         <div
@@ -161,29 +163,26 @@ export function ValWindow({
   );
 }
 
-function useDrag({
-  position: initPosition,
-}: {
-  position?: { left: number; top: number };
-}) {
-  const [position, setPosition] = useState({ left: 0, top: 0 });
+export type Position = (
+  | { left: number; right?: undefined }
+  | { right: number; left?: undefined }
+) &
+  ({ top: number; bottom?: undefined } | { bottom: number; top?: undefined });
+
+function useDrag({ position: initPosition }: { position?: Position }) {
+  const [position, setPosition] = useState<
+    (
+      | { left: number; right?: undefined }
+      | { right: number; left?: undefined }
+    ) &
+      (
+        | { top: number; bottom?: undefined }
+        | { bottom: number; top?: undefined }
+      )
+  >({ left: 0, top: 0 });
   useEffect(() => {
     if (initPosition) {
-      const left =
-        initPosition.left -
-        (ref?.current?.getBoundingClientRect()?.width || 0) / 2;
-      const top = initPosition.top - 16;
-      setPosition({
-        left: left < 0 ? 0 : left,
-        top: top < 0 ? 0 : top,
-      });
-    } else {
-      const left = window.innerWidth / 2 - MIN_WIDTH / 2;
-      const top = window.innerHeight / 2 - MIN_HEIGHT / 2;
-      setPosition({
-        left,
-        top,
-      });
+      setPosition(initPosition);
     }
   }, [initPosition]);
 
