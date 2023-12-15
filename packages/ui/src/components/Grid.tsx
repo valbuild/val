@@ -1,6 +1,8 @@
 import classNames from "classnames";
-import { Children, useEffect, useRef } from "react";
+import React, { Children, useEffect, useRef, useState } from "react";
 import { ScrollArea } from "./ui/scroll-area";
+import { Menu, X } from "lucide-react";
+import { set } from "date-fns";
 
 type GridProps = {
   children: React.ReactNode | React.ReactNode[];
@@ -14,6 +16,8 @@ export function Grid({ children }: GridProps): React.ReactElement {
   const x = useRef(0);
   const dragRef = useRef<"left" | "right" | null>(null);
   const originalWidth = useRef(0);
+
+  const [showMobileLeftMenu, setShowMobileLeftMenu] = useState(true);
 
   const handleMouseUp = () => {
     isResizing.current = false;
@@ -72,15 +76,32 @@ export function Grid({ children }: GridProps): React.ReactElement {
   }, []);
 
   return (
-    <div className="flex h-screen">
+    <div className="relative flex h-screen">
       <div
         ref={leftColRef}
-        className="relative border-r border-border"
-        style={{ width: 300 }}
+        className={classNames(
+          "absolute top-0 left-0 border-r border-border md:relative z-[1] bg-background",
+          {
+            "w-[300px]": showMobileLeftMenu,
+            "w-0 md:w-[300px]": !showMobileLeftMenu,
+          }
+        )}
       >
         <Grid.Column>
-          {header1}
-          <ScrollArea style={{ height: "calc(100vh - 50px)" }}>
+          <MenuButton
+            showOnMobile={!showMobileLeftMenu}
+            onClick={() => {
+              setShowMobileLeftMenu(!showMobileLeftMenu);
+            }}
+          >
+            {header1}
+          </MenuButton>
+          <ScrollArea
+            style={{ height: "calc(100vh - 50px)" }}
+            onClick={() => {
+              setShowMobileLeftMenu(false);
+            }}
+          >
             {body1}
           </ScrollArea>
         </Grid.Column>
@@ -95,7 +116,24 @@ export function Grid({ children }: GridProps): React.ReactElement {
         })}
       >
         <Grid.Column>
-          {header2}
+          <span className="flex w-full border-b border-border">
+            <MenuButton
+              className="md:hidden"
+              showOnMobile={showMobileLeftMenu}
+              onClick={() => {
+                setShowMobileLeftMenu(!showMobileLeftMenu);
+              }}
+            >
+              {header1}
+            </MenuButton>
+            <span
+              className={classNames({
+                "pl-[300px] md:pl-0": showMobileLeftMenu,
+              })}
+            >
+              {header2}
+            </span>
+          </span>
           <ScrollArea style={{ height: "calc(100vh - 50px)" }}>
             {body2}
           </ScrollArea>
@@ -124,14 +162,42 @@ export function Grid({ children }: GridProps): React.ReactElement {
   );
 }
 
+function MenuButton({
+  className,
+  showOnMobile,
+  onClick,
+  children,
+}: {
+  className?: string;
+  onClick: () => void;
+  showOnMobile: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className={classNames("flex items-center px-4 md:px-4", className, {
+        "hidden md:flex": showOnMobile,
+      })}
+    >
+      <button className="md:hidden" onClick={onClick}>
+        <Menu />
+      </button>
+      <span className="flex items-center justify-between w-full">
+        {children}
+      </span>
+    </div>
+  );
+}
+
 type GridChildProps = {
   children: React.ReactNode | React.ReactNode[];
+  className?: string;
 };
 
-Grid.Column = ({ children }: GridChildProps): React.ReactElement => {
+Grid.Column = ({ children, className }: GridChildProps): React.ReactElement => {
   const [header, body] = Children.toArray(children);
   return (
-    <div className="flex flex-col">
+    <div className={classNames("flex flex-col", className)}>
       <div className="flex items-center border-b border-border">{header}</div>
       {body}
     </div>

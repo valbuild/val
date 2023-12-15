@@ -274,7 +274,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
                   !error && <div className="py-4">Loading...</div>
                 )}
               </ScrollArea>
-              <div className="flex items-center justify-start w-full h-[50px] gap-2 font-serif text-xs">
+              <div className="flex items-center justify-start h-[50px] gap-2 font-serif text-xs">
                 <button
                   onClick={() => {
                     history.back();
