@@ -42,6 +42,7 @@ import { ValMenu } from "./ValMenu";
 import { parseRichTextSource } from "@valbuild/shared/internal";
 import { usePatches } from "./usePatch";
 import { useSession } from "./useSession";
+import { Path } from "./Path";
 
 interface ValFullscreenProps {
   api: ValApi;
@@ -409,24 +410,16 @@ export function AnyVal({
     if (typeof source !== "object" || !isJsonArray(source)) {
       return <div>ERROR: expected array, but found {typeof source}</div>;
     }
-    if (field) {
+    return (
       <div>
-        <div className="text-left">{field || path}</div>
+        {field ? <div className="text-left">{field}</div> : <Path>{path}</Path>}
         <ValList
           source={source}
           path={path}
           schema={schema}
           setSelectedPath={setSelectedPath}
         />
-      </div>;
-    }
-    return (
-      <ValList
-        source={source}
-        path={path}
-        schema={schema}
-        setSelectedPath={setSelectedPath}
-      />
+      </div>
     );
   } else if (schema.type === "record") {
     if (typeof source !== "object") {
@@ -439,30 +432,22 @@ export function AnyVal({
     if (isJsonArray(source)) {
       return <div>ERROR: did not expect array for {schema.type}</div>;
     }
-    if (field) {
+    return (
       <div>
-        <div className="text-left">{field || path}</div>
+        {field ? <div className="text-left">{field}</div> : <Path>{path}</Path>}
         <ValRecord
           source={source}
           path={path}
           schema={schema}
           setSelectedPath={setSelectedPath}
         />
-      </div>;
-    }
-    return (
-      <ValRecord
-        source={source}
-        path={path}
-        schema={schema}
-        setSelectedPath={setSelectedPath}
-      />
+      </div>
     );
   }
 
   return (
     <div className="py-2 gap-y-4">
-      <div className="text-left">{field || path}</div>
+      {field ? <div className="text-left">{field}</div> : <Path>{path}</Path>}
       <ValFormField
         path={path}
         disabled={false}
@@ -915,24 +900,15 @@ function ValOptional({
 
   return (
     <div className="flex flex-col gap-y-6" key={path}>
-      {field ? (
-        <div className="flex items-center justify-start gap-x-4">
-          <Switch
-            checked={enable}
-            onClick={() => {
-              setEnable((prev) => !prev);
-            }}
-          />
-          <span>{field}</span>
-        </div>
-      ) : (
+      <div className="flex items-center justify-start gap-x-4">
         <Switch
           checked={enable}
           onClick={() => {
             setEnable((prev) => !prev);
           }}
         />
-      )}
+        <span>{field ? field : <Path>{path}</Path>}</span>
+      </div>
       {enable && (
         <ValDefaultOf
           source={source}
@@ -1038,21 +1014,6 @@ function dirPaths(paths: string[]): Record<string, string[]> {
     }
   });
   return res;
-}
-
-function Path({ children }: { children: string }) {
-  const segs = children.split("/").filter((seg) => seg);
-  return segs.map((seg, i) => {
-    if (i !== segs.length - 1) {
-      return (
-        <Fragment key={`${children}/${seg}`}>
-          <span>{seg}</span>
-          <span className="px-[2px] text-muted">{"/"}</span>
-        </Fragment>
-      );
-    }
-    return <span key={children}>{seg}</span>;
-  });
 }
 
 function PathTree({

@@ -110,7 +110,7 @@ export function ValOverlay({
     >
       <div
         data-mode={theme}
-        className="antialiased"
+        className="font-serif antialiased"
         style={{
           position: "fixed",
           top: 0,
@@ -174,7 +174,6 @@ export function ValOverlay({
                     setSelectedPath={() => {
                       // TODO: go to full screen
                     }}
-                    field={path}
                     top
                   />
                 );
