@@ -15,8 +15,8 @@ export type ValWindowProps = {
   isInitialized?: true;
 };
 
-const MIN_WIDTH = 320;
-const MIN_HEIGHT = 320;
+const MIN_WIDTH = 400;
+const MIN_HEIGHT = 250;
 
 export function ValWindow({
   position,
@@ -39,17 +39,32 @@ export function ValWindow({
   }, []);
   //
   const { windowSize, setWindowSize } = useValOverlayContext();
+  const [initScrollContainerHeight, setInitScrollContainerHeight] =
+    useState<number>(MIN_HEIGHT);
+  const canAutoResize = useRef<boolean>(true);
+
   useEffect(() => {
-    if (!windowSize) {
+    const timeout = setTimeout(() => {
+      canAutoResize.current = false;
+    }, 1000);
+
+    return () => {
+      clearTimeout(timeout);
+      canAutoResize.current = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (canAutoResize.current) {
       setWindowSize({
-        height: MIN_HEIGHT,
+        height: initScrollContainerHeight,
         width: MIN_WIDTH,
         innerHeight:
-          MIN_HEIGHT -
+          initScrollContainerHeight -
           (64 + (bottomRef.current?.getBoundingClientRect()?.height || 0)),
       });
     }
-  }, [windowSize]);
+  }, [initScrollContainerHeight]);
   //
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -61,9 +76,8 @@ export function ValWindow({
       onResize={(_, { size }) =>
         setWindowSize({
           ...size,
-
           innerHeight:
-            (windowSize?.height || MIN_HEIGHT) -
+            size.height -
             (64 + (bottomRef.current?.getBoundingClientRect()?.height || 0)),
         })
       }
@@ -125,6 +139,15 @@ export function ValWindow({
             className="relative"
             style={{
               height: windowSize?.innerHeight,
+            }}
+            innerRef={(inner) => {
+              if (
+                inner?.scrollHeight &&
+                inner.scrollHeight < window.innerHeight &&
+                inner.scrollHeight > MIN_HEIGHT
+              ) {
+                setInitScrollContainerHeight(inner.scrollHeight);
+              }
             }}
           >
             {Array.isArray(children) ? children.slice(1, -1) : children}
