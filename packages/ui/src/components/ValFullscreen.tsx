@@ -282,7 +282,9 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
                 >
                   <ChevronLeft />
                 </button>
-                <p>{selectedPath || "/"}</p>
+                <span>
+                  <Path>{selectedPath || "/"}</Path>
+                </span>
               </div>
               <div className="p-4">
                 {error && (
@@ -1017,22 +1019,40 @@ function isJsonArray(source: JsonArray | JsonObject): source is JsonArray {
   return Array.isArray(source);
 }
 
-type Tree = {
-  [key: string]: Tree;
-};
-function pathsToTree(paths: string[]): Tree {
-  const tree: Tree = {};
+function dirPaths(paths: string[]): Record<string, string[]> {
+  const res: Record<string, string[]> = {};
   paths.forEach((path) => {
-    const parts = path.split("/").filter((part) => part !== "");
-    let current = tree;
-    parts.forEach((part) => {
-      if (!current[part]) {
-        current[part] = {};
+    const allParts = path.split("/").filter((part) => part !== "");
+    if (allParts.length === 1) {
+      if (!res[""]) {
+        res[""] = [];
       }
-      current = current[part] as Tree;
-    });
+      res[""].push(allParts[0]);
+    } else if (allParts.length > 1) {
+      const dir = allParts.slice(0, allParts.length - 1).join("/");
+      const file = allParts.slice(-1)[0];
+      if (!res[dir]) {
+        res[dir] = [];
+      }
+      res[dir].push(file);
+    }
   });
-  return tree;
+  return res;
+}
+
+function Path({ children }: { children: string }) {
+  const segs = children.split("/").filter((seg) => seg);
+  return segs.map((seg, i) => {
+    if (i !== segs.length - 1) {
+      return (
+        <Fragment key={`${children}/${seg}`}>
+          <span>{seg}</span>
+          <span className="px-[2px] text-muted">{"/"}</span>
+        </Fragment>
+      );
+    }
+    return <span key={children}>{seg}</span>;
+  });
 }
 
 function PathTree({
@@ -1042,54 +1062,38 @@ function PathTree({
   paths: string[];
   setSelectedModuleId: (path: ModuleId | SourcePath) => void;
 }): React.ReactElement {
-  const tree = pathsToTree(paths);
+  const tree = dirPaths(paths);
   return (
     <Tree>
-      {Object.entries(tree).map(([name, subTree]) => (
-        <div className="px-4 py-2" key={`/${name}`}>
-          <PathNode
-            name={name}
-            tree={subTree}
-            moduleId={`/${name}` as ModuleId}
-            setSelectedModuleId={setSelectedModuleId}
-          />
-        </div>
-      ))}
+      {Object.entries(tree).map(([dir, files]) => {
+        return (
+          <div className="px-4 py-2" key={`/${dir}`}>
+            {dir && (
+              <div className="font-bold">
+                <Path>{dir}</Path>
+              </div>
+            )}
+            <div
+              className={classNames({
+                "px-4 py-2": !!dir,
+              })}
+            >
+              {files.map((file) => (
+                <button
+                  key={`/${dir}/${file}`}
+                  className=""
+                  onClick={() => {
+                    setSelectedModuleId(`/${dir}/${file}` as ModuleId);
+                  }}
+                >
+                  {file}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </Tree>
-  );
-}
-
-function PathNode({
-  name,
-  tree,
-  moduleId,
-  setSelectedModuleId,
-}: {
-  name: string;
-  tree: Tree;
-  moduleId: ModuleId;
-  setSelectedModuleId: (moduleId: ModuleId | SourcePath) => void;
-}): React.ReactElement {
-  return (
-    <div>
-      <button
-        onClick={() => {
-          setSelectedModuleId(moduleId);
-        }}
-      >
-        {name}
-      </button>
-      {Object.entries(tree).map(([childName, childTree]) => (
-        <div className="px-4 py-1" key={`${moduleId}/${childName}` as ModuleId}>
-          <PathNode
-            name={childName}
-            tree={childTree}
-            moduleId={`${moduleId}/${childName}` as ModuleId}
-            setSelectedModuleId={setSelectedModuleId}
-          />
-        </div>
-      ))}
-    </div>
   );
 }
 
