@@ -241,7 +241,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
     >
       <div
         id="val-fullscreen-container"
-        className="relative font-serif antialiased"
+        className="relative w-full h-[100] overflow-hidden font-serif antialiased bg-background"
         data-mode={theme}
       >
         <div className="fixed -translate-x-1/2 z-overlay left-1/2 bottom-4">
@@ -257,7 +257,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
             hoverElem: hoverElemRef?.current,
           }}
         >
-          <div className="text-primary bg-background">
+          <div className="text-primary">
             <Grid>
               <div className="px-4 h-[50px] flex items-center justify-center">
                 <Logo />

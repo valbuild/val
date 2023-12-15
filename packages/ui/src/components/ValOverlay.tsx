@@ -108,7 +108,16 @@ export function ValOverlay({
         setWindowSize,
       }}
     >
-      <div data-mode={theme} className="antialiased">
+      <div
+        data-mode={theme}
+        className="antialiased"
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          zIndex: 8999, // 1 less than the NextJS error z-index: 9000
+        }}
+      >
         <div className="fixed -translate-x-1/2 z-overlay left-1/2 bottom-4">
           <ValMenu
             api={api}

@@ -26,6 +26,7 @@ export function ValWindow({
   const [draggedPosition, isInitialized, dragRef, onMouseDownDrag] = useDrag({
     position,
   });
+  console.log({ draggedPosition });
   useEffect(() => {
     const closeOnEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -160,8 +161,8 @@ function useDrag({
         top: top < 0 ? 0 : top,
       });
     } else {
-      const left = window.innerWidth / 2 - MIN_WIDTH / 2 - window.scrollX;
-      const top = window.innerHeight / 2 - MIN_HEIGHT / 2 + window.scrollY;
+      const left = window.innerWidth / 2 - MIN_WIDTH / 2;
+      const top = window.innerHeight / 2 - MIN_HEIGHT / 2;
       setPosition({
         left,
         top,
@@ -180,10 +181,11 @@ function useDrag({
         e.preventDefault();
         e.stopPropagation();
         const left =
-          -((ref?.current?.getBoundingClientRect()?.width || 0) / 2) + e.pageX;
+          -((ref?.current?.getBoundingClientRect()?.width || 0) / 2) +
+          e.clientX;
         const top =
           -((ref?.current?.getBoundingClientRect()?.height || 0) / 2) +
-          +e.pageY;
+          +e.clientY;
         setPosition({
           left: left < 0 ? 0 : left,
           top: top < 0 ? 0 : top,
