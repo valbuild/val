@@ -39,32 +39,16 @@ export function ValWindow({
   }, []);
   //
   const { windowSize, setWindowSize } = useValOverlayContext();
-  const [initScrollContainerHeight, setInitScrollContainerHeight] =
-    useState<number>(MIN_HEIGHT);
-  const canAutoResize = useRef<boolean>(true);
-
   useEffect(() => {
-    const timeout = setTimeout(() => {
-      canAutoResize.current = false;
-    }, 1000);
-
-    return () => {
-      clearTimeout(timeout);
-      canAutoResize.current = true;
-    };
+    setWindowSize({
+      height: window.innerHeight - 30,
+      width: MIN_WIDTH,
+      innerHeight:
+        window.innerHeight -
+        30 -
+        (64 + (bottomRef.current?.getBoundingClientRect()?.height || 0)),
+    });
   }, []);
-
-  useEffect(() => {
-    if (canAutoResize.current) {
-      setWindowSize({
-        height: initScrollContainerHeight,
-        width: MIN_WIDTH,
-        innerHeight:
-          initScrollContainerHeight -
-          (64 + (bottomRef.current?.getBoundingClientRect()?.height || 0)),
-      });
-    }
-  }, [initScrollContainerHeight]);
   //
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -141,15 +125,6 @@ export function ValWindow({
             className="relative"
             style={{
               height: windowSize?.innerHeight,
-            }}
-            innerRef={(inner) => {
-              if (
-                inner?.scrollHeight &&
-                inner.scrollHeight < window.innerHeight &&
-                inner.scrollHeight > MIN_HEIGHT
-              ) {
-                setInitScrollContainerHeight(inner.scrollHeight);
-              }
             }}
           >
             {Array.isArray(children) ? children.slice(1, -1) : children}
