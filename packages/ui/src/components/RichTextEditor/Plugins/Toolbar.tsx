@@ -300,7 +300,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
   };
 
   return (
-    <div className="sticky top-0 flex flex-col px-4 py-2 border-b bg-background border-highlight">
+    <div className="sticky top-0 flex flex-col px-4 py-2 border rounded-md rounded-b-none border-input bg-background">
       <div className="flex flex-row gap-1">
         <Dropdown
           options={Object.values(blockTypes)}
