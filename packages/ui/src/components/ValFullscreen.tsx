@@ -899,7 +899,7 @@ function ValOptional({
   const [enable, setEnable] = useState<boolean>(source !== null);
 
   return (
-    <div className="flex flex-col gap-y-6" key={path}>
+    <div className="flex flex-col gap-y-2" key={path}>
       <div className="flex items-center justify-start gap-x-4">
         <Switch
           checked={enable}
