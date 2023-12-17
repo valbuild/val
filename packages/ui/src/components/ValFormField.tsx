@@ -31,6 +31,7 @@ import { PatchCallback } from "./usePatch";
 import { useValModuleFromPath } from "./ValFullscreen";
 import { LinkNode } from "@lexical/link";
 import { ImageNode } from "./RichTextEditor/Nodes/ImageNode";
+import { useValOverlayContext } from "./ValOverlayContext";
 
 export type OnSubmit = (callback: PatchCallback) => Promise<void>;
 
@@ -749,11 +750,19 @@ function SubmitButton({
   updated: boolean;
   onClick: () => void;
 }) {
+  const { session } = useValOverlayContext();
+  const isProxy = session.status === "success" && session.data.mode === "proxy";
   return (
     <div className="sticky bottom-0 m-4">
       <div className="flex justify-end w-full py-2 text-sm">
         <Button disabled={loading || !updated} onClick={onClick}>
-          {loading ? "Staging..." : "Stage"}
+          {loading
+            ? isProxy
+              ? "Staging..."
+              : "Saving..."
+            : isProxy
+            ? "Stage"
+            : "Save"}
         </Button>
       </div>
     </div>
