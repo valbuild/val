@@ -101,7 +101,7 @@ export function ValWindow({
       >
         <div
           ref={dragRef}
-          className="relative flex items-center justify-center px-2 pt-2 text-primary"
+          className="relative flex items-center justify-center px-2 py-2 text-primary"
         >
           <AlignJustifyIcon
             size={16}
