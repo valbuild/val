@@ -154,7 +154,7 @@ function useDrag({ position: initPosition }: { position?: Position }) {
         | { top: number; bottom?: undefined }
         | { bottom: number; top?: undefined }
       )
-  >({ left: 0, top: 0 });
+  >({ left: 24 + 50, top: 24 });
   useEffect(() => {
     if (initPosition) {
       setPosition(initPosition);
