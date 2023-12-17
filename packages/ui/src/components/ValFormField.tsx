@@ -341,40 +341,46 @@ function ImageField({
           />
         </label>
       </div>
-      {onSubmit && data && (
+      {onSubmit && (
         <SubmitButton
           loading={loading}
+          updated={!!data}
           onClick={() => {
             setLoading(true);
-            onSubmit((path) =>
-              Promise.resolve(
-                createImagePatch(
-                  path,
-                  data.src,
-                  data.filename ?? null,
-                  metadata
+            if (data) {
+              onSubmit((path) =>
+                Promise.resolve(
+                  createImagePatch(
+                    path,
+                    data.src,
+                    data.filename ?? null,
+                    metadata
+                  )
                 )
-              )
-            ).finally(() => {
-              setLoading(false);
-              setData(null);
-              setMetadata(undefined);
-            });
+              ).finally(() => {
+                setLoading(false);
+                setData(null);
+                setMetadata(undefined);
+              });
+            }
           }}
         />
       )}
-      {onSubmit && !data && metadata && (
+      {onSubmit && (
         <SubmitButton
           loading={loading}
+          updated={!data && !!metadata}
           onClick={() => {
-            setLoading(true);
-            onSubmit((path) =>
-              Promise.resolve(createImageMetadataPatch(path, metadata))
-            ).finally(() => {
-              setLoading(false);
-              setData(null);
-              setMetadata(undefined);
-            });
+            if (metadata) {
+              setLoading(true);
+              onSubmit((path) =>
+                Promise.resolve(createImageMetadataPatch(path, metadata))
+              ).finally(() => {
+                setLoading(false);
+                setData(null);
+                setMetadata(undefined);
+              });
+            }
           }}
         />
       )}
@@ -466,9 +472,10 @@ function RichTextField({
           } as unknown as RichTextSource<AnyRichTextOptions>)
         }
       />
-      {onSubmit && didChange && (
+      {onSubmit && (
         <SubmitButton
           loading={loading || !editor}
+          updated={didChange}
           onClick={() => {
             if (editor) {
               setLoading(true);
@@ -566,9 +573,10 @@ function KeyOfField({
           ))}
         </SelectContent>
       </Select>
-      {onSubmit && defaultValue !== value && (
+      {onSubmit && (
         <SubmitButton
           loading={loading}
+          updated={defaultValue !== value}
           onClick={() => {
             setLoading(true);
             onSubmit(async (path) => [
@@ -629,9 +637,10 @@ function NumberField({
         onChange={(e) => setValue(Number(e.target.value))}
         type="number"
       />
-      {onSubmit && defaultValue !== value && (
+      {onSubmit && (
         <SubmitButton
           loading={loading}
+          updated={defaultValue !== value}
           onClick={() => {
             setLoading(true);
             onSubmit(async (path) => [
@@ -692,9 +701,10 @@ function StringField({
         defaultValue={value ?? ""}
         onChange={(e) => setValue(e.target.value)}
       />
-      {onSubmit && defaultValue !== value && (
+      {onSubmit && (
         <SubmitButton
           loading={loading}
+          updated={defaultValue !== value}
           onClick={() => {
             setLoading(true);
             onSubmit(async (path) => [
@@ -719,15 +729,17 @@ function FieldContainer({ children }: { children: React.ReactNode }) {
 
 function SubmitButton({
   loading,
+  updated,
   onClick,
 }: {
   loading: boolean;
+  updated: boolean;
   onClick: () => void;
 }) {
   return (
     <div className="sticky bottom-0">
       <div className="flex justify-end w-full py-2">
-        <Button disabled={loading} onClick={onClick}>
+        <Button disabled={loading || !updated} onClick={onClick}>
           {loading ? "Staging..." : "Stage"}
         </Button>
       </div>
