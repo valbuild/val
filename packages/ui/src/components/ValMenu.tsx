@@ -143,9 +143,9 @@ function SingleItemMenu({
   children: React.ReactNode[];
 }) {
   return (
-    <div className="flex flex-row items-center justify-center w-full h-full font-sans border-2 rounded-full gap-x-3 text-primary bg-background border-fill">
+    <div className="flex flex-col items-start justify-center w-full h-full font-sans border rounded-full gap-x-3 text-primary border-fill bg-gradient-to-br from-background/90 from-40% to-background backdrop-blur-lg drop-shadow-2xl">
       <a className={className} href={href}>
-        <div className="flex items-center justify-center px-2 gap-x-2">
+        <div className="flex items-center justify-center px-2 gap-y-2">
           {children}
         </div>
       </a>
@@ -159,7 +159,7 @@ function MenuContainer({
   children: React.ReactNode | React.ReactNode[];
 }) {
   return (
-    <div className="flex flex-row items-center justify-center w-full h-full px-2 py-2 font-sans border-2 rounded-full gap-x-3 text-primary bg-background border-fill">
+    <div className="flex flex-col items-start justify-center w-full h-full px-2 py-2 font-sans border rounded-full gap-y-3 text-primary border-fill bg-gradient-to-br from-background/90 from-40% to-background backdrop-blur-lg drop-shadow-2xl">
       {children}
     </div>
   );
