@@ -319,40 +319,41 @@ function ImageField({
         )}
       </div>
       <div className="w-full p-4 border border-t-0 rounded-b-sm bg-background border-input">
-        <label htmlFor={`img_input:${path}`}>
-          <button className="block w-full px-1 py-2 text-sm text-center rounded-md bg-primary text-background">
-            Update
-          </button>
-          <input
-            hidden
-            id={`img_input:${path}`}
-            type="file"
-            onChange={(ev) => {
-              readImage(ev)
-                .then((res) => {
-                  setData({ src: res.src, filename: res.filename });
-                  if (res.width && res.height && res.mimeType) {
-                    setMetadata({
-                      sha256: res.sha256,
-                      width: res.width,
-                      height: res.height,
-                      mimeType: res.mimeType,
-                      hotspot,
-                    });
-                  } else {
-                    setMetadata(undefined);
-                    setHotspot(undefined);
-                  }
-                })
-                .catch((err) => {
-                  console.error(err.message);
-                  setData(null);
-                  setHotspot(undefined);
-                  setMetadata(undefined);
-                });
-            }}
-          />
+        <label
+          htmlFor={`img_input:${path}`}
+          className="block w-full px-1 py-2 text-sm text-center rounded-md cursor-pointer bg-primary text-background"
+        >
+          Update
         </label>
+        <input
+          hidden
+          id={`img_input:${path}`}
+          type="file"
+          onChange={(ev) => {
+            readImage(ev)
+              .then((res) => {
+                setData({ src: res.src, filename: res.filename });
+                if (res.width && res.height && res.mimeType) {
+                  setMetadata({
+                    sha256: res.sha256,
+                    width: res.width,
+                    height: res.height,
+                    mimeType: res.mimeType,
+                    hotspot,
+                  });
+                } else {
+                  setMetadata(undefined);
+                  setHotspot(undefined);
+                }
+              })
+              .catch((err) => {
+                console.error(err.message);
+                setData(null);
+                setHotspot(undefined);
+                setMetadata(undefined);
+              });
+          }}
+        />
       </div>
       {onSubmit && (
         <SubmitButton
