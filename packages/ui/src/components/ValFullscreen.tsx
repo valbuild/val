@@ -1042,7 +1042,7 @@ function PathTree({
               {files.map((file) => (
                 <button
                   key={`/${dir}/${file}`}
-                  className=""
+                  className="block"
                   onClick={() => {
                     setSelectedModuleId(`/${dir}/${file}` as ModuleId);
                   }}

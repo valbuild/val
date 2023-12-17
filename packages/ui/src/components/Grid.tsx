@@ -79,7 +79,7 @@ export function Grid({ children }: GridProps): React.ReactElement {
       <div
         ref={leftColRef}
         className={classNames(
-          "absolute top-0 left-0 border-r border-border md:relative z-[1] bg-card",
+          "absolute top-0 left-0 border-r border-border md:relative z-[1] bg-gradient-to-br from-card from-50% to-card/50",
           {
             "w-[300px]": showMobileLeftMenu,
             "w-0 md:w-[300px]": !showMobileLeftMenu,

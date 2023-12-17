@@ -277,7 +277,7 @@ function ImageField({
   return (
     <FieldContainer>
       <div
-        className="flex flex-col max-w-4xl p-2 border border-b-0 rounded-sm rounded-b-0 gap-y-4 bg-background text-foreground border-input"
+        className="flex flex-col max-w-4xl p-2 border border-b-0 rounded-sm rounded-b-none gap-y-4 bg-background text-foreground border-input"
         key={path}
       >
         {data || url ? (
@@ -317,7 +317,7 @@ function ImageField({
           <div>Select image below</div>
         )}
       </div>
-      <div className="w-full p-4 border border-t-0 rounded-b-sm bg-card border-input">
+      <div className="w-full p-4 border border-t-0 rounded-b-sm bg-background border-input">
         <label htmlFor={`img_input:${path}`}>
           <button className="block w-full px-1 py-2 text-sm text-center rounded-md bg-primary text-background">
             Update
