@@ -266,6 +266,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
               <ScrollArea className="px-4">
                 {modules ? (
                   <PathTree
+                    selectedPath={selectedPath}
                     paths={Object.keys(modules)}
                     setSelectedModuleId={(path) => {
                       navigate(path);
@@ -1017,15 +1018,20 @@ function dirPaths(paths: string[]): Record<string, string[]> {
 }
 
 function PathTree({
+  selectedPath,
   paths,
   setSelectedModuleId,
 }: {
+  selectedPath: SourcePath | ModuleId | undefined;
   paths: string[];
   setSelectedModuleId: (path: ModuleId | SourcePath) => void;
 }): React.ReactElement {
   const tree = dirPaths(paths);
+  const selectedModuleId =
+    selectedPath &&
+    Internal.splitModuleIdAndModulePath(selectedPath as SourcePath)[0];
   return (
-    <Tree>
+    <div className="flex flex-col w-full py-2 text-xs">
       {Object.entries(tree).map(([dir, files]) => {
         return (
           <div className="px-4 py-2" key={`/${dir}`}>
@@ -1036,25 +1042,31 @@ function PathTree({
             )}
             <div
               className={classNames({
-                "px-4 py-2": !!dir,
+                "flex flex-col py-2 justify-start items-start": !!dir,
               })}
             >
-              {files.map((file) => (
-                <button
-                  key={`/${dir}/${file}`}
-                  className="block"
-                  onClick={() => {
-                    setSelectedModuleId(`/${dir}/${file}` as ModuleId);
-                  }}
-                >
-                  {file}
-                </button>
-              ))}
+              {files.map((file) => {
+                const moduleId = `/${dir}/${file}` as ModuleId;
+                return (
+                  <button
+                    key={moduleId}
+                    className={classNames("block px-2 py-1 rounded-full", {
+                      "bg-accent drop-shadow-[0px_0px_12px_rgba(56,205,152,0.60)]":
+                        selectedModuleId === moduleId,
+                    })}
+                    onClick={() => {
+                      setSelectedModuleId(moduleId);
+                    }}
+                  >
+                    {file}
+                  </button>
+                );
+              })}
             </div>
           </div>
         );
       })}
-    </Tree>
+    </div>
   );
 }
 
