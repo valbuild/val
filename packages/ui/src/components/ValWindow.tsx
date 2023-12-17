@@ -154,7 +154,7 @@ function useDrag({ position: initPosition }: { position?: Position }) {
         | { top: number; bottom?: undefined }
         | { bottom: number; top?: undefined }
       )
-  >({ left: 24 + 50, top: 24 });
+  >({ left: window.innerWidth - MIN_WIDTH - (24 + 50), top: 16 });
   useEffect(() => {
     if (initPosition) {
       setPosition(initPosition);

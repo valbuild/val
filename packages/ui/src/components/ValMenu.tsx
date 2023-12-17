@@ -4,8 +4,8 @@ import { ModuleId, ValApi } from "@valbuild/core";
 import classNames from "classnames";
 import {
   LogIn,
-  Maximize,
-  Minimize,
+  Maximize2,
+  Minimize2,
   Moon,
   Pause,
   Play,
@@ -18,12 +18,16 @@ import React, { useEffect, useState } from "react";
 const className = "p-1 border rounded-full shadow border-accent";
 const PREV_URL_KEY = "valbuild:urlBeforeNavigation";
 
+type MenuDirection = "vertical" | "horizontal";
+
 export function ValMenu({
   api,
   patches,
+  direction,
   onCommit,
 }: {
   api: ValApi;
+  direction: MenuDirection;
   patches: Record<ModuleId, string[]>;
   onCommit: () => void;
 }) {
@@ -31,7 +35,10 @@ export function ValMenu({
     useValOverlayContext();
   if (session.status === "success" && session.data.mode === "unauthorized") {
     return (
-      <SingleItemMenu href={api.getLoginUrl(window.location.href)}>
+      <SingleItemMenu
+        direction={direction}
+        href={api.getLoginUrl(window.location.href)}
+      >
         <span>Login</span>
         <LogIn size={18} />
       </SingleItemMenu>
@@ -39,7 +46,10 @@ export function ValMenu({
   }
   if (session.status === "success" && !session.data.enabled) {
     return (
-      <SingleItemMenu href={api.getEnableUrl(window.location.href)}>
+      <SingleItemMenu
+        direction={direction}
+        href={api.getEnableUrl(window.location.href)}
+      >
         <span>Enable</span>
         <LogIn size={18} />
       </SingleItemMenu>
@@ -56,7 +66,7 @@ export function ValMenu({
   }, [patches]);
 
   return (
-    <MenuContainer>
+    <MenuContainer direction={direction}>
       <MenuButton
         active={editMode === "hover"}
         onClick={() => {
@@ -92,9 +102,9 @@ export function ValMenu({
       >
         <div className="h-[24px] w-[24px] flex justify-center items-center">
           {editMode === "full" ? (
-            <Minimize size={15} />
+            <Minimize2 size={15} />
           ) : (
-            <Maximize size={15} />
+            <Maximize2 size={15} />
           )}
         </div>
       </MenuButton>
@@ -137,13 +147,23 @@ export function ValMenu({
 
 function SingleItemMenu({
   href,
+  direction,
   children,
 }: {
   href: string;
+  direction: MenuDirection;
   children: React.ReactNode[];
 }) {
   return (
-    <div className="flex flex-col items-start justify-center w-full h-full font-sans border rounded-full gap-x-3 text-primary border-fill bg-gradient-to-br from-background/90 from-40% to-background backdrop-blur-lg drop-shadow-2xl">
+    <div
+      className={classNames(
+        "flex items-start justify-center w-full h-full font-sans border rounded-full gap-3 text-primary border-fill bg-gradient-to-br from-background/90 from-40% to-background backdrop-blur-lg drop-shadow-2xl",
+        {
+          "flex-col items-start": direction === "vertical",
+          "flex-row items-center": direction === "horizontal",
+        }
+      )}
+    >
       <a className={className} href={href}>
         <div className="flex items-center justify-center px-2 gap-y-2">
           {children}
@@ -155,11 +175,21 @@ function SingleItemMenu({
 
 function MenuContainer({
   children,
+  direction,
 }: {
   children: React.ReactNode | React.ReactNode[];
+  direction: MenuDirection;
 }) {
   return (
-    <div className="flex flex-col items-start justify-center w-full h-full px-2 py-2 font-sans border rounded-full gap-y-3 text-primary border-fill bg-gradient-to-br from-background/90 from-40% to-background backdrop-blur-lg drop-shadow-2xl">
+    <div
+      className={classNames(
+        "flex justify-center w-full h-full px-2 py-2 font-sans border rounded-full gap-3 text-primary border-fill bg-gradient-to-br from-background/90 from-40% to-background backdrop-blur-lg drop-shadow-2xl",
+        {
+          "flex-col items-start": direction === "vertical",
+          "flex-row items-center": direction === "horizontal",
+        }
+      )}
+    >
       {children}
     </div>
   );

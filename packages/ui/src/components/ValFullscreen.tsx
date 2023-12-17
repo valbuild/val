@@ -25,7 +25,6 @@ import { ValApi } from "@valbuild/core";
 import { FC, Fragment, useCallback, useEffect, useState } from "react";
 import { Grid } from "./Grid";
 import { result } from "@valbuild/core/fp";
-import { Tree } from "./dashboard/Tree";
 import { OnSubmit, ValFormField } from "./ValFormField";
 import React from "react";
 import { createPortal } from "react-dom";
@@ -245,8 +244,9 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
         className="relative w-full h-[100] overflow-hidden font-serif antialiased bg-background"
         data-mode={theme}
       >
-        <div className="fixed -translate-x-1/2 z-overlay left-1/2 bottom-4">
+        <div className="fixed -translate-y-1/2 right-4 top-1/2 z-overlay">
           <ValMenu
+            direction="vertical"
             api={api}
             patches={patches}
             onCommit={() => setPatchResetId((prev) => prev + 1)}
