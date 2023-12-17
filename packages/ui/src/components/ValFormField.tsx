@@ -276,12 +276,15 @@ function ImageField({
 
   return (
     <FieldContainer>
-      <div className="flex flex-col max-w-4xl p-2 gap-y-4" key={path}>
+      <div
+        className="flex flex-col max-w-4xl p-2 border border-b-0 rounded-sm rounded-b-0 gap-y-4 bg-background text-foreground border-input"
+        key={path}
+      >
         {data || url ? (
-          <div className="relative p-4 bg-background text-foreground">
+          <div className="relative">
             {hotspot && (
               <div
-                className="rounded-full h-[20px] w-[20px] bg-accent absolute"
+                className="rounded-full h-[12px] w-[12px] bg-background mix-blend-difference border-accent border-2 absolute pointer-events-none"
                 style={{
                   top: `${hotspot.y * 100}%`,
                   left: `${hotspot.x * 100}%`,
@@ -290,23 +293,32 @@ function ImageField({
             )}
             <img
               src={data?.src || url}
-              className="w-full cursor-crosshair"
+              draggable={false}
+              className="w-full"
+              style={{
+                cursor: "crosshair",
+              }}
               onClick={(ev) => {
                 // compute hotspot position based on mouse click:
-                const x = ev.nativeEvent.offsetX;
-                const y = ev.nativeEvent.offsetY;
-                const width = ev.currentTarget.clientWidth;
-                const height = ev.currentTarget.clientHeight;
-                const hotspotX = Math.round((x / width) * 100) / 100;
-                const hotspotY = Math.round((y / height) * 100) / 100;
-                setHotspot({ x: hotspotX, y: hotspotY, width: 1, height: 1 });
+                const { width, height, left, top } =
+                  ev.currentTarget.getBoundingClientRect();
+                const hotspotX = (ev.clientX - 6 - left) / width;
+                const hotspotY = (ev.clientY - 6 - top) / height;
+                setHotspot({
+                  x: hotspotX,
+                  y: hotspotY,
+                  width: 1,
+                  height: 1,
+                });
               }}
             />
           </div>
         ) : (
           <div>Select image below</div>
         )}
-        <label htmlFor={`img_input:${path}`} className="">
+      </div>
+      <div className="w-full p-4 border border-t-0 rounded-b-sm bg-card border-input">
+        <label htmlFor={`img_input:${path}`}>
           <button className="block w-full px-1 py-2 text-sm text-center rounded-md bg-primary text-background">
             Update
           </button>
