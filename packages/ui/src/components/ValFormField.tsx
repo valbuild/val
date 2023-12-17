@@ -146,7 +146,12 @@ export function ValFormField({
       />
     );
   }
-  return <div>Unsupported schema: {schema.type}</div>;
+  return (
+    <div>
+      Unsupported schema: {schema.type} (source type: {typeof source} source:{" "}
+      {JSON.stringify(source)})
+    </div>
+  );
 }
 
 export function createImagePatch(

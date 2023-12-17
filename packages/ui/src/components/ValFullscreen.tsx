@@ -13,6 +13,7 @@ import {
   SerializedSchema,
   SourcePath,
   VAL_EXTENSION,
+  SerializedUnionSchema,
 } from "@valbuild/core";
 import {
   SerializedArraySchema,
@@ -42,6 +43,13 @@ import { parseRichTextSource } from "@valbuild/shared/internal";
 import { usePatches } from "./usePatch";
 import { useSession } from "./useSession";
 import { Path } from "./Path";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 
 interface ValFullscreenProps {
   api: ValApi;
@@ -381,7 +389,7 @@ export function AnyVal({
   initOnSubmit: InitOnSubmit;
   top?: boolean;
 }): React.ReactElement {
-  if (source === null || schema.opt) {
+  if (schema.opt) {
     return (
       <ValOptional
         path={path}
@@ -390,6 +398,17 @@ export function AnyVal({
         field={field}
         initOnSubmit={initOnSubmit}
         setSelectedPath={setSelectedPath}
+      />
+    );
+  }
+  if (source === null) {
+    return (
+      <ValDefaultOf
+        source={source}
+        schema={schema}
+        path={path}
+        setSelectedPath={setSelectedPath}
+        initOnSubmit={initOnSubmit}
       />
     );
   }
@@ -444,6 +463,22 @@ export function AnyVal({
         />
       </div>
     );
+  } else if (schema?.type === "union") {
+    if (schema.key && typeof source === "object" && !isJsonArray(source)) {
+      return (
+        <ValTaggedUnion
+          tag={schema.key}
+          source={source}
+          path={path}
+          schema={schema}
+          initOnSubmit={initOnSubmit}
+          setSelectedPath={setSelectedPath}
+          top={top}
+        />
+      );
+    }
+  } else if (schema?.type === "literal") {
+    return <></>; // skip literals
   }
 
   return (
@@ -456,6 +491,111 @@ export function AnyVal({
         schema={schema}
         onSubmit={initOnSubmit(path)}
       />
+    </div>
+  );
+}
+
+function ValTaggedUnion({
+  tag,
+  path,
+  source,
+  schema,
+  setSelectedPath,
+  initOnSubmit,
+  top,
+}: {
+  tag: string;
+  source: JsonObject;
+  path: SourcePath;
+  schema: SerializedUnionSchema;
+  setSelectedPath: (path: SourcePath | ModuleId) => void;
+  initOnSubmit: InitOnSubmit;
+  top?: boolean;
+}) {
+  const [currentKey, setCurrentKey] = useState<string | null>(null);
+  const [current, setCurrent] = useState<{
+    schema: SerializedSchema;
+    source: Json;
+  } | null>(null);
+
+  const keys = schema.items.flatMap((item) => {
+    if (item.type === "object" && item.items[tag]) {
+      const maybeLiteral = item.items[tag];
+      if (maybeLiteral.type === "literal") {
+        return [maybeLiteral.value];
+      }
+    }
+    return [];
+  });
+  useEffect(() => {
+    if (!currentKey) {
+      const maybeCurrentKey = source?.[tag];
+      if (maybeCurrentKey && typeof maybeCurrentKey === "string") {
+        setCurrentKey(maybeCurrentKey);
+      }
+    } else {
+      const sourceKey = source[tag];
+      const unionSchema = schema.items.find((item) => {
+        if (item.type === "object" && item.items[tag]) {
+          const maybeLiteral = item.items[tag];
+          if (maybeLiteral.type === "literal") {
+            return maybeLiteral.value === currentKey;
+          }
+          return false;
+        }
+      });
+      if (sourceKey && typeof sourceKey === "string" && unionSchema) {
+        setCurrent({ source, schema: unionSchema });
+      } else {
+        console.error(
+          "Could not find source or schema of key",
+          currentKey,
+          source,
+          schema
+        );
+        setCurrent(null);
+      }
+    }
+  }, [currentKey, source, schema, keys]);
+  if (keys.length !== schema.items.length) {
+    console.warn("Not all items have tag:", tag);
+  }
+  const loading = false;
+  return (
+    <div
+      key={path}
+      className={classNames("flex flex-col gap-y-8", {
+        "border-l-2 border-border pl-6": !top,
+      })}
+    >
+      <Select
+        defaultValue={currentKey ?? undefined}
+        disabled={loading}
+        onValueChange={(key) => {
+          setCurrentKey(key);
+        }}
+      >
+        <SelectTrigger>
+          <SelectValue placeholder="Select type" />
+        </SelectTrigger>
+        <SelectContent>
+          {keys.map((tag) => (
+            <SelectItem key={tag} value={tag.toString()}>
+              {tag.toString()}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {current && (
+        <AnyVal
+          path={path as SourcePath}
+          source={current.source}
+          schema={current.schema}
+          setSelectedPath={setSelectedPath}
+          initOnSubmit={initOnSubmit}
+          top={top}
+        />
+      )}
     </div>
   );
 }
@@ -488,7 +628,7 @@ function ValObject({
           <AnyVal
             key={subPath}
             path={subPath}
-            source={source[key]}
+            source={source?.[key] ?? null}
             schema={property}
             setSelectedPath={setSelectedPath}
             field={key}
