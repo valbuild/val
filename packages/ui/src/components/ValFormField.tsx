@@ -750,7 +750,7 @@ function SubmitButton({
   onClick: () => void;
 }) {
   return (
-    <div className="sticky bottom-0">
+    <div className="sticky bottom-0 m-4">
       <div className="flex justify-end w-full py-2 text-sm">
         <Button disabled={loading || !updated} onClick={onClick}>
           {loading ? "Staging..." : "Stage"}
