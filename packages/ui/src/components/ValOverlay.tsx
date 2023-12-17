@@ -118,8 +118,9 @@ export function ValOverlay({
           zIndex: 8999, // 1 less than the NextJS error z-index: 9000
         }}
       >
-        <div className="fixed -translate-y-1/2 left-4 top-1/2 z-overlay">
+        <div className="fixed -translate-y-1/2 right-4 top-1/2 z-overlay">
           <ValMenu
+            direction="vertical"
             api={api}
             patches={patches}
             onCommit={() => {
