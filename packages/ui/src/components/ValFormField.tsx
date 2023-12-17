@@ -276,9 +276,9 @@ function ImageField({
 
   return (
     <FieldContainer>
-      <div className="flex flex-col max-w-4xl p-4 gap-y-4" key={path}>
+      <div className="flex flex-col max-w-4xl p-2 gap-y-4" key={path}>
         {data || url ? (
-          <div className="relative">
+          <div className="relative p-4 bg-background text-foreground">
             {hotspot && (
               <div
                 className="rounded-full h-[20px] w-[20px] bg-accent absolute"
@@ -307,9 +307,9 @@ function ImageField({
           <div>Select image below</div>
         )}
         <label htmlFor={`img_input:${path}`} className="">
-          <div className="px-1 py-2 text-center rounded-md bg-primary text-background">
-            Update image
-          </div>
+          <button className="block w-full px-1 py-2 text-sm text-center rounded-md bg-primary text-background">
+            Update
+          </button>
           <input
             hidden
             id={`img_input:${path}`}
@@ -344,10 +344,20 @@ function ImageField({
       {onSubmit && (
         <SubmitButton
           loading={loading}
-          updated={!!data}
+          updated={
+            !!data ||
+            defaultValue?.metadata?.hotspot?.height !== hotspot?.height ||
+            defaultValue?.metadata?.hotspot?.width !== hotspot?.width ||
+            defaultValue?.metadata?.hotspot?.x !== hotspot?.x ||
+            defaultValue?.metadata?.hotspot?.y !== hotspot?.y ||
+            defaultValue?.metadata?.width !== metadata?.width ||
+            defaultValue?.metadata?.height !== metadata?.height ||
+            defaultValue?.metadata?.mimeType !== metadata?.mimeType ||
+            defaultValue?.metadata?.sha256 !== metadata?.sha256
+          }
           onClick={() => {
-            setLoading(true);
             if (data) {
+              setLoading(true);
               onSubmit((path) =>
                 Promise.resolve(
                   createImagePatch(
@@ -362,16 +372,7 @@ function ImageField({
                 setData(null);
                 setMetadata(undefined);
               });
-            }
-          }}
-        />
-      )}
-      {onSubmit && (
-        <SubmitButton
-          loading={loading}
-          updated={!data && !!metadata}
-          onClick={() => {
-            if (metadata) {
+            } else if (metadata) {
               setLoading(true);
               onSubmit((path) =>
                 Promise.resolve(createImageMetadataPatch(path, metadata))
@@ -738,7 +739,7 @@ function SubmitButton({
 }) {
   return (
     <div className="sticky bottom-0">
-      <div className="flex justify-end w-full py-2">
+      <div className="flex justify-end w-full py-2 text-sm">
         <Button disabled={loading || !updated} onClick={onClick}>
           {loading ? "Staging..." : "Stage"}
         </Button>
