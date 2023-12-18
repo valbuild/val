@@ -281,7 +281,7 @@ function ValHover({
   return (
     <div
       id="val-hover"
-      className="fixed border-2 cursor-pointer z-overlay-hover border-highlight drop-shadow-[0px_0px_12px_rgba(56,205,152,0.60)]"
+      className="fixed border-2 cursor-pointer z-overlay-hover border-accent"
       style={{
         top: rect?.top,
         left: rect?.left,
@@ -302,7 +302,7 @@ function ValHover({
     >
       <div className="flex items-center justify-end w-full text-xs">
         <div
-          className="flex items-center justify-center px-3 py-1 text-primary bg-highlight"
+          className="flex items-center justify-center px-3 py-1 text-primary bg-accent"
           style={{
             maxHeight: rect?.height && rect.height - 4,
             fontSize:
@@ -336,7 +336,6 @@ function useHoverTarget(editMode: EditMode) {
           }
         } while ((curr = curr?.parentElement || null));
       };
-
       document.addEventListener("mouseover", mouseOverListener);
 
       return () => {
@@ -352,9 +351,20 @@ function useHoverTarget(editMode: EditMode) {
         setTargetRect(targetElement.getBoundingClientRect());
       }
     };
+    const observer = new ResizeObserver(() => {
+      if (targetElement) {
+        setTargetRect(targetElement.getBoundingClientRect());
+      }
+    });
+    const valUIElement = document.getElementById("val-ui");
+    if (targetElement && valUIElement) {
+      observer.observe(valUIElement);
+    }
+
     document.addEventListener("scroll", scrollListener, { passive: true });
     return () => {
       document.removeEventListener("scroll", scrollListener);
+      observer.disconnect();
     };
   }, [targetElement]);
 
