@@ -150,6 +150,7 @@ export function ValOverlay({
               className="p-4"
               style={{
                 maxHeight: windowSize?.innerHeight,
+                maxWidth: windowSize?.width,
               }}
             >
               {Object.entries(formData).map(([path, data]) => {
@@ -302,7 +303,7 @@ function ValHover({
     >
       <div className="flex items-center justify-end w-full text-xs">
         <div
-          className="flex items-center justify-center px-3 py-1 text-accent-foreground bg-accent border-l-2 border-b-2 border-accent"
+          className="flex items-center justify-center px-3 py-1 border-b-2 border-l-2 text-accent-foreground bg-accent border-accent"
           style={{
             maxHeight: rect?.height && rect.height - 4,
             fontSize:

@@ -34,7 +34,7 @@ import { ScrollArea } from "./ui/scroll-area";
 import { Switch } from "./ui/switch";
 import { Card } from "./ui/card";
 import { ChevronLeft } from "lucide-react";
-import { ValOverlayContext } from "./ValOverlayContext";
+import { ValOverlayContext, useValOverlayContext } from "./ValOverlayContext";
 import { useNavigate, useParams } from "react-router";
 import { useTheme } from "./useTheme";
 import classNames from "classnames";
@@ -292,13 +292,17 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
                 >
                   <ChevronLeft />
                 </button>
-                <span>
+                <div
+                  className="truncate max-w-[300px]"
+                  dir="rtl"
+                  title={selectedPath}
+                >
                   <Path>{selectedPath || "/"}</Path>
-                </span>
+                </div>
               </div>
               <div className="p-4">
                 {error && (
-                  <div className="p-4 text-lg bg-destructive text-destructive-foreground max-w-xl">
+                  <div className="max-w-xl p-4 text-lg bg-destructive text-destructive-foreground">
                     ERROR: {error}
                   </div>
                 )}
@@ -432,7 +436,13 @@ export function AnyVal({
     }
     return (
       <div>
-        {field ? <div className="text-left">{field}</div> : <Path>{path}</Path>}
+        {field ? (
+          <div className="text-left">{field}</div>
+        ) : (
+          <div className="truncate max-w-[300px]" title={path} dir="rtl">
+            <Path>{path}</Path>
+          </div>
+        )}
         <ValList
           source={source}
           path={path}
@@ -454,7 +464,13 @@ export function AnyVal({
     }
     return (
       <div>
-        {field ? <div className="text-left">{field}</div> : <Path>{path}</Path>}
+        {field ? (
+          <div className="text-left">{field}</div>
+        ) : (
+          <div className="truncate max-w-[300px]" title={path} dir="rtl">
+            <Path>{path}</Path>
+          </div>
+        )}
         <ValRecord
           source={source}
           path={path}
@@ -483,7 +499,13 @@ export function AnyVal({
 
   return (
     <div className="py-2 gap-y-4">
-      {field ? <div className="text-left">{field}</div> : <Path>{path}</Path>}
+      {field ? (
+        <div className="text-left">{field}</div>
+      ) : (
+        <div className="truncate max-w-[300px]" title={path} dir="rtl">
+          <Path>{path}</Path>
+        </div>
+      )}
       <ValFormField
         path={path}
         disabled={false}
@@ -1038,17 +1060,22 @@ function ValOptional({
   field?: string;
 }) {
   const [enable, setEnable] = useState<boolean>(source !== null);
+  const { editMode } = useValOverlayContext();
 
   return (
     <div className="flex flex-col gap-y-2" key={path}>
       <div className="flex items-center justify-start gap-x-4">
-        <Switch
-          checked={enable}
-          onClick={() => {
-            setEnable((prev) => !prev);
-          }}
-        />
-        <span>{field ? field : <Path>{path}</Path>}</span>
+        {editMode === "full" && (
+          <Switch
+            checked={enable}
+            onClick={() => {
+              setEnable((prev) => !prev);
+            }}
+          />
+        )}
+        <div className="truncate max-w-[300px]" title={path} dir="rtl">
+          {field ? field : <Path>{path}</Path>}
+        </div>
       </div>
       {enable && (
         <ValDefaultOf
@@ -1176,7 +1203,7 @@ function PathTree({
         return (
           <div className="px-4 py-2" key={`/${dir}`}>
             {dir && (
-              <div className="font-bold">
+              <div className="font-bold truncate max-w-[300px]" title={dir}>
                 <Path>{dir}</Path>
               </div>
             )}
