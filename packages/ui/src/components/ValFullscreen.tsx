@@ -586,7 +586,7 @@ function ValTaggedUnion({
   return (
     <div
       key={path}
-      className={classNames("flex flex-col gap-y-8", {
+      className={classNames("flex flex-col gap-y-1", {
         "border-l-2 border-border pl-6": !top,
       })}
     >
@@ -640,7 +640,7 @@ function ValObject({
   return (
     <div
       key={path}
-      className={classNames("flex flex-col gap-y-8", {
+      className={classNames("flex flex-col gap-y-1", {
         "border-l-2 border-border pl-6": !top,
       })}
     >
@@ -753,7 +753,7 @@ function ValList({
 }): React.ReactElement {
   const navigate = useNavigate();
   return (
-    <div key={path} className="flex flex-col gap-4 p-2">
+    <div key={path} className="flex flex-col gap-4 p-2 pb-8">
       {source.map((item, index) => {
         const subPath = createValPathOfItem(path, index);
         return (
