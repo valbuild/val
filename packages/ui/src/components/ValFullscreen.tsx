@@ -26,7 +26,12 @@ import { ValApi } from "@valbuild/core";
 import { FC, Fragment, useCallback, useEffect, useState } from "react";
 import { Grid } from "./Grid";
 import { result } from "@valbuild/core/fp";
-import { OnSubmit, ValFormField } from "./ValFormField";
+import {
+  FieldContainer,
+  OnSubmit,
+  SubmitButton,
+  ValFormField,
+} from "./ValFormField";
 import React from "react";
 import { createPortal } from "react-dom";
 import Logo from "../assets/icons/Logo";
@@ -50,6 +55,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
+import { PatchJSON } from "@valbuild/core/patch";
 
 interface ValFullscreenProps {
   api: ValApi;
@@ -483,6 +489,7 @@ export function AnyVal({
     if (schema.key && typeof source === "object" && !isJsonArray(source)) {
       return (
         <ValTaggedUnion
+          field={field}
           tag={schema.key}
           source={source}
           path={path}
@@ -519,6 +526,7 @@ export function AnyVal({
 
 function ValTaggedUnion({
   tag,
+  field,
   path,
   source,
   schema,
@@ -527,6 +535,7 @@ function ValTaggedUnion({
   top,
 }: {
   tag: string;
+  field?: string;
   source: JsonObject;
   path: SourcePath;
   schema: SerializedUnionSchema;
@@ -537,7 +546,7 @@ function ValTaggedUnion({
   const [currentKey, setCurrentKey] = useState<string | null>(null);
   const [current, setCurrent] = useState<{
     schema: SerializedSchema;
-    source: Json;
+    source?: Json;
   } | null>(null);
 
   const keys = schema.items.flatMap((item) => {
@@ -568,6 +577,8 @@ function ValTaggedUnion({
       });
       if (sourceKey && typeof sourceKey === "string" && unionSchema) {
         setCurrent({ source, schema: unionSchema });
+      } else if (unionSchema) {
+        setCurrent({ schema: unionSchema });
       } else {
         console.error(
           "Could not find source or schema of key",
@@ -578,20 +589,28 @@ function ValTaggedUnion({
         setCurrent(null);
       }
     }
-  }, [currentKey, source, schema, keys]);
+  }, [currentKey, source, tag, schema, keys]);
   if (keys.length !== schema.items.length) {
     console.warn("Not all items have tag:", tag);
   }
   const loading = false;
+  const onSubmit = initOnSubmit(path);
   return (
-    <div
+    <FieldContainer
       key={path}
-      className={classNames("flex flex-col gap-y-1", {
+      className={classNames("flex flex-col gap-y-4", {
         "border-l-2 border-border pl-6": !top,
       })}
     >
+      {field ? (
+        <div className="text-left">{field}</div>
+      ) : (
+        <div className="truncate max-w-[300px]" title={path} dir="rtl">
+          <Path>{path}</Path>
+        </div>
+      )}
       <Select
-        defaultValue={currentKey ?? undefined}
+        value={currentKey ?? undefined}
         disabled={loading}
         onValueChange={(key) => {
           setCurrentKey(key);
@@ -608,17 +627,22 @@ function ValTaggedUnion({
           ))}
         </SelectContent>
       </Select>
+      <SubmitButton
+        loading={loading}
+        enabled={false}
+        onClick={() => onSubmit(async (path) => [])}
+      />
       {current && (
         <AnyVal
           path={path as SourcePath}
-          source={current.source}
+          source={current.source ?? null}
           schema={current.schema}
           setSelectedPath={setSelectedPath}
           initOnSubmit={initOnSubmit}
           top={top}
         />
       )}
-    </div>
+    </FieldContainer>
   );
 }
 

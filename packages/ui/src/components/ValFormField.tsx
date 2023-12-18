@@ -35,6 +35,7 @@ import { useValModuleFromPath } from "./ValFullscreen";
 import { LinkNode } from "@lexical/link";
 import { ImageNode } from "./RichTextEditor/Nodes/ImageNode";
 import { useValOverlayContext } from "./ValOverlayContext";
+import classNames from "classnames";
 
 export type OnSubmit = (callback: PatchCallback) => Promise<void>;
 
@@ -779,11 +780,21 @@ function InlineValidationErrors({ errors }: { errors: ValidationError[] }) {
   );
 }
 
-function FieldContainer({ children }: { children: React.ReactNode }) {
-  return <div className="relative px-4 pt-4">{children}</div>;
+export function FieldContainer({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={classNames("relative max-w-lg px-4 pt-4", className)}>
+      {children}
+    </div>
+  );
 }
 
-function SubmitButton({
+export function SubmitButton({
   loading,
   enabled,
   validationErrors,
@@ -797,13 +808,8 @@ function SubmitButton({
   const { session } = useValOverlayContext();
   const isProxy = session.status === "success" && session.data.mode === "proxy";
   return (
-    <div className="sticky bottom-0 m-4 ml-0">
-      <div className="flex justify-between w-full gap-2 py-2 text-sm">
-        {validationErrors ? (
-          <InlineValidationErrors errors={validationErrors || []} />
-        ) : (
-          <span></span>
-        )}
+    <div className="sticky bottom-0 m-4 mt-2 ml-0">
+      <div className="flex justify-start w-full gap-2 text-sm">
         <Button disabled={loading || !enabled} onClick={onClick}>
           {loading
             ? isProxy
@@ -812,7 +818,12 @@ function SubmitButton({
             : isProxy
             ? "Stage"
             : "Save"}
-        </Button>
+        </Button>{" "}
+        {validationErrors ? (
+          <InlineValidationErrors errors={validationErrors || []} />
+        ) : (
+          <span></span>
+        )}
       </div>
     </div>
   );
