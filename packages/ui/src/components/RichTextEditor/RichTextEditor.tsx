@@ -17,7 +17,6 @@ import { AnyRichTextOptions, RichTextSource } from "@valbuild/core";
 import { HeadingNode } from "@lexical/rich-text";
 import { richTextSourceToLexical } from "@valbuild/shared/internal";
 import { parseRichTextSource } from "@valbuild/shared/internal";
-import { useValOverlayContext } from "../ValOverlayContext";
 import { LinkNode } from "@lexical/link";
 import LinkEditorPlugin from "./Plugins/LinkEditorPlugin";
 
@@ -30,13 +29,10 @@ function onError(error: any) {
   console.error(error);
 }
 
-const TOOLBAR_HEIGHT = 28;
-
 export const RichTextEditor: FC<RichTextEditorProps> = ({
   richtext,
   onEditor,
 }) => {
-  const { windowSize } = useValOverlayContext();
   const prePopulatedState = (editor: LexicalEditor) => {
     editor.setEditorState(
       editor.parseEditorState({
