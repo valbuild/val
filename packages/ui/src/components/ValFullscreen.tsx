@@ -1191,7 +1191,7 @@ function PathTree({
                   <button
                     key={moduleId}
                     className={classNames("block px-2 py-1 rounded-full", {
-                      "bg-accent drop-shadow-[0px_0px_12px_rgba(56,205,152,0.60)]":
+                      "bg-accent text-accent-foreground":
                         selectedModuleId === moduleId,
                     })}
                     onClick={() => {

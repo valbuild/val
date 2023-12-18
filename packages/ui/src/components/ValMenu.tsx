@@ -207,7 +207,8 @@ function MenuButton({
   return (
     <button
       className={classNames(className, {
-        "bg-accent drop-shadow-[0px_0px_12px_rgba(56,205,152,0.60)]": active,
+        "bg-accent text-accent-foreground drop-shadow-[0px_0px_12px_hsl(var(--accent))]":
+          active,
       })}
       onClick={onClick}
     >
