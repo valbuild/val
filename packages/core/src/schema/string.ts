@@ -14,7 +14,10 @@ export type SerializedStringSchema = {
   options?: {
     maxLength?: number;
     minLength?: number;
-    regexp?: string;
+    regexp?: {
+      source: string;
+      flags: string;
+    };
   };
   opt: boolean;
   raw: boolean;
@@ -58,9 +61,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     }
     if (this.options?.regexp && !this.options.regexp.test(src)) {
       errors.push({
-        message: `Expected string to be at least ${
-          this.options.minLength
-        } to match reg exp: ${this.options.regexp.toString()}, got ${src}}`,
+        message: `Expected string to match reg exp: ${this.options.regexp.toString()}, got '${src}'`,
         value: src,
       });
     }
@@ -97,7 +98,10 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       options: {
         maxLength: this.options?.maxLength,
         minLength: this.options?.minLength,
-        regexp: this.options?.regexp?.toString(),
+        regexp: this.options?.regexp && {
+          source: this.options.regexp.source,
+          flags: this.options.regexp.flags,
+        },
       },
       opt: this.opt,
       raw: this.isRaw,
