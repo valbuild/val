@@ -298,7 +298,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
                   <ChevronLeft />
                 </button>
                 <div
-                  className="truncate max-w-[300px]"
+                  className="truncate max-w-[300px] text-left"
                   dir="rtl"
                   title={selectedPath}
                 >
@@ -444,7 +444,11 @@ export function AnyVal({
         {field ? (
           <div className="text-left">{field}</div>
         ) : (
-          <div className="truncate max-w-[300px]" title={path} dir="rtl">
+          <div
+            className="truncate max-w-[300px] text-left"
+            title={path}
+            dir="rtl"
+          >
             <Path>{path}</Path>
           </div>
         )}
@@ -472,7 +476,11 @@ export function AnyVal({
         {field ? (
           <div className="text-left">{field}</div>
         ) : (
-          <div className="truncate max-w-[300px]" title={path} dir="rtl">
+          <div
+            className="truncate max-w-[300px] text-left"
+            title={path}
+            dir="rtl"
+          >
             <Path>{path}</Path>
           </div>
         )}
@@ -508,7 +516,11 @@ export function AnyVal({
       {field ? (
         <div className="text-left">{field}</div>
       ) : (
-        <div className="truncate max-w-[300px]" title={path} dir="rtl">
+        <div
+          className="truncate max-w-[300px] text-left"
+          title={path}
+          dir="rtl"
+        >
           <Path>{path}</Path>
         </div>
       )}
@@ -604,7 +616,11 @@ function ValTaggedUnion({
       {field ? (
         <div className="text-left">{field}</div>
       ) : (
-        <div className="truncate max-w-[300px]" title={path} dir="rtl">
+        <div
+          className="truncate max-w-[300px] text-left"
+          title={path}
+          dir="rtl"
+        >
           <Path>{path}</Path>
         </div>
       )}
@@ -1096,7 +1112,11 @@ function ValOptional({
             }}
           />
         )}
-        <div className="truncate max-w-[300px]" title={path} dir="rtl">
+        <div
+          className="truncate max-w-[300px] text-left"
+          title={path}
+          dir="rtl"
+        >
           {field ? field : <Path>{path}</Path>}
         </div>
       </div>
@@ -1226,7 +1246,10 @@ function PathTree({
         return (
           <div className="px-4 py-2" key={`/${dir}`}>
             {dir && (
-              <div className="font-bold truncate max-w-[300px]" title={dir}>
+              <div
+                className="font-bold truncate max-w-[300px] text-left"
+                title={dir}
+              >
                 <Path>{dir}</Path>
               </div>
             )}
