@@ -7,8 +7,11 @@ import {
   Json,
   RichTextSource,
   SerializedSchema,
+  SerializedStringSchema,
   SourcePath,
+  StringSchema,
   VAL_EXTENSION,
+  ValidationError,
 } from "@valbuild/core";
 import type { PatchJSON } from "@valbuild/core/patch";
 import { LexicalEditor, TextNode } from "lexical";
@@ -56,8 +59,10 @@ export function ValFormField({
   ) {
     return (
       <StringField
+        path={path}
         defaultValue={source}
         disabled={disabled}
+        schema={schema}
         registerPatchCallback={registerPatchCallback}
         onSubmit={onSubmit}
       />
@@ -363,7 +368,7 @@ function ImageField({
       {onSubmit && (
         <SubmitButton
           loading={loading}
-          updated={
+          enabled={
             !!data ||
             defaultValue?.metadata?.hotspot?.height !== hotspot?.height ||
             defaultValue?.metadata?.hotspot?.width !== hotspot?.width ||
@@ -495,7 +500,7 @@ function RichTextField({
       {onSubmit && (
         <SubmitButton
           loading={loading || !editor}
-          updated={didChange}
+          enabled={didChange}
           onClick={() => {
             if (editor) {
               setLoading(true);
@@ -596,7 +601,7 @@ function KeyOfField({
       {onSubmit && (
         <SubmitButton
           loading={loading}
-          updated={defaultValue !== value}
+          enabled={defaultValue !== value}
           onClick={() => {
             setLoading(true);
             onSubmit(async (path) => [
@@ -660,7 +665,7 @@ function NumberField({
       {onSubmit && (
         <SubmitButton
           loading={loading}
-          updated={defaultValue !== value}
+          enabled={defaultValue !== value}
           onClick={() => {
             setLoading(true);
             onSubmit(async (path) => [
@@ -682,11 +687,15 @@ function NumberField({
 function StringField({
   disabled,
   defaultValue,
+  path,
+  schema,
   registerPatchCallback,
   onSubmit,
 }: {
   registerPatchCallback?: (callback: PatchCallback) => void;
   onSubmit?: OnSubmit;
+  path: SourcePath;
+  schema: SerializedStringSchema;
   disabled: boolean;
   defaultValue?: string | null;
 }) {
@@ -712,6 +721,20 @@ function StringField({
       });
     }
   }, []);
+  const actualSchema = new StringSchema(
+    schema.options
+      ? {
+          ...schema.options,
+          regexp: schema.options.regexp
+            ? new RegExp(
+                schema.options.regexp.source,
+                schema.options.regexp.flags
+              )
+            : undefined,
+        }
+      : undefined
+  );
+  const validationErrors = actualSchema.validate(path, value);
 
   return (
     <FieldContainer>
@@ -723,8 +746,9 @@ function StringField({
       />
       {onSubmit && (
         <SubmitButton
+          validationErrors={validationErrors && validationErrors[path]}
           loading={loading}
-          updated={defaultValue !== value}
+          enabled={defaultValue !== value && !validationErrors}
           onClick={() => {
             setLoading(true);
             onSubmit(async (path) => [
@@ -743,25 +767,42 @@ function StringField({
   );
 }
 
+function InlineValidationErrors({ errors }: { errors: ValidationError[] }) {
+  return (
+    <div className="flex flex-col gap-y-1 p-2 rounded-md text-sm text-destructive-foreground bg-destructive">
+      {errors.map((error, i) => (
+        <div key={i}>{error.message}</div>
+      ))}
+    </div>
+  );
+}
+
 function FieldContainer({ children }: { children: React.ReactNode }) {
   return <div className="relative p-4">{children}</div>;
 }
 
 function SubmitButton({
   loading,
-  updated,
+  enabled,
+  validationErrors,
   onClick,
 }: {
   loading: boolean;
-  updated: boolean;
+  enabled: boolean;
+  validationErrors?: false | ValidationError[];
   onClick: () => void;
 }) {
   const { session } = useValOverlayContext();
   const isProxy = session.status === "success" && session.data.mode === "proxy";
   return (
-    <div className="sticky bottom-0 m-4">
-      <div className="flex justify-end w-full py-2 text-sm">
-        <Button disabled={loading || !updated} onClick={onClick}>
+    <div className="sticky bottom-0 m-4 ml-0">
+      <div className="flex justify-between w-full gap-2 py-2 text-sm">
+        {validationErrors ? (
+          <InlineValidationErrors errors={validationErrors || []} />
+        ) : (
+          <span></span>
+        )}
+        <Button disabled={loading || !enabled} onClick={onClick}>
           {loading
             ? isProxy
               ? "Staging..."

@@ -64,16 +64,19 @@ import { SerializedSchema } from "./schema";
 import { getSHA256Hash } from "./getSha256";
 import { PatchJSON } from "./patch";
 export { ValApi } from "./ValApi";
-export type { SerializedArraySchema } from "./schema/array";
-export type { SerializedObjectSchema } from "./schema/object";
-export type { SerializedRecordSchema } from "./schema/record";
-export type { SerializedStringSchema } from "./schema/string";
-export type { SerializedNumberSchema } from "./schema/number";
-export type { SerializedBooleanSchema } from "./schema/boolean";
-export type { SerializedImageSchema } from "./schema/image";
-export type { SerializedRichTextSchema } from "./schema/richtext";
-export type { SerializedUnionSchema } from "./schema/union";
-export type { SerializedLiteralSchema } from "./schema/literal";
+export { type SerializedArraySchema, ArraySchema } from "./schema/array";
+export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
+export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
+export { type SerializedStringSchema, StringSchema } from "./schema/string";
+export { type SerializedNumberSchema, NumberSchema } from "./schema/number";
+export { type SerializedBooleanSchema, BooleanSchema } from "./schema/boolean";
+export { type SerializedImageSchema, ImageSchema } from "./schema/image";
+export {
+  type SerializedRichTextSchema,
+  RichTextSchema,
+} from "./schema/richtext";
+export { type SerializedUnionSchema, UnionSchema } from "./schema/union";
+export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
 
 export type ApiCommitResponse = {
   modules: Record<
