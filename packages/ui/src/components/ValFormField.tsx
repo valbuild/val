@@ -287,83 +287,85 @@ function ImageField({
 
   return (
     <FieldContainer>
-      <div
-        className="flex flex-col max-w-4xl p-2 border border-b-0 rounded-sm rounded-b-none gap-y-4 bg-background text-foreground border-input"
-        key={path}
-      >
-        {data || url ? (
-          <div className="relative">
-            {hotspot && (
-              <div
-                className="rounded-full h-[12px] w-[12px] bg-background mix-blend-difference border-accent border-2 absolute pointer-events-none"
+      <div className="w-fit">
+        <div
+          className="flex flex-col justify-start p-2 border border-b-0 rounded-sm rounded-b-none gap-y-4 bg-background text-foreground border-input"
+          key={path}
+        >
+          {data || url ? (
+            <div className="relative">
+              {hotspot && (
+                <div
+                  className="rounded-full h-[12px] w-[12px] bg-background mix-blend-difference border-accent border-2 absolute pointer-events-none"
+                  style={{
+                    top: `${hotspot.y * 100}%`,
+                    left: `${hotspot.x * 100}%`,
+                  }}
+                />
+              )}
+              <img
+                src={data?.src || url}
+                draggable={false}
+                className="object-contain w-full max-h-[500px]"
                 style={{
-                  top: `${hotspot.y * 100}%`,
-                  left: `${hotspot.x * 100}%`,
+                  cursor: "crosshair",
+                }}
+                onClick={(ev) => {
+                  // compute hotspot position based on mouse click:
+                  const { width, height, left, top } =
+                    ev.currentTarget.getBoundingClientRect();
+                  const hotspotX = (ev.clientX - 6 - left) / width;
+                  const hotspotY = (ev.clientY - 6 - top) / height;
+                  setHotspot({
+                    x: hotspotX,
+                    y: hotspotY,
+                    width: 1,
+                    height: 1,
+                  });
                 }}
               />
-            )}
-            <img
-              src={data?.src || url}
-              draggable={false}
-              className="w-full"
-              style={{
-                cursor: "crosshair",
-              }}
-              onClick={(ev) => {
-                // compute hotspot position based on mouse click:
-                const { width, height, left, top } =
-                  ev.currentTarget.getBoundingClientRect();
-                const hotspotX = (ev.clientX - 6 - left) / width;
-                const hotspotY = (ev.clientY - 6 - top) / height;
-                setHotspot({
-                  x: hotspotX,
-                  y: hotspotY,
-                  width: 1,
-                  height: 1,
-                });
-              }}
-            />
-          </div>
-        ) : (
-          <div>Select image below</div>
-        )}
-      </div>
-      <div className="w-full p-4 border border-t-0 rounded-b-sm bg-background border-input">
-        <label
-          htmlFor={`img_input:${path}`}
-          className="block w-full px-1 py-2 text-sm text-center rounded-md cursor-pointer bg-primary text-background"
-        >
-          Update
-        </label>
-        <input
-          hidden
-          id={`img_input:${path}`}
-          type="file"
-          onChange={(ev) => {
-            readImage(ev)
-              .then((res) => {
-                setData({ src: res.src, filename: res.filename });
-                if (res.width && res.height && res.mimeType) {
-                  setMetadata({
-                    sha256: res.sha256,
-                    width: res.width,
-                    height: res.height,
-                    mimeType: res.mimeType,
-                    hotspot,
-                  });
-                } else {
-                  setMetadata(undefined);
+            </div>
+          ) : (
+            <div>Select image below</div>
+          )}
+        </div>
+        <div className="p-4 border border-t-0 rounded-b-sm bg-background border-input">
+          <label
+            htmlFor={`img_input:${path}`}
+            className="block px-1 py-2 text-sm text-center rounded-md cursor-pointer bg-primary text-background"
+          >
+            Update
+          </label>
+          <input
+            hidden
+            id={`img_input:${path}`}
+            type="file"
+            onChange={(ev) => {
+              readImage(ev)
+                .then((res) => {
+                  setData({ src: res.src, filename: res.filename });
+                  if (res.width && res.height && res.mimeType) {
+                    setMetadata({
+                      sha256: res.sha256,
+                      width: res.width,
+                      height: res.height,
+                      mimeType: res.mimeType,
+                      hotspot,
+                    });
+                  } else {
+                    setMetadata(undefined);
+                    setHotspot(undefined);
+                  }
+                })
+                .catch((err) => {
+                  console.error(err.message);
+                  setData(null);
                   setHotspot(undefined);
-                }
-              })
-              .catch((err) => {
-                console.error(err.message);
-                setData(null);
-                setHotspot(undefined);
-                setMetadata(undefined);
-              });
-          }}
-        />
+                  setMetadata(undefined);
+                });
+            }}
+          />
+        </div>
       </div>
       {onSubmit && (
         <SubmitButton
@@ -769,7 +771,7 @@ function StringField({
 
 function InlineValidationErrors({ errors }: { errors: ValidationError[] }) {
   return (
-    <div className="flex flex-col gap-y-1 p-2 rounded-md text-sm text-destructive-foreground bg-destructive">
+    <div className="flex flex-col p-2 text-sm rounded-md gap-y-1 text-destructive-foreground bg-destructive">
       {errors.map((error, i) => (
         <div key={i}>{error.message}</div>
       ))}
@@ -778,7 +780,7 @@ function InlineValidationErrors({ errors }: { errors: ValidationError[] }) {
 }
 
 function FieldContainer({ children }: { children: React.ReactNode }) {
-  return <div className="relative p-4">{children}</div>;
+  return <div className="relative px-4 pt-4">{children}</div>;
 }
 
 function SubmitButton({
