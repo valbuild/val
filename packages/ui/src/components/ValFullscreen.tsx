@@ -55,7 +55,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { PatchJSON } from "@valbuild/core/patch";
 
 interface ValFullscreenProps {
   api: ValApi;
@@ -630,7 +629,7 @@ function ValTaggedUnion({
       <SubmitButton
         loading={loading}
         enabled={false}
-        onClick={() => onSubmit(async (path) => [])}
+        onClick={() => onSubmit(async () => [])}
       />
       {current && (
         <AnyVal
