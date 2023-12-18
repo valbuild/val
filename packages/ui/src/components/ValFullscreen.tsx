@@ -249,7 +249,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
     >
       <div
         id="val-fullscreen-container"
-        className="relative w-full h-[100] overflow-hidden font-serif antialiased bg-background"
+        className="relative w-full h-[100] overflow-hidden font-serif antialiased bg-background text-primary"
         data-mode={theme}
       >
         <div className="fixed -translate-y-1/2 right-4 top-1/2 z-overlay">
@@ -298,7 +298,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
               </div>
               <div className="p-4">
                 {error && (
-                  <div className="text-lg text-destructive-foreground">
+                  <div className="p-4 text-lg bg-destructive text-destructive-foreground max-w-xl">
                     ERROR: {error}
                   </div>
                 )}
