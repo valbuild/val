@@ -6,11 +6,16 @@ import { ValidationErrors } from "./validation/ValidationError";
 type StringOptions = {
   maxLength?: number;
   minLength?: number;
+  regexp?: RegExp;
 };
 
 export type SerializedStringSchema = {
   type: "string";
-  options?: StringOptions;
+  options?: {
+    maxLength?: number;
+    minLength?: number;
+    regexp?: string;
+  };
   opt: boolean;
   raw: boolean;
 };
@@ -51,6 +56,14 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
         value: src,
       });
     }
+    if (this.options?.regexp && !this.options.regexp.test(src)) {
+      errors.push({
+        message: `Expected string to be at least ${
+          this.options.minLength
+        } to match reg exp: ${this.options.regexp.toString()}, got ${src}}`,
+        value: src,
+      });
+    }
     if (errors.length > 0) {
       return {
         [path]: errors,
@@ -81,7 +94,11 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
   serialize(): SerializedSchema {
     return {
       type: "string",
-      options: this.options,
+      options: {
+        maxLength: this.options?.maxLength,
+        minLength: this.options?.minLength,
+        regexp: this.options?.regexp?.toString(),
+      },
       opt: this.opt,
       raw: this.isRaw,
     };
