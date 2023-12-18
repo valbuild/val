@@ -122,6 +122,54 @@ const ValidationTestCases: {
     schema: string().optional(),
     expected: false,
   },
+  {
+    description: "failing max length",
+    input: "three",
+    schema: string({
+      maxLength: 3,
+    }),
+    expected: [testPath],
+  },
+  {
+    description: "basic max length",
+    input: "two",
+    schema: string({
+      maxLength: 3,
+    }),
+    expected: false,
+  },
+  {
+    description: "failing min length",
+    input: "a",
+    schema: string({
+      minLength: 3,
+    }),
+    expected: [testPath],
+  },
+  {
+    description: "basic min length",
+    input: "two",
+    schema: string({
+      minLength: 3,
+    }),
+    expected: false,
+  },
+  {
+    description: "basic reg exp",
+    input: "two",
+    schema: string({
+      regexp: /two|three/,
+    }),
+    expected: false,
+  },
+  {
+    description: "failing reg exp",
+    input: "one",
+    schema: string({
+      regexp: /two|three/,
+    }),
+    expected: [testPath],
+  },
   // literal
   {
     description: "basic literal",
