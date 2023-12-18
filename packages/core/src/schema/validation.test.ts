@@ -104,11 +104,35 @@ const ValidationTestCases: {
     schema: string(),
     expected: [testPath],
   },
+  {
+    description: "basic null optional string",
+    input: null,
+    schema: string().optional(),
+    expected: false,
+  },
+  {
+    description: "nested optional string",
+    input: { test: null },
+    schema: object({ test: string().optional() }).optional(),
+    expected: false,
+  },
+  {
+    description: "basic optional string",
+    input: "two",
+    schema: string().optional(),
+    expected: false,
+  },
   // literal
   {
     description: "basic literal",
     input: "one",
     schema: literal("one"),
+    expected: false,
+  },
+  {
+    description: "basic literal optional",
+    input: "one",
+    schema: literal("one").optional(),
     expected: false,
   },
   {
