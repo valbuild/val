@@ -46,7 +46,7 @@ export function ValFormField({
   registerPatchCallback,
   onSubmit,
 }: {
-  path: string;
+  path: SourcePath;
   disabled: boolean;
   source: Json;
   schema: SerializedSchema;
