@@ -5,7 +5,6 @@ import { glob } from "fast-glob";
 import picocolors from "picocolors";
 import { ESLint } from "eslint";
 import fs from "fs/promises";
-import { error, log } from "console";
 
 export async function validate({
   root,
