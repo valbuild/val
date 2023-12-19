@@ -1,4 +1,4 @@
-import { RuleTester } from "eslint";
+import { RuleTester } from "@typescript-eslint/rule-tester";
 import { rules as valRules } from "@valbuild/eslint-plugin";
 import path from "path";
 
@@ -8,9 +8,8 @@ RuleTester.setDefaultConfig({
   parserOptions: {
     ecmaVersion: 2018,
     sourceType: "module",
-    ecmaFeatures: {
-      jsx: true,
-    },
+
+    ecmaFeatures: {},
   },
 });
 
@@ -40,6 +39,26 @@ export default val.content('/foo/test', schema, [])`,
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
       code: `
 import { val, s } from '../val.config.ts';
+import type { Event } from './eventSchema';
+
+export const schema = s.array(s.string());
+type Test = Event;
+export default val.content('/foo/test', schema, [])`,
+    },
+    {
+      filename: path.join(process.cwd(), "./foo/test.val.ts"),
+      code: `
+import { val, s } from '../val.config.ts';
+import { type Event } from './eventSchema';
+
+export const schema = s.array(s.string());
+type Test = Event;
+export default val.content('/foo/test', schema, [])`,
+    },
+    {
+      filename: path.join(process.cwd(), "./foo/test.val.ts"),
+      code: `
+import { val, s } from '../val.config.ts';
 
 export const schema = s.string();
 export default val.content('/foo/test', schema, 'String')`,
@@ -57,7 +76,23 @@ export default val.content('/foo/test', schema, [])`,
       errors: [
         {
           message:
-            "Val: import source should be a .val.ts file, a @valbuild package, or val.config.ts. Found: './event'",
+            "Val: can only 'import type' or import from source that is either: a .val.{j,t}s file, a @valbuild package, or val.config.{j,t}s.",
+        },
+      ],
+    },
+    {
+      filename: path.join(process.cwd(), "./foo/test.val.ts"),
+      code: `
+import { val, s } from '../val.config';
+import { eventSchema, type Unused } from './event';
+
+export const schema = s.array(eventSchema);
+type Event = Unused;
+export default val.content('/foo/test', schema, [])`,
+      errors: [
+        {
+          message:
+            "Val: can only 'import type' or import from source that is either: a .val.{j,t}s file, a @valbuild package, or val.config.{j,t}s.",
         },
       ],
     },
