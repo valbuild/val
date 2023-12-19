@@ -1,5 +1,4 @@
 // @ts-check
-import path from "path";
 
 /**
  * @type {import('eslint').Rule.RuleModule}
