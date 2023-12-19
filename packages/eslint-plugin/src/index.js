@@ -8,6 +8,7 @@
 
 import noIllegalModuleIds from "./rules/noIllegalModuleIds";
 import noIllegalImports from "./rules/noIllegalImports";
+import exportContentMustBeValid from "./rules/exportContentMustBeValid";
 
 /**
  * @type {Plugin["rules"]}
@@ -15,6 +16,7 @@ import noIllegalImports from "./rules/noIllegalImports";
 export let rules = {
   "no-illegal-module-ids": noIllegalModuleIds,
   "no-illegal-imports": noIllegalImports,
+  "export-content-must-be-valid": exportContentMustBeValid,
 };
 
 /**

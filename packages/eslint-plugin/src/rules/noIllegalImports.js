@@ -8,10 +8,8 @@ export default {
     type: "problem",
     docs: {
       description: "Check that val files only has valid imports.",
-      category: "Best Practices",
       recommended: true,
     },
-    fixable: "code",
     schema: [],
   },
   create: function (context) {
