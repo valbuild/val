@@ -34,7 +34,7 @@ ruleTester.run("no-illegal-module-ids", rule, {
       errors: [
         {
           message:
-            "Val: val.content path should match the filename. Expected: '/foo/test'. Found: 'foo'",
+            "Val: val.content id should match the filename. Expected: '/foo/test'. Found: 'foo'",
         },
       ],
       output: `import { val, s } from '../val.config.ts';
@@ -49,7 +49,7 @@ ruleTester.run("no-illegal-module-ids", rule, {
       errors: [
         {
           message:
-            "Val: val.content path should match the filename. Expected: '/foo/test'. Found: 'foo'",
+            "Val: val.content id should match the filename. Expected: '/foo/test'. Found: 'foo'",
         },
       ],
       output: `import { val, s } from "../val.config.ts";

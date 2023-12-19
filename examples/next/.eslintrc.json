@@ -1,7 +1,11 @@
 {
   "extends": "next/core-web-vitals",
-  "plugins": ["@valbuild"],
+  "plugins": [
+    "@valbuild"
+  ],
   "rules": {
-    "@valbuild/no-illegal-module-ids": 2
+    "@next/next/no-html-link-for-pages": 0,
+    "@valbuild/no-illegal-module-ids": 2,
+    "@valbuild/no-illegal-imports": 2
   }
 }
