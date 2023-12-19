@@ -15,7 +15,6 @@ import { ValApi } from "@valbuild/core";
 import { usePatchSubmit, usePatches } from "./usePatch";
 import { useTheme } from "./useTheme";
 import { IValStore } from "../lib/IValStore";
-import { ScrollArea } from "./ui/scroll-area";
 import { AnyVal } from "./ValFullscreen";
 import { InitOnSubmit } from "./ValFullscreen";
 import { useSession } from "./useSession";
