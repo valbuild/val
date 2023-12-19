@@ -322,7 +322,15 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
                     ERROR: {error}
                   </div>
                 )}
-                {modules &&
+                {session.status === "success" &&
+                  session.data.mode === "unauthorized" && (
+                    <div className="max-w-xl p-4 text-lg bg-destructive text-destructive-foreground">
+                      Not authorized
+                    </div>
+                  )}
+                {session.status === "success" &&
+                  session.data.mode !== "unauthorized" &&
+                  modules &&
                   selectedPath &&
                   selectedModuleId &&
                   moduleSource !== undefined &&
