@@ -130,7 +130,7 @@ export function ValOverlay({
         </div>
         {session.status === "success" &&
           session.data.enabled &&
-          editMode === "hover" &&
+          (editMode === "hover" || editMode === "window") &&
           hoverTarget.path && (
             <ValHover
               hoverTarget={hoverTarget}
@@ -322,7 +322,7 @@ function useHoverTarget(editMode: EditMode) {
   const [targetPath, setTargetPath] = useState<SourcePath>();
   const [targetRect, setTargetRect] = useState<DOMRect>();
   useEffect(() => {
-    if (editMode === "hover") {
+    if (editMode === "hover" || editMode === "window") {
       let curr: HTMLElement | null = null;
       const mouseOverListener = (e: MouseEvent) => {
         const target = e.target as HTMLElement | null;

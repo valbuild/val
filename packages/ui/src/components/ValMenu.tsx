@@ -68,13 +68,19 @@ export function ValMenu({
   return (
     <MenuContainer direction={direction}>
       <MenuButton
-        active={editMode === "hover"}
+        active={editMode === "hover" || editMode === "window"}
         onClick={() => {
-          setEditMode((prev) => (prev === "hover" ? "off" : "hover"));
+          setEditMode((prev) =>
+            prev === "hover" || editMode === "window" ? "off" : "hover"
+          );
         }}
       >
         <div className="h-[24px] w-[24px] flex justify-center items-center">
-          {editMode === "hover" ? <Pause size={18} /> : <Play size={18} />}
+          {editMode === "hover" || editMode === "window" ? (
+            <Pause size={18} />
+          ) : (
+            <Play size={18} />
+          )}
         </div>
       </MenuButton>
       <MenuButton
