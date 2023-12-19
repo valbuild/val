@@ -10,10 +10,12 @@ export async function validate({
   root,
   cfg,
   fix,
+  noEslint,
 }: {
   root?: string;
   cfg?: string;
   fix?: boolean;
+  noEslint?: boolean;
 }) {
   const projectRoot = root ? path.resolve(root) : process.cwd();
   const eslint = new ESLint({
@@ -30,39 +32,43 @@ export async function validate({
     cwd: projectRoot,
   });
 
-  const lintFiles = await glob("**/*.{js,ts}", {
-    ignore: ["node_modules/**"],
-    cwd: projectRoot,
-  });
-  console.log("Running eslint...");
-  const eslintResults = await eslint.lintFiles(lintFiles);
-  const eslintResultsByFile = eslintResults.reduce(
-    (acc, result) => ({
-      ...acc,
-      [result.filePath.replaceAll(`${projectRoot}/`, "")]: result,
-    }),
-    {} as Record<string, ESLint.LintResult>
-  );
-
   let errors = 0;
-  eslintResults.forEach((result) => {
-    result.messages.forEach(async (m) => {
-      if (m.messageId === "val/export-content-must-be-valid") {
-        errors += 1;
-        logEslintMessage(
-          await fs.readFile(result.filePath, "utf-8"),
-          result.filePath,
-          m
-        );
-      }
+  let eslintResults: ESLint.LintResult[] = [];
+  let eslintResultsByFile: Record<string, ESLint.LintResult> = {};
+  if (!noEslint) {
+    const lintFiles = await glob("**/*.{js,ts}", {
+      ignore: ["node_modules/**"],
+      cwd: projectRoot,
     });
-  });
-  console.log(
-    errors === 0 ? picocolors.green("✔") : picocolors.red("✘"),
-    "ESlint complete",
-    valFiles.length,
-    "files"
-  );
+    console.log("Running eslint...");
+    eslintResults = await eslint.lintFiles(lintFiles);
+
+    eslintResultsByFile = eslintResults.reduce(
+      (acc, result) => ({
+        ...acc,
+        [result.filePath.replaceAll(`${projectRoot}/`, "")]: result,
+      }),
+      {} as Record<string, ESLint.LintResult>
+    );
+    eslintResults.forEach((result) => {
+      result.messages.forEach(async (m) => {
+        if (m.messageId === "val/export-content-must-be-valid") {
+          errors += 1;
+          logEslintMessage(
+            await fs.readFile(result.filePath, "utf-8"),
+            result.filePath,
+            m
+          );
+        }
+      });
+    });
+    console.log(
+      errors === 0 ? picocolors.green("✔") : picocolors.red("✘"),
+      "ESlint complete",
+      lintFiles.length,
+      "files"
+    );
+  }
   console.log("Validating...", valFiles.length, "files");
 
   async function validateFile(file: string): Promise<number> {
