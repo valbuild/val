@@ -792,7 +792,7 @@ function ValList({
 }): React.ReactElement {
   const navigate = useNavigate();
   return (
-    <div key={path} className="flex flex-col gap-4 p-2 pb-8">
+    <FieldContainer key={path} className="flex flex-col gap-4 p-2 pb-8">
       {source.map((item, index) => {
         const subPath = createValPathOfItem(path, index);
         return (
@@ -813,7 +813,7 @@ function ValList({
           </button>
         );
       })}
-    </div>
+    </FieldContainer>
   );
 }
 
