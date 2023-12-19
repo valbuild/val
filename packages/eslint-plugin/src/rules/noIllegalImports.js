@@ -30,11 +30,19 @@ export default {
           !importSource.match(/^@valbuild/) &&
           !importSource.match(/val\.config(\.ts|\.js|)$/)
         ) {
-          const message = `Val: import source should be a .val.ts file, a @valbuild package, or val.config.ts. Found: '${importSource}'`;
-          context.report({
-            node: node.source,
-            message,
-          });
+          if (
+            "importKind" in node &&
+            node["importKind"] !== "type" &&
+            !node.specifiers.every(
+              (s) => "importKind" in s && s["importKind"] === "type"
+            )
+          ) {
+            const message = `Val: can only 'import type' or import from source that is either: a .val.{j,t}s file, a @valbuild package, or val.config.{j,t}s.`;
+            context.report({
+              node: node.source,
+              message,
+            });
+          }
         }
       },
     };
