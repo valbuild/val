@@ -17,6 +17,7 @@ async function main(): Promise<void> {
         --root [root], -r [root] Set project root directory (default process.cwd())
         --cfg  [cfg],  -c [cfg]  Set path to config relative to root (default ./val.config)
         --fix  [fix]             Attempt to fix validation errors
+        --noEslint [noEslint]    Disable eslint validation
     `,
     {
       flags: {
@@ -34,6 +35,9 @@ async function main(): Promise<void> {
           alias: "c",
         },
         fix: {
+          type: "boolean",
+        },
+        noEslint: {
           type: "boolean",
         },
       },
@@ -57,6 +61,7 @@ async function main(): Promise<void> {
         root: flags.root,
         cfg: flags.cfg,
         fix: flags.fix,
+        noEslint: flags.noEslint,
       });
     default:
       return error(`Unknown command "${input.join(" ")}"`);
