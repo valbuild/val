@@ -9,8 +9,7 @@ export default {
     type: "problem",
     docs: {
       description:
-        "Check that the first argument of export default declaration matches the string from val.config.ts file.",
-      category: "Best Practices",
+        "Check that the first argument of export default declaration matches the string from val.config.{j,t}s file.",
       recommended: true,
     },
     fixable: "code",

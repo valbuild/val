@@ -5,6 +5,7 @@ import { glob } from "fast-glob";
 import picocolors from "picocolors";
 import { ESLint } from "eslint";
 import fs from "fs/promises";
+import { error, log } from "console";
 
 export async function validate({
   root,
@@ -29,8 +30,13 @@ export async function validate({
     ignore: ["node_modules/**"],
     cwd: projectRoot,
   });
-  console.log(picocolors.green("✔"), "Validating", valFiles.length, "files");
-  const eslintResults = await eslint.lintFiles(valFiles);
+
+  const lintFiles = await glob("**/*.{js,ts}", {
+    ignore: ["node_modules/**"],
+    cwd: projectRoot,
+  });
+  console.log("Running eslint...");
+  const eslintResults = await eslint.lintFiles(lintFiles);
   const eslintResultsByFile = eslintResults.reduce(
     (acc, result) => ({
       ...acc,
@@ -38,6 +44,28 @@ export async function validate({
     }),
     {} as Record<string, ESLint.LintResult>
   );
+
+  let errors = 0;
+  eslintResults.forEach((result) => {
+    result.messages.forEach(async (m) => {
+      if (m.messageId === "val/export-content-must-be-valid") {
+        errors += 1;
+        logEslintMessage(
+          await fs.readFile(result.filePath, "utf-8"),
+          result.filePath,
+          m
+        );
+      }
+    });
+  });
+  console.log(
+    errors === 0 ? picocolors.green("✔") : picocolors.red("✘"),
+    "ESlint complete",
+    valFiles.length,
+    "files"
+  );
+  console.log("Validating...", valFiles.length, "files");
+
   async function validateFile(file: string): Promise<number> {
     const moduleId = `/${file}`.replace(/(\.val\.(ts|js))$/, "") as ModuleId; // TODO: check if this always works? (Windows?)
     const start = Date.now();
@@ -49,41 +77,13 @@ export async function validate({
     const eslintResult = eslintResultsByFile?.[file];
     eslintResult?.messages.forEach((m) => {
       // display surrounding code
-      const lines = fileContent.split("\n");
-      const line = lines[m.line - 1];
-      const lineBefore = lines[m.line - 2];
-      const lineAfter = lines[m.line];
-      const isError = m.severity >= 2;
-      console.log(
-        isError ? picocolors.red("✘") : picocolors.yellow("⚠"),
-        isError ? "Found eslint error:" : "Found eslint warning:",
-        `${moduleId}:${m.line}:${m.column}\n`,
-        m.message
-      );
-      lineBefore &&
-        console.log(picocolors.gray("  " + (m.line - 1) + " |"), lineBefore);
-      line && console.log(picocolors.gray("  " + m.line + " |"), line);
-      // adds ^ below the relevant line:
-      line &&
-        console.log(
-          picocolors.gray("  " + " ".repeat(m.line.toString().length) + " |"),
-          " ".repeat(m.column - 1) +
-            (m.endColumn
-              ? (isError ? picocolors.red("^") : picocolors.yellow("^")).repeat(
-                  m.endColumn - m.column - 1
-                )
-              : "")
-        );
-      lineAfter &&
-        console.log(picocolors.gray("  " + (m.line + 1) + " |"), lineAfter);
+      logEslintMessage(fileContent, moduleId, m);
     });
     if (!valModule.errors && eslintResult?.errorCount === 0) {
       console.log(
         picocolors.green("✔"),
         moduleId,
-        "is valid (",
-        Date.now() - start,
-        "ms)"
+        "is valid (" + (Date.now() - start) + "ms)"
       );
       return 0;
     } else {
@@ -147,16 +147,12 @@ export async function validate({
         console.log(
           picocolors.green("✔"),
           moduleId,
-          "is valid (",
-          Date.now() - start,
-          "ms)"
+          "is valid (" + (Date.now() - start) + "ms)"
         );
       }
       return errors;
     }
   }
-
-  let errors = 0;
   for (const file of valFiles) {
     errors += await validateFile(file);
   }
@@ -174,4 +170,52 @@ export async function validate({
 
   service.dispose();
   return;
+}
+
+function logEslintMessage(
+  fileContent: string,
+  filePath: string,
+  eslintMessage: ESLint.LintResult["messages"][number]
+) {
+  const lines = fileContent.split("\n");
+  const line = lines[eslintMessage.line - 1];
+  const lineBefore = lines[eslintMessage.line - 2];
+  const lineAfter = lines[eslintMessage.line];
+  const isError = eslintMessage.severity >= 2;
+  console.log(
+    isError ? picocolors.red("✘") : picocolors.yellow("⚠"),
+    isError ? "Found eslint error:" : "Found eslint warning:",
+    `${filePath}:${eslintMessage.line}:${eslintMessage.column}\n`,
+    eslintMessage.message
+  );
+  lineBefore &&
+    console.log(
+      picocolors.gray("  " + (eslintMessage.line - 1) + " |"),
+      lineBefore
+    );
+  line && console.log(picocolors.gray("  " + eslintMessage.line + " |"), line);
+  // adds ^ below the relevant line:
+  const amountOfColumns =
+    eslintMessage.endColumn &&
+    eslintMessage.endColumn - eslintMessage.column > 0
+      ? eslintMessage.endColumn - eslintMessage.column
+      : 1;
+
+  line &&
+    console.log(
+      picocolors.gray(
+        "  " + " ".repeat(eslintMessage.line.toString().length) + " |"
+      ),
+      " ".repeat(eslintMessage.column - 1) +
+        (eslintMessage.endColumn
+          ? (isError ? picocolors.red("^") : picocolors.yellow("^")).repeat(
+              amountOfColumns
+            )
+          : "")
+    );
+  lineAfter &&
+    console.log(
+      picocolors.gray("  " + (eslintMessage.line + 1) + " |"),
+      lineAfter
+    );
 }
