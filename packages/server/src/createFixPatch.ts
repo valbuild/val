@@ -95,7 +95,10 @@ export async function createFixPatch(
           currentValue.metadata.width === imageMetadata.width &&
           // height is correct
           "height" in currentValue.metadata &&
-          currentValue.metadata.height === imageMetadata.height;
+          currentValue.metadata.height === imageMetadata.height &&
+          // mimeType is correct
+          "mimeType" in currentValue.metadata &&
+          currentValue.metadata.mimeType === imageMetadata.mimeType;
 
         // skips if the metadata is already correct
         if (!metadataIsCorrect) {
@@ -164,6 +167,21 @@ export async function createFixPatch(
                   fixes: undefined,
                 });
               }
+              if (
+                !("mimeType" in currentValue.metadata) ||
+                currentValue.metadata.mimeType !== imageMetadata.mimeType
+              ) {
+                remainingErrors.push({
+                  message:
+                    "Image metadata mimeType is incorrect! Found: " +
+                    ("mimeType" in currentValue.metadata
+                      ? currentValue.metadata.mimeType
+                      : "<empty>") +
+                    ". Expected: " +
+                    imageMetadata.mimeType,
+                  fixes: undefined,
+                });
+              }
             } else {
               remainingErrors.push({
                 ...validationError,
@@ -181,6 +199,7 @@ export async function createFixPatch(
             width: imageMetadata.width,
             height: imageMetadata.height,
             sha256: imageMetadata.sha256,
+            mimeType: imageMetadata.mimeType,
           },
         });
       }
