@@ -7,12 +7,14 @@
  */
 
 import noIllegalModuleIds from "./rules/noIllegalModuleIds";
+import noIllegalImports from "./rules/noIllegalImports";
 
 /**
  * @type {Plugin["rules"]}
  */
 export let rules = {
   "no-illegal-module-ids": noIllegalModuleIds,
+  "no-illegal-imports": noIllegalImports,
 };
 
 /**

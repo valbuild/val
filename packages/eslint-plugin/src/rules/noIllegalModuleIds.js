@@ -92,7 +92,7 @@ export default {
               if (rawArg) {
                 context.report({
                   node: firstArg,
-                  message: `Val: val.content path should match the filename. Expected: '${expectedValue}'. Found: '${firstArg.value}'`,
+                  message: `Val: val.content id should match the filename. Expected: '${expectedValue}'. Found: '${firstArg.value}'`,
                   fix: (fixer) =>
                     fixer.replaceText(
                       firstArg,

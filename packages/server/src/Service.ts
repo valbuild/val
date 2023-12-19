@@ -110,6 +110,10 @@ export class Service {
                 validation: valModule.errors.validation || undefined,
                 fatal: valModule.errors.fatal || undefined,
               }
+            : valModule.errors
+            ? {
+                fatal: valModule.errors.fatal || undefined,
+              }
             : false,
       };
     } else {

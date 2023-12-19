@@ -86,7 +86,7 @@ globalThis.valModule = {
       } else {
         if (valModule.id !== id) {
           fatalErrors.push(
-            `Wrong val.content id! In the file of with: '${id}', found: '${valModule.id}'`
+            `Wrong val.content id! Expected: '${id}', found: '${valModule.id}'`
           );
         }
         if (
