@@ -77,15 +77,17 @@ globalThis.valModule = {
       const valModule = context
         .getProp(context.global, "valModule")
         .consume(context.dump);
-      if (!valModule) {
-        fatalErrors.push(`Could not find any modules at: ${id}`);
-      } else if (valModule.defaultExport) {
+      if (
+        // if one of these are set it is a Val module, so must validate
+        valModule?.id !== undefined ||
+        valModule?.schema !== undefined ||
+        valModule?.source !== undefined
+      ) {
         if (valModule.id !== id) {
           fatalErrors.push(
             `Wrong val.content id! Expected: '${id}', found: '${valModule.id}'`
           );
-        }
-        if (
+        } else if (
           encodeURIComponent(valModule.id).replace(/%2F/g, "/") !== valModule.id
         ) {
           fatalErrors.push(
@@ -95,11 +97,9 @@ globalThis.valModule = {
               valModule.id
             ).replace("%2F", "/")}'`
           );
-        }
-        if (!valModule?.schema) {
+        } else if (valModule?.schema === undefined) {
           fatalErrors.push(`Expected val id: '${id}' to have a schema`);
-        }
-        if (valModule?.source === undefined) {
+        } else if (valModule?.source === undefined) {
           fatalErrors.push(`Expected val id: '${id}' to have a source`);
         }
       }
