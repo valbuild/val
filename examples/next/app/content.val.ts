@@ -1,7 +1,7 @@
 import { InferSchemaType } from "@valbuild/next";
 import authorsVal from "../content/authors.val";
 import { s, val } from "../val.config";
-import { image } from "../schema/image.val";
+import image from "../schema/image.val";
 
 export const schema = s.object({
   /**
