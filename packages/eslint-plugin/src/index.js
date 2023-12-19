@@ -25,6 +25,20 @@ export let rules = {
 export const processors = {};
 
 /**
+ * @type {Plugin["configs"]}
+ */
+export const configs = {
+  recommended: {
+    plugins: ["@valbuild"],
+    rules: {
+      "@valbuild/no-illegal-module-ids": "error",
+      "@valbuild/no-illegal-imports": "error",
+      "@valbuild/export-content-must-be-valid": "error",
+    },
+  },
+};
+
+/**
  * @type {Plugin}
  */
-export default { rules, processors };
+export default { rules, processors, configs };

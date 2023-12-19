@@ -1,10 +1,6 @@
 {
-  "extends": "next/core-web-vitals",
-  "plugins": ["@valbuild"],
-  "rules": {
-    "@next/next/no-html-link-for-pages": 0,
-    "@valbuild/no-illegal-module-ids": 2,
-    "@valbuild/no-illegal-imports": 2,
-    "@valbuild/export-content-must-be-valid": 2
-  }
+  "extends": [
+    "next/core-web-vitals",
+    "plugin:@valbuild/recommended"
+  ]
 }
