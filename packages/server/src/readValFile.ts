@@ -79,11 +79,7 @@ globalThis.valModule = {
         .consume(context.dump);
       if (!valModule) {
         fatalErrors.push(`Could not find any modules at: ${id}`);
-      } else if (valModule.defaultExport === false) {
-        fatalErrors.push(
-          `Could not find a default export in: ${id}. Check if file has a export default val.content(...)`
-        );
-      } else {
+      } else if (valModule.defaultExport) {
         if (valModule.id !== id) {
           fatalErrors.push(
             `Wrong val.content id! Expected: '${id}', found: '${valModule.id}'`

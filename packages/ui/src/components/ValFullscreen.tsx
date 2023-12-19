@@ -232,6 +232,17 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
     []
   );
 
+  const allModuleIds = Object.entries(modules || {}).flatMap(
+    ([moduleId, valModule]) => {
+      if (valModule?.schema && valModule?.source) {
+        return [moduleId];
+      } else if (valModule?.errors) {
+        return [moduleId];
+      }
+      return [];
+    }
+  );
+
   return (
     <ValOverlayContext.Provider
       value={{
@@ -280,7 +291,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
                 {modules ? (
                   <PathTree
                     selectedPath={selectedPath}
-                    paths={Object.keys(modules)}
+                    paths={allModuleIds}
                     setSelectedModuleId={(path) => {
                       navigate(path);
                     }}
