@@ -1,4 +1,3 @@
-import { result } from "@valbuild/core/fp";
 import { useValOverlayContext } from "./ValOverlayContext";
 import { ModuleId, ValApi } from "@valbuild/core";
 import classNames from "classnames";
@@ -14,7 +13,6 @@ import {
   Sun,
 } from "lucide-react";
 import React, { useEffect, useState } from "react";
-import { ValPatches } from "./ValPatches";
 
 const className = "p-1 border rounded-full shadow border-accent";
 const PREV_URL_KEY = "valbuild:urlBeforeNavigation";
