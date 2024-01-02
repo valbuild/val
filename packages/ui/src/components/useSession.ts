@@ -18,6 +18,7 @@ export function useSession(api: ValApi) {
           setSession({ status: "success", data: Session.parse(session) });
         } else {
           if (res.error.statusCode === 401) {
+            console.error("Unauthorized", res.error);
             setSession({
               status: "success",
               data: {
