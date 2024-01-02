@@ -14,6 +14,7 @@ import {
   Sun,
 } from "lucide-react";
 import React, { useEffect, useState } from "react";
+import { ValPatches } from "./ValPatches";
 
 const className = "p-1 border rounded-full shadow border-accent";
 const PREV_URL_KEY = "valbuild:urlBeforeNavigation";
@@ -24,12 +25,12 @@ export function ValMenu({
   api,
   patches,
   direction,
-  onCommit,
+  onClickPatches,
 }: {
   api: ValApi;
   direction: MenuDirection;
   patches: Record<ModuleId, string[]>;
-  onCommit: () => void;
+  onClickPatches: () => void;
 }) {
   const { theme, setTheme, editMode, setEditMode, session } =
     useValOverlayContext();
@@ -56,7 +57,6 @@ export function ValMenu({
     );
   }
   const [patchCount, setPatchCount] = useState<number>();
-
   useEffect(() => {
     let patchCount = 0;
     for (const moduleId in patches) {
@@ -120,17 +120,7 @@ export function ValMenu({
           <MenuButton
             onClick={() => {
               if (patchCount > 0) {
-                api.postCommit({ patches }).then((res) => {
-                  if (result.isErr(res)) {
-                    console.error(res.error);
-                    alert("Could not commit patches: " + res.error.message);
-                  } else {
-                    console.log("Committed patches: ", res.value);
-                    onCommit();
-                  }
-                });
-              } else {
-                alert("No patches to commit");
+                onClickPatches();
               }
             }}
           >
