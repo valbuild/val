@@ -71,12 +71,12 @@ export class ProxyValServer implements ValServer {
               "Content-Type": fetchRes.headers.get("Content-Type") || "",
               "Content-Length": fetchRes.headers.get("Content-Length") || "0",
             },
-            body: fetchRes.body,
+            json: fetchRes.body,
           };
         } else {
           return {
             status: 500,
-            body: {
+            json: {
               message: "No body in response",
             },
           };
@@ -84,7 +84,7 @@ export class ProxyValServer implements ValServer {
       } else {
         return {
           status: fetchRes.status as ValServerErrorStatus,
-          body: {
+          json: {
             message: "Failed to get files",
           },
         };
@@ -276,7 +276,7 @@ export class ProxyValServer implements ValServer {
         console.error(`Failed while processing: ${errorMessageType}`, err);
         return {
           status: 500,
-          body: {
+          json: {
             message: err.message,
           },
         };
@@ -314,7 +314,7 @@ export class ProxyValServer implements ValServer {
       } else {
         return {
           status: fetchRes.status as ValServerErrorStatus,
-          body: {
+          json: {
             message: "Failed to get session",
           },
         };
@@ -333,7 +333,7 @@ export class ProxyValServer implements ValServer {
       if (!commit) {
         return {
           status: 400,
-          body: {
+          json: {
             message:
               "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
           },
@@ -383,7 +383,7 @@ export class ProxyValServer implements ValServer {
       } catch (err) {
         return {
           status: 500,
-          body: {
+          json: {
             message: "Failed to fetch: check network connection",
           },
         };
@@ -399,7 +399,7 @@ export class ProxyValServer implements ValServer {
       if (!commit) {
         return {
           status: 400,
-          body: {
+          json: {
             message:
               "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
           },
@@ -430,7 +430,7 @@ export class ProxyValServer implements ValServer {
       } else {
         return {
           status: fetchRes.status as ValServerErrorStatus,
-          body: {
+          json: {
             message: "Failed to get patches",
           },
         };
@@ -461,7 +461,7 @@ export class ProxyValServer implements ValServer {
       if (!patchJSON.success) {
         return {
           status: 400,
-          body: {
+          json: {
             message: "Invalid patch",
             details: patchJSON.error.issues,
           },
