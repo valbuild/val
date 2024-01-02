@@ -161,38 +161,35 @@ function SingleItemMenu({
   children: React.ReactNode[];
 }) {
   return (
-    <div
-      className={classNames(
-        "flex items-start justify-center w-full h-full font-sans border rounded-full gap-3 text-primary border-fill bg-gradient-to-br from-background/90 from-40% to-background backdrop-blur-lg drop-shadow-2xl",
-        {
-          "flex-col items-start": direction === "vertical",
-          "flex-row items-center": direction === "horizontal",
-        }
-      )}
-    >
+    <MenuContainer direction={direction} border={false}>
       <a className={className} href={href}>
         <div className="flex items-center justify-center px-2 gap-y-2">
           {children}
         </div>
       </a>
-    </div>
+    </MenuContainer>
   );
 }
 
 function MenuContainer({
   children,
   direction,
+  border = true,
 }: {
   children: React.ReactNode | React.ReactNode[];
   direction: MenuDirection;
+  border?: boolean;
 }) {
   return (
     <div
       className={classNames(
-        "flex justify-center w-full h-full px-2 py-2 font-sans border rounded-full gap-3 text-primary border-fill bg-gradient-to-br from-background/90 from-40% to-background backdrop-blur-lg drop-shadow-2xl",
+        "flex justify-center w-full h-full px-2 py-2 font-sans rounded-full gap-3 text-primary border-fill bg-gradient-to-br from-background/90 from-40% to-background backdrop-blur-lg drop-shadow-2xl",
         {
           "flex-col items-start": direction === "vertical",
           "flex-row items-center": direction === "horizontal",
+        },
+        {
+          border: border,
         }
       )}
     >
