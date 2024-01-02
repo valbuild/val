@@ -19,7 +19,6 @@ import { AnyVal } from "./ValFullscreen";
 import { InitOnSubmit } from "./ValFullscreen";
 import { useSession } from "./useSession";
 import { ValPatches } from "./ValPatches";
-import { set } from "date-fns";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
