@@ -315,7 +315,8 @@ export class ProxyValServer implements ValServer {
         return {
           status: fetchRes.status as ValServerErrorStatus,
           json: {
-            message: "Failed to get session",
+            message: "Failed to authorize",
+            ...(await fetchRes.json()),
           },
         };
       }
