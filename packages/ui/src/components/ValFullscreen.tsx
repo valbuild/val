@@ -55,6 +55,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
+import { ValPatches } from "./ValPatches";
 
 interface ValFullscreenProps {
   api: ValApi;
@@ -231,6 +232,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
     },
     []
   );
+  const [patchModalOpen, setPatchModalOpen] = useState(false);
 
   const allModuleIds = Object.entries(modules || {}).flatMap(
     ([moduleId, valModule]) => {
@@ -268,12 +270,26 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
         className="relative w-full h-[100] overflow-hidden font-serif antialiased bg-background text-primary"
         data-mode={theme}
       >
+        {patchModalOpen && (
+          <div className="fixed z-5 top-[16px] left-[16px] w-[calc(100%-32px-50px-16px)] h-[calc(100svh-32px)]">
+            <ValPatches
+              patches={patches}
+              api={api}
+              onCancel={() => {
+                setPatchModalOpen(false);
+              }}
+              onCommit={() => {
+                setPatchResetId((patchResetId) => patchResetId + 1);
+              }}
+            />
+          </div>
+        )}
         <div className="fixed -translate-y-1/2 right-4 top-1/2 z-overlay">
           <ValMenu
             direction="vertical"
             api={api}
             patches={patches}
-            onCommit={() => setPatchResetId((prev) => prev + 1)}
+            onClickPatches={() => setPatchModalOpen((prev) => !prev)}
           />
         </div>
         <div id="val-fullscreen-hover" ref={hoverElemRef}></div>

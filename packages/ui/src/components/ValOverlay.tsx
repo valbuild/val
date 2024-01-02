@@ -18,6 +18,8 @@ import { IValStore } from "../lib/IValStore";
 import { AnyVal } from "./ValFullscreen";
 import { InitOnSubmit } from "./ValFullscreen";
 import { useSession } from "./useSession";
+import { ValPatches } from "./ValPatches";
+import { set } from "date-fns";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -91,6 +93,7 @@ export function ValOverlay({
     },
     []
   );
+  const [patchModalOpen, setPatchModalOpen] = useState(false);
 
   return (
     <ValOverlayContext.Provider
@@ -117,14 +120,26 @@ export function ValOverlay({
           zIndex: 8999, // 1 less than the NextJS error z-index: 9000
         }}
       >
+        {patchModalOpen && (
+          <div className="fixed z-5 top-[16px] left-[16px] w-[calc(100%-32px-50px-16px)] h-[calc(100svh-32px)]">
+            <ValPatches
+              patches={patches}
+              api={api}
+              onCancel={() => {
+                setPatchModalOpen(false);
+              }}
+              onCommit={() => {
+                setPatchResetId((patchResetId) => patchResetId + 1);
+              }}
+            />
+          </div>
+        )}
         <div className="fixed -translate-y-1/2 right-4 top-1/2 z-overlay">
           <ValMenu
             direction="vertical"
             api={api}
             patches={patches}
-            onCommit={() => {
-              setPatchResetId((patchResetId) => patchResetId + 1);
-            }}
+            onClickPatches={() => setPatchModalOpen((prev) => !prev)}
           />
         </div>
         {session.status === "success" &&
