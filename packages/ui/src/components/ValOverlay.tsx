@@ -336,19 +336,40 @@ function useHoverTarget(editMode: EditMode) {
   const [targetRect, setTargetRect] = useState<DOMRect>();
   useEffect(() => {
     if (editMode === "hover" || editMode === "window") {
-      let curr: HTMLElement | null = null;
       const mouseOverListener = (e: MouseEvent) => {
+        let curr: HTMLElement | null = null;
         const target = e.target as HTMLElement | null;
+        const sourcePaths: string[] = [];
+        // <video> and <picture> elements have child <source> elements, but target is then the <video> / <picture> element
+        if (
+          target instanceof HTMLVideoElement ||
+          target instanceof HTMLPictureElement
+        ) {
+          for (const child of Array.from(target?.childNodes)) {
+            if (child instanceof HTMLElement && child.dataset.valPath) {
+              sourcePaths.push(child.dataset.valPath);
+            }
+          }
+          if (sourcePaths.length > 0) {
+            setTargetElement(target);
+            setTargetPath(sourcePaths.join(",") as SourcePath);
+            setTargetRect(target?.getBoundingClientRect());
+          }
+        }
+        let lastCurr: HTMLElement | null = null;
         curr = target;
         // TODO: use .contains?
         do {
           if (curr?.dataset.valPath) {
-            setTargetElement(curr);
-            setTargetPath(curr.dataset.valPath as SourcePath);
-            setTargetRect(curr.getBoundingClientRect());
-            break;
+            sourcePaths.push(curr.dataset.valPath);
+            lastCurr = curr;
           }
         } while ((curr = curr?.parentElement || null));
+        if (lastCurr && sourcePaths.length > 0) {
+          setTargetElement(lastCurr);
+          setTargetPath(sourcePaths.join(",") as SourcePath);
+          setTargetRect(lastCurr.getBoundingClientRect());
+        }
       };
       document.addEventListener("mouseover", mouseOverListener);
 
