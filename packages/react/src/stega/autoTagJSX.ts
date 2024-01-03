@@ -12,17 +12,38 @@ const isIntrinsicElement = (type: any) => {
 
 const addValPathIfFound = (type: any, props: any) => {
   const valSources: any = [];
+
+  function add(key: string, value: string) {
+    const valPath = stegaDecodeString(value);
+    const attr = `data-val-attr-${key.toLowerCase()}`;
+    if (valPath && !props[attr]) {
+      valSources.push(valPath);
+      props[key] = isIntrinsicElement(type)
+        ? vercelStegaSplit(value).cleaned
+        : value;
+      props[attr] = valPath;
+    }
+  }
   if (props && typeof props === "object") {
     for (const [key, value] of Object.entries(props)) {
       if (typeof value === "string" && value.match(VERCEL_STEGA_REGEX)) {
-        const valPath = stegaDecodeString(value);
-        const attr = `data-val-attr-${key.toLowerCase()}`;
-        if (valPath && !props[attr]) {
-          valSources.push(valPath);
-          props[key] = isIntrinsicElement(type)
-            ? vercelStegaSplit(value).cleaned
-            : value;
-          props[attr] = valPath;
+        add(key, value);
+      } else if (typeof value === "object" && value !== null) {
+        if (key === "style") {
+          for (const [styleKey, styleValue] of Object.entries(value)) {
+            if (
+              typeof styleValue === "string" &&
+              styleValue.match(VERCEL_STEGA_REGEX)
+            ) {
+              add(styleKey, styleValue);
+            }
+          }
+        } else if (value instanceof Array) {
+          for (const [index, item] of Object.entries(value)) {
+            if (typeof item === "string" && item.match(VERCEL_STEGA_REGEX)) {
+              add(`${key.toLowerCase()}-${index}`, item);
+            }
+          }
         }
       }
     }
