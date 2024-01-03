@@ -113,7 +113,7 @@ export async function validate({
                 if (fix && fixPatch?.patch && fixPatch?.patch.length > 0) {
                   await service.patch(moduleId, fixPatch.patch);
                   console.log(
-                    picocolors.green("✔"),
+                    picocolors.yellow("⚠"),
                     "Applied fix for",
                     sourcePath
                   );

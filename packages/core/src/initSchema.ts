@@ -10,6 +10,7 @@ import { image } from "./schema/image";
 import { literal } from "./schema/literal";
 import { keyOf } from "./schema/keyOf";
 import { record } from "./schema/record";
+import { file } from "./schema/file";
 // import { i18n, I18n } from "./schema/future/i18n";
 // import { oneOf } from "./schema/future/oneOf";
 
@@ -26,6 +27,7 @@ export type InitSchema = {
   readonly literal: typeof literal;
   readonly keyOf: typeof keyOf;
   readonly record: typeof record;
+  readonly file: typeof file;
 };
 // export type InitSchemaLocalized<Locales extends readonly string[]> = {
 //   readonly i18n: I18n<Locales>;
@@ -45,6 +47,7 @@ export function initSchema() {
     literal,
     keyOf,
     record,
+    file,
     // i18n: i18n(locales),
   };
 }

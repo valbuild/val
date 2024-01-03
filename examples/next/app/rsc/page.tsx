@@ -18,6 +18,11 @@ export default function Home() {
         {<h1 className="h1">{page.hero.title}</h1>}
       </section>
       <section>
+        <video autoPlay muted>
+          <source src={page.video.url} type={page.video.metadata?.mimeType} />
+        </video>
+      </section>
+      <section>
         {page.text && ( // text is optional
           <ValRichText
             theme={{

@@ -34,6 +34,7 @@ export const schema = s.object({
    * Reference to other content:
    */
   author: s.keyOf(authorsVal),
+  video: s.file(),
   /**
    * Objects:
    */
@@ -46,16 +47,19 @@ export const schema = s.object({
 export type Content = InferSchemaType<typeof schema>;
 export type Image = InferSchemaType<typeof image>;
 export default val.content("/app/content", schema, {
+  video: val.file("/public/file_example.webm", {
+    sha256: "9bb98735d0430e5a825173cb7db5e4d5aee32c1c283c3db90f1c9c532f73505e",
+    mimeType: "video/webm",
+  }),
   hero: {
     title: "Content as code",
     image: {
       data: val.file("/public/logo_e211b.png", {
-        sha256:
-          "e211ba37284a7ed660ecbf4d80c6f9778ddf7a32664353a8ceeec0f33cf2130f",
         width: 944,
         height: 944,
+        sha256:
+          "e211ba37284a7ed660ecbf4d80c6f9778ddf7a32664353a8ceeec0f33cf2130f",
         mimeType: "image/png",
-        hotspot: { x: 0.5, y: 0.5, width: 1, height: 1 },
       }),
       alt: "Val logo",
     },
