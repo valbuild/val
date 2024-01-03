@@ -1,5 +1,115 @@
 import { Json } from "../Json";
 import { FILE_REF_PROP, FileSource } from "../source/file";
+/* eslint-disable @typescript-eslint/no-unused-vars */
+import { Schema, SerializedSchema } from ".";
+import { VAL_EXTENSION } from "../source";
+import { SourcePath } from "../val";
+import { ValidationErrors } from "./validation/ValidationError";
+
+export type FileOptions = Record<string, never>;
+
+export type SerializedFileSchema = {
+  type: "file";
+  options?: FileOptions;
+  opt: boolean;
+};
+
+export type FileMetadata = {
+  sha256: string;
+  mimeType?: string;
+};
+export class FileSchema<
+  Src extends FileSource<FileMetadata | undefined> | null
+> extends Schema<Src> {
+  constructor(readonly options?: FileOptions, readonly opt: boolean = false) {
+    super();
+  }
+
+  validate(path: SourcePath, src: Src): ValidationErrors {
+    if (this.opt && (src === null || src === undefined)) {
+      return false;
+    }
+    if (src === null || src === undefined) {
+      return {
+        [path]: [
+          {
+            message: `Non-optional file was null or undefined.`,
+            value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
+    if (typeof src[FILE_REF_PROP] !== "string") {
+      return {
+        [path]: [
+          {
+            message: `File did not have a file reference string. Got: ${typeof src[
+              FILE_REF_PROP
+            ]}`,
+            value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
+
+    if (src[VAL_EXTENSION] !== "file") {
+      return {
+        [path]: [
+          {
+            message: `File did not have the valid file extension type. Got: ${src[VAL_EXTENSION]}`,
+            value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
+    if (src.metadata) {
+      return {
+        [path]: [
+          {
+            message: `Found metadata, but it could not be validated. File metadata must be an object with the required props: width (positive number), height (positive number) and sha256 (string of length 64 of the base16 hash).`, // These validation errors will have to be picked up by logic outside of this package and revalidated. Reasons: 1) we have to read files to verify the metadata, which is handled differently in different runtimes (Browser, QuickJS, Node.js); 2) we want to keep this package dependency free.
+            value: src,
+            fixes: ["file:check-metadata"],
+          },
+        ],
+      } as ValidationErrors;
+    }
+
+    return {
+      [path]: [
+        {
+          message: `Missing File metadata.`,
+          value: src,
+          fixes: ["file:add-metadata"],
+        },
+      ],
+    } as ValidationErrors;
+  }
+
+  assert(src: Src): boolean {
+    if (this.opt && (src === null || src === undefined)) {
+      return true;
+    }
+    return src?.[FILE_REF_PROP] === "file" && src?.[VAL_EXTENSION] === "file";
+  }
+
+  optional(): Schema<Src | null> {
+    return new FileSchema<Src | null>(this.options, true);
+  }
+
+  serialize(): SerializedSchema {
+    return {
+      type: "file",
+      options: this.options,
+      opt: this.opt,
+    };
+  }
+}
+
+export const file = (
+  options?: FileOptions
+): Schema<FileSource<FileMetadata>> => {
+  return new FileSchema(options);
+};
 
 export function convertFileSource<
   Metadata extends { readonly [key: string]: Json } | undefined =
@@ -9,7 +119,9 @@ export function convertFileSource<
   // TODO: /public should be configurable
   if (!src[FILE_REF_PROP].startsWith("/public")) {
     return {
-      url: src[FILE_REF_PROP] + `?sha256=${src.metadata?.sha256}`,
+      url:
+        src[FILE_REF_PROP] +
+        (src.metadata?.sha256 ? `?sha256=${src.metadata?.sha256}` : ""),
       metadata: src.metadata,
     };
   }
@@ -17,7 +129,7 @@ export function convertFileSource<
   return {
     url:
       src[FILE_REF_PROP].slice("/public".length) +
-      `?sha256=${src.metadata?.sha256}`,
+      (src.metadata?.sha256 ? `?sha256=${src.metadata?.sha256}` : ""),
     metadata: src.metadata,
   };
 }

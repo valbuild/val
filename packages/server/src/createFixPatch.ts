@@ -1,5 +1,6 @@
 import {
   FILE_REF_PROP,
+  FileMetadata,
   ImageMetadata,
   Internal,
   SourcePath,
@@ -11,7 +12,7 @@ import path from "path";
 import fs from "fs";
 import {
   filenameToMimeType,
-  imageTypeToMimeType,
+  MIME_TYPES_TO_EXT,
 } from "@valbuild/shared/internal";
 
 // TODO: find a better name? transformFixesToPatch?
@@ -38,10 +39,17 @@ export async function createFixPatch(
     const filename = path.join(config.projectRoot, maybeRef);
     const buffer = fs.readFileSync(filename);
     const imageSize = sizeOf(buffer);
-    const mimeType = imageSize.type
-      ? imageTypeToMimeType(imageSize.type)
-      : filenameToMimeType(filename);
-
+    let mimeType: string | null = null;
+    if (imageSize.type) {
+      const possibleMimeType = `image/${imageSize.type}`;
+      if (MIME_TYPES_TO_EXT[possibleMimeType]) {
+        mimeType = possibleMimeType;
+      }
+      const filenameBasedLookup = filenameToMimeType(filename);
+      if (filenameBasedLookup) {
+        mimeType = filenameBasedLookup;
+      }
+    }
     if (!mimeType) {
       throw Error("Cannot determine mimetype of image");
     }
@@ -59,6 +67,36 @@ export async function createFixPatch(
     return {
       width,
       height,
+      sha256,
+      mimeType,
+    };
+  }
+  async function getFileMetadata(): Promise<FileMetadata> {
+    const maybeRef =
+      validationError.value &&
+      typeof validationError.value === "object" &&
+      FILE_REF_PROP in validationError.value &&
+      typeof validationError.value[FILE_REF_PROP] === "string"
+        ? validationError.value[FILE_REF_PROP]
+        : undefined;
+
+    if (!maybeRef) {
+      // TODO:
+      throw Error("Cannot fix image without a file reference");
+    }
+    const filename = path.join(config.projectRoot, maybeRef);
+    const buffer = fs.readFileSync(filename);
+    let mimeType = filenameToMimeType(filename);
+    if (!mimeType) {
+      mimeType = "application/octet-stream";
+    }
+    const sha256 = Internal.getSHA256Hash(
+      textEncoder.encode(
+        // TODO: we should probably store the mimetype in the metadata and reuse it here
+        `data:${mimeType};base64,${buffer.toString("base64")}`
+      )
+    );
+    return {
       sha256,
       mimeType,
     };
@@ -200,6 +238,103 @@ export async function createFixPatch(
             height: imageMetadata.height,
             sha256: imageMetadata.sha256,
             mimeType: imageMetadata.mimeType,
+          },
+        });
+      }
+    } else if (fix === "file:add-metadata" || fix === "file:check-metadata") {
+      const fileMetadata = await getFileMetadata();
+      if (fileMetadata.sha256 === undefined) {
+        remainingErrors.push({
+          ...validationError,
+          message: "Failed to get image metadata",
+          fixes: undefined,
+        });
+      } else if (fix === "file:check-metadata") {
+        const currentValue = validationError.value;
+        const metadataIsCorrect =
+          // metadata is a prop that is an object
+          typeof currentValue === "object" &&
+          currentValue &&
+          "metadata" in currentValue &&
+          currentValue.metadata &&
+          typeof currentValue.metadata === "object" &&
+          // sha256 is correct
+          "sha256" in currentValue.metadata &&
+          currentValue.metadata.sha256 === fileMetadata.sha256 &&
+          // mimeType is correct
+          "mimeType" in currentValue.metadata &&
+          currentValue.metadata.mimeType === fileMetadata.mimeType;
+
+        // skips if the metadata is already correct
+        if (!metadataIsCorrect) {
+          if (apply) {
+            patch.push({
+              op: "replace",
+              path: sourceToPatchPath(sourcePath).concat("metadata"),
+              value: {
+                sha256: fileMetadata.sha256,
+                ...(fileMetadata.mimeType
+                  ? { mimeType: fileMetadata.mimeType }
+                  : {}),
+              },
+            });
+          } else {
+            if (
+              typeof currentValue === "object" &&
+              currentValue &&
+              "metadata" in currentValue &&
+              currentValue.metadata &&
+              typeof currentValue.metadata === "object"
+            ) {
+              if (
+                !("sha256" in currentValue.metadata) ||
+                currentValue.metadata.sha256 !== fileMetadata.sha256
+              ) {
+                remainingErrors.push({
+                  message:
+                    "File metadata sha256 is incorrect! Found: " +
+                    ("sha256" in currentValue.metadata
+                      ? currentValue.metadata.sha256
+                      : "<empty>") +
+                    ". Expected: " +
+                    fileMetadata.sha256 +
+                    ".",
+                  fixes: undefined,
+                });
+              }
+              if (
+                !("mimeType" in currentValue.metadata) ||
+                currentValue.metadata.mimeType !== fileMetadata.mimeType
+              ) {
+                remainingErrors.push({
+                  message:
+                    "File metadata mimeType is incorrect! Found: " +
+                    ("mimeType" in currentValue.metadata
+                      ? currentValue.metadata.mimeType
+                      : "<empty>") +
+                    ". Expected: " +
+                    fileMetadata.mimeType,
+                  fixes: undefined,
+                });
+              }
+            } else {
+              remainingErrors.push({
+                ...validationError,
+                message: "Image metadata is not an object!",
+                fixes: undefined,
+              });
+            }
+          }
+        }
+      } else if (fix === "file:add-metadata") {
+        patch.push({
+          op: "add",
+          path: sourceToPatchPath(sourcePath).concat("metadata"),
+          value: {
+            sha256: fileMetadata.sha256,
+            ...(fileMetadata.mimeType
+              ? { mimeType: fileMetadata.mimeType }
+              : {}),
           },
         });
       }

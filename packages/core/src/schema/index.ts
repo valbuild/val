@@ -3,6 +3,7 @@ import { SelectorSource } from "../selector";
 import { SourcePath } from "../val";
 import { SerializedArraySchema } from "./array";
 import { SerializedBooleanSchema } from "./boolean";
+import { SerializedFileSchema } from "./file";
 import { SerializedImageSchema } from "./image";
 import { SerializedKeyOfSchema } from "./keyOf";
 import { SerializedLiteralSchema } from "./literal";
@@ -29,6 +30,7 @@ export type SerializedSchema =
   | SerializedRichTextSchema
   | SerializedRecordSchema
   | SerializedKeyOfSchema
+  | SerializedFileSchema
   | SerializedImageSchema;
 
 export abstract class Schema<Src extends SelectorSource> {

@@ -2,6 +2,7 @@ export { initVal } from "./initVal";
 export type { InitVal, ValConfig, ValConstructor } from "./initVal";
 export { Schema, type SerializedSchema, type SelectorOfSchema } from "./schema";
 export type { ImageMetadata } from "./schema/image";
+export type { FileMetadata } from "./schema/file";
 export type { LinkSource } from "./source/link";
 export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
@@ -71,6 +72,7 @@ export { type SerializedStringSchema, StringSchema } from "./schema/string";
 export { type SerializedNumberSchema, NumberSchema } from "./schema/number";
 export { type SerializedBooleanSchema, BooleanSchema } from "./schema/boolean";
 export { type SerializedImageSchema, ImageSchema } from "./schema/image";
+export { type SerializedFileSchema, FileSchema } from "./schema/file";
 export {
   type SerializedRichTextSchema,
   RichTextSchema,
