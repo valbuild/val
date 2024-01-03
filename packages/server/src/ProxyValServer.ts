@@ -170,7 +170,9 @@ export class ProxyValServer implements ValServer {
   async callback(
     query: { code?: string; state?: string },
     cookies: ValCookies<"val_state">
-  ): Promise<ValServerRedirectResult<"val_state" | "val_session">> {
+  ): Promise<
+    ValServerRedirectResult<"val_state" | "val_session" | "val_enable">
+  > {
     const { success: callbackReqSuccess, error: callbackReqError } =
       verifyCallbackReq(cookies[VAL_STATE_COOKIE], query);
 
@@ -215,6 +217,7 @@ export class ProxyValServer implements ValServer {
         [VAL_STATE_COOKIE]: {
           value: null,
         },
+        [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
         [VAL_SESSION_COOKIE]: {
           value: cookie,
           options: {

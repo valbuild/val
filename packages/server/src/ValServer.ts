@@ -57,7 +57,11 @@ export interface ValServer {
   callback(
     query: { code?: string; state?: string },
     cookies: ValCookies<VAL_STATE_COOKIE>
-  ): Promise<ValServerRedirectResult<VAL_STATE_COOKIE | VAL_SESSION_COOKIE>>;
+  ): Promise<
+    ValServerRedirectResult<
+      VAL_STATE_COOKIE | VAL_SESSION_COOKIE | VAL_ENABLE_COOKIE_NAME
+    >
+  >;
   enable(query: {
     redirect_to?: string;
   }): Promise<ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>>;
@@ -84,7 +88,6 @@ export interface ValServer {
   ): Promise<ValServerJsonResult<ApiPostPatchResponse>>;
   postCommit(
     body: unknown,
-
     cookies: ValCookies<VAL_SESSION_COOKIE>
     // eslint-disable-next-line @typescript-eslint/ban-types
   ): Promise<ValServerJsonResult<{}>>; // TODO: add body type here
