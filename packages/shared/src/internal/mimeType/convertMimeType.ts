@@ -4,8 +4,8 @@ const MIME_TYPE_REGEX = /^data:(.*?);base64,/;
 
 export function getMimeType(base64Url: string): string | undefined {
   const match = MIME_TYPE_REGEX.exec(base64Url);
-  if (match && match[0]) {
-    return match[0];
+  if (match && match[1]) {
+    return match[1];
   }
   return;
 }
