@@ -295,20 +295,26 @@ function ValHover({
   useEffect(() => {
     if (hoverTarget.path) {
       const clickListener = (ev: MouseEvent) => {
-        setWindowTarget({
-          ...hoverTarget,
-          path: hoverTarget.path as SourcePath,
-          mouse: { x: ev.pageX, y: ev.pageY },
-        });
+        if (
+          ev.target &&
+          ev.target instanceof HTMLElement &&
+          ev.target.id !== "val-ui"
+        )
+          setWindowTarget({
+            ...hoverTarget,
+            path: hoverTarget.path as SourcePath,
+            mouse: { x: ev.pageX, y: ev.pageY },
+          });
         setEditMode("window");
         setHoverTarget(null);
+        ev.stopPropagation();
       };
       const prevCursor = document.body.style.cursor;
       document.body.style.cursor = "pointer";
-      document.addEventListener("click", clickListener);
+      document.body.addEventListener("click", clickListener);
       return () => {
         document.body.style.cursor = prevCursor;
-        document.removeEventListener("click", clickListener);
+        document.body.removeEventListener("click", clickListener);
       };
     }
   }, [hoverTarget]);
