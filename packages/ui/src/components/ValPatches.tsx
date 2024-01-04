@@ -1,8 +1,10 @@
 import { ModuleId, ValApi } from "@valbuild/core";
-import { Diff, X } from "lucide-react";
+import { ChevronDown, Diff, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { result } from "@valbuild/core/fp";
 import { useEffect, useState } from "react";
+import { Accordion, AccordionContent } from "./ui/accordion";
+import { AccordionItem, AccordionTrigger } from "@radix-ui/react-accordion";
 
 export function ValPatches({
   api,
@@ -36,15 +38,44 @@ export function ValPatches({
         <h1 className="block font-sans text-xl font-bold">Review changes</h1>
         <ul>
           {Object.entries(patchIdsByModule).map(([moduleId, patchIds]) => (
-            <li
-              key={moduleId}
-              className="grid grid-cols-[1fr_min-content] gap-x-2"
-            >
-              <span>{moduleId}</span>
-              <span className="flex">
-                <Diff size={14} />
-                {patchIds.length}
-              </span>
+            <li key={moduleId}>
+              <Accordion type="single" collapsible>
+                <AccordionItem value={moduleId}>
+                  <AccordionTrigger className="grid grid-cols-[1fr_min-content] gap-x-2">
+                    <span>{moduleId}</span>
+                    <span className="flex">
+                      <Diff size={14} />
+                      <span>{patchIds.length}</span>
+                      <span>
+                        <ChevronDown size={14} />
+                      </span>
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <Accordion type="multiple">
+                      {patchIds.map((patchId) => (
+                        <AccordionItem value={patchId}>
+                          <AccordionTrigger>
+                            <div className="flex items-center gap-x-5">
+                              <span>Changed by: John Smith</span>
+                              <span>Changed at: 2024-01-04 13:25:00</span>
+                              <img
+                                className="h-[14px] w-[14px]"
+                                src="https://randomuser.me/api/portraits/men/3.jpg"
+                              ></img>
+                              <X size={14} />
+                              <ChevronDown size={14} />
+                            </div>
+                          </AccordionTrigger>
+                          <AccordionContent>
+                            <div>Changed to: "Foo bar"</div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      ))}
+                    </Accordion>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </li>
           ))}
         </ul>
