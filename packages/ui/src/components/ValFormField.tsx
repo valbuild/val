@@ -1,6 +1,7 @@
 import {
   AnyRichTextOptions,
   FILE_REF_PROP,
+  FileMetadata,
   ImageMetadata,
   ImageSource,
   Internal,
@@ -15,7 +16,7 @@ import {
 } from "@valbuild/core";
 import type { PatchJSON } from "@valbuild/core/patch";
 import { LexicalEditor, TextNode } from "lexical";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, ChangeEvent } from "react";
 import { getMimeType, mimeTypeToFileExt } from "@valbuild/shared/internal";
 import { RichTextEditor } from "../exports";
 import { lexicalToRichTextSource } from "@valbuild/shared/internal";
@@ -36,6 +37,7 @@ import { LinkNode } from "@lexical/link";
 import { ImageNode } from "./RichTextEditor/Nodes/ImageNode";
 import { useValOverlayContext } from "./ValOverlayContext";
 import classNames from "classnames";
+import { File } from "lucide-react";
 
 export type OnSubmit = (callback: PatchCallback) => Promise<void>;
 
@@ -152,6 +154,21 @@ export function ValFormField({
       />
     );
   }
+
+  if (
+    (typeof source === "object" || source === null) &&
+    schema?.type === "file"
+  ) {
+    return (
+      <FileField
+        path={path}
+        registerPatchCallback={registerPatchCallback}
+        onSubmit={onSubmit}
+        defaultValue={source as ImageSource}
+      />
+    );
+  }
+
   return (
     <div>
       Unsupported schema: {schema.type} (source type: {typeof source} source:{" "}
@@ -160,11 +177,11 @@ export function ValFormField({
   );
 }
 
-export function createImagePatch(
+export function createFilePatch(
   path: string,
   data: string | null,
   filename: string | null,
-  metadata: ImageMetadata | undefined
+  metadata: FileMetadata | ImageMetadata | undefined
 ): PatchJSON {
   if (!data || !metadata) {
     return [];
@@ -208,9 +225,9 @@ export function createImagePatch(
   ];
 }
 
-export function createImageMetadataPatch(
+export function createFileMetadataPatch(
   path: string,
-  metadata: ImageMetadata
+  metadata: ImageMetadata | FileMetadata
 ): PatchJSON {
   const metadataPath = path + "/metadata";
   return [
@@ -220,6 +237,183 @@ export function createImageMetadataPatch(
       path: metadataPath,
     },
   ];
+}
+
+const textEncoder = new TextEncoder();
+
+export function readFile(ev: ChangeEvent<HTMLInputElement>) {
+  return new Promise<{
+    src: string;
+    sha256: string;
+    mimeType?: string;
+    fileExt?: string;
+    filename?: string;
+  }>((resolve, reject) => {
+    const file = ev.currentTarget.files?.[0];
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        const sha256 = Internal.getSHA256Hash(textEncoder.encode(result));
+        const mimeType = getMimeType(result);
+        resolve({
+          src: result,
+          filename: file?.name,
+          sha256,
+          mimeType,
+          fileExt: mimeType && mimeTypeToFileExt(mimeType),
+        });
+      } else if (!result) {
+        reject({ message: "Empty result" });
+      } else {
+        reject({ message: "Unexpected file result type", result });
+      }
+    });
+    if (file) {
+      reader.readAsDataURL(file);
+    }
+  });
+}
+function FileField({
+  path,
+  defaultValue,
+  onSubmit,
+  registerPatchCallback,
+}: {
+  path: string;
+  onSubmit?: OnSubmit;
+  registerPatchCallback?: (callback: PatchCallback) => void;
+  defaultValue?: ImageSource;
+}) {
+  const [data, setData] = useState<{ filename?: string; src: string } | null>(
+    null
+  );
+  const [loading, setLoading] = useState(false);
+  const [metadata, setMetadata] = useState<FileMetadata>();
+  const [url, setUrl] = useState<string>();
+  useEffect(() => {
+    const url = defaultValue && Internal.convertFileSource(defaultValue).url;
+    setUrl(url);
+    // TODO: get filename
+    // const filename = url
+    //   ?.split("/")
+    //   .pop()
+    //   ?.slice(
+    //     0,
+    //     -(metadata?.sha256
+    //       ? metadata.sha256.length + "?sha256=".length
+    //       : url.length)
+    //   );
+    // console.log("url", url, "filename", filename);
+    // if (filename && data) {
+    //   setData({ ...data, filename });
+    // }
+  }, [defaultValue]);
+
+  useEffect(() => {
+    if (registerPatchCallback) {
+      registerPatchCallback(async (path) => {
+        return createFilePatch(
+          path,
+          data?.src ?? null,
+          data?.filename ?? null,
+          metadata
+        );
+      });
+    }
+  }, [data, defaultValue]);
+
+  return (
+    <FieldContainer>
+      <div className="w-fit">
+        <div
+          className="flex flex-col justify-start p-2 border border-b-0 rounded-sm rounded-b-none gap-y-4 bg-background text-foreground border-input"
+          key={path}
+        >
+          {data || url ? (
+            <div className="relative flex flex-col justify-center items-center min-h-[100px] min-w-[200px]">
+              <div>
+                <File />
+              </div>
+              <div>{data?.filename}</div>
+            </div>
+          ) : (
+            <div>Select file below</div>
+          )}
+        </div>
+        <div className="p-4 border border-t-0 rounded-b-sm bg-background border-input">
+          <label
+            htmlFor={`img_input:${path}`}
+            className="block px-1 py-2 text-sm text-center rounded-md cursor-pointer bg-primary text-background"
+          >
+            Update
+          </label>
+          <input
+            hidden
+            id={`img_input:${path}`}
+            type="file"
+            onChange={(ev) => {
+              readFile(ev)
+                .then((res) => {
+                  setData({ src: res.src, filename: res.filename });
+                  if (res.mimeType) {
+                    setMetadata({
+                      sha256: res.sha256,
+                      mimeType: res.mimeType,
+                    });
+                  } else {
+                    setMetadata(undefined);
+                  }
+                })
+                .catch((err) => {
+                  console.error(err.message);
+                  setData(null);
+                  setMetadata(undefined);
+                });
+            }}
+          />
+        </div>
+      </div>
+      {onSubmit && (
+        <SubmitButton
+          loading={loading}
+          enabled={
+            !!data ||
+            defaultValue?.metadata?.mimeType !== metadata?.mimeType ||
+            defaultValue?.metadata?.sha256 !== metadata?.sha256
+          }
+          onClick={() => {
+            if (data) {
+              setLoading(true);
+              onSubmit((path) =>
+                Promise.resolve(
+                  createFilePatch(
+                    path,
+                    data.src,
+                    data.filename ?? null,
+                    metadata
+                  )
+                )
+              ).finally(() => {
+                setLoading(false);
+                setData(null);
+                setMetadata(undefined);
+              });
+            } else if (metadata) {
+              setLoading(true);
+              onSubmit((path) =>
+                Promise.resolve(createFileMetadataPatch(path, metadata))
+              ).finally(() => {
+                setLoading(false);
+                setData(null);
+                setMetadata(undefined);
+              });
+            }
+          }}
+        />
+      )}
+    </FieldContainer>
+  );
 }
 
 function ImageField({
@@ -252,7 +446,7 @@ function ImageField({
   useEffect(() => {
     if (registerPatchCallback) {
       registerPatchCallback(async (path) => {
-        return createImagePatch(
+        return createFilePatch(
           path,
           data?.src ?? null,
           data?.filename ?? null,
@@ -387,7 +581,7 @@ function ImageField({
               setLoading(true);
               onSubmit((path) =>
                 Promise.resolve(
-                  createImagePatch(
+                  createFilePatch(
                     path,
                     data.src,
                     data.filename ?? null,
@@ -402,7 +596,7 @@ function ImageField({
             } else if (metadata) {
               setLoading(true);
               onSubmit((path) =>
-                Promise.resolve(createImageMetadataPatch(path, metadata))
+                Promise.resolve(createFileMetadataPatch(path, metadata))
               ).finally(() => {
                 setLoading(false);
                 setData(null);
