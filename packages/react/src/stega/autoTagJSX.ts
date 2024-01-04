@@ -13,21 +13,35 @@ const isIntrinsicElement = (type: any) => {
 const addValPathIfFound = (type: any, props: any) => {
   const valSources: any = [];
 
-  function add(key: string, value: string) {
+  function add(
+    key: string | number,
+    value: string,
+    props: Record<string, unknown>,
+    container: Record<string, unknown> | Array<unknown>
+  ) {
     const valPath = stegaDecodeString(value);
-    const attr = `data-val-attr-${key.toLowerCase()}`;
+    const attr = `data-val-attr-${key.toString().toLowerCase()}`;
     if (valPath && !props[attr]) {
       valSources.push(valPath);
-      props[key] = isIntrinsicElement(type)
+      const cleanValue = isIntrinsicElement(type)
         ? vercelStegaSplit(value).cleaned
         : value;
+      if (Array.isArray(container) && typeof key === "number") {
+        container[key] = cleanValue;
+      } else if (typeof key === "string" && !Array.isArray(container)) {
+        container[key] = cleanValue;
+      } else {
+        console.error(
+          "Val: Could not auto tag. Reason: unexpected types found while cleaning and / or adding val path data props."
+        );
+      }
       props[attr] = valPath;
     }
   }
   if (props && typeof props === "object") {
     for (const [key, value] of Object.entries(props)) {
       if (typeof value === "string" && value.match(VERCEL_STEGA_REGEX)) {
-        add(key, value);
+        add(key, value, props, props);
       } else if (typeof value === "object" && value !== null) {
         if (key === "style") {
           for (const [styleKey, styleValue] of Object.entries(value)) {
@@ -35,13 +49,18 @@ const addValPathIfFound = (type: any, props: any) => {
               typeof styleValue === "string" &&
               styleValue.match(VERCEL_STEGA_REGEX)
             ) {
-              add(styleKey, styleValue);
+              add(
+                styleKey,
+                styleValue,
+                props,
+                value as Record<string, unknown>
+              );
             }
           }
         } else if (value instanceof Array) {
           for (const [index, item] of Object.entries(value)) {
             if (typeof item === "string" && item.match(VERCEL_STEGA_REGEX)) {
-              add(`${key.toLowerCase()}-${index}`, item);
+              add(index, item, props, value);
             }
           }
         }
