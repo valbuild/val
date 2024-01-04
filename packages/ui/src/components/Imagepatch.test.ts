@@ -1,5 +1,5 @@
 import { FILE_REF_PROP, ImageSource, VAL_EXTENSION } from "@valbuild/core";
-import { createImagePatch } from "./ValFormField";
+import { createFilePatch } from "./ValFormField";
 
 describe("Imagepatch", () => {
   test("Use filename of new image", () => {
@@ -40,7 +40,7 @@ describe("Imagepatch", () => {
         filePath: newFilePath,
       },
     ];
-    const newPatch = createImagePatch(
+    const newPatch = createFilePatch(
       path,
       newPngImageData,
       newFileName,
@@ -86,7 +86,7 @@ describe("Imagepatch", () => {
         filePath: newFilePath,
       },
     ];
-    const newPatch = createImagePatch(
+    const newPatch = createFilePatch(
       path,
       newPngImageData,
       "gurba",
@@ -129,7 +129,7 @@ describe("Imagepatch", () => {
         filePath: newFilePath,
       },
     ];
-    const newPatch = createImagePatch(
+    const newPatch = createFilePatch(
       path,
       newPngImageData,
       null,
@@ -171,7 +171,7 @@ describe("Imagepatch", () => {
         filePath: newFilePath,
       },
     ];
-    const newPatch = createImagePatch(
+    const newPatch = createFilePatch(
       path,
       newPngImageData,
       null,
