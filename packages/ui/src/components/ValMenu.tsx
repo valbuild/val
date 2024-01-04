@@ -12,7 +12,7 @@ import {
   Send,
   Sun,
 } from "lucide-react";
-import React, { useEffect, useState } from "react";
+import React, { MouseEventHandler, useEffect, useState } from "react";
 
 const className = "p-1 border rounded-full shadow border-accent";
 const PREV_URL_KEY = "valbuild:urlBeforeNavigation";
@@ -193,7 +193,7 @@ function MenuButton({
 }: {
   active?: boolean;
   children: React.ReactNode;
-  onClick: () => void;
+  onClick: MouseEventHandler<HTMLButtonElement>;
 }) {
   return (
     <button
