@@ -292,26 +292,36 @@ function ValHover({
   setWindowTarget: Dispatch<WindowTarget | null>;
 }) {
   const rect = hoverTarget.element?.getBoundingClientRect();
+  useEffect(() => {
+    if (hoverTarget.path) {
+      const clickListener = (ev: MouseEvent) => {
+        setWindowTarget({
+          ...hoverTarget,
+          path: hoverTarget.path as SourcePath,
+          mouse: { x: ev.pageX, y: ev.pageY },
+        });
+        setEditMode("window");
+        setHoverTarget(null);
+      };
+      const prevCursor = document.body.style.cursor;
+      document.body.style.cursor = "pointer";
+      document.addEventListener("click", clickListener);
+      return () => {
+        document.body.style.cursor = prevCursor;
+        document.removeEventListener("click", clickListener);
+      };
+    }
+  }, [hoverTarget]);
   return (
     <div
       id="val-hover"
       className="fixed border-2 cursor-pointer z-overlay-hover border-accent"
       style={{
+        pointerEvents: "none",
         top: rect?.top,
         left: rect?.left,
         width: rect?.width,
         height: rect?.height,
-      }}
-      onClick={(ev) => {
-        if (hoverTarget.path) {
-          setWindowTarget({
-            ...hoverTarget,
-            path: hoverTarget.path as SourcePath,
-            mouse: { x: ev.pageX, y: ev.pageY },
-          });
-          setEditMode("window");
-          setHoverTarget(null);
-        }
       }}
     >
       <div className="flex items-center justify-end w-full text-xs">
@@ -334,42 +344,33 @@ function useHoverTarget(editMode: EditMode) {
   const [targetElement, setTargetElement] = useState<HTMLElement>();
   const [targetPath, setTargetPath] = useState<SourcePath>();
   const [targetRect, setTargetRect] = useState<DOMRect>();
+  function tagElements(target: HTMLElement | null) {
+    if (target) {
+      const sourcePaths: string[] = [];
+      if (target.dataset.valPath) {
+        sourcePaths.push(target.dataset.valPath);
+      }
+
+      for (const element of Array.from(target.querySelectorAll("*"))) {
+        if (element instanceof HTMLElement) {
+          const sourcePath = element.dataset.valPath;
+          if (sourcePath) {
+            sourcePaths.push(sourcePath);
+          }
+        }
+      }
+
+      if (sourcePaths.length > 0) {
+        setTargetElement(target);
+        setTargetPath(sourcePaths.join(",") as SourcePath);
+        setTargetRect(target.getBoundingClientRect());
+      }
+    }
+  }
   useEffect(() => {
     if (editMode === "hover" || editMode === "window") {
       const mouseOverListener = (e: MouseEvent) => {
-        let curr: HTMLElement | null = null;
-        const target = e.target as HTMLElement | null;
-        const sourcePaths: string[] = [];
-        // <video> and <picture> elements have child <source> elements, but target is then the <video> / <picture> element
-        if (
-          target instanceof HTMLVideoElement ||
-          target instanceof HTMLPictureElement
-        ) {
-          for (const child of Array.from(target?.childNodes)) {
-            if (child instanceof HTMLElement && child.dataset.valPath) {
-              sourcePaths.push(child.dataset.valPath);
-            }
-          }
-          if (sourcePaths.length > 0) {
-            setTargetElement(target);
-            setTargetPath(sourcePaths.join(",") as SourcePath);
-            setTargetRect(target?.getBoundingClientRect());
-          }
-        }
-        let lastCurr: HTMLElement | null = null;
-        curr = target;
-        // TODO: use .contains?
-        do {
-          if (curr?.dataset.valPath) {
-            sourcePaths.push(curr.dataset.valPath);
-            lastCurr = curr;
-          }
-        } while ((curr = curr?.parentElement || null));
-        if (lastCurr && sourcePaths.length > 0) {
-          setTargetElement(lastCurr);
-          setTargetPath(sourcePaths.join(",") as SourcePath);
-          setTargetRect(lastCurr.getBoundingClientRect());
-        }
+        tagElements(e.target as HTMLElement | null);
       };
       document.addEventListener("mouseover", mouseOverListener);
 
