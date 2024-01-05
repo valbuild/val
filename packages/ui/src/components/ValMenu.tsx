@@ -1,4 +1,4 @@
-import { useValOverlayContext } from "./ValOverlayContext";
+import { useValUIContext } from "./ValUIContext";
 import { ModuleId, ValApi } from "@valbuild/core";
 import classNames from "classnames";
 import {
@@ -30,8 +30,7 @@ export function ValMenu({
   patches: Record<ModuleId, string[]>;
   onClickPatches: () => void;
 }) {
-  const { theme, setTheme, editMode, setEditMode, session } =
-    useValOverlayContext();
+  const { theme, setTheme, editMode, setEditMode, session } = useValUIContext();
   if (session.status === "success" && session.data.mode === "unauthorized") {
     return (
       <SingleItemMenu

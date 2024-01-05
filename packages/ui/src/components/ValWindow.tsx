@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import classNames from "classnames";
 import { Resizable } from "react-resizable";
-import { useValOverlayContext } from "./ValOverlayContext";
+import { useValUIContext } from "./ValUIContext";
 import { AlignJustifyIcon, XIcon } from "lucide-react";
 import { ScrollArea } from "./ui/scroll-area";
 
@@ -38,7 +38,7 @@ export function ValWindow({
     };
   }, []);
   //
-  const { windowSize, setWindowSize } = useValOverlayContext();
+  const { windowSize, setWindowSize } = useValUIContext();
   useEffect(() => {
     setWindowSize({
       height: window.innerHeight - 30,

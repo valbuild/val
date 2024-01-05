@@ -6,7 +6,7 @@ import {
   useState,
 } from "react";
 import { ValMenu } from "./ValMenu";
-import { EditMode, ValOverlayContext, WindowSize } from "./ValOverlayContext";
+import { EditMode, ValUIContext, WindowSize } from "./ValUIContext";
 import { Remote } from "../utils/Remote";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
@@ -95,7 +95,7 @@ export function ValOverlay({
   const [patchModalOpen, setPatchModalOpen] = useState(false);
 
   return (
-    <ValOverlayContext.Provider
+    <ValUIContext.Provider
       value={{
         api,
         theme,
@@ -197,7 +197,7 @@ export function ValOverlay({
           </ValWindow>
         )}
       </div>
-    </ValOverlayContext.Provider>
+    </ValUIContext.Provider>
   );
 }
 

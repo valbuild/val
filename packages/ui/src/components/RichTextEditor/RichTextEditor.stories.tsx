@@ -1,15 +1,15 @@
 import { ValApi } from "@valbuild/core";
-import { ValOverlayContext } from "../ValOverlayContext";
+import { ValUIContext } from "../ValUIContext";
 import { RichTextEditor, RichTextEditorProps } from "./RichTextEditor";
-import { Meta, Story } from "@storybook/react";
+import { Meta, StoryFn } from "@storybook/react";
 
 export default {
   title: "RichTextEditor",
   component: RichTextEditor,
 } as Meta;
 
-const Template: Story<RichTextEditorProps> = (args) => (
-  <ValOverlayContext.Provider
+const Template: StoryFn<RichTextEditorProps> = (args) => (
+  <ValUIContext.Provider
     value={{
       api: new ValApi("http://localhost:3000"),
       theme: "light",
@@ -26,7 +26,7 @@ const Template: Story<RichTextEditorProps> = (args) => (
     }}
   >
     <RichTextEditor {...args} />
-  </ValOverlayContext.Provider>
+  </ValUIContext.Provider>
 );
 
 export const DropdownStory = Template.bind({});

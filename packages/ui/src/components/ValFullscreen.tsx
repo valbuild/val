@@ -39,7 +39,7 @@ import { ScrollArea } from "./ui/scroll-area";
 import { Switch } from "./ui/switch";
 import { Card } from "./ui/card";
 import { ChevronLeft } from "lucide-react";
-import { ValOverlayContext, useValOverlayContext } from "./ValOverlayContext";
+import { ValUIContext, useValUIContext } from "./ValUIContext";
 import { useNavigate, useParams } from "react-router";
 import { useTheme } from "./useTheme";
 import classNames from "classnames";
@@ -246,7 +246,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
   );
 
   return (
-    <ValOverlayContext.Provider
+    <ValUIContext.Provider
       value={{
         theme,
         setTheme,
@@ -366,7 +366,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
           </div>
         </ValFullscreenHoverContext.Provider>
       </div>
-    </ValOverlayContext.Provider>
+    </ValUIContext.Provider>
   );
 };
 
@@ -1134,7 +1134,7 @@ function ValOptional({
   field?: string;
 }) {
   const [enable, setEnable] = useState<boolean>(source !== null);
-  const { editMode } = useValOverlayContext();
+  const { editMode } = useValUIContext();
 
   return (
     <div className="flex flex-col gap-y-2" key={path}>
