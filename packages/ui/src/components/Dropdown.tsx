@@ -1,6 +1,5 @@
 import React, { SVGProps, useEffect, useRef, useState } from "react";
 import Chevron from "../assets/icons/Chevron";
-import Button from "./Button";
 import { useValOverlayContext } from "./ValOverlayContext";
 
 export interface DropdownProps {
@@ -50,18 +49,11 @@ const Dropdown: React.FC<DropdownProps> = ({
 
   return (
     <div className="text-[12px]" ref={dropdownRef}>
-      <Button
+      <button
         onClick={(ev) => {
           ev.preventDefault();
           handleToggle();
         }}
-        icon={
-          <Chevron
-            className={`rotate-[-90deg] transition-transform duration-150 ease-in-out ${
-              isOpen ? "" : "rotate-[90deg]"
-            }`}
-          />
-        }
       >
         <div className="relative">
           <span className="flex flex-row items-center justify-center gap-1">
@@ -92,7 +84,7 @@ const Dropdown: React.FC<DropdownProps> = ({
             </div>
           )}
         </div>
-      </Button>
+      </button>
     </div>
   );
 };

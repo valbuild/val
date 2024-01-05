@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
-  INSERT_CHECK_LIST_COMMAND,
   INSERT_ORDERED_LIST_COMMAND,
   INSERT_UNORDERED_LIST_COMMAND,
   REMOVE_LIST_COMMAND,
@@ -13,11 +12,7 @@ import {
   $isHeadingNode,
   HeadingTagType,
 } from "@lexical/rich-text";
-import {
-  $getSelectionStyleValueForProperty,
-  $patchStyleText,
-  $setBlocksType,
-} from "@lexical/selection";
+import { $patchStyleText, $setBlocksType } from "@lexical/selection";
 import {
   $findMatchingParent,
   $getNearestBlockElementAncestorOrThrow,
@@ -35,27 +30,20 @@ import {
   FORMAT_TEXT_COMMAND,
   LexicalEditor,
   NodeKey,
-  REDO_COMMAND,
   SELECTION_CHANGE_COMMAND,
-  SerializedLexicalNode,
-  UNDO_COMMAND,
 } from "lexical";
-import { SerializedEditorState } from "lexical/LexicalEditorState";
-import { FC, useCallback, useEffect, useState } from "react";
+import { FC, SVGProps, useCallback, useEffect, useState } from "react";
 import Bold from "../../../assets/icons/Bold";
 import ImageIcon from "../../../assets/icons/ImageIcon";
 import Italic from "../../../assets/icons/Italic";
 import Strikethrough from "../../../assets/icons/Strikethrough";
-import Underline from "../../../assets/icons/Underline";
-import Undo from "../../../assets/icons/Undo";
-import Button from "../../Button";
 import Dropdown from "../../Dropdown";
-import UploadModal from "../../UploadModal";
 import { INSERT_IMAGE_COMMAND } from "./ImagePlugin";
 import { readImage } from "../../../utils/readImage";
 import { $isLinkNode, LinkNode, TOGGLE_LINK_COMMAND } from "@lexical/link";
 import { getSelectedNode } from "./LinkEditorPlugin";
 import { Check, Link, X } from "react-feather";
+import classNames from "classnames";
 
 export interface ToolbarSettingsProps {
   fontsFamilies?: string[];
@@ -311,7 +299,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
             formatText(blockTypesLookup[selectedOption]);
           }}
         />
-        <Button
+        <ToolbarButton
           variant="primary"
           onClick={(ev) => {
             ev.preventDefault();
@@ -320,7 +308,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
           active={isBold}
           icon={<Bold className={`${isBold && "stroke-[3px]"}`} />}
         />
-        <Button
+        <ToolbarButton
           active={isStrikethrough}
           onClick={(ev) => {
             ev.preventDefault();
@@ -330,7 +318,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
             <Strikethrough className={`${isStrikethrough && "stroke-[2px]"}`} />
           }
         />
-        <Button
+        <ToolbarButton
           active={isItalic}
           onClick={(ev) => {
             ev.preventDefault();
@@ -338,7 +326,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
           }}
           icon={<Italic className={`${isItalic && "stroke-[3px]"}`} />}
         />
-        <Button
+        <ToolbarButton
           active={url !== null}
           onClick={(ev) => {
             ev.preventDefault();
@@ -386,7 +374,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
               setUrl(ev.target.value);
             }}
           ></input>
-          <Button
+          <ToolbarButton
             variant="primary"
             onClick={(ev) => {
               ev.preventDefault();
@@ -395,7 +383,7 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
             }}
             icon={<Check size={14} />}
           />
-          <Button
+          <ToolbarButton
             variant="primary"
             onClick={(ev) => {
               ev.preventDefault();
@@ -406,6 +394,45 @@ const Toolbar: FC<ToolbarSettingsProps> = ({
         </div>
       )}
     </div>
+  );
+};
+
+export interface ToolbarButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: "primary" | "secondary";
+  icon?: React.ReactElement<SVGProps<SVGSVGElement>>;
+  active?: boolean;
+  disabled?: boolean;
+}
+
+const ToolbarButton: FC<ToolbarButtonProps> = ({
+  variant = "primary",
+  onClick,
+  children,
+  icon,
+  // active = false,
+  disabled = false,
+}) => {
+  return (
+    <button
+      disabled={disabled}
+      className={classNames(
+        "font-sans font-[12px] tracking-[0.04em] py-1 px-2 rounded whitespace-nowrap group relative text-primary",
+        {
+          "font-bold": variant === "primary",
+          "text-fill disabled:bg-fill disabled:text-background":
+            variant === "primary",
+          "border border-primary text-primary hover:border-highlight hover:text-highlight disabled:bg-fill disabled:text-background":
+            variant !== "primary",
+        }
+      )}
+      onClick={onClick}
+    >
+      <span className="flex flex-row items-center justify-center gap-2">
+        {icon && icon}
+        {children}
+      </span>
+    </button>
   );
 };
 
