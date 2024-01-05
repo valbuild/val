@@ -1,12 +1,4 @@
 import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@radix-ui/react-select";
-import { Switch } from "@radix-ui/react-switch";
-import {
   SourcePath,
   Json,
   SerializedSchema,
@@ -37,6 +29,14 @@ import { InitOnSubmit } from "./ValFullscreen";
 import { useValUIContext } from "./ValUIContext";
 import { Card } from "./ui/card";
 import { Path } from "./Path";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
+import { Switch } from "./ui/switch";
 
 export function AnyVal({
   path,
