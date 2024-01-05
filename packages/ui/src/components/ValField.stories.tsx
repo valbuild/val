@@ -3,6 +3,7 @@ import { AnyVal } from "./ValCompositeFields";
 import { ValUIContext } from "./ValUIContext";
 import { Meta, StoryObj } from "@storybook/react";
 import { Internal } from "@valbuild/core";
+import { InitOnSubmit } from "./ValFormField";
 
 const meta: Meta<typeof AnyVal> = {
   component: AnyVal,
@@ -31,7 +32,10 @@ export default meta;
 type Story = StoryObj<typeof AnyVal>;
 
 const DefaultArgs = {
-  initOnSubmit: () => async () => {},
+  initOnSubmit: ((path) => async (patchCallBack) => {
+    const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
+    console.log(moduleId, await patchCallBack(modulePath));
+  }) satisfies InitOnSubmit,
 };
 
 function create<S extends Source>(
@@ -84,7 +88,7 @@ export const BasicRichTextField: Story = {
   },
 };
 
-export const BasicObjectStory: Story = {
+export const BasicObject: Story = {
   args: {
     ...DefaultArgs,
     path: "/basic/object" as SourcePath,
@@ -95,7 +99,7 @@ export const BasicObjectStory: Story = {
   },
 };
 
-export const BasicOptionalObjectStory: Story = {
+export const BasicOptionalObject: Story = {
   args: {
     ...DefaultArgs,
     path: "/basic/optional/object" as SourcePath,
@@ -104,5 +108,17 @@ export const BasicOptionalObjectStory: Story = {
       one: "Test 1",
       two: "Test 2",
     }),
+  },
+};
+
+export const BasicEmptyObject: Story = {
+  args: {
+    ...DefaultArgs,
+    path: "/basic/empty/object" as SourcePath,
+    top: true,
+    ...create(
+      s.object({ one: s.string().optional(), two: s.string() }).optional(),
+      null
+    ),
   },
 };

@@ -79,7 +79,7 @@ export const RichTextEditor: FC<RichTextEditorProps> = ({
             <LexicalContentEditable className="p-4 outline-none bg-fill" />
           </div>
         }
-        placeholder={<p className=""></p>}
+        placeholder={<p className="text-sm">Enter text</p>}
         ErrorBoundary={LexicalErrorBoundary}
       />
       <LinkPlugin />
