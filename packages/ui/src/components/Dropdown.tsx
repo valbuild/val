@@ -1,5 +1,4 @@
 import React, { SVGProps, useEffect, useRef, useState } from "react";
-import Chevron from "../assets/icons/Chevron";
 import { useValUIContext } from "./ValUIContext";
 
 export interface DropdownProps {
