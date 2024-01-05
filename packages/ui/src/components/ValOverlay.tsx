@@ -39,7 +39,6 @@ export function ValOverlay({
   const [editMode, setEditMode] = useInitEditMode();
   const [hoverTarget, setHoverTarget] = useHoverTarget(editMode);
   const [windowTarget, setWindowTarget] = useState<WindowTarget | null>(null);
-  const [highlight, setHighlight] = useState(false);
   const paths = windowTarget?.path ? windowTarget.path.split(",") : [];
 
   const [formData, setFormData] = useState<ValData>(
@@ -419,44 +418,6 @@ function useHoverTarget(editMode: EditMode) {
       setTargetRect(target?.element?.getBoundingClientRect());
     },
   ] as const;
-}
-
-// TODO: do something fun on highlight?
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function useHighlight(
-  highlight: boolean,
-  setTarget: Dispatch<HoverTarget | null>
-) {
-  useEffect(() => {
-    if (highlight) {
-      const elements =
-        document.querySelectorAll<HTMLElement>("[data-val-path]");
-      let index = 0;
-      let timeout: NodeJS.Timeout | null = null;
-
-      const highlight = () => {
-        const element = elements[index];
-        const path = element.dataset.valPath as SourcePath;
-        if (path) {
-          setTarget({
-            path,
-            element,
-          });
-        }
-        index++;
-        if (index >= elements.length) {
-          index = 0;
-        }
-        timeout = setTimeout(highlight, 1000);
-      };
-      highlight();
-      return () => {
-        if (timeout) {
-          clearTimeout(timeout);
-        }
-      };
-    }
-  }, [highlight]);
 }
 
 const LOCAL_STORAGE_EDIT_MODE_KEY = "val-edit-mode";
