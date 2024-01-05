@@ -2,8 +2,7 @@ import { SourcePath, Internal, ModuleId, ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { PatchJSON } from "@valbuild/core/patch";
 import { useCallback, useEffect, useState } from "react";
-import { IValStore } from "../exports";
-import { ValSession } from "@valbuild/shared/internal";
+import { ValSession, IValStore } from "@valbuild/shared/internal";
 import { type Remote } from "../utils/Remote";
 
 export type PatchCallback = (modulePath: string) => Promise<PatchJSON>;

@@ -14,7 +14,7 @@ import { Internal, Json, SerializedSchema, SourcePath } from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
 import { usePatchSubmit, usePatches } from "./usePatch";
 import { useTheme } from "./useTheme";
-import { IValStore } from "../lib/IValStore";
+import { IValStore } from "@valbuild/shared/internal";
 import { AnyVal } from "./ValFullscreen";
 import { InitOnSubmit } from "./ValFullscreen";
 import { useSession } from "./useSession";
