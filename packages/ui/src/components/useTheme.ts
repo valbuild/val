@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Theme } from "./ValOverlayContext";
+import { Theme } from "./ValUIContext";
 
 export function useTheme(defaultTheme: Theme = "dark") {
   const [theme, setTheme] = useState<Theme>(defaultTheme);

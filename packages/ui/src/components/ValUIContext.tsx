@@ -11,7 +11,7 @@ export type WindowSize = {
   innerHeight: number;
 };
 
-export const ValOverlayContext = React.createContext<{
+export const ValUIContext = React.createContext<{
   api: ValApi;
   session: Remote<Session>;
   editMode: EditMode;
@@ -25,42 +25,42 @@ export const ValOverlayContext = React.createContext<{
 }>({
   get api(): never {
     throw Error(
-      "ValOverlayContext not found. Ensure components are wrapped by ValOverlayProvider!"
+      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!"
     );
   },
   get session(): never {
     throw Error(
-      "ValOverlayContext not found. Ensure components are wrapped by ValOverlayProvider!"
+      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!"
     );
   },
   get theme(): never {
     throw Error(
-      "ValOverlayContext not found. Ensure components are wrapped by ValOverlayProvider!"
+      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!"
     );
   },
   get setTheme(): never {
     throw Error(
-      "ValOverlayContext not found. Ensure components are wrapped by ValOverlayProvider!"
+      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!"
     );
   },
   get editMode(): never {
     throw Error(
-      "ValOverlayContext not found. Ensure components are wrapped by ValOverlayProvider!"
+      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!"
     );
   },
   get setEditMode(): never {
     throw Error(
-      "ValOverlayContext not found. Ensure components are wrapped by ValOverlayProvider!"
+      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!"
     );
   },
   get highlight(): never {
     throw Error(
-      "ValOverlayContext not found. Ensure components are wrapped by ValOverlayProvider!"
+      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!"
     );
   },
   get setHighlight(): never {
     throw Error(
-      "ValOverlayContext not found. Ensure components are wrapped by ValOverlayProvider!"
+      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!"
     );
   },
   get setWindowSize(): never {
@@ -75,6 +75,6 @@ export const ValOverlayContext = React.createContext<{
   },
 });
 
-export function useValOverlayContext() {
-  return React.useContext(ValOverlayContext);
+export function useValUIContext() {
+  return React.useContext(ValUIContext);
 }

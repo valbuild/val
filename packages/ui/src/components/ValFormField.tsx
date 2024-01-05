@@ -35,7 +35,7 @@ import { PatchCallback } from "./usePatch";
 import { useValModuleFromPath } from "./ValFullscreen";
 import { LinkNode } from "@lexical/link";
 import { ImageNode } from "./RichTextEditor/nodes/ImageNode";
-import { useValOverlayContext } from "./ValOverlayContext";
+import { useValUIContext } from "./ValUIContext";
 import classNames from "classnames";
 import { File } from "lucide-react";
 
@@ -999,7 +999,7 @@ export function SubmitButton({
   validationErrors?: false | ValidationError[];
   onClick: () => void;
 }) {
-  const { session } = useValOverlayContext();
+  const { session } = useValUIContext();
   const isProxy = session.status === "success" && session.data.mode === "proxy";
   return (
     <div className="sticky bottom-0 m-4 mt-2 ml-0">

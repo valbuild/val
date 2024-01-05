@@ -1,6 +1,6 @@
 import React, { SVGProps, useEffect, useRef, useState } from "react";
 import Chevron from "../assets/icons/Chevron";
-import { useValOverlayContext } from "./ValOverlayContext";
+import { useValUIContext } from "./ValUIContext";
 
 export interface DropdownProps {
   options: string[];
@@ -19,7 +19,7 @@ const Dropdown: React.FC<DropdownProps> = ({
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [selectedOption, setSelectedOption] = useState<number>(0);
-  const { windowSize } = useValOverlayContext();
+  const { windowSize } = useValUIContext();
 
   const handleToggle = () => {
     setIsOpen(!isOpen);
