@@ -1,13 +1,8 @@
-import {
-  AnyRichTextOptions,
-  RichTextSource,
-  SerializedRichTextSchema,
-  SerializedStringSchema,
-  SourcePath,
-} from "@valbuild/core";
+import { Schema, SerializedSchema, Source, SourcePath } from "@valbuild/core";
 import { AnyVal } from "./ValCompositeFields";
 import { ValUIContext } from "./ValUIContext";
 import { Meta, StoryObj } from "@storybook/react";
+import { Internal } from "@valbuild/core";
 
 const meta: Meta<typeof AnyVal> = {
   component: AnyVal,
@@ -26,7 +21,9 @@ const meta: Meta<typeof AnyVal> = {
         setWindowSize: () => {},
       }}
     >
-      <AnyVal {...args} />
+      <div className="bg-background">
+        <AnyVal {...args} />
+      </div>
     </ValUIContext.Provider>
   ),
 };
@@ -37,30 +34,43 @@ const DefaultArgs = {
   initOnSubmit: () => async () => {},
 };
 
+function create<S extends Source>(
+  schema: Schema<S>,
+  source: S
+): {
+  schema: SerializedSchema;
+  source: S;
+} {
+  return {
+    schema: schema.serialize(),
+    source,
+  };
+}
+const s = Internal.initSchema();
+
 export const BasicStringField: Story = {
   args: {
     ...DefaultArgs,
     path: "/basic/string" as SourcePath,
-    schema: {
-      type: "string",
-      raw: false,
-      opt: false,
-    } satisfies SerializedStringSchema,
-    source: "Test" satisfies string,
+    ...create(s.string(), "Hello World"),
   },
 };
 
-export const EmptyStringField: Story = {
+export const OptionalStringField: Story = {
+  args: {
+    ...DefaultArgs,
+    path: "/optional/string" as SourcePath,
+    field: "optionalString",
+    ...create(s.string().optional(), "Hello World"),
+  },
+};
+
+export const EmptyOptionalStringField: Story = {
   args: {
     ...DefaultArgs,
     path: "/empty/string" as SourcePath,
     field: "emptyString",
-    schema: {
-      type: "string",
-      raw: false,
-      opt: true,
-    } satisfies SerializedStringSchema,
-    source: null,
+    ...create(s.string().optional(), null),
   },
 };
 
@@ -68,30 +78,20 @@ export const BasicRichTextField: Story = {
   args: {
     ...DefaultArgs,
     path: "/basic/richText" as SourcePath,
-    schema: {
-      type: "richtext",
-      opt: false,
-    } satisfies SerializedRichTextSchema,
-    source: {
+    ...create(s.richtext(), {
       _type: "richtext",
       exprs: [],
       templateStrings: ["# Title 1"],
-    } satisfies RichTextSource<AnyRichTextOptions>,
+    }),
   },
 };
 
-export const BasicArrayStory: Story = {
+export const BasicObjectStory: Story = {
   args: {
     ...DefaultArgs,
-    path: "/basic/array" as SourcePath,
-    schema: {
-      type: "richtext",
-      opt: false,
-    } satisfies SerializedRichTextSchema,
-    source: {
-      _type: "richtext",
-      exprs: [],
-      templateStrings: ["# Title 1"],
-    } satisfies RichTextSource<AnyRichTextOptions>,
+    path: "/basic/object" as SourcePath,
+    ...create(s.object({ s: s.string() }), {
+      s: "Test",
+    }),
   },
 };
