@@ -15,10 +15,10 @@ import { ValApi } from "@valbuild/core";
 import { usePatchSubmit, usePatches } from "./usePatch";
 import { useTheme } from "./useTheme";
 import { IValStore } from "@valbuild/shared/internal";
-import { InitOnSubmit } from "./ValFullscreen";
 import { useSession } from "./useSession";
 import { ValPatches } from "./ValPatches";
 import { AnyVal } from "./ValCompositeFields";
+import { InitOnSubmit } from "./ValFormField";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";

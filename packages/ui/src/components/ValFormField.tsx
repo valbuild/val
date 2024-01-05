@@ -40,6 +40,7 @@ import classNames from "classnames";
 import { File } from "lucide-react";
 
 export type OnSubmit = (callback: PatchCallback) => Promise<void>;
+export type InitOnSubmit = (path: SourcePath) => OnSubmit;
 
 export function ValFormField({
   path,

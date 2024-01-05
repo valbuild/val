@@ -24,8 +24,12 @@ import classNames from "classnames";
 import React, { useState, useEffect, Fragment } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
-import { ValFormField, FieldContainer, SubmitButton } from "./ValFormField";
-import { InitOnSubmit } from "./ValFullscreen";
+import {
+  ValFormField,
+  FieldContainer,
+  SubmitButton,
+  InitOnSubmit,
+} from "./ValFormField";
 import { useValUIContext } from "./ValUIContext";
 import { Card } from "./ui/card";
 import { Path } from "./Path";
@@ -37,6 +41,18 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Switch } from "./ui/switch";
+import { PatchJSON } from "@valbuild/core/patch";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "./ui/dialog";
+import { Trash } from "lucide-react";
+import { Button } from "./ui/button";
 
 export function AnyVal({
   path,
@@ -757,17 +773,67 @@ function ValOptional({
 }) {
   const [enable, setEnable] = useState<boolean>(source !== null);
   const { editMode } = useValUIContext();
+  const onSubmit = initOnSubmit(path);
+  const [loading, setLoading] = useState<boolean>(false);
 
   return (
     <div className="flex flex-col gap-y-2" key={path}>
-      <div className="flex items-center justify-start gap-x-4">
-        {editMode === "full" && (
+      <div className="relative flex items-center justify-start gap-x-4">
+        {editMode === "full" && !enable && (
           <Switch
+            disabled={loading}
             checked={enable}
             onClick={() => {
               setEnable((prev) => !prev);
             }}
           />
+        )}
+        {editMode === "full" && enable && (
+          <Dialog>
+            <DialogTrigger>
+              <Trash />
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>About to delete. Are you sure?</DialogTitle>
+                <DialogFooter className="sm:justify-start">
+                  <DialogClose asChild>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={async () => {
+                        setLoading(true);
+                        setEnable(false);
+                        const [, modulePath] =
+                          Internal.splitModuleIdAndModulePath(path);
+                        onSubmit(async () => {
+                          return [
+                            {
+                              op: "replace",
+                              path: Internal.createPatchJSONPath(modulePath),
+                              value: null,
+                            },
+                          ] as PatchJSON;
+                        })
+                          .catch((err) => {
+                            console.error(err);
+                            setEnable(true);
+                          })
+                          .finally(() => {
+                            setLoading(false);
+                          });
+                      }}
+                    >
+                      Yes
+                    </Button>
+                  </DialogClose>
+                  <DialogClose asChild>
+                    <Button type="button">Cancel</Button>
+                  </DialogClose>
+                </DialogFooter>
+              </DialogHeader>
+            </DialogContent>
+          </Dialog>
         )}
         <div
           className="truncate max-w-[300px] text-left"
@@ -779,15 +845,72 @@ function ValOptional({
       </div>
       {enable && (
         <ValDefaultOf
-          source={source}
+          source={source === null ? emptyOf(schema) : source}
           schema={schema}
           path={path}
           setSelectedPath={setSelectedPath}
-          initOnSubmit={initOnSubmit}
+          initOnSubmit={(subPath) => async (callback) => {
+            const [, modulePath] = Internal.splitModuleIdAndModulePath(path);
+            const [, subModulePath] =
+              Internal.splitModuleIdAndModulePath(subPath);
+            const patch = await callback(
+              Internal.createPatchJSONPath(subModulePath)
+            );
+            onSubmit(async () => {
+              if (source === null) {
+                return (
+                  [
+                    {
+                      op: "replace",
+                      path: Internal.createPatchJSONPath(modulePath),
+                      value: emptyOf(schema),
+                    },
+                  ] as PatchJSON
+                ).concat(patch);
+              }
+              return patch;
+            });
+          }}
         />
       )}
     </div>
   );
+}
+
+function emptyOf(schema: SerializedSchema): Json {
+  if (schema.type === "object") {
+    return Object.fromEntries(
+      Object.keys(schema.items).map((key) => [key, emptyOf(schema.items[key])])
+    );
+  } else if (schema.type === "array") {
+    return [];
+  } else if (schema.type === "record") {
+    return {};
+  } else if (schema.type === "richtext") {
+    return {
+      [VAL_EXTENSION]: "richtext",
+      templateStrings: [""],
+      exprs: [],
+    } satisfies RichTextSource<AnyRichTextOptions>;
+  } else if (schema.type === "string") {
+    return null;
+  } else if (schema.type === "boolean") {
+    return null;
+  } else if (schema.type === "number") {
+    return null;
+  } else if (schema.type === "keyOf") {
+    return null;
+  } else if (schema.type === "file") {
+    return null;
+  } else if (schema.type === "image") {
+    return null;
+  } else if (schema.type === "literal") {
+    return null;
+  } else if (schema.type === "union") {
+    return null;
+  }
+  const _exhaustiveCheck: never = schema;
+  throw Error("Unexpected schema type: " + JSON.stringify(_exhaustiveCheck));
 }
 
 function ValDefaultOf({

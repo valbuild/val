@@ -10,7 +10,6 @@ import { ValApi } from "@valbuild/core";
 import { FC, useCallback, useEffect, useState } from "react";
 import { Grid } from "./Grid";
 import { result } from "@valbuild/core/fp";
-import { OnSubmit } from "./ValFormField";
 import React from "react";
 import Logo from "../assets/icons/Logo";
 import { ScrollArea } from "./ui/scroll-area";
@@ -24,6 +23,7 @@ import { useSession } from "./useSession";
 import { Path } from "./Path";
 import { ValPatches } from "./ValPatches";
 import { AnyVal, PathTree, ValImagePreviewContext } from "./ValCompositeFields";
+import { InitOnSubmit } from "./ValFormField";
 
 interface ValFullscreenProps {
   api: ValApi;
@@ -62,7 +62,6 @@ export const useValModuleFromPath = (
 
 type ValModules = Record<ModuleId, SerializedModuleContent> | null;
 
-export type InitOnSubmit = (path: SourcePath) => OnSubmit;
 export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { "*": pathFromParams } = useParams();
