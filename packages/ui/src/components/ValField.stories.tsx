@@ -1,6 +1,5 @@
 import {
   AnyRichTextOptions,
-  RichText,
   RichTextSource,
   SerializedRichTextSchema,
   SerializedStringSchema,
@@ -41,7 +40,7 @@ const DefaultArgs = {
 export const BasicStringField: Story = {
   args: {
     ...DefaultArgs,
-    path: "/test/string" as SourcePath,
+    path: "/basic/string" as SourcePath,
     schema: {
       type: "string",
       raw: false,
@@ -54,8 +53,8 @@ export const BasicStringField: Story = {
 export const EmptyStringField: Story = {
   args: {
     ...DefaultArgs,
-    path: "/test/string" as SourcePath,
-    field: "fieldname",
+    path: "/empty/string" as SourcePath,
+    field: "emptyString",
     schema: {
       type: "string",
       raw: false,
@@ -68,7 +67,23 @@ export const EmptyStringField: Story = {
 export const BasicRichTextField: Story = {
   args: {
     ...DefaultArgs,
-    path: "/test/richText" as SourcePath,
+    path: "/basic/richText" as SourcePath,
+    schema: {
+      type: "richtext",
+      opt: false,
+    } satisfies SerializedRichTextSchema,
+    source: {
+      _type: "richtext",
+      exprs: [],
+      templateStrings: ["# Title 1"],
+    } satisfies RichTextSource<AnyRichTextOptions>,
+  },
+};
+
+export const BasicArrayStory: Story = {
+  args: {
+    ...DefaultArgs,
+    path: "/basic/array" as SourcePath,
     schema: {
       type: "richtext",
       opt: false,
