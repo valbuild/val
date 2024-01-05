@@ -18,6 +18,7 @@ import {
   ImageMetadata,
   RichText,
   RichTextNode,
+  ModulePath,
 } from "@valbuild/core";
 import { parseRichTextSource } from "@valbuild/shared/internal";
 import classNames from "classnames";
@@ -41,7 +42,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Switch } from "./ui/switch";
-import { PatchJSON } from "@valbuild/core/patch";
+import { JSONValue, PatchJSON } from "@valbuild/core/patch";
 import {
   Dialog,
   DialogClose,
@@ -51,7 +52,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./ui/dialog";
-import { Trash } from "lucide-react";
+import { Plus, RotateCw, Trash } from "lucide-react";
 import { Button } from "./ui/button";
 
 export function AnyVal({
@@ -129,6 +130,7 @@ export function AnyVal({
           source={source}
           path={path}
           schema={schema}
+          initOnSubmit={initOnSubmit}
           setSelectedPath={setSelectedPath}
         />
       </div>
@@ -457,33 +459,73 @@ function ValList({
   source,
   schema,
   setSelectedPath,
+  initOnSubmit,
 }: {
   source: JsonArray;
   path: SourcePath;
   schema: SerializedArraySchema;
+  initOnSubmit: InitOnSubmit;
   setSelectedPath: (path: SourcePath | ModuleId) => void;
 }): React.ReactElement {
-  const navigate = useNavigate();
+  const onSubmit = initOnSubmit(path);
+  const [count, setCount] = useState<number>();
+  const loading = count !== source.length;
+  const [, modulePath] = Internal.splitModuleIdAndModulePath(path);
+  useEffect(() => {
+    setCount(source.length);
+  }, [schema, source]);
+
   return (
     <FieldContainer key={path} className="flex flex-col gap-4 p-2 pb-8">
+      <button
+        disabled={loading}
+        onClick={() => {
+          setCount(source.length + 1);
+          onSubmit(async () => {
+            const patch: PatchJSON = [];
+            if (source === null) {
+              patch.push({
+                op: "replace",
+                path: Internal.createPatchJSONPath(modulePath),
+                value: [],
+              });
+            }
+            patch.push({
+              op: "add",
+              path: Internal.createPatchJSONPath(
+                createValPathOfItem(modulePath, source.length)
+              ),
+              value: emptyOf(schema.item) as JSONValue,
+            });
+            return patch;
+          });
+        }}
+      >
+        {loading ? <RotateCw className="animate-spin" /> : <Plus />}
+      </button>
       {source.map((item, index) => {
         const subPath = createValPathOfItem(path, index);
+        const onSubmit = initOnSubmit(subPath);
+
         return (
-          <button
+          <ValListItem
+            index={index}
             key={subPath}
-            onClick={() => {
-              setSelectedPath(subPath);
-              navigate(subPath);
+            path={subPath}
+            source={item}
+            loading={loading}
+            schema={schema.item}
+            onDelete={() => {
+              setCount(source.length - 1);
+              onSubmit(async (path) => [
+                {
+                  op: "remove",
+                  path,
+                },
+              ]);
             }}
-          >
-            <ValListItem
-              index={index}
-              key={subPath}
-              path={subPath}
-              source={item}
-              schema={schema.item}
-            />
-          </button>
+            setSelectedPath={setSelectedPath}
+          />
         );
       })}
     </FieldContainer>
@@ -496,12 +538,19 @@ function ValListItem({
   path,
   source,
   schema,
+  loading,
+  setSelectedPath,
+  onDelete,
 }: {
   index: number;
   source: Json | null;
   path: SourcePath;
   schema: SerializedSchema;
+  loading: boolean;
+  setSelectedPath: (path: SourcePath | ModuleId) => void;
+  onDelete: () => void;
 }): React.ReactElement {
+  const navigate = useNavigate();
   const ref = React.useRef<HTMLDivElement>(null);
   const [isTruncated, setIsTruncated] = useState<boolean>(false);
   useEffect(() => {
@@ -520,23 +569,35 @@ function ValListItem({
         maxHeight: LIST_ITEM_MAX_HEIGHT,
       }}
     >
-      <div className="pb-4 font-serif text-left uppercase text-accent">
-        {index + 1 < 10 ? `0${index + 1}` : index + 1}
-      </div>
-      <div className="text-xs">
-        <ValPreview path={path} source={source} schema={schema} />
-      </div>
-      {isTruncated && (
-        <div className="absolute bottom-0 left-0 w-full h-[20px] bg-gradient-to-b from-transparent to-background"></div>
-      )}
+      <button className="block" disabled={loading} onClick={onDelete}>
+        {loading ? <RotateCw className="animate-spin" /> : <Trash />}
+      </button>
+      <button
+        className="block"
+        disabled={loading}
+        onClick={() => {
+          setSelectedPath(path);
+          navigate(path);
+        }}
+      >
+        <div className="pb-4 font-serif text-left uppercase text-accent">
+          {index + 1 < 10 ? `0${index + 1}` : index + 1}
+        </div>
+        <div className="text-xs">
+          <ValPreview path={path} source={source} schema={schema} />
+        </div>
+        {isTruncated && (
+          <div className="absolute bottom-0 left-0 w-full h-[20px] bg-gradient-to-b from-transparent to-background"></div>
+        )}
+      </button>
     </Card>
   );
 }
 
-function createValPathOfItem(
-  arrayPath: SourcePath | undefined,
+function createValPathOfItem<S extends SourcePath | ModulePath>(
+  arrayPath: S | undefined,
   prop: string | number | symbol
-) {
+): S {
   const val = Internal.createValPathOfItem(arrayPath, prop);
   if (!val) {
     // Should never happen
@@ -544,7 +605,7 @@ function createValPathOfItem(
       `Could not create val path: ${arrayPath} of ${prop?.toString()}`
     );
   }
-  return val;
+  return val as S;
 }
 
 function ValPreview({
@@ -933,6 +994,7 @@ function ValDefaultOf({
     ) {
       return (
         <ValList
+          initOnSubmit={initOnSubmit}
           source={source === null ? [] : source}
           path={path}
           schema={schema}

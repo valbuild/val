@@ -5,7 +5,7 @@ import { Schema } from "../schema";
 import { convertFileSource } from "../schema/file";
 import { Source, SourcePrimitive, VAL_EXTENSION } from "../source";
 import { FILE_REF_PROP } from "../source/file";
-import { isSerializedVal, SourcePath } from "../val";
+import { isSerializedVal, ModulePath, SourcePath } from "../val";
 
 function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
   return Object.prototype.hasOwnProperty.call(obj, prop);
@@ -206,7 +206,7 @@ function selectorAsVal(sel: any): any {
 }
 
 export function createValPathOfItem(
-  arrayPath: SourcePath | undefined,
+  arrayPath: SourcePath | ModulePath | undefined,
   prop: string | number | symbol
 ) {
   if (typeof prop === "symbol") {
