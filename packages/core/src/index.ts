@@ -64,6 +64,7 @@ import type { Json } from "./Json";
 import { SerializedSchema } from "./schema";
 import { getSHA256Hash } from "./getSha256";
 import { PatchJSON } from "./patch";
+import { initSchema } from "./initSchema";
 export { ValApi } from "./ValApi";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
@@ -147,6 +148,7 @@ const Internal = {
   isVal,
   createValPathOfItem,
   getSHA256Hash,
+  initSchema,
   createPatchJSONPath: (modulePath: ModulePath) =>
     `/${modulePath
       .split(".")
