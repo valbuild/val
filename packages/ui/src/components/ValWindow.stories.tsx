@@ -1,8 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { RichTextEditor } from "../exports";
-import { FormContainer } from "./forms/FormContainer";
-import { ImageForm } from "./forms/ImageForm";
-import { TextArea } from "./forms/TextArea";
 
 import { ValWindow } from "./ValWindow";
 
@@ -21,126 +18,126 @@ Noen av selskapene vi jobber med er små, andre er store. Alle har de høye ambi
 Noen ganger starter vi nye, egne, selskaper også, mest fordi det er gøy (og fordi vi liker å bygge ting), men også fordi smarte folk har gode idéer som fortjener å bli realisert.
 Ting vi har bygd for kundene våre
 `;
-export const ShortText: Story = {
-  args: {
-    isInitialized: true,
-    children: (
-      <FormContainer
-        onSubmit={() => {
-          /* */
-        }}
-      >
-        <TextArea
-          name="/apps/blogs.0.title"
-          text="Hva skjer'a, Bagera?"
-          onChange={() => {
-            console.log("onChange");
-          }}
-        />
-      </FormContainer>
-    ),
-  },
-};
-export const LongText: Story = {
-  args: {
-    isInitialized: true,
-    children: (
-      <FormContainer
-        onSubmit={() => {
-          /* */
-        }}
-      >
-        <div className="h-full grid grid-rows-[1fr,_min-content] ">
-          <TextArea
-            name="/apps/blogs.0.title"
-            text={EXAMPLE_TEXT}
-            onChange={() => {
-              console.log("onChange");
-            }}
-          />
-        </div>
-      </FormContainer>
-    ),
-  },
-};
+// export const ShortText: Story = {
+//   args: {
+//     isInitialized: true,
+//     children: (
+//       <FormContainer
+//         onSubmit={() => {
+//           /* */
+//         }}
+//       >
+//         <TextArea
+//           name="/apps/blogs.0.title"
+//           text="Hva skjer'a, Bagera?"
+//           onChange={() => {
+//             console.log("onChange");
+//           }}
+//         />
+//       </FormContainer>
+//     ),
+//   },
+// };
+// export const LongText: Story = {
+//   args: {
+//     isInitialized: true,
+//     children: (
+//       <FormContainer
+//         onSubmit={() => {
+//           /* */
+//         }}
+//       >
+//         <div className="h-full grid grid-rows-[1fr,_min-content] ">
+//           <TextArea
+//             name="/apps/blogs.0.title"
+//             text={EXAMPLE_TEXT}
+//             onChange={() => {
+//               console.log("onChange");
+//             }}
+//           />
+//         </div>
+//       </FormContainer>
+//     ),
+//   },
+// };
 
-export const RichText: Story = {
-  args: {
-    isInitialized: true,
-    children: (
-      <FormContainer
-        onSubmit={() => {
-          /* */
-        }}
-      >
-        <RichTextEditor
-          richtext={{
-            _type: "richtext",
-            templateStrings: ["# Title 1"],
-            exprs: [],
-          }}
-        />
-      </FormContainer>
-    ),
-  },
-};
+// export const RichText: Story = {
+//   args: {
+//     isInitialized: true,
+//     children: (
+//       <FormContainer
+//         onSubmit={() => {
+//           /* */
+//         }}
+//       >
+//         <RichTextEditor
+//           richtext={{
+//             _type: "richtext",
+//             templateStrings: ["# Title 1"],
+//             exprs: [],
+//           }}
+//         />
+//       </FormContainer>
+//     ),
+//   },
+// };
 
-export const EmptyImage: Story = {
-  args: {
-    isInitialized: true,
-    children: (
-      <FormContainer
-        onSubmit={() => {
-          /* */
-        }}
-      >
-        <ImageForm
-          name="/apps/blogs.0.image"
-          error={null}
-          data={null}
-          onChange={() => {
-            console.log("onChange");
-          }}
-        />
-      </FormContainer>
-    ),
-  },
-};
+// export const EmptyImage: Story = {
+//   args: {
+//     isInitialized: true,
+//     children: (
+//       <FormContainer
+//         onSubmit={() => {
+//           /* */
+//         }}
+//       >
+//         <ImageForm
+//           name="/apps/blogs.0.image"
+//           error={null}
+//           data={null}
+//           onChange={() => {
+//             console.log("onChange");
+//           }}
+//         />
+//       </FormContainer>
+//     ),
+//   },
+// };
 
-export const Image: Story = {
-  args: {
-    isInitialized: true,
-    children: (
-      <div className="h-full grid grid-rows-[1fr,_min-content] overflow-scroll">
-        <img src={EXAMPLE_IMAGE} />
-        <div className="flex justify-end">
-          <button className="px-4 py-2 border border-highlight">Submit</button>
-        </div>
-      </div>
-    ),
-  },
-};
+// export const Image: Story = {
+//   args: {
+//     isInitialized: true,
+//     children: (
+//       <div className="h-full grid grid-rows-[1fr,_min-content] overflow-scroll">
+//         <img src={EXAMPLE_IMAGE} />
+//         <div className="flex justify-end">
+//           <button className="px-4 py-2 border border-highlight">Submit</button>
+//         </div>
+//       </div>
+//     ),
+//   },
+// };
 
-export const ImageError: Story = {
-  args: {
-    isInitialized: true,
-    children: (
-      <FormContainer
-        onSubmit={() => {
-          /* */
-        }}
-      >
-        <ImageForm
-          name="/apps/blogs.0.image"
-          error={"invalid-file"}
-          data={{
-            url: EXAMPLE_IMAGE,
-          }}
-          onChange={() => {
-            console.log("onChange");
-          }}
-        />
-      </FormContainer>
-    ),
-  },
-};
+// export const ImageError: Story = {
+//   args: {
+//     isInitialized: true,
+//     children: (
+//       <FormContainer
+//         onSubmit={() => {
+//           /* */
+//         }}
+//       >
+//         <ImageForm
+//           name="/apps/blogs.0.image"
+//           error={"invalid-file"}
+//           data={{
+//             url: EXAMPLE_IMAGE,
+//           }}
+//           onChange={() => {
+//             console.log("onChange");
+//           }}
+//         />
+//       </FormContainer>
+//     ),
+//   },
+// };
