@@ -34,7 +34,7 @@ import {
 import { PatchCallback } from "./usePatch";
 import { useValModuleFromPath } from "./ValFullscreen";
 import { LinkNode } from "@lexical/link";
-import { ImageNode } from "./RichTextEditor/Nodes/ImageNode";
+import { ImageNode } from "./RichTextEditor/nodes/ImageNode";
 import { useValOverlayContext } from "./ValOverlayContext";
 import classNames from "classnames";
 import { File } from "lucide-react";
