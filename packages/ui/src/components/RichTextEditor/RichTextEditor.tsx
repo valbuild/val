@@ -9,16 +9,16 @@ import { ListPlugin } from "@lexical/react/LexicalListPlugin";
 import { LinkPlugin } from "@lexical/react/LexicalLinkPlugin";
 import { FC } from "react";
 import LexicalContentEditable from "./ContentEditable";
-import { ImageNode } from "./Nodes/ImageNode";
-import { AutoFocus } from "./Plugins/AutoFocus";
-import ImagesPlugin from "./Plugins/ImagePlugin";
-import Toolbar from "./Plugins/Toolbar";
+import { ImageNode } from "./nodes/ImageNode";
+import { AutoFocus } from "./plugins/AutoFocus";
+import ImagesPlugin from "./plugins/ImagePlugin";
+import Toolbar from "./plugins/Toolbar";
 import { AnyRichTextOptions, RichTextSource } from "@valbuild/core";
 import { HeadingNode } from "@lexical/rich-text";
 import { richTextSourceToLexical } from "@valbuild/shared/internal";
 import { parseRichTextSource } from "@valbuild/shared/internal";
 import { LinkNode } from "@lexical/link";
-import LinkEditorPlugin from "./Plugins/LinkEditorPlugin";
+import LinkEditorPlugin from "./plugins/LinkEditorPlugin";
 
 export interface RichTextEditorProps {
   richtext: RichTextSource<AnyRichTextOptions>;
