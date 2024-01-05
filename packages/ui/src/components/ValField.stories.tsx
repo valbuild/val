@@ -21,7 +21,7 @@ const meta: Meta<typeof AnyVal> = {
         setWindowSize: () => {},
       }}
     >
-      <div className="bg-background">
+      <div className="p-4 bg-background">
         <AnyVal {...args} />
       </div>
     </ValUIContext.Provider>
@@ -60,7 +60,6 @@ export const OptionalStringField: Story = {
   args: {
     ...DefaultArgs,
     path: "/optional/string" as SourcePath,
-    field: "optionalString",
     ...create(s.string().optional(), "Hello World"),
   },
 };
@@ -69,7 +68,6 @@ export const EmptyOptionalStringField: Story = {
   args: {
     ...DefaultArgs,
     path: "/empty/string" as SourcePath,
-    field: "emptyString",
     ...create(s.string().optional(), null),
   },
 };
@@ -90,8 +88,21 @@ export const BasicObjectStory: Story = {
   args: {
     ...DefaultArgs,
     path: "/basic/object" as SourcePath,
-    ...create(s.object({ s: s.string() }), {
-      s: "Test",
+    ...create(s.object({ one: s.string(), two: s.string() }), {
+      one: "Test 1",
+      two: "Test 2",
+    }),
+  },
+};
+
+export const BasicOptionalObjectStory: Story = {
+  args: {
+    ...DefaultArgs,
+    path: "/basic/optional/object" as SourcePath,
+    top: true,
+    ...create(s.object({ one: s.string().optional(), two: s.string() }), {
+      one: "Test 1",
+      two: "Test 2",
     }),
   },
 };
