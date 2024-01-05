@@ -250,13 +250,8 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
       value={{
         theme,
         setTheme,
-        api: api,
         editMode: "full",
         session,
-        highlight: false,
-        setHighlight: () => {
-          //
-        },
         setEditMode: () => {
           //
         },

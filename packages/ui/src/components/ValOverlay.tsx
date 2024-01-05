@@ -97,13 +97,10 @@ export function ValOverlay({
   return (
     <ValUIContext.Provider
       value={{
-        api,
         theme,
         session,
         editMode,
         setEditMode,
-        highlight,
-        setHighlight,
         setTheme,
         windowSize,
         setWindowSize,
