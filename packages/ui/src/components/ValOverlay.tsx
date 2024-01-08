@@ -19,6 +19,8 @@ import { useSession } from "./useSession";
 import { ValPatches } from "./ValPatches";
 import { AnyVal } from "./ValCompositeFields";
 import { InitOnSubmit } from "./ValFormField";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { Popover } from "./ui/popover";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -129,14 +131,17 @@ export function ValOverlay({
             />
           </div>
         )}
-        <div className="fixed -translate-y-1/2 right-4 top-1/2 z-overlay">
-          <ValMenu
-            direction="vertical"
-            api={api}
-            patches={patches}
-            onClickPatches={() => setPatchModalOpen((prev) => !prev)}
-          />
-        </div>
+        <Popover>
+          <PopoverPrimitive.Portal />
+          <div className="fixed -translate-y-1/2 right-4 top-1/2 z-overlay">
+            <ValMenu
+              direction="vertical"
+              api={api}
+              patches={patches}
+              onClickPatches={() => setPatchModalOpen((prev) => !prev)}
+            />
+          </div>
+        </Popover>
         {session.status === "success" &&
           session.data.enabled &&
           (editMode === "hover" || editMode === "window") &&
