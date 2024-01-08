@@ -6,6 +6,7 @@ import {
   Maximize2,
   Minimize2,
   Moon,
+  MoreHorizontal,
   Pause,
   Play,
   Power,
@@ -13,6 +14,9 @@ import {
   Sun,
 } from "lucide-react";
 import React, { MouseEventHandler, useEffect, useState } from "react";
+import * as SwitchPrimitives from "@radix-ui/react-switch";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { PopoverTrigger } from "./ui/popover";
 
 const className = "p-1 border rounded-full shadow border-accent";
 const PREV_URL_KEY = "valbuild:urlBeforeNavigation";
@@ -80,16 +84,29 @@ export function ValMenu({
           )}
         </div>
       </MenuButton>
-      <MenuButton
-        onClick={() => {
-          setTheme(theme === "dark" ? "light" : "dark");
-        }}
-      >
-        <div className="h-[24px] w-[24px] flex justify-center items-center">
-          {theme === "dark" && <Sun size={15} />}
-          {theme === "light" && <Moon size={15} />}
-        </div>
-      </MenuButton>
+      <div className="h-[24px] w-[34px] flex justify-center items-center">
+        <SwitchPrimitives.Root
+          className="relative peer inline-flex h-[24px] w-[34px] shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-slate-800 data-[state=unchecked]:bg-slate-800"
+          defaultChecked={theme === "light"}
+          onClick={() => {
+            setTheme(theme === "dark" ? "light" : "dark");
+          }}
+        >
+          {theme === "dark" && (
+            <Moon
+              size={13}
+              className="absolute top-[4px] left-[17px] text-white"
+            />
+          )}
+          <SwitchPrimitives.SwitchThumb className="pointer-events-none block h-[16px] w-[16px] rounded-full bg-white shadow-lg ring-0 transition-transform data-[state=checked]:translate-x-[15px] data-[state=unchecked]:translate-x-0" />
+          {theme === "light" && (
+            <Sun
+              size={13}
+              className="absolute top-[4px] left-[1px] text-white"
+            />
+          )}
+        </SwitchPrimitives.Root>
+      </div>
       <MenuButton
         active={editMode === "full"}
         onClick={() => {
@@ -129,11 +146,34 @@ export function ValMenu({
             </div>
           </MenuButton>
         )}
-      <a className={className} href={api.getDisableUrl(window.location.href)}>
-        <div className="h-[24px] w-[24px] flex justify-center items-center">
-          <Power size={18} />
+
+      <PopoverTrigger>
+        <MenuButton>
+          <div className="h-[24px] w-[24px] flex justify-center items-center">
+            <MoreHorizontal size={18}></MoreHorizontal>
+          </div>
+        </MenuButton>
+      </PopoverTrigger>
+      <PopoverPrimitive.Content
+        align={"center"}
+        sideOffset={4}
+        side="right"
+        className={
+          "z-50 w-72 rounded-md border bg-popover p-4 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
+        }
+      >
+        <div className="flex flex-col items-center justify-end">
+          <a
+            className={classNames(className, "block")}
+            href={api.getDisableUrl(window.location.href)}
+          >
+            <div className="h-[24px] w-[24px] flex justify-center items-center">
+              <Power size={18} />
+            </div>
+          </a>
+          <span>Disable</span>
         </div>
-      </a>
+      </PopoverPrimitive.Content>
     </MenuContainer>
   );
 }
@@ -192,7 +232,7 @@ function MenuButton({
 }: {
   active?: boolean;
   children: React.ReactNode;
-  onClick: MouseEventHandler<HTMLButtonElement>;
+  onClick?: MouseEventHandler<HTMLButtonElement>;
 }) {
   return (
     <button

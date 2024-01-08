@@ -24,6 +24,8 @@ import { Path } from "./Path";
 import { ValPatches } from "./ValPatches";
 import { AnyVal, PathTree, ValImagePreviewContext } from "./ValCompositeFields";
 import { InitOnSubmit } from "./ValFormField";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { Popover } from "./ui/popover";
 
 interface ValFullscreenProps {
   api: ValApi;
@@ -246,14 +248,18 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
             />
           </div>
         )}
-        <div className="fixed -translate-y-1/2 right-4 top-1/2 z-overlay">
-          <ValMenu
-            direction="vertical"
-            api={api}
-            patches={patches}
-            onClickPatches={() => setPatchModalOpen((prev) => !prev)}
-          />
-        </div>
+
+        <Popover>
+          <PopoverPrimitive.Portal />
+          <div className="fixed -translate-y-1/2 right-4 top-1/2 z-overlay">
+            <ValMenu
+              direction="vertical"
+              api={api}
+              patches={patches}
+              onClickPatches={() => setPatchModalOpen((prev) => !prev)}
+            />
+          </div>
+        </Popover>
         <div id="val-fullscreen-hover" ref={hoverElemRef}></div>
         <ValImagePreviewContext.Provider
           value={{
