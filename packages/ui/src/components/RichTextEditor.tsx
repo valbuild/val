@@ -1,4 +1,3 @@
-import "remirror/styles/all.css";
 import {
   BoldExtension,
   DropCursorExtension,
@@ -25,7 +24,6 @@ import {
   useAttrs,
   useExtensionEvent,
   useUpdateReason,
-  useCommands,
 } from "@remirror/react";
 import classNames from "classnames";
 import {
@@ -71,10 +69,9 @@ import {
 import {
   parseRichTextSource,
   richTextSourceToRemirror,
-  remirrorToRichTextSource,
-  RemirrorJSON as ValidRemirrorJSON,
 } from "@valbuild/shared/internal";
 import { Input } from "./ui/input";
+import { RemirrorJSON } from "remirror";
 
 const allExtensions = [
   new BoldExtension(),
@@ -100,7 +97,7 @@ export function RichTextEditor({
   onChange,
   debug,
 }: {
-  defaultValue?: RichTextSource<AnyRichTextOptions>;
+  defaultValue?: RichTextSource<AnyRichTextOptions>; // TODO: change this to RemirrorJSON
   options?: RichTextOptions;
   onChange?: (value: RemirrorJSON) => void;
   debug?: boolean;
@@ -115,9 +112,10 @@ export function RichTextEditor({
     stringHandler: "html",
   });
 
-  const className = "p-4 outline-none appearance-none bg-background";
+  const className =
+    "p-4 border border-t-0 rounded-md rounded-t-none outline-none appearance-none border-input bg-background";
   return (
-    <div className="relative text-sm val-rich-text-editor">
+    <div className="relative text-base val-rich-text-editor">
       <DayPickerProvider
         initialProps={{
           mode: "default",
@@ -128,27 +126,15 @@ export function RichTextEditor({
           initialContent={state}
           classNames={[className]}
         >
-          <Toolbar options={options} debug={debug} />
+          {options && <Toolbar options={options} debug={debug} />}
           <EditorComponent />
           <OnChangeJSON
             onChange={(json) => {
               if (debug) {
                 console.debug("onChange", json);
               }
-
-              if (onChange || debug) {
-                const parseRes = ValidRemirrorJSON.safeParse(json);
-                if (parseRes.success) {
-                  const source = remirrorToRichTextSource(parseRes.data);
-                  if (debug) {
-                    console.debug("onChange", stringifyRichTextSource(source));
-                  }
-                  if (onChange) {
-                    onChange(source);
-                  }
-                } else {
-                  console.error("onChange error:", parseRes.error);
-                }
+              if (onChange) {
+                onChange(json);
               }
             }}
           />

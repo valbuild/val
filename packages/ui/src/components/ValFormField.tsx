@@ -659,14 +659,16 @@ function RichTextField({
   const [loading, setLoading] = useState(false);
   const [content, setContent] = useState<RemirrorJSON>();
   useEffect(() => {
+    setDidChange(true);
     setContent(undefined);
   }, [defaultValue]);
 
   return (
     <FieldContainer>
       <RichTextEditor
-        options={schema}
+        options={schema.options}
         onChange={(content) => {
+          setDidChange(true);
           setContent(content);
         }}
         defaultValue={defaultValue}
@@ -687,9 +689,10 @@ function RichTextField({
                   setDidChange(false);
                 });
               } else {
-                console.error(
-                  "Could not parse Rich Text",
-                  validRemirrorJSON.error
+                setLoading(false);
+                alert(
+                  "Could not parse Rich Text\n" +
+                    JSON.stringify(validRemirrorJSON.error, null, 2)
                 );
               }
             }

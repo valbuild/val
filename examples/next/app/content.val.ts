@@ -30,6 +30,22 @@ export const schema = s.object({
       ol: true, // enables ordered lists
     })
     .optional(),
+
+  text2: s
+    .richtext({
+      // enables all features
+      // styling:
+      bold: true, // enables bold
+      italic: true, // enables italic text
+      lineThrough: true, // enables line/strike-through
+      // tags:
+      headings: ["h1", "h2", "h3", "h4", "h5", "h6"], // sets which headings are available
+      a: true, // enables links
+      img: true, // enables images
+      ul: true, // enables unordered lists
+      ol: true, // enables ordered lists
+    })
+    .optional(),
   /**
    * Reference to other content:
    */
@@ -52,7 +68,7 @@ export default val.content("/app/content", schema, {
     mimeType: "video/webm",
   }),
   hero: {
-    title: "Content as code",
+    title: "Content as codejj",
     image: {
       data: val.file("/public/logo_e211b.png", {
         width: 944,
@@ -66,26 +82,38 @@ export default val.content("/app/content", schema, {
   },
   tags: ["CMS", "react", "github", "NextJS"],
   author: 0,
-  text: val.richtext`
-Val is a CMS where **content** is **code** in your git repo.
+  text2: val.richtext `
+Veldig så gøy
 
 <br />
 
-Val is a CMS, which is useful because:
-
-- editors can **change content** without developer interactions
-- **images** can be managed without checking in code
-- **i18n** support is easy to add
-- a **well-documented** way to **structure content**
+<br />
+`,
+  text: val.richtext `
+Dette er jo fantastisk
 
 <br />
 
-But, with all the benefits of having content hard-coded:
 
-- works as normal with your **favorite IDE** without any plugins: search for content, references to usages, ...
-- content is **type-checked** so you see when something is wrong immediately
-- content can be **refactored** (change names, etc) just as if it was hard-coded (because it sort of is)
-- work **locally** or in **branches** just as if you didn't use a CMS
-- **no need for code-gen** and extra build steps
+Jepp fra iphone
+
+Jada!!!
+
+<br />
+Hjj
+
+<br />
+
+<br />
+
+Tets
+
+<br />
+
+
+Hehhehehehe<br />
+
+
+- test
 `,
 });
