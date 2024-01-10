@@ -4,9 +4,10 @@ import {
   AnyRichTextOptions,
   FILE_REF_PROP,
 } from "@valbuild/core";
-import { richTextSourceToLexical } from "./richTextSourceToLexical";
-import { lexicalToRichTextSource } from "./lexicalToRichTextSource";
+
 import { parseRichTextSource } from "./parseRichTextSource";
+import { remirrorToRichTextSource } from "./remirrorToRichTextSource";
+import { richTextSourceToRemirror } from "./richTextToRemirror";
 
 const { val } = initVal();
 const cases: {
@@ -110,10 +111,9 @@ describe("isomorphic richtext <-> conversion", () => {
   test.each(cases)("$description", ({ input }) => {
     const inputSource = input;
 
-    const res = lexicalToRichTextSource(
-      richTextSourceToLexical(parseRichTextSource(inputSource))
+    const res = remirrorToRichTextSource(
+      richTextSourceToRemirror(parseRichTextSource(inputSource))
     );
-
     const output = stringifyRichTextSource(res);
     // console.log("EOF>>" + output + "<<EOF");
     expect(stringifyRichTextSource(inputSource)).toStrictEqual(output);
