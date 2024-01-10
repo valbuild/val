@@ -66,7 +66,7 @@ const Dropdown: React.FC<DropdownProps> = ({
             >
               <div className="flex flex-col ">
                 {options?.map((option, idx) => (
-                  <button
+                  <div
                     key={option}
                     onClick={(ev) => {
                       ev.preventDefault();
@@ -77,7 +77,7 @@ const Dropdown: React.FC<DropdownProps> = ({
                     }`}
                   >
                     {option}
-                  </button>
+                  </div>
                 ))}
               </div>
             </div>
