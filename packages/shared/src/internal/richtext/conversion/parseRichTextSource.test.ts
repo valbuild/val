@@ -33,11 +33,10 @@ Paragraph 1 2 3 4 5. Words *italic* **bold**
     ]);
   });
 
-  test.skip("strong and emphasis merged spans", () => {
-    // TODO: currently we do not merge
+  test("strong and emphasis merged spans", () => {
     const r = val.richtext`Which classes?
 ***All of them!***
-  `;
+`;
     expect(parseRichTextSource(r).children).toStrictEqual([
       {
         tag: "p",
