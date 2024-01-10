@@ -16,6 +16,7 @@ import {
   HeadingNode,
   Internal,
   ImageSource,
+  Classes,
 } from "@valbuild/core";
 
 const VAL_START_TAG_PREFIX = '<val value="';
@@ -33,6 +34,32 @@ function parseTokens(
   insideList = false
 ): { children: RichTextNode<AnyRichTextOptions>[]; cursor: number } {
   const children: RichTextNode<AnyRichTextOptions>[] = [];
+
+  function merge(
+    token:
+      | marked.Tokens.Strong
+      | marked.Tokens.Del
+      | marked.Tokens.Em
+      | marked.Tokens.Generic,
+    clazz: Classes<AnyRichTextOptions>
+  ) {
+    const parsedTokens = parseTokens(
+      token.tokens ? token.tokens : [],
+      sourceNodes,
+      0
+    ) as { children: [SpanNode<AnyRichTextOptions>] } | { children: string[] };
+    children.push({
+      tag: "span",
+      classes: [clazz].concat(
+        parsedTokens.children.flatMap((child) =>
+          typeof child === "string" ? [] : child.classes
+        )
+      ),
+      children: parsedTokens.children.flatMap((child) =>
+        typeof child === "string" ? child : child.children
+      ) as [string],
+    });
+  }
   while (cursor < tokens.length) {
     const token = tokens[cursor];
     if (token.type === "heading") {
@@ -48,26 +75,11 @@ function parseTokens(
           .children as ParagraphNode<AnyRichTextOptions>["children"],
       });
     } else if (token.type === "strong") {
-      children.push({
-        tag: "span",
-        classes: ["bold"],
-        children: parseTokens(token.tokens ? token.tokens : [], sourceNodes, 0)
-          .children as SpanNode<AnyRichTextOptions>["children"],
-      });
+      merge(token, "bold");
     } else if (token.type === "em") {
-      children.push({
-        tag: "span",
-        classes: ["italic"],
-        children: parseTokens(token.tokens ? token.tokens : [], sourceNodes, 0)
-          .children as SpanNode<AnyRichTextOptions>["children"],
-      });
+      merge(token, "italic");
     } else if (token.type === "del") {
-      children.push({
-        tag: "span",
-        classes: ["line-through"],
-        children: parseTokens(token.tokens ? token.tokens : [], sourceNodes, 0)
-          .children as SpanNode<AnyRichTextOptions>["children"],
-      });
+      merge(token, "line-through");
     } else if (token.type === "text") {
       if ("tokens" in token && Array.isArray(token.tokens)) {
         children.push(

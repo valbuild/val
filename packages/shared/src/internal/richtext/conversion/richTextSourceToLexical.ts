@@ -271,18 +271,10 @@ function toLexicalTextNode(
   spanNode: ValSpanNode<AnyRichTextOptions>
 ): LexicalTextNode {
   const child = spanNode.children[0];
-  if (typeof child === "string") {
-    return {
-      ...COMMON_LEXICAL_PROPS,
-      type: "text",
-      text: child,
-      format: toLexicalFormat(spanNode.classes),
-    };
-  } else {
-    // recurse the spans and merge their classes
-    return toLexicalTextNode({
-      ...child,
-      classes: spanNode.classes.concat(child.classes),
-    });
-  }
+  return {
+    ...COMMON_LEXICAL_PROPS,
+    type: "text",
+    text: child,
+    format: toLexicalFormat(spanNode.classes),
+  };
 }
