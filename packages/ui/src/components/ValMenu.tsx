@@ -123,12 +123,10 @@ export function ValMenu({
             </div>
           </MenuButton>
         )}
-      <PopoverTrigger>
-        <MenuButton>
-          <div className="h-[24px] w-[24px] flex justify-center items-center">
-            <MoreHorizontal size={18}></MoreHorizontal>
-          </div>
-        </MenuButton>
+      <PopoverTrigger className={className}>
+        <div className="h-[24px] w-[24px]  flex justify-center items-center">
+          <MoreHorizontal size={18}></MoreHorizontal>
+        </div>
       </PopoverTrigger>
       <PopoverPrimitive.Content
         align={"start"}
