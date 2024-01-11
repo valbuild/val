@@ -1,36 +1,79 @@
 import type { Meta, StoryObj } from "@storybook/react";
 
-import { RichTextEditor } from "./RichTextEditor";
+import { RichTextEditor, useRichTextEditor } from "./RichTextEditor";
 import { ValUIContext } from "./ValUIContext";
-import { ComponentProps } from "react";
-import { AnyRichTextOptions, initVal } from "@valbuild/core";
+import {
+  AnyRichTextOptions,
+  FILE_REF_PROP,
+  RichTextOptions,
+  RichTextSource,
+  initVal,
+} from "@valbuild/core";
+import { useState, useLayoutEffect, useRef, CSSProperties } from "react";
+import { createPortal } from "react-dom";
+import {
+  parseRichTextSource,
+  remirrorToRichTextSource,
+  richTextToRemirror,
+} from "@valbuild/shared/internal";
+import { RemirrorJSON as ValidRemirrorJSON } from "@valbuild/shared/internal";
+
+const DEBUG = true;
 const { val } = initVal();
 
-const meta: Meta<typeof RichTextEditor> = {
-  component: RichTextEditor,
-  render: (props: ComponentProps<typeof RichTextEditor>) => (
-    <ValUIContext.Provider
-      value={{
-        theme: "light",
-        setTheme: () => {},
-        editMode: "full",
-        setEditMode: () => {},
-        session: {
-          status: "success",
-          data: { enabled: true, mode: "local" },
-        },
-        setWindowSize: () => {},
-      }}
-    >
-      <div className="text-primary bg-background">
-        <RichTextEditor {...props} />
-      </div>
-    </ValUIContext.Provider>
-  ),
+type StoryType = {
+  defaultValue: RichTextSource<AnyRichTextOptions>;
+  options?: RichTextOptions;
+};
+const meta: Meta<StoryType> = {
+  title: "components/RichTextEditor",
+  render: (props: StoryType) => {
+    const { state, manager } = useRichTextEditor(
+      richTextToRemirror(parseRichTextSource(props.defaultValue))
+    );
+
+    return (
+      <ValUIContext.Provider
+        value={{
+          theme: "dark",
+          setTheme: () => {},
+          editMode: "hover",
+          setEditMode: () => {},
+          session: {
+            status: "success",
+            data: { enabled: true, mode: "local" },
+          },
+          setWindowSize: () => {},
+        }}
+      >
+        <div className="text-primary bg-background">
+          <RichTextEditor
+            manager={manager}
+            state={state}
+            options={props.options}
+            onChange={(doc) => {
+              const parseRes = ValidRemirrorJSON.safeParse(doc);
+              if (!parseRes.success) {
+                console.error("Failed to parse", parseRes.error);
+              }
+              if (DEBUG) {
+                console.debug("state", doc);
+                if (parseRes.success) {
+                  const a = remirrorToRichTextSource(parseRes.data);
+                  console.debug(stringifyRichTextSource(a));
+                  console.debug("files", a.files);
+                }
+              }
+            }}
+          />
+        </div>
+      </ValUIContext.Provider>
+    );
+  },
 };
 
 export default meta;
-type Story = StoryObj<typeof RichTextEditor>;
+type Story = StoryObj<StoryType>;
 
 export const Default: Story = {
   args: {
@@ -40,9 +83,8 @@ New line!`,
   },
 };
 
-export const All: Story = {
+export const Basics: Story = {
   args: {
-    debug: true,
     options: {
       headings: ["h1", "h2", "h3", "h4", "h5", "h6"],
       bold: true,
@@ -56,60 +98,85 @@ export const All: Story = {
     defaultValue: val.richtext`
 # Title 1
 
-# Title 2
+## Title 2
 
 - Bullet item 1
 - Bullet item 2
 
 1. List item 1
-2. List item 2
+1. List item 2
 
-${val.link("Link to ValBuild", { href: "https://valbuild.com" })}<br />
-<br />
-<br />
-
-${val.file("/public/valbuild.png", {
-  width: 100,
-  height: 100,
-  mimeType: "image/png",
-  sha256: "1234567890",
-})}
+${val.link("Link to ValBuild", { href: "https://val.build" })}
 `,
   },
 };
 
-export const WIP: Story = {
-  args: {
-    debug: true,
-    options: {
-      headings: ["h1", "h2", "h3", "h4", "h5", "h6"],
-      bold: true,
-      italic: true,
-      lineThrough: true,
-      a: true,
-      img: true,
-      ul: true,
-      ol: true,
-    } satisfies AnyRichTextOptions,
-    defaultValue: val.richtext`
-# Title 1
+// Test that RichTextEditor works with ShadowRoot
+function ShadowContent({
+  root,
+  children,
+}: {
+  children: React.ReactNode;
+  root: Element | DocumentFragment;
+}) {
+  return createPortal(children, root);
+}
 
-# Title 2
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const ShadowRoot = ({
+  children,
+  style,
+}: {
+  children: React.ReactNode;
+  style?: CSSProperties;
+}) => {
+  const node = useRef<HTMLDivElement>(null);
+  const [root, setRoot] = useState<ShadowRoot | null>(null);
 
-- Bullet item 1
-- Bullet item 2
+  useLayoutEffect(() => {
+    if (node.current) {
+      if (node.current.shadowRoot) {
+        setRoot(node.current.shadowRoot);
+      } else {
+        const root = node.current.attachShadow({
+          mode: "open",
+        });
+        setRoot(root);
+      }
+    }
+  }, []);
 
-1. List item 1
-2. List item 2
-
-${val.link("Link to ValBuild", { href: "https://valbuild.com" })}
-
-${val.file("/public/valbuild.png", {
-  width: 100,
-  height: 100,
-  mimeType: "image/png",
-  sha256: "1234567890",
-})}
-`,
-  },
+  return (
+    <div ref={node} style={style} id="val-ui">
+      {root && <ShadowContent root={root}>{children}</ShadowContent>}
+    </div>
+  );
 };
+
+// For debug purposes
+
+function stringifyRichTextSource({
+  templateStrings,
+  exprs,
+}: RichTextSource<AnyRichTextOptions>): string {
+  let lines = "";
+  for (let i = 0; i < templateStrings.length; i++) {
+    const line = templateStrings[i];
+    const expr = exprs[i];
+    lines += line;
+    if (expr) {
+      if (expr._type === "file") {
+        lines += `\${val.file("${expr[FILE_REF_PROP]}", ${JSON.stringify(
+          expr.metadata
+        )})}`;
+      } else if (expr._type === "link") {
+        lines += `\${val.link("${expr.children[0]}", ${JSON.stringify({
+          href: expr.href,
+        })})}`;
+      } else {
+        throw Error("Unknown expr: " + JSON.stringify(expr, null, 2));
+      }
+    }
+  }
+  return lines;
+}
