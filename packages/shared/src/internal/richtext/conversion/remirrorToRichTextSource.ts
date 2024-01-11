@@ -261,7 +261,8 @@ function fromRemirrorImageNode(
       );
     }
     const fileExt = mimeTypeToFileExt(mimeType);
-    const filePath = `/public/${sha256}.${fileExt}`;
+    const fileName = node.attrs.fileName || `${sha256}.${fileExt}`;
+    const filePath = `/public/${fileName}`;
     files[filePath] = node.attrs.src;
     return {
       [VAL_EXTENSION]: "file" as const,
