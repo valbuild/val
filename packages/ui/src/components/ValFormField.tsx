@@ -37,12 +37,11 @@ import {
 } from "./ui/select";
 import { PatchCallback } from "./usePatch";
 import { useValModuleFromPath } from "./ValFullscreen";
-import { ImageNode } from "./RichTextEditor/nodes/ImageNode";
 import { useValUIContext } from "./ValUIContext";
 import classNames from "classnames";
 import { File } from "lucide-react";
 import { RichTextEditor, useRichTextEditor } from "./RichTextEditor";
-import { RemirrorJSON } from "remirror";
+import { RemirrorJSON } from "@remirror/core";
 
 export type OnSubmit = (callback: PatchCallback) => Promise<void>;
 export type InitOnSubmit = (path: SourcePath) => OnSubmit;
