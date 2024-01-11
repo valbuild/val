@@ -24,7 +24,7 @@ import {
   parseRichTextSource,
   remirrorToRichTextSource,
 } from "@valbuild/shared/internal";
-import { readImage } from "../utils/readImage";
+import { createFilename, readImage } from "../utils/readImage";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import {
@@ -188,33 +188,14 @@ export function createFilePatch(
   filename: string | null,
   metadata: FileMetadata | ImageMetadata | undefined
 ): PatchJSON {
-  if (!data || !metadata) {
+  const newFilePath = createFilename(data, filename, metadata);
+  if (!newFilePath || !metadata) {
     return [];
   }
-  const shaSuffix = metadata.sha256.slice(0, 5);
-  const newFilePath = (function () {
-    const mimeType = getMimeType(data) ?? "unknown";
-    const newExt = mimeTypeToFileExt(mimeType) ?? "unknown"; // Don't trust the file extension
-    if (filename) {
-      let cleanFilename =
-        filename.split(".").slice(0, -1).join(".") || filename; // remove extension if it exists
-      const maybeShaSuffixPos = cleanFilename.lastIndexOf("_");
-      const currentShaSuffix = cleanFilename.slice(
-        maybeShaSuffixPos + 1,
-        cleanFilename.length
-      );
-      if (currentShaSuffix === shaSuffix) {
-        cleanFilename = cleanFilename.slice(0, maybeShaSuffixPos);
-      }
-      return `/public/${cleanFilename}_${shaSuffix}.${newExt}`;
-    }
-    return `/public/${metadata.sha256}.${newExt}`;
-  })();
-
   return [
     {
       value: {
-        [FILE_REF_PROP]: newFilePath,
+        [FILE_REF_PROP]: `/public/${newFilePath}`,
         [VAL_EXTENSION]: "file",
         metadata,
       },
