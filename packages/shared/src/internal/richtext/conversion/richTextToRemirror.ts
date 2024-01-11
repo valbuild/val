@@ -23,7 +23,7 @@ import {
   RemirrorListItem,
 } from "./remirrorTypes";
 
-export function richTextSourceToRemirror(
+export function richTextToRemirror(
   richtext: RichText<AnyRichTextOptions>
 ): RemirrorJSON {
   return {

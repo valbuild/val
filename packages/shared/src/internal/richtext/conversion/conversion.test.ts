@@ -7,7 +7,7 @@ import {
 
 import { parseRichTextSource } from "./parseRichTextSource";
 import { remirrorToRichTextSource } from "./remirrorToRichTextSource";
-import { richTextSourceToRemirror } from "./richTextToRemirror";
+import { richTextToRemirror } from "./richTextToRemirror";
 
 const { val } = initVal();
 const cases: {
@@ -112,7 +112,7 @@ describe("isomorphic richtext <-> conversion", () => {
     const inputSource = input;
 
     const res = remirrorToRichTextSource(
-      richTextSourceToRemirror(parseRichTextSource(inputSource))
+      richTextToRemirror(parseRichTextSource(inputSource))
     );
     const output = stringifyRichTextSource(res);
     // console.log("EOF>>" + output + "<<EOF");
