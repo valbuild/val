@@ -78,7 +78,6 @@ export function useRichTextEditor(defaultValue?: RemirrorJSON) {
     extensions: () => allExtensions.slice(), // TODO: filter on options?
     content: defaultValue,
     selection: "start",
-    stringHandler: "html",
   });
   return { manager, state };
 }

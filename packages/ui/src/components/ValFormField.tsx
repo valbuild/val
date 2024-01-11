@@ -23,6 +23,7 @@ import {
   mimeTypeToFileExt,
   parseRichTextSource,
   remirrorToRichTextSource,
+  richTextToRemirror,
 } from "@valbuild/shared/internal";
 import { createFilename, readImage } from "../utils/readImage";
 import { Button } from "./ui/button";
@@ -40,7 +41,7 @@ import { ImageNode } from "./RichTextEditor/nodes/ImageNode";
 import { useValUIContext } from "./ValUIContext";
 import classNames from "classnames";
 import { File } from "lucide-react";
-import { RichTextEditor } from "./RichTextEditor";
+import { RichTextEditor, useRichTextEditor } from "./RichTextEditor";
 import { RemirrorJSON } from "remirror";
 
 export type OnSubmit = (callback: PatchCallback) => Promise<void>;
@@ -643,6 +644,9 @@ function RichTextField({
     setDidChange(true);
     setContent(undefined);
   }, [defaultValue]);
+  const { state, manager } = useRichTextEditor(
+    defaultValue && richTextToRemirror(parseRichTextSource(defaultValue))
+  );
 
   return (
     <FieldContainer>
@@ -652,7 +656,8 @@ function RichTextField({
           setDidChange(true);
           setContent(content);
         }}
-        defaultValue={defaultValue}
+        state={state}
+        manager={manager}
       />
       {onSubmit && (
         <SubmitButton
