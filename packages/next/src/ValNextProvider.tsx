@@ -3,7 +3,7 @@ import { ValConfig } from "@valbuild/core";
 import { ValProvider as ReactValProvider } from "@valbuild/react/internal";
 import { useRouter } from "next/navigation";
 import Script from "next/script";
-import { useTransition } from "react";
+import { useEffect, useTransition } from "react";
 
 export const ValNextProvider = (props: {
   children: React.ReactNode | React.ReactNode[];
@@ -12,6 +12,16 @@ export const ValNextProvider = (props: {
 }) => {
   const router = useRouter();
   const [, startTransition] = useTransition();
+  useEffect(() => {
+    document.addEventListener(
+      "build",
+      (e) => {
+        /* … */
+        console.log(e);
+      },
+      false
+    );
+  }, []);
   return (
     <ReactValProvider
       onSubmit={(refreshRequired) => {
