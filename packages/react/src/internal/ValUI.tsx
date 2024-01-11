@@ -1,5 +1,5 @@
 "use client";
-import { Style, ValOverlay } from "@valbuild/ui";
+import { Style } from "@valbuild/ui";
 import { ShadowRoot } from "./ShadowRoot";
 import { useValApi, useValStore } from "./ValProvider";
 
@@ -31,7 +31,7 @@ export default function ValUI(props: {
           rel="stylesheet"
         />
         <Style route={props.host} />
-        <ValOverlay api={api} store={store} onSubmit={props.onSubmit} />
+        <div id="val-overlay"></div>
       </ShadowRoot>
     </>
   );
