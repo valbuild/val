@@ -171,6 +171,11 @@ function parseTokens(
           tag: "br",
           children: [],
         });
+        if (tokens[cursor + 1]?.raw.trim() === "") {
+          // if next token is a new line or white-spaces, skip it
+          // this typically means we have a <br> AND a new line, which, semantically, is just a <br>
+          cursor++;
+        }
       }
     } else if (token.type === "link") {
       if (token.raw === token.href) {
