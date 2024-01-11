@@ -206,7 +206,7 @@ export function createFilePatch(
       value: data,
       op: "file",
       path,
-      filePath: newFilePath,
+      filePath: `/public/${newFilePath}`,
     },
   ];
 }
