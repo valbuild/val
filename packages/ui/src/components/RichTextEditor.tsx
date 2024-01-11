@@ -1,16 +1,4 @@
 import {
-  BoldExtension,
-  DropCursorExtension,
-  ImageExtension,
-  ItalicExtension,
-  StrikeExtension,
-  BulletListExtension,
-  HeadingExtension,
-  OrderedListExtension,
-  LinkExtension,
-  HardBreakExtension,
-} from "remirror/extensions";
-import {
   Remirror,
   useRemirror,
   OnChangeJSON,
@@ -46,14 +34,26 @@ import {
 } from "./ui/dropdown-menu";
 import { DayPickerProvider } from "react-day-picker";
 import { RichTextOptions } from "@valbuild/core";
+import { createFilename, readImage } from "../utils/readImage";
+import { BoldExtension } from "@remirror/extension-bold";
+import { ItalicExtension } from "@remirror/extension-italic";
+import { StrikeExtension } from "@remirror/extension-strike";
+import { ImageExtension } from "@remirror/extension-image";
+import { DropCursorExtension } from "@remirror/extension-drop-cursor";
+import { HeadingExtension } from "@remirror/extension-heading";
 import {
-  AnyExtension,
-  ChainedFromExtensions,
-  EditorState,
+  BulletListExtension,
+  OrderedListExtension,
+} from "@remirror/extension-list";
+import { LinkExtension } from "@remirror/extension-link";
+import { HardBreakExtension } from "@remirror/extension-hard-break";
+import {
   RemirrorJSON,
   RemirrorManager,
-} from "remirror";
-import { createFilename, readImage } from "../utils/readImage";
+  AnyExtension,
+  EditorState,
+  ChainedFromExtensions,
+} from "@remirror/core";
 
 const allExtensions = [
   new BoldExtension(),

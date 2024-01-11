@@ -1,4 +1,4 @@
-@import 'remirror/styles/all.css';
+@import '@remirror/styles/all.css';
 /*
   Need to explicitly set config path, otherwise it may fail to resolve when
   built from outside packages/ui.
@@ -117,6 +117,9 @@
 }
 
 @layer components {
+  .val-rich-text-editor {
+    white-space: break-spaces;
+  }
   .val-rich-text-editor h1 {
     @apply text-2xl font-bold;
   }
