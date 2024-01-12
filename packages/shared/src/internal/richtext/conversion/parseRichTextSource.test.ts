@@ -33,11 +33,10 @@ Paragraph 1 2 3 4 5. Words *italic* **bold**
     ]);
   });
 
-  test.skip("strong and emphasis merged spans", () => {
-    // TODO: currently we do not merge
+  test("strong and emphasis merged spans", () => {
     const r = val.richtext`Which classes?
 ***All of them!***
-  `;
+`;
     expect(parseRichTextSource(r).children).toStrictEqual([
       {
         tag: "p",
@@ -465,6 +464,108 @@ Bar
       {
         tag: "p",
         children: ["Bar"],
+      },
+    ]);
+  });
+  test("list with formatting and breaks", () => {
+    const r = val.richtext`
+# Title 1
+
+- Item _one_
+- Item **two**
+- Item ***two***
+- With breaks:
+    1. Formatted **list**
+Test 123
+- With links: ${val.link("**link**", { href: "https://link.com" })}
+`;
+    // source:
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      {
+        tag: "h1",
+        children: ["Title 1"],
+      },
+      {
+        tag: "ul",
+        children: [
+          {
+            tag: "li",
+            children: [
+              "Item ",
+              {
+                tag: "span",
+                classes: ["italic"],
+                children: ["one"],
+              },
+            ],
+          },
+          {
+            tag: "li",
+            children: [
+              "Item ",
+              {
+                tag: "span",
+                classes: ["bold"],
+                children: ["two"],
+              },
+            ],
+          },
+          {
+            tag: "li",
+            children: [
+              "Item ",
+              {
+                tag: "span",
+                classes: ["italic", "bold"],
+                children: ["two"],
+              },
+            ],
+          },
+          {
+            tag: "li",
+            children: [
+              "With breaks:",
+              {
+                tag: "ol",
+                children: [
+                  {
+                    tag: "li",
+                    children: [
+                      "Formatted ",
+                      {
+                        tag: "span",
+                        classes: ["bold"],
+                        children: ["list"],
+                      },
+                      {
+                        tag: "br",
+                        children: [],
+                      },
+                      "Test 123",
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            tag: "li",
+            children: [
+              "With links: ",
+              {
+                tag: "a",
+                href: "https://link.com",
+                children: [
+                  {
+                    tag: "span",
+                    classes: ["bold"],
+                    children: ["link"],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
       },
     ]);
   });

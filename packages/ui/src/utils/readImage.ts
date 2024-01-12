@@ -1,4 +1,4 @@
-import { Internal } from "@valbuild/core";
+import { FileMetadata, ImageMetadata, Internal } from "@valbuild/core";
 import { ChangeEvent } from "react";
 import { getMimeType, mimeTypeToFileExt } from "@valbuild/shared/internal";
 
@@ -52,4 +52,36 @@ export function readImage(ev: ChangeEvent<HTMLInputElement>) {
       reader.readAsDataURL(imageFile);
     }
   });
+}
+
+export function createFilename(
+  data: string | null,
+  filename: string | null,
+  metadata: FileMetadata | ImageMetadata | undefined
+) {
+  if (!metadata) {
+    return filename;
+  }
+  if (!data) {
+    return filename;
+  }
+  const shaSuffix = metadata.sha256.slice(0, 5);
+  const mimeType = getMimeType(data) ?? "unknown";
+  const newExt = mimeTypeToFileExt(mimeType) ?? "unknown"; // Don't trust the file extension
+  if (filename) {
+    let cleanFilename = filename.split(".").slice(0, -1).join(".") || filename; // remove extension if it exists
+    const maybeShaSuffixPos = cleanFilename.lastIndexOf("_");
+    const currentShaSuffix = cleanFilename.slice(
+      maybeShaSuffixPos + 1,
+      cleanFilename.length
+    );
+    if (currentShaSuffix === shaSuffix) {
+      cleanFilename = cleanFilename.slice(0, maybeShaSuffixPos);
+    }
+    const escapedFilename = encodeURIComponent(cleanFilename)
+      .replace(/%[0-9A-Fa-f]{2}/g, "")
+      .toLowerCase();
+    return `${escapedFilename}_${shaSuffix}.${newExt}`;
+  }
+  return `${metadata.sha256}.${newExt}`;
 }
