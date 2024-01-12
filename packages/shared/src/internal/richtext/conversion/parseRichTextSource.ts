@@ -91,6 +91,8 @@ function parseTokens(
           const tags: RichTextNode<AnyRichTextOptions>[] = lines.flatMap(
             (line, i) => {
               if (i === lines.length - 1) return [line];
+              if (i === lines.length - 1 && line === "") return [];
+              if (line === "") return { tag: "br", children: [] };
               return [line, { tag: "br", children: [] }];
             }
           );
