@@ -88,6 +88,8 @@ export class LocalValServer implements ValServer {
               .replace(rootDir, "")
               .replace(".val.js", "")
               .replace(".val.ts", "")
+              .split(path.sep)
+              .join("/")
           );
         }
       }
