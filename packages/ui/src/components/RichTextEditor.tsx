@@ -25,7 +25,7 @@ import {
   Unlink,
   Check,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -105,16 +105,16 @@ export function RichTextEditor<E extends AnyExtension>({
     }
   );
   return (
-    <div className="relative text-base val-rich-text-editor">
-      <DayPickerProvider
-        initialProps={{
-          mode: "default",
-        }}
+    <div className="text-base val-rich-text-editor">
+      <Remirror
+        manager={manager}
+        initialContent={state}
+        classNames={[className]}
       >
-        <Remirror
-          manager={manager}
-          initialContent={state}
-          classNames={[className]}
+        <DayPickerProvider
+          initialProps={{
+            mode: "default",
+          }}
         >
           <Toolbar
             hasOptions={hasOptions}
@@ -126,8 +126,8 @@ export function RichTextEditor<E extends AnyExtension>({
           />
           <EditorComponent />
           {onChange && <OnChangeJSON onChange={onChange} />}
-        </Remirror>
-      </DayPickerProvider>
+        </DayPickerProvider>
+      </Remirror>
     </div>
   );
 }
@@ -161,208 +161,213 @@ const Toolbar = ({
     onShowToolbar(showToolbar);
   }, [showToolbar]);
 
+  const dropdownContainerRef = useRef<HTMLDivElement>(null);
+
   return (
-    <div
-      className={classNames(
-        "sticky top-0 flex flex-col py-2 border divide-y rounded-md rounded-b-none border-input bg-background divide-input",
-        {
-          hidden: !showToolbar,
-        }
-      )}
-    >
-      <div className="flex flex-row items-center justify-start px-4 py-1 gap-x-2">
-        {(options?.headings || active.heading()) && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild className="pr-4">
-              <button>
-                {active.heading({ level: 1 }) && <Heading1 size={22} />}
-                {active.heading({ level: 2 }) && <Heading2 size={22} />}
-                {active.heading({ level: 3 }) && <Heading3 size={22} />}
-                {active.heading({ level: 4 }) && <Heading4 size={22} />}
-                {active.heading({ level: 5 }) && <Heading5 size={22} />}
-                {active.heading({ level: 6 }) && <Heading6 size={22} />}
-                {!active.heading() && "Normal"}
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuItem
-                onClick={() => {
-                  chain.setBlockNodeType("paragraph").focus().run();
+    <>
+      <div className="h-0" ref={dropdownContainerRef}></div>
+      <div
+        className={classNames(
+          "sticky top-0 flex flex-col py-2 z-[40] border divide-y rounded-md rounded-b-none border-input bg-background",
+          {
+            hidden: !showToolbar,
+          }
+        )}
+      >
+        <div className="flex flex-row items-center justify-start px-4 py-1 gap-x-3">
+          {(options?.headings || active.heading()) && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild className="pr-4">
+                <button>
+                  {active.heading({ level: 1 }) && <Heading1 size={22} />}
+                  {active.heading({ level: 2 }) && <Heading2 size={22} />}
+                  {active.heading({ level: 3 }) && <Heading3 size={22} />}
+                  {active.heading({ level: 4 }) && <Heading4 size={22} />}
+                  {active.heading({ level: 5 }) && <Heading5 size={22} />}
+                  {active.heading({ level: 6 }) && <Heading6 size={22} />}
+                  {!active.heading() && "Normal"}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent container={dropdownContainerRef.current}>
+                <DropdownMenuItem
+                  onClick={() => {
+                    chain.setBlockNodeType("paragraph").focus().run();
+                  }}
+                >
+                  Normal
+                  {/* <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut> */}
+                </DropdownMenuItem>
+                {options?.headings?.includes("h1") && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      chain
+                        .setBlockNodeType("heading", { level: 1 })
+                        .focus()
+                        .run();
+                    }}
+                  >
+                    <Heading1 size={16} />
+                  </DropdownMenuItem>
+                )}
+                {options?.headings?.includes("h2") && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      chain
+                        .setBlockNodeType("heading", { level: 2 })
+                        .focus()
+                        .run();
+                    }}
+                  >
+                    <Heading2 size={16} />
+                  </DropdownMenuItem>
+                )}
+                {options?.headings?.includes("h3") && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      chain
+                        .setBlockNodeType("heading", { level: 3 })
+                        .focus()
+                        .run();
+                    }}
+                  >
+                    <Heading3 size={16} />
+                  </DropdownMenuItem>
+                )}
+                {options?.headings?.includes("h4") && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      chain
+                        .setBlockNodeType("heading", { level: 4 })
+                        .focus()
+                        .run();
+                    }}
+                  >
+                    <Heading4 size={16} />
+                  </DropdownMenuItem>
+                )}
+                {options?.headings?.includes("h5") && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      chain
+                        .setBlockNodeType("heading", { level: 5 })
+                        .focus()
+                        .run();
+                    }}
+                  >
+                    <Heading5 size={16} />
+                  </DropdownMenuItem>
+                )}
+                {options?.headings?.includes("h5") && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      chain
+                        .setBlockNodeType("heading", { level: 6 })
+                        .focus()
+                        .run();
+                    }}
+                  >
+                    <Heading6 size={16} />
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          <ToolbarButton
+            icon={<Bold size={18} />}
+            stroke={3}
+            mark="bold"
+            isOption={options?.bold}
+            isActive={active.bold()}
+            onToggle={(chain) => chain.toggleBold().focus().run()}
+          />
+          <ToolbarButton
+            icon={<Strikethrough size={18} />}
+            stroke={3}
+            mark="strike"
+            isOption={options?.lineThrough}
+            isActive={active.strike()}
+            onToggle={(chain) => chain.toggleStrike().focus().run()}
+          />
+          <ToolbarButton
+            icon={<Italic size={18} />}
+            stroke={3}
+            mark="italic"
+            isOption={options?.italic}
+            isActive={active.italic()}
+            onToggle={(chain) => chain.toggleItalic().focus().run()}
+          />
+          <ToolbarButton
+            icon={<List size={18} />}
+            stroke={3}
+            mark="bulletList"
+            isOption={options?.ul}
+            isActive={active.bulletList()}
+            onToggle={(chain) => chain.toggleBulletList().focus().run()}
+          />
+          <ToolbarButton
+            icon={<ListOrdered size={18} />}
+            stroke={3}
+            mark="list"
+            isOption={options?.ol}
+            isActive={active.orderedList()}
+            onToggle={(chain) => chain.toggleOrderedList().focus().run()}
+          />
+          <ToolbarButton
+            icon={<Link size={18} />}
+            stroke={3}
+            mark="link"
+            isOption={options?.ol}
+            isActive={active.link()}
+            onToggle={(chain) => chain.updateLink({ href: "" }).focus().run()}
+          />
+          {(options?.img || active.image()) && (
+            <label
+              className="cursor-pointer"
+              htmlFor="val-toolbar-image-select"
+            >
+              <input
+                hidden
+                id="val-toolbar-image-select"
+                accept="image/*"
+                type="file"
+                onChange={(ev) => {
+                  readImage(ev).then((res) => {
+                    chain
+                      .insertImage({
+                        src: res.src,
+                        width: res.width,
+                        height: res.height,
+                        fileName:
+                          createFilename(res.src, res.filename ?? null, {
+                            width: res.width,
+                            height: res.height,
+                            sha256: res.sha256,
+                            mimeType: res.mimeType,
+                          }) ?? undefined,
+                      })
+                      .focus()
+                      .run();
+                  });
                 }}
-              >
-                Normal
-                {/* <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut> */}
-              </DropdownMenuItem>
-              {options?.headings?.includes("h1") && (
-                <DropdownMenuItem
-                  onClick={() => {
-                    chain
-                      .setBlockNodeType("heading", { level: 1 })
-                      .focus()
-                      .run();
-                  }}
-                >
-                  <Heading1 size={16} />
-                </DropdownMenuItem>
-              )}
-              {options?.headings?.includes("h2") && (
-                <DropdownMenuItem
-                  onClick={() => {
-                    chain
-                      .setBlockNodeType("heading", { level: 2 })
-                      .focus()
-                      .run();
-                  }}
-                >
-                  <Heading2 size={16} />
-                </DropdownMenuItem>
-              )}
-              {options?.headings?.includes("h3") && (
-                <DropdownMenuItem
-                  onClick={() => {
-                    chain
-                      .setBlockNodeType("heading", { level: 3 })
-                      .focus()
-                      .run();
-                  }}
-                >
-                  <Heading3 size={16} />
-                </DropdownMenuItem>
-              )}
-              {options?.headings?.includes("h4") && (
-                <DropdownMenuItem
-                  onClick={() => {
-                    chain
-                      .setBlockNodeType("heading", { level: 4 })
-                      .focus()
-                      .run();
-                  }}
-                >
-                  <Heading4 size={16} />
-                </DropdownMenuItem>
-              )}
-              {options?.headings?.includes("h5") && (
-                <DropdownMenuItem
-                  onClick={() => {
-                    chain
-                      .setBlockNodeType("heading", { level: 5 })
-                      .focus()
-                      .run();
-                  }}
-                >
-                  <Heading5 size={16} />
-                </DropdownMenuItem>
-              )}
-              {options?.headings?.includes("h5") && (
-                <DropdownMenuItem
-                  onClick={() => {
-                    chain
-                      .setBlockNodeType("heading", { level: 6 })
-                      .focus()
-                      .run();
-                  }}
-                >
-                  <Heading6 size={16} />
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-        <ToolbarButton
-          icon={<Bold size={18} />}
-          stroke={3}
-          mark="bold"
-          isOption={options?.bold}
-          isActive={active.bold()}
-          onToggle={(chain) => chain.toggleBold().focus().run()}
-        />
-        <ToolbarButton
-          icon={<Strikethrough size={18} />}
-          stroke={3}
-          mark="strike"
-          isOption={options?.lineThrough}
-          isActive={active.strike()}
-          onToggle={(chain) => chain.toggleStrike().focus().run()}
-        />
-        <ToolbarButton
-          icon={<Italic size={18} />}
-          stroke={3}
-          mark="italic"
-          isOption={options?.italic}
-          isActive={active.italic()}
-          onToggle={(chain) => chain.toggleItalic().focus().run()}
-        />
-        <ToolbarButton
-          icon={<List size={18} />}
-          stroke={3}
-          mark="bulletList"
-          isOption={options?.ul}
-          isActive={active.bulletList()}
-          onToggle={(chain) => chain.toggleBulletList().focus().run()}
-        />
-        <ToolbarButton
-          icon={<ListOrdered size={18} />}
-          stroke={3}
-          mark="list"
-          isOption={options?.ol}
-          isActive={active.orderedList()}
-          onToggle={(chain) => chain.toggleOrderedList().focus().run()}
-        />
-        <ToolbarButton
-          icon={<Link size={18} />}
-          stroke={3}
-          mark="link"
-          isOption={options?.ol}
-          isActive={active.link()}
-          onToggle={(chain) => chain.updateLink({ href: "" }).focus().run()}
-        />
-        {(options?.img || active.image()) && (
-          <label
-            className="px-2 py-1 cursor-pointer"
-            htmlFor="val-toolbar-image-select"
-          >
-            <input
-              hidden
-              id="val-toolbar-image-select"
-              accept="image/*"
-              type="file"
-              onChange={(ev) => {
-                readImage(ev).then((res) => {
-                  chain
-                    .insertImage({
-                      src: res.src,
-                      width: res.width,
-                      height: res.height,
-                      fileName:
-                        createFilename(res.src, res.filename ?? null, {
-                          width: res.width,
-                          height: res.height,
-                          sha256: res.sha256,
-                          mimeType: res.mimeType,
-                        }) ?? undefined,
-                    })
-                    .focus()
-                    .run();
-                });
-              }}
-            />
-            <Image
-              size={18}
-              className={`${active.image() && "stroke-[3px]"}`}
-            />
-          </label>
-        )}
-        {debug && (
-          <button
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => chain.insertHardBreak().run()}
-          >
-            Br
-          </button>
-        )}
+              />
+              <Image
+                size={18}
+                className={`${active.image() && "stroke-[3px]"}`}
+              />
+            </label>
+          )}
+          {debug && (
+            <button
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => chain.insertHardBreak().run()}
+            >
+              Br
+            </button>
+          )}
+        </div>
+        <LinkToolBar />
       </div>
-      <LinkToolBar />
-    </div>
+    </>
   );
 };
 

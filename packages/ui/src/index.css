@@ -116,8 +116,8 @@
 }
 
 @layer components {
-  .val-rich-text-editor {
-    white-space: break-spaces;
+  .val-rich-text-editor .remirror-editor.ProseMirror {
+    overflow-y: hidden;
   }
   .val-rich-text-editor h1 {
     @apply text-2xl font-bold;
