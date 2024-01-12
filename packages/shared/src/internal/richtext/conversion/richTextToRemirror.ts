@@ -228,47 +228,67 @@ function convertListItemToRemirror(
 ): RemirrorListItem {
   return {
     type: "listItem",
-    content: liNode.children.map((child) => {
-      return convertListItemToRemirrorParagraph(child);
-    }),
+    content: convertListItemToRemirrorParagraph(liNode.children),
   };
 }
 
 function convertListItemToRemirrorParagraph(
-  child: ListItemNode<AnyRichTextOptions>["children"][number]
-): NonNullable<RemirrorListItem["content"]>[number] {
-  if (typeof child === "string") {
-    return {
-      type: "paragraph",
-      content: [convertStringToRemirror(child)],
-    };
-  }
-  switch (child.tag) {
-    case "a": {
-      return {
+  rtChildren: ListItemNode<AnyRichTextOptions>["children"]
+): RemirrorListItem["content"] {
+  const children: RemirrorListItem["content"] = [];
+  for (const child of rtChildren) {
+    let lastChild:
+      | RemirrorParagraph
+      | RemirrorBulletList
+      | RemirrorOrderedList
+      | undefined = children[children.length - 1];
+    if (!lastChild) {
+      lastChild = {
         type: "paragraph",
-        content: convertLinkNodeToRemirror(child),
+        content: [],
       };
+      children.push(lastChild);
     }
-    case "br":
-      return {
-        type: "paragraph",
-        content: [createRemirrorBr()],
-      };
-    case "span":
-      return {
-        type: "paragraph",
-        content: convertSpanNodeToRemirror(child),
-      };
-    case "ol":
-      return convertOlToRemirror(child);
-    case "ul":
-      return convertUlToRemirror(child);
-    default: {
-      const _exhaustiveCheck: never = child;
-      throw Error(
-        "Unexpected list item child: " + JSON.stringify(_exhaustiveCheck)
-      );
+    const lastChildContent = lastChild.content as (
+      | RemirrorText
+      | RemirrorBulletList
+      | RemirrorOrderedList
+    )[];
+    if (typeof child === "string") {
+      lastChildContent.push(convertStringToRemirror(child));
+    } else {
+      switch (child.tag) {
+        case "a": {
+          lastChildContent.push(...convertLinkNodeToRemirror(child));
+          break;
+        }
+        case "br": {
+          children.push({
+            type: "paragraph",
+            content: [], // create new paragraph
+          });
+          break;
+        }
+        case "span": {
+          lastChildContent.push(...convertSpanNodeToRemirror(child));
+          break;
+        }
+        case "ol": {
+          children.push(convertOlToRemirror(child));
+          break;
+        }
+        case "ul": {
+          children.push(convertUlToRemirror(child));
+          break;
+        }
+        default: {
+          const _exhaustiveCheck: never = child;
+          throw Error(
+            "Unexpected list item child: " + JSON.stringify(_exhaustiveCheck)
+          );
+        }
+      }
     }
   }
+  return children;
 }

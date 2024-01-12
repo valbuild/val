@@ -1,13 +1,9 @@
-import {
-  initVal,
-  RichTextSource,
-  AnyRichTextOptions,
-  FILE_REF_PROP,
-} from "@valbuild/core";
+import { initVal, RichTextSource, AnyRichTextOptions } from "@valbuild/core";
 
 import { parseRichTextSource } from "./parseRichTextSource";
 import { remirrorToRichTextSource } from "./remirrorToRichTextSource";
 import { richTextToRemirror } from "./richTextToRemirror";
+import { stringifyRichTextSource } from "./stringifyRichTextSource";
 
 const { val } = initVal();
 const cases: {
@@ -101,7 +97,7 @@ ${val.file("/public/test.jpg", {
     1. List 1.2
 - List 2
 - List 3
-    1. Formatted **list**
+    1. Formatted **list**<br />
 Test 123
 `,
   },
@@ -116,32 +112,6 @@ describe("isomorphic richtext <-> conversion", () => {
     );
     const output = stringifyRichTextSource(res);
     // console.log("EOF>>" + output + "<<EOF");
-    expect(stringifyRichTextSource(inputSource)).toStrictEqual(output);
+    expect(output).toStrictEqual(stringifyRichTextSource(inputSource));
   });
 });
-
-function stringifyRichTextSource({
-  templateStrings,
-  exprs,
-}: RichTextSource<AnyRichTextOptions>): string {
-  let lines = "";
-  for (let i = 0; i < templateStrings.length; i++) {
-    const line = templateStrings[i];
-    const expr = exprs[i];
-    lines += line;
-    if (expr) {
-      if (expr._type === "file") {
-        lines += `\${val.file("${expr[FILE_REF_PROP]}", ${JSON.stringify(
-          expr.metadata
-        )})}`;
-      } else if (expr._type === "link") {
-        lines += `\${val.link("${expr.children[0]}", ${JSON.stringify({
-          href: expr.href,
-        })})}`;
-      } else {
-        throw Error("Unknown expr: " + JSON.stringify(expr, null, 2));
-      }
-    }
-  }
-  return lines;
-}
