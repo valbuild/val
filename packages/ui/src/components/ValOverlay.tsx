@@ -310,11 +310,8 @@ function ValHover({
         setHoverTarget(null);
         ev.stopPropagation();
       };
-      const prevCursor = document.body.style.cursor;
-      document.body.style.cursor = "pointer";
       document.body.addEventListener("click", clickListener);
       return () => {
-        document.body.style.cursor = prevCursor;
         document.body.removeEventListener("click", clickListener);
       };
     }
