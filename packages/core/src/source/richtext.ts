@@ -56,7 +56,7 @@ export type BrNode = {
 export type SpanNode<O extends RichTextOptions> = {
   tag: "span";
   classes: Classes<O>[];
-  children: [string | SpanNode<O>];
+  children: [string];
 };
 
 /// Image

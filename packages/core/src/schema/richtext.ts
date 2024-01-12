@@ -4,9 +4,10 @@ import { RichTextSource, RichTextOptions } from "../source/richtext";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 
-export type SerializedRichTextSchema = RichTextOptions & {
+export type SerializedRichTextSchema = {
   type: "richtext";
   opt: boolean;
+  options: RichTextOptions;
 };
 
 export class RichTextSchema<
@@ -33,6 +34,7 @@ export class RichTextSchema<
     return {
       type: "richtext",
       opt: this.opt,
+      options: this.options,
     };
   }
 }

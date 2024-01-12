@@ -7,6 +7,7 @@ import {
   Internal,
   Json,
   RichTextSource,
+  SerializedRichTextSchema,
   SerializedSchema,
   SerializedStringSchema,
   SourcePath,
@@ -15,13 +16,16 @@ import {
   ValidationError,
 } from "@valbuild/core";
 import type { PatchJSON } from "@valbuild/core/patch";
-import { LexicalEditor, TextNode } from "lexical";
 import { useState, useEffect, useRef, ChangeEvent } from "react";
-import { getMimeType, mimeTypeToFileExt } from "@valbuild/shared/internal";
-import { RichTextEditor } from "../exports";
-import { lexicalToRichTextSource } from "@valbuild/shared/internal";
-import { LexicalRootNode } from "@valbuild/shared/internal";
-import { readImage } from "../utils/readImage";
+import {
+  RemirrorJSON as ValidRemirrorJSON,
+  getMimeType,
+  mimeTypeToFileExt,
+  parseRichTextSource,
+  remirrorToRichTextSource,
+  richTextToRemirror,
+} from "@valbuild/shared/internal";
+import { createFilename, readImage } from "../utils/readImage";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import {
@@ -33,11 +37,11 @@ import {
 } from "./ui/select";
 import { PatchCallback } from "./usePatch";
 import { useValModuleFromPath } from "./ValFullscreen";
-import { LinkNode } from "@lexical/link";
-import { ImageNode } from "./RichTextEditor/nodes/ImageNode";
 import { useValUIContext } from "./ValUIContext";
 import classNames from "classnames";
 import { File } from "lucide-react";
+import { RichTextEditor, useRichTextEditor } from "./RichTextEditor";
+import { RemirrorJSON } from "@remirror/core";
 
 export type OnSubmit = (callback: PatchCallback) => Promise<void>;
 export type InitOnSubmit = (path: SourcePath) => OnSubmit;
@@ -136,7 +140,7 @@ export function ValFormField({
   ) {
     return (
       <RichTextField
-        registerPatchCallback={registerPatchCallback}
+        schema={schema}
         onSubmit={onSubmit}
         defaultValue={source as RichTextSource<AnyRichTextOptions>}
       />
@@ -184,33 +188,14 @@ export function createFilePatch(
   filename: string | null,
   metadata: FileMetadata | ImageMetadata | undefined
 ): PatchJSON {
-  if (!data || !metadata) {
+  const newFilePath = createFilename(data, filename, metadata);
+  if (!newFilePath || !metadata) {
     return [];
   }
-  const shaSuffix = metadata.sha256.slice(0, 5);
-  const newFilePath = (function () {
-    const mimeType = getMimeType(data) ?? "unknown";
-    const newExt = mimeTypeToFileExt(mimeType) ?? "unknown"; // Don't trust the file extension
-    if (filename) {
-      let cleanFilename =
-        filename.split(".").slice(0, -1).join(".") || filename; // remove extension if it exists
-      const maybeShaSuffixPos = cleanFilename.lastIndexOf("_");
-      const currentShaSuffix = cleanFilename.slice(
-        maybeShaSuffixPos + 1,
-        cleanFilename.length
-      );
-      if (currentShaSuffix === shaSuffix) {
-        cleanFilename = cleanFilename.slice(0, maybeShaSuffixPos);
-      }
-      return `/public/${cleanFilename}_${shaSuffix}.${newExt}`;
-    }
-    return `/public/${metadata.sha256}.${newExt}`;
-  })();
-
   return [
     {
       value: {
-        [FILE_REF_PROP]: newFilePath,
+        [FILE_REF_PROP]: `/public/${newFilePath}`,
         [VAL_EXTENSION]: "file",
         metadata,
       },
@@ -221,7 +206,7 @@ export function createFilePatch(
       value: data,
       op: "file",
       path,
-      filePath: newFilePath,
+      filePath: `/public/${newFilePath}`,
     },
   ];
 }
@@ -611,11 +596,9 @@ function ImageField({
   );
 }
 
-function createRichTextPatch(path: string, editor: LexicalEditor) {
-  const { templateStrings, exprs, files } = editor
-    ? lexicalToRichTextSource(
-        editor.getEditorState().toJSON().root as LexicalRootNode
-      )
+function createRichTextPatch(path: string, content?: ValidRemirrorJSON) {
+  const { templateStrings, exprs, files } = content
+    ? remirrorToRichTextSource(content)
     : ({
         [VAL_EXTENSION]: "richtext",
         templateStrings: [""],
@@ -646,68 +629,57 @@ function createRichTextPatch(path: string, editor: LexicalEditor) {
 }
 function RichTextField({
   defaultValue,
+  schema,
   onSubmit,
-  registerPatchCallback,
 }: {
   onSubmit?: OnSubmit;
-  registerPatchCallback?: (callback: PatchCallback) => void;
+  schema: SerializedRichTextSchema;
   defaultValue?: RichTextSource<AnyRichTextOptions>;
 }) {
-  const [editor, setEditor] = useState<LexicalEditor | null>(null);
   const [didChange, setDidChange] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [content, setContent] = useState<RemirrorJSON>();
   useEffect(() => {
-    if (editor) {
-      setDidChange(false);
-      editor.registerTextContentListener(() => {
-        setDidChange(true);
-      });
-      editor.registerDecoratorListener(() => {
-        setDidChange(true);
-      });
-      editor.registerMutationListener(LinkNode, () => {
-        setDidChange(true);
-      });
-      editor.registerMutationListener(ImageNode, () => {
-        setDidChange(true);
-      });
-      editor.registerMutationListener(TextNode, () => {
-        setDidChange(true);
-      });
-    }
-  }, [editor]);
-  useEffect(() => {
-    if (editor && registerPatchCallback) {
-      registerPatchCallback(async (path) => createRichTextPatch(path, editor));
-    }
-  }, [editor]);
+    setDidChange(true);
+    setContent(undefined);
+  }, [defaultValue]);
+  const { state, manager } = useRichTextEditor(
+    defaultValue && richTextToRemirror(parseRichTextSource(defaultValue))
+  );
+
   return (
     <FieldContainer>
       <RichTextEditor
-        onEditor={(editor) => {
-          setEditor(editor);
+        options={schema.options}
+        onChange={(content) => {
+          setDidChange(true);
+          setContent(content);
         }}
-        richtext={
-          defaultValue ||
-          ({
-            children: [],
-            [VAL_EXTENSION]: "root",
-          } as unknown as RichTextSource<AnyRichTextOptions>)
-        }
+        state={state}
+        manager={manager}
       />
       {onSubmit && (
         <SubmitButton
-          loading={loading || !editor}
+          loading={loading}
           enabled={didChange}
           onClick={() => {
-            if (editor) {
+            if (content) {
               setLoading(true);
-              onSubmit(async (path) =>
-                createRichTextPatch(path, editor)
-              ).finally(() => {
+              const validRemirrorJSON = ValidRemirrorJSON.safeParse(content);
+              if (validRemirrorJSON.success) {
+                onSubmit(async (path) =>
+                  createRichTextPatch(path, validRemirrorJSON.data)
+                ).finally(() => {
+                  setLoading(false);
+                  setDidChange(false);
+                });
+              } else {
                 setLoading(false);
-                setDidChange(false);
-              });
+                alert(
+                  "Could not parse Rich Text\n" +
+                    JSON.stringify(validRemirrorJSON.error, null, 2)
+                );
+              }
             }
           }}
         />
