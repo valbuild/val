@@ -19,5 +19,5 @@ See the rules to what does NOT belong in this package below.
 
 ## What **DOES NOT** go into this package?
 
-- Any function / type that depends on a UI framework, even transitively (React, Lexical, NextJS, Vite...).
+- Any function / type that depends on a UI framework, even transitively (React, ProseMirror, NextJS, Vite...).
 - Any function that cannot execute both on server-side and client-side.
