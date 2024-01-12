@@ -172,7 +172,7 @@ function transformLeafNode(
     }
     return formatText(node);
   } else if (node.type === "hardBreak") {
-    return "<br />\n";
+    return "<br />";
   } else if (node.type === "image") {
     return fromRemirrorImageNode(node, files);
   } else {
@@ -202,24 +202,22 @@ function formatListItemNode(
   }
 
   return prefix.concat(
-    node.content?.flatMap((child) => {
+    (node.content || []).flatMap((child, i) => {
       if (child.type === "bulletList" || child.type === "orderedList") {
-        return (
-          child.content?.flatMap((subChild) =>
-            formatListItemNode(
-              getListPrefix(child),
-              subChild,
-              indent + 4,
-              files
-            )
-          ) || []
+        return (child.content || []).flatMap((subChild) =>
+          formatListItemNode(getListPrefix(child), subChild, indent + 4, files)
         );
       } else {
-        return (
-          child.content?.map((child) => transformLeafNode(child, files)) || []
-        );
+        return (child.content || []).flatMap((subChild) => {
+          const res: (string | ImageSource | LinkSource)[] = [];
+          if (child.content?.length && child.content?.length > 0 && i > 0) {
+            res.push("<br />\n");
+          }
+          res.push(transformLeafNode(subChild, files));
+          return res;
+        });
       }
-    }) || []
+    })
   );
 }
 

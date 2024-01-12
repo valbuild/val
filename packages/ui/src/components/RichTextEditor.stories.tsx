@@ -51,6 +51,7 @@ const meta: Meta<StoryType> = {
             manager={manager}
             state={state}
             options={props.options}
+            debug={DEBUG}
             onChange={(doc) => {
               const parseRes = ValidRemirrorJSON.safeParse(doc);
               if (!parseRes.success) {
