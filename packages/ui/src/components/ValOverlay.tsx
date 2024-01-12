@@ -1,8 +1,9 @@
-import {
+import React, {
   Dispatch,
   SetStateAction,
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { ValMenu } from "./ValMenu";
@@ -20,7 +21,11 @@ import { ValPatches } from "./ValPatches";
 import { AnyVal } from "./ValCompositeFields";
 import { InitOnSubmit } from "./ValFormField";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
+import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Popover } from "./ui/popover";
+import { Drawer as DrawerPrimitive } from "../vaul";
+
+import { ScrollArea } from "./ui/scroll-area";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -94,6 +99,7 @@ export function ValOverlay({
     []
   );
   const [patchModalOpen, setPatchModalOpen] = useState(false);
+  const portalContainerRef = useRef<HTMLDivElement>(null);
 
   return (
     <ValUIContext.Provider
@@ -114,9 +120,9 @@ export function ValOverlay({
           position: "fixed",
           top: 0,
           left: 0,
-          zIndex: 8999, // 1 less than the NextJS error z-index: 9000
         }}
       >
+        <div ref={portalContainerRef} />
         {patchModalOpen && (
           <div className="fixed z-5 top-[16px] left-[16px] w-[calc(100%-32px-50px-16px)] h-[calc(100svh-32px)]">
             <ValPatches
@@ -132,7 +138,6 @@ export function ValOverlay({
           </div>
         )}
         <Popover>
-          <PopoverPrimitive.Portal />
           <div className="fixed -translate-y-1/2 right-4 top-1/2 z-overlay">
             <ValMenu
               direction="vertical"
@@ -153,7 +158,56 @@ export function ValOverlay({
               setWindowTarget={setWindowTarget}
             />
           )}
-        {editMode === "window" && windowTarget && (
+        <DrawerPrimitive.Root
+          open={!!(editMode === "window" && windowTarget)}
+          onClose={() => {
+            setWindowTarget(null);
+            setEditMode("hover");
+          }}
+        >
+          <DrawerPrimitive.Portal container={portalContainerRef.current}>
+            {editMode === "window" && windowTarget && (
+              <>
+                {/* <DrawerPrimitive.Overlay className="fixed inset-0 z-50 bg-black/80" /> */}
+                <DrawerPrimitive.Content className="fixed inset-x-0 bottom-0 z-50 mt-24 flex h-auto flex-col rounded-t-[10px] border bg-background text-primary pt-10">
+                  <div className="max-h-[calc(100svh-6em)] overflow-scroll p-4">
+                    {Object.entries(formData).map(([path, data]) => {
+                      if (data.status !== "success") {
+                        return (
+                          <div key={path}>
+                            {path}: {data.status}
+                          </div>
+                        );
+                      }
+                      const { source, schema } = data.data;
+                      if (!source || !schema) {
+                        return (
+                          <div>Module: {path} is missing source or schema</div>
+                        );
+                      }
+
+                      return (
+                        <AnyVal
+                          initOnSubmit={initOnSubmit}
+                          path={path as SourcePath}
+                          key={path}
+                          schema={schema}
+                          source={source}
+                          setSelectedPath={() => {
+                            // TODO: go to full screen
+                          }}
+                          top
+                        />
+                      );
+                    })}
+                  </div>
+                </DrawerPrimitive.Content>
+              </>
+            )}
+          </DrawerPrimitive.Portal>
+        </DrawerPrimitive.Root>
+
+        {/* {editMode === "window" && windowTarget && (
           <ValWindow
             onClose={() => {
               setWindowTarget(null);
@@ -196,7 +250,7 @@ export function ValOverlay({
               })}
             </div>
           </ValWindow>
-        )}
+        )} */}
       </div>
     </ValUIContext.Provider>
   );
