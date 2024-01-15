@@ -331,7 +331,9 @@ export function createValApiRouter<Res>(
 
     const path = url.pathname.slice(route.length);
     if (path.startsWith("/static")) {
-      return convert(await uiRequestHandler(path.slice("/static".length)));
+      return convert(
+        await uiRequestHandler(path.slice("/static".length), url.href)
+      );
     } else if (path === "/session") {
       return convert(
         await valServer.session(getCookies(req, [VAL_SESSION_COOKIE]))

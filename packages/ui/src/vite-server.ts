@@ -13,20 +13,31 @@ export function createUIRequestHandler(): ValUIRequestHandler {
     throw new Error(
       "Val UI files missing (error: is not an object)! This Val version or build is corrupted!"
     );
-  } else if (!files["/index.html"]) {
-    const message =
-      "Val UI files missing (error: no index.html found). This Val version or build is corrupted!";
-    console.error(message, Object.keys(files));
-    throw new Error(message);
   }
-  return async (path): Promise<ValServerGenericResult> => {
-    if (path.startsWith("/edit")) {
+  const jsFiles = Object.keys(files).filter(
+    (path) => path.endsWith(".js") || path.endsWith(".jsx")
+  );
+  if (jsFiles.length === 0) {
+    throw new Error(
+      "Val UI files missing (error: no .js files found)! This Val version or build is corrupted!"
+    );
+  } else if (jsFiles.length > 1) {
+    throw new Error(
+      `Val UI files missing (error: multiple .js files found: ${jsFiles.join(
+        " ,"
+      )})! This Val version or build is corrupted!`
+    );
+  }
+
+  const MAIN_FILE = jsFiles[0];
+  return async (path, url): Promise<ValServerGenericResult> => {
+    if (path === "/app") {
       return {
-        status: 200,
+        status: 302,
         headers: {
-          "Content-Type": "text/html",
+          "Content-Type": "application/javascript",
         },
-        body: Buffer.from(files["/index.html"], "base64").toString("utf-8"),
+        redirectTo: url.replace(path, MAIN_FILE),
       };
     } else {
       if (files[path]) {
@@ -34,6 +45,7 @@ export function createUIRequestHandler(): ValUIRequestHandler {
           status: 200,
           headers: {
             "Content-Type": getServerMimeType(path) || "",
+            "Cache-Control": "max-age=10", // TODO: change this to something more aggressive
           },
           body: Buffer.from(files[path], "base64").toString("utf-8"),
         };

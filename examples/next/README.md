@@ -5,7 +5,8 @@ This is a Next JS project with Val enabled.
 The files Val requires are the following:
 
 - `val.config`
-- `/app/api/val/[...val]/route.ts`
+- `/app/(val)/api/val/[...val]/route.ts`
+- `/app/(val)/val/[...val]/page.tsx`
 - `/val/server.ts`
 
 Additionally the following files are needed:

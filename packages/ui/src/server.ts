@@ -13,14 +13,24 @@ import { getServerMimeType } from "./serverMimeType";
 export function createUIRequestHandler(): ValUIRequestHandler {
   return async (path) => {
     const acceptType = getServerMimeType(path);
+    let devPath = path;
+    if (path === "/app") {
+      devPath = "/src/main.jsx";
+    }
     // TODO: believe we can clean up and remove: api/val/static
-    const res = await fetch(`http://localhost:5173/api/val/static${path}`, {
+    const res = await fetch(`http://localhost:5173/api/val/static${devPath}`, {
       headers: acceptType
         ? {
             Accept: acceptType,
           }
         : {},
+    }).catch((err) => {
+      console.error(
+        "Could not fetch from dev server. Make sure you are running npm run dev in the package/ui directory."
+      );
+      throw err;
     });
+
     return {
       status: res.status,
       headers: res.headers
