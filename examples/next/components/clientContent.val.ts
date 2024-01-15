@@ -23,7 +23,7 @@ export const schema = s.object({
 export type ClientContent = InferSchemaType<typeof schema>;
 
 export default val.content("/components/clientContent", schema, {
-  text: "Client components works",
+  text: "Clientf components works",
   objectUnions: {
     type: "object-type-2",
     value: "You can have multiple different types in a union",
