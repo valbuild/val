@@ -5,5 +5,5 @@ export const schema = s.string();
 export default val.content(
   "/components/reactServerContent",
   schema,
-  "React Server components also works"
+  "React Sffefrver comffponents also worksf"
 );

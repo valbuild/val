@@ -66,8 +66,8 @@ export default val.content("/app/content", schema, {
   },
   tags: ["CMS", "react", "github", "NextJS"],
   author: 0,
-  text: val.richtext`
-Val is a CMS where **content** is **code** in your git repo.
+  text: val.richtext `
+Valf is a CMS where **content** is **code** in your git repo.
 
 <br />
 
@@ -87,5 +87,7 @@ But, with all the benefits of having content hard-coded:
 - content can be **refactored** (change names, etc) just as if it was hard-coded (because it sort of is)
 - work **locally** or in **branches** just as if you didn't use a CMS
 - **no need for code-gen** and extra build steps
+
+Test rkdkr
 `,
 });
