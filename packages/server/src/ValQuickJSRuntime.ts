@@ -76,6 +76,12 @@ export async function newValQuickJSRuntime(
               "export const ValImage = new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'ValImage' in this file`) } } } )",
           };
         }
+        if (modulePath.includes("/ValApp")) {
+          return {
+            value:
+              "export const ValApp = new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'ValApp' in this file`) } } } )",
+          };
+        }
         return { value: moduleLoader.getModule(modulePath) };
       } catch (e) {
         return {
@@ -110,6 +116,9 @@ export async function newValQuickJSRuntime(
           return { value: requestedName };
         }
         if (requestedName.includes("/ValImage")) {
+          return { value: requestedName };
+        }
+        if (requestedName.includes("/ValApp")) {
           return { value: requestedName };
         }
         const modulePath = moduleLoader.resolveModulePath(

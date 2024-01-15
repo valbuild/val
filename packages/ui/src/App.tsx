@@ -63,7 +63,7 @@ function App() {
       },
     ],
     {
-      basename: "/api/val/static/edit",
+      basename: "/val",
     }
   );
 

@@ -74,6 +74,7 @@ export type ValServerGenericResult =
   | ValServerResult<ValCookiesNames, string | ReadableStream<Uint8Array>>;
 
 export type ValUIRequestHandler = (
+  path: string,
   url: string
 ) => Promise<ValServerGenericResult>;
 

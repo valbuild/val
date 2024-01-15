@@ -46,7 +46,8 @@ export class ValApi {
       .catch(createError<ApiGetPatchResponse>);
   }
   getEditUrl() {
-    return `${this.host}/static/edit`;
+    // TODO: host is just /api/val right? DO we need another config for this?
+    return `${this.host.replace("/api/val", "/val/app")}`;
   }
 
   postPatches(
