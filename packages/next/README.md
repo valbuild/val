@@ -159,9 +159,9 @@ npm install @valbuild/next@latest
 
 import { initVal } from "@valbuild/next";
 
-const { s, val } = initVal();
+const { s, val, config } = initVal();
 
-export { s, val };
+export { s, val, config };
 ```
 
 - Create the endpoints file:
@@ -499,6 +499,46 @@ Example:
 const image = useVal(imageVal);
 
 return <img src={image.url} />;
+```
+
+## Union
+
+The union schema can be used to create either "tagged unions" or a union of string literals.
+
+### Union Schema tagged unions
+
+A tagged union is a union of objects which all have the same field (of the same type). This field can be used to determine (or "discriminate") the exact type of one of the types of the union.
+
+It is useful when editors should be able to chose from a set of objects that are different.
+
+Example: let us say you have a page that can be one of the following: blog (page) or product (page). In this case your schema could look like this:
+
+```ts
+s.union(
+  "type", // the key of the "discriminator"
+  s.object({
+    type: s.literal("blogPage"), // <- each type must have a UNIQUE value
+    author: s.string(),
+    // ...
+  }),
+  s.object({
+    type: s.literal("productPage"),
+    sku: s.number(),
+    // ...
+  })
+); // <- Schema<{ type: "blogPage", author: string } | { type: "productPage", sku: number }>
+```
+
+## Union Schema: union of string literals
+
+You can also use a union to create a union of string literals. This is useful if you want a type-safe way to describe a set of valid strings that can be chosen by an editor.
+
+```ts
+s.union(
+  s.literal("one"),
+  s.literal("two")
+  //...
+); // <- Schema<"one" | "two">
 ```
 
 ## KeyOf
