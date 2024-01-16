@@ -67,7 +67,7 @@ export default val.content("/app/content", schema, {
   tags: ["CMS", "react", "github", "NextJS"],
   author: 0,
   text: val.richtext`
-Valf is a CMS where **content** is **code** in your git repo.
+Val is a CMS where **content** is **code** in your git repo.
 
 <br />
 
