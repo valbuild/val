@@ -1,11 +1,6 @@
 import meow from "meow";
-import { error } from "./logger";
-import { validate } from "./validate";
 import { execSync } from "child_process";
-import { error, info } from "./logger";
-import { z } from "zod";
 import { fileURLToPath } from "url";
-import { error, info } from "./logger";
 import { z } from "zod";
 import confirm from "@inquirer/confirm";
 //import open from "open";
