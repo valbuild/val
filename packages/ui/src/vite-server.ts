@@ -3,6 +3,7 @@ import {
   ValUIRequestHandler,
 } from "@valbuild/shared/internal";
 import { getServerMimeType } from "./serverMimeType";
+import { VAL_APP_PATH, VAL_CSS_PATH } from "./constants";
 
 const files: Record<string, string> = JSON.parse(
   `BUILD_REPLACE_THIS_WITH_RECORD`
@@ -28,16 +29,32 @@ export function createUIRequestHandler(): ValUIRequestHandler {
       )})! This Val version or build is corrupted!`
     );
   }
-
   const MAIN_FILE = jsFiles[0];
+
+  const cssFiles = Object.keys(files).filter((path) => path.endsWith(".css"));
+  if (cssFiles.length === 0) {
+    throw new Error(
+      "Val UI files missing (error: no .css files found)! This Val version or build is corrupted!"
+    );
+  } else if (cssFiles.length > 1) {
+    throw new Error(
+      `Val UI files missing (error: multiple .css files found: ${jsFiles.join(
+        " ,"
+      )})! This Val version or build is corrupted!`
+    );
+  }
+  const MAIN_CSS_FILE = cssFiles[0];
+
   return async (path, url): Promise<ValServerGenericResult> => {
-    if (path === "/app") {
+    if (path === VAL_APP_PATH) {
       return {
         status: 302,
-        headers: {
-          "Content-Type": "application/javascript",
-        },
         redirectTo: url.replace(path, MAIN_FILE),
+      };
+    } else if (path === VAL_CSS_PATH) {
+      return {
+        status: 302,
+        redirectTo: url.replace(path, MAIN_CSS_FILE),
       };
     } else {
       if (files[path]) {
@@ -45,7 +62,7 @@ export function createUIRequestHandler(): ValUIRequestHandler {
           status: 200,
           headers: {
             "Content-Type": getServerMimeType(path) || "",
-            "Cache-Control": "max-age=10", // TODO: change this to something more aggressive
+            "Cache-Control": "max-age=90", // TODO: change this to something more aggressive
           },
           body: Buffer.from(files[path], "base64").toString("utf-8"),
         };
