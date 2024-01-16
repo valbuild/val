@@ -48,6 +48,7 @@
     "@valbuild/core": "~0.50.0",
     "@valbuild/react": "~0.50.0",
     "@valbuild/server": "~0.50.0",
+    "@valbuild/ui": "~0.50.0",
     "client-only": "^0.0.1",
     "server-only": "^0.0.1"
   },

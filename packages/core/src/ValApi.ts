@@ -46,7 +46,7 @@ export class ValApi {
       .catch(createError<ApiGetPatchResponse>);
   }
   getEditUrl() {
-    return `${this.host}/static/edit`;
+    return `/val`;
   }
 
   postPatches(

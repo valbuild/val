@@ -1,7 +1,4 @@
 export * from "./exports";
+export * from "./constants";
 
-import styleCss from "./index.css?inline";
-
-export function Style(): JSX.Element {
-  return <style>{styleCss}</style>;
-}
+export const IS_DEV = false;
