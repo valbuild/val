@@ -1,17 +1,21 @@
+# Val NextJS example
+
 This is a Next JS project with Val enabled.
 
 ## File structure
 
-The files Val requires are the following:
+The following files are required in Val NextJS project:
 
-- `val.config`
-- `/app/(val)/api/val/[...val]/route.ts`
-- `/app/(val)/val/[...val]/page.tsx`
-- `/val/server.ts`
+- `/val.config.ts` - this is the main Val config file
+- `/app/(val)/api/val/[[...val]]/route.ts` - all API call to Val goes via these endpoints
+- `/app/(val)/val/[[...val]]/page.tsx` - this is the URL to the Val full-screen app
+- `/val/server.ts` - this is the helper library for server related functions
 
 Additionally the following files are needed:
 
-- `/val/client.ts` for Client Components
-- `/val/rsc.ts` for React Server Components
+- `/val/client.ts` - this is the helper library for **Client Components**
+- `/val/rsc.ts` - this is the helper library for **React Server Components**
 
-See the `.val.ts` and look at the references to see how they are used.
+### Content
+
+See the `.val.ts` for where content is defined how it is used.
