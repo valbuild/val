@@ -117,6 +117,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
   const [hmrHash, setHmrHash] = useState(null);
   useEffect(() => {
     try {
+      // TODO: move logic to @valbuild/next
       // use websocket to update modules
       const hot = new WebSocket(
         `${window.location.origin.replace(

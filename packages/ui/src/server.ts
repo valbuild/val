@@ -9,12 +9,13 @@
 
 import { ValUIRequestHandler } from "@valbuild/shared/internal";
 import { getServerMimeType } from "./serverMimeType";
+import { VAL_APP_PATH } from "./constants";
 
 export function createUIRequestHandler(): ValUIRequestHandler {
   return async (path) => {
     const acceptType = getServerMimeType(path);
     let devPath = path;
-    if (path === "/app") {
+    if (path === VAL_APP_PATH) {
       devPath = "/src/main.jsx";
     }
     // TODO: believe we can clean up and remove: api/val/static

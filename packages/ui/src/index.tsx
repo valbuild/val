@@ -9,12 +9,6 @@
  */
 
 export * from "./exports";
+export * from "./constants";
 
-export function Style(props: { route: string }): JSX.Element | null {
-  return (
-    <link
-      rel="stylesheet"
-      href={`${props?.route || "/api/val"}/static/src/index.css`}
-    />
-  );
-}
+export const IS_DEV = true;

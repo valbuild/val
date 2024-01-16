@@ -1,3 +1,4 @@
+"use client";
 import { ValApi } from "@valbuild/core";
 import { ValFullscreen } from "./components/ValFullscreen";
 import { ErrorBoundary } from "react-error-boundary";
