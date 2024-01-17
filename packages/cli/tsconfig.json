@@ -3,10 +3,10 @@
     "lib": ["es2020", "DOM"],
     "strict": true,
     "isolatedModules": true,
-    "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "node",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "target": "ESNext",
   }
 }
