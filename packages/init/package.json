@@ -1,13 +1,19 @@
 {
-  "name": "@valbuild/cli",
-  "version": "1.0.0",
+  "name": "@valbuild/init",
+  "version": "0.50.0",
   "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "main": "dist/valbuild-init.cjs.js",
+  "module": "dist/valbuild-init.esm.js",
+  "exports": {
+    ".": {
+      "module": "./dist/valbuild-init.esm.js",
+      "default": "./dist/valbuild-init.cjs.js"
+    },
+    "./package.json": "./package.json"
   },
-  "author": "Fredrik Ekholdt",
-  "license": "ISC",
+  "scripts": {
+    "test": "jest"
+  },
   "dependencies": {
     "@inquirer/confirm": "^2.0.15",
     "@inquirer/prompts": "^3.0.2",
@@ -23,9 +29,16 @@
     "open": "^9.1.0",
     "picocolors": "^1.0.0",
     "recast": "^0.23.4",
+    "semver": "^7.5.4",
     "simple-git": "^3.22.0",
     "typescript": "^5.3.3",
     "zod": "^3.22.4"
+  },
+  "preconstruct": {
+    "entrypoints": [
+      "./index.ts"
+    ],
+    "exports": true
   },
   "devDependencies": {
     "@babel/preset-env": "^7.23.8",
