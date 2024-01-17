@@ -14,7 +14,7 @@ import {
   VAL_CLIENT,
   VAL_CONFIG,
   VAL_SERVER,
-} from "./files";
+} from "./templates";
 
 const MIN_VAL_VERSION = packageJson.version;
 const MIN_NEXT_VERSION = "13.4.0";
@@ -512,7 +512,7 @@ async function execute(plan: Plan) {
   if (!plan.root) {
     return error("Failed to find root directory");
   }
-  console.log("Executing plan...");
+  console.log("Executing...");
   for (const [key, fileOp] of Object.entries(plan)) {
     writeFile(fileOp, plan.root, key.startsWith("update"));
   }
@@ -527,12 +527,9 @@ function writeFile(
     fs.mkdirSync(path.dirname(fileOp.path), { recursive: true });
     fs.writeFileSync(fileOp.path, fileOp.source);
     console.log(
-      chalk.green(
-        `  ${isUpdate ? "Updated" : "Created"} file: ${fileOp.path.replace(
-          rootDir,
-          ""
-        )}`
-      )
+      `  ${chalk.green(
+        `${isUpdate ? "Updated" : "Created"} file: `
+      )}${fileOp.path.replace(rootDir, "")}`
     );
   }
 }
