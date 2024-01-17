@@ -14,10 +14,9 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "start": "ts-node --esm src/cli.ts --",
+    "start": "tsx src/cli.ts --",
     "typecheck": "tsc --noEmit"
   },
-  "type": "module",
   "dependencies": {
     "@valbuild/server": "~0.50.0",
     "@valbuild/eslint-plugin": "~0.50.0",

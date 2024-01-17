@@ -1,8 +1,8 @@
 import { ValProvider } from "@valbuild/next";
+import { config } from "../val.config";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { config } from "../val.config";
 
 const inter = Inter({ subsets: ["latin"] });
 
