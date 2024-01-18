@@ -146,85 +146,19 @@ Check out this README or the [examples](./examples) directory for examples.
 ## Installation
 
 - Make sure you have TypeScript 5+, Next 13.4+ (other meta frameworks will come), React 18.20.+ (other frontend frameworks will come)
-- Install the package:
+- Install the packages (@valbuild/eslint-plugin is recommended but not required):
 
 ```sh
-npm install @valbuild/next@latest
+npm install @valbuild/next@latest @valbuild/eslint-plugin@latest
 ```
 
-- Create a `val.config.ts` file. **NOTE**: this file should be in the same directory as `tsconfig.json`:
+- Run the init script and following the :
 
-```ts
-// ./val.config.ts
-
-import { initVal } from "@valbuild/next";
-
-const { s, val, config } = initVal();
-
-export { s, val, config };
+```sh
+npx @valbuild/init
 ```
 
-- Create the endpoints file:
-
-```ts
-// ./src/pages/api/val/[...val].ts
-
-import { createRequestListener } from "@valbuild/server";
-import { NextApiHandler } from "next";
-
-const handler: NextApiHandler = createRequestListener("/api/val", {
-  valConfigPath: "./val.config",
-});
-
-export default handler;
-
-export const config = {
-  api: {
-    responseLimit: false,
-    bodyParser: false,
-    externalResolver: true,
-  },
-};
-```
-
-- Use the Val provider in the root layout file:
-
-```tsx
-// ./app/layout.tsx
-
-import { ValProvider } from "@valbuild/next";
-
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <html lang="en">
-      <body className={inter.className}>
-        <ValProvider> {children}</ValProvider>
-      </body>
-    </html>
-  );
-}
-```
-
-### [OPTIONAL]: Setup eslint
-
-Install the eslint package:
-
-```bash
-npm install @valbuild/eslint-plugin@latest
-```
-
-Add the following to your `.eslintrc.json`:
-
-```json
-  "plugins": ["@valbuild"],
-  "rules": {
-    "@valbuild/no-illegal-module-ids": "error"
-  }
-```
+- In order to let editors make updates you can go to https://val.build, sign up and import you project. From there you can share links to preview builds so that editors can update content.
 
 ### Add editor support
 
