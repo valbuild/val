@@ -1,0 +1,4 @@
+{
+  "main": "dist/valbuild-init-main.cjs.js",
+  "module": "dist/valbuild-init-main.esm.js"
+}

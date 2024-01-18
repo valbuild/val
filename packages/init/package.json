@@ -3,9 +3,9 @@
   "version": "0.51.1",
   "description": "Initialize a new val.build project",
   "exports": {
-    "./init": {
-      "module": "./init/dist/valbuild-init-init.esm.js",
-      "default": "./init/dist/valbuild-init-init.cjs.js"
+    "./main": {
+      "module": "./main/dist/valbuild-init-main.esm.js",
+      "default": "./main/dist/valbuild-init-main.cjs.js"
     },
     "./package.json": "./package.json"
   },
@@ -37,9 +37,8 @@
   },
   "preconstruct": {
     "entrypoints": [
-      "./index.ts"
-    ],
-    "exports": true
+      "main.ts"
+    ]
   },
   "devDependencies": {
     "@babel/preset-env": "^7.23.8",
