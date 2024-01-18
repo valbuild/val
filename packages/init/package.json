@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/init",
-  "version": "0.51.0",
+  "version": "0.51.1",
   "description": "",
   "main": "dist/valbuild-init.cjs.js",
   "module": "dist/valbuild-init.esm.js",
