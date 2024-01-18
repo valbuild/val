@@ -11,3 +11,4 @@ dist
 tsconfig.tsbuildinfo
 
 packages/ui/server/.tmp
+out
