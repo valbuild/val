@@ -347,34 +347,42 @@ async function plan(
         isGood: true,
       });
     } else {
-      const answer = !defaultAnswers
-        ? await confirm({
-            message:
-              "Patch eslintrc.json to use the recommended Val eslint rules?",
-            default: true,
-          })
-        : true;
-      if (answer && analysis.eslintRcJsonPath) {
-        const currentEslintRc = fs.readFileSync(
-          analysis.eslintRcJsonPath,
-          "utf-8"
+      if (analysis.eslintRcJsPath) {
+        logger.warn(
+          'Cannot patch eslint: found .eslintrc.js but can only patch JSON files (at the moment).\nAdd the following to your eslint config:\n\n  "extends": ["plugin:@valbuild/recommended"]\n'
         );
-        const parsedEslint = JSON.parse(currentEslintRc);
-        if (typeof parsedEslint !== "object") {
-          logger.error(
-            `Could not patch eslint: ${analysis.eslintRcJsonPath} was not an object`
+      } else if (analysis.eslintRcJsonPath) {
+        const answer = !defaultAnswers
+          ? await confirm({
+              message:
+                "Patch eslintrc.json to use the recommended Val eslint rules?",
+              default: true,
+            })
+          : true;
+        if (answer) {
+          const currentEslintRc = fs.readFileSync(
+            analysis.eslintRcJsonPath,
+            "utf-8"
           );
-          return { abort: true };
+          const parsedEslint = JSON.parse(currentEslintRc);
+          if (typeof parsedEslint !== "object") {
+            logger.error(
+              `Could not patch eslint: ${analysis.eslintRcJsonPath} was not an object`
+            );
+            return { abort: true };
+          }
+          if (typeof parsedEslint.extends === "string") {
+            parsedEslint.extends = [parsedEslint.extends];
+          }
+          parsedEslint.extends = parsedEslint.extends || [];
+          parsedEslint.extends.push("plugin:@valbuild/recommended");
+          plan.updateEslint = {
+            path: analysis.eslintRcJsonPath,
+            source: JSON.stringify(parsedEslint, null, 2) + "\n",
+          };
         }
-        if (typeof parsedEslint.extends === "string") {
-          parsedEslint.extends = [parsedEslint.extends];
-        }
-        parsedEslint.extends = parsedEslint.extends || [];
-        parsedEslint.extends.push("plugin:@valbuild/recommended");
-        plan.updateEslint = {
-          path: analysis.eslintRcJsonPath,
-          source: JSON.stringify(parsedEslint, null, 2) + "\n",
-        };
+      } else {
+        logger.warn("Cannot patch eslint: failed to find eslint config file");
       }
     }
   }
