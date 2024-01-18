@@ -5,9 +5,9 @@
   "main": "dist/valbuild-init.cjs.js",
   "module": "dist/valbuild-init.esm.js",
   "exports": {
-    ".": {
-      "module": "./dist/valbuild-init.esm.js",
-      "default": "./dist/valbuild-init.cjs.js"
+    "./init": {
+      "module": "./init/dist/valbuild-init-init.esm.js",
+      "default": "./init/dist/valbuild-init-init.cjs.js"
     },
     "./package.json": "./package.json"
   },
