@@ -13,7 +13,7 @@
   },
   "scripts": {
     "test": "jest",
-    "release": "ncc build ./src/index.ts -o ./out/ --minify --no-cache --no-source-map-register"
+    "build": "ncc build ./src/index.ts -o ./out/ --minify --no-cache --no-source-map-register"
   },
   "bin": {
     "@valbuild/init": "./out/index.js"
