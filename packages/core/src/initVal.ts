@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/ban-types */
 /* eslint-disable @typescript-eslint/no-unnecessary-type-constraint */
-import { content } from "./module";
+import { define } from "./module";
 import { InitSchema, initSchema } from "./initSchema";
 import { getValPath as getPath } from "./val";
 import { file } from "./source/file";
@@ -9,13 +9,18 @@ import { link } from "./source/link";
 // import { i18n, I18n } from "./source/future/i18n";
 // import { remote } from "./source/future/remote";
 
-export type ValConstructor = {
-  content: typeof content;
-  getPath: typeof getPath;
+export type ContentConstructor = {
+  define: typeof define;
   // remote: typeof remote;
   file: typeof file;
-  link: typeof link;
+  rt: {
+    image: typeof file;
+    link: typeof link;
+  };
   richtext: typeof richtext;
+};
+export type ValConstructor = {
+  getPath: typeof getPath;
 };
 
 export type ValConfig = {
@@ -25,6 +30,7 @@ export type ValConfig = {
   valConfigPath?: string;
 };
 export type InitVal = {
+  c: ContentConstructor;
   val: ValConstructor;
   s: InitSchema;
   config: ValConfig;
@@ -67,12 +73,17 @@ InitVal => {
   // }
   return {
     val: {
-      content,
-      // remote,
       getPath,
+    },
+    c: {
+      content: define,
+      // remote,
       file,
       richtext,
-      link,
+      rt: {
+        image: file,
+        link,
+      },
     },
     s,
     config: {},

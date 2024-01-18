@@ -158,11 +158,9 @@ npm install @valbuild/next@latest @valbuild/eslint-plugin@latest
 npx @valbuild/init
 ```
 
-- In order to let editors make updates you can go to https://val.build, sign up and import you project. From there you can share links to preview builds so that editors can update content.
-
 ### Add editor support
 
-To make it possible to do non-local edits, head over to [val.build](https://val.build) and import your repository.
+To make it possible to do non-local edits, head over to [val.build](https://val.build), sign up and import your repository.
 
 **NOTE**: your content is yours. No subscription (or similar) is required to host content from your repository.
 
@@ -178,11 +176,11 @@ Content in Val is always defined in `.val.ts` files.
 
 **NOTE**: Val also works with `.js` files.
 
-They must export a default `val.content` where the first argument equals the path of the file relative to the `val.config.ts` file.
+They must export a default content definition (`c.define`) where the first argument equals the path of the file relative to the `val.config.ts` file.
 
 **NOTE**: `val.ts` files are _evaluated_ by Val, therefore they have a specific set of requirements:
 
-- They must have a default export that is `val.content`, they must have a `export const schema` with the Schema; and
+- They must have a default export that is `c.define`, they must have a `export const schema` with the Schema; and
 - they CANNOT import anything other than `val.config` and `@valbuild/core`
 
 ### Example of a `.val.ts` file
@@ -190,7 +188,7 @@ They must export a default `val.content` where the first argument equals the pat
 ```ts
 // ./src/app/content.val.ts
 
-import { s, val } from "../../../val.config";
+import { s, c } from "../../../val.config";
 
 export const schema = s.object({
   title: s.string().optional(), //  <- NOTE: optional()
@@ -204,7 +202,7 @@ export const schema = s.object({
   ),
 });
 
-export default val.content(
+export default c.define(
   "/src/app/content", // <- NOTE: this must be the same path as the file
   schema,
   {
@@ -212,7 +210,7 @@ export default val.content(
     sections: [
       {
         title: "Section 1",
-        text: val.richtext`
+        text: c.richtext`
 RichText is **awesome**`,
       },
     ],
@@ -362,7 +360,7 @@ export const schema = s.richtext({
   //ol: true, // enables ordered lists
 });
 
-export default val.content(
+export default c.define(
   "/src/app/content",
   schema,
   val.richtext`
@@ -417,7 +415,7 @@ import { s, val } from "../val.config";
 
 export const schema = s.image();
 
-export default val.content("/image", schema, val.file("/public/myfile.jpg"));
+export default c.define("/image", schema, c.file("/public/myfile.jpg"));
 ```
 
 **NOTE**: This will not validate, since images requires `width`, `height` and a `sha256` checksum. You can fix this validation in the UI by opening the image and clicking the Fix button.

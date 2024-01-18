@@ -1,5 +1,5 @@
 import type { InferSchemaType } from "@valbuild/next";
-import { s, val } from "../val.config";
+import { s, c } from "../val.config";
 
 export const schema = s.array(
   s.object({
@@ -8,7 +8,7 @@ export const schema = s.array(
 );
 
 export type Author = InferSchemaType<typeof schema>;
-export default val.content("/content/authors", schema, [
+export default c.define("/content/authors", schema, [
   {
     name: "Fredrik Ekholdt",
   },

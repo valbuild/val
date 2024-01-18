@@ -19,7 +19,7 @@ import {
 import { richtext } from "./richtext";
 import { record } from "./record";
 import { keyOf } from "./keyOf";
-import { content } from "../module";
+import { define } from "../module";
 import { union } from "./union";
 
 const testPath = "/test" as SourcePath;
@@ -241,32 +241,32 @@ const ValidationTestCases: {
   {
     description: "basic keyOf(array)",
     input: 1,
-    schema: keyOf(content("/keyof-module", array(string()), [])),
+    schema: keyOf(define("/keyof-module", array(string()), [])),
     expected: false,
   },
   {
     description: "failing keyOf(record)",
     input: "1",
-    schema: keyOf(content("/keyof-module", array(string()), [])),
+    schema: keyOf(define("/keyof-module", array(string()), [])),
     expected: [testPath],
   },
   {
     description: "basic keyOf(record)",
     input: "one",
-    schema: keyOf(content("/keyof-module", record(string()), {})),
+    schema: keyOf(define("/keyof-module", record(string()), {})),
     expected: false,
   },
   {
     description: "failing keyOf(record)",
     input: 1,
-    schema: keyOf(content("/keyof-module", record(string()), {})),
+    schema: keyOf(define("/keyof-module", record(string()), {})),
     expected: [testPath],
   },
   {
     description: "basic keyOf(object)",
     input: "test1",
     schema: keyOf(
-      content("/keyof-module", object({ test1: string(), test2: string() }), {
+      define("/keyof-module", object({ test1: string(), test2: string() }), {
         test1: "",
         test2: "",
       })
@@ -277,7 +277,7 @@ const ValidationTestCases: {
     description: "failing keyOf(object)",
     input: "test",
     schema: keyOf(
-      content("/keyof-module", object({ test1: string(), test2: string() }), {
+      define("/keyof-module", object({ test1: string(), test2: string() }), {
         test1: "",
         test2: "",
       })
