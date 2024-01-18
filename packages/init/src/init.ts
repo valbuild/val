@@ -510,7 +510,7 @@ async function plan(
   // Patches:
 
   const NO_PATCH_WARNING =
-    "Remember to add the ValProvider in your root layout.tsx / pages/_app.tsx file.\n";
+    "Remember to add the ValProvider in your root app/layout.tsx or pages/_app.tsx file.\n";
   if (analysis.appRouterLayoutPath) {
     if (!analysis.appRouterLayoutFile) {
       logger.error("Failed to read app router layout file");
