@@ -29,6 +29,6 @@ export function debugPrint(str: string) {
 
 export function printDebuggingHelp() {
   info(
-    `If you're having trouble, please follow the debugging steps\n🌐: https://valbuild.com/docs/troubleshooting`
+    `If you're having trouble, please follow the debugging steps\n🌐: https://val.build/docs/troubleshooting`
   );
 }
