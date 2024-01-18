@@ -8,12 +8,10 @@ async function main(): Promise<void> {
       Usage
         $ val [command]
       Commands
-        serve    Run val development server
         validate val-idate val modules
 
       Options
         --help                   Show this message
-        --port [port], -p [port] Set server port (default 4123)
         --root [root], -r [root] Set project root directory (default process.cwd())
         --cfg  [cfg],  -c [cfg]  Set path to config relative to root (default ./val.config)
         --fix  [fix]             Attempt to fix validation errors
