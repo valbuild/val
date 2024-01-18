@@ -7,6 +7,6 @@
     "module": "esnext",
     "moduleResolution": "node",
     "skipLibCheck": true,
-    "target": "ESNext",
+    "target": "ESNext"
   }
 }
