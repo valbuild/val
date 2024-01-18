@@ -415,13 +415,22 @@ async function plan(
       plan.ignoreGitDirty = answer;
       if (!answer) {
         logger.error("Aborted: git state dirty");
-        return { abort: true, ignoreGitDirty: true };
+        return { abort: true };
       }
     }
   }
 
   // New required files:
-  const valConfigPath = path.join(analysis.root, "val.config.ts");
+  const valConfigPath = path.join(
+    analysis.root,
+    analysis.isTypeScript ? "val.config.ts" : "val.config.js"
+  );
+  if (fs.existsSync(valConfigPath)) {
+    logger.error(
+      `Aborted: a Val config file: ${valConfigPath} already exists.`
+    );
+    return { abort: true };
+  }
 
   plan.createConfigFile = {
     path: valConfigPath,
