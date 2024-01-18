@@ -78,7 +78,7 @@ type Analysis = Partial<{
   eslintRcJsonText: string;
   eslintRcJsPath: string;
   eslintRcJsText: string;
-  isValEslintInstalled: boolean;
+  valEslintVersion: string;
   isValEslintRulesConfigured: boolean;
 
   // next:
@@ -117,9 +117,9 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
         const packageJson = JSON.parse(packageJsonText);
         analysis.isValInstalled = !!packageJson.dependencies["@valbuild/next"];
         analysis.isNextInstalled = !!packageJson.dependencies["next"];
-        analysis.isValEslintInstalled =
-          !!packageJson.devDependencies["@valbuild/eslint"] ||
-          !!packageJson.dependencies["@valbuild/eslint"];
+        analysis.valEslintVersion =
+          packageJson.devDependencies["@valbuild/eslint-plugin"] ||
+          packageJson.dependencies["@valbuild/eslint-plugin"];
         analysis.nextVersion = packageJson.dependencies["next"];
         analysis.valVersion = packageJson.dependencies["@valbuild/next"];
       } catch (err) {
@@ -311,11 +311,22 @@ async function plan(
     }
   }
 
-  if (analysis.isValEslintInstalled) {
-    logger.info("  @valbuild/eslint installed", { isGood: true });
-  }
-  if (analysis.isValEslintRulesConfigured) {
-    logger.info("  @valbuild/eslint rules configured", { isGood: true });
+  if (analysis.valEslintVersion === undefined) {
+    const answer = !defaultAnswers
+      ? await confirm({
+          message:
+            "The recommended Val eslint plugin (@valbuild/eslint-plugin) is not installed. Continue?",
+          default: false,
+        })
+      : false;
+    if (!answer) {
+      logger.error(
+        "Aborted: the Val eslint plugin is not installed.\n\nInstall the @valbuild/eslint-plugin package with your favorite package manager.\n\nExample:\n\n  npm install -D @valbuild/eslint-plugin\n"
+      );
+      return { abort: true };
+    }
+  } else {
+    logger.info("  @valbuild/eslint-plugin: installed", { isGood: true });
   }
   if (analysis.appRouter) {
     logger.info("  Use: App Router", { isGood: true });
@@ -329,7 +340,44 @@ async function plan(
   if (!analysis.isGitClean) {
     logger.warn("  Git state: dirty");
   }
-  console.log();
+
+  if (analysis.valEslintVersion) {
+    if (analysis.isValEslintRulesConfigured) {
+      logger.info("  @valbuild/eslint-plugin rules configured", {
+        isGood: true,
+      });
+    } else {
+      const answer = !defaultAnswers
+        ? await confirm({
+            message:
+              "Patch eslintrc.json to use the recommended Val eslint rules?",
+            default: true,
+          })
+        : true;
+      if (answer && analysis.eslintRcJsonPath) {
+        const currentEslintRc = fs.readFileSync(
+          analysis.eslintRcJsonPath,
+          "utf-8"
+        );
+        const parsedEslint = JSON.parse(currentEslintRc);
+        if (typeof parsedEslint !== "object") {
+          logger.error(
+            `Could not patch eslint: ${analysis.eslintRcJsonPath} was not an object`
+          );
+          return { abort: true };
+        }
+        if (typeof parsedEslint.extends === "string") {
+          parsedEslint.extends = [parsedEslint.extends];
+        }
+        parsedEslint.extends = parsedEslint.extends || [];
+        parsedEslint.extends.push("plugin:@valbuild/recommended");
+        plan.updateEslint = {
+          path: analysis.eslintRcJsonPath,
+          source: JSON.stringify(parsedEslint, null, 2) + "\n",
+        };
+      }
+    }
+  }
   if (!analysis.isGitClean) {
     while (plan.ignoreGitDirty === undefined) {
       const answer = !defaultAnswers
