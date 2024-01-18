@@ -267,10 +267,28 @@ async function plan(
     logger.error("Install @valbuild/next first");
     return { abort: true };
   } else {
-    logger.info(
-      `  Val version: found ${analysis.valVersion} >= ${MIN_VAL_VERSION}`,
-      { isGood: true }
-    );
+    if (!analysis.valVersionIsSatisfied) {
+      logger.warn(
+        `  This init script expects @valbuild/next >= ${MIN_VAL_VERSION}. Found: ${analysis.valVersion}`
+      );
+      const answer = !defaultAnswers
+        ? await confirm({
+            message: "Continue?",
+            default: false,
+          })
+        : false;
+      if (!answer) {
+        logger.error(
+          `Aborted: val version is not satisfied.\n\nInstall the @valbuild/next@${MIN_VAL_VERSION} package with your favorite package manager.\n\nExample:\n\n  npm install -D @valbuild/next@${MIN_VAL_VERSION}\n`
+        );
+        return { abort: true };
+      }
+    } else {
+      logger.info(
+        `  Val version: found ${analysis.valVersion} >= ${MIN_VAL_VERSION}`,
+        { isGood: true }
+      );
+    }
   }
   if (!analysis.nextVersionIsSatisfied) {
     logger.error(
