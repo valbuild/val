@@ -7,7 +7,7 @@ async function main() {
     `
       Usage
         $ npx @valbuild/init
-      Commands
+      Description
         Initialize Val in a project
 
       Options
