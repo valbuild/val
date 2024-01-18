@@ -152,7 +152,7 @@ Check out this README or the [examples](./examples) directory for examples.
 npm install @valbuild/next@latest @valbuild/eslint-plugin@latest
 ```
 
-- Run the init script and following the :
+- Run the init script:
 
 ```sh
 npx @valbuild/init
