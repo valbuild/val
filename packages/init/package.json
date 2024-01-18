@@ -16,7 +16,7 @@
     "build": "ncc build ./src/index.ts -o ./out/ --minify --no-cache --no-source-map-register"
   },
   "bin": {
-    "@valbuild/init": "./out/index.js"
+    "@valbuild/init": "./bin.js"
   },
   "dependencies": {
     "@inquirer/confirm": "^2.0.15",
