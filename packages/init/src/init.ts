@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import simpleGit from "simple-git";
 import { confirm } from "@inquirer/prompts";
-import { transformNextAppRouterValProvider } from "./codemods/app/transformNextAppRouterValProvider";
+import { transformNextAppRouterValProvider } from "./codemods/transformNextAppRouterValProvider";
 import { diffLines } from "diff";
 import jcs from "jscodeshift";
 import semver from "semver";
@@ -15,20 +15,22 @@ import {
   VAL_CONFIG,
   VAL_SERVER,
 } from "./templates";
+import * as logger from "./logger";
 
 const MIN_VAL_VERSION = packageJson.version;
 const MIN_NEXT_VERSION = "13.4.0";
+
+let maxResetLength = 0;
 export async function init(
   root: string = process.cwd(),
-  defaultAnswers = false
+  { yes: defaultAnswers }: { yes?: boolean } = {}
 ) {
-  console.log('Initializing Val in "' + root + '"...');
-  console.log();
+  logger.info('Initializing Val in "' + root + '"...\n');
   process.stdout.write("Analyzing project...");
-  const analysis = await analyze(root, walk(root));
+  const analysis = await analyze(path.resolve(root), walk(path.resolve(root)));
   // reset cursor:
   process.stdout.write("\x1b[0G");
-  console.log("Analysis:" + " ".repeat(20));
+  logger.info("Analysis:" + " ".repeat(maxResetLength));
 
   const currentPlan = await plan(analysis, defaultAnswers);
   if (currentPlan.abort) {
@@ -40,6 +42,14 @@ export async function init(
 
 const sep = "/";
 function walk(dir: string, skip: RegExp = /node_modules|.git/): string[] {
+  if (!fs.existsSync(dir)) return [];
+  process.stdout.write("\x1b[0G");
+  const m =
+    "Analyzing project... " +
+    (dir.length > 30 ? "..." : "") +
+    dir.slice(Math.max(dir.length - 30, 0));
+  maxResetLength = Math.max(maxResetLength, m.length);
+  process.stdout.write(m + " ".repeat(maxResetLength - m.length));
   return fs.readdirSync(dir).reduce((files, fileOrDirName) => {
     const fileOrDirPath = [dir, fileOrDirName].join("/"); // always use / as path separator - should work on windows as well?
     if (fs.statSync(fileOrDirPath).isDirectory() && !skip.test(fileOrDirName)) {
@@ -91,6 +101,9 @@ type Analysis = Partial<{
 }>;
 
 const analyze = async (root: string, files: string[]): Promise<Analysis> => {
+  if (!fs.existsSync(root)) {
+    return {};
+  }
   const analysis: Analysis = { root };
   const packageJsonPath = files.find(
     (file) => file === [root, "package.json"].join(sep)
@@ -195,7 +208,7 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
       : false;
     analysis.isGitClean = gitStatus.isClean();
   } catch (err) {
-    console.error(err);
+    // console.error(err);
   }
   return analysis;
 };
@@ -220,14 +233,6 @@ type Plan = Partial<{
   ignoreGitDirty: boolean;
 }>;
 
-function warn(msg: string) {
-  console.log(chalk.bgYellow("WARNING") + ` ${msg}`);
-}
-
-function error(msg: string) {
-  console.log(chalk.red("ERROR") + ` ${msg}`);
-}
-
 async function plan(
   analysis: Readonly<Analysis>,
   defaultAnswers: boolean = false
@@ -235,80 +240,94 @@ async function plan(
   const plan: Plan = { root: analysis.root };
 
   if (analysis.root) {
-    console.log(chalk.green("  Root: " + analysis.root));
+    logger.info("  Root: " + analysis.root, { isGood: true });
   } else {
-    error("Failed to find root directory");
+    logger.error("Failed to find root directory");
+    return { abort: true };
+  }
+  if (
+    !analysis.srcDir ||
+    !fs.statSync(analysis.srcDir).isDirectory() ||
+    !analysis.isNextInstalled
+  ) {
+    logger.error("Val requires a Next.js project");
     return { abort: true };
   }
   if (analysis.srcDir) {
-    console.log(chalk.green("  Source dir: " + analysis.root));
+    logger.info("  Source dir: " + analysis.root, { isGood: true });
   } else {
-    error("Failed to determine source directory");
+    logger.error("Failed to determine source directory");
+    return { abort: true };
+  }
+  if (!analysis.isNextInstalled) {
+    logger.error("Val requires a Next.js project");
     return { abort: true };
   }
   if (!analysis.isValInstalled) {
-    error("Install @valbuild/next first");
+    logger.error("Install @valbuild/next first");
     return { abort: true };
   } else {
-    console.log(chalk.green(`  Val version >= ${MIN_VAL_VERSION}`));
-  }
-  if (!analysis.isNextInstalled) {
-    error("Val requires a Next.js project");
-    return { abort: true };
+    logger.info(
+      `  Val version: found ${analysis.valVersion} >= ${MIN_VAL_VERSION}`,
+      { isGood: true }
+    );
   }
   if (!analysis.nextVersionIsSatisfied) {
-    error(
+    logger.error(
       `Val requires Next.js >= ${MIN_NEXT_VERSION}. Found: ${analysis.nextVersion}`
     );
     return { abort: true };
   } else {
-    console.log(chalk.green(`  Next.js version >= ${MIN_NEXT_VERSION}`));
+    logger.info(
+      `  Next.js version: found ${analysis.nextVersion} >= ${MIN_NEXT_VERSION}`,
+      { isGood: true }
+    );
+  }
+  if (analysis.isTypescript) {
+    logger.info("  Use: TypeScript", { isGood: true });
+    plan.useTypescript = true;
+  }
+  if (analysis.isJavascript) {
+    logger.info("  Use: JavaScript", { isGood: true });
+    if (!plan.useTypescript) {
+      plan.useJavascript = true;
+    }
   }
   if (analysis.isTypescript) {
     const tsconfigJsonPath = path.join(analysis.root, "tsconfig.json");
     if (fs.statSync(tsconfigJsonPath).isFile()) {
-      console.log(chalk.green("  tsconfig.json found"));
+      logger.info("  tsconfig.json: found", { isGood: true });
     } else {
-      error("Failed to find tsconfig.json");
+      logger.error("tsconfig.json: Failed to find tsconfig.json");
       return { abort: true };
     }
   } else {
     const jsconfigJsonPath = path.join(analysis.root, "jsconfig.json");
     if (fs.statSync(jsconfigJsonPath).isFile()) {
-      console.log(chalk.green("  jsconfig.json found"));
+      logger.info("  jsconfig.json: found", { isGood: true });
     } else {
-      error("Failed to find jsconfig.json");
+      logger.error(" jsconfig.json: failed to find jsconfig.json");
       return { abort: true };
     }
   }
 
   if (analysis.isValEslintInstalled) {
-    console.log(chalk.green("  @valbuild/eslint installed"));
+    logger.info("  @valbuild/eslint installed", { isGood: true });
   }
   if (analysis.isValEslintRulesConfigured) {
-    console.log(chalk.green("  @valbuild/eslint rules configured"));
-  }
-  if (analysis.isTypescript) {
-    console.log(chalk.green("  Uses TypeScript"));
-    plan.useTypescript = true;
-  }
-  if (analysis.isJavascript) {
-    console.log(chalk.green("  Uses JavaScript"));
-    if (!plan.useTypescript) {
-      plan.useJavascript = true;
-    }
+    logger.info("  @valbuild/eslint rules configured", { isGood: true });
   }
   if (analysis.appRouter) {
-    console.log(chalk.green("  Uses App Router"));
+    logger.info("  Use: App Router", { isGood: true });
   }
   if (analysis.pagesRouter) {
-    console.log(chalk.green("  Uses Pages Router"));
+    logger.info("  Use: Pages Router", { isGood: true });
   }
   if (analysis.isGitClean) {
-    console.log(chalk.green("  Git state: clean"));
+    logger.info("  Git state: clean", { isGood: true });
   }
   if (!analysis.isGitClean) {
-    console.log(chalk.red("  Git state: dirty"));
+    logger.warn("  Git state: dirty");
   }
   console.log();
   if (!analysis.isGitClean) {
@@ -321,7 +340,7 @@ async function plan(
         : false;
       plan.ignoreGitDirty = answer;
       if (!answer) {
-        error("Aborting: git state dirty");
+        logger.error("Aborted: git state dirty");
         return { abort: true, ignoreGitDirty: true };
       }
     }
@@ -351,7 +370,7 @@ async function plan(
   };
 
   if (!analysis.appRouterPath) {
-    warn('Creating a new "app" router');
+    logger.warn('Creating a new "app" router');
   }
 
   const valAppPagePath = path.join(
@@ -427,17 +446,16 @@ async function plan(
   }
 
   if (analysis.eslintRcJsPath) {
-    warn("ESLint config found: " + analysis.eslintRcJsPath);
-    warn("Remember to add ");
+    logger.warn("ESLint config found: " + analysis.eslintRcJsPath);
   }
 
   // Patches:
 
   const NO_PATCH_WARNING =
-    "Remember to manually patch your pages/_app.tsx file to use Val Provider. See docs for details";
+    "Remember to manually patch your pages/_app.tsx file to use Val Provider.\n";
   if (analysis.appRouterLayoutPath) {
     if (!analysis.appRouterLayoutFile) {
-      error("Failed to read app router layout file");
+      logger.error("Failed to read app router layout file");
       return { abort: true };
     }
 
@@ -486,7 +504,7 @@ async function plan(
           })
         : true;
       if (!answer) {
-        warn(NO_PATCH_WARNING);
+        logger.warn(NO_PATCH_WARNING);
         plan.updateAppLayout = false;
       } else {
         plan.updateAppLayout = {
@@ -495,11 +513,11 @@ async function plan(
         };
       }
     } else {
-      warn(NO_PATCH_WARNING);
+      logger.warn(NO_PATCH_WARNING);
     }
   }
   if (analysis.pagesRouter) {
-    warn(NO_PATCH_WARNING);
+    logger.warn(NO_PATCH_WARNING);
   }
 
   return plan;
@@ -507,12 +525,12 @@ async function plan(
 
 async function execute(plan: Plan) {
   if (plan.abort) {
-    return warn("Aborted");
+    return logger.warn("Aborted");
   }
   if (!plan.root) {
-    return error("Failed to find root directory");
+    return logger.error("Failed to find root directory");
   }
-  console.log("Executing...");
+  logger.info("Executing...");
   for (const [key, fileOp] of Object.entries(plan)) {
     writeFile(fileOp, plan.root, key.startsWith("update"));
   }
@@ -526,10 +544,12 @@ function writeFile(
   if (fileOp && typeof fileOp !== "boolean" && typeof fileOp !== "string") {
     fs.mkdirSync(path.dirname(fileOp.path), { recursive: true });
     fs.writeFileSync(fileOp.path, fileOp.source);
-    console.log(
-      `  ${chalk.green(
-        `${isUpdate ? "Updated" : "Created"} file: `
-      )}${fileOp.path.replace(rootDir, "")}`
+    logger.info(
+      `  ${isUpdate ? "Patched" : "Created"} file: ${fileOp.path.replace(
+        rootDir,
+        ""
+      )}`,
+      { isGood: true }
     );
   }
 }

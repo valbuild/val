@@ -1,7 +1,5 @@
 import jcs from "jscodeshift";
-import { transformNextAppRouterValProvider } from "./codemods/app/transformNextAppRouterValProvider";
-import { diffLines } from "diff";
-import chalk from "chalk";
+import { transformNextAppRouterValProvider } from "./codemods/transformNextAppRouterValProvider";
 
 const APP_ROUTER_LAYOUT_SANS_VAL_PROVIDER = `import type { Metadata } from "next";
 import { Inter } from "next/font/google";
@@ -46,20 +44,6 @@ describe("codemods", () => {
         configImportPath: "../val.config",
       }
     );
-
-    const diff = diffLines(APP_ROUTER_LAYOUT_SANS_VAL_PROVIDER, res, {});
-
-    let s = "";
-    diff.forEach((part, i) => {
-      if (part.added) {
-        s += chalk.green(part.value);
-      } else if (part.removed) {
-        s += chalk.red(part.value);
-      } else {
-        s += part.value;
-      }
-    });
-    console.log(res);
     expect(res).toEqual(`import { ValProvider } from "@valbuild/next";
 import { config } from "../val.config";
 import type { Metadata } from "next";
