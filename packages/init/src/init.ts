@@ -65,8 +65,8 @@ type Analysis = Partial<{
   srcDir: string;
   packageJsonDir: string;
   valConfigPath: string;
-  isTypescript: boolean;
-  isJavascript: boolean;
+  isTypeScript: boolean;
+  isJavaScript: boolean;
 
   // Val package:
   isValInstalled: boolean;
@@ -179,8 +179,8 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
     files.find((file) => file.endsWith("/pages/_app.jsx"));
   analysis.pagesRouter = !!pagesRouterAppPath;
   if (pagesRouterAppPath) {
-    analysis.isTypescript = !!pagesRouterAppPath.endsWith(".tsx");
-    analysis.isJavascript = !!pagesRouterAppPath.endsWith(".jsx");
+    analysis.isTypeScript = !!pagesRouterAppPath.endsWith(".tsx");
+    analysis.isJavaScript = !!pagesRouterAppPath.endsWith(".jsx");
     analysis.srcDir = path.dirname(path.dirname(pagesRouterAppPath));
   }
 
@@ -192,8 +192,8 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
     analysis.appRouter = true;
     analysis.appRouterLayoutPath = appRouterLayoutPath;
     analysis.appRouterLayoutFile = fs.readFileSync(appRouterLayoutPath, "utf8");
-    analysis.isTypescript = !!appRouterLayoutPath.endsWith(".tsx");
-    analysis.isJavascript = !!appRouterLayoutPath.endsWith(".jsx");
+    analysis.isTypeScript = !!appRouterLayoutPath.endsWith(".tsx");
+    analysis.isJavaScript = !!appRouterLayoutPath.endsWith(".jsx");
     analysis.appRouterPath = path.dirname(appRouterLayoutPath);
     analysis.srcDir = path.dirname(analysis.appRouterPath);
   }
@@ -301,17 +301,17 @@ async function plan(
       { isGood: true }
     );
   }
-  if (analysis.isTypescript) {
+  if (analysis.isTypeScript) {
     logger.info("  Use: TypeScript", { isGood: true });
     plan.useTypescript = true;
   }
-  if (analysis.isJavascript) {
+  if (analysis.isJavaScript) {
     logger.info("  Use: JavaScript", { isGood: true });
     if (!plan.useTypescript) {
       plan.useJavascript = true;
     }
   }
-  if (analysis.isTypescript) {
+  if (analysis.isTypeScript) {
     const tsconfigJsonPath = path.join(analysis.root, "tsconfig.json");
     if (fs.statSync(tsconfigJsonPath).isFile()) {
       logger.info("  tsconfig.json: found", { isGood: true });
@@ -359,51 +359,6 @@ async function plan(
     logger.warn("  Git state: dirty");
   }
 
-  if (analysis.valEslintVersion) {
-    if (analysis.isValEslintRulesConfigured) {
-      logger.info("  @valbuild/eslint-plugin rules configured", {
-        isGood: true,
-      });
-    } else {
-      if (analysis.eslintRcJsPath) {
-        logger.warn(
-          'Cannot patch eslint: found .eslintrc.js but can only patch JSON files (at the moment).\nAdd the following to your eslint config:\n\n  "extends": ["plugin:@valbuild/recommended"]\n'
-        );
-      } else if (analysis.eslintRcJsonPath) {
-        const answer = !defaultAnswers
-          ? await confirm({
-              message:
-                "Patch eslintrc.json to use the recommended Val eslint rules?",
-              default: true,
-            })
-          : true;
-        if (answer) {
-          const currentEslintRc = fs.readFileSync(
-            analysis.eslintRcJsonPath,
-            "utf-8"
-          );
-          const parsedEslint = JSON.parse(currentEslintRc);
-          if (typeof parsedEslint !== "object") {
-            logger.error(
-              `Could not patch eslint: ${analysis.eslintRcJsonPath} was not an object`
-            );
-            return { abort: true };
-          }
-          if (typeof parsedEslint.extends === "string") {
-            parsedEslint.extends = [parsedEslint.extends];
-          }
-          parsedEslint.extends = parsedEslint.extends || [];
-          parsedEslint.extends.push("plugin:@valbuild/recommended");
-          plan.updateEslint = {
-            path: analysis.eslintRcJsonPath,
-            source: JSON.stringify(parsedEslint, null, 2) + "\n",
-          };
-        }
-      } else {
-        logger.warn("Cannot patch eslint: failed to find eslint config file");
-      }
-    }
-  }
   if (!analysis.isGitClean) {
     while (plan.ignoreGitDirty === undefined) {
       const answer = !defaultAnswers
@@ -445,7 +400,7 @@ async function plan(
 
   const valServerPath = path.join(
     valUtilsDir,
-    analysis.isTypescript ? "val.server.ts" : "val.server.js"
+    analysis.isTypeScript ? "val.server.ts" : "val.server.js"
   );
   plan.createValServer = {
     path: valServerPath,
@@ -460,7 +415,7 @@ async function plan(
     analysis.appRouterPath || path.join(analysis.srcDir, "app"),
     "(val)",
     "val",
-    analysis.isTypescript ? "page.tsx" : "page.jsx"
+    analysis.isTypeScript ? "page.tsx" : "page.jsx"
   );
   const valPageImportPath = path
     .relative(path.dirname(valAppPagePath), valConfigPath)
@@ -476,7 +431,7 @@ async function plan(
     "(val)",
     "api",
     "val",
-    analysis.isTypescript ? "router.tsx" : "router.jsx"
+    analysis.isTypeScript ? "router.tsx" : "router.jsx"
   );
   const valRouterImportPath = path
     .relative(path.dirname(valRouterPath), valServerPath)
@@ -500,7 +455,7 @@ async function plan(
       plan.createValClient = {
         path: path.join(
           valUtilsDir,
-          analysis.isTypescript ? "val.client.ts" : "val.client.js"
+          analysis.isTypeScript ? "val.client.ts" : "val.client.js"
         ),
         source: VAL_CLIENT(valUtilsImportPath),
       };
@@ -519,7 +474,7 @@ async function plan(
       plan.createValRsc = {
         path: path.join(
           valUtilsDir,
-          analysis.isTypescript ? "val.rsc.ts" : "val.rsc.js"
+          analysis.isTypeScript ? "val.rsc.ts" : "val.rsc.js"
         ),
         source: VAL_SERVER(valUtilsImportPath),
       };
@@ -601,6 +556,50 @@ async function plan(
   }
   if (analysis.pagesRouter) {
     logger.warn(NO_PATCH_WARNING);
+  }
+
+  if (analysis.valEslintVersion) {
+    if (analysis.isValEslintRulesConfigured) {
+      logger.warn("  @valbuild/eslint-plugin rules: already configured");
+    } else {
+      if (analysis.eslintRcJsPath) {
+        logger.warn(
+          'Cannot patch eslint: found .eslintrc.js but can only patch JSON files (at the moment).\nAdd the following to your eslint config:\n\n  "extends": ["plugin:@valbuild/recommended"]\n'
+        );
+      } else if (analysis.eslintRcJsonPath) {
+        const answer = !defaultAnswers
+          ? await confirm({
+              message:
+                "Patch eslintrc.json to use the recommended Val eslint rules?",
+              default: true,
+            })
+          : true;
+        if (answer) {
+          const currentEslintRc = fs.readFileSync(
+            analysis.eslintRcJsonPath,
+            "utf-8"
+          );
+          const parsedEslint = JSON.parse(currentEslintRc);
+          if (typeof parsedEslint !== "object") {
+            logger.error(
+              `Could not patch eslint: ${analysis.eslintRcJsonPath} was not an object`
+            );
+            return { abort: true };
+          }
+          if (typeof parsedEslint.extends === "string") {
+            parsedEslint.extends = [parsedEslint.extends];
+          }
+          parsedEslint.extends = parsedEslint.extends || [];
+          parsedEslint.extends.push("plugin:@valbuild/recommended");
+          plan.updateEslint = {
+            path: analysis.eslintRcJsonPath,
+            source: JSON.stringify(parsedEslint, null, 2) + "\n",
+          };
+        }
+      } else {
+        logger.warn("Cannot patch eslint: failed to find eslint config file");
+      }
+    }
   }
 
   return plan;
