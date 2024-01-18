@@ -1,6 +1,7 @@
 import { VAL_EXTENSION } from ".";
-import { LinkSource } from "./link";
+import { LinkSource, link } from "./link";
 import { ImageSource } from "./image";
+import { file } from "./file";
 
 export type RichTextOptions = {
   headings?: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];

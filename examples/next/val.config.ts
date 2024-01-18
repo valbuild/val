@@ -1,7 +1,7 @@
 import { initVal } from "@valbuild/next";
 
-const { s, val, config } = initVal({
+const { s, c, val, config } = initVal({
   valCloud: "valbuild/val-next-example",
 });
 
-export { s, val, config };
+export { s, c, val, config };

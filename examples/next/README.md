@@ -18,4 +18,4 @@ Additionally the following files are needed:
 
 ### Content
 
-See the `.val.ts` for where content is defined how it is used.
+Check out the `.val.ts` files where content is defined to learn more.

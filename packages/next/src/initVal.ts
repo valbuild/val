@@ -15,7 +15,7 @@ export const initVal = (
     decodeValPathOfString: typeof decodeValPathOfString;
   };
 } => {
-  const { s, val, config: systemConfig } = createValSystem();
+  const { s, c, val, config: systemConfig } = createValSystem();
   const currentConfig = {
     ...systemConfig,
     ...config,
@@ -23,6 +23,7 @@ export const initVal = (
   };
   return {
     s,
+    c,
     val: {
       ...val,
       decodeValPathOfString,
