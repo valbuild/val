@@ -34,6 +34,19 @@ export async function newValQuickJSRuntime(
               "export const useVal = () => { throw Error(`Cannot use 'useVal' in this type of file`) }; export function ValProvider() { throw Error(`Cannot use 'ValProvider' in this type of file`) }; export function ValRichText() { throw Error(`Cannot use 'ValRichText' in this type of file`)};",
           };
         }
+        if (modulePath === "@valbuild/ui") {
+          return {
+            value: `
+export const ValOverlay = () => {
+  throw Error("Cannot use 'ValOverlay' in this type of file")
+};
+export const VAL_CSS_PATH = "";
+export const VAL_APP_PATH = "";
+export const VAL_APP_ID = "";
+export const IS_DEV = false;2
+`,
+          };
+        }
         if (modulePath === "@valbuild/react/stega") {
           return {
             value:
@@ -82,11 +95,6 @@ export async function newValQuickJSRuntime(
               "export const ValApp = new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'ValApp' in this file`) } } } )",
           };
         }
-        if (modulePath.includes("/ValTypes")) {
-          return {
-            value: "export type inferSchema = {};",
-          };
-        }
         return { value: moduleLoader.getModule(modulePath) };
       } catch (e) {
         return {
@@ -103,6 +111,9 @@ export async function newValQuickJSRuntime(
           return { value: requestedName };
         }
         if (requestedName === "@valbuild/react/internal") {
+          return { value: requestedName };
+        }
+        if (requestedName === "@valbuild/ui") {
           return { value: requestedName };
         }
         if (requestedName.startsWith("next/navigation")) {
@@ -124,9 +135,6 @@ export async function newValQuickJSRuntime(
           return { value: requestedName };
         }
         if (requestedName.includes("/ValApp")) {
-          return { value: requestedName };
-        }
-        if (requestedName.includes("/ValTypes")) {
           return { value: requestedName };
         }
         const modulePath = moduleLoader.resolveModulePath(
