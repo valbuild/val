@@ -415,6 +415,7 @@ async function plan(
     analysis.appRouterPath || path.join(analysis.srcDir, "app"),
     "(val)",
     "val",
+    "[[...val]]",
     analysis.isTypeScript ? "page.tsx" : "page.jsx"
   );
   const valPageImportPath = path
@@ -431,6 +432,7 @@ async function plan(
     "(val)",
     "api",
     "val",
+    "[[...val]]",
     analysis.isTypeScript ? "router.tsx" : "router.jsx"
   );
   const valRouterImportPath = path
