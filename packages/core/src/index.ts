@@ -14,6 +14,7 @@ export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
 export type { RawString } from "./schema/string";
 export type { ImageSource } from "./source/image";
+export { RT_IMAGE_TAG } from "./source/richtext";
 export type {
   AnyRichTextOptions,
   Bold,
@@ -51,7 +52,7 @@ export type {
 import type { ValidationErrors } from "./schema/validation/ValidationError";
 export type { ValidationFix } from "./schema/validation/ValidationFix";
 export * as expr from "./expr/";
-export { FILE_REF_PROP } from "./source/file";
+export { FILE_REF_PROP, FILE_REF_SUBTYPE_TAG } from "./source/file";
 export { VAL_EXTENSION, type SourceArray } from "./source";
 export { derefPatch } from "./patch/deref";
 export {

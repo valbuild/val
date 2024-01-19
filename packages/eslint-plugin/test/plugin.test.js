@@ -29,11 +29,11 @@ describe("plugin", () => {
   });
 
   test("no illegal modules for monorepos (projects that are not at root)", async () => {
-    const code = `import { s, val } from "../val.config";
+    const code = `import { s, c } from "../val.config";
 
 export const schema = s.string();
 
-export default val.content(
+export default c.define(
   "/something",
   schema,
   "React Server components also works"
@@ -48,11 +48,11 @@ export default val.content(
   });
 
   test("no illegal modules for monorepos (projects that are not at root) - nested", async () => {
-    const code = `import { s, val } from "../../../../val.config";
+    const code = `import { s, c } from "../../../../val.config";
 
 export const schema = s.string();
 
-export default val.content(
+export default c.define(
   "/something",
   schema,
   "React Server components also works"
@@ -68,11 +68,11 @@ export default val.content(
     );
   });
   test("no illegal modules for monorepos (projects that are not at root) - src", async () => {
-    const code = `import { s, val } from "../../../../val.config";
+    const code = `import { s, c } from "../../../../val.config";
 
 export const schema = s.string();
 
-export default val.content(
+export default c.define(
   "/something",
   schema,
   "React Server components also works"

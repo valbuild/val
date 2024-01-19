@@ -177,3 +177,5 @@ export function richtext<O extends RichTextOptions>(
       nodes as RichTextSource<AnyRichTextOptions>["exprs"] as RichTextSource<O>["exprs"],
   };
 }
+
+export const RT_IMAGE_TAG = "rt_image";

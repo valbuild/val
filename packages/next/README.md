@@ -363,7 +363,7 @@ export const schema = s.richtext({
 export default c.define(
   "/src/app/content",
   schema,
-  val.richtext`
+  c.richtext`
 NOTE: this is markdown.
 
 **Bold** text.
