@@ -464,7 +464,6 @@ describe("validation", () => {
     'validate ($description): "$expected"',
     ({ input, schema, expected, fixes }) => {
       const result = schema.validate(testPath, input);
-      console.log(JSON.stringify({ result }, null, 2));
       if (result) {
         expect(Object.keys(result)).toStrictEqual(expected);
         if (fixes) {
