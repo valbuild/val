@@ -17,6 +17,7 @@ export type FileSource<
 > = {
   readonly [FILE_REF_PROP]: string;
   readonly [VAL_EXTENSION]: "file";
+  readonly [FILE_REF_SUBTYPE_TAG]?: string;
   readonly metadata?: Metadata;
 };
 
