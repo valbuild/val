@@ -1,6 +1,6 @@
-import { s, val } from "src/val.config";
+import { s, c } from "src/val.config";
 
-export default val.content(
+export default c.define(
   "/pages/blogs",
   s.array(s.object({ title: s.string({ maxLength: 1 }), text: s.string() })),
   [

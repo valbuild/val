@@ -7,12 +7,12 @@ export default {
   meta: {
     type: "problem",
     docs: {
-      description: "Export val.content should only happen in .val files.",
+      description: "Export c.define should only happen in .val files.",
       recommended: true,
     },
     messages: {
       "val/export-content-must-be-valid":
-        "Val: val.content should only be exported from .val files",
+        "Val: c.define should only be exported from .val files",
     },
     schema: [],
   },
@@ -24,9 +24,9 @@ export default {
           node.declaration.type === "CallExpression" &&
           node.declaration.callee.type === "MemberExpression" &&
           node.declaration.callee.object.type === "Identifier" &&
-          node.declaration.callee.object.name === "val" &&
+          node.declaration.callee.object.name === "c" &&
           node.declaration.callee.property.type === "Identifier" &&
-          node.declaration.callee.property.name === "content"
+          node.declaration.callee.property.name === "define"
         ) {
           const filename = context.filename || context.getFilename();
           if (

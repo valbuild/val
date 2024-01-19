@@ -1,19 +1,19 @@
 import { initVal } from "@valbuild/core";
 import { parseRichTextSource } from "./parseRichTextSource";
 
-const { val } = initVal();
+const { c } = initVal();
 
 //MD to HTML
 describe("richtext", () => {
   test("basic h1", () => {
-    const r = val.richtext`# Title 1`;
+    const r = c.richtext`# Title 1`;
     expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
     ]);
   });
 
   test("basic complete", () => {
-    const r = val.richtext`# Title 1
+    const r = c.richtext`# Title 1
 ## Title 2
 
 Paragraph 1 2 3 4 5. Words *italic* **bold**
@@ -34,7 +34,7 @@ Paragraph 1 2 3 4 5. Words *italic* **bold**
   });
 
   test("strong and emphasis merged spans", () => {
-    const r = val.richtext`Which classes?
+    const r = c.richtext`Which classes?
 ***All of them!***
 `;
     expect(parseRichTextSource(r).children).toStrictEqual([
@@ -54,7 +54,7 @@ Paragraph 1 2 3 4 5. Words *italic* **bold**
 
   test("line through", () => {
     // TODO: currently we do not merge
-    const r = val.richtext`~~line through~~`;
+    const r = c.richtext`~~line through~~`;
     expect(parseRichTextSource(r).children).toStrictEqual([
       {
         tag: "p",
@@ -70,7 +70,7 @@ Paragraph 1 2 3 4 5. Words *italic* **bold**
   });
 
   test("2 paragraphs", () => {
-    const r = val.richtext`# Title 1
+    const r = c.richtext`# Title 1
 
 First paragraph
 
@@ -84,7 +84,7 @@ Second paragraph
   });
 
   test("basic lists", () => {
-    const r = val.richtext`A bullet list:
+    const r = c.richtext`A bullet list:
 
 - bullet 1
 - bullet 2
@@ -102,7 +102,7 @@ Second paragraph
   });
 
   test("lists with line breaks", () => {
-    const r = val.richtext`A bullet list:
+    const r = c.richtext`A bullet list:
   
   - bullet 1
   - bullet 2
@@ -131,7 +131,7 @@ break this line
   });
 
   test("special chars", () => {
-    const r = val.richtext`# "Title 1"
+    const r = c.richtext`# "Title 1"
 
 Beautiful "quotes" and 'single quotes'
 
@@ -149,7 +149,7 @@ Ampersand: &
   });
 
   test("lists", () => {
-    const r = val.richtext`# Title 1
+    const r = c.richtext`# Title 1
 
 A paragraph
 
@@ -224,7 +224,7 @@ A nested list:
   });
 
   test("br tokens", () => {
-    const r = val.richtext`1 år 400,- kinokveld  
+    const r = c.richtext`1 år 400,- kinokveld  
 5 år 5000,- en kveld i tretoppene`;
     expect(parseRichTextSource(r).children).toStrictEqual([
       {
@@ -239,7 +239,7 @@ A nested list:
   });
 
   test("multiple br tokens", () => {
-    const r = val.richtext`1 år 400,- kinokveld  
+    const r = c.richtext`1 år 400,- kinokveld  
 2 år 1000,- kulturell opplevelse  
 3 år 2000,- mat i fjeset  
 4 år 500,- nørding i bokhandel  
@@ -269,11 +269,11 @@ A nested list:
   });
 
   test("image", () => {
-    const r = val.richtext`# Title 1
+    const r = c.richtext`# Title 1
 
 Below we have an image block:
 
-${val.file("/public/foo.png", {
+${c.file("/public/foo.png", {
   width: 100,
   height: 100,
   sha256: "123",
@@ -299,7 +299,7 @@ ${val.file("/public/foo.png", {
   });
 
   test("markdown link", () => {
-    const r = val.richtext`# Title 1
+    const r = c.richtext`# Title 1
 
 Below we have a url: [google](https://google.com)`;
     expect(parseRichTextSource(r).children).toStrictEqual([
@@ -319,11 +319,11 @@ Below we have a url: [google](https://google.com)`;
   });
 
   test("block link", () => {
-    const r = val.richtext`# Title 1
+    const r = c.richtext`# Title 1
 
 Below we have a url:
 
-${val.link("google", { href: "https://google.com" })}`;
+${c.rt.link("google", { href: "https://google.com" })}`;
     expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       { tag: "p", children: ["Below we have a url:"] },
@@ -341,9 +341,9 @@ ${val.link("google", { href: "https://google.com" })}`;
   });
 
   test("inline link", () => {
-    const r = val.richtext`# Title 1
+    const r = c.richtext`# Title 1
 
-Below we have a url: ${val.link("google", { href: "https://google.com" })}`;
+Below we have a url: ${c.rt.link("google", { href: "https://google.com" })}`;
     expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
       {
@@ -361,9 +361,9 @@ Below we have a url: ${val.link("google", { href: "https://google.com" })}`;
   });
 
   test("inline link with bold", () => {
-    const r = val.richtext`# Title 1
+    const r = c.richtext`# Title 1
 
-Inline link -> ${val.link("**google**", { href: "https://google.com" })}`;
+Inline link -> ${c.rt.link("**google**", { href: "https://google.com" })}`;
 
     // source:
     expect(parseRichTextSource(r).children).toStrictEqual([
@@ -389,9 +389,9 @@ Inline link -> ${val.link("**google**", { href: "https://google.com" })}`;
   });
 
   test("https:// in link description", () => {
-    const r = val.richtext`# Title 1
+    const r = c.richtext`# Title 1
 
-Inline link -> ${val.link("https://google.com", {
+Inline link -> ${c.rt.link("https://google.com", {
       href: "https://google.com",
     })}`;
 
@@ -412,7 +412,7 @@ Inline link -> ${val.link("https://google.com", {
   });
 
   test("auto link does nothing", () => {
-    const r = val.richtext`# Title 1
+    const r = c.richtext`# Title 1
 
 No transform here -> https://google.com
 
@@ -441,7 +441,7 @@ Transform this:
   });
 
   test("breaks", () => {
-    const r = val.richtext`
+    const r = c.richtext`
 # Title 1
 
 Foo
@@ -468,7 +468,7 @@ Bar
     ]);
   });
   test("list with formatting and breaks", () => {
-    const r = val.richtext`
+    const r = c.richtext`
 # Title 1
 
 - Item _one_
@@ -477,7 +477,7 @@ Bar
 - With breaks:
     1. Formatted **list**
 Test 123
-- With links: ${val.link("**link**", { href: "https://link.com" })}
+- With links: ${c.rt.link("**link**", { href: "https://link.com" })}
 `;
     // source:
     expect(parseRichTextSource(r).children).toStrictEqual([

@@ -1,5 +1,5 @@
 import type { InferSchemaType } from "@valbuild/next";
-import { s, val } from "../val.config";
+import { s, c } from "../val.config";
 
 export const schema = s.object({
   text: s.string(),
@@ -22,7 +22,7 @@ export const schema = s.object({
 });
 export type ClientContent = InferSchemaType<typeof schema>;
 
-export default val.content("/components/clientContent", schema, {
+export default c.define("/components/clientContent", schema, {
   text: "Clientf components works",
   objectUnions: {
     type: "object-type-2",
