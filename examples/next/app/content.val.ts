@@ -1,5 +1,4 @@
-import type { t } from "@valbuild/next";
-import { s, c } from "../val.config";
+import { s, c, type t } from "../val.config";
 import authorsVal from "../content/authors.val";
 import image from "../schema/image.val";
 
