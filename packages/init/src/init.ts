@@ -51,7 +51,7 @@ function walk(dir: string, skip: RegExp = /node_modules|.git/): string[] {
   maxResetLength = Math.max(maxResetLength, m.length);
   process.stdout.write(m + " ".repeat(maxResetLength - m.length));
   return fs.readdirSync(dir).reduce((files, fileOrDirName) => {
-    const fileOrDirPath = [dir, fileOrDirName].join("/"); // always use / as path separator - should work on windows as well?
+    const fileOrDirPath = [dir, fileOrDirName].join("/"); // always use / as path separator since we are doing .endsWith("/foo/bar.ts") when checking for files and we thought this would make it easier (if you are reading this and wondering wtf, then maybe not :) - should work on windows as well?
     if (fs.statSync(fileOrDirPath).isDirectory() && !skip.test(fileOrDirName)) {
       return files.concat(walk(fileOrDirPath));
     }
@@ -483,10 +483,6 @@ async function plan(
     } else {
       plan.createValRsc = false;
     }
-  }
-
-  if (analysis.eslintRcJsPath) {
-    logger.warn("ESLint config found: " + analysis.eslintRcJsPath);
   }
 
   // Patches:
