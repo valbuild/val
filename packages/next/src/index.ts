@@ -44,4 +44,4 @@ import { autoTagJSX } from "@valbuild/react/stega";
 autoTagJSX();
 
 // Convenience types
-export type * as t from "./types";
+export type * as t from "./ValTypes";
