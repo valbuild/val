@@ -389,7 +389,7 @@ async function plan(
 
   plan.createConfigFile = {
     path: valConfigPath,
-    source: VAL_CONFIG({}),
+    source: VAL_CONFIG(!!analysis.isTypeScript, {}),
   };
 
   const valUtilsDir = path.join(analysis.srcDir, "val");

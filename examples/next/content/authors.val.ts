@@ -1,5 +1,4 @@
-import type { t } from "@valbuild/next";
-import { s, c } from "../val.config";
+import { s, c, type t } from "../val.config";
 
 export const schema = s.array(
   s.object({
