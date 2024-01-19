@@ -1,6 +1,6 @@
-import { InferSchemaType } from "@valbuild/next";
-import authorsVal from "../content/authors.val";
+import type { t } from "@valbuild/next";
 import { s, c } from "../val.config";
+import authorsVal from "../content/authors.val";
 import image from "../schema/image.val";
 
 export const schema = s.object({
@@ -44,8 +44,8 @@ export const schema = s.object({
   }),
 });
 
-export type Content = InferSchemaType<typeof schema>;
-export type Image = InferSchemaType<typeof image>;
+export type Content = t.inferSchema<typeof schema>;
+export type Image = t.inferSchema<typeof image>;
 export default c.define("/app/content", schema, {
   video: c.file("/public/file_example.webm", {
     sha256: "9bb98735d0430e5a825173cb7db5e4d5aee32c1c283c3db90f1c9c532f73505e",
