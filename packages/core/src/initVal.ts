@@ -76,7 +76,7 @@ InitVal => {
       getPath,
     },
     c: {
-      content: define,
+      define,
       // remote,
       file,
       richtext,
