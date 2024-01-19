@@ -5,14 +5,14 @@ import { remirrorToRichTextSource } from "./remirrorToRichTextSource";
 import { richTextToRemirror } from "./richTextToRemirror";
 import { stringifyRichTextSource } from "./stringifyRichTextSource";
 
-const { val } = initVal();
+const { c } = initVal();
 const cases: {
   description: string;
   input: RichTextSource<AnyRichTextOptions>;
 }[] = [
   {
     description: "basic",
-    input: val.richtext`
+    input: c.richtext`
 # Title 1
 
 ## Title 2
@@ -38,7 +38,7 @@ Formatting: **bold**, _italic_, ~~line-through~~, ***bold and italic***.
   },
   {
     description: "all features",
-    input: val.richtext`
+    input: c.richtext`
 # Title 1
 
 Title 1 content.
@@ -69,19 +69,19 @@ Formatting: **bold**, _italic_, ~~line-through~~, ***bold and italic***.
     1. List 1.1
     1. List 1.2
 
-Inline link: ${val.link("**link**", { href: "https://link.com" })}
+Inline link: ${c.rt.link("**link**", { href: "https://link.com" })}
 
 <br />
 
 Block link:
 
-${val.link("**link**", { href: "https://link.com" })}
+${c.rt.link("**link**", { href: "https://link.com" })}
 
 <br />
 
 Block Image:
 
-${val.file("/public/test.jpg", {
+${c.rt.image("/public/test.jpg", {
   width: 100,
   height: 100,
   sha256: "123",

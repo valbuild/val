@@ -5,7 +5,7 @@ import {
 } from "@valbuild/core";
 
 /**
- * Create something that looks like the val.richtext input
+ * Create something that looks like the c.richtext input
  *
  * **SHOULD ONLY BE USED IN TESTS / DEBUGGING**
  **/
@@ -20,11 +20,11 @@ export function stringifyRichTextSource({
     lines += line;
     if (expr) {
       if (expr._type === "file") {
-        lines += `\${val.file("${expr[FILE_REF_PROP]}", ${JSON.stringify(
+        lines += `\${c.rt.image("${expr[FILE_REF_PROP]}", ${JSON.stringify(
           expr.metadata
         )})}`;
       } else if (expr._type === "link") {
-        lines += `\${val.link("${expr.children[0]}", ${JSON.stringify({
+        lines += `\${c.rt.link("${expr.children[0]}", ${JSON.stringify({
           href: expr.href,
         })})}`;
       } else {

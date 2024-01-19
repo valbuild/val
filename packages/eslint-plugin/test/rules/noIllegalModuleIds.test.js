@@ -20,55 +20,55 @@ ruleTester.run("no-illegal-module-ids", rule, {
   valid: [
     {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
-      code: `import { val, s } from '../val.config.ts';
+      code: `import { c, s } from '../val.config.ts';
       export const schema = s.string();
-      export default val.content('/foo/test', schema, 'String')`,
+      export default c.define('/foo/test', schema, 'String')`,
     },
   ],
   invalid: [
     {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
-      code: `import { val, s } from '../val.config.ts';
+      code: `import { c, s } from '../val.config.ts';
       export const schema = s.string();
-      export default val.content('foo', schema, 'String')`,
+      export default c.define('foo', schema, 'String')`,
       errors: [
         {
           message:
-            "Val: val.content id should match the filename. Expected: '/foo/test'. Found: 'foo'",
+            "Val: c.define id should match the filename. Expected: '/foo/test'. Found: 'foo'",
         },
       ],
-      output: `import { val, s } from '../val.config.ts';
+      output: `import { c, s } from '../val.config.ts';
       export const schema = s.string();
-      export default val.content('/foo/test', schema, 'String')`,
+      export default c.define('/foo/test', schema, 'String')`,
     },
     {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
-      code: `import { val, s } from "../val.config.ts";
+      code: `import { c, s } from "../val.config.ts";
       export const schema = s.string();
-      export default val.content("foo", schema, 'String')`,
+      export default c.define("foo", schema, 'String')`,
       errors: [
         {
           message:
-            "Val: val.content id should match the filename. Expected: '/foo/test'. Found: 'foo'",
+            "Val: c.define id should match the filename. Expected: '/foo/test'. Found: 'foo'",
         },
       ],
-      output: `import { val, s } from "../val.config.ts";
+      output: `import { c, s } from "../val.config.ts";
       export const schema = s.string();
-      export default val.content("/foo/test", schema, 'String')`,
+      export default c.define("/foo/test", schema, 'String')`,
     },
     {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
-      code: `import { val, s } from "../val.config.ts";
+      code: `import { c, s } from "../val.config.ts";
       export const schema = s.string();
-      export default val.content(\`foo\`, schema, 'String')`,
+      export default c.define(\`foo\`, schema, 'String')`,
       errors: [
         {
-          message: "Val: val.content id should not be a template literal",
+          message: "Val: c.define id should not be a template literal",
         },
       ],
-      output: `import { val, s } from "../val.config.ts";
+      output: `import { c, s } from "../val.config.ts";
       export const schema = s.string();
-      export default val.content("/foo/test", schema, 'String')`,
+      export default c.define("/foo/test", schema, 'String')`,
     },
   ],
 });

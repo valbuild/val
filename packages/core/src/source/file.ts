@@ -2,6 +2,7 @@ import { VAL_EXTENSION } from ".";
 import { Json } from "../Json";
 
 export const FILE_REF_PROP = "_ref" as const;
+export const FILE_REF_SUBTYPE_TAG = "_tag" as const;
 
 export type FileMetadata = { readonly [key: string]: Json };
 
@@ -16,6 +17,7 @@ export type FileSource<
 > = {
   readonly [FILE_REF_PROP]: string;
   readonly [VAL_EXTENSION]: "file";
+  readonly [FILE_REF_SUBTYPE_TAG]?: string;
   readonly metadata?: Metadata;
 };
 

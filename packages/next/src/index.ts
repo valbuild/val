@@ -44,9 +44,4 @@ import { autoTagJSX } from "@valbuild/react/stega";
 autoTagJSX();
 
 // Convenience types
-import type { UseValType } from "./client/initValClient";
-import { Schema, SelectorSource } from "@valbuild/core";
-import { SelectorOfSchema } from "@valbuild/core";
-export type InferSchemaType<S extends Schema<SelectorSource>> = UseValType<
-  SelectorOfSchema<S>
->;
+export type * as t from "./types";

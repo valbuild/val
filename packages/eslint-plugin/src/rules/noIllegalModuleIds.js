@@ -78,7 +78,7 @@ export default {
           if (firstArg.type === "TemplateLiteral") {
             context.report({
               node: firstArg,
-              message: "Val: val.content id should not be a template literal",
+              message: "Val: c.define id should not be a template literal",
               fix: (fixer) => fixer.replaceText(firstArg, `"${expectedValue}"`),
             });
           }
@@ -91,7 +91,7 @@ export default {
               if (rawArg) {
                 context.report({
                   node: firstArg,
-                  message: `Val: val.content id should match the filename. Expected: '${expectedValue}'. Found: '${firstArg.value}'`,
+                  message: `Val: c.define id should match the filename. Expected: '${expectedValue}'. Found: '${firstArg.value}'`,
                   fix: (fixer) =>
                     fixer.replaceText(
                       firstArg,

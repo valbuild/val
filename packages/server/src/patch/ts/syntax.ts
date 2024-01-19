@@ -129,10 +129,7 @@ export function shallowValidateExpression(
     ts.isObjectLiteralExpression(value) ||
     isValFileMethodCall(value)
     ? undefined
-    : new ValSyntaxError(
-        "Expression must be a literal or call val.file",
-        value
-      );
+    : new ValSyntaxError("Expression must be a literal or call c.file", value);
 }
 
 /**
@@ -170,7 +167,7 @@ export function deepValidateExpression(
       if (!ts.isStringLiteralLike(value.arguments[0])) {
         return result.err(
           new ValSyntaxError(
-            "First argument of val.file must be a string literal",
+            "First argument of c.file must be a string literal",
             value.arguments[0]
           )
         );
@@ -180,7 +177,7 @@ export function deepValidateExpression(
       if (!ts.isObjectLiteralExpression(value.arguments[1])) {
         return result.err(
           new ValSyntaxError(
-            "Second argument of val.file must be an object literal",
+            "Second argument of c.file must be an object literal",
             value.arguments[1]
           )
         );
@@ -189,7 +186,7 @@ export function deepValidateExpression(
     return result.voidOk;
   } else {
     return result.err(
-      new ValSyntaxError("Expression must be a literal or call val.file", value)
+      new ValSyntaxError("Expression must be a literal or call c.file", value)
     );
   }
 }
@@ -261,7 +258,7 @@ export function evaluateExpression(
     );
   } else {
     return result.err(
-      new ValSyntaxError("Expression must be a literal or call val.file", value)
+      new ValSyntaxError("Expression must be a literal or call c.file", value)
     );
   }
 }
@@ -295,7 +292,7 @@ export function isValFileMethodCall(
     ts.isCallExpression(node) &&
     ts.isPropertyAccessExpression(node.expression) &&
     ts.isIdentifier(node.expression.expression) &&
-    node.expression.expression.text === "val" &&
+    node.expression.expression.text === "c" &&
     node.expression.name.text === "file"
   );
 }
@@ -305,19 +302,19 @@ export function findValFileNodeArg(
 ): result.Result<ts.StringLiteral, ValSyntaxErrorTree> {
   if (node.arguments.length === 0) {
     return result.err(
-      new ValSyntaxError(`Invalid val.file() call: missing ref argument`, node)
+      new ValSyntaxError(`Invalid c.file() call: missing ref argument`, node)
     );
   } else if (node.arguments.length > 2) {
     return result.err(
       new ValSyntaxError(
-        `Invalid val.file() call: too many arguments ${node.arguments.length}}`,
+        `Invalid c.file() call: too many arguments ${node.arguments.length}}`,
         node
       )
     );
   } else if (!ts.isStringLiteral(node.arguments[0])) {
     return result.err(
       new ValSyntaxError(
-        `Invalid val.file() call: ref must be a string literal`,
+        `Invalid c.file() call: ref must be a string literal`,
         node
       )
     );
@@ -330,12 +327,12 @@ export function findValFileMetadataArg(
 ): result.Result<ts.ObjectLiteralExpression | undefined, ValSyntaxErrorTree> {
   if (node.arguments.length === 0) {
     return result.err(
-      new ValSyntaxError(`Invalid val.file() call: missing ref argument`, node)
+      new ValSyntaxError(`Invalid c.file() call: missing ref argument`, node)
     );
   } else if (node.arguments.length > 2) {
     return result.err(
       new ValSyntaxError(
-        `Invalid val.file() call: too many arguments ${node.arguments.length}}`,
+        `Invalid c.file() call: too many arguments ${node.arguments.length}}`,
         node
       )
     );
@@ -343,7 +340,7 @@ export function findValFileMetadataArg(
     if (!ts.isObjectLiteralExpression(node.arguments[1])) {
       return result.err(
         new ValSyntaxError(
-          `Invalid val.file() call: metadata must be a object literal`,
+          `Invalid c.file() call: metadata must be a object literal`,
           node
         )
       );
