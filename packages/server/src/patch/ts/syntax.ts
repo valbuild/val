@@ -292,7 +292,7 @@ export function isValFileMethodCall(
     ts.isCallExpression(node) &&
     ts.isPropertyAccessExpression(node.expression) &&
     ts.isIdentifier(node.expression.expression) &&
-    node.expression.expression.text === "val" &&
+    node.expression.expression.text === "c" &&
     node.expression.name.text === "file"
   );
 }
