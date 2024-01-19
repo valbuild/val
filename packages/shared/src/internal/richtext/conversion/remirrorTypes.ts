@@ -125,7 +125,12 @@ export const RemirrorListItem = z.lazy(() =>
     z
       .object({
         content: z.array(
-          z.union([RemirrorParagraph, RemirrorBulletList, RemirrorOrderedList])
+          z.union([
+            RemirrorParagraph,
+            RemirrorBulletList,
+            RemirrorOrderedList,
+            RemirrorImage,
+          ])
         ),
       })
       .partial()

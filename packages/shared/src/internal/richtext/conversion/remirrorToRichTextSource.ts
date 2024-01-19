@@ -207,6 +207,8 @@ function formatListItemNode(
         return (child.content || []).flatMap((subChild) =>
           formatListItemNode(getListPrefix(child), subChild, indent + 4, files)
         );
+      } else if (child.type === "image") {
+        return [transformLeafNode(child, files)];
       } else {
         return (child.content || []).flatMap((subChild) => {
           const res: (string | ImageSource | LinkSource)[] = [];
