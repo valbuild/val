@@ -345,7 +345,7 @@ s.richtext({
 To initialize some text content using a RichText schema, you can use follow the example below:
 
 ```ts
-import { s, val } from "./val.config";
+import { s, c } from "./val.config";
 
 export const schema = s.richtext({
   // styling:
@@ -411,7 +411,7 @@ s.image();
 Local images must be stored under the `.public` folder.
 
 ```ts
-import { s, val } from "../val.config";
+import { s, c } from "../val.config";
 
 export const schema = s.image();
 
