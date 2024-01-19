@@ -3,8 +3,8 @@ import ts from "typescript";
 import { analyzeValModule, ValModuleAnalysis } from "./valModule";
 
 test("analyzeValModule", () => {
-  const sourceText = `import {s, val } from "./val.config";
-export default val.content("/test", s.string(), "test");`;
+  const sourceText = `import {s, c } from "./val.config";
+export default c.define("/test", s.string(), "test");`;
   const sourceFile = ts.createSourceFile(
     "test.ts",
     sourceText,

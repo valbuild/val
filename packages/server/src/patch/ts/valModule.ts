@@ -46,33 +46,33 @@ function validateArguments(
 function analyzeDefaultExport(
   node: ts.ExportAssignment
 ): result.Result<ValModuleAnalysis, ValSyntaxErrorTree> {
-  const valContentCall = node.expression;
-  if (!ts.isCallExpression(valContentCall)) {
+  const cDefine = node.expression;
+  if (!ts.isCallExpression(cDefine)) {
     return result.err(
       new ValSyntaxError(
         "Expected default expression to be a call expression",
-        valContentCall
+        cDefine
       )
     );
   }
 
-  if (!isPath(valContentCall.expression, ["val", "content"])) {
+  if (!isPath(cDefine.expression, ["c", "define"])) {
     return result.err(
       new ValSyntaxError(
-        "Expected default expression to be calling val.content",
-        valContentCall.expression
+        "Expected default expression to be calling c.define",
+        cDefine.expression
       )
     );
   }
 
   return pipe(
-    validateArguments(valContentCall, [
+    validateArguments(cDefine, [
       (id: ts.Node) => {
         // TODO: validate ID value here?
         if (!ts.isStringLiteralLike(id)) {
           return result.err(
             new ValSyntaxError(
-              "Expected first argument to val.content to be a string literal",
+              "Expected first argument to c.define to be a string literal",
               id
             )
           );
@@ -87,7 +87,7 @@ function analyzeDefaultExport(
       },
     ]),
     result.map(() => {
-      const [, schema, source] = valContentCall.arguments;
+      const [, schema, source] = cDefine.arguments;
       return { schema, source };
     })
   );

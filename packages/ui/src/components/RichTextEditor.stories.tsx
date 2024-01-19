@@ -19,7 +19,7 @@ import {
 import { RemirrorJSON as ValidRemirrorJSON } from "@valbuild/shared/internal";
 
 const DEBUG = true;
-const { val } = initVal();
+const { c } = initVal();
 
 type StoryType = {
   defaultValue: RichTextSource<AnyRichTextOptions>;
@@ -78,7 +78,7 @@ type Story = StoryObj<StoryType>;
 
 export const Default: Story = {
   args: {
-    defaultValue: val.richtext`Testing 1-2-3
+    defaultValue: c.richtext`Testing 1-2-3
     
 New line!`,
   },
@@ -96,7 +96,7 @@ export const Basics: Story = {
       ul: true,
       ol: true,
     } satisfies AnyRichTextOptions,
-    defaultValue: val.richtext`
+    defaultValue: c.richtext`
 # Title 1
 
 ## Title 2
@@ -107,7 +107,7 @@ export const Basics: Story = {
 1. List item 1
 1. List item 2
 
-${val.link("Link to ValBuild", { href: "https://val.build" })}
+${c.rt.link("Link to ValBuild", { href: "https://val.build" })}
 `,
   },
 };
@@ -167,11 +167,11 @@ function stringifyRichTextSource({
     lines += line;
     if (expr) {
       if (expr._type === "file") {
-        lines += `\${val.file("${expr[FILE_REF_PROP]}", ${JSON.stringify(
+        lines += `\${c.rt.image("${expr[FILE_REF_PROP]}", ${JSON.stringify(
           expr.metadata
         )})}`;
       } else if (expr._type === "link") {
-        lines += `\${val.link("${expr.children[0]}", ${JSON.stringify({
+        lines += `\${c.rt.link("${expr.children[0]}", ${JSON.stringify({
           href: expr.href,
         })})}`;
       } else {

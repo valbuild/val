@@ -19,36 +19,36 @@ ruleTester.run("export-content-must-be-valid", rule, {
     {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
       code: `
-import { val, s } from '../val.config';
+import { c, s } from '../val.config';
 
 export const schema = s.string();
-export default val.content('/foo/test', schema, '')`,
+export default c.define('/foo/test', schema, '')`,
     },
   ],
   invalid: [
     {
       filename: path.join(process.cwd(), "./foo/test.ts"),
       code: `
-import { val, s } from '../val.config';
+import { c, s } from '../val.config';
 
 export const schema = s.string();
-export default val.content('/foo/test', schema, '')`,
+export default c.define('/foo/test', schema, '')`,
       errors: [
         {
-          message: "Val: val.content should only be exported from .val files",
+          message: "Val: c.define should only be exported from .val files",
         },
       ],
     },
     {
       filename: path.join(process.cwd(), "./foo/test.js"),
       code: `
-import { val, s } from '../val.config';
+import { c, s } from '../val.config';
 
 export const schema = s.string();
-export default val.content('/foo/test', schema, '')`,
+export default c.define('/foo/test', schema, '')`,
       errors: [
         {
-          message: "Val: val.content should only be exported from .val files",
+          message: "Val: c.define should only be exported from .val files",
         },
       ],
     },

@@ -1,8 +1,8 @@
-import { s, val } from "../val.config";
+import { s, c } from "../val.config";
 
 export const schema = s.string();
 
-export default val.content(
+export default c.define(
   "/components/reactServerContent",
   schema,
   "React Sffefrver comffponents also worksf"

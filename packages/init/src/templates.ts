@@ -44,12 +44,14 @@ type ValConfig = {
   valConfigPath?: string;
 };
 export const VAL_CONFIG = (
+  isTypeScript: boolean,
   options: ValConfig
 ) => `import { initVal } from "@valbuild/next";
 
-const { s, val, config } = initVal(${JSON.stringify(options, null, 2)});
+const { s, c, val, config } = initVal(${JSON.stringify(options, null, 2)});
 
-export { s, val, config };
+${isTypeScript ? 'export type { t } from "@valbuild/next";' : ""};
+export { s, c, val, config };
 `;
 
 export const VAL_API_ROUTER = (

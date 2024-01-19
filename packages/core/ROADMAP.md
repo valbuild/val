@@ -11,15 +11,15 @@ export const schema = s.array(
   s.i18n(s.object({ title: s.string(), text: s.richtext() }))
 );
 
-export default val.content("/blogs", schema, [
+export default c.define("/blogs", schema, [
   {
     en_US: {
       title: "Title 1",
-      text: val.richtext("Richtext 1"),
+      text: c.richtext("Richtext 1"),
     },
     nb_NO: {
       title: "Tittel 1",
-      text: val.richtext("Riktekst?"),
+      text: c.richtext("Riktekst?"),
     },
   },
 ]);
@@ -52,10 +52,10 @@ export const schema = s
   .array(s.object({ title: s.string(), text: s.richtext() }))
   .remote();
 
-export default val.content(
+export default c.define(
   "/blogs",
   schema,
-  val.remote("4ba7c33b32a60be06b1b26dff8cc5d8d967660ab") // a change in content, will result in a new reference
+  c.remote("4ba7c33b32a60be06b1b26dff8cc5d8d967660ab") // a change in content, will result in a new reference
 );
 
 // file: ./components/ServerComponent.ts
@@ -84,7 +84,7 @@ Example:
 
 export schema = s.array(s.object({ name: s.string() }));
 
-export default val.content('/employees', schema, [{
+export default c.define('/employees', schema, [{
   name: 'John Smith',
 }]);
 
@@ -96,7 +96,7 @@ export schema = s.object({
   hr: s.oneOf(employeesVal),
 });
 
-export default val.content('/contacts', schema, {
+export default c.define('/contacts', schema, {
   hr: employeesVal[0]
 });
 

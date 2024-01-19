@@ -318,7 +318,9 @@ const Toolbar = ({
             mark="link"
             isOption={options?.ol}
             isActive={active.link()}
-            onToggle={(chain) => chain.updateLink({ href: "" }).focus().run()}
+            onToggle={(chain) =>
+              chain.selectMark("link").updateLink({ href: "" }).focus().run()
+            }
           />
           {(options?.img || active.image()) && (
             <label

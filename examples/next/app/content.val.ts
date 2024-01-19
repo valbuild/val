@@ -1,6 +1,5 @@
-import { InferSchemaType } from "@valbuild/next";
+import { s, c, type t } from "../val.config";
 import authorsVal from "../content/authors.val";
-import { s, val } from "../val.config";
 import image from "../schema/image.val";
 
 export const schema = s.object({
@@ -44,17 +43,17 @@ export const schema = s.object({
   }),
 });
 
-export type Content = InferSchemaType<typeof schema>;
-export type Image = InferSchemaType<typeof image>;
-export default val.content("/app/content", schema, {
-  video: val.file("/public/file_example.webm", {
+export type Content = t.inferSchema<typeof schema>;
+export type Image = t.inferSchema<typeof image>;
+export default c.define("/app/content", schema, {
+  video: c.file("/public/file_example.webm", {
     sha256: "9bb98735d0430e5a825173cb7db5e4d5aee32c1c283c3db90f1c9c532f73505e",
     mimeType: "video/webm",
   }),
   hero: {
     title: "Content as code",
     image: {
-      data: val.file("/public/logo_e211b.png", {
+      data: c.file("/public/logo_e211b.png", {
         width: 944,
         height: 944,
         sha256:
@@ -66,7 +65,7 @@ export default val.content("/app/content", schema, {
   },
   tags: ["CMS", "react", "github", "NextJS"],
   author: 0,
-  text: val.richtext`
+  text: c.richtext`
 Val is a CMS where **content** is **code** in your git repo.
 
 <br />

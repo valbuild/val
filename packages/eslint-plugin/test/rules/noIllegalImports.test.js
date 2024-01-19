@@ -20,59 +20,59 @@ ruleTester.run("no-illegal-imports", rule, {
     {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
       code: `
-import { val, s } from '../val.config';
+import { c, s } from '../val.config';
 import { eventSchema } from './event.val';
 
 export const schema = s.array(eventSchema);
-export default val.content('/foo/test', schema, [])`,
+export default c.define('/foo/test', schema, [])`,
     },
     {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
       code: `
-import { val, s } from '../val.config.ts';
+import { c, s } from '../val.config.ts';
 import { eventSchema } from './event.val.ts';
 
 export const schema = s.array(eventSchema);
-export default val.content('/foo/test', schema, [])`,
+export default c.define('/foo/test', schema, [])`,
     },
     {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
       code: `
-import { val, s } from '../val.config.ts';
+import { c, s } from '../val.config.ts';
 import type { Event } from './eventSchema';
 
 export const schema = s.array(s.string());
 type Test = Event;
-export default val.content('/foo/test', schema, [])`,
+export default c.define('/foo/test', schema, [])`,
     },
     {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
       code: `
-import { val, s } from '../val.config.ts';
+import { c, s } from '../val.config.ts';
 import { type Event } from './eventSchema';
 
 export const schema = s.array(s.string());
 type Test = Event;
-export default val.content('/foo/test', schema, [])`,
+export default c.define('/foo/test', schema, [])`,
     },
     {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
       code: `
-import { val, s } from '../val.config.ts';
+import { c, s } from '../val.config.ts';
 
 export const schema = s.string();
-export default val.content('/foo/test', schema, 'String')`,
+export default c.define('/foo/test', schema, 'String')`,
     },
   ],
   invalid: [
     {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
       code: `
-import { val, s } from '../val.config';
+import { c, s } from '../val.config';
 import { eventSchema } from './event';
 
 export const schema = s.array(eventSchema);
-export default val.content('/foo/test', schema, [])`,
+export default c.define('/foo/test', schema, [])`,
       errors: [
         {
           message:
@@ -83,12 +83,12 @@ export default val.content('/foo/test', schema, [])`,
     {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
       code: `
-import { val, s } from '../val.config';
+import { c, s } from '../val.config';
 import { eventSchema, type Unused } from './event';
 
 export const schema = s.array(eventSchema);
 type Event = Unused;
-export default val.content('/foo/test', schema, [])`,
+export default c.define('/foo/test', schema, [])`,
       errors: [
         {
           message:

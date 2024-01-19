@@ -1,5 +1,5 @@
-import { s, val } from "../val.config";
-export default val.content(
+import { s, c } from "../val.config";
+export default c.define(
   "/pages/blogs",
   s.array(s.object({ title: s.string({ maxLength: 1 }), text: s.string() })),
   [

@@ -2,7 +2,7 @@ import { getModuleIds, stegaEncode } from "./stegaEncode";
 import { initVal } from "@valbuild/core";
 import { vercelStegaDecode, vercelStegaSplit } from "@vercel/stega";
 
-const { s, val } = initVal();
+const { s, c } = initVal();
 
 describe("stega transform", () => {
   test("basic", () => {
@@ -15,26 +15,26 @@ describe("stega transform", () => {
       })
     );
 
-    const valModule = val.content("/test", schema, [
+    const valModule = c.define("/test", schema, [
       {
-        image: val.file("/public/test1.png", {
+        image: c.file("/public/test1.png", {
           sha256: "1231",
           width: 100,
           height: 100,
           mimeType: "image/png",
         }),
-        text: val.richtext`Test`,
+        text: c.richtext`Test`,
         n: 1,
         b: true,
       },
       {
-        image: val.file("/public/test2.png", {
+        image: c.file("/public/test2.png", {
           sha256: "1232",
           width: 100,
           height: 100,
           mimeType: "image/png",
         }),
-        text: val.richtext`Test`,
+        text: c.richtext`Test`,
         n: 2,
         b: false,
       },
@@ -73,10 +73,10 @@ describe("stega transform", () => {
     expect(
       getModuleIds({
         foo: [
-          { test: val.content("/test1", schema, ["one", "two"]) },
-          { test: val.content("/test2", schema, ["one", "two"]) },
+          { test: c.define("/test1", schema, ["one", "two"]) },
+          { test: c.define("/test2", schema, ["one", "two"]) },
         ],
-        test: val.content("/test3", schema, ["one", "two"]),
+        test: c.define("/test3", schema, ["one", "two"]),
       })
     ).toStrictEqual(["/test1", "/test2", "/test3"]);
   });
@@ -84,7 +84,7 @@ describe("stega transform", () => {
   test("basic transform with get modules", () => {
     const schema = s.array(s.string());
     const transformed = stegaEncode(
-      val.content("/test1", schema, ["one", "two"]),
+      c.define("/test1", schema, ["one", "two"]),
       {
         getModule: (moduleId) => {
           if (moduleId === "/test1") {
@@ -106,7 +106,7 @@ describe("stega transform", () => {
   test("Dont stegaEncode raw strings schema", () => {
     const schema = s.object({ str: s.string(), rawStr: s.string().raw() });
     const transformed = stegaEncode(
-      val.content("/test1", schema, { str: "one", rawStr: "two" }),
+      c.define("/test1", schema, { str: "one", rawStr: "two" }),
       {}
     );
     //expect(transformed.str).toStrictEqual("one");
@@ -117,10 +117,10 @@ describe("stega transform", () => {
     const transformed = stegaEncode(
       {
         foo: [
-          { test: val.content("/test1", schema, ["one", "two"]) },
-          { test: val.content("/test2", schema, ["one", "two"]) },
+          { test: c.define("/test1", schema, ["one", "two"]) },
+          { test: c.define("/test2", schema, ["one", "two"]) },
         ],
-        test: val.content("/test3", schema, ["one", "two"]),
+        test: c.define("/test3", schema, ["one", "two"]),
       },
       {
         getModule: (moduleId) => {

@@ -3,7 +3,12 @@ import { TSOps } from "./ops";
 import { result, array, pipe } from "@valbuild/core/fp";
 import { PatchError, JSONValue } from "@valbuild/core/patch";
 import { ValSyntaxError } from "./syntax";
-import { FILE_REF_PROP, VAL_EXTENSION } from "@valbuild/core";
+import {
+  FILE_REF_PROP,
+  FILE_REF_SUBTYPE_TAG,
+  RT_IMAGE_TAG,
+  VAL_EXTENSION,
+} from "@valbuild/core";
 
 function testSourceFile(expression: string): ts.SourceFile {
   return ts.createSourceFile(
@@ -142,20 +147,20 @@ describe("TSOps", () => {
       expected: result.err(PatchError),
     },
     {
-      name: "val.file",
+      name: "c.file",
       input: `{ foo: "bar" }`,
       path: ["image"],
       value: { _ref: "/public/val/image.jpg" },
       expected: result.ok(
-        `{ foo: "bar", image: val.file("/public/val/image.jpg") }`
+        `{ foo: "bar", image: c.file("/public/val/image.jpg") }`
       ),
     },
     {
-      name: "ref prop to val.file",
-      input: `val.file("/public/val/foo.jpg")`,
+      name: "ref prop to c.file",
+      input: `c.file("/public/val/foo.jpg")`,
       path: ["_ref"],
       value: "/public/val/bar.jpg",
-      expected: result.ok(`val.file("/public/val/bar.jpg")`),
+      expected: result.ok(`c.file("/public/val/bar.jpg")`),
     },
     {
       name: "ref prop",
@@ -165,8 +170,8 @@ describe("TSOps", () => {
       expected: result.err(PatchError),
     },
     {
-      name: "prop on val.file TODO",
-      input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
+      name: "prop on c.file",
+      input: `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
       path: ["image", "metadata"],
       value: {
         width: 123,
@@ -174,19 +179,19 @@ describe("TSOps", () => {
         sha256: "abc",
       },
       expected: result.ok(
-        `{ foo: "bar", image: val.file("/public/val/image.jpg", { width: 123, height: 456, sha256: "abc" }) }`
+        `{ foo: "bar", image: c.file("/public/val/image.jpg", { width: 123, height: 456, sha256: "abc" }) }`
       ),
     },
     {
-      name: "null prop of name ref on val.file",
-      input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
+      name: "null prop of name ref on c.file",
+      input: `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
       path: ["image", "_ref"],
       value: null,
       expected: result.err(PatchError),
     },
     {
-      name: "to ref on val.file",
-      input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
+      name: "to ref on c.file",
+      input: `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
       path: ["image", "_ref", "zoo"],
       value: null,
       expected: result.err(PatchError),
@@ -270,20 +275,20 @@ describe("TSOps", () => {
       expected: result.err(PatchError),
     },
     {
-      name: "val.file from array",
-      input: `[val.file("/public/val/image1.jpg"), val.file("/public/val/image2.jpg")]`,
+      name: "c.file from array",
+      input: `[c.file("/public/val/image1.jpg"), c.file("/public/val/image2.jpg")]`,
       path: ["0"],
-      expected: result.ok(`[val.file("/public/val/image2.jpg")]`),
+      expected: result.ok(`[c.file("/public/val/image2.jpg")]`),
     },
     {
-      name: "val.file from object",
-      input: `[{ foo: "bar", image: val.file("/public/val/image.jpg") }]`,
+      name: "c.file from object",
+      input: `[{ foo: "bar", image: c.file("/public/val/image.jpg") }]`,
       path: ["0", "image"],
       expected: result.ok(`[{ foo: "bar" }]`),
     },
     {
-      name: "ref prop from val.file",
-      input: `{ image: val.file("/public/val/image.jpg") }`,
+      name: "ref prop from c.file",
+      input: `{ image: c.file("/public/val/image.jpg") }`,
       path: ["image", "_ref"],
       expected: result.err(PatchError),
     },
@@ -377,50 +382,50 @@ describe("TSOps", () => {
       expected: result.err(PatchError),
     },
     {
-      name: "val.files",
-      input: `val.file("/public/val/foo/bar.jpg")`,
+      name: "c.files",
+      input: `c.file("/public/val/foo/bar.jpg")`,
       path: ["_ref"],
       value: "/public/val/foo/bar2.jpg",
-      expected: result.ok(`val.file("/public/val/foo/bar2.jpg")`),
+      expected: result.ok(`c.file("/public/val/foo/bar2.jpg")`),
     },
     {
-      name: "val.file ref with options",
-      input: `val.file("/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
+      name: "c.file ref with options",
+      input: `c.file("/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
       path: ["_ref"],
       value: "/public/val/foo/bar2.jpg",
       expected: result.ok(
-        `val.file("/public/val/foo/bar2.jpg", { checksum: "123", width: 456, height: 789 })`
+        `c.file("/public/val/foo/bar2.jpg", { checksum: "123", width: 456, height: 789 })`
       ),
     },
     // TODO:
     // {
-    //   name: "val.file non metadata",
-    //   input: `val.file("/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
+    //   name: "c.file non metadata",
+    //   input: `c.file("/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
     //   path: ["failure", "checksum"],
     //   value: "101112",
     //   expected: result.err(PatchError),
     // },
     {
-      name: "val.file checksum",
-      input: `val.file("/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
+      name: "c.file checksum",
+      input: `c.file("/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
       path: ["metadata", "checksum"],
       value: "101112",
       expected: result.ok(
-        `val.file("/public/val/foo/bar.jpg", { checksum: "101112", width: 456, height: 789 })`
+        `c.file("/public/val/foo/bar.jpg", { checksum: "101112", width: 456, height: 789 })`
       ),
     },
     {
-      name: "deep val.files",
-      input: `{ foo: { bar: val.file("/public/val/foo/bar/zoo.jpg") } }`,
+      name: "deep c.files",
+      input: `{ foo: { bar: c.file("/public/val/foo/bar/zoo.jpg") } }`,
       path: ["foo", "bar", "_ref"],
       value: "/public/val/foo/bar/zoo2.jpg",
       expected: result.ok(
-        `{ foo: { bar: val.file("/public/val/foo/bar/zoo2.jpg") } }`
+        `{ foo: { bar: c.file("/public/val/foo/bar/zoo2.jpg") } }`
       ),
     },
     {
-      name: "prop on val.file",
-      input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
+      name: "prop on c.file",
+      input: `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
       path: ["image", "metadata"],
       value: {
         width: 123,
@@ -430,52 +435,52 @@ describe("TSOps", () => {
       expected: result.err(PatchError),
     },
     {
-      name: "null prop of name ref on val.file",
-      input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
+      name: "null prop of name ref on c.file",
+      input: `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
       path: ["image", "_ref"],
       value: null,
       expected: result.err(PatchError),
     },
     {
-      name: "number prop of name ref on val.file",
-      input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
+      name: "number prop of name ref on c.file",
+      input: `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
       path: ["image", "_ref"],
       value: 1,
       expected: result.err(PatchError),
     },
     {
-      name: "to ref on val.file",
-      input: `{ foo: "bar", image: val.file("/public/val/image.jpg") }`,
+      name: "to ref on c.file",
+      input: `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
       path: ["image", "_ref", "zoo"],
       value: null,
       expected: result.err(PatchError),
     },
     {
-      name: "val.richtext basic no nodes",
-      input: "val.richtext`Test`",
+      name: "c.richtext basic no nodes",
+      input: "c.richtext`Test`",
       path: [],
       value: {
         [VAL_EXTENSION]: "richtext",
         templateStrings: ["Test 2"],
         exprs: [],
       },
-      expected: result.ok("val.richtext `Test 2`"),
+      expected: result.ok("c.richtext `Test 2`"),
     },
     {
-      name: "val.richtext advanced no nodes",
-      input: "val.richtext`Test`",
+      name: "c.richtext advanced no nodes",
+      input: "c.richtext`Test`",
       path: [],
       value: {
         [VAL_EXTENSION]: "richtext",
         templateStrings: ["# Title 1\nTest 2"],
         exprs: [],
       },
-      expected: result.ok(`val.richtext \`# Title 1
+      expected: result.ok(`c.richtext \`# Title 1
 Test 2\``),
     },
     {
-      name: "val.richtext basic nodes",
-      input: "val.richtext`Test`",
+      name: "c.richtext basic nodes",
+      input: "c.richtext`Test`",
       path: [],
       value: {
         [VAL_EXTENSION]: "richtext",
@@ -483,18 +488,19 @@ Test 2\``),
         exprs: [
           {
             [VAL_EXTENSION]: "file",
+            [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
             [FILE_REF_PROP]: "/public/test",
             metadata: { width: 100, height: 100, sha256: "123" },
           },
         ],
       },
-      expected: result.ok(`val.richtext \`# Title 1
+      expected: result.ok(`c.richtext \`# Title 1
 Test 2
-\${val.file("/public/test", { width: 100, height: 100, sha256: "123" })}\``),
+\${c.rt.image("/public/test", { width: 100, height: 100, sha256: "123" })}\``),
     },
     {
-      name: "val.richtext advanced nodes",
-      input: "val.richtext`Test`",
+      name: "c.richtext advanced nodes",
+      input: "c.richtext`Test`",
       path: [],
       value: {
         [VAL_EXTENSION]: "richtext",
@@ -502,24 +508,26 @@ Test 2
         exprs: [
           {
             [VAL_EXTENSION]: "file",
+            [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
             [FILE_REF_PROP]: "/public/test1",
             metadata: { width: 100, height: 100, sha256: "123" },
           },
           {
             [VAL_EXTENSION]: "file",
+            [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
             [FILE_REF_PROP]: "/public/test2",
             metadata: { width: 100, height: 100, sha256: "123" },
           },
         ],
       },
-      expected: result.ok(`val.richtext \`# Title 1
-\${val.file("/public/test1", { width: 100, height: 100, sha256: "123" })}
-\${val.file("/public/test2", { width: 100, height: 100, sha256: "123" })}
+      expected: result.ok(`c.richtext \`# Title 1
+\${c.rt.image("/public/test1", { width: 100, height: 100, sha256: "123" })}
+\${c.rt.image("/public/test2", { width: 100, height: 100, sha256: "123" })}
 Test 2\``),
     },
     {
-      name: "val.richtext link",
-      input: "val.richtext`Test`",
+      name: "c.richtext link",
+      input: "c.richtext`Test`",
       path: [],
       value: {
         [VAL_EXTENSION]: "richtext",
@@ -532,19 +540,20 @@ Test 2\``),
           },
           {
             [VAL_EXTENSION]: "file",
+            [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
             [FILE_REF_PROP]: "/public/test2",
             metadata: { width: 100, height: 100, sha256: "123" },
           },
         ],
       },
-      expected: result.ok(`val.richtext \`# Title 1
-\${val.link("https://example.com", { href: "https://example.com" })}
-\${val.file("/public/test2", { width: 100, height: 100, sha256: "123" })}\``),
+      expected: result.ok(`c.richtext \`# Title 1
+\${c.rt.link("https://example.com", { href: "https://example.com" })}
+\${c.rt.image("/public/test2", { width: 100, height: 100, sha256: "123" })}\``),
     },
     {
-      name: "val.richtext empty head",
+      name: "c.richtext empty head",
       input:
-        "{ text: val.richtext`${val.file('/public/test1', { height: 100 })}` }",
+        "{ text: c.richtext`${c.rt.image('/public/test1', { height: 100 })}` }",
       path: ["text"],
       value: {
         [VAL_EXTENSION]: "richtext",
@@ -552,19 +561,21 @@ Test 2\``),
         exprs: [
           {
             [VAL_EXTENSION]: "file",
+            [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
             [FILE_REF_PROP]: "/public/test1",
             metadata: { width: 100, height: 100, sha256: "123" },
           },
           {
             [VAL_EXTENSION]: "file",
+            [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
             [FILE_REF_PROP]: "/public/test2",
             metadata: { width: 100, height: 100, sha256: "123" },
           },
         ],
       },
       expected:
-        result.ok(`{ text: val.richtext \`\${val.file("/public/test1", { width: 100, height: 100, sha256: "123" })}
-\${val.file("/public/test2", { width: 100, height: 100, sha256: "123" })}
+        result.ok(`{ text: c.richtext \`\${c.rt.image("/public/test1", { width: 100, height: 100, sha256: "123" })}
+\${c.rt.image("/public/test2", { width: 100, height: 100, sha256: "123" })}
 Test 2\` }`),
     },
   ])("replace $name", ({ input, path, value, expected }) => {
@@ -657,28 +668,28 @@ Test 2\` }`),
       expected: result.err(PatchError),
     },
     {
-      name: "val.file to root of document",
-      input: `{ foo: null, baz: val.file("/public/val/foo/bar.jpg") }`,
+      name: "c.file to root of document",
+      input: `{ foo: null, baz: c.file("/public/val/foo/bar.jpg") }`,
       from: ["baz"],
       path: ["bar"],
       expected: result.ok(
-        `{ foo: null, bar: val.file("/public/val/foo/bar.jpg") }`
+        `{ foo: null, bar: c.file("/public/val/foo/bar.jpg") }`
       ),
     },
     {
-      name: "ref out of val.file",
-      input: `{ foo: null, baz: val.file("/public/val/foo/bar.jpg") }`,
+      name: "ref out of c.file",
+      input: `{ foo: null, baz: c.file("/public/val/foo/bar.jpg") }`,
       from: ["baz", "_ref"],
       path: ["bar"],
       expected: result.err(PatchError),
     },
     {
-      name: "object into val.file",
-      input: `{ foo: { bar: "zoo" }, baz: val.file("/public/val/foo/bar.jpg") }`,
+      name: "object into c.file",
+      input: `{ foo: { bar: "zoo" }, baz: c.file("/public/val/foo/bar.jpg") }`,
       from: ["foo"],
       path: ["baz", "metadata"],
       expected: result.ok(
-        `{ baz: val.file("/public/val/foo/bar.jpg", { bar: "zoo" }) }`
+        `{ baz: c.file("/public/val/foo/bar.jpg", { bar: "zoo" }) }`
       ),
     },
   ])("move $name", ({ input, from, path, expected }) => {
@@ -778,19 +789,19 @@ Test 2\` }`),
       expected: result.err(PatchError),
     },
     {
-      name: "val.file to root of object",
-      input: `{ foo: val.file("/public/val/image1.jpg") }`,
+      name: "c.file to root of object",
+      input: `{ foo: c.file("/public/val/image1.jpg") }`,
       from: ["foo"],
       path: [],
-      expected: result.ok(`val.file("/public/val/image1.jpg")`),
+      expected: result.ok(`c.file("/public/val/image1.jpg")`),
     },
     {
-      name: "object into val.file",
-      input: `{ foo: val.file("/public/val/image1.jpg"), bar: null }`,
+      name: "object into c.file",
+      input: `{ foo: c.file("/public/val/image1.jpg"), bar: null }`,
       from: ["bar"],
       path: ["foo", "metadata"],
       expected: result.ok(
-        `{ foo: val.file("/public/val/image1.jpg", null), bar: null }`
+        `{ foo: c.file("/public/val/image1.jpg", null), bar: null }`
       ),
     },
   ])("copy $name", ({ input, from, path, expected }) => {
@@ -907,22 +918,22 @@ Test 2\` }`),
       expected: result.err(PatchError),
     },
     {
-      name: "val.file ref",
-      input: `val.file("/public/val/foo/bar.jpg")`,
+      name: "c.file ref",
+      input: `c.file("/public/val/foo/bar.jpg")`,
       path: ["_ref"],
       value: "/public/val/foo/bar.jpg",
       expected: result.ok(true),
     },
     {
-      name: "val.file",
-      input: `val.file("/public/val/foo/bar.jpg")`,
+      name: "c.file",
+      input: `c.file("/public/val/foo/bar.jpg")`,
       path: [],
       value: { _ref: "/public/val/foo/bar.jpg", _type: "file" },
       expected: result.ok(true),
     },
     {
-      name: "nested val.file",
-      input: `{ foo: { bar: val.file("/public/val/foo/bar/zoo.jpg") } }`,
+      name: "nested c.file",
+      input: `{ foo: { bar: c.file("/public/val/foo/bar/zoo.jpg") } }`,
       path: ["foo", "bar", "_ref"],
       value: "/public/val/foo/bar/zoo.jpg",
       expected: result.ok(true),

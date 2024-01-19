@@ -85,13 +85,13 @@ globalThis.valModule = {
       ) {
         if (valModule.id !== id) {
           fatalErrors.push(
-            `Wrong val.content id! Expected: '${id}', found: '${valModule.id}'`
+            `Wrong c.define id! Expected: '${id}', found: '${valModule.id}'`
           );
         } else if (
           encodeURIComponent(valModule.id).replace(/%2F/g, "/") !== valModule.id
         ) {
           fatalErrors.push(
-            `Invalid val.content id! Must be a web-safe path without escape characters, found: '${
+            `Invalid c.define id! Must be a web-safe path without escape characters, found: '${
               valModule.id
             }', which was encoded as: '${encodeURIComponent(
               valModule.id

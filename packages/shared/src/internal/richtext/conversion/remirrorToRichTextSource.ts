@@ -7,6 +7,8 @@ import {
   AnyRichTextOptions,
   ImageSource,
   Classes,
+  RT_IMAGE_TAG,
+  FILE_REF_SUBTYPE_TAG,
 } from "@valbuild/core";
 import {
   filenameToMimeType,
@@ -265,6 +267,7 @@ function fromRemirrorImageNode(
     return {
       [VAL_EXTENSION]: "file" as const,
       [FILE_REF_PROP]: filePath as `/public/${string}`,
+      [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
       metadata: {
         width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
         height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
@@ -280,6 +283,7 @@ function fromRemirrorImageNode(
       [FILE_REF_PROP]: `/public${
         node.attrs.src.split("?")[0]
       }` as `/public/${string}`,
+      [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
       metadata: {
         width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
         height: typeof node.attrs.height === "number" ? node.attrs.height : 0,

@@ -1,5 +1,5 @@
 import { initSchema } from "../initSchema";
-import { content } from "../module";
+import { define } from "../module";
 import { getValPath } from "../val";
 import { serializedValOfSelectorSource, fetchVal } from "./fetchVal";
 
@@ -10,7 +10,7 @@ describe("serialization of val", () => {
   test("serialized val: string", () => {
     const schema = s.string();
 
-    const testVal = content("/app", schema, "foo");
+    const testVal = define("/app", schema, "foo");
 
     expect(serializedValOfSelectorSource(testVal)).toStrictEqual({
       val: "foo",
@@ -21,7 +21,7 @@ describe("serialization of val", () => {
   test("serialized val: array", () => {
     const schema = s.array(s.string());
 
-    const testVal = content("/app", schema, ["foo", "bar"]);
+    const testVal = define("/app", schema, ["foo", "bar"]);
 
     expect(serializedValOfSelectorSource(testVal)).toStrictEqual({
       val: [
@@ -40,7 +40,7 @@ describe("serialization of val", () => {
   test("serialized val: object", () => {
     const schema = s.object({ foo: s.object({ bar: s.array(s.string()) }) });
 
-    const testVal = content("/app", schema, { foo: { bar: ["foo", "bar"] } });
+    const testVal = define("/app", schema, { foo: { bar: ["foo", "bar"] } });
 
     expect(serializedValOfSelectorSource(testVal)).toStrictEqual({
       val: {
@@ -69,7 +69,7 @@ describe("fetchVal", () => {
   test("valuate: string", async () => {
     const schema = s.string();
 
-    const testVal = content("/app", schema, "foo");
+    const testVal = define("/app", schema, "foo");
 
     const test = await fetchVal(testVal);
     //     ^? should be Val<string>
@@ -80,7 +80,7 @@ describe("fetchVal", () => {
   test("valuate: array", async () => {
     const schema = s.array(s.string());
 
-    const testVal = content("/app", schema, ["foo", "bar"]);
+    const testVal = define("/app", schema, ["foo", "bar"]);
 
     const test = await fetchVal(testVal);
     //      ^? should be Val<string[]>
@@ -94,7 +94,7 @@ describe("fetchVal", () => {
   test("valuate: object", async () => {
     const schema = s.object({ foo: s.object({ bar: s.array(s.string()) }) });
 
-    const testVal = content("/app", schema, { foo: { bar: ["foo", "bar"] } });
+    const testVal = define("/app", schema, { foo: { bar: ["foo", "bar"] } });
 
     const test = await fetchVal(testVal);
     //      ^? should be Val<{ foo: { bar: string[] } }>

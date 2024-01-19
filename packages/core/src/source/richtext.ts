@@ -1,6 +1,8 @@
 import { VAL_EXTENSION } from ".";
 import { LinkSource } from "./link";
 import { ImageSource } from "./image";
+import { ImageMetadata } from "../schema/image";
+import { FILE_REF_PROP, FILE_REF_SUBTYPE_TAG, FileSource } from "./file";
 
 export type RichTextOptions = {
   headings?: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];
@@ -175,4 +177,19 @@ export function richtext<O extends RichTextOptions>(
     exprs:
       nodes as RichTextSource<AnyRichTextOptions>["exprs"] as RichTextSource<O>["exprs"],
   };
+}
+
+export const RT_IMAGE_TAG = "rt_image";
+
+export type RTImageMetadata = ImageMetadata;
+export function image(
+  ref: `/public/${string}`,
+  metadata?: RTImageMetadata
+): FileSource<RTImageMetadata> {
+  return {
+    [FILE_REF_PROP]: ref,
+    [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
+    [VAL_EXTENSION]: "file",
+    metadata,
+  } as FileSource<RTImageMetadata>;
 }
