@@ -20,7 +20,7 @@ export type ContentConstructor = {
   richtext: typeof richtext;
 };
 export type ValConstructor = {
-  getPath: typeof getPath;
+  unstable_getPath: typeof getPath;
 };
 
 export type ValConfig = {
