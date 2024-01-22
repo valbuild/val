@@ -161,7 +161,6 @@ function parseTokens(
             width: sourceNode.metadata?.width,
             height: sourceNode.metadata?.height,
             mimeType: sourceNode.metadata?.mimeType,
-            children: [],
           });
         }
 
@@ -171,7 +170,6 @@ function parseTokens(
       if (token.text.trim().match(br_html_regex)) {
         children.push({
           tag: "br",
-          children: [],
         });
         if (tokens[cursor + 1]?.raw.trim() === "") {
           // if next token is a new line or white-spaces, skip it
@@ -197,7 +195,6 @@ function parseTokens(
     } else if (token.type === "br") {
       children.push({
         tag: "br",
-        children: [],
       });
     } else {
       console.error(
