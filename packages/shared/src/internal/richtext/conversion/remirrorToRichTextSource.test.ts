@@ -212,6 +212,33 @@ describe("remirror to RichTextSource", () => {
         },
       ],
     };
-    console.log(stringifyRichTextSource(remirrorToRichTextSource(input)));
+    expect(stringifyRichTextSource(remirrorToRichTextSource(input))).toEqual(`
+# Title 1
+
+## Title 2
+
+### Title 3
+
+#### Title 4
+
+##### Title 5
+
+###### Title 6
+
+~~***Formatted span***~~
+
+Inline line break<br />
+
+<br />
+
+<br />
+
+\${c.rt.link("Link", {"href":"https://example.com"})}
+
+- 
+    1. _number 1.1. breaking lines:_ <br />
+after line break
+    1. number 1.2
+`);
   });
 });
