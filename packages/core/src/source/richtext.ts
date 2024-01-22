@@ -51,7 +51,6 @@ export type ParagraphNode<O extends RichTextOptions> = {
 /// Break
 export type BrNode = {
   tag: "br";
-  children: [];
 };
 
 /// Span
@@ -68,7 +67,6 @@ type ImageTagNode = {
   height?: number;
   width?: number;
   mimeType?: string;
-  children: [];
 };
 export type ImageNode<O extends RichTextOptions> = O["img"] extends true
   ? ImageTagNode
