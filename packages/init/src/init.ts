@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import fs from "fs";
 import path from "path";
-import simpleGit from "simple-git";
+import simpleGit, { StatusResult } from "simple-git";
 import { confirm } from "@inquirer/prompts";
 import { transformNextAppRouterValProvider } from "./codemods/transformNextAppRouterValProvider";
 import { diffLines } from "diff";
@@ -94,7 +94,7 @@ type Analysis = Partial<{
   // git:
   hasGit: boolean;
   isGitHub: boolean;
-  isGitClean: boolean;
+  isGitClean: boolean | "packages";
 
   // TODO:
   // check if modules are used
@@ -200,13 +200,13 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
 
   try {
     const git = simpleGit(root);
-    const gitStatus = await git.status();
+    const gitStatus = await git.status([]);
     const gitRemoteOrigin = await git.remote(["-v"]);
     analysis.hasGit = true;
     analysis.isGitHub = gitRemoteOrigin
       ? !!gitRemoteOrigin.includes("github.com")
       : false;
-    analysis.isGitClean = gitStatus.isClean();
+    analysis.isGitClean = getGitStatusIsClean(gitStatus);
   } catch (err) {
     // console.error(err);
   }
@@ -353,7 +353,16 @@ async function plan(
     logger.info("  Use: Pages Router", { isGood: true });
   }
   if (analysis.isGitClean) {
-    logger.info("  Git state: clean", { isGood: true });
+    if (analysis.isGitClean === "packages") {
+      logger.info(
+        "  Git state: clean (only package.json / lock files modified)",
+        {
+          isGood: true,
+        }
+      );
+    } else {
+      logger.info("  Git state: clean", { isGood: true });
+    }
   }
   if (!analysis.isGitClean) {
     logger.warn("  Git state: dirty");
@@ -433,7 +442,7 @@ async function plan(
     "api",
     "val",
     "[[...val]]",
-    analysis.isTypeScript ? "router.tsx" : "router.jsx"
+    analysis.isTypeScript ? "route.ts" : "route.js"
   );
   const valRouterImportPath = path
     .relative(path.dirname(valRouterPath), valServerPath)
@@ -632,4 +641,28 @@ function writeFile(
       { isGood: true }
     );
   }
+}
+function getGitStatusIsClean(gitStatus: StatusResult): Analysis["isGitClean"] {
+  const filteredFiles = gitStatus.files.filter(
+    ({ path }) =>
+      !(
+        // ignore updates to package.json and lock files
+        // since user might have just installed val
+        // TODO: check if package.json only includes val related things
+        (
+          path === "package.json" ||
+          // lock files:
+          path === "package-lock.json" ||
+          path === "yarn.lock" ||
+          path === "pnpm-lock.yaml"
+        )
+      )
+  );
+  if (filteredFiles.length === 0) {
+    if (gitStatus.files.length !== 0) {
+      return "packages";
+    }
+    return true;
+  }
+  return false;
 }
