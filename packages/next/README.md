@@ -228,7 +228,7 @@ In client components you can access your content with the `useVal` hook:
 // ./src/app/page.tsx
 "use client";
 import { NextPage } from "next";
-import { useVal } from "@valbuild/next/client";
+import { useVal } from "./val/val.client";
 import contentVal from "./content.val";
 
 const Page: NextPage = () => {
@@ -379,7 +379,7 @@ You can use the `ValRichText` component to render content.
 "use client";
 import { ValRichText } from "@valbuild/next";
 import contentVal from "./content.val";
-import { useVal } from "@valbuild/next/client";
+import { useVal } from "./val/val.client";
 
 export default function Page() {
   const content = useVal(contentVal);
