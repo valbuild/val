@@ -155,7 +155,7 @@ npm install @valbuild/next@latest @valbuild/eslint-plugin@latest
 - Run the init script:
 
 ```sh
-npx @valbuild/init
+npx @valbuild/init@latest
 ```
 
 ### Add editor support
