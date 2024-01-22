@@ -68,7 +68,7 @@ export const IS_DEV = false;2
         if (modulePath.startsWith("react/jsx-runtime")) {
           return {
             value:
-              "export const jsx = () => { throw Error(`Cannot use 'jsx' in this type of file`) }; export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'react' in this file`) } } } )",
+              "export const jsx = () => { throw Error(`Cannot use 'jsx' in this type of file`) }; export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'react' in this file`) } } } ); export const jsx = () => { throw Error(`Cannot use 'jsxs' in this type of file`) }; export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'react' in this file`) } } } )",
           };
         }
         if (modulePath.startsWith("react")) {
