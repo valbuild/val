@@ -53,7 +53,7 @@ describe("richtext to remirror", () => {
                           classes: ["italic"],
                           children: ["number 1.1. breaking lines: "],
                         },
-                        { tag: "br", children: [] },
+                        { tag: "br" },
                         "after line break",
                       ],
                     },
