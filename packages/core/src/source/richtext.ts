@@ -64,6 +64,7 @@ export type SpanNode<O extends RichTextOptions> = {
 type ImageTagNode = {
   tag: "img";
   src: string;
+  alt?: string;
   height?: number;
   width?: number;
   mimeType?: string;
@@ -83,17 +84,21 @@ export type LinkNode<O extends RichTextOptions> = O["a"] extends true
   : never;
 
 /// List
-export type ListItemNode<O extends RichTextOptions> = {
-  tag: "li";
-  children: (
-    | string
-    | SpanNode<O>
-    | LinkNode<O>
-    | BrNode
-    | UnorderedListNode<O>
-    | OrderedListNode<O>
-  )[];
-};
+export type ListItemNode<O extends RichTextOptions> =
+  | O["ul"]
+  | O["ol"] extends true
+  ? {
+      tag: "li";
+      children: (
+        | string
+        | SpanNode<O>
+        | LinkNode<O>
+        | BrNode
+        | UnorderedListNode<O>
+        | OrderedListNode<O>
+      )[];
+    }
+  : never;
 
 export type UnorderedListNode<O extends RichTextOptions> = O["ul"] extends true
   ? {
