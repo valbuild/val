@@ -174,7 +174,7 @@ export function ValWindow({
       >
         <div
           ref={dragRef}
-          className="relative flex items-center justify-center px-2 py-8 tablet:py-2 text-primary"
+          className="relative flex items-center justify-center px-2 py-2 text-primary"
           onTouchStart={(ev) => {
             const touch = ev.changedTouches?.[0];
             if (!touch) return;
@@ -199,7 +199,9 @@ export function ValWindow({
           }}
         >
           {isDrawer ? (
-            <div className="absolute left-1/2 -translate-x-1/2 h-[8px] w-[80px] top-4 bg-primary rounded-lg"></div>
+            <div className="py-6">
+              <div className="absolute left-1/2 -translate-x-1/2 h-[8px] w-[80px] top-4 bg-primary rounded-lg"></div>
+            </div>
           ) : (
             <AlignJustifyIcon
               size={16}
