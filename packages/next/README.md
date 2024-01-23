@@ -73,7 +73,7 @@ As a CMS, Val is useful because:
 - **richtext** support is built-in
 - built-in **visual editing** which lets editors click-then-edit content (and therefore **code**!) directly in your app
 
-  ![Visual editing](./docs/visual-editing.png)
+  ![Visual editing](https://val.build/docs/images/overlay.png)
 
 <details>
 <summary>Definition: editor</summary>
@@ -86,11 +86,11 @@ But, with the benefits of **hard-coded** content:
 
 - works seamlessly **locally** or with git **branches**
 - content is **type-checked** so you can spend less time on figuring out why something isn't working
-  ![Type check error](./docs/type-check-error.png)
+  ![Type check error](https://val.build/docs/images/type-check-error.png)
 - content can be refactored (change names, etc) just as if it was hard-coded (because it is)
-  ![Renaming](./docs/renaming.gif)
+  ![Renaming](https://val.build/docs/images/renaming.gif)
 - works as normal with your **favorite IDE** without any plugins: search for content, references to usages, ...
-  ![References](./docs/references.gif)
+  ![References](https://val.build/docs/images/references.gif)
 - **no** need for **code-gen** and extra build steps
 - **fast** since the content is literally hosted with the application
 - content is **always there** and can never fail (since it is not loaded from somewhere)
@@ -403,10 +403,12 @@ export default function Page() {
 To add classes to `ValRichText` you can use the theme property:
 
 ```tsx
-<ValRichText theme={{
-  p: "font-sans",
-  // etc
-}}>
+<ValRichText
+  theme={{
+    p: "font-sans",
+    // etc
+  }}
+>
   {content}
 </ValRichText>
 ```
@@ -414,12 +416,14 @@ To add classes to `ValRichText` you can use the theme property:
 **NOTE**: if a theme is defined, you must define a mapping for every tag that the you get. What tags you have is decided based on the `options` defined on the `s.richtext()` schema. For example: `s.richtext({ headings: ["h1"]; bold: true; img: true})` forces you to map the class for at least: `h1`, `bold` and `img`:
 
 ```tsx
-<ValRichText theme={{
-  h1: "text-4xl font-bold",
-  bold: "font-bold",
-  img: null, // either a string or null is required
-}}>
-  {content satisfies RichText<{ headings: ["h1"]; bold: true; img: true}>}
+<ValRichText
+  theme={{
+    h1: "text-4xl font-bold",
+    bold: "font-bold",
+    img: null, // either a string or null is required
+  }}
+>
+  {content satisfies RichText<{ headings: ["h1"]; bold: true; img: true }>}
 </ValRichText>
 ```
 
@@ -432,16 +436,18 @@ Vals `RichText` type maps RichText 1-to-1 with semantic HTML5.
 If you want to customize the type of elements which are rendered, you can use the `transform` property.
 
 ```tsx
-<ValRichText transform={(node, _children, className) => {
-  if (typeof node !== "string" && node.tag === "img") {
-    return (
-      <div className="my-wrapper-class">
-        <img {...node} className={className} />
-      </div>
-    );
-  }
-  // if transform returns undefined the default render will be used
-}}>
+<ValRichText
+  transform={(node, _children, className) => {
+    if (typeof node !== "string" && node.tag === "img") {
+      return (
+        <div className="my-wrapper-class">
+          <img {...node} className={className} />
+        </div>
+      );
+    }
+    // if transform returns undefined the default render will be used
+  }}
+>
   {content}
 </ValRichText>
 ```
@@ -454,10 +460,24 @@ That means they look something like this:
 
 ```ts
 type RichTextNode = {
-  tag:  "img" | "a" | "ul" | "ol" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "br" | "p" | "li" | "span";
-  classes: "bold" | "line-through" | "italic";  // all styling classes
+  tag:
+    | "img"
+    | "a"
+    | "ul"
+    | "ol"
+    | "h1"
+    | "h2"
+    | "h3"
+    | "h4"
+    | "h5"
+    | "h6"
+    | "br"
+    | "p"
+    | "li"
+    | "span";
+  classes: "bold" | "line-through" | "italic"; // all styling classes
   children: RichTextNode[] | undefined;
-}
+};
 ```
 
 ### RichText: full custom
@@ -486,10 +506,10 @@ export function ValRichText({
     // you can map the classes to something else here
     const className = node.classes.join(" ");
     const tag = node.tag; // one of: "img" | "a" | "ul" | "ol" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "br" | "p" | "li" | "span"
-    
+
     // Example of rendering img with MyOwnImageComponent:
     if (tag === "img") {
-      return <MyOwnImageComponent {...node} />
+      return <MyOwnImageComponent {...node} />;
     }
     return React.createElement(
       tag,
@@ -497,9 +517,7 @@ export function ValRichText({
         key,
         className,
       },
-      "children" in node
-        ? node.children.map(build)
-        : null
+      "children" in node ? node.children.map(build) : null
     );
   }
   return <div {...val.attrs(root)}>{root.children.map(build)}</div>;
@@ -538,8 +556,7 @@ You can use it like this:
 ```tsx
 const content = useVal(contentVal);
 
-return <ValImage src={content.image} alt={content.alt}/>;
-
+return <ValImage src={content.image} alt={content.alt} />;
 ```
 
 ### Using images in components
