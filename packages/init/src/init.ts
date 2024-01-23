@@ -13,6 +13,7 @@ import {
   VAL_APP_PAGE,
   VAL_CLIENT,
   VAL_CONFIG,
+  VAL_RSC,
   VAL_SERVER,
 } from "./templates";
 import * as logger from "./logger";
@@ -487,7 +488,7 @@ async function plan(
           valUtilsDir,
           analysis.isTypeScript ? "val.rsc.ts" : "val.rsc.js"
         ),
-        source: VAL_SERVER(valUtilsImportPath),
+        source: VAL_RSC(valUtilsImportPath),
       };
     } else {
       plan.createValRsc = false;
