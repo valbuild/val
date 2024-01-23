@@ -41,6 +41,7 @@ export default async function Home() {
               h6: "rt-h6",
               img: "rt-image",
               ol: "rt-ol-list",
+              a: "rt-link",
             }}
           >
             {page.text}
