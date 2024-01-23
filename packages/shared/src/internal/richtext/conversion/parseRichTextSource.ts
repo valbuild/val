@@ -92,8 +92,8 @@ function parseTokens(
             (line, i) => {
               if (i === lines.length - 1) return [line];
               if (i === lines.length - 1 && line === "") return [];
-              if (line === "") return { tag: "br", children: [] };
-              return [line, { tag: "br", children: [] }];
+              if (line === "") return { tag: "br" };
+              return [line, { tag: "br" }];
             }
           );
           children.push(...tags);
