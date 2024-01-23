@@ -5,196 +5,224 @@ import {
   AnyRichTextOptions,
   SourcePath,
   RichTextOptions,
+  Classes as ClassesOf,
 } from "@valbuild/core";
-import React from "react";
+import React, { CSSProperties, ReactNode } from "react";
 
-// Pick is used to make sure we do not add a tag or class that is not in options:
-type Tags = keyof Pick<RichTextOptions, "img" | "ul" | "ol">;
-type Classes = keyof Pick<RichTextOptions, "bold" | "italic" | "lineThrough">;
+type DefaultThemes = Partial<{
+  br: string | null;
+  p: string | null;
+  span: string | null;
+}>;
+type OptionalFields = {
+  h1: string | null;
+  h2: string | null;
+  h3: string | null;
+  h4: string | null;
+  h5: string | null;
+  h6: string | null;
+  img: string | null;
+  a: string | null;
+  ul: string | null;
+  ol: string | null;
+  li: string | null;
+  lineThrough: string | null;
+  bold: string | null;
+  italic: string | null;
+};
+type AllThemes = DefaultThemes & OptionalFields;
+type ThemeOptions<O extends RichTextOptions = AnyRichTextOptions> =
+  DefaultThemes &
+    Pick<
+      OptionalFields,
+      | (O["img"] extends true ? "img" : never)
+      | (O["a"] extends true ? "a" : never)
+      | (O["ul"] extends true ? "ul" | "li" : never)
+      | (O["ol"] extends true ? "ol" | "li" : never)
+      | (O["lineThrough"] extends true ? "lineThrough" : never)
+      | (O["bold"] extends true ? "bold" : never)
+      | (O["italic"] extends true ? "italic" : never)
+      | (O["headings"] extends Array<infer T>
+          ? T extends "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
+            ? T
+            : never
+          : never)
+    >;
 
-type ThemeOptions<O extends RichTextOptions> =
-  (O["headings"] extends Array<unknown>
-    ? {
-        [Key in O["headings"][number]]: string;
-      }
-    : {}) & {
-    [Key in Tags & keyof O as O[Key] extends true
-      ? Key extends "ul" | "ol"
-        ? Key | "li"
-        : Key
-      : never]: string;
-  } & { p?: string } & {
-    [Key in Classes & keyof O as O[Key] extends true ? Key : never]: string;
-  };
-
+/**
+ * Render RichText as HTML
+ *
+ * @example
+ * const content = useVal(contentVal);
+ * return <ValRichText>{content.myRichText}</ValRichText>
+ *
+ * @example
+ * const content = useVal(contentVal);
+ * return (
+ *   <ValRichText
+ *     theme={{
+ *       h1: 'text-4xl font-bold',
+ *     }}>
+ *    {content.myRichText}
+ *   </ValRichText>
+ * );
+ *
+ *
+ * @example
+ * const content = useVal(contentVal);
+ * return (
+ *   <ValRichText
+ *     theme={{
+ *        h1: 'text-4xl font-bold',
+ *        img: 'rounded',
+ *     }}
+ *     transform={(node, className) => {
+ *        if (node.tag === 'img') {
+ *          return <Image className={className} src={node.src} alt={node.alt || ""} width={node.metadata?.width} height={node.metadata?.height} />
+ *        }
+ *     }}>
+ *    {content.myRichText}
+ *   </ValRichText>
+ * );
+ *
+ * @param
+ * @returns
+ */
 export function ValRichText<O extends RichTextOptions>({
-  theme,
-  className,
   children,
+  className,
+  style,
+  theme,
+  transform,
 }: {
-  theme?: ThemeOptions<O>;
-  className?: string;
   children: RichText<O>;
+  className?: string;
+  style?: CSSProperties;
+  theme?: ThemeOptions<O>;
+  transform?: (
+    node: RichTextNode<O>,
+    children: ReactNode | ReactNode[],
+    className?: string
+  ) => JSX.Element | string | undefined;
 }) {
   const root = children as RichText<AnyRichTextOptions> & {
     valPath: SourcePath;
   };
-  function withRenderTag(
-    clazz: keyof ThemeOptions<AnyRichTextOptions>,
-    current?: string
-  ) {
-    const renderClass = (theme as ThemeOptions<AnyRichTextOptions>)?.[clazz];
-    if (renderClass && current) {
-      return [current, renderClass].join(" ");
+  function build(
+    child: RichTextNode<AnyRichTextOptions>,
+    key?: number
+  ): JSX.Element | string {
+    if (typeof child === "string") {
+      const transformed = transform && transform(child, []);
+      if (transformed !== undefined) {
+        return transformed;
+      }
+      return child;
     }
-    if (renderClass) {
-      return renderClass;
-    }
-    return current;
-  }
-  function withRenderClass(
-    clazz: keyof ThemeOptions<AnyRichTextOptions>,
-    current?: string
-  ) {
-    const renderClass = (theme as ThemeOptions<AnyRichTextOptions>)?.[clazz];
-    if (renderClass && current) {
-      return [current, renderClass].join(" ");
-    }
-    if (renderClass) {
-      return renderClass;
-    }
-    return current;
-  }
-
-  function toReact(
-    node: RichTextNode<AnyRichTextOptions>,
-    key: number | string
-  ): React.ReactNode {
-    if (typeof node === "string") {
-      return node;
-    }
-    if (node.tag === "p") {
-      return (
-        <p className={withRenderTag("p")} key={key}>
-          {node.children.map(toReact)}
-        </p>
+    const className = classNameOfTag(
+      child.tag,
+      "classes" in child ? child.classes : [],
+      theme
+    );
+    const children =
+      "children" in child
+        ? // Why do this? We get a very weird error in NextJS 14.0.4 if we do not
+          // Error: Cannot access Image.prototype on the server. You cannot dot into a client module from a server component. You can only pass the imported name through.
+          // https://github.com/vercel/next.js/issues/52415
+          child.children.length === 1
+          ? build(child.children[0])
+          : child.children.map(build)
+        : null;
+    if (transform) {
+      const transformed = transform(
+        child as RichTextNode<O>,
+        children ?? [],
+        className
       );
+      if (transformed !== undefined) {
+        return transformed;
+      }
     }
-    if (node.tag === "img") {
-      return <img className={withRenderTag("img")} key={key} src={node.src} />;
-    }
-    if (node.tag === "ul") {
-      return (
-        <ul className={withRenderTag("ul")} key={key}>
-          {node.children.map(toReact)}
-        </ul>
-      );
-    }
-    if (node.tag === "ol") {
-      return (
-        <ol className={withRenderTag("ol")} key={key}>
-          {node.children.map(toReact)}
-        </ol>
-      );
-    }
-    if (node.tag === "li") {
-      return (
-        <li className={withRenderTag("li")} key={key}>
-          {node.children.map(toReact)}
-        </li>
-      );
-    }
-    if (node.tag === "span") {
-      return (
-        <span
-          key={key}
-          className={node.classes
-            .map((nodeClass) => {
-              switch (nodeClass) {
-                case "bold":
-                  return withRenderClass("bold");
-                case "line-through":
-                  return withRenderClass("lineThrough");
-                case "italic":
-                  return withRenderClass("italic");
-              }
-            })
-            .join(" ")}
-        >
-          {node.children.map(toReact)}
-        </span>
-      );
-    }
-    if (node.tag === "h1") {
-      return (
-        <h1 className={withRenderTag("h1")} key={key}>
-          {node.children.map(toReact)}
-        </h1>
-      );
-    }
-    if (node.tag === "h2") {
-      return (
-        <h2 className={withRenderTag("h2")} key={key}>
-          {node.children.map(toReact)}
-        </h2>
-      );
-    }
-    if (node.tag === "h3") {
-      return (
-        <h3 className={withRenderTag("h3")} key={key}>
-          {node.children.map(toReact)}
-        </h3>
-      );
-    }
-    if (node.tag === "h4") {
-      return (
-        <h4 className={withRenderTag("h4")} key={key}>
-          {node.children.map(toReact)}
-        </h4>
-      );
-    }
-    if (node.tag === "h5") {
-      return (
-        <h5 className={withRenderTag("h5")} key={key}>
-          {node.children.map(toReact)}
-        </h5>
-      );
-    }
-    if (node.tag === "h6") {
-      return (
-        <h6 className={withRenderTag("h6")} key={key}>
-          {node.children.map(toReact)}
-        </h6>
-      );
-    }
-
-    if (node.tag === "br") {
-      return <br key={key} />;
-    }
-    if (node.tag === "a") {
-      return (
-        <a href={node.href} key={key}>
-          {node.children.map(toReact)}
-        </a>
-      );
-    }
-    console.error("Unknown tag", node.tag);
-    const _exhaustiveCheck: never = node.tag;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyNode = _exhaustiveCheck as any;
-    if (!anyNode?.tag) {
-      return null;
-    }
-    return React.createElement(anyNode.tag, {
-      key,
-      className: anyNode.class?.join(" "),
-      children: anyNode.children?.map(toReact),
+    const tag = child.tag; // one of: "img" | "a" | "ul" | "ol" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "br" | "p" | "li" | "span"
+    return React.createElement(tag, {
+      key: key?.toString(),
+      className,
+      children,
     });
   }
-
   return (
-    <div className={className} data-val-path={root.valPath}>
-      {root.children.map(toReact)}
+    <div className={className} style={style} data-val-path={root.valPath}>
+      {root.children.map(build)}
     </div>
   );
 }
+
+function classNameOfTag(
+  tag: AllTagsOf<AnyRichTextOptions>,
+  clazz: ClassesOf<AnyRichTextOptions>[],
+  theme?: Partial<AllThemes>
+) {
+  let thisTagClassName: string | null = null;
+  if (theme && tag in theme) {
+    thisTagClassName = theme[tag] ?? null;
+  }
+  return [
+    ...(thisTagClassName ? [thisTagClassName] : []),
+    ...clazz.map((style) => {
+      if (
+        theme &&
+        // not need on type-level, but defensive on runtime:
+        typeof style === "string"
+      ) {
+        if (style === "line-through") {
+          if ("lineThrough" in theme) {
+            return theme["lineThrough"];
+          }
+        }
+        if (style !== "line-through" && style in theme) {
+          return theme[style];
+        }
+      }
+      return clazz;
+    }),
+  ].join(" ");
+}
+
+type AllTagsOf<O extends RichTextOptions> =
+  | (O["img"] extends true ? "img" : never)
+  | (O["a"] extends true ? "a" : "nei")
+  | (O["ul"] extends true ? "ul" | "li" : never)
+  | (O["ol"] extends true ? "ol" | "li" : never)
+  | (O["headings"] extends Array<infer T>
+      ? T extends "h1"
+        ? "h1"
+        : never
+      : never)
+  | (O["headings"] extends Array<infer T>
+      ? T extends "h2"
+        ? "h2"
+        : never
+      : never)
+  | (O["headings"] extends Array<infer T>
+      ? T extends "h3"
+        ? "h3"
+        : never
+      : never)
+  | (O["headings"] extends Array<infer T>
+      ? T extends "h4"
+        ? "h4"
+        : never
+      : never)
+  | (O["headings"] extends Array<infer T>
+      ? T extends "h5"
+        ? "h5"
+        : never
+      : never)
+  | (O["headings"] extends Array<infer T>
+      ? T extends "h6"
+        ? "h6"
+        : never
+      : never)
+  | "br"
+  | "p"
+  | "span";

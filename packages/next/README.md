@@ -137,7 +137,7 @@ In addition, if you have a "content model", i.e. content schemas, that rarely ch
 
 If that is the case, we recommend having a look at [sanity](https://sanity.io) instead (we have no affiliation, but if we didn't have Val we would use Sanity).
 
-**NOTE**: Our experience is that however nice it sounds, it is hard to "nail" the content model down. Usually content is derived from what you want to present, not vice-versa. In addition, you should think carefully whether you _really_ want to present the exact same content on all these different surfaces.
+**NOTE**: Our experience is that, however nice it sounds, it is hard to "nail" the content model down. Usually content is derived from what you want to present, not vice-versa. In addition, you should think carefully whether you _really_ want to present the exact same content on all these different surfaces.
 
 ## Examples
 
@@ -398,6 +398,115 @@ export default function Page() {
 }
 ```
 
+#### ValRichText: theme property
+
+To add classes to `ValRichText` you can use the theme property:
+
+```tsx
+<ValRichText theme={{
+  p: "font-sans",
+  // etc
+}}>
+  {content}
+</ValRichText>
+```
+
+**NOTE**: if a theme is defined, you must define a mapping for every tag that the you get. What tags you have is decided based on the `options` defined on the `s.richtext()` schema. For example: `s.richtext({ headings: ["h1"]; bold: true; img: true})` forces you to map the class for at least: `h1`, `bold` and `img`:
+
+```tsx
+<ValRichText theme={{
+  h1: "text-4xl font-bold",
+  bold: "font-bold",
+  img: null, // either a string or null is required
+}}>
+  {content satisfies RichText<{ headings: ["h1"]; bold: true; img: true}>}
+</ValRichText>
+```
+
+**NOTE**: the reason you must define themes for every tag that the RichText is that this will force you to revisit the themes that are used if the schema changes. The alternative would be to accept changes to the schema.
+
+### ValRichText: transform property
+
+Vals `RichText` type maps RichText 1-to-1 with semantic HTML5.
+
+If you want to customize the type of elements which are rendered, you can use the `transform` property.
+
+```tsx
+<ValRichText transform={(node, _children, className) => {
+  if (typeof node !== "string" && node.tag === "img") {
+    return (
+      <div className="my-wrapper-class">
+        <img {...node} className={className} />
+      </div>
+    );
+  }
+  // if transform returns undefined the default render will be used
+}}>
+  {content}
+</ValRichText>
+```
+
+### The RichText type
+
+The `RichText` type is actually an AST (abstract syntax tree) representing semantic HTML5 elements.
+
+That means they look something like this:
+
+```ts
+type RichTextNode = {
+  tag:  "img" | "a" | "ul" | "ol" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "br" | "p" | "li" | "span";
+  classes: "bold" | "line-through" | "italic";  // all styling classes
+  children: RichTextNode[] | undefined;
+}
+```
+
+### RichText: full custom
+
+The `RichText` type maps 1-to-1 to HTML.
+That means it is straightforward to build your own implementation of a React component that renders `RichText`.
+
+This example is a simplified version of the `ValRichText` component.
+You can use this as a template to create your own.
+
+NOTE: before writing your own, make sure you check out the `theme` and `transform` properties on the `ValRichText` - most simpler cases should be covered by them.
+
+```tsx
+export function ValRichText({
+  children: root,
+}: {
+  children: RichText<MyRichTextOptions>;
+}) {
+  function build(
+    node: RichTextNode<MyRichTextOptions>,
+    key?: number
+  ): JSX.Element | string {
+    if (typeof node === "string") {
+      return node;
+    }
+    // you can map the classes to something else here
+    const className = node.classes.join(" ");
+    const tag = node.tag; // one of: "img" | "a" | "ul" | "ol" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "br" | "p" | "li" | "span"
+    
+    // Example of rendering img with MyOwnImageComponent:
+    if (tag === "img") {
+      return <MyOwnImageComponent {...node} />
+    }
+    return React.createElement(
+      tag,
+      {
+        key,
+        className,
+      },
+      "children" in node
+        ? node.children.map(build)
+        : null
+    );
+  }
+  return <div {...val.attrs(root)}>{root.children.map(build)}</div>;
+}
+type MyRichTextOptions = AnyRichTextOptions; // you can reduce the surface of what you need to render, by restricting the `options` in `s.richtext(options)`
+```
+
 ## Image
 
 ### Image Schema
@@ -418,7 +527,20 @@ export const schema = s.image();
 export default c.define("/image", schema, c.file("/public/myfile.jpg"));
 ```
 
-**NOTE**: This will not validate, since images requires `width`, `height` and a `sha256` checksum. You can fix this validation in the UI by opening the image and clicking the Fix button.
+**NOTE**: This will not validate, since images requires `width`, `height` and a `sha256` checksum. You can fix validation errors like this by using the CLI or by using the VS Code plugin.
+
+### Rendering images
+
+The `ValImage` component is a wrapper around `next/image` that accepts a Val `Image` type.
+
+You can use it like this:
+
+```tsx
+const content = useVal(contentVal);
+
+return <ValImage src={content.image} alt={content.alt}/>;
+
+```
 
 ### Using images in components
 
