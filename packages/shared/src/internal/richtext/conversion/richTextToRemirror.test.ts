@@ -25,10 +25,10 @@ describe("richtext to remirror", () => {
         },
         {
           tag: "p",
-          children: ["Inline line break", { tag: "br", children: [] }],
+          children: ["Inline line break", { tag: "br" }],
         },
-        { tag: "br", children: [] },
-        { tag: "br", children: [] },
+        { tag: "br" },
+        { tag: "br" },
         {
           tag: "p",
           children: [
