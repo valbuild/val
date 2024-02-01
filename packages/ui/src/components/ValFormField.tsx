@@ -101,7 +101,7 @@ export function ValFormField({
         disabled={disabled}
         registerPatchCallback={registerPatchCallback}
         onSubmit={onSubmit}
-        selector={schema.selector}
+        selector={schema.path}
       />
     );
   }
@@ -130,7 +130,7 @@ export function ValFormField({
         disabled={disabled}
         registerPatchCallback={registerPatchCallback}
         onSubmit={onSubmit}
-        selector={schema.selector}
+        selector={schema.path}
       />
     );
   }
