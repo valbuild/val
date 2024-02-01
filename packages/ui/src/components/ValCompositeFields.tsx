@@ -168,7 +168,11 @@ export function AnyVal({
       </div>
     );
   } else if (schema?.type === "union") {
-    if (schema.key && typeof source === "object" && !isJsonArray(source)) {
+    if (
+      typeof schema.key === "string" &&
+      typeof source === "object" &&
+      !isJsonArray(source)
+    ) {
       return (
         <ValTaggedUnion
           field={field}
