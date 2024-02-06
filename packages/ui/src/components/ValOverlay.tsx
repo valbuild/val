@@ -12,7 +12,7 @@ import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
 import { Internal, Json, SerializedSchema, SourcePath } from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
-import { usePatchSubmit, usePatches } from "./usePatch";
+import { usePatches } from "./usePatch";
 import { useTheme } from "./useTheme";
 import { IValStore } from "@valbuild/shared/internal";
 import { useSession } from "./useSession";
@@ -59,23 +59,10 @@ export function ValOverlay({
     }
   }, [paths.join(";")]);
 
-  const selectedPaths = windowTarget?.path ? (paths as SourcePath[]) : [];
-  const {
-    onSubmitPatch,
-    // progress: patchProgress,
-    error: patchError,
-  } = usePatchSubmit(selectedPaths, api, store, onSubmit, session);
-
   const [windowSize, setWindowSize] = useState<WindowSize>();
   useEffect(() => {
     store.updateAll();
   }, []);
-
-  useEffect(() => {
-    if (patchError) {
-      console.error(patchError);
-    }
-  }, [patchError]);
 
   const { patches, setPatchResetId } = usePatches(session, api);
 
@@ -83,13 +70,13 @@ export function ValOverlay({
     (path) => async (callback) => {
       const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
       const patch = await callback(Internal.createPatchJSONPath(modulePath));
-      await api.postPatches(moduleId, patch);
+      await api.postPatches(moduleId, patch, "write-only");
       setPatchResetId((patchResetId) => patchResetId + 1);
-      return onSubmitPatch()
-        .then(() => store.update([moduleId]))
-        .then(() => {
-          updateFormData(api, path, setFormData);
-        });
+      const refreshRequired =
+        session.status === "success" && session.data.mode === "proxy";
+      await store.update([moduleId]);
+      updateFormData(api, path, setFormData);
+      onSubmit(refreshRequired);
     },
     []
   );

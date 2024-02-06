@@ -83,13 +83,16 @@ export function usePatchSubmit(
       setProgress("patching");
       return Promise.all(
         Object.entries(patches).map(([moduleId, patch]) =>
-          api.postPatches(moduleId as ModuleId, patch).then((res) => {
-            if (result.isErr(res)) {
-              throw res.error;
-            } else {
-              res.value;
-            }
-          })
+          api
+            .postPatches(moduleId as ModuleId, patch, "write-only")
+            .then((res) => {
+              if (result.isErr(res)) {
+                throw res.error;
+              } else {
+                console.log(res.value);
+                res.value;
+              }
+            })
         )
       )
         .then(() => {

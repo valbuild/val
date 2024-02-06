@@ -1,6 +1,7 @@
 import {
   ApiGetPatchResponse,
   ApiPostPatchResponse,
+  ApiPostPatchValidationErrorResponse,
   ApiTreeResponse,
 } from "@valbuild/core";
 import {
@@ -84,8 +85,14 @@ export interface ValServer {
   ): Promise<ValServerJsonResult<ApiGetPatchResponse>>;
   postPatches(
     body: unknown,
+    query: { mode?: string },
     cookies: ValCookies<VAL_SESSION_COOKIE>
-  ): Promise<ValServerJsonResult<ApiPostPatchResponse>>;
+  ): Promise<
+    ValServerJsonResult<
+      ApiPostPatchResponse,
+      ApiPostPatchValidationErrorResponse
+    >
+  >;
   postCommit(
     body: unknown,
     cookies: ValCookies<VAL_SESSION_COOKIE>

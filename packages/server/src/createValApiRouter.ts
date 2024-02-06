@@ -413,6 +413,9 @@ export function createValApiRouter<Res>(
         convert(
           await valServer.postPatches(
             body,
+            {
+              mode: url.searchParams.get("mode") || undefined,
+            },
             getCookies(req, [VAL_SESSION_COOKIE])
           )
         )
