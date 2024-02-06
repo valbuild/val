@@ -1,13 +1,16 @@
 import { Service } from "./Service";
 import { result } from "@valbuild/core/fp";
-import { parsePatch } from "@valbuild/core/patch";
+import { Patch, parsePatch } from "@valbuild/core/patch";
 import { PatchJSON } from "./patch/validation";
 import {
   ApiGetPatchResponse,
   ApiPostPatchResponse,
+  ApiPostPatchValidationErrorResponse,
   ApiTreeResponse,
+  FatalErrorType,
   ModuleId,
   ModulePath,
+  ValidationErrors,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -28,6 +31,8 @@ import {
   ENABLE_COOKIE_VALUE,
   ValServerCallbacks,
 } from "./ValServer";
+import { SerializedModuleContent } from "./SerializedModuleContent";
+import { randomUUID } from "crypto";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -170,8 +175,14 @@ export class LocalValServer implements ValServer {
   }
 
   async postPatches(
-    body: unknown
-  ): Promise<ValServerJsonResult<ApiPostPatchResponse>> {
+    body: unknown,
+    query: { mode?: string }
+  ): Promise<
+    ValServerJsonResult<
+      ApiPostPatchResponse,
+      ApiPostPatchValidationErrorResponse
+    >
+  > {
     // First validate that the body has the right structure
     const patchJSON = z.record(PatchJSON).safeParse(body);
     if (!patchJSON.success) {
@@ -183,24 +194,90 @@ export class LocalValServer implements ValServer {
         },
       };
     }
-
-    // const id = randomUUID();
-    // console.time("patching:" + id);
-    for (const moduleId in patchJSON.data) {
-      // Then parse/validate
-      // TODO: validate all and then fail instead:
+    let mode: "validate-only" | "write-only" | "validate-then-write" =
+      "validate-then-write";
+    if (query.mode) {
+      if (query.mode === "validate-only") {
+        mode = "validate-only";
+      } else if (query.mode === "write-only") {
+        mode = "write-only";
+      } else if (query.mode === "validate-then-write") {
+        mode = "validate-then-write";
+      } else {
+        return {
+          status: 404,
+          json: {
+            message: `Invalid mode: ${query.mode}`,
+          },
+        };
+      }
+    }
+    const id = randomUUID();
+    const parsedPatches: Record<ModuleId, Patch> = {};
+    const errors: [
+      ModuleId,
+      {
+        errors: {
+          invalidModuleId?: ModuleId;
+          validation?: ValidationErrors;
+          fatal?: {
+            message: string;
+            stack?: string;
+            type?: FatalErrorType;
+          }[];
+        };
+        source?: SerializedModuleContent["source"];
+      }
+    ][] = [];
+    const sources: Record<ModuleId, SerializedModuleContent["source"]> = {};
+    for (const moduleIdStr in patchJSON.data) {
+      const moduleId = moduleIdStr as ModuleId; // TODO: validate that this is a valid module id
       const patch = parsePatch(patchJSON.data[moduleId]);
       if (result.isErr(patch)) {
         console.error("Unexpected error parsing patch", patch.error);
         throw new Error("Unexpected error parsing patch");
       }
-      await this.options.service.patch(moduleId, patch.value);
+      parsedPatches[moduleId] = patch.value;
+      if (mode === "validate-only" || mode === "validate-then-write") {
+        console.time("validating:" + id);
+        const validationResult = await this.options.service.validate(
+          moduleId,
+          patch.value
+        );
+        console.timeEnd("validating:" + id);
+        if (validationResult.source) {
+          sources[moduleId] = validationResult.source;
+        }
+        if (validationResult.errors) {
+          const moduleIdErrors = validationResult.errors;
+          errors.push([
+            moduleId,
+            { errors: moduleIdErrors, source: validationResult.source },
+          ]);
+        }
+      }
     }
-    // console.timeEnd("patching:" + id);
+    if (mode === "write-only" || mode === "validate-then-write") {
+      console.time("patching:" + id);
+      for (const moduleIdStr in parsedPatches) {
+        const moduleId = moduleIdStr as ModuleId;
+        await this.options.service.patch(moduleId, parsedPatches[moduleId]);
+      }
+      console.timeEnd("patching:" + id);
+    }
 
+    if (errors.length > 0) {
+      const res: { status: 400; json: ApiPostPatchValidationErrorResponse } = {
+        status: 400,
+        json: {
+          validationErrors: Object.fromEntries(errors),
+        },
+      };
+      return res;
+    }
     return {
       status: 200,
-      json: {}, // no patch ids created
+      json: sources as ApiPostPatchResponse,
     };
   }
 

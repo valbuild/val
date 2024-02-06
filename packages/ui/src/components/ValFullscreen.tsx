@@ -167,11 +167,14 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
       const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
       const patch = await callback(Internal.createPatchJSONPath(modulePath));
       return api
-        .postPatches(moduleId, patch)
+        .postPatches(moduleId, patch, "write-only")
         .then((res) => {
           if (result.isErr(res)) {
             throw res.error;
           } else {
+            if ("validationErrors" in res.value) {
+              console.log(res.value.validationErrors);
+            }
             // TODO: we need to revisit this a bit, HMR might not be the best solution here
             if (!hmrHash) {
               setPatchResetId((prev) => prev + 1);

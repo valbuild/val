@@ -86,6 +86,7 @@ export {
 } from "./schema/richtext";
 export { type SerializedUnionSchema, UnionSchema } from "./schema/union";
 export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
+export { deserializeSchema } from "./schema/deserialize";
 
 export type ApiCommitResponse = {
   modules: Record<
@@ -130,7 +131,6 @@ export type ApiTreeResponse = {
     }
   >;
 };
-
 export type ApiGetPatchResponse = Record<
   ModuleId,
   {
@@ -141,7 +141,38 @@ export type ApiGetPatchResponse = Record<
     created_at: string;
   }[]
 >;
-export type ApiPostPatchResponse = Record<ModuleId, string[]>;
+export type ApiPostPatchResponse = Record<
+  ModuleId,
+  {
+    patch_id?: string;
+    source?: Json;
+  }
+>;
+export const FATAL_ERROR_TYPES = [
+  "no-schema",
+  "no-source",
+  "invalid-id",
+  "no-module",
+  "invalid-patch",
+] as const;
+export type FatalErrorType = (typeof FATAL_ERROR_TYPES)[number];
+export type ApiPostPatchValidationErrorResponse = {
+  validationErrors: Record<
+    ModuleId,
+    {
+      source?: Json;
+      errors: {
+        invalidModuleId?: ModuleId;
+        validation?: ValidationErrors;
+        fatal?: {
+          message: string;
+          stack?: string;
+          type?: FatalErrorType;
+        }[];
+      };
+    }
+  >;
+};
 
 const Internal = {
   convertFileSource,

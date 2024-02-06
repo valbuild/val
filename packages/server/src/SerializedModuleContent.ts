@@ -3,15 +3,7 @@ import {
   type SerializedSchema,
   ValidationErrors,
 } from "@valbuild/core";
-import type { ModuleId, SourcePath } from "@valbuild/core";
-
-export const FATAL_ERROR_TYPES = [
-  "no-schema",
-  "no-source",
-  "invalid-id",
-  "no-module",
-] as const;
-export type FatalErrorType = (typeof FATAL_ERROR_TYPES)[number];
+import type { FatalErrorType, ModuleId, SourcePath } from "@valbuild/core";
 
 export type SerializedModuleContent =
   | {

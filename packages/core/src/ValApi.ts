@@ -2,6 +2,7 @@ import {
   ApiCommitResponse,
   ApiGetPatchResponse,
   ApiPostPatchResponse,
+  ApiPostPatchValidationErrorResponse,
   ApiTreeResponse,
 } from ".";
 import { result } from "./fp";
@@ -52,16 +53,39 @@ export class ValApi {
   postPatches(
     moduleId: ModuleId,
     patches: PatchJSON,
+    mode: "validate-only" | "write-only" | "validate-then-write",
     headers?: Record<string, string> | undefined
-  ) {
-    return fetch(`${this.host}/patches/~`, {
+  ): Promise<
+    result.Result<
+      ApiPostPatchResponse | ApiPostPatchValidationErrorResponse,
+      FetchError
+    >
+  > {
+    const modeParams = `?mode=${mode}`;
+    return fetch(`${this.host}/patches/~${modeParams}`, {
       headers: headers || {
         "Content-Type": "application/json",
       },
       method: "POST",
       body: JSON.stringify({ [moduleId]: patches }),
     })
-      .then((res) => parse<ApiPostPatchResponse>(res))
+      .then(async (res) => {
+        if (
+          res.status === 400 &&
+          res.headers.get("Content-Type") === "application/json"
+        ) {
+          const json = await res.json();
+          if ("validationErrors" in json) {
+            return result.ok(
+              // is ok what we want here - not sure?
+              json as ApiPostPatchValidationErrorResponse
+            ); // TODO: parse and validate
+          } else {
+            return formatError(res.status, json, res.statusText);
+          }
+        }
+        return parse<ApiPostPatchResponse>(res);
+      })
       .catch(createError<ApiPostPatchResponse>);
   }
 
@@ -129,6 +153,19 @@ function createError<T>(err: unknown): result.Result<T, FetchError> {
   });
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function formatError(status: number, json: any, statusText?: string) {
+  return result.err({
+    statusCode: status,
+    message: json.message || statusText,
+    details:
+      json.details ||
+      Object.fromEntries(
+        Object.entries(json).filter(([key]) => key !== "message")
+      ),
+  });
+}
+
 // TODO: validate
 async function parse<T>(res: Response): Promise<result.Result<T, FetchError>> {
   try {
@@ -137,15 +174,7 @@ async function parse<T>(res: Response): Promise<result.Result<T, FetchError>> {
     } else {
       try {
         const json = await res.json();
-        return result.err({
-          statusCode: res.status,
-          message: json.message || res.statusText,
-          details:
-            json.details ||
-            Object.fromEntries(
-              Object.entries(json).filter(([key]) => key !== "message")
-            ),
-        });
+        return formatError(res.status, json, res.statusText);
       } catch (err) {
         return result.err({
           statusCode: res.status,
