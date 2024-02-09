@@ -55,9 +55,54 @@ export function ValOverlay({
     setFormData(
       Object.fromEntries(paths.map((path) => [path, { status: "loading" }]))
     );
-    for (const path of paths) {
-      updateFormData(api, path, setFormData);
+    async function load() {
+      const entries = await Promise.all(
+        paths.map(async (path) => {
+          const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(
+            path as SourcePath
+          );
+          const res = await store.getModule(moduleId, false);
+          if (result.isErr(res)) {
+            return [
+              moduleId,
+              { status: "error", error: res.error.message },
+            ] as const;
+          } else {
+            const { source, schema } = res.value;
+            if (!source || !schema) {
+              return [
+                moduleId,
+                {
+                  status: "error",
+                  error:
+                    "Val could load the data for this content. Please try again.",
+                },
+              ] as const;
+            } else {
+              const resolved = Internal.resolvePath(modulePath, source, schema);
+              if (!resolved.source || !resolved.schema) {
+                return [
+                  moduleId,
+                  {
+                    status: "error",
+                    error: "Val could not resolve the data for this content.",
+                  },
+                ] as const;
+              }
+              return [
+                path,
+                {
+                  status: "success",
+                  data: { source: resolved.source, schema: resolved.schema },
+                },
+              ] as const;
+            }
+          }
+        })
+      );
+      setFormData(Object.fromEntries(entries));
     }
+    load();
   }, [paths.join(";")]);
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
@@ -175,7 +220,10 @@ export function ValOverlay({
                 if (data.status !== "success") {
                   return (
                     <div key={path}>
-                      {path}: {data.status}
+                      <span>
+                        {path}: {data.status}
+                      </span>
+                      {data.status === "error" && <pre>{data.error}</pre>}
                     </div>
                   );
                 }
@@ -213,67 +261,6 @@ type ValData = Record<
     schema: SerializedSchema | undefined;
   }>
 >;
-
-// TODO: smells bad:
-function updateFormData(
-  api: ValApi,
-  path: string,
-  setData: Dispatch<SetStateAction<ValData>>
-) {
-  const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(
-    path as SourcePath
-  );
-  api
-    .getTree({
-      patch: true,
-      includeSchema: true,
-      includeSource: true,
-      treePath: moduleId,
-    })
-    .then((res) => {
-      if (result.isOk(res)) {
-        const { schema, source } = res.value.modules[moduleId];
-        if (!schema || !source) {
-          return setData((prev) => ({
-            ...prev,
-            [path]: {
-              status: "success",
-              data: {
-                source: res.value.modules[moduleId].source,
-                schema: res.value.modules[moduleId].schema,
-              },
-            },
-          }));
-        }
-
-        const resolvedModulePath = Internal.resolvePath(
-          modulePath,
-          source,
-          schema
-        );
-
-        setData((prev) => ({
-          ...prev,
-          [path]: {
-            status: "success",
-            data: {
-              source: resolvedModulePath.source,
-              schema: resolvedModulePath.schema,
-            },
-          },
-        }));
-      } else {
-        console.error({ status: "error", error: res.error });
-        setData((prev) => ({
-          ...prev,
-          [path]: {
-            status: "error",
-            error: res.error.message,
-          },
-        }));
-      }
-    });
-}
 
 type WindowTarget = {
   element?: HTMLElement | undefined;
@@ -389,6 +376,7 @@ function useHoverTarget(editMode: EditMode) {
       };
     }
   }, [editMode]);
+
   useEffect(() => {
     const scrollListener = () => {
       if (targetElement) {
