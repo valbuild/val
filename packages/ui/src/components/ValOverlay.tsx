@@ -21,6 +21,7 @@ import { AnyVal } from "./ValCompositeFields";
 import { InitOnSubmit } from "./ValFormField";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Popover } from "./ui/popover";
+import { parsePatch } from "@valbuild/core/patch";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -61,7 +62,7 @@ export function ValOverlay({
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
   useEffect(() => {
-    store.updateAll();
+    store.reset();
   }, []);
 
   const { patches, setPatchResetId } = usePatches(session, api);
@@ -69,14 +70,26 @@ export function ValOverlay({
   const initOnSubmit: InitOnSubmit = useCallback(
     (path) => async (callback) => {
       const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
-      const patch = await callback(Internal.createPatchJSONPath(modulePath));
-      await api.postPatches(moduleId, patch, "write-only");
-      setPatchResetId((patchResetId) => patchResetId + 1);
-      const refreshRequired =
-        session.status === "success" && session.data.mode === "proxy";
-      await store.update([moduleId]);
-      updateFormData(api, path, setFormData);
-      onSubmit(refreshRequired);
+      const patchJson = await callback(
+        Internal.createPatchJSONPath(modulePath)
+      );
+      const patchRes = parsePatch(patchJson);
+      if (result.isOk(patchRes)) {
+        const applyRes = await store.applyPatch(moduleId, patchRes.value);
+      } else {
+        console.error(patchRes.error);
+        throw Error(
+          "Val: could not parse patch. This is likely a bug. Get a developer to check the error console output."
+        );
+      }
+
+      // await api.postPatches(moduleId, patch, "validate-only");
+      // setPatchResetId((patchResetId) => patchResetId + 1);
+      // await store.update([moduleId]);
+      // updateFormData(api, path, setFormData);
+      // const refreshRequired =
+      //   session.status === "success" && session.data.mode === "proxy";
+      // onSubmit(refreshRequired);
     },
     []
   );

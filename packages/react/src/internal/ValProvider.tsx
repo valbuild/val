@@ -1,6 +1,11 @@
 "use client";
 import React, { lazy, useContext, useEffect, useMemo, useState } from "react";
-import { ValStore } from "./ValStore";
+import {
+  DRAFTS_LOCAL_STORAGE_KEY,
+  PATCHES_LOCAL_STORAGE_KEY,
+  SOURCES_LOCAL_STORAGE_KEY,
+  ValStore,
+} from "./ValStore";
 import { Internal, ValApi } from "@valbuild/core";
 
 export const useValStore = () => {
@@ -43,7 +48,51 @@ const ValUI = lazy(() => import("./ValUI"));
 export function ValProvider({ children, onSubmit }: ValProviderProps) {
   const host = "/api/val";
   const api = useMemo(() => new ValApi(host), [host]);
-  const store = useMemo(() => new ValStore(api), [api]);
+  const store = useMemo(() => {
+    let sources;
+    try {
+      const sourcesStr = localStorage.getItem(SOURCES_LOCAL_STORAGE_KEY);
+      if (sourcesStr !== null) {
+        sources = JSON.parse(sourcesStr);
+      }
+    } catch (e) {
+      console.error(
+        "Val: Failed to get sources from local storage. Resetting...",
+        e
+      );
+      localStorage.removeItem(SOURCES_LOCAL_STORAGE_KEY);
+    }
+
+    let patches;
+    try {
+      const patchesStr = localStorage.getItem(PATCHES_LOCAL_STORAGE_KEY);
+      if (patchesStr !== null) {
+        patches = JSON.parse(patchesStr);
+      }
+    } catch (e) {
+      console.error(
+        "Val: Failed to get patches from local storage. Resetting...",
+        e
+      );
+      localStorage.removeItem(PATCHES_LOCAL_STORAGE_KEY);
+    }
+
+    let drafts;
+    try {
+      const draftsStr = localStorage.getItem(DRAFTS_LOCAL_STORAGE_KEY);
+      if (draftsStr !== null) {
+        drafts = JSON.parse(draftsStr);
+      }
+    } catch (e) {
+      console.error(
+        "Val: Failed to parse sources from local storage. Resetting...",
+        e
+      );
+      localStorage.removeItem(DRAFTS_LOCAL_STORAGE_KEY);
+    }
+
+    return new ValStore(api, sources, patches, drafts);
+  }, [api]);
   const [isClient, setIsClient] = useState(false);
   const [enabled, setEnabled] = useState<boolean>();
 
