@@ -137,7 +137,6 @@ export class LocalValServer implements ValServer {
       return Promise.all(
         moduleIds.map(async (moduleIdStr) => {
           const moduleId = moduleIdStr as ModuleId;
-          console.log({ moduleId, applyPatches });
           return this.applyAllPatchesThenValidate(
             moduleId,
             patchIdsByModuleId,
@@ -573,7 +572,6 @@ export class LocalValServer implements ValServer {
     const { patchIdsByModuleId, patchesById } = readRes.value;
     for (const moduleIdStr in patchIdsByModuleId) {
       const moduleId = moduleIdStr as ModuleId;
-      console.log(moduleId, query.id, query.id?.includes(moduleId));
       if (
         (query.id && query.id.includes(moduleId)) ||
         !query.id ||

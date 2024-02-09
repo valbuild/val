@@ -87,7 +87,6 @@ const initFetchValStega =
               return stegaEncode(selector, {
                 disabled: !enabled,
                 getModule: (moduleId) => {
-                  console.log({ moduleId, modules, isRSC: true });
                   const module = modules[moduleId as ModuleId];
                   if (module) {
                     return module.source;

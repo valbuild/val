@@ -70,7 +70,7 @@ import { getVal } from "./future/fetchVal";
 import type { Json } from "./Json";
 import { SerializedSchema } from "./schema";
 import { getSHA256Hash } from "./getSha256";
-import { Patch, PatchJSON } from "./patch";
+import { Patch } from "./patch";
 import { initSchema } from "./initSchema";
 export { ValApi } from "./ValApi";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
