@@ -76,6 +76,10 @@ export function ValOverlay({
       const patchRes = parsePatch(patchJson);
       if (result.isOk(patchRes)) {
         const applyRes = await store.applyPatch(moduleId, patchRes.value);
+        //
+        setPatchResetId((patchResetId) => patchResetId + 1);
+
+        onSubmit(true);
       } else {
         console.error(patchRes.error);
         throw Error(

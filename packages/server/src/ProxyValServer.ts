@@ -21,10 +21,14 @@ import {
 } from "@valbuild/shared/internal";
 import { z } from "zod";
 import {
+  ApiCommitResponse,
   ApiGetPatchResponse,
+  ApiPatchValidationErrorResponse,
   ApiPostPatchResponse,
   ApiTreeResponse,
 } from "@valbuild/core";
+import { parsePatch } from "@valbuild/core/patch";
+import { result } from "@valbuild/core/fp";
 
 export type ProxyValServerOptions = {
   apiKey: string;
@@ -466,19 +470,29 @@ export class ProxyValServer implements ValServer {
         return {
           status: 400,
           json: {
-            message: "Invalid patch",
+            message: "Invalid patch(es)",
             details: patchJSON.error.issues,
           },
         };
       }
-      // Then parse/validate
-      // TODO:
-      const patch = patchJSON.data;
-      // const patch = parsePatch(patchJSON.data);
-      // if (result.isErr(patch)) {
-      //   res.status(401).json(patch.error);
-      //   return;
-      // }
+
+      // We send PatchJSON (not Patch) to val.build,
+      // but before we validate that the patches are parsable - no point in just failing down the line
+      const patches = patchJSON.data;
+      for (const [moduleId, patch] of Object.entries(patches)) {
+        const parsedPatchRes = parsePatch(patch);
+        if (result.isErr(parsedPatchRes)) {
+          return {
+            status: 400,
+            json: {
+              message: "Invalid patch(es): path is not valid",
+              details: {
+                [moduleId]: parsedPatchRes.error,
+              },
+            },
+          };
+        }
+      }
       const url = new URL(
         `/v1/patches/${this.options.valName}/heads/${this.options.gitBranch}/~?${params}`,
         this.options.valContentUrl
@@ -487,7 +501,7 @@ export class ProxyValServer implements ValServer {
       const fetchRes = await fetch(url, {
         method: "POST",
         headers: this.getAuthHeaders(token, "application/json"),
-        body: JSON.stringify(patch),
+        body: JSON.stringify(patches),
       });
       if (fetchRes.status === 200) {
         return {
@@ -505,8 +519,9 @@ export class ProxyValServer implements ValServer {
   async postCommit(
     rawBody: unknown,
     cookies: ValCookies<VAL_SESSION_COOKIE>
-    // eslint-disable-next-line @typescript-eslint/ban-types
-  ): Promise<ValServerJsonResult<{}>> {
+  ): Promise<
+    ValServerJsonResult<ApiCommitResponse, ApiPatchValidationErrorResponse>
+  > {
     const commit = this.options.gitCommit;
     if (!commit) {
       return {
@@ -534,7 +549,7 @@ export class ProxyValServer implements ValServer {
       if (fetchRes.status === 200) {
         return {
           status: fetchRes.status,
-          json: await fetchRes.json(),
+          json: await fetchRes.json(), // TODO: validate
         };
       } else {
         return {

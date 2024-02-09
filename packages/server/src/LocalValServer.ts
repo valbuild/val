@@ -1,16 +1,23 @@
 import { Service } from "./Service";
 import { result } from "@valbuild/core/fp";
-import { Patch, parsePatch } from "@valbuild/core/patch";
-import { PatchJSON } from "./patch/validation";
 import {
+  JSONOps,
+  JSONValue,
+  applyPatch,
+  parsePatch,
+} from "@valbuild/core/patch";
+import { Patch } from "./patch/validation";
+import {
+  ApiCommitResponse,
   ApiGetPatchResponse,
   ApiPostPatchResponse,
-  ApiPostPatchValidationErrorResponse,
+  ApiPatchValidationErrorResponse,
   ApiTreeResponse,
-  FatalErrorType,
   ModuleId,
-  ModulePath,
-  ValidationErrors,
+  PatchId,
+  ApiDeletePatchResponse,
+  deserializeSchema,
+  SourcePath,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -32,23 +39,31 @@ import {
   ValServerCallbacks,
 } from "./ValServer";
 import { SerializedModuleContent } from "./SerializedModuleContent";
-import { randomUUID } from "crypto";
 
 export type LocalValServerOptions = {
   service: Service;
   valEnableRedirectUrl?: string;
   valDisableRedirectUrl?: string;
+  cacheDir?: string;
   git: {
     commit?: string;
     branch?: string;
   };
 };
 
+const ops = new JSONOps();
+
 export class LocalValServer implements ValServer {
+  private static readonly PATCHES_DIR = "patches";
+  private readonly cacheDir: string;
   constructor(
     readonly options: LocalValServerOptions,
     readonly callbacks: ValServerCallbacks
-  ) {}
+  ) {
+    this.cacheDir =
+      options.cacheDir ||
+      path.join(options.service.sourceFileHandler.projectRoot, ".val");
+  }
 
   async session(): Promise<ValServerJsonResult<ValSession>> {
     return {
@@ -63,11 +78,10 @@ export class LocalValServer implements ValServer {
   async getTree(
     treePath: string,
     // TODO: use the params: patch, schema, source
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     query: { patch?: string; schema?: string; source?: string }
   ): Promise<ValServerJsonResult<ApiTreeResponse>> {
     const rootDir = process.cwd();
-    const moduleIds: string[] = [];
+    const moduleIds: ModuleId[] = [];
     // iterate over all .val files in the root directory
     const walk = async (dir: string) => {
       const files = await fs.readdir(dir);
@@ -94,25 +108,48 @@ export class LocalValServer implements ValServer {
               .replace(".val.js", "")
               .replace(".val.ts", "")
               .split(path.sep)
-              .join("/")
+              .join("/") as ModuleId
           );
         }
       }
     };
-    const serializedModuleContent = await walk(rootDir).then(async () => {
+    const applyPatches = query.patch === "true";
+    let {
+      patchIdsByModuleId,
+      patchesById,
+    }: {
+      patchIdsByModuleId: Record<ModuleId, PatchId[]>;
+      patchesById: Record<PatchId, Patch>;
+    } = {
+      patchIdsByModuleId: {},
+      patchesById: {},
+    };
+    if (applyPatches) {
+      const res = await this.readPatches();
+      if (result.isErr(res)) {
+        return res.error;
+      }
+      patchIdsByModuleId = res.value.patchIdsByModuleId;
+      patchesById = res.value.patchesById;
+    }
+
+    const possiblyPatchesContent = await walk(rootDir).then(async () => {
       return Promise.all(
-        moduleIds.map(async (moduleId) => {
-          return await this.options.service.get(
-            moduleId as ModuleId,
-            "" as ModulePath
+        moduleIds.map(async (moduleIdStr) => {
+          const moduleId = moduleIdStr as ModuleId;
+          console.log({ moduleId, applyPatches });
+          return this.applyAllPatchesThenValidate(
+            moduleId,
+            patchIdsByModuleId,
+            patchesById,
+            applyPatches
           );
         })
       );
     });
 
-    //
     const modules = Object.fromEntries(
-      serializedModuleContent.map((serializedModuleContent) => {
+      possiblyPatchesContent.map((serializedModuleContent) => {
         const module: ApiTreeResponse["modules"][keyof ApiTreeResponse["modules"]] =
           {
             schema: serializedModuleContent.schema,
@@ -130,6 +167,181 @@ export class LocalValServer implements ValServer {
       status: 200,
       json: apiTreeResponse,
     };
+  }
+
+  private async applyAllPatchesThenValidate(
+    moduleId: ModuleId,
+    patchIdsByModuleId: Record<ModuleId, PatchId[]>,
+    patchesById: Record<PatchId, Patch>,
+    applyPatches: boolean
+  ): Promise<SerializedModuleContent> {
+    const serializedModuleContent = await this.options.service.get(moduleId);
+    const schema = serializedModuleContent.schema;
+    const maybeSource = serializedModuleContent.source;
+    if (!applyPatches) {
+      return serializedModuleContent;
+    }
+    if (
+      serializedModuleContent.errors &&
+      (serializedModuleContent.errors.fatal ||
+        serializedModuleContent.errors.invalidModuleId)
+    ) {
+      return serializedModuleContent;
+    }
+    if (!maybeSource || !schema) {
+      return serializedModuleContent;
+    }
+    let source = maybeSource as JSONValue;
+
+    for (const patchId of patchIdsByModuleId[moduleId] ?? []) {
+      const patch = patchesById[patchId];
+      if (!patch) {
+        continue;
+      }
+      const patchRes = applyPatch(source, ops, patch);
+      if (result.isOk(patchRes)) {
+        source = patchRes.value;
+      } else {
+        console.error(
+          "Val: unexpected error applying patch. Is there a mismatch in Val versions? Perhaps Val is misconfigured?",
+          {
+            patchId,
+            moduleId,
+            patch,
+            error: patchRes.error,
+          }
+        );
+        return {
+          path: moduleId as string as SourcePath,
+          schema,
+          source,
+          errors: {
+            fatal: [
+              {
+                message: "Unexpected error applying patch",
+                type: "invalid-patch",
+              },
+            ],
+          },
+        };
+      }
+    }
+
+    const validationErrors = deserializeSchema(schema).validate(
+      moduleId as string as SourcePath,
+      source
+    );
+    if (validationErrors) {
+      return {
+        path: moduleId as string as SourcePath,
+        schema,
+        source,
+        errors: {
+          validation: validationErrors,
+        },
+      };
+    }
+
+    return {
+      path: moduleId as string as SourcePath,
+      schema,
+      source,
+      errors: false,
+    };
+  }
+
+  private async readPatches(): Promise<
+    result.Result<
+      {
+        patches: [PatchId, ModuleId, Patch][];
+        patchIdsByModuleId: Record<ModuleId, PatchId[]>;
+        patchesById: Record<PatchId, Patch>;
+      },
+      ValServerError
+    >
+  > {
+    const patches: [PatchId, ModuleId, Patch][] = [];
+    const patchIdsByModuleId: Record<ModuleId, PatchId[]> = {};
+    const patchesById: Record<PatchId, Patch> = {};
+    const patchesCacheDir = path.join(
+      this.cacheDir,
+      LocalValServer.PATCHES_DIR
+    );
+    let files: string[] = [];
+    try {
+      files = await fs.readdir(patchesCacheDir);
+    } catch (e) {
+      // no patches to apply
+    }
+    const sortedPatchIds = files.map((file) => parseInt(file, 10)).sort();
+    for (const patchIdStr of sortedPatchIds) {
+      const patchId = patchIdStr.toString() as PatchId;
+      let parsedPatches: Record<string, Patch> = {};
+      try {
+        const currentParsedPatches = z
+          .record(Patch)
+          .safeParse(
+            JSON.parse(
+              await fs.readFile(
+                path.join(
+                  this.cacheDir,
+                  LocalValServer.PATCHES_DIR,
+                  `${patchId}`
+                ),
+                "utf-8"
+              )
+            )
+          );
+        if (!currentParsedPatches.success) {
+          console.error(
+            "Val: unexpected error reading patch. Is there a mismatch in Val versions? Perhaps Val is misconfigured?",
+            { patchId, error: currentParsedPatches.error }
+          );
+          return result.err({
+            status: 500,
+            json: {
+              message:
+                "Unexpected error reading patch. Is there a mismatch in Val versions? Perhaps Val is misconfigured?",
+              details: {
+                patchId,
+                error: currentParsedPatches.error,
+              },
+            },
+          });
+        }
+        parsedPatches = currentParsedPatches.data;
+      } catch (err) {
+        console.error(
+          "Val: unexpected error reading cached file. Try deleting the cache directory.",
+          { patchId, error: err, dir: this.cacheDir }
+        );
+        return result.err({
+          status: 500,
+          json: {
+            message: "Unexpected error reading cache file.",
+            details: {
+              patchId,
+              error: err,
+            },
+          },
+        });
+      }
+      for (const moduleIdStr in parsedPatches) {
+        const moduleId = moduleIdStr as ModuleId;
+        if (!patchIdsByModuleId[moduleId]) {
+          patchIdsByModuleId[moduleId] = [];
+        }
+        patchIdsByModuleId[moduleId].push(patchId);
+        const parsedPatch = parsedPatches[moduleId];
+        patches.push([patchId, moduleId, parsedPatch]);
+        patchesById[patchId] = parsedPatch;
+      }
+    }
+    return result.ok({
+      patches,
+      patchIdsByModuleId,
+      patchesById,
+    });
   }
 
   async enable(query: {
@@ -174,111 +386,68 @@ export class LocalValServer implements ValServer {
     };
   }
 
-  async postPatches(
-    body: unknown,
-    query: { mode?: string }
-  ): Promise<
-    ValServerJsonResult<
-      ApiPostPatchResponse,
-      ApiPostPatchValidationErrorResponse
-    >
-  > {
-    // First validate that the body has the right structure
-    const patchJSON = z.record(PatchJSON).safeParse(body);
-    if (!patchJSON.success) {
-      return {
-        status: 404,
-        json: {
-          message: `Invalid patch: ${patchJSON.error.message}`,
-          details: patchJSON.error.issues,
-        },
-      };
-    }
-    let mode: "validate-only" | "write-only" | "validate-then-write" =
-      "validate-then-write";
-    if (query.mode) {
-      if (query.mode === "validate-only") {
-        mode = "validate-only";
-      } else if (query.mode === "write-only") {
-        mode = "write-only";
-      } else if (query.mode === "validate-then-write") {
-        mode = "validate-then-write";
-      } else {
-        return {
-          status: 404,
-          json: {
-            message: `Invalid mode: ${query.mode}`,
-          },
-        };
-      }
-    }
-    const id = randomUUID();
-    const parsedPatches: Record<ModuleId, Patch> = {};
-    const errors: [
-      ModuleId,
-      {
-        errors: {
-          invalidModuleId?: ModuleId;
-          validation?: ValidationErrors;
-          fatal?: {
-            message: string;
-            stack?: string;
-            type?: FatalErrorType;
-          }[];
-        };
-        source?: SerializedModuleContent["source"];
-      }
-    ][] = [];
-    const sources: Record<ModuleId, SerializedModuleContent["source"]> = {};
-    for (const moduleIdStr in patchJSON.data) {
-      const moduleId = moduleIdStr as ModuleId; // TODO: validate that this is a valid module id
-      const patch = parsePatch(patchJSON.data[moduleId]);
-      if (result.isErr(patch)) {
-        console.error("Unexpected error parsing patch", patch.error);
-        throw new Error("Unexpected error parsing patch");
-      }
-      parsedPatches[moduleId] = patch.value;
-      if (mode === "validate-only" || mode === "validate-then-write") {
-        console.time("validating:" + id);
-        const validationResult = await this.options.service.validate(
-          moduleId,
-          patch.value
-        );
-        console.timeEnd("validating:" + id);
-        if (validationResult.source) {
-          sources[moduleId] = validationResult.source;
-        }
-        if (validationResult.errors) {
-          const moduleIdErrors = validationResult.errors;
-          errors.push([
-            moduleId,
-            { errors: moduleIdErrors, source: validationResult.source },
-          ]);
-        }
-      }
-    }
-    if (mode === "write-only" || mode === "validate-then-write") {
-      console.time("patching:" + id);
-      for (const moduleIdStr in parsedPatches) {
-        const moduleId = moduleIdStr as ModuleId;
-        await this.options.service.patch(moduleId, parsedPatches[moduleId]);
-      }
-      console.timeEnd("patching:" + id);
-    }
-
-    if (errors.length > 0) {
-      const res: { status: 400; json: ApiPostPatchValidationErrorResponse } = {
-        status: 400,
-        json: {
-          validationErrors: Object.fromEntries(errors),
-        },
-      };
-      return res;
+  async deletePatches(query: {
+    id?: string[];
+  }): Promise<ValServerJsonResult<ApiDeletePatchResponse>> {
+    const deletedPatches: ApiDeletePatchResponse = [];
+    for (const patchId of query.id ?? []) {
+      deletedPatches.push(patchId as PatchId);
+      await fs.rm(
+        path.join(this.cacheDir, LocalValServer.PATCHES_DIR, patchId)
+      );
     }
     return {
       status: 200,
-      json: sources as ApiPostPatchResponse,
+      json: deletedPatches,
     };
+  }
+
+  async postPatches(
+    body: unknown
+  ): Promise<ValServerJsonResult<ApiPostPatchResponse>> {
+    const patches = z.record(Patch).safeParse(body);
+    if (!patches.success) {
+      return {
+        status: 404,
+        json: {
+          message: `Invalid patch: ${patches.error.message}`,
+          details: patches.error.issues,
+        },
+      };
+    }
+    const parsedPatches: Record<ModuleId, Patch> = {};
+    const fileId = Date.now().toString() as PatchId;
+    const res: ApiPostPatchResponse = {};
+    for (const moduleIdStr in patches.data) {
+      const moduleId = moduleIdStr as ModuleId; // TODO: validate that this is a valid module id
+      res[moduleId] = {
+        patch_id: fileId.toString() as PatchId,
+      };
+      parsedPatches[moduleId] = patches.data[moduleId];
+    }
+    await fs.mkdir(this.getPatchesCacheDir(), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      this.getPatchFilePath(fileId),
+      JSON.stringify(patches.data)
+    );
+    return {
+      status: 200,
+      json: res,
+    };
+  }
+
+  private getPatchesCacheDir() {
+    return path.join(this.cacheDir, LocalValServer.PATCHES_DIR);
+  }
+
+  private getPatchFilePath(patchId: PatchId) {
+    return path.join(
+      this.cacheDir,
+      LocalValServer.PATCHES_DIR,
+      patchId.toString()
+    );
   }
 
   private badRequest(): ValServerError {
@@ -290,9 +459,83 @@ export class LocalValServer implements ValServer {
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/ban-types
-  async postCommit(): Promise<ValServerJsonResult<{}>> {
-    return this.badRequest();
+  async postCommit(): Promise<
+    ValServerJsonResult<ApiCommitResponse, ApiPatchValidationErrorResponse>
+  > {
+    const modules: Record<
+      ModuleId,
+      {
+        patches: {
+          applied: PatchId[];
+        };
+      }
+    > = {};
+    let {
+      patchIdsByModuleId,
+      patchesById,
+      patches,
+    }: {
+      patchIdsByModuleId: Record<ModuleId, PatchId[]>;
+      patchesById: Record<PatchId, Patch>;
+      patches: [PatchId, ModuleId, Patch][];
+    } = {
+      patchIdsByModuleId: {},
+      patchesById: {},
+      patches: [],
+    };
+    const res = await this.readPatches();
+    if (result.isErr(res)) {
+      return res.error;
+    }
+    patchIdsByModuleId = res.value.patchIdsByModuleId;
+    patchesById = res.value.patchesById;
+    patches = res.value.patches;
+
+    const validationErrorsByModuleId: ApiPatchValidationErrorResponse["validationErrors"] =
+      {};
+    for (const moduleIdStr in patchIdsByModuleId) {
+      const moduleId = moduleIdStr as ModuleId;
+      const serializedModuleContent = await this.applyAllPatchesThenValidate(
+        moduleId,
+        patchIdsByModuleId,
+        patchesById,
+        true
+      );
+      if (serializedModuleContent.errors) {
+        validationErrorsByModuleId[moduleId] = serializedModuleContent;
+      }
+    }
+    if (Object.keys(validationErrorsByModuleId).length > 0) {
+      return {
+        status: 400,
+        json: {
+          validationErrors: validationErrorsByModuleId,
+        },
+      };
+    }
+
+    for (const [patchId, moduleId, patch] of patches) {
+      if (!modules[moduleId]) {
+        modules[moduleId] = {
+          patches: {
+            applied: [],
+          },
+        };
+      }
+      // TODO: patch the entire module content directly by using a { path: "", op: "replace", value: patchedData }?
+      // Reason: that would be more atomic? Not doing it now, because there are currently already too many moving pieces.
+      await fs.rm(this.getPatchFilePath(patchId));
+      await this.options.service.patch(moduleId, patch);
+      modules[moduleId].patches.applied.push(patchId);
+    }
+
+    return {
+      status: 200,
+      json: {
+        modules,
+        git: this.options.git,
+      },
+    };
   }
 
   async authorize(): Promise<ValServerRedirectResult<VAL_STATE_COOKIE>> {
@@ -312,13 +555,56 @@ export class LocalValServer implements ValServer {
   > {
     return this.badRequest();
   }
+
   async getFiles(): Promise<
     ValServerResult<never, ReadableStream<Uint8Array>>
   > {
     return this.badRequest();
   }
 
-  async getPatches(): Promise<ValServerJsonResult<ApiGetPatchResponse>> {
-    return this.badRequest();
+  async getPatches(query: {
+    id?: string[];
+  }): Promise<ValServerJsonResult<ApiGetPatchResponse>> {
+    const readRes = await this.readPatches();
+    if (result.isErr(readRes)) {
+      return readRes.error;
+    }
+    const res: ApiGetPatchResponse = {};
+    const { patchIdsByModuleId, patchesById } = readRes.value;
+    for (const moduleIdStr in patchIdsByModuleId) {
+      const moduleId = moduleIdStr as ModuleId;
+      console.log(moduleId, query.id, query.id?.includes(moduleId));
+      if (
+        (query.id && query.id.includes(moduleId)) ||
+        !query.id ||
+        query.id.length === 0
+      ) {
+        res[moduleId] = patchIdsByModuleId[moduleId].map((patchId) => {
+          let createdAt = new Date(0);
+          try {
+            createdAt = new Date(parseInt(patchId, 10));
+          } catch (e) {
+            console.error(
+              "Val: unexpected error parsing patch id. Is cache corrupt?",
+              {
+                patchId,
+                file: this.getPatchFilePath(patchId),
+                dir: this.getPatchesCacheDir(),
+                error: e,
+              }
+            );
+          }
+          return {
+            patch_id: patchId,
+            patch: patchesById[patchId],
+            created_at: createdAt.toISOString(),
+          };
+        });
+      }
+    }
+    return {
+      status: 200,
+      json: res,
+    };
   }
 }

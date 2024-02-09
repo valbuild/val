@@ -40,6 +40,7 @@ export {
   type Val,
   type SerializedVal,
   type ModuleId,
+  type PatchId,
   type ModulePath,
   type SourcePath,
   type JsonOfSource,
@@ -62,14 +63,14 @@ export {
 } from "./selector";
 import { getSource, resolvePath, splitModuleIdAndModulePath } from "./module";
 import { getSchema } from "./selector";
-import { ModuleId, ModulePath, getValPath, isVal } from "./val";
+import { ModuleId, ModulePath, PatchId, getValPath, isVal } from "./val";
 import { convertFileSource } from "./schema/file";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
 import type { Json } from "./Json";
 import { SerializedSchema } from "./schema";
 import { getSHA256Hash } from "./getSha256";
-import { PatchJSON } from "./patch";
+import { Patch, PatchJSON } from "./patch";
 import { initSchema } from "./initSchema";
 export { ValApi } from "./ValApi";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
@@ -93,7 +94,7 @@ export type ApiCommitResponse = {
     ModuleId,
     {
       patches: {
-        applied: string[];
+        applied: PatchId[];
       };
     }
   >;
@@ -113,8 +114,8 @@ export type ApiTreeResponse = {
     {
       schema?: SerializedSchema;
       patches?: {
-        applied: string[];
-        failed?: string[];
+        applied: PatchId[];
+        failed?: PatchId[];
       };
       source?: Json;
       errors?:
@@ -134,18 +135,19 @@ export type ApiTreeResponse = {
 export type ApiGetPatchResponse = Record<
   ModuleId,
   {
-    patch: PatchJSON;
-    patch_id: string;
-    commit_sha: string;
-    author: string;
+    patch: Patch;
+    patch_id: PatchId;
     created_at: string;
+    // not available in local mode:
+    commit_sha?: string;
+    author?: string;
   }[]
 >;
+export type ApiDeletePatchResponse = PatchId[];
 export type ApiPostPatchResponse = Record<
   ModuleId,
   {
-    patch_id?: string;
-    source?: Json;
+    patch_id: PatchId;
   }
 >;
 export const FATAL_ERROR_TYPES = [
@@ -156,7 +158,7 @@ export const FATAL_ERROR_TYPES = [
   "invalid-patch",
 ] as const;
 export type FatalErrorType = (typeof FATAL_ERROR_TYPES)[number];
-export type ApiPostPatchValidationErrorResponse = {
+export type ApiPatchValidationErrorResponse = {
   validationErrors: Record<
     ModuleId,
     {

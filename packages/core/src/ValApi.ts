@@ -2,11 +2,10 @@ import {
   ApiCommitResponse,
   ApiGetPatchResponse,
   ApiPostPatchResponse,
-  ApiPostPatchValidationErrorResponse,
   ApiTreeResponse,
 } from ".";
 import { result } from "./fp";
-import { PatchJSON } from "./patch";
+import { Patch } from "./patch";
 import { ModuleId } from "./val";
 
 type FetchError = { message: string; statusCode?: number };
@@ -52,17 +51,10 @@ export class ValApi {
 
   postPatches(
     moduleId: ModuleId,
-    patches: PatchJSON,
-    mode: "validate-only" | "write-only" | "validate-then-write",
+    patches: Patch,
     headers?: Record<string, string> | undefined
-  ): Promise<
-    result.Result<
-      ApiPostPatchResponse | ApiPostPatchValidationErrorResponse,
-      FetchError
-    >
-  > {
-    const modeParams = `?mode=${mode}`;
-    return fetch(`${this.host}/patches/~${modeParams}`, {
+  ): Promise<result.Result<ApiPostPatchResponse, FetchError>> {
+    return fetch(`${this.host}/patches/~`, {
       headers: headers || {
         "Content-Type": "application/json",
       },
@@ -70,20 +62,6 @@ export class ValApi {
       body: JSON.stringify({ [moduleId]: patches }),
     })
       .then(async (res) => {
-        if (
-          res.status === 400 &&
-          res.headers.get("Content-Type") === "application/json"
-        ) {
-          const json = await res.json();
-          if ("validationErrors" in json) {
-            return result.ok(
-              // is ok what we want here - not sure?
-              json as ApiPostPatchValidationErrorResponse
-            ); // TODO: parse and validate
-          } else {
-            return formatError(res.status, json, res.statusText);
-          }
-        }
         return parse<ApiPostPatchResponse>(res);
       })
       .catch(createError<ApiPostPatchResponse>);
