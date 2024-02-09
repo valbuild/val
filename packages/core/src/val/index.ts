@@ -93,6 +93,10 @@ export type ModuleId = string & {
   [brand]: "ModuleId";
 };
 
+export type PatchId = string & {
+  [brand]: "PatchId";
+};
+
 export function getValPath(
   valOrSelector: Val<Json> | Selector<Source>
 ): SourcePath | undefined {

@@ -413,8 +413,19 @@ export function createValApiRouter<Res>(
         convert(
           await valServer.postPatches(
             body,
+            getCookies(req, [VAL_SESSION_COOKIE])
+          )
+        )
+      );
+    } else if (method === "DELETE" && path.startsWith(PATCHES_PATH_PREFIX)) {
+      return withTreePath(
+        path,
+        PATCHES_PATH_PREFIX
+      )(async () =>
+        convert(
+          await valServer.deletePatches(
             {
-              mode: url.searchParams.get("mode") || undefined,
+              id: url.searchParams.getAll("id"),
             },
             getCookies(req, [VAL_SESSION_COOKIE])
           )

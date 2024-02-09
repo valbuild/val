@@ -9,10 +9,6 @@ type SubscriberId = string & {
 
 const ops = new JSONOps();
 
-export const DRAFTS_LOCAL_STORAGE_KEY = "val-drafts";
-export const PATCHES_LOCAL_STORAGE_KEY = "val-patches";
-export const SOURCES_LOCAL_STORAGE_KEY = "val-sources";
-
 export class ValStore implements IValStore {
   private readonly subscribers: Map<SubscriberId, Record<ModuleId, Json>>; // uncertain whether this is the optimal way of returning
   private readonly listeners: Record<SubscriberId, (() => void)[]>;
@@ -46,6 +42,7 @@ export class ValStore implements IValStore {
     let currentSource = this.drafts[moduleId] || this.sources[moduleId];
     if (!currentSource) {
       const data = await this.api.getTree({
+        patch: true,
         treePath: moduleId,
         includeSource: true,
       });
@@ -79,6 +76,11 @@ export class ValStore implements IValStore {
         });
       }
     }
+    const res = await this.api.postPatches(moduleId, patch);
+    if (result.isErr(res)) {
+      console.error("Val: failed to post patch", res.error);
+      return res;
+    }
     const patchRes = applyPatch(currentSource, ops, patch);
     if (result.isOk(patchRes)) {
       this.patches.push([moduleId, patch]);
@@ -94,14 +96,7 @@ export class ValStore implements IValStore {
           this.emitChange(subscriberId);
         }
       }
-      localStorage.setItem(
-        DRAFTS_LOCAL_STORAGE_KEY,
-        JSON.stringify(this.drafts)
-      );
-      localStorage.setItem(
-        PATCHES_LOCAL_STORAGE_KEY,
-        JSON.stringify(this.patches)
-      );
+
       return result.ok(undefined);
     } else {
       console.error("Val: failed to apply patch", patchRes.error);
@@ -119,6 +114,7 @@ export class ValStore implements IValStore {
 
   async updateTree(treePath?: string) {
     const data = await this.api.getTree({
+      patch: true,
       treePath,
       includeSource: true,
     });
@@ -164,13 +160,6 @@ export class ValStore implements IValStore {
     } else {
       console.error("Val: failed to update modules", data.error);
     }
-    // We overwrite the sources and drafts in local storage, since we have just fetched the latest data
-    localStorage.setItem(
-      SOURCES_LOCAL_STORAGE_KEY,
-      JSON.stringify(this.sources)
-    );
-    localStorage.setItem(DRAFTS_LOCAL_STORAGE_KEY, JSON.stringify({}));
-    // NOTE: patches are not reset
   }
 
   subscribe = (moduleIds: ModuleId[]) => (listener: () => void) => {

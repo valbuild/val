@@ -105,24 +105,22 @@ export function ValMenu({
           )}
         </div>
       </MenuButton>
-      {patchCount !== undefined &&
-        session.status === "success" &&
-        session.data.mode === "proxy" && (
-          <MenuButton
-            onClick={() => {
-              if (patchCount > 0) {
-                onClickPatches();
-              }
-            }}
-          >
-            <div className="relative h-[24px] w-[24px] flex justify-center items-center">
-              <div className="absolute -right-[10px] -top-[10px] border border-border rounded-full px-1 font-sans text-xs bg-card text-accent">
-                {patchCount}
-              </div>
-              <Send size={18} />
+      {patchCount !== undefined && (
+        <MenuButton
+          onClick={() => {
+            if (patchCount > 0) {
+              onClickPatches();
+            }
+          }}
+        >
+          <div className="relative h-[24px] w-[24px] flex justify-center items-center">
+            <div className="absolute -right-[10px] -top-[10px] border border-border rounded-full px-1 font-sans text-xs bg-card text-accent">
+              {patchCount}
             </div>
-          </MenuButton>
-        )}
+            <Send size={18} />
+          </div>
+        </MenuButton>
+      )}
       <PopoverTrigger className={className}>
         <div className="h-[24px] w-[24px]  flex justify-center items-center">
           <MoreHorizontal size={18}></MoreHorizontal>

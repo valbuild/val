@@ -70,7 +70,7 @@ const initFetchValStega =
       }
 
       const host: string | null = headers && getHost(headers);
-      if (host && cookies && isProxyMode(config)) {
+      if (host && cookies) {
         const api = new ValApi(`${host}${valApiEndpoints}`);
         const valModuleIds = getModuleIds(selector);
         return api
@@ -87,6 +87,7 @@ const initFetchValStega =
               return stegaEncode(selector, {
                 disabled: !enabled,
                 getModule: (moduleId) => {
+                  console.log({ moduleId, modules, isRSC: true });
                   const module = modules[moduleId as ModuleId];
                   if (module) {
                     return module.source;
@@ -135,16 +136,6 @@ function getHost(headers: Headers) {
     return `${proto}://${host}`;
   }
   return null;
-}
-
-function isProxyMode(opts: Record<string, string>) {
-  const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
-  const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
-  const isProxyMode =
-    opts.mode === "proxy" ||
-    (opts.mode === undefined && (maybeApiKey || maybeValSecret));
-
-  return !!isProxyMode;
 }
 
 function getValAuthHeaders(cookies: {

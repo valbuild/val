@@ -137,7 +137,7 @@ export function usePatches(session: Remote<ValSession>, api: ValApi) {
   const [patchResetId, setPatchResetId] = useState(0);
 
   useEffect(() => {
-    if (session.status === "success" && session.data.mode === "proxy") {
+    if (session.status === "success") {
       api.getPatches({}).then((patchRes) => {
         if (result.isOk(patchRes)) {
           const patchesByModuleId: Record<ModuleId, string[]> = {};
