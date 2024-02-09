@@ -1,32 +1,125 @@
 import { Json, ModuleId, ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
+import { JSONOps, Patch, PatchError, applyPatch } from "@valbuild/core/patch";
 import type { IValStore } from "@valbuild/shared/internal";
 
 type SubscriberId = string & {
   readonly _tag: unique symbol;
 };
 
+const ops = new JSONOps();
+
+export const DRAFTS_LOCAL_STORAGE_KEY = "val-drafts";
+export const PATCHES_LOCAL_STORAGE_KEY = "val-patches";
+export const SOURCES_LOCAL_STORAGE_KEY = "val-sources";
+
 export class ValStore implements IValStore {
   private readonly subscribers: Map<SubscriberId, Record<ModuleId, Json>>; // uncertain whether this is the optimal way of returning
   private readonly listeners: Record<SubscriberId, (() => void)[]>;
 
-  constructor(private readonly api: ValApi) {
+  private readonly sources: Record<ModuleId, Json>;
+  private readonly drafts: Record<ModuleId, Json>;
+  private readonly patches: [ModuleId, Patch][];
+
+  constructor(
+    private readonly api: ValApi,
+    sources?: Record<ModuleId, Json>,
+    patches?: [ModuleId, Patch][],
+    drafts?: Record<ModuleId, Json>
+  ) {
     this.subscribers = new Map();
     this.listeners = {};
+    this.sources = sources || {};
+    this.patches = patches || [];
+    this.drafts = drafts || {};
+  }
+
+  async applyPatch(
+    moduleId: ModuleId,
+    patch: Patch
+  ): Promise<
+    result.Result<
+      undefined, // TODO: undefined smells wrong
+      PatchError | { message: string }
+    >
+  > {
+    let currentSource = this.drafts[moduleId] || this.sources[moduleId];
+    if (!currentSource) {
+      const data = await this.api.getTree({
+        treePath: moduleId,
+        includeSource: true,
+      });
+      if (result.isOk(data)) {
+        const fetchedSource = data.value.modules[moduleId].source;
+        if (fetchedSource !== undefined) {
+          currentSource = fetchedSource;
+          this.sources[moduleId] = fetchedSource;
+          this.drafts[moduleId] = fetchedSource;
+          for (const [patchModuleId, patches] of this.patches) {
+            if (patchModuleId === moduleId) {
+              const res = applyPatch(this.drafts[moduleId], ops, patches);
+              // ignores errors - we think that is right, since the patch was submitted at some point so it should be valid.
+              if (result.isOk(res)) {
+                this.drafts[moduleId] = res.value;
+              }
+            }
+          }
+        } else {
+          console.error("Val: could not find the module source");
+          return result.err({
+            message:
+              "Val: could not fetch data. Verify that the module exists.",
+          });
+        }
+      } else {
+        console.error("Val: failed to get module", data.error);
+        return result.err({
+          message:
+            "Val: could not fetch data. Verify that Val is correctly configured.",
+        });
+      }
+    }
+    const patchRes = applyPatch(currentSource, ops, patch);
+    if (result.isOk(patchRes)) {
+      this.patches.push([moduleId, patch]);
+      this.drafts[moduleId] = patchRes.value;
+      for (const [subscriberId, subscriberModules] of Array.from(
+        this.subscribers.entries()
+      )) {
+        if (subscriberModules[moduleId]) {
+          this.subscribers.set(subscriberId, {
+            ...subscriberModules,
+            [moduleId]: this.drafts[moduleId],
+          });
+          this.emitChange(subscriberId);
+        }
+      }
+      localStorage.setItem(
+        DRAFTS_LOCAL_STORAGE_KEY,
+        JSON.stringify(this.drafts)
+      );
+      localStorage.setItem(
+        PATCHES_LOCAL_STORAGE_KEY,
+        JSON.stringify(this.patches)
+      );
+      return result.ok(undefined);
+    } else {
+      console.error("Val: failed to apply patch", patchRes.error);
+      return patchRes;
+    }
   }
 
   async update(moduleIds: ModuleId[]) {
     await Promise.all(moduleIds.map((moduleId) => this.updateTree(moduleId)));
   }
 
-  async updateAll() {
+  async reset() {
     await this.updateTree();
   }
 
   async updateTree(treePath?: string) {
     const data = await this.api.getTree({
       treePath,
-      patch: true,
       includeSource: true,
     });
     if (result.isOk(data)) {
@@ -37,6 +130,7 @@ export class ValStore implements IValStore {
       for (const moduleId of Object.keys(data.value.modules) as ModuleId[]) {
         const source = data.value.modules[moduleId].source;
         if (typeof source !== "undefined") {
+          this.sources[moduleId] = source;
           const updatedSubscriberId = subscriberIds.find(
             (subscriberId) => subscriberId.includes(moduleId) // NOTE: dependent on
           );
@@ -70,12 +164,20 @@ export class ValStore implements IValStore {
     } else {
       console.error("Val: failed to update modules", data.error);
     }
+    // We overwrite the sources and drafts in local storage, since we have just fetched the latest data
+    localStorage.setItem(
+      SOURCES_LOCAL_STORAGE_KEY,
+      JSON.stringify(this.sources)
+    );
+    localStorage.setItem(DRAFTS_LOCAL_STORAGE_KEY, JSON.stringify({}));
+    // NOTE: patches are not reset
   }
 
   subscribe = (moduleIds: ModuleId[]) => (listener: () => void) => {
     const subscriberId = createSubscriberId(moduleIds);
     if (!this.listeners[subscriberId]) {
       this.listeners[subscriberId] = [];
+      console.log("subscribe", subscriberId);
       this.subscribers.set(subscriberId, {});
     }
     this.listeners[subscriberId].push(listener);
