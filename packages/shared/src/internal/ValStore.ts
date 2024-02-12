@@ -7,7 +7,6 @@ import {
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { JSONOps, Patch, PatchError, applyPatch } from "@valbuild/core/patch";
-import type { IValStore } from "@valbuild/shared/internal";
 
 type SubscriberId = string & {
   readonly _tag: unique symbol;
@@ -15,7 +14,7 @@ type SubscriberId = string & {
 
 const ops = new JSONOps();
 
-export class ValStore implements IValStore {
+export class ValStore {
   private readonly subscribers: Map<SubscriberId, Record<ModuleId, Json>>; // uncertain whether this is the optimal way of returning
   private readonly listeners: Record<SubscriberId, (() => void)[]>;
 
@@ -144,21 +143,36 @@ export class ValStore implements IValStore {
   }
 
   async reset() {
-    await this.updateTree();
+    return this.updateTree();
   }
 
-  async updateTree(treePath?: string) {
+  async updateTree(treePath?: string): Promise<
+    result.Result<
+      ModuleId[],
+      {
+        message: string;
+        details: {
+          fetchError: {
+            message: string;
+            statusCode?: number;
+          };
+        };
+      }
+    >
+  > {
     const data = await this.api.getTree({
       patch: true,
       treePath,
       includeSource: true,
     });
+    const moduleIds: ModuleId[] = [];
     if (result.isOk(data)) {
       const updatedSubscriberIds = new Map<SubscriberId, ModuleId[]>();
       const subscriberIds = Array.from(this.subscribers.keys());
 
       // Figure out which modules have been updated and map to updated subscribed id
       for (const moduleId of Object.keys(data.value.modules) as ModuleId[]) {
+        moduleIds.push(moduleId);
         const source = data.value.modules[moduleId].source;
         if (typeof source !== "undefined") {
           const updatedSubscriberId = subscriberIds.find(
@@ -191,8 +205,21 @@ export class ValStore implements IValStore {
         this.subscribers.set(updatedSubscriberId, subscriberModules);
         this.emitChange(updatedSubscriberId);
       }
+
+      return result.ok(moduleIds);
     } else {
-      console.error("Val: failed to update modules", data.error);
+      let msg = "Failed to fetch content. ";
+      if (data.error.statusCode === 401) {
+        msg += "Authorization failed - check that you are logged in.";
+      } else {
+        msg += "Get a developer to verify that Val is correctly setup.";
+      }
+      return result.err({
+        message: msg,
+        details: {
+          fetchError: data.error,
+        },
+      });
     }
   }
 

@@ -77,7 +77,6 @@ import { SerializedSchema } from "./schema";
 import { getSHA256Hash } from "./getSha256";
 import { Patch } from "./patch";
 import { initSchema } from "./initSchema";
-export { ValApi } from "./ValApi";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
@@ -93,6 +92,9 @@ export {
 export { type SerializedUnionSchema, UnionSchema } from "./schema/union";
 export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
 export { deserializeSchema } from "./schema/deserialize";
+
+// Move to internal
+export { ValApi } from "./ValApi";
 
 export type ApiCommitResponse = {
   modules: Record<

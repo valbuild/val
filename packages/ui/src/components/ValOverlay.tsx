@@ -14,18 +14,18 @@ import { Internal, Json, SerializedSchema, SourcePath } from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
 import { usePatches } from "./usePatch";
 import { useTheme } from "./useTheme";
-import { IValStore } from "@valbuild/shared/internal";
 import { useSession } from "./useSession";
 import { ValPatches } from "./ValPatches";
 import { AnyVal } from "./ValCompositeFields";
 import { InitOnSubmit } from "./ValFormField";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Popover } from "./ui/popover";
+import { ValStore } from "@valbuild/shared/internal";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
   api: ValApi;
-  store: IValStore;
+  store: ValStore;
   onSubmit: (refreshRequired: boolean) => void;
 };
 
@@ -33,7 +33,7 @@ export function ValOverlay({
   defaultTheme,
   api,
   store,
-  onSubmit,
+  onSubmit: reloadPage,
 }: ValOverlayProps) {
   const [theme, setTheme] = useTheme(defaultTheme);
   const session = useSession(api);
@@ -115,19 +115,10 @@ export function ValOverlay({
     (path) => async (callback) => {
       const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
       const patch = await callback(Internal.createPatchPath(modulePath));
-      const applyRes = await store.applyPatch(moduleId, patch);
-      //
-      setPatchResetId((patchResetId) => patchResetId + 1);
-
-      onSubmit(true);
-
-      // await api.postPatches(moduleId, patch, "validate-only");
-      // setPatchResetId((patchResetId) => patchResetId + 1);
-      // await store.update([moduleId]);
-      // updateFormData(api, path, setFormData);
-      // const refreshRequired =
-      //   session.status === "success" && session.data.mode === "proxy";
-      // onSubmit(refreshRequired);
+      const applyRes = store.applyPatch(moduleId, patch);
+      // TODO: applyRes
+      setPatchResetId((prev) => prev + 1);
+      reloadPage(true);
     },
     []
   );

@@ -65,7 +65,7 @@ export function ValMenu({
     }
     setPatchCount(patchCount);
   }, [patches]);
-
+  console.log({ patchCount });
   return (
     <MenuContainer direction={direction}>
       <MenuButton

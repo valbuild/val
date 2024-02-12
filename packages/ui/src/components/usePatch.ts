@@ -2,7 +2,7 @@ import { SourcePath, Internal, ModuleId, ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { Patch } from "@valbuild/core/patch";
 import { useCallback, useEffect, useState } from "react";
-import { ValSession, IValStore } from "@valbuild/shared/internal";
+import { ValSession, ValStore } from "@valbuild/shared/internal";
 import { type Remote } from "../utils/Remote";
 
 export type PatchCallback = (patchPath: string[]) => Promise<Patch>;
@@ -18,7 +18,7 @@ export type PatchCallbackState = {
 export function usePatchSubmit(
   paths: SourcePath[],
   api: ValApi,
-  valStore: IValStore,
+  valStore: ValStore,
   onSubmit: (refreshRequired: boolean) => void,
   session: Remote<ValSession>
 ) {

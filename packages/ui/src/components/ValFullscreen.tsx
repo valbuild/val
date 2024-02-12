@@ -1,5 +1,4 @@
 import {
-  ApiTreeResponse,
   Internal,
   ModuleId,
   SerializedSchema,
@@ -9,7 +8,6 @@ import { Json } from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
 import { FC, useCallback, useEffect, useState } from "react";
 import { Grid } from "./Grid";
-import { result } from "@valbuild/core/fp";
 import React from "react";
 import Logo from "../assets/icons/Logo";
 import { ScrollArea } from "./ui/scroll-area";
@@ -26,87 +24,21 @@ import { AnyVal, PathTree, ValImagePreviewContext } from "./ValCompositeFields";
 import { InitOnSubmit } from "./ValFormField";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Popover } from "./ui/popover";
+import { ValSession, ValStore } from "@valbuild/shared/internal";
+import { result } from "@valbuild/core/fp";
+import { Remote } from "../utils/Remote";
 
 interface ValFullscreenProps {
   api: ValApi;
+  store: ValStore;
 }
 
-// TODO: move SerializedModuleContent to core
-type SerializedModuleContent = ApiTreeResponse["modules"][ModuleId];
-export const ValModulesContext = React.createContext<ValModules>(null);
-
-export const useValModuleFromPath = (
-  sourcePath: SourcePath
-): {
-  moduleId: ModuleId;
-  moduleSource: Json | undefined;
-  moduleSchema: SerializedSchema | undefined;
-} => {
-  const modules = React.useContext(ValModulesContext);
-  const [moduleId, modulePath] =
-    Internal.splitModuleIdAndModulePath(sourcePath);
-  const moduleSource = modules?.[moduleId]?.source;
-  const moduleSchema = modules?.[moduleId]?.schema;
-  if (!moduleSource || !moduleSchema) {
-    throw Error("Could not find module: " + moduleId);
-  }
-  const resolvedPath = Internal.resolvePath(
-    modulePath,
-    moduleSource,
-    moduleSchema
-  );
-  return {
-    moduleId,
-    moduleSource: resolvedPath.source,
-    moduleSchema: resolvedPath.schema,
-  };
-};
-
-type ValModules = Record<ModuleId, SerializedModuleContent> | null;
-
-export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const ValFullscreen: FC<ValFullscreenProps> = ({ api, store }) => {
   const { "*": pathFromParams } = useParams();
-  const [modules, setModules] = useState<ValModules>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<SourcePath | ModuleId>();
-  const [selectedModuleId] = selectedPath
-    ? Internal.splitModuleIdAndModulePath(selectedPath as SourcePath)
-    : [undefined, undefined];
-  const moduleSource = selectedModuleId && modules?.[selectedModuleId]?.source;
-  const moduleSchema = selectedModuleId && modules?.[selectedModuleId]?.schema;
-  const fatalErrors = Object.entries(modules || {}).flatMap(([id, module]) => {
-    return module.errors
-      ? module.errors.fatal
-        ? module.errors.fatal.map((e) => ({ id, ...e }))
-        : []
-      : [];
-  });
-  const validationErrors = Object.entries(modules || {}).flatMap(
-    ([, module]) => {
-      return module.errors && module.errors.validation
-        ? [module.errors.validation]
-        : [];
-    }
-  );
 
-  if (fatalErrors && fatalErrors.length > 0) {
-    const message =
-      fatalErrors.length === 1
-        ? fatalErrors[0].message
-        : `Multiple errors detected:\n${fatalErrors
-            .map((f, i) => `${i + 1}. [${f.id}]: ${f.message}`)
-            .join("\n")}\n\nShowing stack trace of: 1. ${
-            fatalErrors[0].message
-          }`;
-    const error = new Error(message);
-    error.stack = fatalErrors[0].stack;
-    throw error;
-  }
-
-  if (validationErrors && validationErrors.length > 0) {
-    console.warn("Val encountered validation errors:", validationErrors);
-  }
+  const [moduleIds, setModuleIds] = useState<ModuleId[]>();
   //
   useEffect(() => {
     setSelectedPath(
@@ -114,46 +46,15 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
     );
   }, [pathFromParams]);
 
-  const [hmrHash, setHmrHash] = useState(null);
   useEffect(() => {
-    try {
-      // TODO: move logic to @valbuild/next
-      // use websocket to update modules
-      const hot = new WebSocket(
-        `${window.location.origin.replace(
-          "http://",
-          "ws://"
-        )}/_next/webpack-hmr`
-      );
-      hot.addEventListener("message", (e) => {
-        let data;
-        try {
-          data = JSON.parse(e.data);
-        } catch (err) {
-          console.error("Failed to parse HMR");
-        }
-        if (typeof data?.hash === "string" && data?.action === "built") {
-          setHmrHash(data.hash);
-        }
-      });
-    } catch (err) {
-      // could not set up dev mode
-      console.warn("Failed to initialize HMR", err);
-    }
+    store.reset().then((res) => {
+      if (result.isOk(res)) {
+        setModuleIds(res.value);
+      } else {
+        setError(res.error.message);
+      }
+    });
   }, []);
-  useEffect(() => {
-    console.log("(Re)-fetching modules");
-    api
-      .getTree({ patch: true, includeSchema: true, includeSource: true })
-      .then((res) => {
-        if (result.isOk(res)) {
-          setModules(res.value.modules);
-        } else {
-          setError("Could not load modules: " + res.error.message);
-          console.error(res.error);
-        }
-      });
-  }, [hmrHash]);
   const session = useSession(api);
 
   const navigate = useNavigate();
@@ -165,59 +66,14 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
   const initOnSubmit: InitOnSubmit = useCallback(
     (path) => async (callback) => {
       const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
-      const patch = await callback(Internal.createPatchJSONPath(modulePath));
-      return api
-        .postPatches(moduleId, patch, "write-only")
-        .then((res) => {
-          if (result.isErr(res)) {
-            throw res.error;
-          } else {
-            if ("validationErrors" in res.value) {
-              console.log(res.value.validationErrors);
-            }
-            // TODO: we need to revisit this a bit, HMR might not be the best solution here
-            if (!hmrHash) {
-              setPatchResetId((prev) => prev + 1);
-              return api
-                .getTree({
-                  treePath: moduleId,
-                  patch: true,
-                  includeSchema: true,
-                  includeSource: true,
-                })
-                .then((res) => {
-                  if (result.isOk(res)) {
-                    setModules((modules) => ({
-                      ...modules,
-                      ...res.value.modules,
-                    }));
-                  } else {
-                    setError("Could not load modules: " + res.error.message);
-                    console.error(res.error);
-                  }
-                });
-            }
-          }
-        })
-        .catch((e) => {
-          console.error(e);
-        });
+      const patch = await callback(Internal.createPatchPath(modulePath));
+      const applyRes = store.applyPatch(moduleId, patch);
+      // TODO: applyRes
+      setPatchResetId((prev) => prev + 1);
     },
     []
   );
   const [patchModalOpen, setPatchModalOpen] = useState(false);
-
-  const allModuleIds = Object.entries(modules || {}).flatMap(
-    ([moduleId, valModule]) => {
-      if (valModule?.schema && valModule?.source) {
-        return [moduleId];
-      } else if (valModule?.errors) {
-        return [moduleId];
-      }
-      return [];
-    }
-  );
-
   return (
     <ValUIContext.Provider
       value={{
@@ -252,7 +108,6 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
             />
           </div>
         )}
-
         <Popover>
           <PopoverPrimitive.Portal />
           <div className="fixed -translate-y-1/2 right-4 top-1/2 z-overlay">
@@ -276,10 +131,10 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
                 <Logo />
               </div>
               <ScrollArea className="px-4">
-                {modules ? (
+                {moduleIds ? (
                   <PathTree
                     selectedPath={selectedPath}
-                    paths={allModuleIds}
+                    paths={moduleIds}
                     setSelectedModuleId={(path) => {
                       navigate(path);
                     }}
@@ -304,36 +159,15 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
                   <Path>{selectedPath || "/"}</Path>
                 </div>
               </div>
-              <div className="p-4">
-                {error && (
-                  <div className="max-w-xl p-4 text-lg bg-destructive text-destructive-foreground">
-                    ERROR: {error}
-                  </div>
-                )}
-                {session.status === "success" &&
-                  session.data.mode === "unauthorized" && (
-                    <div className="max-w-xl p-4 text-lg bg-destructive text-destructive-foreground">
-                      Not authorized
-                    </div>
-                  )}
-                {session.status === "success" &&
-                  session.data.mode !== "unauthorized" &&
-                  modules &&
-                  selectedPath &&
-                  selectedModuleId &&
-                  moduleSource !== undefined &&
-                  moduleSchema !== undefined && (
-                    <ValModulesContext.Provider value={modules}>
-                      <ValModule
-                        path={selectedPath}
-                        source={moduleSource}
-                        schema={moduleSchema}
-                        setSelectedPath={setSelectedPath}
-                        initOnSubmit={initOnSubmit}
-                      />
-                    </ValModulesContext.Provider>
-                  )}
-              </div>
+              <ModulePane
+                path={selectedPath}
+                error={error}
+                initOnSubmit={initOnSubmit}
+                session={session}
+                setSelectedPath={setSelectedPath}
+                api={api}
+                store={store}
+              />
             </Grid>
           </div>
         </ValImagePreviewContext.Provider>
@@ -341,6 +175,97 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api }) => {
     </ValUIContext.Provider>
   );
 };
+
+function ModulePane({
+  path,
+  api,
+  store,
+  error: globalError,
+  session,
+  setSelectedPath,
+  initOnSubmit,
+}: {
+  path?: SourcePath | ModuleId;
+  api: ValApi;
+  store: ValStore;
+  error: string | null;
+  session: Remote<ValSession>;
+  setSelectedPath: (path: SourcePath | ModuleId) => void;
+  initOnSubmit: InitOnSubmit;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [moduleError, setModuleError] = useState<string>();
+  const [rootModule, setRootModule] = useState<{
+    source: Json;
+    schema: SerializedSchema;
+  } | null>(null);
+  const [moduleId] = path
+    ? Internal.splitModuleIdAndModulePath(path as SourcePath)
+    : [undefined, undefined];
+  useEffect(() => {
+    let ignore = false;
+    if (moduleId) {
+      setRootModule(null);
+      setLoading(true);
+      store
+        .getModule(moduleId)
+        .then((res) => {
+          if (!ignore) {
+            if (session.status === "success" && session.data.enabled) {
+              if (result.isOk(res)) {
+                setRootModule(res.value);
+              } else {
+                setModuleError(res.error.message);
+              }
+            }
+          }
+        })
+        .finally(() => {
+          if (!ignore) {
+            setLoading(false);
+          }
+        });
+    } else {
+      setRootModule(null);
+    }
+    return () => {
+      ignore = true;
+    };
+  }, [moduleId, path, session]);
+
+  return (
+    <div className="p-4">
+      {(globalError || moduleError) && (
+        <div className="max-w-xl p-4 text-lg bg-destructive text-destructive-foreground">
+          ERROR: {globalError || moduleError}
+        </div>
+      )}
+      {session.status === "success" && session.data.mode === "unauthorized" && (
+        <div className="max-w-xl p-4 text-lg bg-destructive text-destructive-foreground">
+          Not authorized
+        </div>
+      )}
+      {session.status === "success" && !session.data.enabled && (
+        <div className="max-w-xl p-4 text-lg">
+          <div>Val is currently not enabled</div>
+          <a href={api.getEnableUrl(window?.location?.href || "/val")}>
+            Enable Val
+          </a>
+        </div>
+      )}
+      {loading && <div className="flex place-content-center">Loading...</div>}
+      {rootModule && path && (
+        <ValModule
+          path={path}
+          source={rootModule.source}
+          schema={rootModule.schema}
+          setSelectedPath={setSelectedPath}
+          initOnSubmit={initOnSubmit}
+        />
+      )}
+    </div>
+  );
+}
 
 function ValModule({
   path,

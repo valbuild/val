@@ -19,6 +19,7 @@ import {
   RichText,
   RichTextNode,
   ModulePath,
+  ImageSource,
 } from "@valbuild/core";
 import { parseRichTextSource } from "@valbuild/shared/internal";
 import classNames from "classnames";
@@ -473,19 +474,12 @@ function ValList({
   setSelectedPath: (path: SourcePath | ModuleId) => void;
 }): React.ReactElement {
   const onSubmit = initOnSubmit(path);
-  const [count, setCount] = useState<number>();
-  const loading = count !== source.length;
   const [, modulePath] = Internal.splitModuleIdAndModulePath(path);
-  useEffect(() => {
-    setCount(source.length);
-  }, [schema, source]);
 
   return (
     <FieldContainer key={path} className="flex flex-col gap-4 p-2 pb-8">
       <button
-        disabled={loading}
         onClick={() => {
-          setCount(source.length + 1);
           onSubmit(async () => {
             const patch: Patch = [];
             if (source === null) {
@@ -506,7 +500,7 @@ function ValList({
           });
         }}
       >
-        {loading ? <RotateCw className="animate-spin" /> : <Plus />}
+        <Plus />
       </button>
       {source.map((item, index) => {
         const subPath = createValPathOfItem(path, index);
@@ -518,10 +512,9 @@ function ValList({
             key={subPath}
             path={subPath}
             source={item}
-            loading={loading}
+            loading={false}
             schema={schema.item}
             onDelete={() => {
-              setCount(source.length - 1);
               onSubmit(async (path) => {
                 if (path.length > 0) {
                   return [

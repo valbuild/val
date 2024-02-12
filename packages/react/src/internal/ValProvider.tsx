@@ -1,12 +1,7 @@
 "use client";
 import React, { lazy, useContext, useEffect, useMemo, useState } from "react";
-import {
-  DRAFTS_LOCAL_STORAGE_KEY,
-  PATCHES_LOCAL_STORAGE_KEY,
-  SOURCES_LOCAL_STORAGE_KEY,
-  ValStore,
-} from "./ValStore";
 import { Internal, ValApi } from "@valbuild/core";
+import { ValStore } from "@valbuild/shared/internal";
 
 export const useValStore = () => {
   if (!ValContext) {
