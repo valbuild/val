@@ -61,7 +61,12 @@ export {
   type SelectorOf,
   GenericSelector,
 } from "./selector";
-import { getSource, resolvePath, splitModuleIdAndModulePath } from "./module";
+import {
+  getSource,
+  parsePath,
+  resolvePath,
+  splitModuleIdAndModulePath,
+} from "./module";
 import { getSchema } from "./selector";
 import { ModuleId, ModulePath, PatchId, getValPath, isVal } from "./val";
 import { convertFileSource } from "./schema/file";
@@ -193,6 +198,9 @@ const Internal = {
       .split(".")
       .map((segment) => segment && tryJsonParse(segment))
       .join("/")}`,
+  createPatchPath: (modulePath: ModulePath) => {
+    return parsePath(modulePath);
+  },
   VAL_ENABLE_COOKIE_NAME: "val_enable" as const,
   VAL_STATE_COOKIE: "val_state" as const,
   VAL_SESSION_COOKIE: "val_session" as const,

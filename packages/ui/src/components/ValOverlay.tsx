@@ -21,7 +21,6 @@ import { AnyVal } from "./ValCompositeFields";
 import { InitOnSubmit } from "./ValFormField";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Popover } from "./ui/popover";
-import { parsePatch } from "@valbuild/core/patch";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -74,8 +73,7 @@ export function ValOverlay({
                 moduleId,
                 {
                   status: "error",
-                  error:
-                    "Val could load the data for this content. Please try again.",
+                  error: "Val could load this content. Please try again.",
                 },
               ] as const;
             } else {
@@ -85,7 +83,8 @@ export function ValOverlay({
                   moduleId,
                   {
                     status: "error",
-                    error: "Val could not resolve the data for this content.",
+                    error:
+                      "Val could not internally resolve this content. This is possibly due to a misconfiguration or a bug in Val.",
                   },
                 ] as const;
               }
@@ -115,22 +114,12 @@ export function ValOverlay({
   const initOnSubmit: InitOnSubmit = useCallback(
     (path) => async (callback) => {
       const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
-      const patchJson = await callback(
-        Internal.createPatchJSONPath(modulePath)
-      );
-      const patchRes = parsePatch(patchJson);
-      if (result.isOk(patchRes)) {
-        const applyRes = await store.applyPatch(moduleId, patchRes.value);
-        //
-        setPatchResetId((patchResetId) => patchResetId + 1);
+      const patch = await callback(Internal.createPatchPath(modulePath));
+      const applyRes = await store.applyPatch(moduleId, patch);
+      //
+      setPatchResetId((patchResetId) => patchResetId + 1);
 
-        onSubmit(true);
-      } else {
-        console.error(patchRes.error);
-        throw Error(
-          "Val: could not parse patch. This is likely a bug. Get a developer to check the error console output."
-        );
-      }
+      onSubmit(true);
 
       // await api.postPatches(moduleId, patch, "validate-only");
       // setPatchResetId((patchResetId) => patchResetId + 1);
