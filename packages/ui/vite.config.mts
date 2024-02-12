@@ -37,6 +37,11 @@ export default defineConfig({
       external: ["react", "react/jsx-runtime", "react/jsx-dev-runtime"],
     },
   },
+  server: {
+    hmr: {
+      clientPort: 5137,
+    },
+  },
   optimizeDeps: {
     include: ["react/jsx-runtime", "react/jsx-dev-runtime"],
   },

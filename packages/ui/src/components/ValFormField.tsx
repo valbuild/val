@@ -36,7 +36,6 @@ import {
   SelectValue,
 } from "./ui/select";
 import { PatchCallback } from "./usePatch";
-import { useValModuleFromPath } from "./ValFullscreen";
 import { useValUIContext } from "./ValUIContext";
 import classNames from "classnames";
 import { File } from "lucide-react";
@@ -660,80 +659,82 @@ function KeyOfField({
   defaultValue?: string | number | null;
   selector: SourcePath;
 }) {
-  const valModule = useValModuleFromPath(selector);
-  const getValuesFromModule = (module: typeof valModule) => {
-    if (Array.isArray(module.moduleSource)) {
-      return {
-        type: "number",
-        values: Object.keys(module.moduleSource).map((key) => parseInt(key)),
-      };
-    }
-    return {
-      type: "string",
-      values: Object.keys(module.moduleSource ?? ["ERROR fetching source"]),
-    };
-  };
-  const typeAndValues = getValuesFromModule(valModule);
-  const [value, setValue] = useState(defaultValue || typeAndValues.values[0]);
-  const [loading, setLoading] = useState(false);
-  useEffect(() => {
-    setLoading(disabled);
-  }, [disabled]);
+  return <div>TODO</div>;
+  // const valModule = useValModuleFromPath(selector);
+  // const getValuesFromModule = (module: typeof valModule) => {
+  //   if (Array.isArray(module.moduleSource)) {
+  //     return {
+  //       type: "number",
+  //       values: Object.keys(module.moduleSource).map((key) => parseInt(key)),
+  //     };
+  //   }
+  //   return {
+  //     type: "string",
+  //     values: Object.keys(module.moduleSource ?? ["ERROR fetching source"]),
+  //   };
+  // };
+  // const typeAndValues = getValuesFromModule(valModule);
+  // const [value, setValue] = useState(defaultValue || typeAndValues.values[0]);
+  // const [loading, setLoading] = useState(false);
+  // useEffect(() => {
+  //   setLoading(disabled);
+  // }, [disabled]);
 
-  const parse = (value: string) => {
-    if (typeAndValues.type === "number") {
-      if (value === "") {
-        throw new Error("Value cannot be empty");
-      }
-      if (Number.isNaN(Number(value))) {
-        throw new Error("Value was not a number: " + JSON.stringify(value));
-      }
-      return Number(value);
-    }
-    return value;
-  };
+  // const parse = (value: string) => {
+  //   if (typeAndValues.type === "number") {
+  //     if (value === "") {
+  //       throw new Error("Value cannot be empty");
+  //     }
+  //     if (Number.isNaN(Number(value))) {
+  //       throw new Error("Value was not a number: " + JSON.stringify(value));
+  //     }
+  //     return Number(value);
+  //   }
+  //   return value;
+  // };
 
-  return (
-    <FieldContainer>
-      <Select
-        defaultValue={value.toString()}
-        disabled={loading}
-        onValueChange={(value) => {
-          setValue(parse(value));
-        }}
-      >
-        <SelectTrigger>
-          <SelectValue placeholder="Select a value" />
-        </SelectTrigger>
-        <SelectContent>
-          {typeAndValues.values.map((value) => (
-            <SelectItem key={value} value={value.toString()}>
-              {value.toString()}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      {onSubmit && (
-        <SubmitButton
-          loading={loading}
-          enabled={defaultValue !== value}
-          onClick={() => {
-            setLoading(true);
-            onSubmit(async (path) => [
-              {
-                op: "replace",
-                path,
-                value: value,
-              },
-            ]).finally(() => {
-              setLoading(false);
-            });
-          }}
-        />
-      )}
-    </FieldContainer>
-  );
+  // return (
+  //   <FieldContainer>
+  //     <Select
+  //       defaultValue={value.toString()}
+  //       disabled={loading}
+  //       onValueChange={(value) => {
+  //         setValue(parse(value));
+  //       }}
+  //     >
+  //       <SelectTrigger>
+  //         <SelectValue placeholder="Select a value" />
+  //       </SelectTrigger>
+  //       <SelectContent>
+  //         {typeAndValues.values.map((value) => (
+  //           <SelectItem key={value} value={value.toString()}>
+  //             {value.toString()}
+  //           </SelectItem>
+  //         ))}
+  //       </SelectContent>
+  //     </Select>
+  //     {onSubmit && (
+  //       <SubmitButton
+  //         loading={loading}
+  //         enabled={defaultValue !== value}
+  //         onClick={() => {
+  //           setLoading(true);
+  //           onSubmit(async (path) => [
+  //             {
+  //               op: "replace",
+  //               path,
+  //               value: value,
+  //             },
+  //           ]).finally(() => {
+  //             setLoading(false);
+  //           });
+  //         }}
+  //       />
+  //     )}
+  //   </FieldContainer>
+  // );
 }
+
 function NumberField({
   disabled,
   defaultValue,
