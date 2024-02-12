@@ -42,7 +42,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Switch } from "./ui/switch";
-import { JSONValue, PatchJSON } from "@valbuild/core/patch";
+import { JSONValue, Patch, PatchJSON } from "@valbuild/core/patch";
 import {
   Dialog,
   DialogClose,
@@ -54,6 +54,7 @@ import {
 } from "./ui/dialog";
 import { Plus, RotateCw, Trash } from "lucide-react";
 import { Button } from "./ui/button";
+import { NonEmptyArray } from "@valbuild/core/src/fp/array";
 
 export function AnyVal({
   path,
@@ -486,17 +487,17 @@ function ValList({
         onClick={() => {
           setCount(source.length + 1);
           onSubmit(async () => {
-            const patch: PatchJSON = [];
+            const patch: Patch = [];
             if (source === null) {
               patch.push({
                 op: "replace",
-                path: Internal.createPatchJSONPath(modulePath),
+                path: Internal.createPatchPath(modulePath),
                 value: [],
               });
             }
             patch.push({
               op: "add",
-              path: Internal.createPatchJSONPath(
+              path: Internal.createPatchPath(
                 createValPathOfItem(modulePath, source.length)
               ),
               value: emptyOf(schema.item) as JSONValue,
@@ -521,12 +522,18 @@ function ValList({
             schema={schema.item}
             onDelete={() => {
               setCount(source.length - 1);
-              onSubmit(async (path) => [
-                {
-                  op: "remove",
-                  path,
-                },
-              ]);
+              onSubmit(async (path) => {
+                if (path.length > 0) {
+                  return [
+                    {
+                      op: "remove",
+                      path: path as NonEmptyArray<string>,
+                    },
+                  ];
+                }
+                console.error("Cannot delete a root element");
+                return [];
+              });
             }}
             setSelectedPath={setSelectedPath}
           />
@@ -875,10 +882,10 @@ function ValOptional({
                           return [
                             {
                               op: "replace",
-                              path: Internal.createPatchJSONPath(modulePath),
+                              path: Internal.createPatchPath(modulePath),
                               value: null,
                             },
-                          ] as PatchJSON;
+                          ] as Patch;
                         })
                           .catch((err) => {
                             console.error(err);
@@ -919,7 +926,7 @@ function ValOptional({
             const [, subModulePath] =
               Internal.splitModuleIdAndModulePath(subPath);
             const patch = await callback(
-              Internal.createPatchJSONPath(subModulePath)
+              Internal.createPatchPath(subModulePath)
             );
             onSubmit(async () => {
               if (source === null) {
@@ -927,10 +934,10 @@ function ValOptional({
                   [
                     {
                       op: "replace",
-                      path: Internal.createPatchJSONPath(modulePath),
+                      path: Internal.createPatchPath(modulePath),
                       value: emptyOf(schema),
                     },
-                  ] as PatchJSON
+                  ] as Patch
                 ).concat(patch);
               }
               return patch;
