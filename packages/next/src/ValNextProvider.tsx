@@ -1,7 +1,7 @@
 "use client";
 import { ValConfig } from "@valbuild/core";
 import { ValProvider as ReactValProvider } from "@valbuild/react/internal";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useTransition } from "react";
 
 export const ValNextProvider = (props: {
@@ -10,7 +10,11 @@ export const ValNextProvider = (props: {
   disableRefresh?: boolean;
 }) => {
   const router = useRouter();
+  const pathname = usePathname();
   const [, startTransition] = useTransition();
+  if (pathname.startsWith("/val")) {
+    return props.children;
+  }
   return (
     <ReactValProvider
       onSubmit={(refreshRequired) => {
