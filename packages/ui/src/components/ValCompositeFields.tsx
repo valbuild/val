@@ -958,6 +958,8 @@ function emptyOf(schema: SerializedSchema): Json {
     return [];
   } else if (schema.type === "record") {
     return {};
+  } else if (schema.opt) {
+    return null;
   } else if (schema.type === "richtext") {
     return {
       [VAL_EXTENSION]: "richtext",
@@ -965,21 +967,42 @@ function emptyOf(schema: SerializedSchema): Json {
       exprs: [],
     } satisfies RichTextSource<AnyRichTextOptions>;
   } else if (schema.type === "string") {
-    return null;
+    return "";
   } else if (schema.type === "boolean") {
-    return null;
+    return false;
   } else if (schema.type === "number") {
-    return null;
+    return 0;
   } else if (schema.type === "keyOf") {
-    return null;
+    if (schema.values === "number") {
+      return 0; // TODO: figure out this: user code might very well fail in this case
+    } else if (schema.values === "string") {
+      return ""; // TODO: figure out this: user code might very well fail in this case
+    } else {
+      return schema.values[0];
+    }
   } else if (schema.type === "file") {
-    return null;
+    return {
+      _ref: "/public/",
+      _type: "file",
+      metadata: {
+        sha256: "",
+      },
+    } satisfies FileSource;
   } else if (schema.type === "image") {
-    return null;
+    return {
+      _ref: "/public/",
+      _type: "file",
+      metadata: {
+        height: 0,
+        width: 0,
+        mimeType: "application/octet-stream",
+        sha256: "",
+      },
+    } satisfies ImageSource;
   } else if (schema.type === "literal") {
-    return null;
+    return schema.value;
   } else if (schema.type === "union") {
-    return null;
+    return emptyOf(schema.items[0]);
   }
   const _exhaustiveCheck: never = schema;
   throw Error("Unexpected schema type: " + JSON.stringify(_exhaustiveCheck));
