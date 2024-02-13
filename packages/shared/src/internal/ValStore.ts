@@ -53,14 +53,14 @@ export class ValStore {
       } else {
         console.error("Val: could not find the module source");
         return result.err({
-          message: "Val: could not fetch data. Verify that the module exists.",
+          message: "Could not fetch data. Verify that the module exists.",
         });
       }
     } else {
       console.error("Val: failed to get module", data.error);
       return result.err({
         message:
-          "Val: could not fetch data. Verify that Val is correctly configured.",
+          "Could not fetch data. Verify that Val is correctly configured.",
       });
     }
   }
@@ -120,6 +120,7 @@ export class ValStore {
     const patchRes = applyPatch(currentSource, ops, patch);
     if (result.isOk(patchRes)) {
       this.drafts[moduleId] = patchRes.value;
+
       for (const [subscriberId, subscriberModules] of Array.from(
         this.subscribers.entries()
       )) {

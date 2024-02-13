@@ -1,5 +1,6 @@
 import {
-  ApiPatchValidationErrorResponse,
+  ApiPostValidationErrorResponse,
+  ApiPostValidationResponse,
   ApiTreeResponse,
   Internal,
   Json,
@@ -63,11 +64,12 @@ export type ValServerResult<
 export type ValServerJsonResult<
   Body extends
     | Json
+    | ApiPostValidationErrorResponse // TODO: should not be necessary - JSON is enough, but readonly / non-readonly arrays fail
     | ApiTreeResponse // TODO: should not be necessary - JSON is enough, but readonly / non-readonly arrays fail
     | never = never,
   Error extends
     | Json
-    | ApiPatchValidationErrorResponse // TODO: should not be necessary - JSON is enough, but readonly / non-readonly arrays fail
+    | ApiPostValidationErrorResponse // TODO: should not be necessary - JSON is enough, but readonly / non-readonly arrays fail
     | never = never
 > =
   | {
@@ -75,14 +77,14 @@ export type ValServerJsonResult<
       json: Body;
     }
   | ValServerError
-  | (Error extends Json | ApiPatchValidationErrorResponse
+  | (Error extends Json | ApiPostValidationErrorResponse
       ? { status: 400; json: Error }
       : never);
 
 export type ValServerGenericResult =
   | ValServerJsonResult<Json>
   | ValServerError
-  | { status: 400; json: ApiPatchValidationErrorResponse } // TODO: ugly
+  | { status: 400; json: ApiPostValidationErrorResponse } // TODO: ugly
   | ValServerRedirectResult<ValCookiesNames>
   | ValServerResult<ValCookiesNames, string | ReadableStream<Uint8Array>>;
 

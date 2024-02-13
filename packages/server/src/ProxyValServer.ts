@@ -23,8 +23,9 @@ import { z } from "zod";
 import {
   ApiCommitResponse,
   ApiGetPatchResponse,
-  ApiPatchValidationErrorResponse,
+  ApiPostValidationErrorResponse,
   ApiPostPatchResponse,
+  ApiPostValidationResponse,
   ApiTreeResponse,
 } from "@valbuild/core";
 import { parsePatch } from "@valbuild/core/patch";
@@ -520,7 +521,7 @@ export class ProxyValServer implements ValServer {
     rawBody: unknown,
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<
-    ValServerJsonResult<ApiCommitResponse, ApiPatchValidationErrorResponse>
+    ValServerJsonResult<ApiCommitResponse, ApiPostValidationErrorResponse>
   > {
     const commit = this.options.gitCommit;
     if (!commit) {
@@ -540,6 +541,7 @@ export class ProxyValServer implements ValServer {
         `/v1/commit/${this.options.valName}/heads/${this.options.gitBranch}/~?${params}`,
         this.options.valContentUrl
       );
+      // TODO: validate body first
       const body = JSON.stringify(rawBody);
       const fetchRes = await fetch(url, {
         method: "POST",
@@ -549,7 +551,53 @@ export class ProxyValServer implements ValServer {
       if (fetchRes.status === 200) {
         return {
           status: fetchRes.status,
-          json: await fetchRes.json(), // TODO: validate
+          json: await fetchRes.json(), // TODO: validate response format
+        };
+      } else {
+        return {
+          status: fetchRes.status as ValServerErrorStatus,
+        };
+      }
+    });
+  }
+
+  async postValidate(
+    rawBody: unknown,
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<
+    ValServerJsonResult<
+      ApiPostValidationResponse | ApiPostValidationErrorResponse
+    >
+  > {
+    const commit = this.options.gitCommit;
+    if (!commit) {
+      return {
+        status: 401,
+        json: {
+          message:
+            "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
+        },
+      };
+    }
+    const params = new URLSearchParams({
+      commit,
+    });
+    return this.withAuth(cookies, "postValidate", async ({ token }) => {
+      const url = new URL(
+        `/v1/validate/${this.options.valName}/heads/${this.options.gitBranch}/~?${params}`,
+        this.options.valContentUrl
+      );
+      // TODO: validate body first
+      const body = JSON.stringify(rawBody);
+      const fetchRes = await fetch(url, {
+        method: "POST",
+        headers: this.getAuthHeaders(token, "application/json"),
+        body,
+      });
+      if (fetchRes.status === 200) {
+        return {
+          status: fetchRes.status,
+          json: await fetchRes.json(), // TODO: validate response format
         };
       } else {
         return {

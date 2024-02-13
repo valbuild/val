@@ -1,22 +1,16 @@
 import {
-  FILE_REF_PROP,
   FileMetadata,
   ImageMetadata,
-  Internal,
   SourcePath,
   ValidationError,
 } from "@valbuild/core";
 import { Patch, sourceToPatchPath } from "@valbuild/core/patch";
-import sizeOf from "image-size";
-import path from "path";
 import fs from "fs";
-import {
-  filenameToMimeType,
-  MIME_TYPES_TO_EXT,
-} from "@valbuild/shared/internal";
+import { extractFileMetadata, extractImageMetadata } from "./extractMetadata";
+import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
+import path from "path";
 
 // TODO: find a better name? transformFixesToPatch?
-const textEncoder = new TextEncoder();
 export async function createFixPatch(
   config: { projectRoot: string },
   apply: boolean,
@@ -24,82 +18,24 @@ export async function createFixPatch(
   validationError: ValidationError
 ): Promise<{ patch: Patch; remainingErrors: ValidationError[] } | undefined> {
   async function getImageMetadata(): Promise<ImageMetadata> {
-    const maybeRef =
-      validationError.value &&
-      typeof validationError.value === "object" &&
-      FILE_REF_PROP in validationError.value &&
-      typeof validationError.value[FILE_REF_PROP] === "string"
-        ? validationError.value[FILE_REF_PROP]
-        : undefined;
-
-    if (!maybeRef) {
+    const fileRef = getValidationErrorFileRef(validationError);
+    if (!fileRef) {
       // TODO:
       throw Error("Cannot fix image without a file reference");
     }
-    const filename = path.join(config.projectRoot, maybeRef);
+    const filename = path.join(config.projectRoot, fileRef);
     const buffer = fs.readFileSync(filename);
-    const imageSize = sizeOf(buffer);
-    let mimeType: string | null = null;
-    if (imageSize.type) {
-      const possibleMimeType = `image/${imageSize.type}`;
-      if (MIME_TYPES_TO_EXT[possibleMimeType]) {
-        mimeType = possibleMimeType;
-      }
-      const filenameBasedLookup = filenameToMimeType(filename);
-      if (filenameBasedLookup) {
-        mimeType = filenameBasedLookup;
-      }
-    }
-    if (!mimeType) {
-      throw Error("Cannot determine mimetype of image");
-    }
-    const { width, height } = imageSize;
-    if (!width || !height) {
-      throw Error("Cannot determine image size");
-    }
-
-    const sha256 = Internal.getSHA256Hash(
-      textEncoder.encode(
-        // TODO: we should probably store the mimetype in the metadata and reuse it here
-        `data:${mimeType};base64,${buffer.toString("base64")}`
-      )
-    );
-    return {
-      width,
-      height,
-      sha256,
-      mimeType,
-    };
+    return extractImageMetadata(filename, buffer);
   }
   async function getFileMetadata(): Promise<FileMetadata> {
-    const maybeRef =
-      validationError.value &&
-      typeof validationError.value === "object" &&
-      FILE_REF_PROP in validationError.value &&
-      typeof validationError.value[FILE_REF_PROP] === "string"
-        ? validationError.value[FILE_REF_PROP]
-        : undefined;
-
-    if (!maybeRef) {
+    const fileRef = getValidationErrorFileRef(validationError);
+    if (!fileRef) {
       // TODO:
-      throw Error("Cannot fix image without a file reference");
+      throw Error("Cannot fix file without a file reference");
     }
-    const filename = path.join(config.projectRoot, maybeRef);
+    const filename = path.join(config.projectRoot, fileRef);
     const buffer = fs.readFileSync(filename);
-    let mimeType = filenameToMimeType(filename);
-    if (!mimeType) {
-      mimeType = "application/octet-stream";
-    }
-    const sha256 = Internal.getSHA256Hash(
-      textEncoder.encode(
-        // TODO: we should probably store the mimetype in the metadata and reuse it here
-        `data:${mimeType};base64,${buffer.toString("base64")}`
-      )
-    );
-    return {
-      sha256,
-      mimeType,
-    };
+    return extractFileMetadata(fileRef, buffer);
   }
   const remainingErrors: ValidationError[] = [];
   const patch: Patch = [];

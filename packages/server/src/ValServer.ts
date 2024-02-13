@@ -2,9 +2,10 @@ import {
   ApiCommitResponse,
   ApiGetPatchResponse,
   ApiPostPatchResponse,
-  ApiPatchValidationErrorResponse,
+  ApiPostValidationErrorResponse,
   ApiTreeResponse,
   ApiDeletePatchResponse,
+  ApiPostValidationResponse,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -93,12 +94,20 @@ export interface ValServer {
     query: { id?: string[] },
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerJsonResult<ApiDeletePatchResponse>>;
+  postValidate(
+    body: unknown,
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<
+    ValServerJsonResult<
+      ApiPostValidationResponse | ApiPostValidationErrorResponse
+    >
+  >;
   postCommit(
     body: unknown,
     cookies: ValCookies<VAL_SESSION_COOKIE>
     // eslint-disable-next-line @typescript-eslint/ban-types
   ): Promise<
-    ValServerJsonResult<ApiCommitResponse, ApiPatchValidationErrorResponse>
+    ValServerJsonResult<ApiCommitResponse, ApiPostValidationErrorResponse>
   >;
   // Streams:
   getFiles(

@@ -1,4 +1,10 @@
-import { SourcePath, Internal, ModuleId, ValApi } from "@valbuild/core";
+import {
+  SourcePath,
+  Internal,
+  ModuleId,
+  ValApi,
+  PatchId,
+} from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { Patch } from "@valbuild/core/patch";
 import { useCallback, useEffect, useState } from "react";
@@ -131,14 +137,14 @@ async function maybeStartViewTransition(f: () => Promise<void>) {
 }
 
 export function usePatches(session: Remote<ValSession>, api: ValApi) {
-  const [patches, setPatches] = useState<Record<ModuleId, string[]>>({});
+  const [patches, setPatches] = useState<Record<ModuleId, PatchId[]>>({});
   const [patchResetId, setPatchResetId] = useState(0);
 
   useEffect(() => {
     if (session.status === "success") {
       api.getPatches({}).then((patchRes) => {
         if (result.isOk(patchRes)) {
-          const patchesByModuleId: Record<ModuleId, string[]> = {};
+          const patchesByModuleId: Record<ModuleId, PatchId[]> = {};
           for (const moduleId in patchRes.value) {
             patchesByModuleId[moduleId as ModuleId] = patchRes.value[
               moduleId as ModuleId

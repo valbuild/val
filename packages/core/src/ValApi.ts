@@ -1,12 +1,15 @@
 import {
   ApiCommitResponse,
   ApiGetPatchResponse,
+  ApiPostValidationErrorResponse,
   ApiPostPatchResponse,
+  ApiPostValidationResponse,
   ApiTreeResponse,
+  Json,
 } from ".";
 import { result } from "./fp";
 import { Patch } from "./patch";
-import { ModuleId } from "./val";
+import { ModuleId, PatchId } from "./val";
 
 type FetchError = { message: string; statusCode?: number };
 
@@ -109,7 +112,7 @@ export class ValApi {
     patches,
     headers,
   }: {
-    patches?: Record<ModuleId, string[]>;
+    patches?: Record<ModuleId, PatchId[]>;
     headers?: Record<string, string> | undefined;
   }) {
     return fetch(`${this.host}/commit`, {
@@ -119,8 +122,59 @@ export class ValApi {
         "Content-Type": "application/json",
       },
     })
-      .then((res) => parse<ApiCommitResponse>(res))
+      .then(async (res) => {
+        if (res.ok) {
+          return parse<ApiCommitResponse>(res);
+        } else if (
+          res.status === 400 &&
+          res.headers.get("content-type") === "application/json"
+        ) {
+          const jsonRes = await res.json();
+          if ("validationErrors" in jsonRes) {
+            return result.err(jsonRes as ApiPostValidationErrorResponse);
+          } else {
+            return formatError(res.status, jsonRes, res.statusText);
+          }
+        }
+        return parse<ApiCommitResponse>(res);
+      })
       .catch(createError<ApiCommitResponse>);
+  }
+
+  postValidate({
+    patches,
+    headers,
+  }: {
+    patches?: Record<ModuleId, PatchId[]>;
+    headers?: Record<string, string> | undefined;
+  }) {
+    return fetch(`${this.host}/validate`, {
+      method: "POST",
+      body: JSON.stringify({ patches }),
+      headers: headers || {
+        "Content-Type": "application/json",
+      },
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          return parse<{ validationErrors: false }>(res);
+        } else if (
+          res.status === 400 &&
+          res.headers.get("content-type") === "application/json"
+        ) {
+          const jsonRes = await res.json();
+          if ("validationErrors" in jsonRes) {
+            return result.err(jsonRes as ApiPostValidationErrorResponse);
+          } else {
+            return formatError(res.status, jsonRes, res.statusText);
+          }
+        }
+        return parse<{
+          validationErrors: false;
+          patches: Record<ModuleId, PatchId[]>;
+        }>(res);
+      })
+      .catch(createError<{ validationErrors: false }>);
   }
 }
 
