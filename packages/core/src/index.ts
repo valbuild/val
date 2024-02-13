@@ -97,6 +97,7 @@ export { deserializeSchema } from "./schema/deserialize";
 export { ValApi } from "./ValApi";
 
 export type ApiCommitResponse = {
+  validationErrors: false;
   modules: Record<
     ModuleId,
     {
@@ -157,6 +158,17 @@ export type ApiPostPatchResponse = Record<
     patch_id: PatchId;
   }
 >;
+export type ApiPostValidationResponse = {
+  validationErrors: false;
+  modules: Record<
+    ModuleId,
+    {
+      patches: {
+        applied: PatchId[];
+      };
+    }
+  >;
+};
 export const FATAL_ERROR_TYPES = [
   "no-schema",
   "no-source",
@@ -165,7 +177,16 @@ export const FATAL_ERROR_TYPES = [
   "invalid-patch",
 ] as const;
 export type FatalErrorType = (typeof FATAL_ERROR_TYPES)[number];
-export type ApiPatchValidationErrorResponse = {
+export type ApiPostValidationErrorResponse = {
+  modules: Record<
+    ModuleId,
+    {
+      patches: {
+        applied: PatchId[];
+        failed?: PatchId[];
+      };
+    }
+  >;
   validationErrors: Record<
     ModuleId,
     {

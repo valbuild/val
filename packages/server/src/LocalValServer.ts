@@ -1,23 +1,22 @@
 import { Service } from "./Service";
 import { result } from "@valbuild/core/fp";
-import {
-  JSONOps,
-  JSONValue,
-  applyPatch,
-  parsePatch,
-} from "@valbuild/core/patch";
+import { JSONOps, JSONValue, applyPatch } from "@valbuild/core/patch";
 import { Patch } from "./patch/validation";
 import {
   ApiCommitResponse,
   ApiGetPatchResponse,
   ApiPostPatchResponse,
-  ApiPatchValidationErrorResponse,
+  ApiPostValidationErrorResponse,
   ApiTreeResponse,
   ModuleId,
   PatchId,
   ApiDeletePatchResponse,
   deserializeSchema,
   SourcePath,
+  ApiPostValidationResponse,
+  ValidationError,
+  FileMetadata,
+  ImageMetadata,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -39,6 +38,10 @@ import {
   ValServerCallbacks,
 } from "./ValServer";
 import { SerializedModuleContent } from "./SerializedModuleContent";
+import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
+import { extractFileMetadata, extractImageMetadata } from "./extractMetadata";
+import { validateMetadata } from "./validateMetadata";
+import { getValidationErrorMetadata } from "./getValidationErrorMetadata";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -202,7 +205,7 @@ export class LocalValServer implements ValServer {
         source = patchRes.value;
       } else {
         console.error(
-          "Val: unexpected error applying patch. Is there a mismatch in Val versions? Perhaps Val is misconfigured?",
+          "Val: got an unexpected error while applying patch. Is there a mismatch in Val versions? Perhaps Val is misconfigured?",
           {
             patchId,
             moduleId,
@@ -231,12 +234,15 @@ export class LocalValServer implements ValServer {
       source
     );
     if (validationErrors) {
+      const revalidated = await this.revalidateImageAndFileValidation(
+        validationErrors
+      );
       return {
         path: moduleId as string as SourcePath,
         schema,
         source,
-        errors: {
-          validation: validationErrors,
+        errors: revalidated && {
+          validation: revalidated,
         },
       };
     }
@@ -247,6 +253,99 @@ export class LocalValServer implements ValServer {
       source,
       errors: false,
     };
+  }
+
+  // TODO: name this better: we need to check for image and file validation errors
+  // since they cannot be handled directly inside the validation function.
+  // The reason is that validate will be called inside QuickJS (in the future, hopefully), which does not have access to the filesystem.
+  // If you are reading this, and we still are not using QuickJS to validate, this assumption might be wrong.
+  private async revalidateImageAndFileValidation(
+    validationErrors: Record<SourcePath, ValidationError[]>
+  ): Promise<false | Record<SourcePath, ValidationError[]>> {
+    const revalidatedValidationErrors: Record<SourcePath, ValidationError[]> =
+      {};
+    for (const pathStr in validationErrors) {
+      const errorSourcePath = pathStr as SourcePath;
+      const errors = validationErrors[errorSourcePath];
+      revalidatedValidationErrors[errorSourcePath] = [];
+      for (const error of errors) {
+        if (
+          error.fixes?.every(
+            (fix) =>
+              fix === "file:check-metadata" || fix === "image:replace-metadata" // TODO: rename fix to: image:check-metadata
+          )
+        ) {
+          const fileRef = getValidationErrorFileRef(error);
+          if (fileRef) {
+            const filePath = path.join(
+              this.options.service.sourceFileHandler.projectRoot,
+              fileRef
+            );
+            let fileBuffer: Buffer | undefined = undefined;
+            try {
+              fileBuffer = await fs.readFile(filePath);
+            } catch (err) {
+              //
+            }
+            if (!fileBuffer) {
+              revalidatedValidationErrors[errorSourcePath].push({
+                message: `Could not read file: ${filePath}`,
+              });
+              continue;
+            }
+
+            let expectedMetadata: FileMetadata | ImageMetadata;
+            if (error.fixes.some((fix) => fix === "image:replace-metadata")) {
+              expectedMetadata = await extractImageMetadata(
+                filePath,
+                fileBuffer
+              );
+            } else {
+              expectedMetadata = await extractFileMetadata(
+                filePath,
+                fileBuffer
+              );
+            }
+            if (!expectedMetadata) {
+              revalidatedValidationErrors[errorSourcePath].push({
+                message: `Could not read file metadata. Is the reference to the file: ${fileRef} correct?`,
+              });
+            } else {
+              const actualMetadata = getValidationErrorMetadata(error);
+              const revalidatedError = validateMetadata(
+                actualMetadata,
+                expectedMetadata
+              );
+              if (!revalidatedError) {
+                // no errors anymore:
+                continue;
+              }
+              const errorMsgs = (revalidatedError.globalErrors || [])
+                .concat(Object.values(revalidatedError.erroneousMetadata || {}))
+                .concat(
+                  Object.values(revalidatedError.missingMetadata || []).map(
+                    (missingKey) => `Required key: ${missingKey} is not defined`
+                  )
+                );
+              revalidatedValidationErrors[errorSourcePath].push(
+                ...errorMsgs.map((message) => ({ message }))
+              );
+            }
+          } else {
+            revalidatedValidationErrors[errorSourcePath].push(error);
+          }
+        } else {
+          revalidatedValidationErrors[errorSourcePath].push(error);
+        }
+      }
+    }
+    const hasErrors = Object.values(revalidatedValidationErrors).some(
+      (errors) => errors.length > 0
+    );
+    if (hasErrors) {
+      return revalidatedValidationErrors;
+    }
+    return hasErrors;
   }
 
   private async readPatches(): Promise<
@@ -458,17 +557,30 @@ export class LocalValServer implements ValServer {
     };
   }
 
-  async postCommit(): Promise<
-    ValServerJsonResult<ApiCommitResponse, ApiPatchValidationErrorResponse>
+  private async validateThenMaybeCommit(
+    rawBody: unknown,
+    commit: boolean
+  ): Promise<
+    Promise<
+      ValServerJsonResult<
+        ApiPostValidationResponse | ApiPostValidationErrorResponse
+      >
+    >
   > {
-    const modules: Record<
-      ModuleId,
-      {
-        patches: {
-          applied: PatchId[];
-        };
-      }
-    > = {};
+    const filterPatchesByModuleIdRes = z
+      .object({
+        patches: z.record(z.array(z.string())).optional(),
+      })
+      .safeParse(rawBody);
+    if (!filterPatchesByModuleIdRes.success) {
+      return {
+        status: 404,
+        json: {
+          message: "Could not parse body",
+          details: filterPatchesByModuleIdRes.error,
+        },
+      };
+    }
     let {
       patchIdsByModuleId,
       patchesById,
@@ -490,13 +602,17 @@ export class LocalValServer implements ValServer {
     patchesById = res.value.patchesById;
     patches = res.value.patches;
 
-    const validationErrorsByModuleId: ApiPatchValidationErrorResponse["validationErrors"] =
+    const validationErrorsByModuleId: ApiPostValidationErrorResponse["validationErrors"] =
       {};
     for (const moduleIdStr in patchIdsByModuleId) {
       const moduleId = moduleIdStr as ModuleId;
       const serializedModuleContent = await this.applyAllPatchesThenValidate(
         moduleId,
-        patchIdsByModuleId,
+        (filterPatchesByModuleIdRes.data.patches as Record<
+          ModuleId,
+          PatchId[]
+        >) || // TODO: refine to ModuleId and PatchId when parsing
+          patchIdsByModuleId,
         patchesById,
         true
       );
@@ -505,14 +621,49 @@ export class LocalValServer implements ValServer {
       }
     }
     if (Object.keys(validationErrorsByModuleId).length > 0) {
+      const modules: Record<
+        ModuleId,
+        {
+          patches: {
+            applied: PatchId[];
+            failed?: PatchId[];
+          };
+        }
+      > = {};
+      for (const [patchId, moduleId] of patches) {
+        if (!modules[moduleId]) {
+          modules[moduleId] = {
+            patches: {
+              applied: [],
+            },
+          };
+        }
+        if (validationErrorsByModuleId[moduleId]) {
+          if (!modules[moduleId].patches.failed) {
+            modules[moduleId].patches.failed = [];
+          }
+          modules[moduleId].patches.failed?.push(patchId);
+        } else {
+          modules[moduleId].patches.applied.push(patchId);
+        }
+      }
       return {
-        status: 400,
+        status: 200,
         json: {
+          modules,
           validationErrors: validationErrorsByModuleId,
         },
       };
     }
 
+    const modules: Record<
+      ModuleId,
+      {
+        patches: {
+          applied: PatchId[];
+        };
+      }
+    > = {};
     for (const [patchId, moduleId, patch] of patches) {
       if (!modules[moduleId]) {
         modules[moduleId] = {
@@ -521,10 +672,15 @@ export class LocalValServer implements ValServer {
           },
         };
       }
-      // TODO: patch the entire module content directly by using a { path: "", op: "replace", value: patchedData }?
-      // Reason: that would be more atomic? Not doing it now, because there are currently already too many moving pieces.
-      await fs.rm(this.getPatchFilePath(patchId));
-      await this.options.service.patch(moduleId, patch);
+      if (commit) {
+        // TODO: patch the entire module content directly by using a { path: "", op: "replace", value: patchedData }?
+        // Reason: that would be more atomic? Not doing it now, because there are currently already too many moving pieces.
+        // Other things we could do would be to patch in a temp directory and ONLY when all patches are applied we move back in.
+        // This would improve reliability
+        await fs.rm(this.getPatchFilePath(patchId));
+        await this.options.service.patch(moduleId, patch);
+      }
+      // during validation we build this up again, wanted to following the same flows for validation and for commits
       modules[moduleId].patches.applied.push(patchId);
     }
 
@@ -532,9 +688,48 @@ export class LocalValServer implements ValServer {
       status: 200,
       json: {
         modules,
-        git: this.options.git,
+        validationErrors: false,
       },
     };
+  }
+
+  async postValidate(
+    rawBody: unknown
+  ): Promise<
+    ValServerJsonResult<
+      ApiPostValidationResponse | ApiPostValidationErrorResponse
+    >
+  > {
+    return this.validateThenMaybeCommit(rawBody, false);
+  }
+
+  async postCommit(
+    rawBody: unknown
+  ): Promise<
+    ValServerJsonResult<ApiCommitResponse, ApiPostValidationErrorResponse>
+  > {
+    const res = await this.validateThenMaybeCommit(rawBody, true);
+    if (res.status === 200) {
+      if (res.json.validationErrors) {
+        return {
+          status: 400,
+          json: {
+            ...res.json,
+          },
+        } as { status: 400; json: ApiPostValidationErrorResponse };
+      }
+      return {
+        status: 200,
+        json: {
+          ...res.json,
+          git: this.options.git,
+        },
+      };
+    }
+    return res as ValServerJsonResult<
+      ApiCommitResponse,
+      ApiPostValidationErrorResponse
+    >;
   }
 
   async authorize(): Promise<ValServerRedirectResult<VAL_STATE_COOKIE>> {

@@ -373,6 +373,14 @@ export function createValApiRouter<Res>(
       return convert(
         await valServer.postCommit(body, getCookies(req, [VAL_SESSION_COOKIE]))
       );
+    } else if (method === "POST" && path === "/validate") {
+      const body = (await req.json()) as unknown;
+      return convert(
+        await valServer.postValidate(
+          body,
+          getCookies(req, [VAL_SESSION_COOKIE])
+        )
+      );
     } else if (method === "GET" && path.startsWith(TREE_PATH_PREFIX)) {
       return withTreePath(
         path,

@@ -1,6 +1,7 @@
 import {
   Internal,
   ModuleId,
+  PatchId,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
@@ -73,6 +74,18 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api, store }) => {
     },
     []
   );
+
+  useEffect(() => {
+    api
+      .postValidate({
+        patches,
+      })
+      .then((res) => {
+        console.log(res);
+        // set validated patches
+      });
+  }, [patches]);
+
   const [patchModalOpen, setPatchModalOpen] = useState(false);
   return (
     <ValUIContext.Provider
