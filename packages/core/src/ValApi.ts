@@ -114,7 +114,12 @@ export class ValApi {
   }: {
     patches?: Record<ModuleId, PatchId[]>;
     headers?: Record<string, string> | undefined;
-  }) {
+  }): Promise<
+    result.Result<
+      ApiCommitResponse,
+      FetchError | ApiPostValidationErrorResponse
+    >
+  > {
     return fetch(`${this.host}/commit`, {
       method: "POST",
       body: JSON.stringify({ patches }),
@@ -147,7 +152,12 @@ export class ValApi {
   }: {
     patches?: Record<ModuleId, PatchId[]>;
     headers?: Record<string, string> | undefined;
-  }) {
+  }): Promise<
+    result.Result<
+      ApiPostValidationResponse | ApiPostValidationErrorResponse,
+      FetchError
+    >
+  > {
     return fetch(`${this.host}/validate`, {
       method: "POST",
       body: JSON.stringify({ patches }),
@@ -156,25 +166,13 @@ export class ValApi {
       },
     })
       .then(async (res) => {
-        if (res.ok) {
-          return parse<{ validationErrors: false }>(res);
-        } else if (
-          res.status === 400 &&
-          res.headers.get("content-type") === "application/json"
-        ) {
-          const jsonRes = await res.json();
-          if ("validationErrors" in jsonRes) {
-            return result.err(jsonRes as ApiPostValidationErrorResponse);
-          } else {
-            return formatError(res.status, jsonRes, res.statusText);
-          }
-        }
-        return parse<{
-          validationErrors: false;
-          patches: Record<ModuleId, PatchId[]>;
-        }>(res);
+        return parse<
+          ApiPostValidationResponse | ApiPostValidationErrorResponse
+        >(res);
       })
-      .catch(createError<{ validationErrors: false }>);
+      .catch(
+        createError<ApiPostValidationResponse | ApiPostValidationErrorResponse>
+      );
   }
 }
 
