@@ -224,6 +224,11 @@ const Internal = {
   createPatchPath: (modulePath: ModulePath) => {
     return parsePath(modulePath);
   },
+  patchPathToModulePath: (patchPath: string[]): ModulePath => {
+    return patchPath
+      .map((segment) => JSON.stringify(segment))
+      .join(".") as ModulePath;
+  },
   VAL_ENABLE_COOKIE_NAME: "val_enable" as const,
   VAL_STATE_COOKIE: "val_state" as const,
   VAL_SESSION_COOKIE: "val_session" as const,
