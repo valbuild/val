@@ -2,6 +2,7 @@ import { ModuleId } from "@valbuild/core";
 import {
   History,
   ReviewErrors,
+  ReviewModuleError,
   ReviewPanel as ReviewPanelComponent,
 } from "./ValPatches";
 import { ValUIContext } from "./ValUIContext";
@@ -136,42 +137,52 @@ export const ReviewPanel: Story = {
     ] as History,
     errors: {
       errors: {
-        "/app/content": [
-          {
-            path: '1."title"',
-            lastChangedBy: {
-              name: "Fredrik Ekholdt",
-              avatarUrl: "https://randomuser.me/api/portraits/men/3.jpg",
+        "/app/fatal-example": {
+          fatalErrors: [
+            "Module id: '/app/fatal' does not match filepath: /app/fatal-example",
+          ],
+          validations: [],
+        },
+        "/app/content": {
+          validations: [
+            {
+              path: '1."title"',
+              lastChangedBy: {
+                name: "Fredrik Ekholdt",
+                avatarUrl: "https://randomuser.me/api/portraits/men/3.jpg",
+              },
+              lastChangedAt: "yesterday",
+              messages: [
+                {
+                  message:
+                    "Text length is 3 characters: must be between 10 and 100 characters",
+                  severity: "warning",
+                },
+                {
+                  message:
+                    "Text is 'Hello': must correspond to pattern 'CMS|Test'",
+                  severity: "warning",
+                },
+              ],
             },
-            lastedChangedAt: "yesterday",
-            messages: [
-              {
-                message:
-                  "Text length is 3 characters: must be between 10 and 100 characters",
-                severity: "warning",
+          ] as ReviewModuleError["validations"],
+        },
+        "/app/example": {
+          validations: [
+            {
+              path: '1.0."test"."foo"."long-list".3',
+              lastChangedBy: {
+                name: "Fredrik Ekholdt",
               },
-              {
-                message:
-                  "Text is 'Hello': must correspond to pattern 'CMS|Test'",
-                severity: "warning",
-              },
-            ],
-          },
-        ] as ReviewErrors["errors"][ModuleId],
-        "/app/example": [
-          {
-            path: '1.0."test"."foo"."long-list".3',
-            lastChangedBy: {
-              name: "Fredrik Ekholdt",
+              messages: [
+                {
+                  severity: "error",
+                  message: "Text cannot be empty",
+                },
+              ],
             },
-            messages: [
-              {
-                severity: "error",
-                message: "Text cannot be empty",
-              },
-            ],
-          },
-        ] as ReviewErrors["errors"][ModuleId],
+          ] as ReviewModuleError["validations"],
+        },
       },
     } as ReviewErrors,
   },

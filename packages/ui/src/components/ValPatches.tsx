@@ -1,28 +1,28 @@
 import {
-  AnyRichTextOptions,
   ApiPostValidationErrorResponse,
   ApiPostValidationResponse,
-  FileMetadata,
-  ImageMetadata,
   ModuleId,
   PatchId,
-  RichText,
   SourcePath,
   ValApi,
 } from "@valbuild/core";
-import { ChevronDown, Diff, X } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { result } from "@valbuild/core/fp";
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Accordion, AccordionContent } from "./ui/accordion";
-import {
-  AccordionHeader,
-  AccordionItem,
-  AccordionTrigger,
-} from "@radix-ui/react-accordion";
+import { AccordionItem, AccordionTrigger } from "@radix-ui/react-accordion";
 import { Path } from "./Path";
 import classNames from "classnames";
-import { AlertCircle, ChevronRight, ChevronUp, XCircle } from "react-feather";
+import { AlertCircle, XCircle } from "react-feather";
+import { Patch } from "@valbuild/core/patch";
+import {
+  Author,
+  History,
+  ReviewErrors,
+  ReviewModuleError,
+  convertPatchErrors,
+} from "./convertPatchErrors";
 
 export type ValPatchesProps = {
   api: ValApi;
@@ -53,6 +53,9 @@ export function ValPatches({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
+  const [patchesByModule, setPatchesByModule] =
+    useState<Record<ModuleId, Patch[]>>();
+
   return (
     <Container>
       <div className="flex justify-end p-2">
@@ -98,64 +101,6 @@ export function ValPatches({
   );
 }
 
-type Author = {
-  name: string;
-  avatarUrl?: string;
-};
-type SourceChangeItem = {
-  path: SourcePath;
-  type: "replace" | "move" | "add" | "remove";
-  count: number;
-  // TODO: display a notification symbol on the last change on a source path with a validation error
-  // notification?: "error" | "warning";
-  // TODO: it would be awesome to get a diff, but too much work for now:
-  // diff?:
-  //   | {
-  //       before: string;
-  //       after: string;
-  //     }
-  //   | {
-  //       before: RichText<AnyRichTextOptions>;
-  //       after: RichText<AnyRichTextOptions>;
-  //     };
-} & {
-  changedAt?: string;
-};
-type FileChange = {
-  ref: string;
-  type: "replace" | "add";
-};
-
-export type History = {
-  author?: Author;
-  lastChangedAt: string;
-  changeCount: number;
-  changes: (
-    | {
-        moduleId: ModuleId;
-        items: SourceChangeItem[];
-      }
-    | FileChange
-  )[];
-}[];
-
-export type ReviewErrors = {
-  globalError?: string;
-  errors: Record<
-    ModuleId,
-    {
-      moduleError?: string;
-      path: SourcePath;
-      lastChangedBy?: Author;
-      lastedChangedAt?: string;
-      messages: {
-        message: string;
-        severity: "error" | "warning";
-      }[];
-    }[]
-  >;
-};
-
 export function ReviewPanel({
   history,
   errors,
@@ -165,7 +110,9 @@ export function ReviewPanel({
 }) {
   return (
     <div>
-      <h1 className="block mb-6 font-sans text-xl font-bold">Review changes</h1>
+      <h1 className="block mb-6 font-sans text-2xl font-bold">
+        Review changes
+      </h1>
       {history.length > 0 && (
         <ol>
           {history.map((item, index) => (
@@ -181,15 +128,21 @@ export function ReviewPanel({
           ))}
         </ol>
       )}
-      {errors.errors &&
-        Object.entries(errors.errors).map(([moduleId, moduleErrors]) => (
-          <ValidationModuleErrors
-            key={moduleId}
-            moduleId={moduleId as ModuleId}
-          >
-            {moduleErrors}
-          </ValidationModuleErrors>
-        ))}
+      {errors.errors && (
+        <>
+          <h2 className="mt-10 mb-6 text-xl font-bold">
+            Validation Notifications
+          </h2>
+          {Object.entries(errors.errors).map(([moduleId, moduleErrors]) => (
+            <ValidationModuleErrors
+              key={moduleId}
+              moduleId={moduleId as ModuleId}
+            >
+              {moduleErrors}
+            </ValidationModuleErrors>
+          ))}
+        </>
+      )}
     </div>
   );
 }
@@ -199,15 +152,28 @@ function ValidationModuleErrors({
   children: moduleErrors,
 }: {
   moduleId: ModuleId;
-  children: ReviewErrors["errors"][ModuleId];
+  children: ReviewModuleError;
 }) {
   return (
     <div className="mt-6">
       <div>
-        <Path>{moduleId}</Path>
+        <span>
+          <Path>{moduleId}</Path>
+        </span>
+        {moduleErrors.fatalErrors && (
+          <div className="mt-3">
+            {moduleErrors.fatalErrors.map((error, index) => (
+              <div className="mt-3">
+                <XCircle className="inline-block mr-2" />
+                <span>{error}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+
       <div>
-        {moduleErrors.map((error, index) => (
+        {moduleErrors.validations.map((error, index) => (
           <ValidationErrorItem key={index}>{error}</ValidationErrorItem>
         ))}
       </div>
@@ -231,28 +197,39 @@ function AuthorComponent({ author }: { author?: Author }) {
 function ValidationErrorItem({
   children: error,
 }: {
-  children: ReviewErrors["errors"][ModuleId][number];
+  children: ReviewModuleError["validations"][number];
 }) {
+  const [open, setOpen] = useState(false);
   return (
-    <Accordion type="single" collapsible className="text-sm">
+    <Accordion
+      type="single"
+      collapsible
+      className="text-sm"
+      defaultValue={"validation-error"}
+      onValueChange={(value) => setOpen(value === "validation-error")}
+    >
       <AccordionItem value="validation-error">
-        <AccordionTrigger className="flex items-center justify-between w-full mt-3">
+        <div className="flex items-center justify-between w-full mt-3">
           <span>
             <span className="min-w-[100px] text-left truncate" dir="rtl">
               <Path>{error.path}</Path>
             </span>
-            <span className="ml-2 text-muted">({error.messages.length})</span>
           </span>
-          <div className="flex items-center gap-4">
+          <AccordionTrigger className="flex items-center gap-2">
             <span className="truncate">
-              last changed
-              {error.lastedChangedAt ? ` ${error.lastedChangedAt}` : ""} by{" "}
+              {error.messages.length} messages
+              {error.lastChangedAt && ` • ${error.lastChangedAt} `}
             </span>
             {error.lastChangedBy && (
               <AuthorComponent author={error.lastChangedBy} />
             )}
-          </div>
-        </AccordionTrigger>
+            <ChevronDown
+              className={classNames("transition", {
+                "-rotate-180": open,
+              })}
+            />
+          </AccordionTrigger>
+        </div>
         <AccordionContent>
           {error.messages.map((message, index) => {
             return <ErrorMessage key={index}>{message}</ErrorMessage>;
@@ -265,7 +242,7 @@ function ValidationErrorItem({
 function ErrorMessage({
   children: message,
 }: {
-  children: ReviewErrors["errors"][ModuleId][number]["messages"][number];
+  children: ReviewModuleError["validations"][number]["messages"][number];
 }) {
   const [open, setOpen] = useState(false);
   const toggle = () => setOpen((open) => !open);
@@ -352,13 +329,8 @@ function ChangeItem({
 }: {
   change: History[number]["changes"][number];
 }) {
-  if ("ref" in change) {
-    return (
-      <div>
-        {change.type === "add" ? "Added file " : "Updated file "}
-        {change.ref}
-      </div>
-    );
+  if ("path" in change) {
+    return <div>{`Updated file ${change.path}`}</div>;
   }
   return (
     <div>
