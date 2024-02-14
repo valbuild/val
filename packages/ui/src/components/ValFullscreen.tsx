@@ -1,11 +1,12 @@
 import {
+  ApiPostValidationResponse,
   Internal,
   ModuleId,
   PatchId,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
-import { Json } from "@valbuild/core";
+import { Json, ApiPostValidationErrorResponse } from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
 import { FC, useCallback, useEffect, useState } from "react";
 import { Grid } from "./Grid";
@@ -20,7 +21,7 @@ import { ValMenu } from "./ValMenu";
 import { usePatches } from "./usePatch";
 import { useSession } from "./useSession";
 import { Path } from "./Path";
-import { ValPatches } from "./ValPatches";
+import { ValPatches, ValPatchesProps } from "./ValPatches";
 import { AnyVal, PathTree, ValImagePreviewContext } from "./ValCompositeFields";
 import { InitOnSubmit } from "./ValFormField";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
@@ -74,16 +75,51 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api, store }) => {
     },
     []
   );
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationResponse, setValidationResponse] =
+    useState<ValPatchesProps["validationResponse"]>();
 
   useEffect(() => {
+    let ignore = false;
+    setIsValidating(true);
     api
       .postValidate({
         patches,
       })
       .then((res) => {
-        console.log(res);
-        // set validated patches
+        if (!ignore) {
+          if (result.isOk(res)) {
+            setValidationResponse({
+              globalError: null,
+              errors: res.value,
+            });
+          } else {
+            setValidationResponse({
+              globalError: {
+                message:
+                  "Could not validate changes: check if Val is correctly setup.",
+                details: res.error,
+              },
+            });
+          }
+          setIsValidating(false);
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          setValidationResponse({
+            globalError: {
+              message:
+                "Could not validate changes: check the internet connection.",
+              details: err,
+            },
+          });
+          setIsValidating(false);
+        }
       });
+    return () => {
+      ignore = true;
+    };
   }, [patches]);
 
   const [patchModalOpen, setPatchModalOpen] = useState(false);
@@ -111,6 +147,8 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api, store }) => {
           <div className="fixed z-5 top-[16px] left-[16px] w-[calc(100%-32px-50px-16px)] h-[calc(100svh-32px)]">
             <ValPatches
               patches={patches}
+              isValidating={isValidating}
+              validationResponse={validationResponse}
               api={api}
               onCancel={() => {
                 setPatchModalOpen(false);

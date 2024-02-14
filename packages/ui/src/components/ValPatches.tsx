@@ -1,4 +1,11 @@
-import { ModuleId, ValApi } from "@valbuild/core";
+import {
+  ApiPostValidationErrorResponse,
+  ApiPostValidationResponse,
+  ModuleId,
+  PatchId,
+  SourcePath,
+  ValApi,
+} from "@valbuild/core";
 import { ChevronDown, Diff, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { result } from "@valbuild/core/fp";
@@ -6,17 +13,25 @@ import { useEffect, useState } from "react";
 import { Accordion, AccordionContent } from "./ui/accordion";
 import { AccordionItem, AccordionTrigger } from "@radix-ui/react-accordion";
 
-export function ValPatches({
-  api,
-  patches: patchIdsByModule,
-  onCommit,
-  onCancel,
-}: {
+export type ValPatchesProps = {
   api: ValApi;
-  patches: Record<ModuleId, string[]>;
+  isValidating: boolean;
+  validationResponse: {
+    globalError: null | { message: string; details?: unknown };
+    errors?: ApiPostValidationResponse | ApiPostValidationErrorResponse;
+  };
+  patches: Record<ModuleId, PatchId[]>;
   onCommit: () => void;
   onCancel: () => void;
-}) {
+};
+export function ValPatches({
+  api,
+  isValidating,
+  patches: patchIdsByModule,
+  validationResponse,
+  onCommit,
+  onCancel,
+}: ValPatchesProps) {
   const [loading, setLoading] = useState(false);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -35,56 +50,13 @@ export function ValPatches({
         </button>
       </div>
       <div className="flex flex-col items-center justify-center h-full p-8 gap-y-5">
-        <h1 className="block font-sans text-xl font-bold">Review changes</h1>
-        <ul>
-          {Object.entries(patchIdsByModule).map(([moduleId, patchIds]) => (
-            <li key={moduleId}>
-              <Accordion type="single" collapsible>
-                <AccordionItem value={moduleId}>
-                  <AccordionTrigger className="grid grid-cols-[1fr_min-content] gap-x-2">
-                    <span>{moduleId}</span>
-                    <span className="flex">
-                      <Diff size={14} />
-                      <span>{patchIds.length}</span>
-                      <span>
-                        <ChevronDown size={14} />
-                      </span>
-                    </span>
-                  </AccordionTrigger>
-                  <AccordionContent>
-                    <Accordion type="multiple">
-                      {patchIds.map((patchId) => (
-                        <AccordionItem value={patchId}>
-                          <AccordionTrigger>
-                            <div className="flex items-center gap-x-5">
-                              <span>Changed by: John Smith</span>
-                              <span>Changed at: 2024-01-04 13:25:00</span>
-                              <img
-                                className="h-[14px] w-[14px]"
-                                src="https://randomuser.me/api/portraits/men/3.jpg"
-                              ></img>
-                              <X size={14} />
-                              <ChevronDown size={14} />
-                            </div>
-                          </AccordionTrigger>
-                          <AccordionContent>
-                            <div>Changed to: "Foo bar"</div>
-                          </AccordionContent>
-                        </AccordionItem>
-                      ))}
-                    </Accordion>
-                  </AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            </li>
-          ))}
-        </ul>
+        <ReviewPanel />
         <div className="flex gap-x-4">
           <Button variant={"secondary"} onClick={onCancel}>
             Cancel
           </Button>
           <Button
-            disabled={Object.keys(patchIdsByModule).length === 0 || loading}
+            disabled={isValidating || loading}
             onClick={() => {
               setLoading(true);
               api
@@ -92,7 +64,11 @@ export function ValPatches({
                 .then((res) => {
                   if (result.isErr(res)) {
                     console.error(res.error);
-                    alert("Could not commit patches: " + res.error.message);
+                    if ("validationErrors" in res.error) {
+                      alert("Cannot commit invalid patches");
+                    } else {
+                      alert("Could not commit patches: " + res.error.message);
+                    }
                   } else {
                     console.log("Committed patches: ", res.value);
                     onCommit();
@@ -108,6 +84,51 @@ export function ValPatches({
         </div>
       </div>
     </Container>
+  );
+}
+
+type Author = {
+  name: string;
+};
+type HistoryItem = (
+  | {
+      path: SourcePath;
+      type: "replace" | "move" | "add" | "remove";
+    }
+  | {
+      filename: string;
+    }
+) & {
+  author?: string;
+  date?: string;
+};
+export type History = [Author, [ModuleId, HistoryItem[]][]];
+
+export type ReviewErrors = [
+  ModuleId,
+  {
+    path: SourcePath;
+    message: string;
+    lastChangedBy: string;
+    lastedChangedAt?: string;
+  }[]
+];
+
+export function ReviewPanel({
+  history,
+  errors,
+}: {
+  history: History;
+  errors: ReviewErrors;
+}) {
+  return (
+    <div>
+      <h1 className="block font-sans text-xl font-bold">Review changes</h1>
+      <h2>History</h2>
+      <ul>
+        <li></li>
+      </ul>
+    </div>
   );
 }
 
