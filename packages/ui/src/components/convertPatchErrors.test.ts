@@ -1,17 +1,19 @@
 import {
-  ApiGetPatchResponse,
   Internal,
   ModuleId,
   ModulePath,
   PatchId,
   SourcePath,
-  ValidationErrors,
 } from "@valbuild/core";
 import { convertPatchErrors } from "./convertPatchErrors";
 
 const moduleIds = ["/app/test", "/app/example"] as ModuleId[];
 const patchIds = ["1707928555701", "1707928555702"] as PatchId[];
-const sourcePaths = ['1."test"', '1."example"'] as ModulePath[];
+const modulePaths = ['1."test"', '1."example"'] as ModulePath[];
+const sourcePaths = [
+  `${moduleIds[0]}.${modulePaths[0]}`,
+  `${moduleIds[1]}.${modulePaths[1]}`,
+] as SourcePath[];
 
 describe("convertPatchErrors", () => {
   test("todo", () => {
@@ -21,34 +23,36 @@ describe("convertPatchErrors", () => {
           {
             [moduleIds[0]]: [
               {
+                author: "1",
                 created_at: new Date(parseInt(patchIds[0])).toISOString(),
                 patch_id: patchIds[0],
                 patch: [
                   {
                     op: "replace",
-                    path: Internal.createPatchPath(sourcePaths[0]),
+                    path: Internal.createPatchPath(modulePaths[0]),
                     value: "test",
                   },
                   {
                     op: "replace",
-                    path: Internal.createPatchPath(sourcePaths[1]),
+                    path: Internal.createPatchPath(modulePaths[1]),
                     value: "test2",
                   },
                   {
                     op: "file",
-                    path: Internal.createPatchPath(sourcePaths[0]),
+                    path: Internal.createPatchPath(modulePaths[0]),
                     filePath: "/app/test",
                     value: "test2",
                   },
                 ],
               },
               {
+                author: "2",
                 created_at: new Date(parseInt(patchIds[0])).toISOString(),
                 patch_id: patchIds[1],
                 patch: [
                   {
                     op: "replace",
-                    path: Internal.createPatchPath(sourcePaths[0]),
+                    path: Internal.createPatchPath(modulePaths[0]),
                     value: "tst",
                   },
                 ],
@@ -81,6 +85,16 @@ describe("convertPatchErrors", () => {
                   failed: [patchIds[1]],
                 },
               },
+            },
+          },
+          {
+            "1": {
+              id: "1",
+              name: "Test",
+            },
+            "2": {
+              id: "2",
+              name: "Test2",
             },
           }
         ),

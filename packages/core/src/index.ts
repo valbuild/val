@@ -226,7 +226,13 @@ const Internal = {
   },
   patchPathToModulePath: (patchPath: string[]): ModulePath => {
     return patchPath
-      .map((segment) => JSON.stringify(segment))
+      .map((segment) => {
+        // TODO: I am worried that something is lost here: what if the segment is a string that happens to be a parsable as a number? We could make those keys illegal?
+        if (Number.isInteger(Number(segment))) {
+          return segment;
+        }
+        return JSON.stringify(segment);
+      })
       .join(".") as ModulePath;
   },
   VAL_ENABLE_COOKIE_NAME: "val_enable" as const,

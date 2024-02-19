@@ -65,7 +65,7 @@ export type ReviewErrors = {
 export type ReviewModuleError = {
   fatalErrors?: string[];
   validations: {
-    path: SourcePath;
+    path: ModulePath;
     lastChangedBy?: Author;
     lastChangedAt?: string;
     messages: {
@@ -115,10 +115,9 @@ export function convertPatchErrors(
   authors?: Record<AuthorId, Author>
 ): {
   history: History;
-  errors?: ReviewErrors;
+  errors?: ReviewErrors; // TODO: do we in fact need a separate type for this? We need authors and dates, but maybe the format could be more or less the same as ValidationErrors?
 } {
   const history: History = [];
-  const reviewErrors: [ModuleId, ReviewModuleError][] = [];
 
   const sortedPatches: {
     moduleId: ModuleId;
@@ -137,6 +136,7 @@ export function convertPatchErrors(
         patchId: patch.patch_id,
         created_at: patch.created_at,
         commit_sha: patch.commit_sha,
+        author: patch.author,
       });
     }
   }
@@ -153,6 +153,7 @@ export function convertPatchErrors(
         type: "replace" | "move" | "add" | "remove";
         count: number;
         changedAt?: string;
+        changedBy?: Author;
       }
     >
   > = {};
@@ -194,7 +195,7 @@ export function convertPatchErrors(
         case "add":
         case "remove":
         case "replace":
-        case "move":
+        case "move": {
           const currentItem =
             lastChangesByModuleIdSourcePath[patch.moduleId][modulePath];
           if (!currentItem) {
@@ -202,13 +203,15 @@ export function convertPatchErrors(
               type: op.op,
               count: 1,
               changedAt: patch.created_at,
+              changedBy: author,
             };
           } else {
             currentItem.count++;
             currentItem.changedAt = patch.created_at;
           }
           break;
-        case "file":
+        }
+        case "file": {
           const filePath = op.filePath;
           const currentFileChange = lastFileChanges.find(
             (fileChange) => fileChange.filePath === filePath
@@ -224,6 +227,7 @@ export function convertPatchErrors(
             currentFileChange.changedAt = patch.created_at;
           }
           break;
+        }
       }
     }
     for (const moduleIdS in lastChangesByModuleIdSourcePath) {
@@ -257,6 +261,47 @@ export function convertPatchErrors(
   }
   if (lastHistoryItem) {
     history.push(lastHistoryItem);
+  }
+
+  //
+  const reviewErrors: [ModuleId, ReviewModuleError][] = [];
+  if (validationRes.validationErrors) {
+    for (const [moduleIdS, validationError] of Object.entries(
+      validationRes.validationErrors
+    )) {
+      const moduleId = moduleIdS as ModuleId;
+      const reviewModuleError: ReviewModuleError = {
+        validations: [],
+      };
+      if (validationError.errors.fatal) {
+        reviewModuleError.fatalErrors = validationError.errors.fatal.map(
+          (error) => error.message
+        );
+      }
+      if (validationError.errors.validation) {
+        for (const [sourcePath, messages] of Object.entries(
+          validationError.errors.validation
+        )) {
+          const [, modulePath] = Internal.splitModuleIdAndModulePath(
+            sourcePath as SourcePath
+          );
+          reviewModuleError.validations.push({
+            path: modulePath,
+            messages: messages.map((message) => ({
+              message: message.message,
+              severity: "warning",
+            })),
+            lastChangedAt:
+              lastChangesByModuleIdSourcePath[moduleId]?.[modulePath]
+                ?.changedAt,
+            lastChangedBy:
+              lastChangesByModuleIdSourcePath[moduleId]?.[modulePath]
+                ?.changedBy,
+          });
+        }
+      }
+      reviewErrors.push([moduleId, reviewModuleError]);
+    }
   }
 
   return {
