@@ -3,13 +3,18 @@ import {
   ApiPostValidationResponse,
   ModuleId,
   PatchId,
-  SourcePath,
   ValApi,
 } from "@valbuild/core";
 import { ChevronDown, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { result } from "@valbuild/core/fp";
-import { useEffect, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import { Accordion, AccordionContent } from "./ui/accordion";
 import { AccordionItem, AccordionTrigger } from "@radix-ui/react-accordion";
 import { Path } from "./Path";
@@ -27,7 +32,7 @@ import {
 export type ValPatchesProps = {
   api: ValApi;
   isValidating: boolean;
-  validationResponse: {
+  validationResponse?: {
     globalError: null | { message: string; details?: unknown };
     errors?: ApiPostValidationResponse | ApiPostValidationErrorResponse;
   };
@@ -35,6 +40,28 @@ export type ValPatchesProps = {
   onCommit: () => void;
   onCancel: () => void;
 };
+
+const TimeContext = createContext(0);
+function useNow() {
+  return useContext(TimeContext);
+}
+
+export function ValPatchesDialog(props: ValPatchesProps) {
+  return (
+    <Container>
+      <div className="flex justify-end p-2">
+        <button onClick={props.onCancel}>
+          <X />
+        </button>
+      </div>
+      <h1 className="block mb-6 font-sans text-2xl font-bold">
+        Review changes
+      </h1>
+      <ValPatches {...props} />
+    </Container>
+  );
+}
+
 export function ValPatches({
   api,
   isValidating,
@@ -53,24 +80,52 @@ export function ValPatches({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
-  const [patchesByModule, setPatchesByModule] =
-    useState<Record<ModuleId, Patch[]>>();
+  const [patchesByModule, setPatchesByModule] = useState<
+    Record<
+      ModuleId,
+      {
+        patch: Patch;
+        patch_id: PatchId;
+        created_at: string;
+        commit_sha?: string;
+        author?: string;
+      }[]
+    >
+  >();
+  useEffect(() => {
+    let ignore = false;
+    api.getPatches(patchIdsByModule).then((res) => {
+      if (ignore) {
+        return;
+      }
+      if (result.isErr(res)) {
+        console.error(res.error);
+        return;
+      } else {
+        setPatchesByModule(res.value);
+      }
+    });
+    return () => {
+      ignore = true;
+    };
+  }, [patchIdsByModule]);
 
   return (
-    <Container>
-      <div className="flex justify-end p-2">
-        <button onClick={onCancel}>
-          <X />
-        </button>
-      </div>
-      <div className="flex flex-col items-center justify-center h-full p-8 gap-y-5">
-        <ReviewPanel />
+    <TimeContext.Provider value={Date.now()}>
+      <div className="flex flex-col items-start justify-start h-full p-8 gap-y-5">
+        {patchesByModule && validationResponse && (
+          <ReviewPanel
+            {...convertPatchErrors(patchesByModule, validationResponse.errors)}
+          />
+        )}
         <div className="flex gap-x-4">
           <Button variant={"secondary"} onClick={onCancel}>
             Cancel
           </Button>
           <Button
-            disabled={isValidating || loading}
+            disabled={
+              isValidating || loading || !patchesByModule || !validationResponse
+            }
             onClick={() => {
               setLoading(true);
               api
@@ -97,7 +152,7 @@ export function ValPatches({
           </Button>
         </div>
       </div>
-    </Container>
+    </TimeContext.Provider>
   );
 }
 
@@ -106,13 +161,18 @@ export function ReviewPanel({
   errors,
 }: {
   history: History;
-  errors: ReviewErrors;
+  errors?: ReviewErrors;
 }) {
+  console.log({
+    errors,
+    a: Object.entries(errors?.errors || {}).some(
+      ([, moduleErrors]) =>
+        (moduleErrors.fatalErrors && moduleErrors.fatalErrors.length > 0) ||
+        (moduleErrors.validations && moduleErrors.validations.length > 0)
+    ),
+  });
   return (
-    <div>
-      <h1 className="block mb-6 font-sans text-2xl font-bold">
-        Review changes
-      </h1>
+    <div className="w-full">
       {history.length > 0 && (
         <ol>
           {history.map((item, index) => (
@@ -128,19 +188,25 @@ export function ReviewPanel({
           ))}
         </ol>
       )}
-      {errors.errors && (
+      {errors?.errors && (
         <>
           <h2 className="mt-10 mb-6 text-xl font-bold">
             Validation Notifications
           </h2>
-          {Object.entries(errors.errors).map(([moduleId, moduleErrors]) => (
-            <ValidationModuleErrors
-              key={moduleId}
-              moduleId={moduleId as ModuleId}
-            >
-              {moduleErrors}
-            </ValidationModuleErrors>
-          ))}
+          {Object.entries(errors.errors).map(
+            ([moduleId, moduleErrors]) =>
+              ((moduleErrors.fatalErrors &&
+                moduleErrors.fatalErrors.length > 0) ||
+                (moduleErrors.validations &&
+                  moduleErrors.validations.length > 0)) && (
+                <ValidationModuleErrors
+                  key={moduleId}
+                  moduleId={moduleId as ModuleId}
+                >
+                  {moduleErrors}
+                </ValidationModuleErrors>
+              )
+          )}
         </>
       )}
     </div>
@@ -163,7 +229,7 @@ function ValidationModuleErrors({
         {moduleErrors.fatalErrors && (
           <div className="mt-3">
             {moduleErrors.fatalErrors.map((error, index) => (
-              <div className="mt-3">
+              <div className="mt-3" key={index}>
                 <XCircle className="inline-block mr-2" />
                 <span>{error}</span>
               </div>
@@ -171,7 +237,6 @@ function ValidationModuleErrors({
           </div>
         )}
       </div>
-
       <div>
         {moduleErrors.validations.map((error, index) => (
           <ValidationErrorItem key={index}>{error}</ValidationErrorItem>
@@ -194,12 +259,45 @@ function AuthorComponent({ author }: { author?: Author }) {
   );
 }
 
+const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  dateStyle: "short",
+});
+
+function useRelativeDateTime() {
+  const now = useNow();
+  const relativeDateTime = useCallback(
+    (dateStr: string) => {
+      const diff = now - new Date(dateStr).getTime();
+      const seconds = Math.floor(diff / 1000);
+      if (seconds < 60) {
+        return `just now`;
+      }
+      const minutes = Math.floor(diff / 1000 / 60);
+      if (minutes < 60) {
+        return `${minutes} mins ago`;
+      }
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) {
+        return `${hours} hours ago`;
+      }
+      const days = Math.floor(hours / 24);
+      if (days < 3) {
+        return `${days} days ago`;
+      }
+      return dateTimeFormatter.format(new Date(dateStr));
+    },
+    [now]
+  );
+  return relativeDateTime;
+}
+
 function ValidationErrorItem({
   children: error,
 }: {
   children: ReviewModuleError["validations"][number];
 }) {
   const [open, setOpen] = useState(false);
+  const relativeDateTime = useRelativeDateTime();
   return (
     <Accordion
       type="single"
@@ -218,7 +316,8 @@ function ValidationErrorItem({
           <AccordionTrigger className="flex items-center gap-2">
             <span className="truncate">
               {error.messages.length} messages
-              {error.lastChangedAt && ` • ${error.lastChangedAt} `}
+              {error.lastChangedAt &&
+                ` • ${relativeDateTime(error.lastChangedAt)} `}
             </span>
             {error.lastChangedBy && (
               <AuthorComponent author={error.lastChangedBy} />
@@ -274,6 +373,7 @@ function HistoryItem({
   defaultOpen?: boolean;
   children: History[number];
 }) {
+  const relativeDateTime = useRelativeDateTime();
   const [open, setOpen] = useState(defaultOpen);
   const value = `history-item-${index}`;
   return (
@@ -293,7 +393,7 @@ function HistoryItem({
               <span>
                 {item.changeCount}
                 {" changes"}
-                {` • ${item.lastChangedAt}`}
+                {` • ${relativeDateTime(item.lastChangedAt)}`}
               </span>
             }
             <ChevronDown
@@ -329,9 +429,7 @@ function ChangeItem({
 }: {
   change: History[number]["changes"][number];
 }) {
-  if ("path" in change) {
-    return <div>{`Updated file ${change.path}`}</div>;
-  }
+  const relativeDateTime = useRelativeDateTime();
   return (
     <div>
       <div className="font-bold">
@@ -342,7 +440,7 @@ function ChangeItem({
           <li key={index}>
             <div className="grid grid-cols-3 py-2">
               <span>
-                <Path>{item.path}</Path>
+                {item.filePath ? item.filePath : <Path>{item.path}</Path>}
               </span>
               <span>
                 {item.type === "replace"
@@ -359,7 +457,7 @@ function ChangeItem({
                   ? "moved "
                   : "removed "}
               </span>
-              {item.changedAt && <div>{item.changedAt}</div>}
+              {item.changedAt && <div>{relativeDateTime(item.changedAt)}</div>}
             </div>
           </li>
         ))}

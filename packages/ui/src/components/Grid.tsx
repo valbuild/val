@@ -110,12 +110,12 @@ export function Grid({ children }: GridProps): React.ReactElement {
         ></div>
       </div>
       <div
-        className={classNames("", {
+        className={classNames("w-[clamp(200px,70%,80vw)]", {
           "w-full": !header3 && !body3,
         })}
       >
         <Grid.Column>
-          <span className="flex w-full border-b border-border">
+          <span className="flex w-full">
             <MenuButton
               className="md:hidden"
               showOnMobile={showMobileLeftMenu}
@@ -138,25 +138,20 @@ export function Grid({ children }: GridProps): React.ReactElement {
           </ScrollArea>
         </Grid.Column>
       </div>
-      {header3 ||
-        (body3 && (
+      {(header3 || body3) && (
+        <div ref={rightColRef} className="relative w-full h-screen">
+          <Grid.Column>
+            {header3}
+            <ScrollArea style={{ height: "calc(100vh - 50px)" }}>
+              {body3}
+            </ScrollArea>
+          </Grid.Column>
           <div
-            ref={rightColRef}
-            className="relative h-screen border-l border-border"
-            style={{ width: 300 }}
-          >
-            <Grid.Column>
-              {header3}
-              <ScrollArea style={{ height: "calc(100vh - 50px)" }}>
-                {body3}
-              </ScrollArea>
-            </Grid.Column>
-            <div
-              onMouseDown={handleMouseDown("right")}
-              className="absolute inset-y-0 left-0 cursor-col-resize w-[1px] bg-border hover:w-[3px] hover:bg-border"
-            ></div>
-          </div>
-        ))}
+            onMouseDown={handleMouseDown("right")}
+            className="absolute inset-y-0 left-0 cursor-col-resize w-[1px] bg-border hover:w-[3px] hover:bg-border"
+          ></div>
+        </div>
+      )}
     </div>
   );
 }

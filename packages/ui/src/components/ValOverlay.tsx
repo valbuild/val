@@ -10,12 +10,19 @@ import { EditMode, ValUIContext, WindowSize } from "./ValUIContext";
 import { Remote } from "../utils/Remote";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
-import { Internal, Json, SerializedSchema, SourcePath } from "@valbuild/core";
+import {
+  ApiPostValidationErrorResponse,
+  ApiPostValidationResponse,
+  Internal,
+  Json,
+  SerializedSchema,
+  SourcePath,
+} from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
 import { usePatches } from "./usePatch";
 import { useTheme } from "./useTheme";
 import { useSession } from "./useSession";
-import { ValPatches } from "./ValPatches";
+import { ValPatchesDialog } from "./ValPatches";
 import { AnyVal } from "./ValCompositeFields";
 import { InitOnSubmit } from "./ValFormField";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
@@ -123,6 +130,48 @@ export function ValOverlay({
     []
   );
   const [patchModalOpen, setPatchModalOpen] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<{
+    globalError: null | { message: string; details?: unknown };
+    errors?: ApiPostValidationResponse | ApiPostValidationErrorResponse;
+  }>({
+    globalError: null,
+  });
+
+  const [isValidating, setIsValidating] = useState(false);
+  useEffect(() => {
+    let ignore = false;
+    if (Object.keys(patches).length > 0) {
+      setIsValidating(true);
+      api
+        .postValidate({
+          patches,
+        })
+        .then((res) => {
+          if (ignore) {
+            return;
+          }
+          if (result.isErr(res)) {
+            setValidationErrors({
+              globalError: { message: res.error.message },
+            });
+          } else {
+            setValidationErrors({
+              globalError: null,
+              ...res.value,
+            });
+          }
+        })
+        .finally(() => {
+          if (ignore) {
+            return;
+          }
+          setIsValidating(false);
+        });
+    }
+    return () => {
+      ignore = true;
+    };
+  }, [patches]);
 
   return (
     <ValUIContext.Provider
@@ -148,8 +197,10 @@ export function ValOverlay({
       >
         {patchModalOpen && (
           <div className="fixed z-5 top-[16px] left-[16px] w-[calc(100%-32px-50px-16px)] h-[calc(100svh-32px)]">
-            <ValPatches
+            <ValPatchesDialog
               patches={patches}
+              isValidating={isValidating}
+              validationResponse={validationErrors}
               api={api}
               onCancel={() => {
                 setPatchModalOpen(false);

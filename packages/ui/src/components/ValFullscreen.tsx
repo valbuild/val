@@ -159,17 +159,6 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api, store }) => {
             />
           </div>
         )}
-        <Popover>
-          <PopoverPrimitive.Portal />
-          <div className="fixed -translate-y-1/2 right-4 top-1/2 z-overlay">
-            <ValMenu
-              direction="vertical"
-              api={api}
-              patches={patches}
-              onClickPatches={() => setPatchModalOpen((prev) => !prev)}
-            />
-          </div>
-        </Popover>
         <div id="val-fullscreen-hover" ref={hoverElemRef}></div>
         <ValImagePreviewContext.Provider
           value={{
@@ -218,6 +207,21 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api, store }) => {
                 setSelectedPath={setSelectedPath}
                 api={api}
                 store={store}
+              />
+              <div className="w-full flex items-center justify-start h-[50px] gap-2 font-serif text-xs">
+                {/* MENU */}
+              </div>
+              <ValPatches
+                patches={patches}
+                isValidating={isValidating}
+                validationResponse={validationResponse}
+                api={api}
+                onCancel={() => {
+                  setPatchModalOpen(false);
+                }}
+                onCommit={() => {
+                  setPatchResetId((patchResetId) => patchResetId + 1);
+                }}
               />
             </Grid>
           </div>
