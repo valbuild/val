@@ -1,11 +1,7 @@
 import {
   ModuleId,
   PatchId,
-  ApiPostValidationResponse,
-  ApiPostValidationErrorResponse,
-  ApiGetPatchResponse,
   FatalErrorType,
-  Json,
   ValidationErrors,
   SourcePath,
   Internal,
@@ -23,6 +19,7 @@ type AuthorId = string;
 type SourceChangeItem = {
   path: ModulePath;
   type: "replace" | "move" | "add" | "remove";
+  filePath?: string;
   count: number;
   // TODO: display a notification symbol on the last change on a source path with a validation error
   // notification?: "error" | "warning";
@@ -39,23 +36,15 @@ type SourceChangeItem = {
 } & {
   changedAt?: string;
 };
-type FileChange = {
-  filePath: string;
-  count: number;
-  changedAt?: string;
-};
 
 export type History = {
   author?: Author;
   lastChangedAt: string;
   changeCount: number;
-  changes: (
-    | {
-        moduleId: ModuleId;
-        items: SourceChangeItem[];
-      }
-    | FileChange
-  )[];
+  changes: {
+    moduleId: ModuleId;
+    items: SourceChangeItem[];
+  }[];
 }[];
 
 export type ReviewErrors = {
@@ -86,7 +75,7 @@ export function convertPatchErrors(
       author?: AuthorId;
     }[]
   >,
-  validationRes: {
+  validationRes?: {
     modules: Record<
       ModuleId,
       {
@@ -117,155 +106,161 @@ export function convertPatchErrors(
   history: History;
   errors?: ReviewErrors; // TODO: do we in fact need a separate type for this? We need authors and dates, but maybe the format could be more or less the same as ValidationErrors?
 } {
+  // TODO: this is quite long and heavy and, most likely, impossible to maintain. If you are here, planning to do some changes, you should consider rewriting it completely.
   const history: History = [];
 
-  const sortedPatches: {
-    moduleId: ModuleId;
-    patch: Patch;
-    patchId: PatchId;
-    created_at: string;
-    commit_sha?: string;
-    author?: AuthorId;
-  }[] = [];
-  for (const moduleIdS in patches) {
-    const moduleId = moduleIdS as ModuleId;
-    for (const patch of patches[moduleId]) {
-      sortedPatches.push({
-        moduleId,
-        patch: patch.patch,
-        patchId: patch.patch_id,
-        created_at: patch.created_at,
-        commit_sha: patch.commit_sha,
-        author: patch.author,
-      });
-    }
-  }
-  sortedPatches.sort((a, b) => {
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-  });
-
   let lastHistoryItem: History[number] | undefined;
-  let lastChangesByModuleIdSourcePath: Record<
+  let currentAuthorChanges: Record<
     ModuleId,
     Record<
       ModulePath,
       {
         type: "replace" | "move" | "add" | "remove";
         count: number;
+        filePath?: string;
         changedAt?: string;
         changedBy?: Author;
-      }
+      }[]
     >
   > = {};
-  let lastFileChanges: FileChange[] = [];
+  const lastChangedAtBySourcePath: Record<SourcePath, string> = {};
+  const lastChangedAuthorBySourcePath: Record<SourcePath, Author> = {};
+  for (const [moduleIdS, modulePatches] of Object.entries(patches)) {
+    const moduleId = moduleIdS as ModuleId;
+    for (const patch of modulePatches) {
+      const author = authors?.[patch.author || ""];
 
-  for (const patch of sortedPatches) {
-    const author = authors?.[patch.author || ""];
-
-    // either init or new author
-    if (!lastHistoryItem || lastHistoryItem.author?.id !== author?.id) {
-      // reset changes
-      lastChangesByModuleIdSourcePath = {};
-      lastFileChanges = [];
-      //
-      if (lastHistoryItem) {
-        // means we have a new author
-        history.push({
-          ...lastHistoryItem,
-        });
-      }
-      // init new author
-      lastHistoryItem = {
-        author,
-        lastChangedAt: patch.created_at,
-        changeCount: 0,
-        changes: [],
-      };
-    }
-
-    const changes: History[number]["changes"] = [];
-    if (!lastChangesByModuleIdSourcePath[patch.moduleId]) {
-      lastChangesByModuleIdSourcePath[patch.moduleId] = {};
-    }
-
-    for (const op of patch.patch) {
-      const modulePath = Internal.patchPathToModulePath(op.path);
-
-      switch (op.op) {
-        case "add":
-        case "remove":
-        case "replace":
-        case "move": {
-          const currentItem =
-            lastChangesByModuleIdSourcePath[patch.moduleId][modulePath];
-          if (!currentItem) {
-            lastChangesByModuleIdSourcePath[patch.moduleId][modulePath] = {
-              type: op.op,
-              count: 1,
-              changedAt: patch.created_at,
-              changedBy: author,
-            };
-          } else {
-            currentItem.count++;
-            currentItem.changedAt = patch.created_at;
-          }
-          break;
+      // either init or new author
+      if (!lastHistoryItem || lastHistoryItem.author?.id !== author?.id) {
+        if (lastHistoryItem) {
+          // means we have a new author
+          history.push({
+            ...lastHistoryItem,
+            changes: getChangesFromCurrent(currentAuthorChanges),
+          });
         }
-        case "file": {
-          const filePath = op.filePath;
-          const currentFileChange = lastFileChanges.find(
-            (fileChange) => fileChange.filePath === filePath
-          );
-          if (!currentFileChange) {
-            lastFileChanges.push({
-              filePath: filePath,
-              count: 1,
-              changedAt: patch.created_at,
-            });
-          } else {
-            currentFileChange.count++;
-            currentFileChange.changedAt = patch.created_at;
+        // reset changes
+        currentAuthorChanges = {};
+        // init new author
+        lastHistoryItem = {
+          author,
+          lastChangedAt: patch.created_at,
+          changeCount: 0,
+          changes: [],
+        };
+      }
+
+      if (!currentAuthorChanges[moduleId]) {
+        currentAuthorChanges[moduleId] = {};
+      }
+
+      for (const op of patch.patch) {
+        lastHistoryItem.lastChangedAt = patch.created_at;
+        lastHistoryItem.changeCount++;
+
+        const modulePath = Internal.patchPathToModulePath(op.path);
+        if (!currentAuthorChanges[moduleId][modulePath]) {
+          currentAuthorChanges[moduleId][modulePath] = [];
+        }
+        if (
+          !lastChangedAtBySourcePath[
+            `${moduleId}.${modulePath}` as SourcePath
+          ] ||
+          new Date(patch.created_at).getTime() >
+            new Date(
+              lastChangedAtBySourcePath[
+                `${moduleId}.${modulePath}` as SourcePath
+              ]
+            ).getTime()
+        ) {
+          lastChangedAtBySourcePath[`${moduleId}.${modulePath}` as SourcePath] =
+            patch.created_at;
+          if (author) {
+            lastChangedAuthorBySourcePath[
+              `${moduleId}.${modulePath}` as SourcePath
+            ] = author;
           }
-          break;
+        }
+        switch (op.op) {
+          case "add":
+          case "remove":
+          case "replace":
+          case "move": {
+            const currentItem = currentAuthorChanges[moduleId][
+              modulePath
+            ]?.find((change) => change.type === op.op);
+            if (!currentItem) {
+              currentAuthorChanges[moduleId][modulePath].push({
+                type: op.op,
+                count: 1,
+                changedAt: patch.created_at,
+                changedBy: author,
+              });
+            } else {
+              currentItem.count++;
+              currentItem.changedAt = patch.created_at;
+            }
+            break;
+          }
+          case "file": {
+            const filePath = op.filePath;
+            const currentFileChange = currentAuthorChanges[moduleId][
+              modulePath
+            ].find((fileChange) => fileChange.filePath === filePath);
+            if (!currentFileChange) {
+              currentAuthorChanges[moduleId][modulePath].push({
+                filePath: filePath,
+                type: "replace",
+                count: 1,
+                changedAt: patch.created_at,
+              });
+            } else {
+              currentFileChange.count++;
+              currentFileChange.changedAt = patch.created_at;
+            }
+            break;
+          }
         }
       }
     }
-    for (const moduleIdS in lastChangesByModuleIdSourcePath) {
-      const moduleId = moduleIdS as ModuleId;
-      const items: SourceChangeItem[] = [];
-      for (const modulePathS in lastChangesByModuleIdSourcePath[moduleId]) {
-        const modulePath = modulePathS as ModulePath;
-        const item = lastChangesByModuleIdSourcePath[moduleId][modulePath];
-        items.push({
-          path: modulePath,
-          type: item.type,
-          count: item.count,
-          changedAt: item.changedAt,
-        });
-      }
-      changes.push({
-        moduleId,
-        items,
+  }
+
+  if (lastHistoryItem) {
+    history.push({
+      ...lastHistoryItem,
+      changes: getChangesFromCurrent(currentAuthorChanges),
+    });
+  }
+
+  // sort everything:
+  // TODO: feels like we are doing a lot of unnecessary sorting here
+  for (const historyItem of history) {
+    for (const change of historyItem.changes) {
+      change.items.sort((a, b) => {
+        return a.changedAt && b.changedAt
+          ? new Date(a.changedAt).getTime() - new Date(b.changedAt).getTime()
+          : 0;
       });
     }
-    changes.push(...lastFileChanges);
+    historyItem.changes.sort((a, b) => {
+      const lastChangeA = a.items[a.items.length - 1].changedAt;
+      const lastChangeB = b.items[b.items.length - 1].changedAt;
+      if (!lastChangeA) return 1;
+      if (!lastChangeB) return -1;
 
-    lastHistoryItem.lastChangedAt = patch.created_at;
-    lastHistoryItem.changeCount = changes.reduce((prev, curr) => {
-      if ("items" in curr) {
-        return prev + curr.items.reduce((prev, curr) => prev + curr.count, 0);
-      }
-      return prev + curr.count;
-    }, 0);
-    lastHistoryItem.changes = changes;
+      return new Date(lastChangeA).getTime() - new Date(lastChangeB).getTime();
+    });
   }
-  if (lastHistoryItem) {
-    history.push(lastHistoryItem);
-  }
+
+  history.sort((a, b) => {
+    return (
+      new Date(a.lastChangedAt).getTime() - new Date(b.lastChangedAt).getTime()
+    );
+  });
 
   //
   const reviewErrors: [ModuleId, ReviewModuleError][] = [];
-  if (validationRes.validationErrors) {
+  if (validationRes?.validationErrors) {
     for (const [moduleIdS, validationError] of Object.entries(
       validationRes.validationErrors
     )) {
@@ -279,25 +274,24 @@ export function convertPatchErrors(
         );
       }
       if (validationError.errors.validation) {
-        for (const [sourcePath, messages] of Object.entries(
+        for (const [sourcePathS, messages] of Object.entries(
           validationError.errors.validation
         )) {
-          const [, modulePath] = Internal.splitModuleIdAndModulePath(
-            sourcePath as SourcePath
-          );
-          reviewModuleError.validations.push({
-            path: modulePath,
-            messages: messages.map((message) => ({
-              message: message.message,
-              severity: "warning",
-            })),
-            lastChangedAt:
-              lastChangesByModuleIdSourcePath[moduleId]?.[modulePath]
-                ?.changedAt,
-            lastChangedBy:
-              lastChangesByModuleIdSourcePath[moduleId]?.[modulePath]
-                ?.changedBy,
-          });
+          const sourcePath = sourcePathS as SourcePath;
+
+          const [, modulePath] =
+            Internal.splitModuleIdAndModulePath(sourcePath);
+          if (messages.length > 0) {
+            reviewModuleError.validations.push({
+              path: modulePath,
+              messages: messages.map((message) => ({
+                message: message.message,
+                severity: "warning",
+              })),
+              lastChangedAt: lastChangedAtBySourcePath[sourcePath],
+              lastChangedBy: lastChangedAuthorBySourcePath[sourcePath],
+            });
+          }
         }
       }
       reviewErrors.push([moduleId, reviewModuleError]);
@@ -311,4 +305,48 @@ export function convertPatchErrors(
         ? { errors: Object.fromEntries(reviewErrors) }
         : undefined,
   };
+}
+
+function getChangesFromCurrent(
+  currentAuthorChanges: Record<
+    ModuleId,
+    Record<
+      ModulePath,
+      {
+        type: "replace" | "move" | "add" | "remove";
+        count: number;
+        filePath?: string;
+        changedAt?: string;
+        changedBy?: Author;
+      }[]
+    >
+  >
+): History[number]["changes"] {
+  const changes: History[number]["changes"] = [];
+  for (const [moduleIdS, moduleChanges] of Object.entries(
+    currentAuthorChanges
+  )) {
+    const moduleId = moduleIdS as ModuleId;
+    const currentModuleChanges: SourceChangeItem[] = [];
+    for (const [modulePathS, modulePathChanges] of Object.entries(
+      moduleChanges
+    )) {
+      const modulePath = modulePathS as ModulePath;
+
+      for (const modulePathChange of modulePathChanges) {
+        currentModuleChanges.push({
+          path: modulePath,
+          type: modulePathChange.type,
+          filePath: modulePathChange.filePath,
+          count: modulePathChange.count,
+          changedAt: modulePathChange.changedAt,
+        });
+      }
+    }
+    changes.push({
+      moduleId,
+      items: currentModuleChanges,
+    });
+  }
+  return changes;
 }
