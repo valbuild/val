@@ -93,6 +93,12 @@ export class LocalValServer implements ValServer {
         ["node_modules", ".*"],
         ["**/*.val.ts", "**/*.val.js"]
       )
+      .filter((file) => {
+        if (treePath) {
+          return file.replace(rootDir, "").startsWith(treePath);
+        }
+        return true;
+      })
       .map(
         (file) =>
           file
@@ -102,7 +108,6 @@ export class LocalValServer implements ValServer {
             .split(path.sep)
             .join("/") as ModuleId
       );
-
     const applyPatches = query.patch === "true";
     let {
       patchIdsByModuleId,
