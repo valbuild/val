@@ -106,7 +106,7 @@ const initFetchValStega =
             console.error("Val: failed while fetching modules", err);
             if (process.env.NODE_ENV === "development") {
               throw Error(
-                'You are running in "proxy" mode in development and Val could not fetch remote / proxy data. This is likely due to a misconfiguration. Check the console for more details.'
+                "Val: Could not fetch data. This is likely due to a misconfiguration or a bug. Check the console for more details."
               );
             }
             return stegaEncode(selector, {});
