@@ -27,6 +27,7 @@ import {
   ApiPostPatchResponse,
   ApiPostValidationResponse,
   ApiTreeResponse,
+  ApiDeletePatchResponse,
 } from "@valbuild/core";
 import { parsePatch } from "@valbuild/core/patch";
 import { result } from "@valbuild/core/fp";
@@ -49,6 +50,12 @@ export class ProxyValServer implements ValServer {
     readonly options: ProxyValServerOptions,
     readonly callbacks: ValServerCallbacks
   ) {}
+  deletePatches(
+    query: { id?: string[] | undefined },
+    cookies: Partial<Record<"val_session", string>>
+  ): Promise<ValServerJsonResult<ApiDeletePatchResponse>> {
+    throw new Error("Method not implemented.");
+  }
 
   async getFiles(
     treePath: string,

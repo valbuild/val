@@ -214,10 +214,9 @@ export function createValPathOfItem(
       `Cannot create val path of array item with symbol prop: ${prop.toString()}`
     );
   }
-  return (
-    arrayPath !== undefined &&
-    (`${arrayPath}.${JSON.stringify(prop)}` as SourcePath)
-  );
+  return arrayPath !== undefined
+    ? (`${arrayPath}.${JSON.stringify(prop)}` as SourcePath)
+    : undefined;
 }
 
 export function selectorToVal(s: any): any {

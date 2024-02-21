@@ -28,7 +28,6 @@ import {
   ValServerResult,
   ValSession,
 } from "@valbuild/shared/internal";
-import { promises as fs } from "fs";
 import path from "path";
 import { z } from "zod";
 import {
@@ -42,6 +41,7 @@ import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
 import { extractFileMetadata, extractImageMetadata } from "./extractMetadata";
 import { validateMetadata } from "./validateMetadata";
 import { getValidationErrorMetadata } from "./getValidationErrorMetadata";
+import { IValFSHost } from "./ValFSHost";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -58,14 +58,16 @@ const ops = new JSONOps();
 
 export class LocalValServer implements ValServer {
   private static readonly PATCHES_DIR = "patches";
-  private readonly cacheDir: string;
+  private readonly patchesRootPath: string;
+  private readonly host: IValFSHost;
   constructor(
     readonly options: LocalValServerOptions,
     readonly callbacks: ValServerCallbacks
   ) {
-    this.cacheDir =
+    this.patchesRootPath =
       options.cacheDir ||
       path.join(options.service.sourceFileHandler.projectRoot, ".val");
+    this.host = options.service.sourceFileHandler.host;
   }
 
   async session(): Promise<ValServerJsonResult<ValSession>> {
@@ -84,38 +86,23 @@ export class LocalValServer implements ValServer {
     query: { patch?: string; schema?: string; source?: string }
   ): Promise<ValServerJsonResult<ApiTreeResponse>> {
     const rootDir = process.cwd();
-    const moduleIds: ModuleId[] = [];
-    // iterate over all .val files in the root directory
-    const walk = async (dir: string) => {
-      const files = await fs.readdir(dir);
-      for (const file of files) {
-        if ((await fs.stat(path.join(dir, file))).isDirectory()) {
-          if (file === "node_modules") continue;
-          await walk(path.join(dir, file));
-        } else {
-          const isValFile =
-            file.endsWith(".val.js") || file.endsWith(".val.ts");
-          if (!isValFile) {
-            continue;
-          }
-          if (
-            treePath &&
-            !path.join(dir, file).replace(rootDir, "").startsWith(treePath)
-          ) {
-            continue;
-          }
-          moduleIds.push(
-            path
-              .join(dir, file)
-              .replace(rootDir, "")
-              .replace(".val.js", "")
-              .replace(".val.ts", "")
-              .split(path.sep)
-              .join("/") as ModuleId
-          );
-        }
-      }
-    };
+    const moduleIds: ModuleId[] = this.host
+      .readDirectory(
+        rootDir,
+        ["ts", "js"],
+        ["node_modules", ".*"],
+        ["**/*.val.ts", "**/*.val.js"]
+      )
+      .map(
+        (file) =>
+          file
+            .replace(rootDir, "")
+            .replace(".val.js", "")
+            .replace(".val.ts", "")
+            .split(path.sep)
+            .join("/") as ModuleId
+      );
+
     const applyPatches = query.patch === "true";
     let {
       patchIdsByModuleId,
@@ -136,19 +123,16 @@ export class LocalValServer implements ValServer {
       patchesById = res.value.patchesById;
     }
 
-    const possiblyPatchesContent = await walk(rootDir).then(async () => {
-      return Promise.all(
-        moduleIds.map(async (moduleIdStr) => {
-          const moduleId = moduleIdStr as ModuleId;
-          return this.applyAllPatchesThenValidate(
-            moduleId,
-            patchIdsByModuleId,
-            patchesById,
-            applyPatches
-          );
-        })
-      );
-    });
+    const possiblyPatchesContent = await Promise.all(
+      moduleIds.map(async (moduleId) => {
+        return this.applyAllPatchesThenValidate(
+          moduleId,
+          patchIdsByModuleId,
+          patchesById,
+          applyPatches
+        );
+      })
+    );
 
     const modules = Object.fromEntries(
       possiblyPatchesContent.map((serializedModuleContent) => {
@@ -283,7 +267,7 @@ export class LocalValServer implements ValServer {
             );
             let fileBuffer: Buffer | undefined = undefined;
             try {
-              fileBuffer = await fs.readFile(filePath);
+              fileBuffer = this.host.readBuffer(filePath);
             } catch (err) {
               //
             }
@@ -362,16 +346,18 @@ export class LocalValServer implements ValServer {
     const patchIdsByModuleId: Record<ModuleId, PatchId[]> = {};
     const patchesById: Record<PatchId, Patch> = {};
     const patchesCacheDir = path.join(
-      this.cacheDir,
+      this.patchesRootPath,
       LocalValServer.PATCHES_DIR
     );
-    let files: string[] = [];
+    let files: readonly string[] = [];
     try {
-      files = await fs.readdir(patchesCacheDir);
+      files = this.host.readDirectory(patchesCacheDir, [""], [], []);
     } catch (e) {
       // no patches to apply
     }
-    const sortedPatchIds = files.map((file) => parseInt(file, 10)).sort();
+    const sortedPatchIds = files
+      .map((file) => parseInt(path.basename(file), 10))
+      .sort();
     for (const patchIdStr of sortedPatchIds) {
       const patchId = patchIdStr.toString() as PatchId;
       let parsedPatches: Record<string, Patch> = {};
@@ -380,14 +366,13 @@ export class LocalValServer implements ValServer {
           .record(Patch)
           .safeParse(
             JSON.parse(
-              await fs.readFile(
+              this.host.readFile(
                 path.join(
-                  this.cacheDir,
+                  this.patchesRootPath,
                   LocalValServer.PATCHES_DIR,
                   `${patchId}`
-                ),
-                "utf-8"
-              )
+                )
+              ) || ""
             )
           );
         if (!currentParsedPatches.success) {
@@ -411,7 +396,7 @@ export class LocalValServer implements ValServer {
       } catch (err) {
         console.error(
           "Val: unexpected error reading cached file. Try deleting the cache directory.",
-          { patchId, error: err, dir: this.cacheDir }
+          { patchId, error: err, dir: this.patchesRootPath }
         );
         return result.err({
           status: 500,
@@ -490,8 +475,8 @@ export class LocalValServer implements ValServer {
     const deletedPatches: ApiDeletePatchResponse = [];
     for (const patchId of query.id ?? []) {
       deletedPatches.push(patchId as PatchId);
-      await fs.rm(
-        path.join(this.cacheDir, LocalValServer.PATCHES_DIR, patchId)
+      this.host.rmFile(
+        path.join(this.patchesRootPath, LocalValServer.PATCHES_DIR, patchId)
       );
     }
     return {
@@ -523,12 +508,10 @@ export class LocalValServer implements ValServer {
       };
       parsedPatches[moduleId] = patches.data[moduleId];
     }
-    await fs.mkdir(this.getPatchesCacheDir(), {
-      recursive: true,
-    });
-    await fs.writeFile(
+    this.host.writeFile(
       this.getPatchFilePath(fileId),
-      JSON.stringify(patches.data)
+      JSON.stringify(patches.data),
+      "utf8"
     );
     return {
       status: 200,
@@ -537,12 +520,12 @@ export class LocalValServer implements ValServer {
   }
 
   private getPatchesCacheDir() {
-    return path.join(this.cacheDir, LocalValServer.PATCHES_DIR);
+    return path.join(this.patchesRootPath, LocalValServer.PATCHES_DIR);
   }
 
   private getPatchFilePath(patchId: PatchId) {
     return path.join(
-      this.cacheDir,
+      this.patchesRootPath,
       LocalValServer.PATCHES_DIR,
       patchId.toString()
     );
@@ -677,7 +660,7 @@ export class LocalValServer implements ValServer {
         // Reason: that would be more atomic? Not doing it now, because there are currently already too many moving pieces.
         // Other things we could do would be to patch in a temp directory and ONLY when all patches are applied we move back in.
         // This would improve reliability
-        await fs.rm(this.getPatchFilePath(patchId));
+        this.host.rmFile(this.getPatchFilePath(patchId));
         await this.options.service.patch(moduleId, patch);
       }
       // during validation we build this up again, wanted to following the same flows for validation and for commits
