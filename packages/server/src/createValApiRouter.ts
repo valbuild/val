@@ -7,6 +7,8 @@ import * as path from "path";
 import { Internal } from "@valbuild/core";
 import { ValServerGenericResult } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
+import { ValFSHost } from "./ValFSHost";
+import { RemoteFS } from "./RemoteFS";
 
 type Opts = ValServerOverrides & ServiceOptions;
 
@@ -120,7 +122,14 @@ export async function createValServer(
 ): Promise<ValServer> {
   const serverOpts = await initHandlerOptions(route, opts);
   if (serverOpts.mode === "proxy") {
-    return new ProxyValServer(serverOpts, callbacks);
+    const dir = `/${serverOpts.valName}`;
+    const remoteFS = new RemoteFS();
+    const service = await createService(
+      dir,
+      opts,
+      new ValFSHost(remoteFS, dir)
+    );
+    return new ProxyValServer(remoteFS, service, serverOpts, callbacks);
   } else {
     return new LocalValServer(serverOpts, callbacks);
   }
@@ -164,6 +173,7 @@ async function initHandlerOptions(
     if (!maybeValName) {
       throw new Error("VAL_CLOUD_NAME env var must be set in proxy mode");
     }
+
     return {
       mode: "proxy",
       route,
@@ -171,8 +181,10 @@ async function initHandlerOptions(
       valSecret: maybeValSecret,
       valBuildUrl,
       valContentUrl,
-      gitCommit: maybeGitCommit,
-      gitBranch: maybeGitBranch,
+      git: {
+        commit: maybeGitCommit,
+        branch: maybeGitBranch,
+      },
       valName: maybeValName,
       valEnableRedirectUrl:
         opts.valEnableRedirectUrl || process.env.VAL_ENABLE_REDIRECT_URL,

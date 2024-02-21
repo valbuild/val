@@ -22,7 +22,6 @@ export const createModuleLoader = (
       fs.mkdirSync(path.dirname(fileName), { recursive: true });
       fs.writeFileSync(fileName, data, encoding);
     },
-    readBuffer: fs.readFileSync,
     rmFile: fs.rmSync,
   }
 ): ValModuleLoader => {
@@ -58,7 +57,6 @@ export class ValModuleLoader {
         fs.mkdirSync(path.dirname(fileName), { recursive: true });
         fs.writeFileSync(fileName, data, encoding);
       },
-      readBuffer: fs.readFileSync,
       rmFile: fs.rmSync,
     },
     private readonly disableCache: boolean = false

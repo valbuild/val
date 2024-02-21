@@ -13,7 +13,6 @@ export class ValSourceFileHandler {
         fs.mkdirSync(path.dirname(fileName), { recursive: true });
         fs.writeFileSync(fileName, data, encoding);
       },
-      readBuffer: fs.readFileSync,
       rmFile: fs.rmSync,
     }
   ) {}

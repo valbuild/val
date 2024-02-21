@@ -43,7 +43,6 @@ export async function createService(
       fs.mkdirSync(path.dirname(fileName), { recursive: true });
       fs.writeFileSync(fileName, data, encoding);
     },
-    readBuffer: fs.readFileSync,
     rmFile: fs.rmSync,
   },
   loader?: ValModuleLoader
