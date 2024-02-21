@@ -17,6 +17,7 @@ import {
   SourcePath,
   Schema,
 } from "@valbuild/core";
+import path from "path";
 
 export type ServiceOptions = {
   /**
@@ -38,7 +39,12 @@ export async function createService(
   opts: ServiceOptions,
   host: IValFSHost = {
     ...ts.sys,
-    writeFile: fs.writeFileSync,
+    writeFile: (fileName, data, encoding) => {
+      fs.mkdirSync(path.dirname(fileName), { recursive: true });
+      fs.writeFileSync(fileName, data, encoding);
+    },
+    readBuffer: fs.readFileSync,
+    rmFile: fs.rmSync,
   },
   loader?: ValModuleLoader
 ): Promise<Service> {

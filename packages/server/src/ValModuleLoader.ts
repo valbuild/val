@@ -4,6 +4,7 @@ import type { IValFSHost } from "./ValFSHost";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
 import fs from "fs";
 import { transform } from "sucrase";
+import path from "path";
 const JsFileLookupMapping: [resolvedFileExt: string, replacements: string[]][] =
   [
     // NOTE: first one matching will be used
@@ -17,7 +18,12 @@ export const createModuleLoader = (
   rootDir: string,
   host: IValFSHost = {
     ...ts.sys,
-    writeFile: fs.writeFileSync,
+    writeFile: (fileName, data, encoding) => {
+      fs.mkdirSync(path.dirname(fileName), { recursive: true });
+      fs.writeFileSync(fileName, data, encoding);
+    },
+    readBuffer: fs.readFileSync,
+    rmFile: fs.rmSync,
   }
 ): ValModuleLoader => {
   const compilerOptions = getCompilerOptions(rootDir, host);
@@ -48,7 +54,12 @@ export class ValModuleLoader {
     private readonly sourceFileHandler: ValSourceFileHandler,
     private readonly host: IValFSHost = {
       ...ts.sys,
-      writeFile: fs.writeFileSync,
+      writeFile: (fileName, data, encoding) => {
+        fs.mkdirSync(path.dirname(fileName), { recursive: true });
+        fs.writeFileSync(fileName, data, encoding);
+      },
+      readBuffer: fs.readFileSync,
+      rmFile: fs.rmSync,
     },
     private readonly disableCache: boolean = false
   ) {
