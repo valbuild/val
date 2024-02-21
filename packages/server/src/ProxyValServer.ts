@@ -273,7 +273,8 @@ export class ProxyValServer implements ValServer {
         return {
           status: 401,
           json: {
-            message: "Invalid JWT token",
+            message: "Could not verify session. You will need to login again.",
+            details: "Invalid token",
           },
         };
       }
@@ -282,7 +283,8 @@ export class ProxyValServer implements ValServer {
         return {
           status: 401,
           json: {
-            message: "Could not parse JWT",
+            message:
+              "Session invalid or, most likely, expired. You will need to login again.",
             details: verification.error,
           },
         };
@@ -300,7 +302,10 @@ export class ProxyValServer implements ValServer {
       return {
         status: 401,
         json: {
-          message: "No token",
+          message: "Login required",
+          details: {
+            reason: "Cookie not found",
+          },
         },
       };
     }
