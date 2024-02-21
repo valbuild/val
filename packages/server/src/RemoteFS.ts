@@ -1,6 +1,8 @@
 import minimatch from "minimatch";
 import path from "path";
 import { ValFS } from "./ValFS";
+import { ts } from "ts-morph";
+import fs from "fs";
 
 const SEPARATOR = "/";
 
@@ -83,7 +85,9 @@ export class RemoteFS implements ValFS {
         }
       }
     }
-    return files;
+    return ts.sys
+      .readDirectory(rootDir, extensions, excludes, includes, depth)
+      .concat(files);
   };
 
   writeFile = (
@@ -91,6 +95,7 @@ export class RemoteFS implements ValFS {
     data: string,
     encoding: "binary" | "utf8"
   ): void => {
+    // never write real fs
     const { directory, filename } = RemoteFS.parsePath(filePath);
     if (this.data[directory] === undefined) {
       throw new Error(`Directory not found: ${directory}`);
@@ -109,6 +114,7 @@ export class RemoteFS implements ValFS {
   };
 
   rmFile(filePath: string): void {
+    // never remove from real fs
     const { directory, filename } = RemoteFS.parsePath(filePath);
     if (this.data[directory] === undefined) {
       throw new Error(`Directory not found: ${directory}`);
@@ -125,13 +131,24 @@ export class RemoteFS implements ValFS {
   }
 
   fileExists = (filePath: string): boolean => {
+    if (ts.sys.fileExists(filePath)) {
+      return true;
+    }
     const { directory, filename } = RemoteFS.parsePath(
       this.realpath(filePath) // ts.sys seems to resolve symlinks while calling fileExists, i.e. a broken symlink (pointing to a non-existing file) is not considered to exist
     );
-    return !!this.data[directory]?.utf8Files[filename];
+
+    return !!(
+      this.data[directory]?.utf8Files[filename] ||
+      this.data[directory]?.binaryFiles[filename]
+    );
   };
 
   readBuffer = (filePath: string): Buffer | undefined => {
+    const realFile = fs.readFileSync(filePath);
+    if (realFile !== undefined) {
+      return realFile;
+    }
     const { directory, filename } = RemoteFS.parsePath(filePath);
     const dirNode = this.data[directory];
     if (!dirNode) {
@@ -142,6 +159,10 @@ export class RemoteFS implements ValFS {
   };
 
   readFile = (filePath: string): string | undefined => {
+    const realFile = ts.sys.readFile(filePath);
+    if (realFile !== undefined) {
+      return realFile;
+    }
     const { directory, filename } = RemoteFS.parsePath(filePath);
     const dirNode = this.data[directory];
     if (!dirNode) {
@@ -152,6 +173,9 @@ export class RemoteFS implements ValFS {
   };
 
   realpath(fullPath: string): string {
+    if (ts.sys.fileExists(fullPath) && ts.sys.realpath) {
+      return ts.sys.realpath(fullPath);
+    }
     // TODO: this only works in a very limited way.
     // It does not support symlinks to symlinks nor symlinked directories for instance.
     const { directory, filename } = RemoteFS.parsePath(fullPath);
