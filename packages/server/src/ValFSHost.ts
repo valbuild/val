@@ -16,7 +16,6 @@ export interface IValFSHost
     data: string | Buffer,
     encoding: "binary" | "utf8"
   ): void;
-  readBuffer(fileName: string): Buffer | undefined;
   rmFile(fileName: string): void;
 }
 
@@ -41,10 +40,6 @@ export class ValFSHost implements IValFSHost {
       includes,
       depth
     );
-  }
-
-  readBuffer(fileName: string): Buffer | undefined {
-    return this.valFS.readBuffer(fileName);
   }
 
   rmFile(fileName: string): void {

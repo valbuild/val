@@ -22,6 +22,7 @@ import {
   VAL_ENABLE_COOKIE_NAME,
   VAL_SESSION_COOKIE,
   VAL_STATE_COOKIE,
+  ValCookies,
   ValServerError,
   ValServerJsonResult,
   ValServerRedirectResult,
@@ -42,6 +43,7 @@ import { extractFileMetadata, extractImageMetadata } from "./extractMetadata";
 import { validateMetadata } from "./validateMetadata";
 import { getValidationErrorMetadata } from "./getValidationErrorMetadata";
 import { IValFSHost } from "./ValFSHost";
+import fs from "fs";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -56,13 +58,22 @@ export type LocalValServerOptions = {
 
 const ops = new JSONOps();
 
+export interface ValServerBufferHost {
+  readBuffer: (fileName: string) => Promise<Buffer | undefined>;
+}
+
 export class LocalValServer implements ValServer {
   private static readonly PATCHES_DIR = "patches";
   private readonly patchesRootPath: string;
   private readonly host: IValFSHost;
   constructor(
     readonly options: LocalValServerOptions,
-    readonly callbacks: ValServerCallbacks
+    readonly callbacks: ValServerCallbacks,
+    readonly bufferHost: ValServerBufferHost = {
+      readBuffer: (fileName: string) => {
+        return fs.promises.readFile(fileName);
+      },
+    }
   ) {
     this.patchesRootPath =
       options.cacheDir ||
@@ -83,7 +94,8 @@ export class LocalValServer implements ValServer {
   async getTree(
     treePath: string,
     // TODO: use the params: patch, schema, source
-    query: { patch?: string; schema?: string; source?: string }
+    query: { patch?: string; schema?: string; source?: string },
+    cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerJsonResult<ApiTreeResponse>> {
     const rootDir = process.cwd();
     const moduleIds: ModuleId[] = this.host
@@ -120,7 +132,7 @@ export class LocalValServer implements ValServer {
       patchesById: {},
     };
     if (applyPatches) {
-      const res = await this.readPatches();
+      const res = await this.readPatches(cookies);
       if (result.isErr(res)) {
         return res.error;
       }
@@ -134,7 +146,8 @@ export class LocalValServer implements ValServer {
           moduleId,
           patchIdsByModuleId,
           patchesById,
-          applyPatches
+          applyPatches,
+          cookies
         );
       })
     );
@@ -164,7 +177,8 @@ export class LocalValServer implements ValServer {
     moduleId: ModuleId,
     patchIdsByModuleId: Record<ModuleId, PatchId[]>,
     patchesById: Record<PatchId, Patch>,
-    applyPatches: boolean
+    applyPatches: boolean,
+    cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<SerializedModuleContent> {
     const serializedModuleContent = await this.options.service.get(moduleId);
     const schema = serializedModuleContent.schema;
@@ -224,7 +238,8 @@ export class LocalValServer implements ValServer {
     );
     if (validationErrors) {
       const revalidated = await this.revalidateImageAndFileValidation(
-        validationErrors
+        validationErrors,
+        cookies
       );
       return {
         path: moduleId as string as SourcePath,
@@ -244,12 +259,28 @@ export class LocalValServer implements ValServer {
     };
   }
 
+  protected async getMetadata(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    filePath: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<
+    | { status: 200; json: ImageMetadata | FileMetadata | undefined }
+    | ValServerError
+  > {
+    return {
+      status: 200,
+      json: undefined,
+    };
+  }
+
   // TODO: name this better: we need to check for image and file validation errors
   // since they cannot be handled directly inside the validation function.
   // The reason is that validate will be called inside QuickJS (in the future, hopefully), which does not have access to the filesystem.
   // If you are reading this, and we still are not using QuickJS to validate, this assumption might be wrong.
   private async revalidateImageAndFileValidation(
-    validationErrors: Record<SourcePath, ValidationError[]>
+    validationErrors: Record<SourcePath, ValidationError[]>,
+    cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<false | Record<SourcePath, ValidationError[]>> {
     const revalidatedValidationErrors: Record<SourcePath, ValidationError[]> =
       {};
@@ -270,30 +301,42 @@ export class LocalValServer implements ValServer {
               this.options.service.sourceFileHandler.projectRoot,
               fileRef
             );
-            let fileBuffer: Buffer | undefined = undefined;
-            try {
-              fileBuffer = this.host.readBuffer(filePath);
-            } catch (err) {
-              //
-            }
-            if (!fileBuffer) {
-              revalidatedValidationErrors[errorSourcePath].push({
-                message: `Could not read file: ${filePath}`,
-              });
-              continue;
+            let expectedMetadata: FileMetadata | ImageMetadata | undefined;
+
+            // if file is not in FS (e.g. remote) we try to get the metadata directly from server
+            const directMetadata = await this.getMetadata(filePath, cookies);
+            if (directMetadata.status === 200) {
+              expectedMetadata = directMetadata.json;
+            } else {
+              throw Error(directMetadata.json?.message);
             }
 
-            let expectedMetadata: FileMetadata | ImageMetadata;
-            if (error.fixes.some((fix) => fix === "image:replace-metadata")) {
-              expectedMetadata = await extractImageMetadata(
-                filePath,
-                fileBuffer
-              );
-            } else {
-              expectedMetadata = await extractFileMetadata(
-                filePath,
-                fileBuffer
-              );
+            // if this is a new file or we have an actual FS, we read the file and get the metadata
+            if (!expectedMetadata) {
+              let fileBuffer: Buffer | undefined = undefined;
+              try {
+                fileBuffer = await this.bufferHost.readBuffer(filePath);
+              } catch (err) {
+                //
+              }
+              if (!fileBuffer) {
+                revalidatedValidationErrors[errorSourcePath].push({
+                  message: `Could not read file: ${filePath}`,
+                });
+                continue;
+              }
+
+              if (error.fixes.some((fix) => fix === "image:replace-metadata")) {
+                expectedMetadata = await extractImageMetadata(
+                  filePath,
+                  fileBuffer
+                );
+              } else {
+                expectedMetadata = await extractFileMetadata(
+                  filePath,
+                  fileBuffer
+                );
+              }
             }
             if (!expectedMetadata) {
               revalidatedValidationErrors[errorSourcePath].push({
@@ -337,7 +380,8 @@ export class LocalValServer implements ValServer {
     return hasErrors;
   }
 
-  private async readPatches(): Promise<
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  protected async readPatches(cookies: ValCookies<VAL_SESSION_COOKIE>): Promise<
     result.Result<
       {
         patches: [PatchId, ModuleId, Patch][];
@@ -547,7 +591,8 @@ export class LocalValServer implements ValServer {
 
   private async validateThenMaybeCommit(
     rawBody: unknown,
-    commit: boolean
+    commit: boolean,
+    cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<
     Promise<
       ValServerJsonResult<
@@ -582,7 +627,7 @@ export class LocalValServer implements ValServer {
       patchesById: {},
       patches: [],
     };
-    const res = await this.readPatches();
+    const res = await this.readPatches(cookies);
     if (result.isErr(res)) {
       return res.error;
     }
@@ -602,7 +647,8 @@ export class LocalValServer implements ValServer {
         >) || // TODO: refine to ModuleId and PatchId when parsing
           patchIdsByModuleId,
         patchesById,
-        true
+        true,
+        cookies
       );
       if (serializedModuleContent.errors) {
         validationErrorsByModuleId[moduleId] = serializedModuleContent;
@@ -644,6 +690,20 @@ export class LocalValServer implements ValServer {
       };
     }
 
+    const modules = await this.getModulesWithAppliedPatches(commit, patches);
+    return {
+      status: 200,
+      json: {
+        modules,
+        validationErrors: false,
+      },
+    };
+  }
+
+  protected async getModulesWithAppliedPatches(
+    commit: boolean,
+    patches: [PatchId, ModuleId, Patch][]
+  ) {
     const modules: Record<
       ModuleId,
       {
@@ -671,32 +731,27 @@ export class LocalValServer implements ValServer {
       // during validation we build this up again, wanted to following the same flows for validation and for commits
       modules[moduleId].patches.applied.push(patchId);
     }
-
-    return {
-      status: 200,
-      json: {
-        modules,
-        validationErrors: false,
-      },
-    };
+    return modules;
   }
 
   async postValidate(
-    rawBody: unknown
+    rawBody: unknown,
+    cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<
     ValServerJsonResult<
       ApiPostValidationResponse | ApiPostValidationErrorResponse
     >
   > {
-    return this.validateThenMaybeCommit(rawBody, false);
+    return this.validateThenMaybeCommit(rawBody, false, cookies);
   }
 
   async postCommit(
-    rawBody: unknown
+    rawBody: unknown,
+    cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<
     ValServerJsonResult<ApiCommitResponse, ApiPostValidationErrorResponse>
   > {
-    const res = await this.validateThenMaybeCommit(rawBody, true);
+    const res = await this.validateThenMaybeCommit(rawBody, true, cookies);
     if (res.status === 200) {
       if (res.json.validationErrors) {
         return {
@@ -744,10 +799,13 @@ export class LocalValServer implements ValServer {
     return this.badRequest();
   }
 
-  async getPatches(query: {
-    id?: string[];
-  }): Promise<ValServerJsonResult<ApiGetPatchResponse>> {
-    const readRes = await this.readPatches();
+  async getPatches(
+    query: {
+      id?: string[];
+    },
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerJsonResult<ApiGetPatchResponse>> {
+    const readRes = await this.readPatches(cookies);
     if (result.isErr(readRes)) {
       return readRes.error;
     }
@@ -766,13 +824,16 @@ export class LocalValServer implements ValServer {
             createdAt = new Date(parseInt(patchId, 10));
           } catch (e) {
             console.error(
-              "Val: unexpected error parsing patch id. Is cache corrupt?",
+              "Val: unexpected error parsing patch ids. Is cache corrupt?",
               {
                 patchId,
                 file: this.getPatchFilePath(patchId),
                 dir: this.getPatchesCacheDir(),
                 error: e,
               }
+            );
+            throw Error(
+              "Unexpected error parsing patch ids. Is cache corrupt?"
             );
           }
           return {
