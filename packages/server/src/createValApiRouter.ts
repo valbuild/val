@@ -113,6 +113,10 @@ type ValServerOverrides = Partial<{
    * @example "/api/draft/enable"
    */
   valDisableRedirectUrl?: string;
+  /**
+   * Disable the cache.
+   */
+  disableCache?: boolean;
 }>;
 
 export async function createValServer(
@@ -126,7 +130,11 @@ export async function createValServer(
     const remoteFS = new RemoteFS();
     const service = await createService(
       dir,
-      opts,
+      {
+        ...opts,
+        disableCache:
+          opts.disableCache === undefined ? false : opts.disableCache,
+      },
       new ValFSHost(remoteFS, dir)
     );
     return new ProxyValServer(remoteFS, service, serverOpts, callbacks);
