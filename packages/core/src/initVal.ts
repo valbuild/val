@@ -24,7 +24,7 @@ export type ValConstructor = {
 };
 
 export type ValConfig = {
-  valCloud?: string;
+  remote?: string;
   gitCommit?: string;
   gitBranch?: string;
   valConfigPath?: string;
