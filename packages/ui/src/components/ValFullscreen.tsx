@@ -13,7 +13,7 @@ import { Grid } from "./Grid";
 import React from "react";
 import Logo from "../assets/icons/Logo";
 import { ScrollArea } from "./ui/scroll-area";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Languages, Minimize2, Send } from "lucide-react";
 import { ValUIContext } from "./ValUIContext";
 import { useNavigate, useParams } from "react-router";
 import { useTheme } from "./useTheme";
@@ -208,8 +208,18 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api, store }) => {
                 api={api}
                 store={store}
               />
-              <div className="w-full flex items-center justify-start h-[50px] gap-2 font-serif text-xs">
+              <div className="w-full flex items-center justify-end h-[50px] gap-2 font-serif text-xs px-6">
                 {/* MENU */}
+
+                <button className="px-4 py-2 border rounded border-border">
+                  <Minimize2 size={14} />
+                </button>
+                <button className="px-4 py-2 border rounded border-border">
+                  <Languages size={14} />
+                </button>
+                <button className="px-4 py-2 border rounded border-border bg-border">
+                  <Send size={14} />
+                </button>
               </div>
               <ValPatches
                 patches={patches}

@@ -102,14 +102,27 @@ export function AnyVal({
       return <div>ERROR: expected object, but found {typeof source}</div>;
     }
     return (
-      <ValObject
-        source={source}
-        path={path}
-        schema={schema}
-        initOnSubmit={initOnSubmit}
-        setSelectedPath={setSelectedPath}
-        top={top}
-      />
+      <div>
+        {field ? (
+          <div className="text-left">{field}</div>
+        ) : (
+          <div
+            className="truncate max-w-[300px] text-left"
+            title={path}
+            dir="rtl"
+          >
+            <Path>{path}</Path>
+          </div>
+        )}
+        <ValObject
+          source={source}
+          path={path}
+          schema={schema}
+          initOnSubmit={initOnSubmit}
+          setSelectedPath={setSelectedPath}
+          top={top}
+        />
+      </div>
     );
   } else if (schema.type === "array") {
     if (typeof source !== "object" || !isJsonArray(source)) {

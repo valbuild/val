@@ -65,7 +65,7 @@ export const ReviewPanel: Story = {
         ],
       },
       {
-        lastChangedAt: "3 days ago",
+        lastChangedAt: "2024.01.02",
         changeCount: 4,
         changes: [
           {
@@ -75,13 +75,13 @@ export const ReviewPanel: Story = {
                 path: '1."title"',
                 type: "replace",
                 count: 3,
-                changedAt: "3 days ago",
+                changedAt: "2024.01.02",
               },
               {
                 path: '1."title"',
                 type: "replace",
                 count: 1,
-                changedAt: "3 days ago",
+                changedAt: "2024.01.02",
               },
             ],
           },
@@ -91,7 +91,7 @@ export const ReviewPanel: Story = {
         author: {
           name: "Erlend Åmdal",
         },
-        lastChangedAt: "yesterday",
+        lastChangedAt: "2024.01.02",
         changeCount: 4,
         changes: [
           {
@@ -101,13 +101,13 @@ export const ReviewPanel: Story = {
                 path: '1."title"',
                 type: "replace",
                 count: 3,
-                changedAt: "2 days ago",
+                changedAt: "2024.01.02",
               },
               {
                 path: '1."title"',
                 type: "replace",
                 count: 1,
-                changedAt: "yesterday",
+                changedAt: "2024.01.02",
               },
             ],
           },
@@ -118,7 +118,7 @@ export const ReviewPanel: Story = {
           name: "Fredrik Ekholdt",
           avatarUrl: "https://randomuser.me/api/portraits/men/3.jpg",
         },
-        lastChangedAt: "today",
+        lastChangedAt: "2024.01.02",
         changeCount: 1,
         changes: [
           {
@@ -128,7 +128,7 @@ export const ReviewPanel: Story = {
                 path: '1."title"',
                 type: "replace",
                 count: 1,
-                changedAt: "today",
+                changedAt: "2024.01.02",
               },
             ],
           },
@@ -151,7 +151,7 @@ export const ReviewPanel: Story = {
                 name: "Fredrik Ekholdt",
                 avatarUrl: "https://randomuser.me/api/portraits/men/3.jpg",
               },
-              lastChangedAt: "yesterday",
+              lastChangedAt: "2024.01.02",
               messages: [
                 {
                   message:
