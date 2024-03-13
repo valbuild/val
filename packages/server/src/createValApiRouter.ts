@@ -124,9 +124,7 @@ export async function createValServer(
 ): Promise<IValServer> {
   const serverOpts = await initHandlerOptions(route, opts);
   if (serverOpts.mode === "proxy") {
-    const projectRoot = [`/${serverOpts.valName}`, opts.root || ""]
-      .filter((seg) => seg)
-      .join();
+    const projectRoot = [`/`, opts.root || ""].filter((seg) => seg).join();
     return new ProxyValServer(projectRoot, serverOpts, opts, callbacks);
   } else {
     return new LocalValServer(serverOpts, callbacks);

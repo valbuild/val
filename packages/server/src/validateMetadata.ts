@@ -31,9 +31,9 @@ export function validateMetadata<Metadata extends ImageMetadata | FileMetadata>(
         if (expectedMetadata[key] !== recordMetadata[key]) {
           erroneousMetadata[
             key
-          ] = `Expected metadata ${key} to be ${JSON.stringify(
+          ] = `Expected metadata '${key}' to be ${JSON.stringify(
             expectedMetadata[key as keyof Metadata]
-          )}', but got ${JSON.stringify(recordMetadata[key])}.`;
+          )}, but got ${JSON.stringify(recordMetadata[key])}.`;
         }
       } else {
         missingMetadata.push(anyKey as keyof Metadata);

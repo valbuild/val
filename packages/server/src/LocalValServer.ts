@@ -66,6 +66,13 @@ export class LocalValServer extends ValServer {
       },
     };
   }
+
+  async getFiles(): Promise<
+    ValServerResult<never, ReadableStream<Uint8Array>>
+  > {
+    return this.badRequest();
+  }
+
   async deletePatches(query: {
     id?: string[];
   }): Promise<ValServerJsonResult<ApiDeletePatchResponse>> {
@@ -119,68 +126,6 @@ export class LocalValServer extends ValServer {
   async getPatches(query: {
     id?: string[];
   }): Promise<ValServerJsonResult<ApiGetPatchResponse>> {
-    const readRes = await this.readPatches();
-    if (result.isErr(readRes)) {
-      return readRes.error;
-    }
-    const res: ApiGetPatchResponse = {};
-    const { patchIdsByModuleId, patchesById } = readRes.value;
-    for (const moduleIdStr in patchIdsByModuleId) {
-      const moduleId = moduleIdStr as ModuleId;
-      if (
-        (query.id && query.id.includes(moduleId)) ||
-        !query.id ||
-        query.id.length === 0
-      ) {
-        res[moduleId] = patchIdsByModuleId[moduleId].map((patchId) => {
-          let createdAt = new Date(0);
-          try {
-            createdAt = new Date(parseInt(patchId, 10));
-          } catch (e) {
-            console.error(
-              "Val: unexpected error parsing patch ids. Is cache corrupt?",
-              {
-                patchId,
-                file: this.getPatchFilePath(patchId),
-                dir: this.getPatchesCacheDir(),
-                error: e,
-              }
-            );
-            throw Error(
-              "Unexpected error parsing patch ids. Is cache corrupt?"
-            );
-          }
-          return {
-            patch_id: patchId,
-            patch: patchesById[patchId],
-            created_at: createdAt.toISOString(),
-          };
-        });
-      }
-    }
-    return {
-      status: 200,
-      json: res,
-    };
-  }
-
-  protected async readBuffer(filePath: string): Promise<Buffer> {
-    return fs.promises.readFile(filePath);
-  }
-
-  protected async readPatches(): Promise<
-    result.Result<
-      {
-        patches: [PatchId, ModuleId, Patch][];
-        patchIdsByModuleId: Record<ModuleId, PatchId[]>;
-        patchesById: Record<PatchId, Patch>;
-      },
-      ValServerError
-    >
-  > {
-    const patches: [PatchId, ModuleId, Patch][] = [];
-    const patchIdsByModuleId: Record<ModuleId, PatchId[]> = {};
-    const patchesById: Record<PatchId, Patch> = {};
     const patchesCacheDir = path.join(
       this.patchesRootPath,
       LocalValServer.PATCHES_DIR
@@ -191,12 +136,15 @@ export class LocalValServer extends ValServer {
     } catch (e) {
       // no patches to apply
     }
+    const res: ApiGetPatchResponse = {};
     const sortedPatchIds = files
       .map((file) => parseInt(path.basename(file), 10))
       .sort();
     for (const patchIdStr of sortedPatchIds) {
       const patchId = patchIdStr.toString() as PatchId;
-      let parsedPatches: Record<string, Patch> = {};
+      if (query.id && query.id.length > 0 && !query.id.includes(patchId)) {
+        continue;
+      }
       try {
         const currentParsedPatches = z
           .record(Patch)
@@ -212,59 +160,62 @@ export class LocalValServer extends ValServer {
             )
           );
         if (!currentParsedPatches.success) {
-          console.error(
-            "Val: unexpected error reading patch. Is there a mismatch in Val versions? Perhaps Val is misconfigured?",
-            { patchId, error: currentParsedPatches.error }
-          );
-          return result.err({
+          const msg =
+            "Unexpected error reading patch. Patch did not parse correctly. Is there a mismatch in Val versions? Perhaps Val is misconfigured?";
+          console.error(`Val: ${msg}`, {
+            patchId,
+            error: currentParsedPatches.error,
+          });
+          return {
             status: 500,
             json: {
-              message:
-                "Unexpected error reading patch. Is there a mismatch in Val versions? Perhaps Val is misconfigured?",
+              message: msg,
               details: {
                 patchId,
                 error: currentParsedPatches.error,
               },
             },
+          };
+        }
+        const createdAt = patchId;
+        for (const moduleIdStr in currentParsedPatches.data) {
+          const moduleId = moduleIdStr as ModuleId;
+          if (!res[moduleId]) {
+            res[moduleId] = [];
+          }
+          res[moduleId].push({
+            patch: currentParsedPatches.data[moduleId],
+            patch_id: patchId,
+            created_at: createdAt.toString(),
           });
         }
-        parsedPatches = currentParsedPatches.data;
       } catch (err) {
-        console.error(
-          "Val: unexpected error reading cached file. Try deleting the cache directory.",
-          { patchId, error: err, dir: this.patchesRootPath }
-        );
-        return result.err({
+        const msg = `Unexpected error while reading patch file. The cache may be corrupted or Val may be misconfigured. Try deleting the cache directory.`;
+        console.error(`Val: ${msg}`, {
+          patchId,
+          error: err,
+          dir: this.patchesRootPath,
+        });
+        return {
           status: 500,
           json: {
-            message: "Unexpected error reading cache file.",
+            message: msg,
             details: {
               patchId,
-              error: err,
+              error: err?.toString(),
             },
           },
-        });
-      }
-      for (const moduleIdStr in parsedPatches) {
-        const moduleId = moduleIdStr as ModuleId;
-        if (!patchIdsByModuleId[moduleId]) {
-          patchIdsByModuleId[moduleId] = [];
-        }
-        patchIdsByModuleId[moduleId].push(patchId);
-        const parsedPatch = parsedPatches[moduleId];
-        patches.push([patchId, moduleId, parsedPatch]);
-        patchesById[patchId] = parsedPatch;
+        };
       }
     }
-    return result.ok({
-      patches,
-      patchIdsByModuleId,
-      patchesById,
-    });
+    return {
+      status: 200,
+      json: res,
+    };
   }
 
-  private getPatchesCacheDir() {
-    return path.join(this.patchesRootPath, LocalValServer.PATCHES_DIR);
+  protected async readBuffer(filePath: string): Promise<Buffer> {
+    return fs.promises.readFile(filePath);
   }
 
   private getPatchFilePath(patchId: PatchId) {
@@ -357,12 +308,6 @@ export class LocalValServer extends ValServer {
 
   async logout(): Promise<
     ValServerResult<VAL_STATE_COOKIE | VAL_SESSION_COOKIE>
-  > {
-    return this.badRequest();
-  }
-
-  async getFiles(): Promise<
-    ValServerResult<never, ReadableStream<Uint8Array>>
   > {
     return this.badRequest();
   }
