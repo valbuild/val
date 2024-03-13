@@ -38,6 +38,7 @@ import { extractFileMetadata, extractImageMetadata } from "./extractMetadata";
 import { validateMetadata } from "./validateMetadata";
 import { getValidationErrorMetadata } from "./getValidationErrorMetadata";
 import { IValFSHost } from "./ValFSHost";
+import { file } from "@valbuild/core/src/source/file";
 
 export type ValServerOptions = {
   valEnableRedirectUrl?: string;
@@ -107,12 +108,12 @@ export abstract class ValServer implements IValServer {
     query: { patch?: string; schema?: string; source?: string },
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerJsonResult<ApiTreeResponse>> {
-    const ensureRes = await this.ensureRemoteFSInitialized(cookies);
+    const ensureRes = await this.ensureRemoteFSInitialized("getTree", cookies);
     if (result.isErr(ensureRes)) {
       return ensureRes.error;
     }
 
-    const rootDir = process.cwd();
+    const rootDir = this.projectRoot;
     const moduleIds: ModuleId[] = this.host
       .readDirectory(
         rootDir,
@@ -139,12 +140,15 @@ export abstract class ValServer implements IValServer {
     let {
       patchIdsByModuleId,
       patchesById,
+      fileUpdates,
     }: {
       patchIdsByModuleId: Record<ModuleId, PatchId[]>;
       patchesById: Record<PatchId, Patch>;
+      fileUpdates: Record<string, string>;
     } = {
       patchIdsByModuleId: {},
       patchesById: {},
+      fileUpdates: {},
     };
     if (applyPatches) {
       const res = await this.readPatches(cookies);
@@ -153,21 +157,23 @@ export abstract class ValServer implements IValServer {
       }
       patchIdsByModuleId = res.value.patchIdsByModuleId;
       patchesById = res.value.patchesById;
+      fileUpdates = res.value.fileUpdates;
     }
 
-    const possiblyPatchesContent = await Promise.all(
+    const possiblyPatchedContent = await Promise.all(
       moduleIds.map(async (moduleId) => {
         return this.applyAllPatchesThenValidate(
           moduleId,
           patchIdsByModuleId,
           patchesById,
+          fileUpdates,
           applyPatches
         );
       })
     );
 
     const modules = Object.fromEntries(
-      possiblyPatchesContent.map((serializedModuleContent) => {
+      possiblyPatchedContent.map((serializedModuleContent) => {
         const module: ApiTreeResponse["modules"][keyof ApiTreeResponse["modules"]] =
           {
             schema: serializedModuleContent.schema,
@@ -195,7 +201,10 @@ export abstract class ValServer implements IValServer {
       ApiPostValidationResponse | ApiPostValidationErrorResponse
     >
   > {
-    const ensureRes = await this.ensureRemoteFSInitialized(cookies);
+    const ensureRes = await this.ensureRemoteFSInitialized(
+      "postValidate",
+      cookies
+    );
     if (result.isErr(ensureRes)) {
       return ensureRes.error;
     }
@@ -208,7 +217,10 @@ export abstract class ValServer implements IValServer {
   ): Promise<
     ValServerJsonResult<ApiCommitResponse, ApiPostValidationErrorResponse>
   > {
-    const ensureRes = await this.ensureRemoteFSInitialized(cookies);
+    const ensureRes = await this.ensureRemoteFSInitialized(
+      "postCommit",
+      cookies
+    );
     if (result.isErr(ensureRes)) {
       return ensureRes.error;
     }
@@ -242,6 +254,7 @@ export abstract class ValServer implements IValServer {
     moduleId: ModuleId,
     patchIdsByModuleId: Record<ModuleId, PatchId[]>,
     patchesById: Record<PatchId, Patch>,
+    fileUpdates: Record<string, string>,
     applyPatches: boolean
   ): Promise<SerializedModuleContent> {
     const serializedModuleContent = await this.getModule(moduleId);
@@ -267,7 +280,13 @@ export abstract class ValServer implements IValServer {
       if (!patch) {
         continue;
       }
-      const patchRes = applyPatch(source, ops, patch);
+      const patchRes = applyPatch(
+        source,
+        ops,
+        patch.filter(
+          (op) => !(op.op === "file" && typeof op.value === "string")
+        )
+      );
       if (result.isOk(patchRes)) {
         source = patchRes.value;
       } else {
@@ -276,7 +295,7 @@ export abstract class ValServer implements IValServer {
           {
             patchId,
             moduleId,
-            patch,
+            patch: JSON.stringify(patch, null, 2),
             error: patchRes.error,
           }
         );
@@ -302,7 +321,8 @@ export abstract class ValServer implements IValServer {
     );
     if (validationErrors) {
       const revalidated = await this.revalidateImageAndFileValidation(
-        validationErrors
+        validationErrors,
+        fileUpdates
       );
       return {
         path: moduleId as string as SourcePath,
@@ -324,10 +344,12 @@ export abstract class ValServer implements IValServer {
 
   // TODO: name this better: we need to check for image and file validation errors
   // since they cannot be handled directly inside the validation function.
-  // The reason is that validate will be called inside QuickJS (in the future, hopefully), which does not have access to the filesystem.
+  // The reason is that validate will be called inside QuickJS (in the future, hopefully),
+  // which does not have access to the filesystem, at least not at the time of writing this comment.
   // If you are reading this, and we still are not using QuickJS to validate, this assumption might be wrong.
   private async revalidateImageAndFileValidation(
-    validationErrors: Record<SourcePath, ValidationError[]>
+    validationErrors: Record<SourcePath, ValidationError[]>,
+    fileUpdates: Record<string, string>
   ): Promise<false | Record<SourcePath, ValidationError[]>> {
     const revalidatedValidationErrors: Record<SourcePath, ValidationError[]> =
       {};
@@ -350,10 +372,24 @@ export abstract class ValServer implements IValServer {
             // if this is a new file or we have an actual FS, we read the file and get the metadata
             if (!expectedMetadata) {
               let fileBuffer: Buffer | undefined = undefined;
-              try {
-                fileBuffer = await this.readBuffer(filePath);
-              } catch (err) {
-                //
+              if (fileUpdates[fileRef]) {
+                const dataUrl = fileUpdates[fileRef].split(",")?.[1];
+                if (dataUrl) {
+                  fileBuffer = Buffer.from(dataUrl, "base64url");
+                }
+              }
+              if (!fileBuffer) {
+                try {
+                  fileBuffer = await this.readBuffer(filePath);
+                } catch (err) {
+                  console.error(
+                    "Val: unexpected error while reading image / file:",
+                    filePath,
+                    {
+                      error: err,
+                    }
+                  );
+                }
               }
               if (!fileBuffer) {
                 revalidatedValidationErrors[errorSourcePath].push({
@@ -392,7 +428,10 @@ export abstract class ValServer implements IValServer {
                 .concat(Object.values(revalidatedError.erroneousMetadata || {}))
                 .concat(
                   Object.values(revalidatedError.missingMetadata || []).map(
-                    (missingKey) => `Required key: ${missingKey} is not defined`
+                    (missingKey) =>
+                      `Required key: '${missingKey}' is not defined. Should be: '${JSON.stringify(
+                        expectedMetadata?.[missingKey]
+                      )}'`
                   )
                 );
               revalidatedValidationErrors[errorSourcePath].push(
@@ -414,6 +453,116 @@ export abstract class ValServer implements IValServer {
       return revalidatedValidationErrors;
     }
     return hasErrors;
+  }
+
+  protected sortPatchIds(
+    patchesByModule: Record<
+      ModuleId,
+      {
+        patch: Patch;
+        patch_id: PatchId;
+        created_at: string;
+        commit_sha?: string;
+        author?: string;
+      }[]
+    >
+  ): PatchId[] {
+    return Object.values(patchesByModule)
+      .flatMap((modulePatches) => modulePatches)
+      .sort((a, b) => {
+        return a.created_at.localeCompare(b.created_at);
+      })
+      .map((patchData) => patchData.patch_id);
+  }
+
+  private async readPatches(
+    cookies: Partial<Record<"val_session", string>>
+  ): Promise<
+    result.Result<
+      {
+        patches: [PatchId, ModuleId, Patch][];
+        patchIdsByModuleId: Record<ModuleId, PatchId[]>;
+        patchesById: Record<PatchId, Patch>;
+        fileUpdates: Record<string, string>;
+      },
+      ValServerError
+    >
+  > {
+    const res = await this.getPatches(
+      {}, // {} means no ids, so get all patches
+      cookies
+    );
+    if (
+      res.status === 400 ||
+      res.status === 401 ||
+      res.status === 403 ||
+      res.status === 404 ||
+      res.status === 500 ||
+      res.status === 501
+    ) {
+      return result.err(res);
+    } else if (res.status === 200 || res.status === 201) {
+      const patchesByModule: Record<
+        ModuleId,
+        {
+          patch: Patch;
+          patch_id: PatchId;
+          created_at: string;
+          commit_sha?: string;
+          author?: string;
+        }[]
+      > = res.json;
+      const patches: [PatchId, ModuleId, Patch][] = [];
+
+      const patchIdsByModuleId: Record<ModuleId, PatchId[]> = {};
+      const patchesById: Record<PatchId, Patch> = {};
+      for (const [moduleIdS, modulePatchData] of Object.entries(
+        patchesByModule
+      )) {
+        const moduleId = moduleIdS as ModuleId;
+        patchIdsByModuleId[moduleId] = modulePatchData.map(
+          (patch) => patch.patch_id
+        );
+        for (const patchData of modulePatchData) {
+          patches.push([patchData.patch_id, moduleId, patchData.patch]);
+          patchesById[patchData.patch_id] = patchData.patch;
+        }
+      }
+      const fileUpdates: Record<string, string> = {};
+      const sortedPatchIds = this.sortPatchIds(patchesByModule);
+      for (const sortedPatchId of sortedPatchIds) {
+        const patchId = sortedPatchId as PatchId;
+        for (const op of patchesById[patchId] || []) {
+          if (op.op === "file") {
+            if (typeof op.value !== "string") {
+              return result.err({
+                status: 500,
+                json: {
+                  message: "Unexpected error: file op value is not a string",
+                  details: {
+                    patchId,
+                  },
+                },
+              });
+            }
+            fileUpdates[op.filePath] = op.value;
+          }
+        }
+      }
+      return result.ok({
+        patches,
+        patchIdsByModuleId,
+        patchesById,
+        fileUpdates,
+      });
+    } else {
+      return result.err({
+        status: 500,
+        json: {
+          message: "Unknown error",
+        },
+      });
+    }
   }
 
   private async validateThenMaybeCommit(
@@ -445,7 +594,7 @@ export abstract class ValServer implements IValServer {
     if (result.isErr(res)) {
       return res.error;
     }
-    const { patchIdsByModuleId, patchesById, patches } = res.value;
+    const { patchIdsByModuleId, patchesById, patches, fileUpdates } = res.value;
     const validationErrorsByModuleId: ApiPostValidationErrorResponse["validationErrors"] =
       {};
     for (const moduleIdStr in patchIdsByModuleId) {
@@ -458,6 +607,7 @@ export abstract class ValServer implements IValServer {
         >) || // TODO: refine to ModuleId and PatchId when parsing
           patchIdsByModuleId,
         patchesById,
+        fileUpdates,
         true
       );
       if (serializedModuleContent.errors) {
@@ -530,25 +680,13 @@ export abstract class ValServer implements IValServer {
    * 2) The error is returned via API if the remote FS could not be initialized
    * */
   protected abstract ensureRemoteFSInitialized(
+    errorMessageType: string,
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<result.Result<undefined, ValServerError>>;
 
   protected abstract getModule(
     moduleId: ModuleId
   ): Promise<SerializedModuleContent>;
-
-  protected abstract readPatches(
-    cookies: ValCookies<VAL_SESSION_COOKIE>
-  ): Promise<
-    result.Result<
-      {
-        patches: [PatchId, ModuleId, Patch][];
-        patchIdsByModuleId: Record<ModuleId, PatchId[]>;
-        patchesById: Record<PatchId, Patch>;
-      },
-      ValServerError
-    >
-  >;
 
   protected abstract readBuffer(filePath: string): Promise<Buffer | undefined>;
 
@@ -717,7 +855,7 @@ export interface IValServer {
   >;
   // Streams:
   getFiles(
-    treePath: string,
+    filePath: string,
     query: { sha256?: string },
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>>;

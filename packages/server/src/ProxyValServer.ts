@@ -31,6 +31,7 @@ import { result } from "@valbuild/core/fp";
 import { RemoteFS } from "./RemoteFS";
 import { Service, ServiceOptions, createService } from "./Service";
 import { SerializedModuleContent } from "./SerializedModuleContent";
+import fs from "fs";
 
 export type ProxyValServerOptions = {
   apiKey: string;
@@ -76,7 +77,7 @@ export class ProxyValServer extends ValServer {
   }
 
   protected async readBuffer(filePath: string): Promise<Buffer | undefined> {
-    return this.remoteFS.readBuffer(filePath);
+    return fs.readFileSync(filePath);
   }
 
   protected execCommit(
@@ -88,6 +89,7 @@ export class ProxyValServer extends ValServer {
   }
 
   protected async ensureRemoteFSInitialized(
+    errorMessageType: string,
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<result.Result<undefined, ValServerError>> {
     const commit = this.options.git.commit;
@@ -103,7 +105,7 @@ export class ProxyValServer extends ValServer {
     const res = await withAuth(
       this.options.valSecret,
       cookies,
-      "ensureRemoteFSInitialized",
+      errorMessageType,
       async (
         data
       ): Promise<
@@ -183,73 +185,6 @@ export class ProxyValServer extends ValServer {
       return result.err(res);
     }
   }
-  private async initializeRemoteFS(
-    data: IntegratedServerJwtPayload
-  ): Promise<result.Result<RemoteFS, ValServerError>> {
-    const commit = this.options.git.commit;
-    if (!commit) {
-      return result.err({
-        status: 400,
-        json: {
-          message:
-            "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
-        },
-      });
-    }
-    // TODO: sleep if we already tried to initialize
-    if (!this.remoteFS.isInitialized()) {
-      const params = new URLSearchParams({
-        commit,
-      });
-      const url = new URL(
-        `/v1/fs/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
-        this.options.valContentUrl
-      );
-      try {
-        const fetchRes = await fetch(url, {
-          headers: getAuthHeaders(data.token, "application/json"),
-        });
-        if (fetchRes.status === 200) {
-          const json = await fetchRes.json();
-          this.remoteFS.initializeWith(json);
-          return result.ok(this.remoteFS);
-        } else {
-          try {
-            if (
-              fetchRes.headers.get("Content-Type")?.includes("application/json")
-            ) {
-              const json = await fetchRes.json();
-              return result.err({
-                status: fetchRes.status as ValServerErrorStatus,
-                json: {
-                  message: "Failed to fetch remote files",
-                  details: json,
-                },
-              });
-            }
-          } catch (err) {
-            console.error(err);
-          }
-
-          return result.err({
-            status: fetchRes.status as ValServerErrorStatus,
-            json: {
-              message: "Unknown failure while fetching remote files",
-            },
-          });
-        }
-      } catch (err) {
-        return result.err({
-          status: 500,
-          json: {
-            message: "Failed to fetch: check network connection",
-          },
-        });
-      }
-    }
-    return result.ok(this.remoteFS);
-  }
-
   /* Auth endpoints */
 
   async authorize(query: {
@@ -599,70 +534,6 @@ export class ProxyValServer extends ValServer {
       }
     );
   }
-
-  protected async readPatches(
-    cookies: Partial<Record<"val_session", string>>
-  ): Promise<
-    result.Result<
-      {
-        patches: [PatchId, ModuleId, Patch][];
-        patchIdsByModuleId: Record<ModuleId, PatchId[]>;
-        patchesById: Record<PatchId, Patch>;
-      },
-      ValServerError
-    >
-  > {
-    const res = await this.getPatches({}, cookies);
-    if (
-      res.status === 400 ||
-      res.status === 401 ||
-      res.status === 403 ||
-      res.status === 404 ||
-      res.status === 500 ||
-      res.status === 501
-    ) {
-      return result.err(res);
-    } else if (res.status === 200 || res.status === 201) {
-      const patchesByModule: Record<
-        ModuleId,
-        {
-          patch: Patch;
-          patch_id: PatchId;
-          created_at: string;
-          commit_sha?: string;
-          author?: string;
-        }[]
-      > = res.json;
-      const patches: [PatchId, ModuleId, Patch][] = [];
-      const patchIdsByModuleId: Record<ModuleId, PatchId[]> = {};
-      const patchesById: Record<PatchId, Patch> = {};
-      for (const [moduleIdS, modulePatchData] of Object.entries(
-        patchesByModule
-      )) {
-        const moduleId = moduleIdS as ModuleId;
-        patchIdsByModuleId[moduleId] = modulePatchData.map(
-          (patch) => patch.patch_id
-        );
-        for (const patchData of modulePatchData) {
-          patches.push([patchData.patch_id, moduleId, patchData.patch]);
-          patchesById[patchData.patch_id] = patchData.patch;
-        }
-      }
-      return result.ok({
-        patches,
-        patchIdsByModuleId,
-        patchesById,
-      });
-    } else {
-      return result.err({
-        status: 500,
-        json: {
-          message: "Unknown error",
-        },
-      });
-    }
-  }
-
   protected async getPatchedModules(
     patches: [PatchId, ModuleId, Patch][]
   ): Promise<Record<ModuleId, { patches: { applied: PatchId[] } }>> {

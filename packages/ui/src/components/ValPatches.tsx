@@ -163,14 +163,6 @@ export function ReviewPanel({
   history: History;
   errors?: ReviewErrors;
 }) {
-  console.log({
-    errors,
-    a: Object.entries(errors?.errors || {}).some(
-      ([, moduleErrors]) =>
-        (moduleErrors.fatalErrors && moduleErrors.fatalErrors.length > 0) ||
-        (moduleErrors.validations && moduleErrors.validations.length > 0)
-    ),
-  });
   return (
     <div className="w-full">
       {history.length > 0 && (
@@ -284,7 +276,7 @@ function useRelativeDateTime() {
       if (days < 3) {
         return `${days} days ago`;
       }
-      return dateTimeFormatter.format(new Date(dateStr));
+      return dateTimeFormatter.format(new Date(timeStampStr));
     },
     [now]
   );
@@ -376,6 +368,7 @@ function HistoryItem({
   const relativeDateTime = useRelativeDateTime();
   const [open, setOpen] = useState(defaultOpen);
   const value = `history-item-${index}`;
+  console.log({ item });
   return (
     <Accordion
       type="single"

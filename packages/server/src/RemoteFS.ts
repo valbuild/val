@@ -93,7 +93,8 @@ export class RemoteFS implements ValFS {
   writeFile = (
     filePath: string,
     data: string,
-    encoding: "binary" | "utf8"
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    encoding: "utf8"
   ): void => {
     // never write real fs
     const { directory, filename } = RemoteFS.parsePath(filePath);
@@ -105,11 +106,8 @@ export class RemoteFS implements ValFS {
 
     // if it fails below this should not be added, so maybe a try/catch?
     this.changedDirectories[directory].add(filename);
-    if (encoding === "binary") {
-      this.data[directory].binaryFiles[filename] = Buffer.from(data);
-    } else {
-      this.data[directory].utf8Files[filename] = data;
-    }
+
+    this.data[directory].utf8Files[filename] = data;
     this.modifiedFiles.push(filePath);
   };
 
@@ -125,7 +123,6 @@ export class RemoteFS implements ValFS {
     // if it fails below this should not be added, so maybe a try/catch?
     this.changedDirectories[directory].add(filename);
     delete this.data[directory].utf8Files[filename];
-    delete this.data[directory].binaryFiles[filename];
     delete this.data[directory].symlinks[filename];
     this.deletedFiles.push(filePath);
   }
@@ -138,24 +135,7 @@ export class RemoteFS implements ValFS {
       this.realpath(filePath) // ts.sys seems to resolve symlinks while calling fileExists, i.e. a broken symlink (pointing to a non-existing file) is not considered to exist
     );
 
-    return !!(
-      this.data[directory]?.utf8Files[filename] ||
-      this.data[directory]?.binaryFiles[filename]
-    );
-  };
-
-  readBuffer = (filePath: string): Buffer | undefined => {
-    const realFile = fs.readFileSync(filePath);
-    if (realFile !== undefined) {
-      return realFile;
-    }
-    const { directory, filename } = RemoteFS.parsePath(filePath);
-    const dirNode = this.data[directory];
-    if (!dirNode) {
-      return undefined;
-    }
-    const content = dirNode.binaryFiles[filename];
-    return content;
+    return !!this.data[directory]?.utf8Files[filename];
   };
 
   readFile = (filePath: string): string | undefined => {
@@ -212,7 +192,6 @@ export class RemoteFS implements ValFS {
 }
 
 export type DirectoryNode = {
-  binaryFiles: Record<string, Buffer>; // TODO: a Map would be better here
   utf8Files: Record<string, string>; // TODO: a Map would be better here
   symlinks: Record<string, string>; // TODO: a Map would be better here
 };
