@@ -266,8 +266,8 @@ const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
 function useRelativeDateTime() {
   const now = useNow();
   const relativeDateTime = useCallback(
-    (dateStr: string) => {
-      const diff = now - new Date(dateStr).getTime();
+    (timeStampStr: string) => {
+      const diff = now - new Date(Number(timeStampStr)).getTime();
       const seconds = Math.floor(diff / 1000);
       if (seconds < 60) {
         return `just now`;
