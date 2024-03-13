@@ -1,16 +1,14 @@
 import { createService, ServiceOptions } from "./Service";
-import { ValServer, ValServerCallbacks } from "./ValServer";
+import { IValServer, ValServerCallbacks } from "./ValServer";
 import { LocalValServer, LocalValServerOptions } from "./LocalValServer";
 import { ProxyValServer, ProxyValServerOptions } from "./ProxyValServer";
 import { promises as fs } from "fs";
 import * as path from "path";
-import { Internal } from "@valbuild/core";
+import { Internal, ValConfig } from "@valbuild/core";
 import { ValServerGenericResult } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
-import { ValFSHost } from "./ValFSHost";
-import { RemoteFS } from "./RemoteFS";
 
-type Opts = ValServerOverrides & ServiceOptions;
+type Opts = ValServerOverrides & ServiceOptions & ValConfig;
 
 type ValServerOverrides = Partial<{
   /**
@@ -123,21 +121,13 @@ export async function createValServer(
   route: string,
   opts: Opts,
   callbacks: ValServerCallbacks
-): Promise<ValServer> {
+): Promise<IValServer> {
   const serverOpts = await initHandlerOptions(route, opts);
   if (serverOpts.mode === "proxy") {
-    const dir = `/${serverOpts.valName}`;
-    const remoteFS = new RemoteFS();
-    const service = await createService(
-      dir,
-      {
-        ...opts,
-        disableCache:
-          opts.disableCache === undefined ? false : opts.disableCache,
-      },
-      new ValFSHost(remoteFS, dir)
-    );
-    return new ProxyValServer(remoteFS, service, serverOpts, callbacks);
+    const projectRoot = [`/${serverOpts.valName}`, opts.root || ""]
+      .filter((seg) => seg)
+      .join();
+    return new ProxyValServer(projectRoot, serverOpts, opts, callbacks);
   } else {
     return new LocalValServer(serverOpts, callbacks);
   }
@@ -300,7 +290,7 @@ const FILES_PATH_PREFIX = "/files";
 
 export function createValApiRouter<Res>(
   route: string,
-  valServerPromise: Promise<ValServer>,
+  valServerPromise: Promise<IValServer>,
   convert: (valServerRes: ValServerGenericResult) => Res
 ): (req: Request) => Promise<Res> {
   const uiRequestHandler = createUIRequestHandler();

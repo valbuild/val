@@ -2,9 +2,8 @@ import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { PatchJSON } from "./patch/validation";
 import {
-  ValServer,
   ENABLE_COOKIE_VALUE,
-  getRedirectUrl,
+  ValServer,
   ValServerCallbacks,
 } from "./ValServer";
 import {
@@ -21,23 +20,17 @@ import {
 } from "@valbuild/shared/internal";
 import { z } from "zod";
 import {
-  ApiCommitResponse,
   ApiGetPatchResponse,
-  ApiPostValidationErrorResponse,
   ApiPostPatchResponse,
-  ApiPostValidationResponse,
-  ApiTreeResponse,
   ApiDeletePatchResponse,
   PatchId,
   ModuleId,
-  ImageMetadata,
-  FileMetadata,
 } from "@valbuild/core";
 import { Patch, parsePatch } from "@valbuild/core/patch";
 import { result } from "@valbuild/core/fp";
 import { RemoteFS } from "./RemoteFS";
-import { LocalValServer } from "./LocalValServer";
-import { Service } from "./Service";
+import { Service, ServiceOptions, createService } from "./Service";
+import { SerializedModuleContent } from "./SerializedModuleContent";
 
 export type ProxyValServerOptions = {
   apiKey: string;
@@ -54,85 +47,210 @@ export type ProxyValServerOptions = {
   valDisableRedirectUrl?: string;
 };
 
-// TODO: move tree, validate, commit
-
-export class ProxyValServer implements ValServer {
-  private readonly hybridLocalServer: HybridLocalValServer;
+export class ProxyValServer extends ValServer {
+  private remoteFS: RemoteFS;
+  private lazyService: Service | undefined;
   constructor(
-    private readonly remoteFS: RemoteFS,
-    readonly remoteService: Service,
+    readonly projectRoot: string,
     readonly options: ProxyValServerOptions,
+    readonly serviceOptions: ServiceOptions,
     readonly callbacks: ValServerCallbacks
   ) {
-    this.hybridLocalServer = new HybridLocalValServer(
-      this.options.valSecret,
-      this.remoteFS,
-      {
-        ...options,
-        service: remoteService,
-      },
-      callbacks
-    );
+    const remoteFS = new RemoteFS();
+    super(projectRoot, remoteFS, options, callbacks);
+    this.remoteFS = remoteFS;
   }
 
-  deletePatches(
-    query: { id?: string[] | undefined },
-    cookies: Partial<Record<"val_session", string>>
-  ): Promise<ValServerJsonResult<ApiDeletePatchResponse>> {
+  /** Remote FS dependent methods: */
+  protected async getModule(
+    moduleId: ModuleId
+  ): Promise<SerializedModuleContent> {
+    if (!this.lazyService) {
+      this.lazyService = await createService(
+        this.projectRoot,
+        this.serviceOptions,
+        this.remoteFS
+      );
+    }
+    return this.lazyService.get(moduleId);
+  }
+
+  protected async readBuffer(filePath: string): Promise<Buffer | undefined> {
+    return this.remoteFS.readBuffer(filePath);
+  }
+
+  protected execCommit(
+    patches: [PatchId, ModuleId, Patch][],
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<Record<ModuleId, { patches: { applied: PatchId[] } }>> {
+    // TODO: apply patches, send updated files to server
     throw new Error("Method not implemented.");
   }
 
-  async getFiles(
-    treePath: string,
-    query: { sha256?: string },
+  protected async ensureRemoteFSInitialized(
     cookies: ValCookies<VAL_SESSION_COOKIE>
-  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
-    return withAuth(
+  ): Promise<result.Result<undefined, ValServerError>> {
+    const commit = this.options.git.commit;
+    if (!commit) {
+      return result.err({
+        status: 400,
+        json: {
+          message:
+            "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
+        },
+      });
+    }
+    const res = await withAuth(
       this.options.valSecret,
       cookies,
-      "getFiles",
-      async (data) => {
-        const url = new URL(
-          `/v1/files/${this.options.valName}${treePath}`,
-          this.options.valContentUrl
-        );
-        if (typeof query.sha256 === "string") {
-          url.searchParams.append("sha256", query.sha256 as string);
-        } else {
-          console.warn("Missing sha256 query param");
-        }
-        const fetchRes = await fetch(url, {
-          headers: getAuthHeaders(data.token),
-        });
-        if (fetchRes.status === 200) {
-          if (fetchRes.body) {
-            return {
-              status: fetchRes.status,
-              headers: {
-                "Content-Type": fetchRes.headers.get("Content-Type") || "",
-                "Content-Length": fetchRes.headers.get("Content-Length") || "0",
-              },
-              json: fetchRes.body,
-            };
-          } else {
+      "ensureRemoteFSInitialized",
+      async (
+        data
+      ): Promise<
+        | {
+            status: 200;
+          }
+        | ValServerError
+      > => {
+        if (!this.remoteFS.isInitialized()) {
+          const params = new URLSearchParams({
+            commit,
+          });
+          const url = new URL(
+            `/v1/fs/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
+            this.options.valContentUrl
+          );
+          try {
+            const fetchRes = await fetch(url, {
+              headers: getAuthHeaders(data.token, "application/json"),
+            });
+            if (fetchRes.status === 200) {
+              const json = await fetchRes.json();
+              this.remoteFS.initializeWith(json);
+              return {
+                status: 200,
+              };
+            } else {
+              try {
+                if (
+                  fetchRes.headers
+                    .get("Content-Type")
+                    ?.includes("application/json")
+                ) {
+                  const json = await fetchRes.json();
+                  return {
+                    status: fetchRes.status as
+                      | 400
+                      | 401
+                      | 403
+                      | 404
+                      | 500
+                      | 501,
+                    json: {
+                      message: "Failed to fetch remote files",
+                      details: json,
+                    },
+                  };
+                }
+              } catch (err) {
+                console.error(err);
+              }
+              return {
+                status: fetchRes.status as 400 | 401 | 403 | 404 | 500 | 501,
+                json: {
+                  message: "Unknown failure while fetching remote files",
+                },
+              };
+            }
+          } catch (err) {
             return {
               status: 500,
               json: {
-                message: "No body in response",
+                message: "Failed to fetch: check network connection",
               },
             };
           }
         } else {
           return {
-            status: fetchRes.status as ValServerErrorStatus,
-            json: {
-              message: "Failed to get files",
-            },
+            status: 200 as const,
           };
         }
       }
     );
+    if (res.status === 200) {
+      return result.ok(undefined);
+    } else {
+      return result.err(res);
+    }
   }
+  private async initializeRemoteFS(
+    data: IntegratedServerJwtPayload
+  ): Promise<result.Result<RemoteFS, ValServerError>> {
+    const commit = this.options.git.commit;
+    if (!commit) {
+      return result.err({
+        status: 400,
+        json: {
+          message:
+            "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
+        },
+      });
+    }
+    // TODO: sleep if we already tried to initialize
+    if (!this.remoteFS.isInitialized()) {
+      const params = new URLSearchParams({
+        commit,
+      });
+      const url = new URL(
+        `/v1/fs/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
+        this.options.valContentUrl
+      );
+      try {
+        const fetchRes = await fetch(url, {
+          headers: getAuthHeaders(data.token, "application/json"),
+        });
+        if (fetchRes.status === 200) {
+          const json = await fetchRes.json();
+          this.remoteFS.initializeWith(json);
+          return result.ok(this.remoteFS);
+        } else {
+          try {
+            if (
+              fetchRes.headers.get("Content-Type")?.includes("application/json")
+            ) {
+              const json = await fetchRes.json();
+              return result.err({
+                status: fetchRes.status as ValServerErrorStatus,
+                json: {
+                  message: "Failed to fetch remote files",
+                  details: json,
+                },
+              });
+            }
+          } catch (err) {
+            console.error(err);
+          }
+
+          return result.err({
+            status: fetchRes.status as ValServerErrorStatus,
+            json: {
+              message: "Unknown failure while fetching remote files",
+            },
+          });
+        }
+      } catch (err) {
+        return result.err({
+          status: 500,
+          json: {
+            message: "Failed to fetch: check network connection",
+          },
+        });
+      }
+    }
+    return result.ok(this.remoteFS);
+  }
+
+  /* Auth endpoints */
 
   async authorize(query: {
     redirect_to?: string;
@@ -164,48 +282,6 @@ export class ProxyValServer implements ValServer {
       },
       status: 302,
       redirectTo: appAuthorizeUrl,
-    };
-  }
-
-  async enable(query: {
-    redirect_to?: string;
-  }): Promise<ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>> {
-    const redirectToRes = getRedirectUrl(
-      query,
-      this.options.valEnableRedirectUrl
-    );
-    if (typeof redirectToRes !== "string") {
-      return redirectToRes;
-    }
-    await this.callbacks.onEnable(true);
-    return {
-      cookies: {
-        [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
-      },
-      status: 302,
-      redirectTo: redirectToRes,
-    };
-  }
-
-  async disable(query: {
-    redirect_to?: string;
-  }): Promise<ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>> {
-    const redirectToRes = getRedirectUrl(
-      query,
-      this.options.valDisableRedirectUrl
-    );
-    if (typeof redirectToRes !== "string") {
-      return redirectToRes;
-    }
-    await this.callbacks.onDisable(true);
-    return {
-      cookies: {
-        [VAL_ENABLE_COOKIE_NAME]: {
-          value: null,
-        },
-      },
-      status: 302,
-      redirectTo: redirectToRes,
     };
   }
 
@@ -328,98 +404,125 @@ export class ProxyValServer implements ValServer {
     );
   }
 
-  async getTree(
-    treePath: string,
-    query: { patch?: string; schema?: string; source?: string },
-    cookies: ValCookies<VAL_SESSION_COOKIE>
-  ): Promise<ValServerJsonResult<ApiTreeResponse>> {
-    return withAuth(
-      this.options.valSecret,
-      cookies,
-      "getTree",
-      async (data) => {
-        const remoteFSRes = await this.initializeRemoteFS(data);
-        if (result.isErr(remoteFSRes)) {
-          return remoteFSRes.error;
-        }
-
-        return this.hybridLocalServer.getTree(treePath, query, cookies);
-      }
+  private async consumeCode(code: string): Promise<{
+    sub: string;
+    exp: number;
+    org: string;
+    project: string;
+    token: string;
+  } | null> {
+    const url = new URL(
+      `/api/val/${this.options.valName}/auth/token`,
+      this.options.valBuildUrl
     );
+    url.searchParams.set("code", encodeURIComponent(code));
+    return fetch(url, {
+      method: "POST",
+      headers: getAuthHeaders(this.options.apiKey, "application/json"), // NOTE: we use apiKey as auth on this endpoint (we do not have a token yet)
+    })
+      .then(async (res) => {
+        if (res.status === 200) {
+          const token = await res.text();
+          const verification = ValAppJwtPayload.safeParse(decodeJwt(token));
+          if (!verification.success) {
+            return null;
+          }
+          return {
+            ...verification.data,
+            token,
+          };
+        } else {
+          console.debug("Failed to get data from code: ", res.status);
+          return null;
+        }
+      })
+      .catch((err) => {
+        console.debug("Failed to get user from code: ", err);
+        return null;
+      });
   }
 
-  private async initializeRemoteFS(
-    data: IntegratedServerJwtPayload
-  ): Promise<result.Result<RemoteFS, ValServerError>> {
-    const commit = this.options.git.commit;
-    if (!commit) {
-      return result.err({
-        status: 400,
-        json: {
-          message:
-            "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
-        },
-      });
-    }
-    // TODO: sleep if we already tried to initialize
-    if (!this.remoteFS.isInitialized) {
-      const params = new URLSearchParams({
-        commit,
-      });
-      const url = new URL(
-        `/v1/fs/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
-        this.options.valContentUrl
-      );
-      try {
-        const fetchRes = await fetch(url, {
-          headers: getAuthHeaders(data.token, "application/json"),
-        });
-        if (fetchRes.status === 200) {
-          const json = await fetchRes.json();
-          this.remoteFS.initializeWith(json);
-          return result.ok(this.remoteFS);
-        } else {
-          try {
-            if (
-              fetchRes.headers.get("Content-Type")?.includes("application/json")
-            ) {
-              const json = await fetchRes.json();
-              return result.err({
-                status: fetchRes.status as ValServerErrorStatus,
-                json: {
-                  message: "Failed to fetch remote files",
-                  details: json,
-                },
-              });
-            }
-          } catch (err) {
-            console.error(err);
-          }
+  private getAuthorizeUrl(publicValApiRoute: string, token: string): string {
+    const url = new URL(
+      `/auth/${this.options.valName}/authorize`,
+      this.options.valBuildUrl
+    );
+    url.searchParams.set(
+      "redirect_uri",
+      encodeURIComponent(`${publicValApiRoute}/callback`)
+    );
+    url.searchParams.set("state", token);
+    return url.toString();
+  }
 
-          return result.err({
-            status: fetchRes.status as ValServerErrorStatus,
-            json: {
-              message: "Unknown failure while fetching remote files",
-            },
-          });
-        }
-      } catch (err) {
-        return result.err({
-          status: 500,
-          json: {
-            message: "Failed to fetch: check network connection",
-          },
-        });
-      }
-    }
-    return result.ok(this.remoteFS);
+  private getAppErrorUrl(error: string): string {
+    const url = new URL(
+      `/auth/${this.options.valName}/authorize`,
+      this.options.valBuildUrl
+    );
+    url.searchParams.set("error", encodeURIComponent(error));
+    return url.toString();
+  }
+
+  /* Patch endpoints */
+  async deletePatches(
+    query: { id?: string[] | undefined },
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerJsonResult<ApiDeletePatchResponse>> {
+    throw new Error("Method not implemented.");
   }
 
   async getPatches(
     query: { id?: string[] },
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerJsonResult<ApiGetPatchResponse>> {
-    return getPatches(this.options, query, cookies);
+    return withAuth(
+      this.options.valSecret,
+      cookies,
+      "getPatches",
+      async ({ token }) => {
+        const commit = this.options.git.commit;
+        if (!commit) {
+          return {
+            status: 400,
+            json: {
+              message:
+                "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
+            },
+          };
+        }
+
+        const patchIds = query.id || [];
+        const params =
+          patchIds.length > 0
+            ? `commit=${encodeURIComponent(commit)}&${patchIds
+                .map((id) => `id=${encodeURIComponent(id)}`)
+                .join("&")}`
+            : `commit=${encodeURIComponent(commit)}`;
+        const url = new URL(
+          `/v1/patches/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
+          this.options.valContentUrl
+        );
+        // Proxy patch to val.build
+        const fetchRes = await fetch(url, {
+          method: "GET",
+          headers: getAuthHeaders(token, "application/json"),
+        });
+        if (fetchRes.status === 200) {
+          return {
+            status: fetchRes.status,
+            json: await fetchRes.json(),
+          };
+        } else {
+          return {
+            status: fetchRes.status as ValServerErrorStatus,
+            json: {
+              message: "Failed to get patches",
+            },
+          };
+        }
+      }
+    );
   }
 
   async postPatches(
@@ -497,153 +600,146 @@ export class ProxyValServer implements ValServer {
     );
   }
 
-  async postCommit(
-    rawBody: unknown,
-    cookies: ValCookies<VAL_SESSION_COOKIE>
+  protected async readPatches(
+    cookies: Partial<Record<"val_session", string>>
   ): Promise<
-    ValServerJsonResult<ApiCommitResponse, ApiPostValidationErrorResponse>
+    result.Result<
+      {
+        patches: [PatchId, ModuleId, Patch][];
+        patchIdsByModuleId: Record<ModuleId, PatchId[]>;
+        patchesById: Record<PatchId, Patch>;
+      },
+      ValServerError
+    >
   > {
-    const commit = this.options.git.commit;
-    if (!commit) {
-      return {
-        status: 401,
+    const res = await this.getPatches({}, cookies);
+    if (
+      res.status === 400 ||
+      res.status === 401 ||
+      res.status === 403 ||
+      res.status === 404 ||
+      res.status === 500 ||
+      res.status === 501
+    ) {
+      return result.err(res);
+    } else if (res.status === 200 || res.status === 201) {
+      const patchesByModule: Record<
+        ModuleId,
+        {
+          patch: Patch;
+          patch_id: PatchId;
+          created_at: string;
+          commit_sha?: string;
+          author?: string;
+        }[]
+      > = res.json;
+      const patches: [PatchId, ModuleId, Patch][] = [];
+      const patchIdsByModuleId: Record<ModuleId, PatchId[]> = {};
+      const patchesById: Record<PatchId, Patch> = {};
+      for (const [moduleIdS, modulePatchData] of Object.entries(
+        patchesByModule
+      )) {
+        const moduleId = moduleIdS as ModuleId;
+        patchIdsByModuleId[moduleId] = modulePatchData.map(
+          (patch) => patch.patch_id
+        );
+        for (const patchData of modulePatchData) {
+          patches.push([patchData.patch_id, moduleId, patchData.patch]);
+          patchesById[patchData.patch_id] = patchData.patch;
+        }
+      }
+      return result.ok({
+        patches,
+        patchIdsByModuleId,
+        patchesById,
+      });
+    } else {
+      return result.err({
+        status: 500,
         json: {
-          message:
-            "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
+          message: "Unknown error",
         },
-      };
+      });
     }
-    const params = new URLSearchParams({
-      commit,
-    });
+  }
+
+  protected async getPatchedModules(
+    patches: [PatchId, ModuleId, Patch][]
+  ): Promise<Record<ModuleId, { patches: { applied: PatchId[] } }>> {
+    const modules: Record<
+      ModuleId,
+      {
+        patches: {
+          applied: PatchId[];
+        };
+      }
+    > = {};
+    for (const [patchId, moduleId] of patches) {
+      if (!modules[moduleId]) {
+        modules[moduleId] = {
+          patches: {
+            applied: [],
+          },
+        };
+      }
+      // during validation we build this up again, wanted to following the same flows for validation and for commits
+      modules[moduleId].patches.applied.push(patchId);
+    }
+    return modules;
+  }
+
+  /* Misc endpoints: */
+
+  async getFiles(
+    treePath: string,
+    query: { sha256?: string },
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
     return withAuth(
       this.options.valSecret,
       cookies,
-      "postCommit",
+      "getFiles",
       async (data) => {
-        const remoteFSRes = await this.initializeRemoteFS(data);
-        if (result.isErr(remoteFSRes)) {
-          return remoteFSRes.error;
-        }
-        await this.hybridLocalServer.postCommit(rawBody, cookies);
-        const body = JSON.stringify({
-          fileOps: await remoteFSRes.value.getPendingOperations(),
-          // TODO: pass the patches that were applied (so we can tag them)
-        });
-
         const url = new URL(
-          `/v1/commit/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
+          `/v1/files/${this.options.valName}${treePath}`,
           this.options.valContentUrl
         );
+        if (typeof query.sha256 === "string") {
+          url.searchParams.append("sha256", query.sha256 as string);
+        } else {
+          console.warn("Missing sha256 query param");
+        }
         const fetchRes = await fetch(url, {
-          method: "POST",
-          headers: getAuthHeaders(data.token, "application/json"),
-          body,
+          headers: getAuthHeaders(data.token),
         });
         if (fetchRes.status === 200) {
-          return {
-            status: fetchRes.status,
-            json: await fetchRes.json(), // TODO: validate response format
-          };
+          if (fetchRes.body) {
+            return {
+              status: fetchRes.status,
+              headers: {
+                "Content-Type": fetchRes.headers.get("Content-Type") || "",
+                "Content-Length": fetchRes.headers.get("Content-Length") || "0",
+              },
+              json: fetchRes.body,
+            };
+          } else {
+            return {
+              status: 500,
+              json: {
+                message: "No body in response",
+              },
+            };
+          }
         } else {
           return {
             status: fetchRes.status as ValServerErrorStatus,
+            json: {
+              message: "Failed to get files",
+            },
           };
         }
       }
     );
-  }
-
-  async postValidate(
-    rawBody: unknown,
-    cookies: ValCookies<VAL_SESSION_COOKIE>
-  ): Promise<
-    ValServerJsonResult<
-      ApiPostValidationResponse | ApiPostValidationErrorResponse
-    >
-  > {
-    const commit = this.options.git.commit;
-    if (!commit) {
-      return {
-        status: 401,
-        json: {
-          message:
-            "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
-        },
-      };
-    }
-    return withAuth(
-      this.options.valSecret,
-      cookies,
-      "postValidate",
-      async (data) => {
-        const remoteFSRes = await this.initializeRemoteFS(data);
-        if (result.isErr(remoteFSRes)) {
-          return remoteFSRes.error;
-        }
-        return this.hybridLocalServer.postValidate(rawBody, cookies);
-      }
-    );
-  }
-
-  private async consumeCode(code: string): Promise<{
-    sub: string;
-    exp: number;
-    org: string;
-    project: string;
-    token: string;
-  } | null> {
-    const url = new URL(
-      `/api/val/${this.options.valName}/auth/token`,
-      this.options.valBuildUrl
-    );
-    url.searchParams.set("code", encodeURIComponent(code));
-    return fetch(url, {
-      method: "POST",
-      headers: getAuthHeaders(this.options.apiKey, "application/json"), // NOTE: we use apiKey as auth on this endpoint (we do not have a token yet)
-    })
-      .then(async (res) => {
-        if (res.status === 200) {
-          const token = await res.text();
-          const verification = ValAppJwtPayload.safeParse(decodeJwt(token));
-          if (!verification.success) {
-            return null;
-          }
-          return {
-            ...verification.data,
-            token,
-          };
-        } else {
-          console.debug("Failed to get data from code: ", res.status);
-          return null;
-        }
-      })
-      .catch((err) => {
-        console.debug("Failed to get user from code: ", err);
-        return null;
-      });
-  }
-
-  private getAuthorizeUrl(publicValApiRoute: string, token: string): string {
-    const url = new URL(
-      `/auth/${this.options.valName}/authorize`,
-      this.options.valBuildUrl
-    );
-    url.searchParams.set(
-      "redirect_uri",
-      encodeURIComponent(`${publicValApiRoute}/callback`)
-    );
-    url.searchParams.set("state", token);
-    return url.toString();
-  }
-
-  private getAppErrorUrl(error: string): string {
-    const url = new URL(
-      `/auth/${this.options.valName}/authorize`,
-      this.options.valBuildUrl
-    );
-    url.searchParams.set("error", encodeURIComponent(error));
-    return url.toString();
   }
 }
 
@@ -771,165 +867,6 @@ export type IntegratedServerJwtPayload = z.infer<
   typeof IntegratedServerJwtPayload
 >;
 
-// TODO: having a hybrid server is a bit of a hack
-// We want to avoid executing logic on the content server, since that means we are bound to very specific versions of Val
-// Maybe an abstract class that both Remote and Local servers can extend is better.
-class HybridLocalValServer extends LocalValServer {
-  constructor(
-    readonly secret: string,
-    readonly remoteFS: RemoteFS,
-    readonly options: ProxyValServerOptions & {
-      service: Service;
-    },
-    readonly callbacks: ValServerCallbacks
-  ) {
-    super(
-      {
-        ...options,
-        cacheDir: undefined,
-      },
-      callbacks,
-      {
-        async readBuffer(fileName) {
-          return remoteFS.readBuffer(fileName);
-        },
-      }
-    );
-  }
-
-  override async getMetadata(
-    filePath: string,
-    cookies: ValCookies<VAL_SESSION_COOKIE>
-  ): Promise<
-    | { status: 200; json: ImageMetadata | FileMetadata | undefined }
-    | ValServerError
-  > {
-    if (!cookies) {
-      return {
-        status: 401,
-        json: {
-          message: "Login required",
-          details: {
-            reason: "Cookie not found",
-          },
-        },
-      };
-    }
-    return withAuth(this.secret, cookies, "getMetadata", async (data) => {
-      const url = new URL(
-        `/v1/metadata/${this.options.valName}${filePath}`,
-        this.options.valContentUrl
-      );
-      const fetchRes = await fetch(url, {
-        headers: getAuthHeaders(data.token),
-      });
-      if (fetchRes.status === 200) {
-        return {
-          status: 200,
-          json: (await fetchRes.json()) as ImageMetadata | FileMetadata,
-        };
-      } else {
-        return {
-          status: fetchRes.status as ValServerErrorStatus,
-          json: {
-            message: "Failed to get metadata",
-          },
-        };
-      }
-    });
-  }
-
-  override async getModulesWithAppliedPatches(
-    commit: boolean,
-    patches: [PatchId, ModuleId, Patch][]
-  ) {
-    const modules: Record<
-      ModuleId,
-      {
-        patches: {
-          applied: PatchId[];
-        };
-      }
-    > = {};
-    for (const [patchId, moduleId] of patches) {
-      if (!modules[moduleId]) {
-        modules[moduleId] = {
-          patches: {
-            applied: [],
-          },
-        };
-      }
-      if (commit) {
-        // ignore commit for hybrid - the proxy will clean up after patches
-      }
-      // during validation we build this up again, wanted to following the same flows for validation and for commits
-      modules[moduleId].patches.applied.push(patchId);
-    }
-    return modules;
-  }
-
-  override async readPatches(cookies: ValCookies<VAL_SESSION_COOKIE>): Promise<
-    result.Result<
-      {
-        patches: [PatchId, ModuleId, Patch][];
-        patchIdsByModuleId: Record<ModuleId, PatchId[]>;
-        patchesById: Record<PatchId, Patch>;
-      },
-      ValServerError
-    >
-  > {
-    const res = await getPatches(this.options, {}, cookies);
-    if (
-      res.status === 400 ||
-      res.status === 401 ||
-      res.status === 403 ||
-      res.status === 404 ||
-      res.status === 500 ||
-      res.status === 501
-    ) {
-      return result.err(res);
-    } else if (res.status === 200 || res.status === 201) {
-      const patchesByModule: Record<
-        ModuleId,
-        {
-          patch: Patch;
-          patch_id: PatchId;
-          created_at: string;
-          commit_sha?: string;
-          author?: string;
-        }[]
-      > = res.json;
-      const patches: [PatchId, ModuleId, Patch][] = [];
-      const patchIdsByModuleId: Record<ModuleId, PatchId[]> = {};
-      const patchesById: Record<PatchId, Patch> = {};
-      for (const [moduleIdS, modulePatchData] of Object.entries(
-        patchesByModule
-      )) {
-        const moduleId = moduleIdS as ModuleId;
-        patchIdsByModuleId[moduleId] = modulePatchData.map(
-          (patch) => patch.patch_id
-        );
-        for (const patchData of modulePatchData) {
-          patches.push([patchData.patch_id, moduleId, patchData.patch]);
-          patchesById[patchData.patch_id] = patchData.patch;
-        }
-      }
-      return result.ok({
-        patches,
-        patchIdsByModuleId,
-        patchesById,
-      });
-    } else {
-      return result.err({
-        status: 500,
-        json: {
-          message: "Unknown error",
-        },
-      });
-    }
-  }
-}
-
 async function withAuth<T>(
   secret: string,
   cookies: ValCookies<VAL_SESSION_COOKIE>,
@@ -996,58 +933,4 @@ function getAuthHeaders(
     "Content-Type": type,
     Authorization: `Bearer ${token}`,
   };
-}
-
-function getPatches(
-  options: ProxyValServerOptions,
-  query: { id?: string[] },
-  cookies: ValCookies<VAL_SESSION_COOKIE>
-): Promise<ValServerJsonResult<ApiGetPatchResponse>> {
-  return withAuth(
-    options.valSecret,
-    cookies,
-    "getPatches",
-    async ({ token }) => {
-      const commit = options.git.commit;
-      if (!commit) {
-        return {
-          status: 400,
-          json: {
-            message:
-              "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
-          },
-        };
-      }
-
-      const patchIds = query.id || [];
-      const params =
-        patchIds.length > 0
-          ? `commit=${encodeURIComponent(commit)}&${patchIds
-              .map((id) => `id=${encodeURIComponent(id)}`)
-              .join("&")}`
-          : `commit=${encodeURIComponent(commit)}`;
-      const url = new URL(
-        `/v1/patches/${options.valName}/heads/${options.git.branch}/~?${params}`,
-        options.valContentUrl
-      );
-      // Proxy patch to val.build
-      const fetchRes = await fetch(url, {
-        method: "GET",
-        headers: getAuthHeaders(token, "application/json"),
-      });
-      if (fetchRes.status === 200) {
-        return {
-          status: fetchRes.status,
-          json: await fetchRes.json(),
-        };
-      } else {
-        return {
-          status: fetchRes.status as ValServerErrorStatus,
-          json: {
-            message: "Failed to get patches",
-          },
-        };
-      }
-    }
-  );
 }
