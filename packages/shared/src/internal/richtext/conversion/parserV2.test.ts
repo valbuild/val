@@ -5,6 +5,24 @@ const { c } = initVal();
 
 //MD to HTML
 describe("richtext", () => {
+  test("1 line", () => {
+    const r = c.richtext`one line`;
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      { tag: "p", children: ["one line"] },
+    ]);
+  });
+
+  test("2 paragraphs", () => {
+    const r = c.richtext`one paragraph
+    
+    two paragraphs
+    `;
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      { tag: "p", children: ["one paragraph"] },
+      { tag: "p", children: ["two paragraphs"] },
+    ]);
+  });
+
   test("h1", () => {
     const r = c.richtext`# Title 1`;
     expect(parseRichTextSource(r).children).toStrictEqual([
@@ -19,7 +37,7 @@ describe("richtext", () => {
     `;
     expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
-      { tag: "p", children: ["Paragraph 1 "] }, // TODO: remove trailing space
+      { tag: "p", children: ["Paragraph 1"] },
     ]);
   });
 
@@ -35,7 +53,7 @@ describe("richtext", () => {
       {
         tag: "p",
         children: [
-          "Some paragraph which continues on the next line and this line too! ", // TODO: remove trailing space + should we keep (soft) new lines?
+          "Some paragraph which continues on the next line and this line too!", // TODO: should we keep (soft line breaks?) new lines?
         ],
       },
     ]);
@@ -56,7 +74,24 @@ describe("richtext", () => {
       },
       {
         tag: "p",
-        children: ["Another paragraph "],
+        children: ["Another paragraph"],
+      },
+    ]);
+  });
+
+  test("ul", () => {
+    const r = c.richtext`
+    - item 1
+    - item 2
+    `;
+    console.log(JSON.stringify(parseRichTextSource(r).children, null, 2));
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      {
+        tag: "ul",
+        children: [
+          { tag: "li", children: ["item 1"] },
+          { tag: "li", children: ["item 2"] },
+        ],
       },
     ]);
   });

@@ -46,8 +46,10 @@ const stopChars = [
   // start: <br/>
   "<",
   // bullet list markers:
+  // TODO: support more bullet list markers: * and +
   "-",
   // ordered list markers (1., 2., 3., ...) handled in logic below
+  // TODO: support 1. and 1)
 ];
 export function lexer(input: string): {
   tokens: Token[];
