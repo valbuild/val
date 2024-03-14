@@ -707,7 +707,8 @@ export abstract class ValServer implements IValServer {
 
   async getFiles(
     filePath: string,
-    query: { sha256?: string },
+    // @eslint-disable-next-line @typescript-eslint/no-unused-vars
+    query: { sha256?: string }, // TODO: use the sha256 query param: we have to go through all fileUpdates to find the one with the actual checksum
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
     const patchesRes = await this.readPatches(cookies);
@@ -715,25 +716,26 @@ export abstract class ValServer implements IValServer {
       return patchesRes.error;
     }
     const { fileUpdates } = patchesRes.value;
-
-    // TODO: use the sha256 query param
-
-    let updatedBuffer = bufferFromDataUrl(
-      fileUpdates[filePath],
-      getMimeTypeFromBase64(fileUpdates[filePath])
-    );
-    if (!updatedBuffer) {
-      if (fileUpdates[filePath]) {
+    let updatedBuffer: Buffer | undefined;
+    const headers: Record<string, string> = {};
+    if (fileUpdates[filePath]) {
+      const mimeType = getMimeTypeFromBase64(fileUpdates[filePath]);
+      if (mimeType) {
+        headers["Content-Type"] = mimeType;
+      }
+      updatedBuffer = bufferFromDataUrl(fileUpdates[filePath], mimeType);
+      if (!updatedBuffer) {
         return {
           status: 500,
           json: {
-            message: "Unexpected error: file op value is not a base 64 url",
+            message: "Unexpected error: could not decode data url",
             details: {
               filePath,
             },
           },
         };
       }
+    } else {
       updatedBuffer = await this.readStaticBinaryFile(filePath);
     }
     if (!updatedBuffer) {
@@ -747,9 +749,17 @@ export abstract class ValServer implements IValServer {
         },
       };
     }
+    if (!headers["Content-Type"]) {
+      headers["Content-Type"] =
+        guessMimeTypeFromPath(filePath) || "application/octet-stream";
+    }
+
+    const contentLength = updatedBuffer.length;
+    headers["Content-Length"] = contentLength.toString();
 
     return {
       status: 200,
+      headers,
       body: bufferToReadableStream(updatedBuffer),
     };
   }
@@ -872,11 +882,12 @@ export function getRedirectUrl(
       overrideHost + "?redirect_to=" + encodeURIComponent(query.redirect_to)
     );
   }
+  ``;
   return query.redirect_to;
 }
 
 const base64DataAttr = "data:";
-function getMimeTypeFromBase64(content: string): string | null {
+export function getMimeTypeFromBase64(content: string): string | null {
   const dataIndex = content.indexOf(base64DataAttr);
   const base64Index = content.indexOf(";base64,");
   if (dataIndex > -1 || base64Index > -1) {
@@ -889,7 +900,7 @@ function getMimeTypeFromBase64(content: string): string | null {
   return null;
 }
 
-function bufferFromDataUrl(
+export function bufferFromDataUrl(
   dataUrl: string,
   contentType: string | null
 ): Buffer | undefined {
@@ -897,10 +908,10 @@ function bufferFromDataUrl(
   if (!contentType) {
     const base64Index = dataUrl.indexOf(";base64,");
     if (base64Index > -1) {
-      base64Data = dataUrl.slice(base64Index + base64DataAttr.length);
+      base64Data = dataUrl.slice(base64Index + ";base64,".length);
     }
   } else {
-    const dataUrlEncodingHeader = `${base64DataAttr}:${contentType};base64,`;
+    const dataUrlEncodingHeader = `${base64DataAttr}${contentType};base64,`;
     if (
       dataUrl.slice(0, dataUrlEncodingHeader.length) === dataUrlEncodingHeader
     ) {
@@ -983,4 +994,92 @@ export interface IValServer {
     query: { sha256?: string },
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>>;
+}
+
+// https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types
+const COMMON_MIME_TYPES: Record<string, string> = {
+  aac: "audio/aac",
+  abw: "application/x-abiword",
+  arc: "application/x-freearc",
+  avif: "image/avif",
+  avi: "video/x-msvideo",
+  azw: "application/vnd.amazon.ebook",
+  bin: "application/octet-stream",
+  bmp: "image/bmp",
+  bz: "application/x-bzip",
+  bz2: "application/x-bzip2",
+  cda: "application/x-cdf",
+  csh: "application/x-csh",
+  css: "text/css",
+  csv: "text/csv",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  eot: "application/vnd.ms-fontobject",
+  epub: "application/epub+zip",
+  gz: "application/gzip",
+  gif: "image/gif",
+  htm: "text/html",
+  html: "text/html",
+  ico: "image/vnd.microsoft.icon",
+  ics: "text/calendar",
+  jar: "application/java-archive",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  js: "text/javascript",
+  json: "application/json",
+  jsonld: "application/ld+json",
+  mid: "audio/midi",
+  midi: "audio/midi",
+  mjs: "text/javascript",
+  mp3: "audio/mpeg",
+  mp4: "video/mp4",
+  mpeg: "video/mpeg",
+  mpkg: "application/vnd.apple.installer+xml",
+  odp: "application/vnd.oasis.opendocument.presentation",
+  ods: "application/vnd.oasis.opendocument.spreadsheet",
+  odt: "application/vnd.oasis.opendocument.text",
+  oga: "audio/ogg",
+  ogv: "video/ogg",
+  ogx: "application/ogg",
+  opus: "audio/opus",
+  otf: "font/otf",
+  png: "image/png",
+  pdf: "application/pdf",
+  php: "application/x-httpd-php",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  rar: "application/vnd.rar",
+  rtf: "application/rtf",
+  sh: "application/x-sh",
+  svg: "image/svg+xml",
+  tar: "application/x-tar",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+  ts: "video/mp2t",
+  ttf: "font/ttf",
+  txt: "text/plain",
+  vsd: "application/vnd.visio",
+  wav: "audio/wav",
+  weba: "audio/webm",
+  webm: "video/webm",
+  webp: "image/webp",
+  woff: "font/woff",
+  woff2: "font/woff2",
+  xhtml: "application/xhtml+xml",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xml: "application/xml",
+  xul: "application/vnd.mozilla.xul+xml",
+  zip: "application/zip",
+  "3gp": "video/3gpp; audio/3gpp if it doesn't contain video",
+  "3g2": "video/3gpp2; audio/3gpp2 if it doesn't contain video",
+  "7z": "application/x-7z-compressed",
+};
+
+function guessMimeTypeFromPath(filePath: string): string | null {
+  const fileExt = filePath.split(".").pop();
+  if (fileExt) {
+    return COMMON_MIME_TYPES[fileExt.toLowerCase()] || null;
+  }
+  return null;
 }

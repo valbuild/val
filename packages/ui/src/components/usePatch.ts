@@ -93,7 +93,6 @@ export function usePatchSubmit(
             if (result.isErr(res)) {
               throw res.error;
             } else {
-              console.log(res.value);
               res.value;
             }
           })
