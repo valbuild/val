@@ -295,9 +295,15 @@ export function stegaEncode(
           typeof sourceOrSelector[FILE_REF_PROP] === "string"
         ) {
           const fileSelector = Internal.convertFileSource(sourceOrSelector);
+          let url = fileSelector.url;
+          if (opts.disabled) {
+            url = fileSelector.url;
+          } else {
+            url = "/api/val/files/public" + fileSelector.url;
+          }
           return {
             ...fileSelector,
-            url: rec(fileSelector.url, recOpts),
+            url: rec(url, recOpts),
           };
         }
         console.error(

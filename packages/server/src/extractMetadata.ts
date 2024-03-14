@@ -10,7 +10,6 @@ export async function extractImageMetadata(
   filename: string,
   input: Buffer
 ): Promise<ImageMetadata> {
-  console.log({ filename, input });
   const imageSize = sizeOf(input);
   let mimeType: string | null = null;
   if (imageSize.type) {

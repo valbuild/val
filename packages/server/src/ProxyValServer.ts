@@ -31,7 +31,6 @@ import { result } from "@valbuild/core/fp";
 import { RemoteFS } from "./RemoteFS";
 import { Service, ServiceOptions, createService } from "./Service";
 import { SerializedModuleContent } from "./SerializedModuleContent";
-import fs from "fs";
 
 export type ProxyValServerOptions = {
   apiKey: string;
@@ -398,7 +397,9 @@ export class ProxyValServer extends ValServer {
 
   /* Patch endpoints */
   async deletePatches(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     query: { id?: string[] | undefined },
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerJsonResult<ApiDeletePatchResponse>> {
     throw new Error("Method not implemented.");
