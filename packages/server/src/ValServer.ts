@@ -38,7 +38,7 @@ import { extractFileMetadata, extractImageMetadata } from "./extractMetadata";
 import { validateMetadata } from "./validateMetadata";
 import { getValidationErrorMetadata } from "./getValidationErrorMetadata";
 import { IValFSHost } from "./ValFSHost";
-import { file } from "@valbuild/core/src/source/file";
+import fs from "fs";
 
 export type ValServerOptions = {
   valEnableRedirectUrl?: string;
@@ -373,14 +373,17 @@ export abstract class ValServer implements IValServer {
             if (!expectedMetadata) {
               let fileBuffer: Buffer | undefined = undefined;
               if (fileUpdates[fileRef]) {
-                const dataUrl = fileUpdates[fileRef].split(",")?.[1];
-                if (dataUrl) {
-                  fileBuffer = Buffer.from(dataUrl, "base64url");
+                const updatedBuffer = bufferFromDataUrl(
+                  fileUpdates[fileRef],
+                  getMimeTypeFromBase64(fileUpdates[fileRef])
+                );
+                if (updatedBuffer) {
+                  fileBuffer = updatedBuffer;
                 }
               }
               if (!fileBuffer) {
                 try {
-                  fileBuffer = await this.readBuffer(filePath);
+                  fileBuffer = await this.readStaticBinaryFile(filePath);
                 } catch (err) {
                   console.error(
                     "Val: unexpected error while reading image / file:",
@@ -475,6 +478,13 @@ export abstract class ValServer implements IValServer {
       .map((patchData) => patchData.patch_id);
   }
 
+  // can be overridden if FS cannot read from static assets / public folder (because of bundlers or what not)
+  protected async readStaticBinaryFile(
+    filePath: string
+  ): Promise<Buffer | undefined> {
+    return fs.promises.readFile(filePath);
+  }
+
   private async readPatches(
     cookies: Partial<Record<"val_session", string>>
   ): Promise<
@@ -513,7 +523,6 @@ export abstract class ValServer implements IValServer {
         }[]
       > = res.json;
       const patches: [PatchId, ModuleId, Patch][] = [];
-
       const patchIdsByModuleId: Record<ModuleId, PatchId[]> = {};
       const patchesById: Record<PatchId, Patch> = {};
       for (const [moduleIdS, modulePatchData] of Object.entries(
@@ -672,10 +681,83 @@ export abstract class ValServer implements IValServer {
     };
   }
 
+  protected async getPatchedModules(
+    patches: [PatchId, ModuleId, Patch][]
+  ): Promise<Record<ModuleId, { patches: { applied: PatchId[] } }>> {
+    const modules: Record<
+      ModuleId,
+      {
+        patches: {
+          applied: PatchId[];
+        };
+      }
+    > = {};
+    for (const [patchId, moduleId] of patches) {
+      if (!modules[moduleId]) {
+        modules[moduleId] = {
+          patches: {
+            applied: [],
+          },
+        };
+      }
+      modules[moduleId].patches.applied.push(patchId);
+    }
+    return modules;
+  }
+
+  async getFiles(
+    filePath: string,
+    query: { sha256?: string },
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
+    const patchesRes = await this.readPatches(cookies);
+    if (result.isErr(patchesRes)) {
+      return patchesRes.error;
+    }
+    const { fileUpdates } = patchesRes.value;
+
+    // TODO: use the sha256 query param
+
+    let updatedBuffer = bufferFromDataUrl(
+      fileUpdates[filePath],
+      getMimeTypeFromBase64(fileUpdates[filePath])
+    );
+    if (!updatedBuffer) {
+      if (fileUpdates[filePath]) {
+        return {
+          status: 500,
+          json: {
+            message: "Unexpected error: file op value is not a base 64 url",
+            details: {
+              filePath,
+            },
+          },
+        };
+      }
+      updatedBuffer = await this.readStaticBinaryFile(filePath);
+    }
+    if (!updatedBuffer) {
+      return {
+        status: 404,
+        json: {
+          message: "File not found",
+          details: {
+            filePath,
+          },
+        },
+      };
+    }
+
+    return {
+      status: 200,
+      body: bufferToReadableStream(updatedBuffer),
+    };
+  }
+
   /* Abstract methods */
 
   /**
-   * Runs before remoteFS dependent methods (getModule, readBuffer) are called to make sure that:
+   * Runs before remoteFS dependent methods (e.g.getModule, ...) are called to make sure that:
    * 1) The remote FS, if applicable, is initialized
    * 2) The error is returned via API if the remote FS could not be initialized
    * */
@@ -687,21 +769,6 @@ export abstract class ValServer implements IValServer {
   protected abstract getModule(
     moduleId: ModuleId
   ): Promise<SerializedModuleContent>;
-
-  protected abstract readBuffer(filePath: string): Promise<Buffer | undefined>;
-
-  protected abstract getPatchedModules(
-    patches: [PatchId, ModuleId, Patch][]
-  ): Promise<
-    Record<
-      ModuleId,
-      {
-        patches: {
-          applied: PatchId[];
-        };
-      }
-    >
-  >;
 
   protected abstract execCommit(
     patches: [PatchId, ModuleId, Patch][],
@@ -716,7 +783,6 @@ export abstract class ValServer implements IValServer {
       }
     >
   >;
-
   /* Abstract endpoints */
   /* Abstract auth endpoints: */
   abstract session(
@@ -754,13 +820,31 @@ export abstract class ValServer implements IValServer {
     },
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerJsonResult<ApiGetPatchResponse>>;
+}
 
-  /* Abstract misc endpoints: */
-  abstract getFiles(
-    treePath: string,
-    query: { sha256?: string },
-    cookies: ValCookies<VAL_SESSION_COOKIE>
-  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>>;
+// From slightly modified ChatGPT generated
+function bufferToReadableStream(buffer: Buffer) {
+  const stream = new ReadableStream({
+    start(controller) {
+      const chunkSize = 1024; // Adjust the chunk size as needed
+      let offset = 0;
+
+      function push() {
+        const chunk = buffer.subarray(offset, offset + chunkSize);
+        offset += chunkSize;
+
+        if (chunk.length > 0) {
+          controller.enqueue(new Uint8Array(chunk));
+          setTimeout(push, 0); // Enqueue the next chunk asynchronously
+        } else {
+          controller.close();
+        }
+      }
+
+      push();
+    },
+  });
+  return stream;
 }
 
 export const ENABLE_COOKIE_VALUE = {
@@ -789,6 +873,46 @@ export function getRedirectUrl(
     );
   }
   return query.redirect_to;
+}
+
+const base64DataAttr = "data:";
+function getMimeTypeFromBase64(content: string): string | null {
+  const dataIndex = content.indexOf(base64DataAttr);
+  const base64Index = content.indexOf(";base64,");
+  if (dataIndex > -1 || base64Index > -1) {
+    const mimeType = content.slice(
+      dataIndex + base64DataAttr.length,
+      base64Index
+    );
+    return mimeType;
+  }
+  return null;
+}
+
+function bufferFromDataUrl(
+  dataUrl: string,
+  contentType: string | null
+): Buffer | undefined {
+  let base64Data;
+  if (!contentType) {
+    const base64Index = dataUrl.indexOf(";base64,");
+    if (base64Index > -1) {
+      base64Data = dataUrl.slice(base64Index + base64DataAttr.length);
+    }
+  } else {
+    const dataUrlEncodingHeader = `${base64DataAttr}:${contentType};base64,`;
+    if (
+      dataUrl.slice(0, dataUrlEncodingHeader.length) === dataUrlEncodingHeader
+    ) {
+      base64Data = dataUrl.slice(dataUrlEncodingHeader.length);
+    }
+  }
+  if (base64Data) {
+    return Buffer.from(
+      base64Data,
+      "base64" // TODO: why does it not work with base64url?
+    );
+  }
 }
 
 export type ValServerCallbacks = {
