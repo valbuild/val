@@ -63,6 +63,7 @@ export class ProxyValServer extends ValServer {
   }
 
   /** Remote FS dependent methods: */
+
   protected async getModule(
     moduleId: ModuleId
   ): Promise<SerializedModuleContent> {
@@ -74,10 +75,6 @@ export class ProxyValServer extends ValServer {
       );
     }
     return this.lazyService.get(moduleId);
-  }
-
-  protected async readBuffer(filePath: string): Promise<Buffer | undefined> {
-    return fs.readFileSync(filePath);
   }
 
   protected execCommit(
@@ -529,84 +526,6 @@ export class ProxyValServer extends ValServer {
         } else {
           return {
             status: fetchRes.status as ValServerErrorStatus,
-          };
-        }
-      }
-    );
-  }
-  protected async getPatchedModules(
-    patches: [PatchId, ModuleId, Patch][]
-  ): Promise<Record<ModuleId, { patches: { applied: PatchId[] } }>> {
-    const modules: Record<
-      ModuleId,
-      {
-        patches: {
-          applied: PatchId[];
-        };
-      }
-    > = {};
-    for (const [patchId, moduleId] of patches) {
-      if (!modules[moduleId]) {
-        modules[moduleId] = {
-          patches: {
-            applied: [],
-          },
-        };
-      }
-      // during validation we build this up again, wanted to following the same flows for validation and for commits
-      modules[moduleId].patches.applied.push(patchId);
-    }
-    return modules;
-  }
-
-  /* Misc endpoints: */
-
-  async getFiles(
-    treePath: string,
-    query: { sha256?: string },
-    cookies: ValCookies<VAL_SESSION_COOKIE>
-  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
-    return withAuth(
-      this.options.valSecret,
-      cookies,
-      "getFiles",
-      async (data) => {
-        const url = new URL(
-          `/v1/files/${this.options.valName}${treePath}`,
-          this.options.valContentUrl
-        );
-        if (typeof query.sha256 === "string") {
-          url.searchParams.append("sha256", query.sha256 as string);
-        } else {
-          console.warn("Missing sha256 query param");
-        }
-        const fetchRes = await fetch(url, {
-          headers: getAuthHeaders(data.token),
-        });
-        if (fetchRes.status === 200) {
-          if (fetchRes.body) {
-            return {
-              status: fetchRes.status,
-              headers: {
-                "Content-Type": fetchRes.headers.get("Content-Type") || "",
-                "Content-Length": fetchRes.headers.get("Content-Length") || "0",
-              },
-              json: fetchRes.body,
-            };
-          } else {
-            return {
-              status: 500,
-              json: {
-                message: "No body in response",
-              },
-            };
-          }
-        } else {
-          return {
-            status: fetchRes.status as ValServerErrorStatus,
-            json: {
-              message: "Failed to get files",
-            },
           };
         }
       }

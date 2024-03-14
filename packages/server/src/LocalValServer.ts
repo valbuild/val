@@ -52,6 +52,7 @@ export class LocalValServer extends ValServer {
       options,
       callbacks
     );
+
     this.patchesRootPath =
       options.cacheDir ||
       path.join(options.service.sourceFileHandler.projectRoot, ".val");
@@ -65,12 +66,6 @@ export class LocalValServer extends ValServer {
         enabled: await this.callbacks.isEnabled(),
       },
     };
-  }
-
-  async getFiles(): Promise<
-    ValServerResult<never, ReadableStream<Uint8Array>>
-  > {
-    return this.badRequest();
   }
 
   async deletePatches(query: {
@@ -103,17 +98,24 @@ export class LocalValServer extends ValServer {
       };
     }
     const parsedPatches: Record<ModuleId, Patch> = {};
-    const fileId = Date.now().toString() as PatchId;
+    let fileId = Date.now();
+    while (
+      this.host.fileExists(this.getPatchFilePath(fileId.toString() as PatchId))
+    ) {
+      // ensure unique file / patch id
+      fileId++;
+    }
+    const patchId = fileId.toString() as PatchId;
     const res: ApiPostPatchResponse = {};
     for (const moduleIdStr in patches.data) {
       const moduleId = moduleIdStr as ModuleId; // TODO: validate that this is a valid module id
       res[moduleId] = {
-        patch_id: fileId.toString() as PatchId,
+        patch_id: patchId,
       };
       parsedPatches[moduleId] = patches.data[moduleId];
     }
     this.host.writeFile(
-      this.getPatchFilePath(fileId),
+      this.getPatchFilePath(patchId),
       JSON.stringify(patches.data),
       "utf8"
     );
@@ -132,9 +134,15 @@ export class LocalValServer extends ValServer {
     );
     let files: readonly string[] = [];
     try {
-      files = this.host.readDirectory(patchesCacheDir, [""], [], []);
+      if (
+        !this.host.directoryExists ||
+        (this.host.directoryExists &&
+          this.host.directoryExists(patchesCacheDir))
+      ) {
+        files = this.host.readDirectory(patchesCacheDir, [""], [], []);
+      }
     } catch (e) {
-      // no patches to apply
+      console.debug("Failed to read directory (no patches yet?)", e);
     }
     const res: ApiGetPatchResponse = {};
     const sortedPatchIds = files
@@ -214,10 +222,6 @@ export class LocalValServer extends ValServer {
     };
   }
 
-  protected async readBuffer(filePath: string): Promise<Buffer> {
-    return fs.promises.readFile(filePath);
-  }
-
   private getPatchFilePath(patchId: PatchId) {
     return path.join(
       this.patchesRootPath,
@@ -246,50 +250,18 @@ export class LocalValServer extends ValServer {
     return this.options.service.get(moduleId);
   }
 
-  protected getPatchedModules(
+  protected async execCommit(
     patches: [PatchId, ModuleId, Patch][]
   ): Promise<Record<ModuleId, { patches: { applied: PatchId[] } }>> {
-    return this.commitOrGetModulesWithAppliedPatches(false, patches);
-  }
-
-  protected execCommit(
-    patches: [PatchId, ModuleId, Patch][]
-  ): Promise<Record<ModuleId, { patches: { applied: PatchId[] } }>> {
-    return this.commitOrGetModulesWithAppliedPatches(true, patches);
-  }
-
-  private async commitOrGetModulesWithAppliedPatches(
-    commit: boolean,
-    patches: [PatchId, ModuleId, Patch][]
-  ) {
-    const modules: Record<
-      ModuleId,
-      {
-        patches: {
-          applied: PatchId[];
-        };
-      }
-    > = {};
     for (const [patchId, moduleId, patch] of patches) {
-      if (!modules[moduleId]) {
-        modules[moduleId] = {
-          patches: {
-            applied: [],
-          },
-        };
-      }
-      if (commit) {
-        // TODO: patch the entire module content directly by using a { path: "", op: "replace", value: patchedData }?
-        // Reason: that would be more atomic? Not doing it now, because there are currently already too many moving pieces.
-        // Other things we could do would be to patch in a temp directory and ONLY when all patches are applied we move back in.
-        // This would improve reliability
-        this.host.rmFile(this.getPatchFilePath(patchId));
-        await this.options.service.patch(moduleId, patch);
-      }
-      // during validation we build this up again, wanted to following the same flows for validation and for commits
-      modules[moduleId].patches.applied.push(patchId);
+      // TODO: patch the entire module content directly by using a { path: "", op: "replace", value: patchedData }?
+      // Reason: that would be more atomic? Not doing it now, because there are currently already too many moving pieces.
+      // Other things we could do would be to patch in a temp directory and ONLY when all patches are applied we move back in.
+      // This would improve reliability
+      this.host.rmFile(this.getPatchFilePath(patchId));
+      await this.options.service.patch(moduleId, patch);
     }
-    return modules;
+    return this.getPatchedModules(patches);
   }
 
   /* Bad requests on Local Server: */

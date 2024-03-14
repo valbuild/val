@@ -109,11 +109,6 @@ describe("ValServer", () => {
   });
 });
 
-const FAKE_GIT = {
-  commit: "53f4935277acbd6e95f8867c37fed55c91acc57c",
-  branch: "main",
-};
-
 class TestValServer extends ValServer {
   remoteFS: RemoteFS;
   patches: Record<string, Record<string, Patch>> = {};
@@ -135,6 +130,7 @@ class TestValServer extends ValServer {
     );
     this.remoteFS = remoteFS;
   }
+
   async initializeFromTestDir(dir: string) {
     const directories: Directories = {};
 
@@ -182,10 +178,6 @@ class TestValServer extends ValServer {
   ): Promise<SerializedModuleContent> {
     const service = await createService(this.projectRoot, {}, this.remoteFS);
     return service.get(moduleId);
-  }
-
-  protected async readBuffer(filePath: string): Promise<Buffer | undefined> {
-    return fs.promises.readFile(filePath);
   }
 
   async postPatches(
@@ -237,12 +229,6 @@ class TestValServer extends ValServer {
   }
 
   /* Not (currently) needed to test server */
-
-  protected getPatchedModules(): Promise<
-    Record<ModuleId, { patches: { applied: PatchId[] } }>
-  > {
-    throw new Error("Method not implemented.");
-  }
   protected execCommit(): Promise<
     Record<ModuleId, { patches: { applied: PatchId[] } }>
   > {
@@ -268,3 +254,8 @@ class TestValServer extends ValServer {
     throw new Error("Method not implemented.");
   }
 }
+
+const FAKE_GIT = {
+  commit: "53f4935277acbd6e95f8867c37fed55c91acc57c",
+  branch: "main",
+};
