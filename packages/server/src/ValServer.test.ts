@@ -15,12 +15,19 @@ import {
   ValServerResult,
 } from "@valbuild/shared/internal";
 import { SerializedModuleContent } from "./SerializedModuleContent";
-import { ValServer } from "./ValServer";
+import {
+  ValServer,
+  bufferFromDataUrl,
+  getMimeTypeFromBase64,
+} from "./ValServer";
 import { Directories, DirectoryNode, RemoteFS } from "./RemoteFS";
 import fs from "fs";
 import path from "path";
 import { result } from "@valbuild/core/fp";
 import { createService } from "./Service";
+
+const anotherSmallPng =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAABAQAAAADLe9LuAAAACklEQVR4AWNgAAAAAgABc3UBGAAAAABJRU5ErkJggg==";
 
 describe("ValServer", () => {
   test("todo", async () => {
@@ -74,8 +81,6 @@ describe("ValServer", () => {
       )
     );
 
-    const anotherSmallPng =
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAABAQAAAADLe9LuAAAACklEQVR4AWNgAAAAAgABc3UBGAAAAABJRU5ErkJggg==";
     await testServer.postPatches({
       "/src/pages/metadata-tests": [
         {
@@ -100,12 +105,26 @@ describe("ValServer", () => {
         2
       )
     );
-    // await testServer.getFiles("", {
-    //   sha256:
-    //     "80d58a5b775debc85386b320c347a59ffeeae5eeb3ca30a3a3ca04b5aaed145d",
-    // });
-    //b80c912b70d074d5690800cb9a72319ee421b900752191e2c87d7dbc1dd6ad5a
-    // console.log(Internal.getSHA256Hash(Buffer.from(anotherSmallPng, "base64")));
+    await testServer.getFiles(
+      "/public/managed/images/smallest.png",
+      {
+        sha256:
+          "80d58a5b775debc85386b320c347a59ffeeae5eeb3ca30a3a3ca04b5aaed145d",
+      },
+      {}
+    );
+  });
+
+  test("getMimeTypeFromBase64", () => {
+    expect(getMimeTypeFromBase64(anotherSmallPng)).toStrictEqual("image/png");
+  });
+
+  test("bufferFromDataUrl", () => {
+    const withMimeType = bufferFromDataUrl(anotherSmallPng, "image/png");
+    expect(withMimeType).toBeDefined();
+    const withoutMimeType = bufferFromDataUrl(anotherSmallPng, null);
+    expect(withoutMimeType).toBeDefined();
+    expect(withoutMimeType).toStrictEqual(withMimeType);
   });
 });
 

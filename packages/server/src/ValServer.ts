@@ -707,7 +707,8 @@ export abstract class ValServer implements IValServer {
 
   async getFiles(
     filePath: string,
-    query: { sha256?: string },
+    // @eslint-disable-next-line @typescript-eslint/no-unused-vars
+    query: { sha256?: string }, // TODO: use the sha256 query param: we have to go through all fileUpdates to find the one with the actual checksum
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
     const patchesRes = await this.readPatches(cookies);
@@ -715,9 +716,6 @@ export abstract class ValServer implements IValServer {
       return patchesRes.error;
     }
     const { fileUpdates } = patchesRes.value;
-
-    // TODO: use the sha256 query param
-
     let updatedBuffer = bufferFromDataUrl(
       fileUpdates[filePath],
       getMimeTypeFromBase64(fileUpdates[filePath])
@@ -727,7 +725,7 @@ export abstract class ValServer implements IValServer {
         return {
           status: 500,
           json: {
-            message: "Unexpected error: file op value is not a base 64 url",
+            message: "Unexpected error: could not decode data url",
             details: {
               filePath,
             },
@@ -735,6 +733,8 @@ export abstract class ValServer implements IValServer {
         };
       }
       updatedBuffer = await this.readStaticBinaryFile(filePath);
+    } else {
+      console.log("Found updated");
     }
     if (!updatedBuffer) {
       return {
@@ -872,11 +872,12 @@ export function getRedirectUrl(
       overrideHost + "?redirect_to=" + encodeURIComponent(query.redirect_to)
     );
   }
+  ``;
   return query.redirect_to;
 }
 
 const base64DataAttr = "data:";
-function getMimeTypeFromBase64(content: string): string | null {
+export function getMimeTypeFromBase64(content: string): string | null {
   const dataIndex = content.indexOf(base64DataAttr);
   const base64Index = content.indexOf(";base64,");
   if (dataIndex > -1 || base64Index > -1) {
@@ -889,7 +890,7 @@ function getMimeTypeFromBase64(content: string): string | null {
   return null;
 }
 
-function bufferFromDataUrl(
+export function bufferFromDataUrl(
   dataUrl: string,
   contentType: string | null
 ): Buffer | undefined {
@@ -897,10 +898,10 @@ function bufferFromDataUrl(
   if (!contentType) {
     const base64Index = dataUrl.indexOf(";base64,");
     if (base64Index > -1) {
-      base64Data = dataUrl.slice(base64Index + base64DataAttr.length);
+      base64Data = dataUrl.slice(base64Index + ";base64,".length);
     }
   } else {
-    const dataUrlEncodingHeader = `${base64DataAttr}:${contentType};base64,`;
+    const dataUrlEncodingHeader = `${base64DataAttr}${contentType};base64,`;
     if (
       dataUrl.slice(0, dataUrlEncodingHeader.length) === dataUrlEncodingHeader
     ) {
@@ -908,6 +909,10 @@ function bufferFromDataUrl(
     }
   }
   if (base64Data) {
+    console.log({
+      base64Data,
+      contentType,
+    });
     return Buffer.from(
       base64Data,
       "base64" // TODO: why does it not work with base64url?
