@@ -40,6 +40,7 @@ const stopChars = [
   "\n",
   // spaces:
   " ",
+  // TODO: fold tabs into 4 spaces?
   // tabs:
   "\t",
   // start: <br/>

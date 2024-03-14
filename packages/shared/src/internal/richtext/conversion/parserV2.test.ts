@@ -5,10 +5,59 @@ const { c } = initVal();
 
 //MD to HTML
 describe("richtext", () => {
-  test("basic h1", () => {
+  test("h1", () => {
     const r = c.richtext`# Title 1`;
     expect(parseRichTextSource(r).children).toStrictEqual([
       { tag: "h1", children: ["Title 1"] },
+    ]);
+  });
+
+  test("h1 + paragraph", () => {
+    const r = c.richtext`# Title 1
+    
+    Paragraph 1
+    `;
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      { tag: "h1", children: ["Title 1"] },
+      { tag: "p", children: ["Paragraph 1 "] }, // TODO: remove trailing space
+    ]);
+  });
+
+  test("h1 + multiline paragraph", () => {
+    const r = c.richtext`# Title 1
+    
+    Some paragraph
+    which continues on the next line
+    and this line too!
+    `;
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      { tag: "h1", children: ["Title 1"] },
+      {
+        tag: "p",
+        children: [
+          "Some paragraph which continues on the next line and this line too! ", // TODO: remove trailing space + should we keep (soft) new lines?
+        ],
+      },
+    ]);
+  });
+
+  test("h1 + multiple paragraphs", () => {
+    const r = c.richtext`# Title 1
+    
+    Some paragraph
+    
+    Another paragraph
+    `;
+    expect(parseRichTextSource(r).children).toStrictEqual([
+      { tag: "h1", children: ["Title 1"] },
+      {
+        tag: "p",
+        children: ["Some paragraph"],
+      },
+      {
+        tag: "p",
+        children: ["Another paragraph "],
+      },
     ]);
   });
 
