@@ -736,7 +736,9 @@ export abstract class ValServer implements IValServer {
         };
       }
     } else {
-      updatedBuffer = await this.readStaticBinaryFile(filePath);
+      updatedBuffer = await this.readStaticBinaryFile(
+        path.join(this.projectRoot, filePath)
+      );
     }
     if (!updatedBuffer) {
       return {
