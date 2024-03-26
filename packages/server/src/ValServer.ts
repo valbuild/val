@@ -6,6 +6,7 @@ import {
   ApiTreeResponse,
   ApiDeletePatchResponse,
   ApiPostValidationResponse,
+  Internal,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -53,7 +54,7 @@ const ops = new JSONOps();
 
 export abstract class ValServer implements IValServer {
   constructor(
-    readonly projectRoot: string,
+    readonly cwd: string,
     readonly host: IValFSHost,
     readonly options: ValServerOptions,
     readonly callbacks: ValServerCallbacks
@@ -102,6 +103,37 @@ export abstract class ValServer implements IValServer {
     };
   }
 
+  private getAllModules(treePath: string) {
+    console.log({
+      treePath,
+      projectRoot: this.cwd,
+    });
+    const moduleIds: ModuleId[] = this.host
+      .readDirectory(
+        this.cwd,
+        ["ts", "js"],
+        ["node_modules", ".*"],
+        ["**/*.val.ts", "**/*.val.js"]
+      )
+      .filter((file) => {
+        if (treePath) {
+          return file.replace(this.cwd, "").startsWith(treePath);
+        }
+        return true;
+      })
+      .map(
+        (file) =>
+          file
+            .replace(this.cwd, "")
+            .replace(".val.js", "")
+            .replace(".val.ts", "")
+            .split(path.sep)
+            .join("/") as ModuleId
+      );
+
+    return moduleIds;
+  }
+
   async getTree(
     treePath: string,
     // TODO: use the params: patch, schema, source now we return everything, every time
@@ -113,29 +145,8 @@ export abstract class ValServer implements IValServer {
       return ensureRes.error;
     }
 
-    const rootDir = this.projectRoot;
-    const moduleIds: ModuleId[] = this.host
-      .readDirectory(
-        rootDir,
-        ["ts", "js"],
-        ["node_modules", ".*"],
-        ["**/*.val.ts", "**/*.val.js"]
-      )
-      .filter((file) => {
-        if (treePath) {
-          return file.replace(rootDir, "").startsWith(treePath);
-        }
-        return true;
-      })
-      .map(
-        (file) =>
-          file
-            .replace(rootDir, "")
-            .replace(".val.js", "")
-            .replace(".val.ts", "")
-            .split(path.sep)
-            .join("/") as ModuleId
-      );
+    const moduleIds = this.getAllModules(treePath);
+
     const applyPatches = query.patch === "true";
     let {
       patchIdsByModuleId,
@@ -283,9 +294,7 @@ export abstract class ValServer implements IValServer {
       const patchRes = applyPatch(
         source,
         ops,
-        patch.filter(
-          (op) => !(op.op === "file" && typeof op.value === "string")
-        )
+        patch.filter(Internal.notFileOp)
       );
       if (result.isOk(patchRes)) {
         source = patchRes.value;
@@ -366,7 +375,7 @@ export abstract class ValServer implements IValServer {
         ) {
           const fileRef = getValidationErrorFileRef(error);
           if (fileRef) {
-            const filePath = path.join(this.projectRoot, fileRef);
+            const filePath = path.join(this.cwd, fileRef);
             let expectedMetadata: FileMetadata | ImageMetadata | undefined;
 
             // if this is a new file or we have an actual FS, we read the file and get the metadata
@@ -606,7 +615,7 @@ export abstract class ValServer implements IValServer {
     const { patchIdsByModuleId, patchesById, patches, fileUpdates } = res.value;
     const validationErrorsByModuleId: ApiPostValidationErrorResponse["validationErrors"] =
       {};
-    for (const moduleIdStr in patchIdsByModuleId) {
+    for (const moduleIdStr of this.getAllModules("/")) {
       const moduleId = moduleIdStr as ModuleId;
       const serializedModuleContent = await this.applyAllPatchesThenValidate(
         moduleId,
@@ -737,7 +746,7 @@ export abstract class ValServer implements IValServer {
       }
     } else {
       updatedBuffer = await this.readStaticBinaryFile(
-        path.join(this.projectRoot, filePath)
+        path.join(this.cwd, filePath)
       );
     }
     if (!updatedBuffer) {

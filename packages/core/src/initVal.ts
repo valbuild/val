@@ -28,7 +28,6 @@ export type ValConfig = {
   root?: string;
   gitCommit?: string;
   gitBranch?: string;
-  valConfigPath?: string;
 };
 export type InitVal = {
   c: ContentConstructor;
@@ -45,7 +44,9 @@ export type InitVal = {
 //     };
 
 // TODO: Rename to createValSystem (only to be used by internal things), we can then export * from '@valbuild/core' in the next package then.
-export const initVal = (): //   options?: {
+export const initVal = (
+  config?: ValConfig
+): //   options?: {
 //   readonly locales?: NarrowStrings<{
 //     readonly required: Locales;
 //     readonly default: Locales extends readonly string[]
@@ -87,7 +88,7 @@ InitVal => {
       },
     },
     s,
-    config: {},
+    config,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
 };

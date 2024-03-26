@@ -8,7 +8,7 @@ import { Internal, ValConfig } from "@valbuild/core";
 import { ValServerGenericResult } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
 
-type Opts = ValServerOverrides & ServiceOptions & ValConfig;
+export type ValApiOptions = ValServerOverrides & ServiceOptions & ValConfig;
 
 type ValServerOverrides = Partial<{
   /**
@@ -119,12 +119,12 @@ type ValServerOverrides = Partial<{
 
 export async function createValServer(
   route: string,
-  opts: Opts,
+  opts: ValApiOptions,
   callbacks: ValServerCallbacks
 ): Promise<IValServer> {
   const serverOpts = await initHandlerOptions(route, opts);
   if (serverOpts.mode === "proxy") {
-    const projectRoot = [`/`, opts.root || ""].filter((seg) => seg).join();
+    const projectRoot = process.cwd(); //[process.cwd(), opts.root || ""]      .filter((seg) => seg)      .join("/");
     return new ProxyValServer(projectRoot, serverOpts, opts, callbacks);
   } else {
     return new LocalValServer(serverOpts, callbacks);

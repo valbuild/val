@@ -195,7 +195,7 @@ class TestValServer extends ValServer {
   protected async getModule(
     moduleId: ModuleId
   ): Promise<SerializedModuleContent> {
-    const service = await createService(this.projectRoot, {}, this.remoteFS);
+    const service = await createService(this.cwd, {}, this.remoteFS);
     return service.get(moduleId);
   }
 

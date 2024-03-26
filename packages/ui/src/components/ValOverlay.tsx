@@ -130,10 +130,11 @@ export function ValOverlay({
     []
   );
   const [patchModalOpen, setPatchModalOpen] = useState(false);
-  const [validationErrors, setValidationErrors] = useState<{
-    globalError: null | { message: string; details?: unknown };
-    errors?: ApiPostValidationResponse | ApiPostValidationErrorResponse;
-  }>({
+  const [validationRes, setValidationRes] = useState<
+    {
+      globalError: null | { message: string; details?: unknown };
+    } & Partial<ApiPostValidationResponse | ApiPostValidationErrorResponse>
+  >({
     globalError: null,
   });
 
@@ -151,11 +152,11 @@ export function ValOverlay({
             return;
           }
           if (result.isErr(res)) {
-            setValidationErrors({
+            setValidationRes({
               globalError: { message: res.error.message },
             });
           } else {
-            setValidationErrors({
+            setValidationRes({
               globalError: null,
               ...res.value,
             });
@@ -200,7 +201,7 @@ export function ValOverlay({
             <ValPatchesDialog
               patches={patches}
               isValidating={isValidating}
-              validationResponse={validationErrors}
+              validationResponse={validationRes}
               api={api}
               onCancel={() => {
                 setPatchModalOpen(false);

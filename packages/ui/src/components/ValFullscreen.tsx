@@ -91,7 +91,7 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api, store }) => {
           if (result.isOk(res)) {
             setValidationResponse({
               globalError: null,
-              errors: res.value,
+              validationErrors: res.value,
             });
           } else {
             setValidationResponse({
