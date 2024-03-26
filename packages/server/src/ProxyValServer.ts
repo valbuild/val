@@ -1,6 +1,5 @@
 import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
-import { PatchJSON } from "./patch/validation";
 import {
   ENABLE_COOKIE_VALUE,
   ValServer,
@@ -26,11 +25,12 @@ import {
   PatchId,
   ModuleId,
 } from "@valbuild/core";
-import { Patch, parsePatch } from "@valbuild/core/patch";
 import { result } from "@valbuild/core/fp";
 import { RemoteFS } from "./RemoteFS";
 import { Service, ServiceOptions, createService } from "./Service";
 import { SerializedModuleContent } from "./SerializedModuleContent";
+import { Patch } from "./patch/validation";
+import { ValApiOptions } from "./createValApiRouter";
 
 export type ProxyValServerOptions = {
   apiKey: string;
@@ -51,13 +51,13 @@ export class ProxyValServer extends ValServer {
   private remoteFS: RemoteFS;
   private lazyService: Service | undefined;
   constructor(
-    readonly projectRoot: string,
+    readonly cwd: string,
     readonly options: ProxyValServerOptions,
-    readonly serviceOptions: ServiceOptions,
+    readonly apiOptions: ValApiOptions,
     readonly callbacks: ValServerCallbacks
   ) {
     const remoteFS = new RemoteFS();
-    super(projectRoot, remoteFS, options, callbacks);
+    super(cwd, remoteFS, options, callbacks);
     this.remoteFS = remoteFS;
   }
 
@@ -68,8 +68,8 @@ export class ProxyValServer extends ValServer {
   ): Promise<SerializedModuleContent> {
     if (!this.lazyService) {
       this.lazyService = await createService(
-        this.projectRoot,
-        this.serviceOptions,
+        this.cwd,
+        this.apiOptions,
         this.remoteFS
       );
     }
@@ -111,9 +111,18 @@ export class ProxyValServer extends ValServer {
         | ValServerError
       > => {
         if (!this.remoteFS.isInitialized()) {
-          const params = new URLSearchParams({
-            commit,
-          });
+          const params = new URLSearchParams(
+            this.apiOptions.root
+              ? {
+                  root: this.apiOptions.root,
+                  commit,
+                  cwd: this.cwd,
+                }
+              : {
+                  commit,
+                  cwd: this.cwd,
+                }
+          );
           const url = new URL(
             `/v1/fs/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
             this.options.valContentUrl
@@ -122,8 +131,10 @@ export class ProxyValServer extends ValServer {
             const fetchRes = await fetch(url, {
               headers: getAuthHeaders(data.token, "application/json"),
             });
+            console.log(url);
             if (fetchRes.status === 200) {
               const json = await fetchRes.json();
+              console.log(json);
               this.remoteFS.initializeWith(json);
               return {
                 status: 200,
@@ -481,34 +492,17 @@ export class ProxyValServer extends ValServer {
       "postPatches",
       async ({ token }) => {
         // First validate that the body has the right structure
-        const patchJSON = z.record(PatchJSON).safeParse(body);
-        if (!patchJSON.success) {
+        const parsedPatches = z.record(Patch).safeParse(body);
+        if (!parsedPatches.success) {
           return {
             status: 400,
             json: {
               message: "Invalid patch(es)",
-              details: patchJSON.error.issues,
+              details: parsedPatches.error.issues,
             },
           };
         }
-
-        // We send PatchJSON (not Patch) to val.build,
-        // but before we validate that the patches are parsable - no point in just failing down the line
-        const patches = patchJSON.data;
-        for (const [moduleId, patch] of Object.entries(patches)) {
-          const parsedPatchRes = parsePatch(patch);
-          if (result.isErr(parsedPatchRes)) {
-            return {
-              status: 400,
-              json: {
-                message: "Invalid patch(es): path is not valid",
-                details: {
-                  [moduleId]: parsedPatchRes.error,
-                },
-              },
-            };
-          }
-        }
+        const patches = parsedPatches.data;
         const url = new URL(
           `/v1/patches/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
           this.options.valContentUrl

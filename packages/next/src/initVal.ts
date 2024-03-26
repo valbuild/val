@@ -29,11 +29,10 @@ export const initVal = (
     unstable_decodeValPathOfString: typeof decodeValPathOfString;
   };
 } => {
-  const { s, c, val, config: systemConfig } = createValSystem();
+  const { s, c, val, config: systemConfig } = createValSystem(config);
   const currentConfig = {
     ...systemConfig,
     ...config,
-    valConfigPath: config?.valConfigPath || "./val.config",
   };
   return {
     s,

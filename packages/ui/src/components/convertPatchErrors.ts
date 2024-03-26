@@ -76,7 +76,7 @@ export function convertPatchErrors(
     }[]
   >,
   validationRes?: {
-    modules: Record<
+    modules?: Record<
       ModuleId,
       {
         patches: {
@@ -85,12 +85,12 @@ export function convertPatchErrors(
         };
       }
     >;
-    validationErrors:
+    validationErrors?:
       | false
       | Record<
           ModuleId,
           {
-            errors: {
+            errors?: {
               validation?: ValidationErrors;
               fatal?: {
                 message: string;
@@ -268,12 +268,12 @@ export function convertPatchErrors(
       const reviewModuleError: ReviewModuleError = {
         validations: [],
       };
-      if (validationError.errors.fatal) {
+      if (validationError.errors?.fatal) {
         reviewModuleError.fatalErrors = validationError.errors.fatal.map(
           (error) => error.message
         );
       }
-      if (validationError.errors.validation) {
+      if (validationError.errors?.validation) {
         for (const [sourcePathS, messages] of Object.entries(
           validationError.errors.validation
         )) {

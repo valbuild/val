@@ -32,10 +32,10 @@ import {
 export type ValPatchesProps = {
   api: ValApi;
   isValidating: boolean;
-  validationResponse?: {
-    globalError: null | { message: string; details?: unknown };
-    errors?: ApiPostValidationResponse | ApiPostValidationErrorResponse;
-  };
+  validationResponse?:
+    | {
+        globalError: null | { message: string; details?: unknown };
+      } & Partial<ApiPostValidationResponse | ApiPostValidationErrorResponse>;
   patches: Record<ModuleId, PatchId[]>;
   onCommit: () => void;
   onCancel: () => void;
@@ -115,7 +115,10 @@ export function ValPatches({
       <div className="flex flex-col items-start justify-start h-full p-8 gap-y-5">
         {patchesByModule && validationResponse && (
           <ReviewPanel
-            {...convertPatchErrors(patchesByModule, validationResponse.errors)}
+            {...convertPatchErrors(patchesByModule, {
+              modules: validationResponse.modules,
+              validationErrors: validationResponse.validationErrors,
+            })}
           />
         )}
         <div className="flex gap-x-4">
@@ -180,27 +183,30 @@ export function ReviewPanel({
           ))}
         </ol>
       )}
-      {errors?.errors && (
-        <>
-          <h2 className="mt-10 mb-6 text-xl font-bold">
-            Validation Notifications
-          </h2>
-          {Object.entries(errors.errors).map(
-            ([moduleId, moduleErrors]) =>
-              ((moduleErrors.fatalErrors &&
-                moduleErrors.fatalErrors.length > 0) ||
-                (moduleErrors.validations &&
-                  moduleErrors.validations.length > 0)) && (
-                <ValidationModuleErrors
-                  key={moduleId}
-                  moduleId={moduleId as ModuleId}
-                >
-                  {moduleErrors}
-                </ValidationModuleErrors>
-              )
-          )}
-        </>
-      )}
+      {errors?.errors &&
+        Object.values(errors.errors).some(
+          (a) => a.fatalErrors || (a.validations && a.validations.length > 0)
+        ) && (
+          <>
+            <h2 className="mt-10 mb-6 text-xl font-bold">
+              Validation Notifications
+            </h2>
+            {Object.entries(errors?.errors || {}).map(
+              ([moduleId, moduleErrors]) =>
+                ((moduleErrors.fatalErrors &&
+                  moduleErrors.fatalErrors.length > 0) ||
+                  (moduleErrors.validations &&
+                    moduleErrors.validations.length > 0)) && (
+                  <ValidationModuleErrors
+                    key={moduleId}
+                    moduleId={moduleId as ModuleId}
+                  >
+                    {moduleErrors}
+                  </ValidationModuleErrors>
+                )
+            )}
+          </>
+        )}
     </div>
   );
 }
@@ -276,7 +282,11 @@ function useRelativeDateTime() {
       if (days < 3) {
         return `${days} days ago`;
       }
-      return dateTimeFormatter.format(new Date(timeStampStr));
+      try {
+        return dateTimeFormatter.format(new Date(timeStampStr));
+      } catch (err) {
+        console.debug("Val: Error formatting date", err);
+      }
     },
     [now]
   );
@@ -368,7 +378,6 @@ function HistoryItem({
   const relativeDateTime = useRelativeDateTime();
   const [open, setOpen] = useState(defaultOpen);
   const value = `history-item-${index}`;
-  console.log({ item });
   return (
     <Accordion
       type="single"

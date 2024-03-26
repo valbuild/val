@@ -43,7 +43,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Switch } from "./ui/switch";
-import { JSONValue, Patch, PatchJSON } from "@valbuild/core/patch";
+import { JSONValue, Patch } from "@valbuild/core/patch";
 import {
   Dialog,
   DialogClose,
