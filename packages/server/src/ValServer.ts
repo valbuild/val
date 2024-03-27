@@ -151,7 +151,7 @@ export abstract class ValServer implements IValServer {
     }: {
       patchIdsByModuleId: Record<ModuleId, PatchId[]>;
       patchesById: Record<PatchId, Patch>;
-      fileUpdates: Record<string, string>;
+      fileUpdates: Record<string, PatchFileMetadata>;
     } = {
       patchIdsByModuleId: {},
       patchesById: {},
@@ -174,7 +174,8 @@ export abstract class ValServer implements IValServer {
           patchIdsByModuleId,
           patchesById,
           fileUpdates,
-          applyPatches
+          applyPatches,
+          cookies
         );
       })
     );
@@ -261,8 +262,9 @@ export abstract class ValServer implements IValServer {
     moduleId: ModuleId,
     patchIdsByModuleId: Record<ModuleId, PatchId[]>,
     patchesById: Record<PatchId, Patch>,
-    fileUpdates: Record<string, string>,
-    applyPatches: boolean
+    fileUpdates: Record<string /* filePath */, PatchFileMetadata>,
+    applyPatches: boolean,
+    cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<SerializedModuleContent> {
     const serializedModuleContent = await this.getModule(moduleId);
     const schema = serializedModuleContent.schema;
@@ -327,7 +329,8 @@ export abstract class ValServer implements IValServer {
     if (validationErrors) {
       const revalidated = await this.revalidateImageAndFileValidation(
         validationErrors,
-        fileUpdates
+        fileUpdates,
+        cookies
       );
       return {
         path: moduleId as string as SourcePath,
@@ -354,7 +357,8 @@ export abstract class ValServer implements IValServer {
   // If you are reading this, and we still are not using QuickJS to validate, this assumption might be wrong.
   private async revalidateImageAndFileValidation(
     validationErrors: Record<SourcePath, ValidationError[]>,
-    fileUpdates: Record<string, string>
+    fileUpdates: Record<string /* filePath */, PatchFileMetadata>,
+    cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<false | Record<SourcePath, ValidationError[]>> {
     const revalidatedValidationErrors: Record<SourcePath, ValidationError[]> =
       {};
@@ -377,13 +381,26 @@ export abstract class ValServer implements IValServer {
             // if this is a new file or we have an actual FS, we read the file and get the metadata
             if (!expectedMetadata) {
               let fileBuffer: Buffer | undefined = undefined;
-              if (fileUpdates[fileRef]) {
-                const updatedBuffer = bufferFromDataUrl(
-                  fileUpdates[fileRef],
-                  getMimeTypeFromBase64(fileUpdates[fileRef])
+              const updatedFileMetadata = fileUpdates[fileRef];
+              if (updatedFileMetadata) {
+                const fileRes = await this.getFiles(
+                  fileRef,
+                  {
+                    sha256: updatedFileMetadata.sha256,
+                  },
+                  cookies
                 );
-                if (updatedBuffer) {
-                  fileBuffer = updatedBuffer;
+                if (fileRes.status === 200 && fileRes.body) {
+                  const res = new Response(fileRes.body);
+                  fileBuffer = Buffer.from(await res.arrayBuffer());
+                } else {
+                  console.error(
+                    "Val: unexpected error while fetching image / file:",
+                    fileRef,
+                    {
+                      error: fileRes,
+                    }
+                  );
                 }
               }
               if (!fileBuffer) {
@@ -498,7 +515,7 @@ export abstract class ValServer implements IValServer {
         patches: [PatchId, ModuleId, Patch][];
         patchIdsByModuleId: Record<ModuleId, PatchId[]>;
         patchesById: Record<PatchId, Patch>;
-        fileUpdates: Record<string, string>;
+        fileUpdates: Record<string /* filePath */, PatchFileMetadata>;
       },
       ValServerError
     >
@@ -542,24 +559,38 @@ export abstract class ValServer implements IValServer {
           patchesById[patchData.patch_id] = patchData.patch;
         }
       }
-      const fileUpdates: Record<string, string> = {};
+      const fileUpdates: Record<string, PatchFileMetadata> = {};
       const sortedPatchIds = this.sortPatchIds(patchesByModule);
       for (const sortedPatchId of sortedPatchIds) {
         const patchId = sortedPatchId as PatchId;
         for (const op of patchesById[patchId] || []) {
           if (op.op === "file") {
-            if (typeof op.value !== "string") {
+            const parsedFileOp = z
+              .object({
+                sha256: z.string(),
+                mimeType: z.string(),
+              })
+              .safeParse(op.value);
+            if (!parsedFileOp.success) {
               return result.err({
                 status: 500,
                 json: {
-                  message: "Unexpected error: file op value is not a string",
+                  message:
+                    "Unexpected error: file op value must be transformed into object",
                   details: {
+                    value:
+                      "First 200 chars: " +
+                      JSON.stringify(op.value).slice(0, 200),
                     patchId,
                   },
                 },
               });
             }
-            fileUpdates[op.filePath] = op.value;
+
+            fileUpdates[op.filePath] = {
+              ...parsedFileOp.data,
+              patchId,
+            };
           }
         }
       }
@@ -622,7 +653,8 @@ export abstract class ValServer implements IValServer {
           patchIdsByModuleId,
         patchesById,
         fileUpdates,
-        true
+        true,
+        cookies
       );
       if (serializedModuleContent.errors) {
         validationErrorsByModuleId[moduleId] = serializedModuleContent;
@@ -710,67 +742,6 @@ export abstract class ValServer implements IValServer {
     return modules;
   }
 
-  async getFiles(
-    filePath: string,
-    // @eslint-disable-next-line @typescript-eslint/no-unused-vars
-    query: { sha256?: string }, // TODO: use the sha256 query param: we have to go through all fileUpdates to find the one with the actual checksum
-    cookies: ValCookies<VAL_SESSION_COOKIE>
-  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
-    const patchesRes = await this.readPatches(cookies);
-    if (result.isErr(patchesRes)) {
-      return patchesRes.error;
-    }
-    const { fileUpdates } = patchesRes.value;
-    let updatedBuffer: Buffer | undefined;
-    const headers: Record<string, string> = {};
-    if (fileUpdates[filePath]) {
-      const mimeType = getMimeTypeFromBase64(fileUpdates[filePath]);
-      if (mimeType) {
-        headers["Content-Type"] = mimeType;
-      }
-      updatedBuffer = bufferFromDataUrl(fileUpdates[filePath], mimeType);
-      if (!updatedBuffer) {
-        return {
-          status: 500,
-          json: {
-            message: "Unexpected error: could not decode data url",
-            details: {
-              filePath,
-            },
-          },
-        };
-      }
-    } else {
-      updatedBuffer = await this.readStaticBinaryFile(
-        path.join(this.cwd, filePath)
-      );
-    }
-    if (!updatedBuffer) {
-      return {
-        status: 404,
-        json: {
-          message: "File not found",
-          details: {
-            filePath,
-          },
-        },
-      };
-    }
-    if (!headers["Content-Type"]) {
-      headers["Content-Type"] =
-        guessMimeTypeFromPath(filePath) || "application/octet-stream";
-    }
-
-    const contentLength = updatedBuffer.length;
-    headers["Content-Length"] = contentLength.toString();
-
-    return {
-      status: 200,
-      headers,
-      body: bufferToReadableStream(updatedBuffer),
-    };
-  }
-
   /* Abstract methods */
 
   /**
@@ -801,6 +772,13 @@ export abstract class ValServer implements IValServer {
     >
   >;
   /* Abstract endpoints */
+
+  abstract getFiles(
+    filePath: string,
+    query: { sha256?: string },
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>>;
+
   /* Abstract auth endpoints: */
   abstract session(
     cookies: ValCookies<VAL_SESSION_COOKIE>
@@ -840,7 +818,7 @@ export abstract class ValServer implements IValServer {
 }
 
 // From slightly modified ChatGPT generated
-function bufferToReadableStream(buffer: Buffer) {
+export function bufferToReadableStream(buffer: Buffer) {
   const stream = new ReadableStream({
     start(controller) {
       const chunkSize = 1024; // Adjust the chunk size as needed
@@ -932,6 +910,12 @@ export function bufferFromDataUrl(
     );
   }
 }
+
+export type PatchFileMetadata = {
+  mimeType: string;
+  sha256: string;
+  patchId: PatchId;
+};
 
 export type ValServerCallbacks = {
   isEnabled: () => Promise<boolean>;
@@ -1083,7 +1067,7 @@ const COMMON_MIME_TYPES: Record<string, string> = {
   "7z": "application/x-7z-compressed",
 };
 
-function guessMimeTypeFromPath(filePath: string): string | null {
+export function guessMimeTypeFromPath(filePath: string): string | null {
   const fileExt = filePath.split(".").pop();
   if (fileExt) {
     return COMMON_MIME_TYPES[fileExt.toLowerCase()] || null;

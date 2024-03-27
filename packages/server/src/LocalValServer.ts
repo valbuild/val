@@ -7,6 +7,7 @@ import {
   ModuleId,
   PatchId,
   ApiDeletePatchResponse,
+  Internal,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -20,8 +21,15 @@ import {
 } from "@valbuild/shared/internal";
 import path from "path";
 import { z } from "zod";
-import { ValServer, ValServerCallbacks } from "./ValServer";
-import fs from "fs";
+import {
+  PatchFileMetadata,
+  ValServer,
+  ValServerCallbacks,
+  bufferFromDataUrl,
+  bufferToReadableStream,
+  getMimeTypeFromBase64,
+  guessMimeTypeFromPath,
+} from "./ValServer";
 import { SerializedModuleContent } from "./SerializedModuleContent";
 
 export type LocalValServerOptions = {
@@ -39,8 +47,10 @@ export interface ValServerBufferHost {
   readBuffer: (fileName: string) => Promise<Buffer | undefined>;
 }
 
+const textEncoder = new TextEncoder();
 export class LocalValServer extends ValServer {
   private static readonly PATCHES_DIR = "patches";
+  private static readonly FILES_DIR = "files";
   private readonly patchesRootPath: string;
   constructor(
     readonly options: LocalValServerOptions,
@@ -78,6 +88,8 @@ export class LocalValServer extends ValServer {
         path.join(this.patchesRootPath, LocalValServer.PATCHES_DIR, patchId)
       );
     }
+
+    throw Error("TODO: implement delete files when deleting patches");
     return {
       status: 200,
       json: deletedPatches,
@@ -97,7 +109,6 @@ export class LocalValServer extends ValServer {
         },
       };
     }
-    const parsedPatches: Record<ModuleId, Patch> = {};
     let fileId = Date.now();
     while (
       this.host.fileExists(this.getPatchFilePath(fileId.toString() as PatchId))
@@ -107,21 +118,125 @@ export class LocalValServer extends ValServer {
     }
     const patchId = fileId.toString() as PatchId;
     const res: ApiPostPatchResponse = {};
+    const parsedPatches: Record<ModuleId, Patch> = {};
     for (const moduleIdStr in patches.data) {
       const moduleId = moduleIdStr as ModuleId; // TODO: validate that this is a valid module id
       res[moduleId] = {
         patch_id: patchId,
       };
-      parsedPatches[moduleId] = patches.data[moduleId];
+      parsedPatches[moduleId] = [];
+      for (const op of patches.data[moduleId]) {
+        if (Internal.isFileOp(op)) {
+          const sha256 = Internal.getSHA256Hash(textEncoder.encode(op.value));
+          const mimeType = getMimeTypeFromBase64(op.value);
+          if (!mimeType) {
+            console.error(
+              "Val: Cannot determine mimeType from base64 data",
+              op
+            );
+            throw Error(
+              "Cannot determine mimeType from base64 data: " + op.filePath
+            );
+          }
+          const buffer = bufferFromDataUrl(op.value, mimeType);
+          if (!buffer) {
+            console.error("Val: Cannot parse base64 data", op);
+            throw Error("Cannot parse base64 data: " + op.filePath);
+          }
+          this.host.writeFile(
+            this.getFilePath(op.filePath, sha256),
+            buffer,
+            "binary"
+          );
+          this.host.writeFile(
+            this.getFileMetadataPath(op.filePath, sha256),
+            JSON.stringify(
+              {
+                mimeType,
+                sha256,
+                patchId,
+              } satisfies PatchFileMetadata,
+              null,
+              2
+            ),
+            "utf8"
+          );
+          parsedPatches[moduleId].push({
+            ...op,
+            value: { sha256, mimeType },
+          });
+        } else {
+          parsedPatches[moduleId].push(op);
+        }
+      }
     }
     this.host.writeFile(
       this.getPatchFilePath(patchId),
-      JSON.stringify(patches.data),
+      JSON.stringify(parsedPatches),
       "utf8"
     );
     return {
       status: 200,
       json: res,
+    };
+  }
+
+  async getFiles(
+    filePath: string,
+    query: { sha256?: string }
+  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
+    if (query.sha256) {
+      const fileExists = this.host.fileExists(
+        this.getFilePath(filePath, query.sha256)
+      );
+      if (fileExists) {
+        const metadataFileContent = this.host.readFile(
+          this.getFileMetadataPath(filePath, query.sha256)
+        );
+        const fileContent = await this.readStaticBinaryFile(
+          this.getFilePath(filePath, query.sha256)
+        );
+        if (!fileContent) {
+          throw Error(
+            "Could not read cached patch file / asset. Cache corrupted?"
+          );
+        }
+        if (!metadataFileContent) {
+          throw Error(
+            "Missing metadata of cached patch file / asset. Cache corrupted?"
+          );
+        }
+        const metadata: PatchFileMetadata = JSON.parse(metadataFileContent);
+        return {
+          status: 200,
+          headers: {
+            "Content-Type": metadata.mimeType,
+            "Content-Length": fileContent.byteLength.toString(),
+          },
+          body: bufferToReadableStream(fileContent),
+        };
+      }
+    }
+    const buffer = await this.readStaticBinaryFile(
+      path.join(this.cwd, filePath)
+    );
+    const mimeType =
+      guessMimeTypeFromPath(filePath) || "application/octet-stream";
+    if (!buffer) {
+      return {
+        status: 404,
+        json: {
+          message: "File not found",
+        },
+      };
+    }
+    return {
+      status: 200,
+      headers: {
+        "Content-Type": mimeType,
+        "Content-Length": buffer.byteLength.toString(),
+      },
+      body: bufferToReadableStream(buffer),
     };
   }
 
@@ -220,6 +335,26 @@ export class LocalValServer extends ValServer {
       status: 200,
       json: res,
     };
+  }
+
+  private getFilePath(filename: string, sha256: string) {
+    return path.join(
+      this.patchesRootPath,
+      LocalValServer.FILES_DIR,
+      filename,
+      sha256,
+      "file"
+    );
+  }
+
+  private getFileMetadataPath(filename: string, sha256: string) {
+    return path.join(
+      this.patchesRootPath,
+      LocalValServer.FILES_DIR,
+      filename,
+      sha256,
+      "metadata.json"
+    );
   }
 
   private getPatchFilePath(patchId: PatchId) {

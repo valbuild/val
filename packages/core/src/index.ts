@@ -217,6 +217,14 @@ const Internal = {
   getSHA256Hash,
   initSchema,
   notFileOp: (op: Operation) => op.op !== "file",
+  isFileOp: (
+    op: Operation
+  ): op is {
+    op: "file";
+    path: string[];
+    filePath: string;
+    value: string;
+  } => op.op === "file" && typeof op.filePath === "string",
   createPatchJSONPath: (modulePath: ModulePath) =>
     `/${modulePath
       .split(".")
