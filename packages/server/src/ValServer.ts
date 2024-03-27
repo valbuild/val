@@ -104,10 +104,6 @@ export abstract class ValServer implements IValServer {
   }
 
   private getAllModules(treePath: string) {
-    console.log({
-      treePath,
-      projectRoot: this.cwd,
-    });
     const moduleIds: ModuleId[] = this.host
       .readDirectory(
         this.cwd,
