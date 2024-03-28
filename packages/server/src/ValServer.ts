@@ -589,7 +589,6 @@ export abstract class ValServer implements IValServer {
 
             fileUpdates[op.filePath] = {
               ...parsedFileOp.data,
-              patchId,
             };
           }
         }
@@ -914,7 +913,6 @@ export function bufferFromDataUrl(
 export type PatchFileMetadata = {
   mimeType: string;
   sha256: string;
-  patchId: PatchId;
 };
 
 export type ValServerCallbacks = {
