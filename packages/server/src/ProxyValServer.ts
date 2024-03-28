@@ -4,6 +4,8 @@ import {
   ENABLE_COOKIE_VALUE,
   ValServer,
   ValServerCallbacks,
+  bufferToReadableStream,
+  guessMimeTypeFromPath,
 } from "./ValServer";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -27,10 +29,11 @@ import {
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { RemoteFS } from "./RemoteFS";
-import { Service, ServiceOptions, createService } from "./Service";
+import { Service, createService } from "./Service";
 import { SerializedModuleContent } from "./SerializedModuleContent";
 import { Patch } from "./patch/validation";
 import { ValApiOptions } from "./createValApiRouter";
+import path from "path";
 
 export type ProxyValServerOptions = {
   apiKey: string;
@@ -131,10 +134,8 @@ export class ProxyValServer extends ValServer {
             const fetchRes = await fetch(url, {
               headers: getAuthHeaders(data.token, "application/json"),
             });
-            console.log(url);
             if (fetchRes.status === 200) {
               const json = await fetchRes.json();
-              console.log(json);
               this.remoteFS.initializeWith(json);
               return {
                 status: 200,
@@ -458,6 +459,11 @@ export class ProxyValServer extends ValServer {
             json: await fetchRes.json(),
           };
         } else {
+          console.error(
+            "Failed to get patches",
+            fetchRes.status,
+            await fetchRes.text()
+          );
           return {
             status: fetchRes.status as ValServerErrorStatus,
             json: {
@@ -521,6 +527,80 @@ export class ProxyValServer extends ValServer {
         } else {
           return {
             status: fetchRes.status as ValServerErrorStatus,
+          };
+        }
+      }
+    );
+  }
+
+  async getFiles(
+    filePath: string,
+    query: { sha256?: string },
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
+    return withAuth(
+      this.options.valSecret,
+      cookies,
+      "getFiles",
+      async (data) => {
+        const url = new URL(
+          `/v1/files/${this.options.valName}${filePath}`,
+          this.options.valContentUrl
+        );
+        if (typeof query.sha256 === "string") {
+          url.searchParams.append("sha256", query.sha256 as string);
+        } else {
+          console.warn("Missing sha256 query param");
+        }
+        const fetchRes = await fetch(url, {
+          headers: getAuthHeaders(data.token),
+        });
+        if (fetchRes.status === 200) {
+          // TODO: does this stream data?
+          if (fetchRes.body) {
+            return {
+              status: fetchRes.status,
+              headers: {
+                "Content-Type": fetchRes.headers.get("Content-Type") || "",
+                "Content-Length": fetchRes.headers.get("Content-Length") || "0",
+              },
+              body: fetchRes.body,
+            };
+          } else {
+            return {
+              status: 500,
+              json: {
+                message: "No body in response",
+              },
+            };
+          }
+        } else {
+          const fileExists = this.remoteFS.fileExists(
+            path.join(this.cwd, filePath)
+          );
+          let buffer: Buffer | undefined;
+          if (fileExists) {
+            buffer = await this.readStaticBinaryFile(
+              path.join(this.cwd, filePath)
+            );
+          }
+          if (!buffer) {
+            return {
+              status: 404,
+              json: {
+                message: "File not found",
+              },
+            };
+          }
+          const mimeType =
+            guessMimeTypeFromPath(filePath) || "application/octet-stream";
+          return {
+            status: 200,
+            headers: {
+              "Content-Type": mimeType,
+              "Content-Length": buffer.byteLength.toString(),
+            },
+            body: bufferToReadableStream(buffer),
           };
         }
       }

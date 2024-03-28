@@ -126,6 +126,14 @@ export class LocalValServer extends ValServer {
       };
       parsedPatches[moduleId] = [];
       for (const op of patches.data[moduleId]) {
+        // We do not want to include value of a file op in the patch as they potentially contain a lot of data,
+        // therefore we store the file in a separate file and only store the sha256 hash in the patch.
+        // I.e. the patch that frontend sends is not the same as the one stored.
+        // Large amount of text is one thing, but one could easily imagine a lot of patches being accumulated over time with a lot of images which would then consume a non-negligible amount of memory.
+        //
+        // This is potentially confusing for us working on Val internals, however, the alternative was expected to cause a lot of issues down the line: low performance, a lot of data moved, etc
+        // In the worst scenario we imagine this being potentially crashing the server runtime, especially on smaller edge runtimes.
+        // Potential crashes are bad enough to warrant this workaround.
         if (Internal.isFileOp(op)) {
           const sha256 = Internal.getSHA256Hash(textEncoder.encode(op.value));
           const mimeType = getMimeTypeFromBase64(op.value);
@@ -154,7 +162,6 @@ export class LocalValServer extends ValServer {
               {
                 mimeType,
                 sha256,
-                patchId,
               } satisfies PatchFileMetadata,
               null,
               2
