@@ -866,7 +866,6 @@ export function getRedirectUrl(
       overrideHost + "?redirect_to=" + encodeURIComponent(query.redirect_to)
     );
   }
-  ``;
   return query.redirect_to;
 }
 
