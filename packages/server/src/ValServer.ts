@@ -903,6 +903,10 @@ export function bufferFromDataUrl(
     }
   }
   if (base64Data) {
+    console.log({
+      base64Data,
+      contentType,
+    });
     return Buffer.from(
       base64Data,
       "base64" // TODO: why does it not work with base64url?
