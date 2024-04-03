@@ -55,7 +55,7 @@ import {
 } from "./ui/dialog";
 import { Plus, RotateCw, Trash } from "lucide-react";
 import { Button } from "./ui/button";
-import { NonEmptyArray } from "@valbuild/core/src/fp/array";
+import { array } from "@valbuild/core/fp";
 
 export function AnyVal({
   path,
@@ -533,7 +533,7 @@ function ValList({
                   return [
                     {
                       op: "remove",
-                      path: path as NonEmptyArray<string>,
+                      path: path as array.NonEmptyArray<string>,
                     },
                   ];
                 }
