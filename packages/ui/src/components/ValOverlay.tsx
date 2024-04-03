@@ -321,7 +321,7 @@ function ValHover({
         if (
           ev.target &&
           ev.target instanceof HTMLElement &&
-          ev.target.id !== "val-ui"
+          ev.target.id !== "val-shadow-root"
         )
           setWindowTarget({
             ...hoverTarget,
@@ -419,7 +419,7 @@ function useHoverTarget(editMode: EditMode) {
         setTargetRect(targetElement.getBoundingClientRect());
       }
     });
-    const valUIElement = document.getElementById("val-ui");
+    const valUIElement = document.getElementById("val-shadow-root");
     if (targetElement && valUIElement) {
       observer.observe(valUIElement);
     }
