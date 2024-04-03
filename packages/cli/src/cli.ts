@@ -59,7 +59,7 @@ async function main(): Promise<void> {
         root: flags.root,
         cfg: flags.cfg,
         fix: flags.fix,
-        runEslint: flags.noEslint,
+        noEslint: flags.noEslint,
       });
     default:
       return error(`Unknown command "${input.join(" ")}"`);
