@@ -1,31 +1,71 @@
 "use client";
-import { ValConfig } from "@valbuild/core";
-import { ValProvider as ReactValProvider } from "@valbuild/react/internal";
+import { ModuleId, ValConfig } from "@valbuild/core";
+import { IS_DEV, VAL_APP_PATH, VAL_OVERLAY_ID } from "@valbuild/ui";
 import { usePathname, useRouter } from "next/navigation";
-import { useTransition } from "react";
+import Script from "next/script";
+import React, { useEffect, useMemo, useTransition } from "react";
+import { ValContext, ValEvents } from "./ValContext";
 
 export const ValNextProvider = (props: {
   children: React.ReactNode | React.ReactNode[];
   config: ValConfig;
   disableRefresh?: boolean;
 }) => {
-  const router = useRouter();
   const pathname = usePathname();
-  const [, startTransition] = useTransition();
+
+  // TODO: use config to get  /val and /api/val
   if (pathname.startsWith("/val")) {
     return props.children;
   }
-  return (
-    <ReactValProvider
-      onSubmit={(refreshRequired) => {
-        if (refreshRequired && !props.disableRefresh) {
-          startTransition(() => {
-            router.refresh();
-          });
+  const route = "/api/val";
+  const valEvents = useMemo(() => new ValEvents(), []);
+  const [, startTransition] = useTransition();
+  const router = useRouter();
+
+  useEffect(() => {
+    const valEventListener = (event: Event) => {
+      if (event instanceof CustomEvent) {
+        if (event.detail.type === "module-update") {
+          const { moduleId, source } = event.detail;
+          if (typeof moduleId === "string" && source !== undefined) {
+            valEvents.update(moduleId as ModuleId, source);
+          } else {
+            console.error("Val: invalid event detail", event.detail);
+          }
+        } else if (event.detail.type === "overlay-submit") {
+          const { refreshRequired } = event.detail;
+          if (refreshRequired && !props.disableRefresh) {
+            startTransition(() => {
+              router.refresh();
+            });
+          }
+        } else {
+          console.error("Val: invalid event", event);
         }
-      }}
-    >
+      }
+    };
+    window.addEventListener("val-event", valEventListener);
+
+    return () => {
+      window.removeEventListener("val-event", valEventListener);
+    };
+  }, []);
+
+  // TODO: use portal to mount overlay
+  return (
+    <ValContext.Provider value={{ valEvents }}>
       {props.children}
-    </ReactValProvider>
+      {IS_DEV && (
+        <Script type="module">{`import RefreshRuntime from "${route}/static/@react-refresh"
+if (RefreshRuntime.injectIntoGlobalHook) {
+  RefreshRuntime.injectIntoGlobalHook(window)
+  window.$RefreshReg$ = () => {}
+  window.$RefreshSig$ = () => (type) => type
+  window.__vite_plugin_react_preamble_installed__ = true
+}`}</Script>
+      )}
+      <Script type="module" src={`${route}/static${VAL_APP_PATH}`} />
+      <div id={VAL_OVERLAY_ID}></div>
+    </ValContext.Provider>
   );
 };
