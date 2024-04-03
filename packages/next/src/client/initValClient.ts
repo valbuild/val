@@ -10,26 +10,26 @@ import {
   getModuleIds,
   stegaEncode,
 } from "@valbuild/react/stega";
-import { useValStore } from "@valbuild/react/internal";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { ValConfig } from "@valbuild/core";
+import { useValEvents } from "../ValContext";
 
 export type UseValType<T extends SelectorSource> =
   SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never;
 function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
-  const valStore = useValStore();
+  const valEvents = useValEvents();
   const [enabled, setEnabled] = useState(false);
   useEffect(() => {
     setEnabled(
       document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`)
     );
-  }, [valStore]);
-  if (valStore) {
+  }, [valEvents]);
+  if (valEvents) {
     const moduleIds = getModuleIds(selector) as ModuleId[];
     const moduleMap = useSyncExternalStore(
-      valStore.subscribe(moduleIds),
-      valStore.getSnapshot(moduleIds),
-      valStore.getServerSnapshot(moduleIds)
+      valEvents.subscribe(moduleIds),
+      valEvents.getSnapshot(moduleIds),
+      valEvents.getServerSnapshot(moduleIds)
     );
     return stegaEncode(selector, {
       disabled: !enabled,
