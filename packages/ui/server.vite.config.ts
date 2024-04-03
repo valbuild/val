@@ -25,7 +25,6 @@ export default defineConfig({
         }
       },
     },
-    // Output semi-readable code and let consumers handle minification
-    minify: false,
+    minify: true,
   },
 });
