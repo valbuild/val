@@ -15,7 +15,7 @@ describe("Imagepatch", () => {
       [VAL_EXTENSION]: "file" as const,
     } as const;
 
-    const path = "/0/image";
+    const path = ["0", "image"];
     const newPngImageData =
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAIAQMAAAD+wSzIAAAABlBMVEX///+/v7+jQ3Y5AAAADklEQVQI12P4AIX8EAgALgAD/aNpbtEAAAAASUVORK5CYII";
     const newFileName = "image1.jpg";
@@ -62,7 +62,7 @@ describe("Imagepatch", () => {
       [VAL_EXTENSION]: "file",
     } satisfies ImageSource;
 
-    const path = "/0/image";
+    const path = ["0", "image"];
     const newPngImageData =
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAIAQMAAAD+wSzIAAAABlBMVEX///+/v7+jQ3Y5AAAADklEQVQI12P4AIX8EAgALgAD/aNpbtEAAAAASUVORK5CYII";
     const newFilePath = `/public/gurba_${defaultValue.metadata.sha256.slice(
@@ -108,7 +108,7 @@ describe("Imagepatch", () => {
       [VAL_EXTENSION]: "file" as const,
     } satisfies ImageSource;
 
-    const path = "/0/image";
+    const path = ["0", "image"];
     const newPngImageData =
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAIAQMAAAD+wSzIAAAABlBMVEX///+/v7+jQ3Y5AAAADklEQVQI12P4AIX8EAgALgAD/aNpbtEAAAAASUVORK5CYII";
     const newFilePath = `/public/${defaultValue.metadata.sha256}.png`;
@@ -151,7 +151,7 @@ describe("Imagepatch", () => {
       [VAL_EXTENSION]: "file" as const,
     } satisfies ImageSource;
 
-    const path = "/0/image";
+    const path = ["0", "image"];
     const newPngImageData = "🤘halla på deg! ha en fin dag a!🤘";
     const newFilePath = `/public/${defaultValue.metadata.sha256}.unknown`;
 
