@@ -83,8 +83,139 @@ export class ProxyValServer extends ValServer {
     patches: [PatchId, ModuleId, Patch][],
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<Record<ModuleId, { patches: { applied: PatchId[] } }>> {
-    // TODO: apply patches, send updated files to server
-    throw new Error("Method not implemented.");
+    return withAuth(
+      this.options.valSecret,
+      cookies,
+      "execCommit",
+      async ({ token }) => {
+        const commit = this.options.git.commit;
+        if (!commit) {
+          return {
+            status: 400,
+            json: {
+              message:
+                "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
+            },
+          };
+        }
+
+        const params = `commit=${encodeURIComponent(commit)}`;
+        const url = new URL(
+          `/v1/commit/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
+          this.options.valContentUrl
+        );
+
+        // Creates a fresh copy of the fs. We cannot touch the existing fs, since we might still want to do
+        // other operations on it.
+        // We could perhaps free up the other fs while doing this operation, but uncertain if we can actually do that and if that would actually help on memory.
+        // It is a concern we have, since we might be using quite a lot of memory when having the whole FS in memory. In particular because of images / files.
+        const remoteFS = new RemoteFS();
+        const initRes = await this.initRemoteFS(commit, remoteFS, token);
+        if (initRes.status !== 200) {
+          return initRes;
+        }
+        const service = await createService(
+          this.cwd,
+          this.apiOptions,
+          remoteFS
+        );
+        for (const [, moduleId, patch] of patches) {
+          await service.patch(moduleId, patch);
+        }
+        const fileOps = await remoteFS.getPendingOperations();
+        const fetchRes = await fetch(url, {
+          method: "POST",
+          headers: getAuthHeaders(token, "application/json"),
+          body: JSON.stringify({
+            fileOps,
+          }),
+        });
+
+        if (fetchRes.status === 200) {
+          return {
+            status: fetchRes.status,
+            json: await fetchRes.json(),
+          };
+        } else {
+          console.error(
+            "Failed to get patches",
+            fetchRes.status,
+            await fetchRes.text()
+          );
+          return {
+            status: fetchRes.status as ValServerErrorStatus,
+            json: {
+              message: "Failed to get patches",
+            },
+          };
+        }
+      }
+    );
+  }
+
+  private async initRemoteFS(
+    commit: string,
+    remoteFS: RemoteFS,
+    token: string
+  ): Promise<{ status: 200 } | ValServerError> {
+    const params = new URLSearchParams(
+      this.apiOptions.root
+        ? {
+            root: this.apiOptions.root,
+            commit,
+            cwd: this.cwd,
+          }
+        : {
+            commit,
+            cwd: this.cwd,
+          }
+    );
+    const url = new URL(
+      `/v1/fs/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
+      this.options.valContentUrl
+    );
+    try {
+      const fetchRes = await fetch(url, {
+        headers: getAuthHeaders(token, "application/json"),
+      });
+      if (fetchRes.status === 200) {
+        const json = await fetchRes.json();
+        remoteFS.initializeWith(json);
+        return {
+          status: 200,
+        };
+      } else {
+        try {
+          if (
+            fetchRes.headers.get("Content-Type")?.includes("application/json")
+          ) {
+            const json = await fetchRes.json();
+            return {
+              status: fetchRes.status as 400 | 401 | 403 | 404 | 500 | 501,
+              json: {
+                message: "Failed to fetch remote files",
+                details: json,
+              },
+            };
+          }
+        } catch (err) {
+          console.error(err);
+        }
+        return {
+          status: fetchRes.status as 400 | 401 | 403 | 404 | 500 | 501,
+          json: {
+            message: "Unknown failure while fetching remote files",
+          },
+        };
+      }
+    } catch (err) {
+      return {
+        status: 500,
+        json: {
+          message: "Failed to fetch: check network connection",
+        },
+      };
+    }
   }
 
   protected async ensureRemoteFSInitialized(
@@ -114,72 +245,7 @@ export class ProxyValServer extends ValServer {
         | ValServerError
       > => {
         if (!this.remoteFS.isInitialized()) {
-          const params = new URLSearchParams(
-            this.apiOptions.root
-              ? {
-                  root: this.apiOptions.root,
-                  commit,
-                  cwd: this.cwd,
-                }
-              : {
-                  commit,
-                  cwd: this.cwd,
-                }
-          );
-          const url = new URL(
-            `/v1/fs/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
-            this.options.valContentUrl
-          );
-          try {
-            const fetchRes = await fetch(url, {
-              headers: getAuthHeaders(data.token, "application/json"),
-            });
-            if (fetchRes.status === 200) {
-              const json = await fetchRes.json();
-              this.remoteFS.initializeWith(json);
-              return {
-                status: 200,
-              };
-            } else {
-              try {
-                if (
-                  fetchRes.headers
-                    .get("Content-Type")
-                    ?.includes("application/json")
-                ) {
-                  const json = await fetchRes.json();
-                  return {
-                    status: fetchRes.status as
-                      | 400
-                      | 401
-                      | 403
-                      | 404
-                      | 500
-                      | 501,
-                    json: {
-                      message: "Failed to fetch remote files",
-                      details: json,
-                    },
-                  };
-                }
-              } catch (err) {
-                console.error(err);
-              }
-              return {
-                status: fetchRes.status as 400 | 401 | 403 | 404 | 500 | 501,
-                json: {
-                  message: "Unknown failure while fetching remote files",
-                },
-              };
-            }
-          } catch (err) {
-            return {
-              status: 500,
-              json: {
-                message: "Failed to fetch: check network connection",
-              },
-            };
-          }
+          return this.initRemoteFS(commit, this.remoteFS, data.token);
         } else {
           return {
             status: 200 as const,
@@ -414,7 +480,43 @@ export class ProxyValServer extends ValServer {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerJsonResult<ApiDeletePatchResponse>> {
-    throw new Error("Method not implemented.");
+    return withAuth(
+      this.options.valSecret,
+      cookies,
+      "deletePatches",
+      async ({ token }) => {
+        const patchIds = query.id || [];
+        const params = `${patchIds
+          .map((id) => `id=${encodeURIComponent(id)}`)
+          .join("&")}`;
+        const url = new URL(
+          `/v1/patches/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
+          this.options.valContentUrl
+        );
+        const fetchRes = await fetch(url, {
+          method: "GET",
+          headers: getAuthHeaders(token, "application/json"),
+        });
+        if (fetchRes.status === 200) {
+          return {
+            status: fetchRes.status,
+            json: await fetchRes.json(),
+          };
+        } else {
+          console.error(
+            "Failed to delete patches",
+            fetchRes.status,
+            await fetchRes.text()
+          );
+          return {
+            status: fetchRes.status as ValServerErrorStatus,
+            json: {
+              message: "Failed to delete patches",
+            },
+          };
+        }
+      }
+    );
   }
 
   async getPatches(
