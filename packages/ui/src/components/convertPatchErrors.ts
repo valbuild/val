@@ -21,6 +21,8 @@ type SourceChangeItem = {
   type: "replace" | "move" | "add" | "remove";
   filePath?: string;
   count: number;
+  changedAt?: string;
+  patchIds: PatchId[];
   // TODO: display a notification symbol on the last change on a source path with a validation error
   // notification?: "error" | "warning";
   // TODO: it would be awesome to get a diff, but too much work for now:
@@ -33,8 +35,6 @@ type SourceChangeItem = {
   //       before: RichText<AnyRichTextOptions>;
   //       after: RichText<AnyRichTextOptions>;
   //     };
-} & {
-  changedAt?: string;
 };
 
 export type History = {
@@ -76,7 +76,7 @@ export function convertPatchErrors(
     }[]
   >,
   validationRes?: {
-    modules: Record<
+    modules?: Record<
       ModuleId,
       {
         patches: {
@@ -85,12 +85,12 @@ export function convertPatchErrors(
         };
       }
     >;
-    validationErrors:
+    validationErrors?:
       | false
       | Record<
           ModuleId,
           {
-            errors: {
+            errors?: {
               validation?: ValidationErrors;
               fatal?: {
                 message: string;
@@ -120,6 +120,7 @@ export function convertPatchErrors(
         filePath?: string;
         changedAt?: string;
         changedBy?: Author;
+        patchIds: PatchId[];
       }[]
     >
   > = {};
@@ -193,11 +194,13 @@ export function convertPatchErrors(
               currentAuthorChanges[moduleId][modulePath].push({
                 type: op.op,
                 count: 1,
+                patchIds: [patch.patch_id],
                 changedAt: patch.created_at,
                 changedBy: author,
               });
             } else {
               currentItem.count++;
+              currentItem.patchIds.push(patch.patch_id);
               currentItem.changedAt = patch.created_at;
             }
             break;
@@ -213,9 +216,11 @@ export function convertPatchErrors(
                 type: "replace",
                 count: 1,
                 changedAt: patch.created_at,
+                patchIds: [patch.patch_id],
               });
             } else {
               currentFileChange.count++;
+              currentFileChange.patchIds.push(patch.patch_id);
               currentFileChange.changedAt = patch.created_at;
             }
             break;
@@ -268,12 +273,12 @@ export function convertPatchErrors(
       const reviewModuleError: ReviewModuleError = {
         validations: [],
       };
-      if (validationError.errors.fatal) {
+      if (validationError.errors?.fatal) {
         reviewModuleError.fatalErrors = validationError.errors.fatal.map(
           (error) => error.message
         );
       }
-      if (validationError.errors.validation) {
+      if (validationError.errors?.validation) {
         for (const [sourcePathS, messages] of Object.entries(
           validationError.errors.validation
         )) {
@@ -315,6 +320,7 @@ function getChangesFromCurrent(
       {
         type: "replace" | "move" | "add" | "remove";
         count: number;
+        patchIds: PatchId[];
         filePath?: string;
         changedAt?: string;
         changedBy?: Author;
@@ -340,6 +346,7 @@ function getChangesFromCurrent(
           filePath: modulePathChange.filePath,
           count: modulePathChange.count,
           changedAt: modulePathChange.changedAt,
+          patchIds: modulePathChange.patchIds,
         });
       }
     }

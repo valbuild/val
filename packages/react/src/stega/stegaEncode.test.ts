@@ -57,10 +57,10 @@ describe("stega transform", () => {
     });
     //
     expect(vercelStegaSplit(transformed[0].image.url).cleaned).toStrictEqual(
-      "/test1.png?sha256=1231"
+      "/api/val/files/public/test1.png?sha256=1231"
     );
     expect(vercelStegaSplit(transformed[1].image.url).cleaned).toStrictEqual(
-      "/test2.png?sha256=1232"
+      "/api/val/files/public/test2.png?sha256=1232"
     );
 
     expect(transformed[0].text.valPath).toStrictEqual('/test.0."text"');
@@ -103,7 +103,7 @@ describe("stega transform", () => {
     });
   });
 
-  test("Dont stegaEncode raw strings schema", () => {
+  test("skip stegaEncode on raw strings", () => {
     const schema = s.object({ str: s.string(), rawStr: s.string().raw() });
     const transformed = stegaEncode(
       c.define("/test1", schema, { str: "one", rawStr: "two" }),
@@ -112,6 +112,36 @@ describe("stega transform", () => {
     //expect(transformed.str).toStrictEqual("one");
     expect(transformed.rawStr).toStrictEqual("two");
   });
+
+  test("skip stegaEncode on union of strings", () => {
+    const schema = s.union(s.literal("one"), s.literal("two"));
+    const transformed = stegaEncode(c.define("/test1", schema, "one"), {});
+    expect(transformed).toStrictEqual("one");
+  });
+
+  test("skip stegaEncode on union of objects", () => {
+    const schema = s.union(
+      "type",
+      s.object({ type: s.literal("type1"), str: s.string() }),
+      s.object({ type: s.literal("type2"), num: s.number() })
+    );
+    const transformed = stegaEncode(
+      c.define("/test1", schema, {
+        type: "type1",
+        str: "one",
+      }),
+      {}
+    );
+    expect(transformed.type).toStrictEqual("type1");
+    expect(vercelStegaSplit(transformed.str).cleaned).toStrictEqual("one");
+    expect(vercelStegaDecode(transformed.str)).toStrictEqual({
+      data: {
+        valPath: '/test1."str"',
+      },
+      origin: "val.build",
+    });
+  });
+
   test("transform with get modules", () => {
     const schema = s.array(s.string());
     const transformed = stegaEncode(

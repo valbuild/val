@@ -1,10 +1,11 @@
 import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
-import { PatchJSON } from "./patch/validation";
 import {
   ENABLE_COOKIE_VALUE,
   ValServer,
   ValServerCallbacks,
+  bufferToReadableStream,
+  guessMimeTypeFromPath,
 } from "./ValServer";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -26,11 +27,13 @@ import {
   PatchId,
   ModuleId,
 } from "@valbuild/core";
-import { Patch, parsePatch } from "@valbuild/core/patch";
 import { result } from "@valbuild/core/fp";
 import { RemoteFS } from "./RemoteFS";
-import { Service, ServiceOptions, createService } from "./Service";
+import { Service, createService } from "./Service";
 import { SerializedModuleContent } from "./SerializedModuleContent";
+import { Patch } from "./patch/validation";
+import { ValApiOptions } from "./createValApiRouter";
+import path from "path";
 
 export type ProxyValServerOptions = {
   apiKey: string;
@@ -51,13 +54,13 @@ export class ProxyValServer extends ValServer {
   private remoteFS: RemoteFS;
   private lazyService: Service | undefined;
   constructor(
-    readonly projectRoot: string,
+    readonly cwd: string,
     readonly options: ProxyValServerOptions,
-    readonly serviceOptions: ServiceOptions,
+    readonly apiOptions: ValApiOptions,
     readonly callbacks: ValServerCallbacks
   ) {
     const remoteFS = new RemoteFS();
-    super(projectRoot, remoteFS, options, callbacks);
+    super(cwd, remoteFS, options, callbacks);
     this.remoteFS = remoteFS;
   }
 
@@ -68,8 +71,8 @@ export class ProxyValServer extends ValServer {
   ): Promise<SerializedModuleContent> {
     if (!this.lazyService) {
       this.lazyService = await createService(
-        this.projectRoot,
-        this.serviceOptions,
+        this.cwd,
+        this.apiOptions,
         this.remoteFS
       );
     }
@@ -80,8 +83,139 @@ export class ProxyValServer extends ValServer {
     patches: [PatchId, ModuleId, Patch][],
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<Record<ModuleId, { patches: { applied: PatchId[] } }>> {
-    // TODO: apply patches, send updated files to server
-    throw new Error("Method not implemented.");
+    return withAuth(
+      this.options.valSecret,
+      cookies,
+      "execCommit",
+      async ({ token }) => {
+        const commit = this.options.git.commit;
+        if (!commit) {
+          return {
+            status: 400,
+            json: {
+              message:
+                "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
+            },
+          };
+        }
+
+        const params = `commit=${encodeURIComponent(commit)}`;
+        const url = new URL(
+          `/v1/commit/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
+          this.options.valContentUrl
+        );
+
+        // Creates a fresh copy of the fs. We cannot touch the existing fs, since we might still want to do
+        // other operations on it.
+        // We could perhaps free up the other fs while doing this operation, but uncertain if we can actually do that and if that would actually help on memory.
+        // It is a concern we have, since we might be using quite a lot of memory when having the whole FS in memory. In particular because of images / files.
+        const remoteFS = new RemoteFS();
+        const initRes = await this.initRemoteFS(commit, remoteFS, token);
+        if (initRes.status !== 200) {
+          return initRes;
+        }
+        const service = await createService(
+          this.cwd,
+          this.apiOptions,
+          remoteFS
+        );
+        for (const [, moduleId, patch] of patches) {
+          await service.patch(moduleId, patch);
+        }
+        const fileOps = await remoteFS.getPendingOperations();
+        const fetchRes = await fetch(url, {
+          method: "POST",
+          headers: getAuthHeaders(token, "application/json"),
+          body: JSON.stringify({
+            fileOps,
+          }),
+        });
+
+        if (fetchRes.status === 200) {
+          return {
+            status: fetchRes.status,
+            json: await fetchRes.json(),
+          };
+        } else {
+          console.error(
+            "Failed to get patches",
+            fetchRes.status,
+            await fetchRes.text()
+          );
+          return {
+            status: fetchRes.status as ValServerErrorStatus,
+            json: {
+              message: "Failed to get patches",
+            },
+          };
+        }
+      }
+    );
+  }
+
+  private async initRemoteFS(
+    commit: string,
+    remoteFS: RemoteFS,
+    token: string
+  ): Promise<{ status: 200 } | ValServerError> {
+    const params = new URLSearchParams(
+      this.apiOptions.root
+        ? {
+            root: this.apiOptions.root,
+            commit,
+            cwd: this.cwd,
+          }
+        : {
+            commit,
+            cwd: this.cwd,
+          }
+    );
+    const url = new URL(
+      `/v1/fs/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
+      this.options.valContentUrl
+    );
+    try {
+      const fetchRes = await fetch(url, {
+        headers: getAuthHeaders(token, "application/json"),
+      });
+      if (fetchRes.status === 200) {
+        const json = await fetchRes.json();
+        remoteFS.initializeWith(json);
+        return {
+          status: 200,
+        };
+      } else {
+        try {
+          if (
+            fetchRes.headers.get("Content-Type")?.includes("application/json")
+          ) {
+            const json = await fetchRes.json();
+            return {
+              status: fetchRes.status as 400 | 401 | 403 | 404 | 500 | 501,
+              json: {
+                message: "Failed to fetch remote files",
+                details: json,
+              },
+            };
+          }
+        } catch (err) {
+          console.error(err);
+        }
+        return {
+          status: fetchRes.status as 400 | 401 | 403 | 404 | 500 | 501,
+          json: {
+            message: "Unknown failure while fetching remote files",
+          },
+        };
+      }
+    } catch (err) {
+      return {
+        status: 500,
+        json: {
+          message: "Failed to fetch: check network connection",
+        },
+      };
+    }
   }
 
   protected async ensureRemoteFSInitialized(
@@ -111,63 +245,7 @@ export class ProxyValServer extends ValServer {
         | ValServerError
       > => {
         if (!this.remoteFS.isInitialized()) {
-          const params = new URLSearchParams({
-            commit,
-          });
-          const url = new URL(
-            `/v1/fs/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
-            this.options.valContentUrl
-          );
-          try {
-            const fetchRes = await fetch(url, {
-              headers: getAuthHeaders(data.token, "application/json"),
-            });
-            if (fetchRes.status === 200) {
-              const json = await fetchRes.json();
-              this.remoteFS.initializeWith(json);
-              return {
-                status: 200,
-              };
-            } else {
-              try {
-                if (
-                  fetchRes.headers
-                    .get("Content-Type")
-                    ?.includes("application/json")
-                ) {
-                  const json = await fetchRes.json();
-                  return {
-                    status: fetchRes.status as
-                      | 400
-                      | 401
-                      | 403
-                      | 404
-                      | 500
-                      | 501,
-                    json: {
-                      message: "Failed to fetch remote files",
-                      details: json,
-                    },
-                  };
-                }
-              } catch (err) {
-                console.error(err);
-              }
-              return {
-                status: fetchRes.status as 400 | 401 | 403 | 404 | 500 | 501,
-                json: {
-                  message: "Unknown failure while fetching remote files",
-                },
-              };
-            }
-          } catch (err) {
-            return {
-              status: 500,
-              json: {
-                message: "Failed to fetch: check network connection",
-              },
-            };
-          }
+          return this.initRemoteFS(commit, this.remoteFS, data.token);
         } else {
           return {
             status: 200 as const,
@@ -402,7 +480,43 @@ export class ProxyValServer extends ValServer {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerJsonResult<ApiDeletePatchResponse>> {
-    throw new Error("Method not implemented.");
+    return withAuth(
+      this.options.valSecret,
+      cookies,
+      "deletePatches",
+      async ({ token }) => {
+        const patchIds = query.id || [];
+        const params = `${patchIds
+          .map((id) => `id=${encodeURIComponent(id)}`)
+          .join("&")}`;
+        const url = new URL(
+          `/v1/patches/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
+          this.options.valContentUrl
+        );
+        const fetchRes = await fetch(url, {
+          method: "GET",
+          headers: getAuthHeaders(token, "application/json"),
+        });
+        if (fetchRes.status === 200) {
+          return {
+            status: fetchRes.status,
+            json: await fetchRes.json(),
+          };
+        } else {
+          console.error(
+            "Failed to delete patches",
+            fetchRes.status,
+            await fetchRes.text()
+          );
+          return {
+            status: fetchRes.status as ValServerErrorStatus,
+            json: {
+              message: "Failed to delete patches",
+            },
+          };
+        }
+      }
+    );
   }
 
   async getPatches(
@@ -447,6 +561,11 @@ export class ProxyValServer extends ValServer {
             json: await fetchRes.json(),
           };
         } else {
+          console.error(
+            "Failed to get patches",
+            fetchRes.status,
+            await fetchRes.text()
+          );
           return {
             status: fetchRes.status as ValServerErrorStatus,
             json: {
@@ -481,34 +600,17 @@ export class ProxyValServer extends ValServer {
       "postPatches",
       async ({ token }) => {
         // First validate that the body has the right structure
-        const patchJSON = z.record(PatchJSON).safeParse(body);
-        if (!patchJSON.success) {
+        const parsedPatches = z.record(Patch).safeParse(body);
+        if (!parsedPatches.success) {
           return {
             status: 400,
             json: {
               message: "Invalid patch(es)",
-              details: patchJSON.error.issues,
+              details: parsedPatches.error.issues,
             },
           };
         }
-
-        // We send PatchJSON (not Patch) to val.build,
-        // but before we validate that the patches are parsable - no point in just failing down the line
-        const patches = patchJSON.data;
-        for (const [moduleId, patch] of Object.entries(patches)) {
-          const parsedPatchRes = parsePatch(patch);
-          if (result.isErr(parsedPatchRes)) {
-            return {
-              status: 400,
-              json: {
-                message: "Invalid patch(es): path is not valid",
-                details: {
-                  [moduleId]: parsedPatchRes.error,
-                },
-              },
-            };
-          }
-        }
+        const patches = parsedPatches.data;
         const url = new URL(
           `/v1/patches/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
           this.options.valContentUrl
@@ -527,6 +629,80 @@ export class ProxyValServer extends ValServer {
         } else {
           return {
             status: fetchRes.status as ValServerErrorStatus,
+          };
+        }
+      }
+    );
+  }
+
+  async getFiles(
+    filePath: string,
+    query: { sha256?: string },
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
+    return withAuth(
+      this.options.valSecret,
+      cookies,
+      "getFiles",
+      async (data) => {
+        const url = new URL(
+          `/v1/files/${this.options.valName}${filePath}`,
+          this.options.valContentUrl
+        );
+        if (typeof query.sha256 === "string") {
+          url.searchParams.append("sha256", query.sha256 as string);
+        } else {
+          console.warn("Missing sha256 query param");
+        }
+        const fetchRes = await fetch(url, {
+          headers: getAuthHeaders(data.token),
+        });
+        if (fetchRes.status === 200) {
+          // TODO: does this stream data?
+          if (fetchRes.body) {
+            return {
+              status: fetchRes.status,
+              headers: {
+                "Content-Type": fetchRes.headers.get("Content-Type") || "",
+                "Content-Length": fetchRes.headers.get("Content-Length") || "0",
+              },
+              body: fetchRes.body,
+            };
+          } else {
+            return {
+              status: 500,
+              json: {
+                message: "No body in response",
+              },
+            };
+          }
+        } else {
+          const fileExists = this.remoteFS.fileExists(
+            path.join(this.cwd, filePath)
+          );
+          let buffer: Buffer | undefined;
+          if (fileExists) {
+            buffer = await this.readStaticBinaryFile(
+              path.join(this.cwd, filePath)
+            );
+          }
+          if (!buffer) {
+            return {
+              status: 404,
+              json: {
+                message: "File not found",
+              },
+            };
+          }
+          const mimeType =
+            guessMimeTypeFromPath(filePath) || "application/octet-stream";
+          return {
+            status: 200,
+            headers: {
+              "Content-Type": mimeType,
+              "Content-Length": buffer.byteLength.toString(),
+            },
+            body: bufferToReadableStream(buffer),
           };
         }
       }

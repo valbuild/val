@@ -1,4 +1,5 @@
 import {
+  Internal,
   Json,
   ModuleId,
   PatchId,
@@ -117,7 +118,11 @@ export class ValStore {
       console.error("Val: failed to post patch", res.error);
       return res;
     }
-    const patchRes = applyPatch(currentSource, ops, patch);
+    const patchRes = applyPatch(
+      currentSource,
+      ops,
+      patch.filter(Internal.notFileOp) // we cannot apply file ops here
+    );
     if (result.isOk(patchRes)) {
       this.drafts[moduleId] = patchRes.value;
 

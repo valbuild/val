@@ -1,8 +1,7 @@
 import minimatch from "minimatch";
 import path from "path";
 import { ValFS } from "./ValFS";
-import { ts } from "ts-morph";
-import fs from "fs";
+import * as ts from "typescript";
 
 const SEPARATOR = "/";
 
