@@ -6,6 +6,7 @@ import {
   ApiTreeResponse,
   ApiDeletePatchResponse,
   ApiPostValidationResponse,
+  Internal,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -53,7 +54,7 @@ const ops = new JSONOps();
 
 export abstract class ValServer implements IValServer {
   constructor(
-    readonly projectRoot: string,
+    readonly cwd: string,
     readonly host: IValFSHost,
     readonly options: ValServerOptions,
     readonly callbacks: ValServerCallbacks
@@ -102,6 +103,33 @@ export abstract class ValServer implements IValServer {
     };
   }
 
+  private getAllModules(treePath: string) {
+    const moduleIds: ModuleId[] = this.host
+      .readDirectory(
+        this.cwd,
+        ["ts", "js"],
+        ["node_modules", ".*"],
+        ["**/*.val.ts", "**/*.val.js"]
+      )
+      .filter((file) => {
+        if (treePath) {
+          return file.replace(this.cwd, "").startsWith(treePath);
+        }
+        return true;
+      })
+      .map(
+        (file) =>
+          file
+            .replace(this.cwd, "")
+            .replace(".val.js", "")
+            .replace(".val.ts", "")
+            .split(path.sep)
+            .join("/") as ModuleId
+      );
+
+    return moduleIds;
+  }
+
   async getTree(
     treePath: string,
     // TODO: use the params: patch, schema, source now we return everything, every time
@@ -113,29 +141,8 @@ export abstract class ValServer implements IValServer {
       return ensureRes.error;
     }
 
-    const rootDir = this.projectRoot;
-    const moduleIds: ModuleId[] = this.host
-      .readDirectory(
-        rootDir,
-        ["ts", "js"],
-        ["node_modules", ".*"],
-        ["**/*.val.ts", "**/*.val.js"]
-      )
-      .filter((file) => {
-        if (treePath) {
-          return file.replace(rootDir, "").startsWith(treePath);
-        }
-        return true;
-      })
-      .map(
-        (file) =>
-          file
-            .replace(rootDir, "")
-            .replace(".val.js", "")
-            .replace(".val.ts", "")
-            .split(path.sep)
-            .join("/") as ModuleId
-      );
+    const moduleIds = this.getAllModules(treePath);
+
     const applyPatches = query.patch === "true";
     let {
       patchIdsByModuleId,
@@ -144,7 +151,7 @@ export abstract class ValServer implements IValServer {
     }: {
       patchIdsByModuleId: Record<ModuleId, PatchId[]>;
       patchesById: Record<PatchId, Patch>;
-      fileUpdates: Record<string, string>;
+      fileUpdates: Record<string, PatchFileMetadata>;
     } = {
       patchIdsByModuleId: {},
       patchesById: {},
@@ -167,7 +174,8 @@ export abstract class ValServer implements IValServer {
           patchIdsByModuleId,
           patchesById,
           fileUpdates,
-          applyPatches
+          applyPatches,
+          cookies
         );
       })
     );
@@ -254,8 +262,9 @@ export abstract class ValServer implements IValServer {
     moduleId: ModuleId,
     patchIdsByModuleId: Record<ModuleId, PatchId[]>,
     patchesById: Record<PatchId, Patch>,
-    fileUpdates: Record<string, string>,
-    applyPatches: boolean
+    fileUpdates: Record<string /* filePath */, PatchFileMetadata>,
+    applyPatches: boolean,
+    cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<SerializedModuleContent> {
     const serializedModuleContent = await this.getModule(moduleId);
     const schema = serializedModuleContent.schema;
@@ -283,9 +292,7 @@ export abstract class ValServer implements IValServer {
       const patchRes = applyPatch(
         source,
         ops,
-        patch.filter(
-          (op) => !(op.op === "file" && typeof op.value === "string")
-        )
+        patch.filter(Internal.notFileOp)
       );
       if (result.isOk(patchRes)) {
         source = patchRes.value;
@@ -322,7 +329,8 @@ export abstract class ValServer implements IValServer {
     if (validationErrors) {
       const revalidated = await this.revalidateImageAndFileValidation(
         validationErrors,
-        fileUpdates
+        fileUpdates,
+        cookies
       );
       return {
         path: moduleId as string as SourcePath,
@@ -349,7 +357,8 @@ export abstract class ValServer implements IValServer {
   // If you are reading this, and we still are not using QuickJS to validate, this assumption might be wrong.
   private async revalidateImageAndFileValidation(
     validationErrors: Record<SourcePath, ValidationError[]>,
-    fileUpdates: Record<string, string>
+    fileUpdates: Record<string /* filePath */, PatchFileMetadata>,
+    cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<false | Record<SourcePath, ValidationError[]>> {
     const revalidatedValidationErrors: Record<SourcePath, ValidationError[]> =
       {};
@@ -366,19 +375,32 @@ export abstract class ValServer implements IValServer {
         ) {
           const fileRef = getValidationErrorFileRef(error);
           if (fileRef) {
-            const filePath = path.join(this.projectRoot, fileRef);
+            const filePath = path.join(this.cwd, fileRef);
             let expectedMetadata: FileMetadata | ImageMetadata | undefined;
 
             // if this is a new file or we have an actual FS, we read the file and get the metadata
             if (!expectedMetadata) {
               let fileBuffer: Buffer | undefined = undefined;
-              if (fileUpdates[fileRef]) {
-                const updatedBuffer = bufferFromDataUrl(
-                  fileUpdates[fileRef],
-                  getMimeTypeFromBase64(fileUpdates[fileRef])
+              const updatedFileMetadata = fileUpdates[fileRef];
+              if (updatedFileMetadata) {
+                const fileRes = await this.getFiles(
+                  fileRef,
+                  {
+                    sha256: updatedFileMetadata.sha256,
+                  },
+                  cookies
                 );
-                if (updatedBuffer) {
-                  fileBuffer = updatedBuffer;
+                if (fileRes.status === 200 && fileRes.body) {
+                  const res = new Response(fileRes.body);
+                  fileBuffer = Buffer.from(await res.arrayBuffer());
+                } else {
+                  console.error(
+                    "Val: unexpected error while fetching image / file:",
+                    fileRef,
+                    {
+                      error: fileRes,
+                    }
+                  );
                 }
               }
               if (!fileBuffer) {
@@ -493,7 +515,7 @@ export abstract class ValServer implements IValServer {
         patches: [PatchId, ModuleId, Patch][];
         patchIdsByModuleId: Record<ModuleId, PatchId[]>;
         patchesById: Record<PatchId, Patch>;
-        fileUpdates: Record<string, string>;
+        fileUpdates: Record<string /* filePath */, PatchFileMetadata>;
       },
       ValServerError
     >
@@ -537,24 +559,37 @@ export abstract class ValServer implements IValServer {
           patchesById[patchData.patch_id] = patchData.patch;
         }
       }
-      const fileUpdates: Record<string, string> = {};
+      const fileUpdates: Record<string, PatchFileMetadata> = {};
       const sortedPatchIds = this.sortPatchIds(patchesByModule);
       for (const sortedPatchId of sortedPatchIds) {
         const patchId = sortedPatchId as PatchId;
         for (const op of patchesById[patchId] || []) {
           if (op.op === "file") {
-            if (typeof op.value !== "string") {
+            const parsedFileOp = z
+              .object({
+                sha256: z.string(),
+                mimeType: z.string(),
+              })
+              .safeParse(op.value);
+            if (!parsedFileOp.success) {
               return result.err({
                 status: 500,
                 json: {
-                  message: "Unexpected error: file op value is not a string",
+                  message:
+                    "Unexpected error: file op value must be transformed into object",
                   details: {
+                    value:
+                      "First 200 chars: " +
+                      JSON.stringify(op.value).slice(0, 200),
                     patchId,
                   },
                 },
               });
             }
-            fileUpdates[op.filePath] = op.value;
+
+            fileUpdates[op.filePath] = {
+              ...parsedFileOp.data,
+            };
           }
         }
       }
@@ -606,7 +641,7 @@ export abstract class ValServer implements IValServer {
     const { patchIdsByModuleId, patchesById, patches, fileUpdates } = res.value;
     const validationErrorsByModuleId: ApiPostValidationErrorResponse["validationErrors"] =
       {};
-    for (const moduleIdStr in patchIdsByModuleId) {
+    for (const moduleIdStr of this.getAllModules("/")) {
       const moduleId = moduleIdStr as ModuleId;
       const serializedModuleContent = await this.applyAllPatchesThenValidate(
         moduleId,
@@ -617,7 +652,8 @@ export abstract class ValServer implements IValServer {
           patchIdsByModuleId,
         patchesById,
         fileUpdates,
-        true
+        true,
+        cookies
       );
       if (serializedModuleContent.errors) {
         validationErrorsByModuleId[moduleId] = serializedModuleContent;
@@ -705,55 +741,6 @@ export abstract class ValServer implements IValServer {
     return modules;
   }
 
-  async getFiles(
-    filePath: string,
-    // @eslint-disable-next-line @typescript-eslint/no-unused-vars
-    query: { sha256?: string }, // TODO: use the sha256 query param: we have to go through all fileUpdates to find the one with the actual checksum
-    cookies: ValCookies<VAL_SESSION_COOKIE>
-  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
-    const patchesRes = await this.readPatches(cookies);
-    if (result.isErr(patchesRes)) {
-      return patchesRes.error;
-    }
-    const { fileUpdates } = patchesRes.value;
-    let updatedBuffer = bufferFromDataUrl(
-      fileUpdates[filePath],
-      getMimeTypeFromBase64(fileUpdates[filePath])
-    );
-    if (!updatedBuffer) {
-      if (fileUpdates[filePath]) {
-        return {
-          status: 500,
-          json: {
-            message: "Unexpected error: could not decode data url",
-            details: {
-              filePath,
-            },
-          },
-        };
-      }
-      updatedBuffer = await this.readStaticBinaryFile(filePath);
-    } else {
-      console.log("Found updated");
-    }
-    if (!updatedBuffer) {
-      return {
-        status: 404,
-        json: {
-          message: "File not found",
-          details: {
-            filePath,
-          },
-        },
-      };
-    }
-
-    return {
-      status: 200,
-      body: bufferToReadableStream(updatedBuffer),
-    };
-  }
-
   /* Abstract methods */
 
   /**
@@ -784,6 +771,13 @@ export abstract class ValServer implements IValServer {
     >
   >;
   /* Abstract endpoints */
+
+  abstract getFiles(
+    filePath: string,
+    query: { sha256?: string },
+    cookies: ValCookies<VAL_SESSION_COOKIE>
+  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>>;
+
   /* Abstract auth endpoints: */
   abstract session(
     cookies: ValCookies<VAL_SESSION_COOKIE>
@@ -823,7 +817,7 @@ export abstract class ValServer implements IValServer {
 }
 
 // From slightly modified ChatGPT generated
-function bufferToReadableStream(buffer: Buffer) {
+export function bufferToReadableStream(buffer: Buffer) {
   const stream = new ReadableStream({
     start(controller) {
       const chunkSize = 1024; // Adjust the chunk size as needed
@@ -872,7 +866,6 @@ export function getRedirectUrl(
       overrideHost + "?redirect_to=" + encodeURIComponent(query.redirect_to)
     );
   }
-  ``;
   return query.redirect_to;
 }
 
@@ -909,16 +902,17 @@ export function bufferFromDataUrl(
     }
   }
   if (base64Data) {
-    console.log({
-      base64Data,
-      contentType,
-    });
     return Buffer.from(
       base64Data,
       "base64" // TODO: why does it not work with base64url?
     );
   }
 }
+
+export type PatchFileMetadata = {
+  mimeType: string;
+  sha256: string;
+};
 
 export type ValServerCallbacks = {
   isEnabled: () => Promise<boolean>;
@@ -988,4 +982,92 @@ export interface IValServer {
     query: { sha256?: string },
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>>;
+}
+
+// https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types
+const COMMON_MIME_TYPES: Record<string, string> = {
+  aac: "audio/aac",
+  abw: "application/x-abiword",
+  arc: "application/x-freearc",
+  avif: "image/avif",
+  avi: "video/x-msvideo",
+  azw: "application/vnd.amazon.ebook",
+  bin: "application/octet-stream",
+  bmp: "image/bmp",
+  bz: "application/x-bzip",
+  bz2: "application/x-bzip2",
+  cda: "application/x-cdf",
+  csh: "application/x-csh",
+  css: "text/css",
+  csv: "text/csv",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  eot: "application/vnd.ms-fontobject",
+  epub: "application/epub+zip",
+  gz: "application/gzip",
+  gif: "image/gif",
+  htm: "text/html",
+  html: "text/html",
+  ico: "image/vnd.microsoft.icon",
+  ics: "text/calendar",
+  jar: "application/java-archive",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  js: "text/javascript",
+  json: "application/json",
+  jsonld: "application/ld+json",
+  mid: "audio/midi",
+  midi: "audio/midi",
+  mjs: "text/javascript",
+  mp3: "audio/mpeg",
+  mp4: "video/mp4",
+  mpeg: "video/mpeg",
+  mpkg: "application/vnd.apple.installer+xml",
+  odp: "application/vnd.oasis.opendocument.presentation",
+  ods: "application/vnd.oasis.opendocument.spreadsheet",
+  odt: "application/vnd.oasis.opendocument.text",
+  oga: "audio/ogg",
+  ogv: "video/ogg",
+  ogx: "application/ogg",
+  opus: "audio/opus",
+  otf: "font/otf",
+  png: "image/png",
+  pdf: "application/pdf",
+  php: "application/x-httpd-php",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  rar: "application/vnd.rar",
+  rtf: "application/rtf",
+  sh: "application/x-sh",
+  svg: "image/svg+xml",
+  tar: "application/x-tar",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+  ts: "video/mp2t",
+  ttf: "font/ttf",
+  txt: "text/plain",
+  vsd: "application/vnd.visio",
+  wav: "audio/wav",
+  weba: "audio/webm",
+  webm: "video/webm",
+  webp: "image/webp",
+  woff: "font/woff",
+  woff2: "font/woff2",
+  xhtml: "application/xhtml+xml",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xml: "application/xml",
+  xul: "application/vnd.mozilla.xul+xml",
+  zip: "application/zip",
+  "3gp": "video/3gpp; audio/3gpp if it doesn't contain video",
+  "3g2": "video/3gpp2; audio/3gpp2 if it doesn't contain video",
+  "7z": "application/x-7z-compressed",
+};
+
+export function guessMimeTypeFromPath(filePath: string): string | null {
+  const fileExt = filePath.split(".").pop();
+  if (fileExt) {
+    return COMMON_MIME_TYPES[fileExt.toLowerCase()] || null;
+  }
+  return null;
 }

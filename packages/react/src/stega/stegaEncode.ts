@@ -218,11 +218,15 @@ export function stegaEncode(
     sourceOrSelector: any,
     recOpts?: { path: any; schema: any }
   ): any {
+    if (recOpts?.schema && isLiteralSchema(recOpts?.schema)) {
+      return sourceOrSelector;
+    }
     if (recOpts?.schema && isUnionSchema(recOpts?.schema)) {
       if (
         sourceOrSelector &&
         typeof sourceOrSelector === "object" &&
-        recOpts.schema.key
+        recOpts.schema.key &&
+        typeof recOpts.schema.key === "string"
       ) {
         const key = sourceOrSelector[recOpts.schema.key];
         if (key) {
@@ -252,12 +256,23 @@ export function stegaEncode(
             });
           }
         }
-      } else {
+        // illegal value, return as is
+        return sourceOrSelector;
+      }
+      if (
+        typeof sourceOrSelector === "string" &&
+        recOpts.schema.key &&
+        typeof recOpts.schema.key !== "string"
+      ) {
         return rec(sourceOrSelector, {
           path: recOpts.path,
-          schema: recOpts.schema.items.find(
-            (s) => isLiteralSchema(s) && s.value === sourceOrSelector
-          ),
+          schema: [recOpts.schema.key]
+            .concat(...recOpts.schema.items)
+            .find((s) => {
+              if (isLiteralSchema(s)) {
+                return s.value === sourceOrSelector;
+              }
+            }),
         });
       }
     }
@@ -295,9 +310,15 @@ export function stegaEncode(
           typeof sourceOrSelector[FILE_REF_PROP] === "string"
         ) {
           const fileSelector = Internal.convertFileSource(sourceOrSelector);
+          let url = fileSelector.url;
+          if (opts.disabled) {
+            url = fileSelector.url;
+          } else {
+            url = "/api/val/files/public" + fileSelector.url;
+          }
           return {
             ...fileSelector,
-            url: rec(fileSelector.url, recOpts),
+            url: rec(url, recOpts),
           };
         }
         console.error(

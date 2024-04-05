@@ -21,7 +21,7 @@ export function deserializeSchema(
     case "string":
       return new StringSchema(
         {
-          ...serialized,
+          ...serialized.options,
           regexp:
             serialized.options?.regexp &&
             new RegExp(

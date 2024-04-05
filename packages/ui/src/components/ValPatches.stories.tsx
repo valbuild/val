@@ -1,12 +1,7 @@
-import { ModuleId } from "@valbuild/core";
-import {
-  History,
-  ReviewErrors,
-  ReviewModuleError,
-  ReviewPanel as ReviewPanelComponent,
-} from "./ValPatches";
+import { ReviewPanel as ReviewPanelComponent } from "./ValPatches";
 import { ValUIContext } from "./ValUIContext";
 import { Meta, StoryObj } from "@storybook/react";
+import { History, ReviewErrors, ReviewModuleError } from "./convertPatchErrors";
 
 const meta: Meta<typeof ReviewPanelComponent> = {
   component: ReviewPanelComponent,

@@ -28,13 +28,6 @@ import {
 import { createFilename, readImage } from "../utils/readImage";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./ui/select";
 import { PatchCallback } from "./usePatch";
 import { useValUIContext } from "./ValUIContext";
 import classNames from "classnames";
@@ -399,7 +392,10 @@ function ImageField({
   }>();
   const [url, setUrl] = useState<string>();
   useEffect(() => {
-    setUrl(defaultValue && Internal.convertFileSource(defaultValue).url);
+    setUrl(
+      defaultValue &&
+        "/api/val/files/public" + Internal.convertFileSource(defaultValue).url
+    );
   }, [defaultValue]);
 
   // TODO: this smells bad:
@@ -536,8 +532,9 @@ function ImageField({
                 )
               ).finally(() => {
                 setLoading(false);
-                setData(null);
-                setMetadata(undefined);
+                // TODO: set url with the new metadata
+                // setData(null);
+                // setMetadata(undefined);
               });
             } else if (metadata) {
               setLoading(true);
@@ -545,8 +542,8 @@ function ImageField({
                 Promise.resolve(createFileMetadataPatch(path, metadata))
               ).finally(() => {
                 setLoading(false);
-                setData(null);
-                setMetadata(undefined);
+                // setData(null);
+                // setMetadata(undefined);
               });
             }
           }}
@@ -649,9 +646,13 @@ function RichTextField({
 }
 
 function KeyOfField({
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   disabled,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   defaultValue,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onSubmit,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   selector,
 }: {
   onSubmit?: OnSubmit;
@@ -829,7 +830,7 @@ function StringField({
         <SubmitButton
           validationErrors={validationErrors && validationErrors[path]}
           loading={loading}
-          enabled={defaultValue !== value && !validationErrors}
+          enabled={defaultValue !== value}
           onClick={() => {
             setLoading(true);
             onSubmit(async (path) => [
@@ -887,7 +888,12 @@ export function SubmitButton({
   const isProxy = session.status === "success" && session.data.mode === "proxy";
   return (
     <div className="sticky bottom-0 m-4 mt-2 ml-0">
-      <div className="flex justify-start w-full gap-2 text-sm">
+      <div className="grid justify-start gap-2 text">
+        {validationErrors ? (
+          <InlineValidationErrors errors={validationErrors || []} />
+        ) : (
+          <span></span>
+        )}
         <Button disabled={loading || !enabled} onClick={onClick}>
           {loading
             ? isProxy
@@ -897,11 +903,6 @@ export function SubmitButton({
             ? "Stage"
             : "Save"}
         </Button>{" "}
-        {validationErrors ? (
-          <InlineValidationErrors errors={validationErrors || []} />
-        ) : (
-          <span></span>
-        )}
       </div>
     </div>
   );

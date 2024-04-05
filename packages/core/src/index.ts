@@ -75,7 +75,7 @@ import { getVal } from "./future/fetchVal";
 import type { Json } from "./Json";
 import { SerializedSchema } from "./schema";
 import { getSHA256Hash } from "./getSha256";
-import { Patch } from "./patch";
+import { Operation, Patch } from "./patch";
 import { initSchema } from "./initSchema";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
@@ -216,6 +216,15 @@ const Internal = {
   createValPathOfItem,
   getSHA256Hash,
   initSchema,
+  notFileOp: (op: Operation) => op.op !== "file",
+  isFileOp: (
+    op: Operation
+  ): op is {
+    op: "file";
+    path: string[];
+    filePath: string;
+    value: string;
+  } => op.op === "file" && typeof op.filePath === "string",
   createPatchJSONPath: (modulePath: ModulePath) =>
     `/${modulePath
       .split(".")

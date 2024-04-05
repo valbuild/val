@@ -7,6 +7,7 @@ import {
   ModuleId,
   PatchId,
   ApiDeletePatchResponse,
+  Internal,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -20,9 +21,16 @@ import {
 } from "@valbuild/shared/internal";
 import path from "path";
 import { z } from "zod";
-import { ValServer, ValServerCallbacks } from "./ValServer";
-import fs from "fs";
+import {
+  ValServer,
+  ValServerCallbacks,
+  bufferFromDataUrl,
+  bufferToReadableStream,
+  getMimeTypeFromBase64,
+  guessMimeTypeFromPath,
+} from "./ValServer";
 import { SerializedModuleContent } from "./SerializedModuleContent";
+import { Operation } from "@valbuild/core/patch";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -39,8 +47,10 @@ export interface ValServerBufferHost {
   readBuffer: (fileName: string) => Promise<Buffer | undefined>;
 }
 
+const textEncoder = new TextEncoder();
 export class LocalValServer extends ValServer {
   private static readonly PATCHES_DIR = "patches";
+  private static readonly FILES_DIR = "files";
   private readonly patchesRootPath: string;
   constructor(
     readonly options: LocalValServerOptions,
@@ -73,10 +83,39 @@ export class LocalValServer extends ValServer {
   }): Promise<ValServerJsonResult<ApiDeletePatchResponse>> {
     const deletedPatches: ApiDeletePatchResponse = [];
     for (const patchId of query.id ?? []) {
-      deletedPatches.push(patchId as PatchId);
+      const rawPatchFileContent = this.host.readFile(
+        this.getPatchFilePath(patchId as PatchId)
+      );
+
+      if (!rawPatchFileContent) {
+        console.warn("Val: Patch not found", patchId);
+        continue;
+      }
+      const parsedPatchesRes = z
+        .record(Patch)
+        .safeParse(JSON.parse(rawPatchFileContent));
+      if (!parsedPatchesRes.success) {
+        console.warn(
+          "Val: Could not parse patch file",
+          patchId,
+          parsedPatchesRes.error
+        );
+        continue;
+      }
+
+      const files = Object.values(parsedPatchesRes.data).flatMap((ops) =>
+        ops
+          .filter(isCachedPatchFileOp)
+          .map((op) => ({ filePath: op.filePath, sha256: op.value.sha256 }))
+      );
+      for (const file of files) {
+        this.host.rmFile(this.getFilePath(file.filePath, file.sha256));
+        this.host.rmFile(this.getFileMetadataPath(file.filePath, file.sha256));
+      }
       this.host.rmFile(
         path.join(this.patchesRootPath, LocalValServer.PATCHES_DIR, patchId)
       );
+      deletedPatches.push(patchId as PatchId);
     }
     return {
       status: 200,
@@ -97,7 +136,6 @@ export class LocalValServer extends ValServer {
         },
       };
     }
-    const parsedPatches: Record<ModuleId, Patch> = {};
     let fileId = Date.now();
     while (
       this.host.fileExists(this.getPatchFilePath(fileId.toString() as PatchId))
@@ -107,21 +145,135 @@ export class LocalValServer extends ValServer {
     }
     const patchId = fileId.toString() as PatchId;
     const res: ApiPostPatchResponse = {};
+    const parsedPatches: Record<ModuleId, Patch> = {};
     for (const moduleIdStr in patches.data) {
       const moduleId = moduleIdStr as ModuleId; // TODO: validate that this is a valid module id
       res[moduleId] = {
         patch_id: patchId,
       };
-      parsedPatches[moduleId] = patches.data[moduleId];
+      parsedPatches[moduleId] = [];
+      for (const op of patches.data[moduleId]) {
+        // We do not want to include value of a file op in the patch as they potentially contain a lot of data,
+        // therefore we store the file in a separate file and only store the sha256 hash in the patch.
+        // I.e. the patch that frontend sends is not the same as the one stored.
+        // Large amount of text is one thing, but one could easily imagine a lot of patches being accumulated over time with a lot of images which would then consume a non-negligible amount of memory.
+        //
+        // This is potentially confusing for us working on Val internals, however, the alternative was expected to cause a lot of issues down the line: low performance, a lot of data moved, etc
+        // In the worst scenario we imagine this being potentially crashing the server runtime, especially on smaller edge runtimes.
+        // Potential crashes are bad enough to warrant this workaround.
+        if (Internal.isFileOp(op)) {
+          const sha256 = Internal.getSHA256Hash(textEncoder.encode(op.value));
+          const mimeType = getMimeTypeFromBase64(op.value);
+          if (!mimeType) {
+            console.error(
+              "Val: Cannot determine mimeType from base64 data",
+              op
+            );
+            throw Error(
+              "Cannot determine mimeType from base64 data: " + op.filePath
+            );
+          }
+          const buffer = bufferFromDataUrl(op.value, mimeType);
+          if (!buffer) {
+            console.error("Val: Cannot parse base64 data", op);
+            throw Error("Cannot parse base64 data: " + op.filePath);
+          }
+          this.host.writeFile(
+            this.getFilePath(op.filePath, sha256),
+            buffer,
+            "binary"
+          );
+          this.host.writeFile(
+            this.getFileMetadataPath(op.filePath, sha256),
+            JSON.stringify(
+              {
+                mimeType,
+                sha256,
+                // useful for debugging / manual inspection
+                patchId,
+                createdAt: new Date().toISOString(),
+              } satisfies PatchFileMetadata,
+              null,
+              2
+            ),
+            "utf8"
+          );
+          parsedPatches[moduleId].push({
+            ...op,
+            value: { sha256, mimeType },
+          });
+        } else {
+          parsedPatches[moduleId].push(op);
+        }
+      }
     }
     this.host.writeFile(
       this.getPatchFilePath(patchId),
-      JSON.stringify(patches.data),
+      JSON.stringify(parsedPatches),
       "utf8"
     );
     return {
       status: 200,
       json: res,
+    };
+  }
+
+  async getFiles(
+    filePath: string,
+    query: { sha256?: string }
+  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
+    if (query.sha256) {
+      const fileExists = this.host.fileExists(
+        this.getFilePath(filePath, query.sha256)
+      );
+      if (fileExists) {
+        const metadataFileContent = this.host.readFile(
+          this.getFileMetadataPath(filePath, query.sha256)
+        );
+        const fileContent = await this.readStaticBinaryFile(
+          this.getFilePath(filePath, query.sha256)
+        );
+        if (!fileContent) {
+          throw Error(
+            "Could not read cached patch file / asset. Cache corrupted?"
+          );
+        }
+        if (!metadataFileContent) {
+          throw Error(
+            "Missing metadata of cached patch file / asset. Cache corrupted?"
+          );
+        }
+        const metadata: PatchFileMetadata = JSON.parse(metadataFileContent);
+        return {
+          status: 200,
+          headers: {
+            "Content-Type": metadata.mimeType,
+            "Content-Length": fileContent.byteLength.toString(),
+          },
+          body: bufferToReadableStream(fileContent),
+        };
+      }
+    }
+    const buffer = await this.readStaticBinaryFile(
+      path.join(this.cwd, filePath)
+    );
+    const mimeType =
+      guessMimeTypeFromPath(filePath) || "application/octet-stream";
+    if (!buffer) {
+      return {
+        status: 404,
+        json: {
+          message: "File not found",
+        },
+      };
+    }
+    return {
+      status: 200,
+      headers: {
+        "Content-Type": mimeType,
+        "Content-Length": buffer.byteLength.toString(),
+      },
+      body: bufferToReadableStream(buffer),
     };
   }
 
@@ -194,7 +346,7 @@ export class LocalValServer extends ValServer {
           res[moduleId].push({
             patch: currentParsedPatches.data[moduleId],
             patch_id: patchId,
-            created_at: createdAt.toString(),
+            created_at: new Date(Number(createdAt)).toISOString(),
           });
         }
       } catch (err) {
@@ -220,6 +372,26 @@ export class LocalValServer extends ValServer {
       status: 200,
       json: res,
     };
+  }
+
+  private getFilePath(filename: string, sha256: string) {
+    return path.join(
+      this.patchesRootPath,
+      LocalValServer.FILES_DIR,
+      filename,
+      sha256,
+      "file"
+    );
+  }
+
+  private getFileMetadataPath(filename: string, sha256: string) {
+    return path.join(
+      this.patchesRootPath,
+      LocalValServer.FILES_DIR,
+      filename,
+      sha256,
+      "metadata.json"
+    );
   }
 
   private getPatchFilePath(patchId: PatchId) {
@@ -283,4 +455,30 @@ export class LocalValServer extends ValServer {
   > {
     return this.badRequest();
   }
+}
+
+type PatchFileMetadata = {
+  mimeType: string;
+  sha256: string;
+  patchId: PatchId;
+  createdAt: string;
+};
+
+function isCachedPatchFileOp(op: Operation): op is {
+  op: "file";
+  path: string[];
+  filePath: string;
+  value: {
+    sha256: string;
+  };
+} {
+  return !!(
+    op.op === "file" &&
+    typeof op.filePath === "string" &&
+    op.value &&
+    typeof op.value === "object" &&
+    !Array.isArray(op.value) &&
+    "sha256" in op.value &&
+    typeof op.value.sha256 === "string"
+  );
 }
