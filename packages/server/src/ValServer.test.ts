@@ -18,7 +18,9 @@ import { SerializedModuleContent } from "./SerializedModuleContent";
 import {
   ValServer,
   bufferFromDataUrl,
+  bufferToReadableStream,
   getMimeTypeFromBase64,
+  guessMimeTypeFromPath,
 } from "./ValServer";
 import { Directories, DirectoryNode, RemoteFS } from "./RemoteFS";
 import fs from "fs";
@@ -30,7 +32,7 @@ const anotherSmallPng =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAABAQAAAADLe9LuAAAACklEQVR4AWNgAAAAAgABc3UBGAAAAABJRU5ErkJggg==";
 
 describe("ValServer", () => {
-  test("todo", async () => {
+  test("basic tests", async () => {
     const root = path.join(
       __dirname,
       "../test/example-projects/basic-next-src-typescript"
@@ -66,53 +68,42 @@ describe("ValServer", () => {
         },
       ],
     } satisfies Record<string, Patch>);
-    console.log(
-      "postMetadata fix",
-      JSON.stringify(
-        await testServer.getTree(
-          "/",
-          {
-            patch: true.toString(),
-          },
-          {}
-        ),
-        null,
-        2
-      )
-    );
 
-    await testServer.postPatches({
-      "/src/pages/metadata-tests": [
+    expect(
+      await testServer.getTree(
+        "/",
         {
-          op: "file",
-          filePath: "/public/managed/images/smallest.png",
-          path: ["image"],
-          value: anotherSmallPng,
+          patch: true.toString(),
         },
-      ],
-    });
-    // console.log(await testServer.getPatches({}));
-    console.log(
-      JSON.stringify(
-        await testServer.getTree(
-          "/src/pages/metadata-tests",
-          {
-            patch: true.toString(),
-          },
-          {}
-        ),
-        null,
-        2
+        {}
       )
-    );
-    await testServer.getFiles(
-      "/public/managed/images/smallest.png",
-      {
-        sha256:
-          "80d58a5b775debc85386b320c347a59ffeeae5eeb3ca30a3a3ca04b5aaed145d",
-      },
-      {}
-    );
+    ).toHaveProperty("status", 200);
+
+    expect(
+      await testServer.postPatches({
+        "/src/pages/metadata-tests": [
+          {
+            op: "file",
+            filePath: "/public/managed/images/smallest.png",
+            path: ["image"],
+            value: anotherSmallPng,
+          },
+        ],
+      })
+    ).toHaveProperty("status", 200);
+    // console.log(await testServer.getPatches({}));
+    expect(
+      await testServer.getTree(
+        "/src/pages/metadata-tests",
+        {
+          patch: true.toString(),
+        },
+        {}
+      )
+    ).toHaveProperty("status", 200);
+    expect(
+      await testServer.getFiles("/public/managed/images/smallest.png")
+    ).toHaveProperty("status", 200);
   });
 
   test("getMimeTypeFromBase64", () => {
@@ -208,7 +199,24 @@ class TestValServer extends ValServer {
       patchId++;
     }
     const patchIdStr = patchId.toString();
-    this.patches[patchIdStr] = body;
+    this.patches[patchIdStr] = Object.fromEntries(
+      Object.entries(body).map(([moduleId, patch]) => [
+        moduleId,
+        patch.map((op) => {
+          if (op.op === "file") {
+            return {
+              ...op,
+              value: {
+                sha256: "sha256",
+                mimeType: "image/png",
+              },
+            };
+          }
+
+          return op;
+        }),
+      ])
+    );
     const res: ApiPostPatchResponse = {};
 
     for (const [moduleIdStr] of Object.entries(body)) {
@@ -246,8 +254,34 @@ class TestValServer extends ValServer {
       json: res,
     };
   }
+  async getFiles(
+    filePath: string
+  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
+    const buffer = await this.readStaticBinaryFile(
+      path.join(this.cwd, filePath)
+    );
+    const mimeType =
+      guessMimeTypeFromPath(filePath) || "application/octet-stream";
+    if (!buffer) {
+      return {
+        status: 404,
+        json: {
+          message: "File not found",
+        },
+      };
+    }
+    return {
+      status: 200,
+      headers: {
+        "Content-Type": mimeType,
+        "Content-Length": buffer.byteLength.toString(),
+      },
+      body: bufferToReadableStream(buffer),
+    };
+  }
 
   /* Not (currently) needed to test server */
+
   protected execCommit(): Promise<
     Record<ModuleId, { patches: { applied: PatchId[] } }>
   > {
