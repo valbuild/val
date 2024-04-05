@@ -22,7 +22,6 @@ import {
 import path from "path";
 import { z } from "zod";
 import {
-  PatchFileMetadata,
   ValServer,
   ValServerCallbacks,
   bufferFromDataUrl,
@@ -31,6 +30,7 @@ import {
   guessMimeTypeFromPath,
 } from "./ValServer";
 import { SerializedModuleContent } from "./SerializedModuleContent";
+import { Operation } from "@valbuild/core/patch";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -83,13 +83,40 @@ export class LocalValServer extends ValServer {
   }): Promise<ValServerJsonResult<ApiDeletePatchResponse>> {
     const deletedPatches: ApiDeletePatchResponse = [];
     for (const patchId of query.id ?? []) {
-      deletedPatches.push(patchId as PatchId);
+      const rawPatchFileContent = this.host.readFile(
+        this.getPatchFilePath(patchId as PatchId)
+      );
+
+      if (!rawPatchFileContent) {
+        console.warn("Val: Patch not found", patchId);
+        continue;
+      }
+      const parsedPatchesRes = z
+        .record(Patch)
+        .safeParse(JSON.parse(rawPatchFileContent));
+      if (!parsedPatchesRes.success) {
+        console.warn(
+          "Val: Could not parse patch file",
+          patchId,
+          parsedPatchesRes.error
+        );
+        continue;
+      }
+
+      const files = Object.values(parsedPatchesRes.data).flatMap((ops) =>
+        ops
+          .filter(isCachedPatchFileOp)
+          .map((op) => ({ filePath: op.filePath, sha256: op.value.sha256 }))
+      );
+      for (const file of files) {
+        this.host.rmFile(this.getFilePath(file.filePath, file.sha256));
+        this.host.rmFile(this.getFileMetadataPath(file.filePath, file.sha256));
+      }
       this.host.rmFile(
         path.join(this.patchesRootPath, LocalValServer.PATCHES_DIR, patchId)
       );
+      deletedPatches.push(patchId as PatchId);
     }
-
-    throw Error("TODO: implement delete files when deleting patches");
     return {
       status: 200,
       json: deletedPatches,
@@ -162,6 +189,9 @@ export class LocalValServer extends ValServer {
               {
                 mimeType,
                 sha256,
+                // useful for debugging / manual inspection
+                patchId,
+                createdAt: new Date().toISOString(),
               } satisfies PatchFileMetadata,
               null,
               2
@@ -425,4 +455,30 @@ export class LocalValServer extends ValServer {
   > {
     return this.badRequest();
   }
+}
+
+type PatchFileMetadata = {
+  mimeType: string;
+  sha256: string;
+  patchId: PatchId;
+  createdAt: string;
+};
+
+function isCachedPatchFileOp(op: Operation): op is {
+  op: "file";
+  path: string[];
+  filePath: string;
+  value: {
+    sha256: string;
+  };
+} {
+  return !!(
+    op.op === "file" &&
+    typeof op.filePath === "string" &&
+    op.value &&
+    typeof op.value === "object" &&
+    !Array.isArray(op.value) &&
+    "sha256" in op.value &&
+    typeof op.value.sha256 === "string"
+  );
 }
