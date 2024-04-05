@@ -48,6 +48,20 @@ export class ValApi {
       .then((res) => parse<ApiGetPatchResponse>(res))
       .catch(createError<ApiGetPatchResponse>);
   }
+
+  async deletePatches(ids: string[], headers?: Record<string, string>) {
+    const params = new URLSearchParams();
+    ids.forEach((id) => params.append("id", id));
+    return fetch(`${this.host}/patches/~?${params}`, {
+      method: "DELETE",
+      headers: headers || {
+        "Content-Type": "application/json",
+      },
+    })
+      .then((res) => parse<Json>(res))
+      .catch(createError<Json>);
+  }
+
   getEditUrl() {
     return `/val`;
   }
