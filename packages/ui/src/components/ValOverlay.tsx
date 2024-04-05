@@ -122,6 +122,7 @@ export function ValOverlay({
     (path) => async (callback) => {
       const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
       const patch = await callback(Internal.createPatchPath(modulePath));
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const applyRes = store.applyPatch(moduleId, patch);
       // TODO: applyRes
       setPatchResetId((prev) => prev + 1);
