@@ -316,7 +316,7 @@ export class LocalValServer extends ValServer {
           res[moduleId].push({
             patch: currentParsedPatches.data[moduleId],
             patch_id: patchId,
-            created_at: createdAt.toString(),
+            created_at: new Date(Number(createdAt)).toISOString(),
           });
         }
       } catch (err) {
