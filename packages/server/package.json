@@ -29,7 +29,7 @@
     "@valbuild/ui": "~0.58.0",
     "express": "^4.18.2",
     "image-size": "^1.0.2",
-    "minimatch": "^9.0.4",
+    "minimatch": "^3.0.4",
     "queue": "^6.0.2",
     "quickjs-emscripten": "^0.21.1",
     "sucrase": "^3.34.0",
