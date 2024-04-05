@@ -1,12 +1,10 @@
 import {
-  ApiPostValidationResponse,
   Internal,
   ModuleId,
-  PatchId,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
-import { Json, ApiPostValidationErrorResponse } from "@valbuild/core";
+import { Json } from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
 import { FC, useCallback, useEffect, useState } from "react";
 import { Grid } from "./Grid";
@@ -17,15 +15,13 @@ import { ChevronLeft, Languages, Minimize2, Send } from "lucide-react";
 import { ValUIContext } from "./ValUIContext";
 import { useNavigate, useParams } from "react-router";
 import { useTheme } from "./useTheme";
-import { ValMenu } from "./ValMenu";
 import { usePatches } from "./usePatch";
 import { useSession } from "./useSession";
 import { Path } from "./Path";
 import { ValPatches, ValPatchesProps } from "./ValPatches";
 import { AnyVal, PathTree, ValImagePreviewContext } from "./ValCompositeFields";
 import { InitOnSubmit } from "./ValFormField";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { Popover } from "./ui/popover";
+
 import { ValSession, ValStore } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 import { Remote } from "../utils/Remote";
@@ -122,7 +118,6 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api, store }) => {
     };
   }, [patches]);
 
-  const [patchModalOpen, setPatchModalOpen] = useState(false);
   return (
     <ValUIContext.Provider
       value={{
@@ -143,22 +138,6 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api, store }) => {
         className="relative w-full h-[100] overflow-hidden font-serif antialiased bg-background text-primary"
         data-mode={theme}
       >
-        {patchModalOpen && (
-          <div className="fixed z-5 top-[16px] left-[16px] w-[calc(100%-32px-50px-16px)] h-[calc(100svh-32px)]">
-            <ValPatches
-              patches={patches}
-              isValidating={isValidating}
-              validationResponse={validationResponse}
-              api={api}
-              onCancel={() => {
-                setPatchModalOpen(false);
-              }}
-              onCommit={() => {
-                setPatchResetId((patchResetId) => patchResetId + 1);
-              }}
-            />
-          </div>
-        )}
         <div id="val-fullscreen-hover" ref={hoverElemRef}></div>
         <ValImagePreviewContext.Provider
           value={{
@@ -226,9 +205,6 @@ export const ValFullscreen: FC<ValFullscreenProps> = ({ api, store }) => {
                 isValidating={isValidating}
                 validationResponse={validationResponse}
                 api={api}
-                onCancel={() => {
-                  setPatchModalOpen(false);
-                }}
                 onCommit={() => {
                   setPatchResetId((patchResetId) => patchResetId + 1);
                 }}

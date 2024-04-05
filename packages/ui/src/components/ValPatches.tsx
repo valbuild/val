@@ -5,7 +5,7 @@ import {
   PatchId,
   ValApi,
 } from "@valbuild/core";
-import { ChevronDown, X } from "lucide-react";
+import { ChevronDown, Undo2, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { result } from "@valbuild/core/fp";
 import {
@@ -38,7 +38,7 @@ export type ValPatchesProps = {
       } & Partial<ApiPostValidationResponse | ApiPostValidationErrorResponse>;
   patches: Record<ModuleId, PatchId[]>;
   onCommit: () => void;
-  onCancel: () => void;
+  onCancel?: () => void;
 };
 
 const TimeContext = createContext(0);
@@ -74,7 +74,9 @@ export function ValPatches({
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onCancel();
+        if (onCancel) {
+          onCancel();
+        }
       }
     };
     window.addEventListener("keydown", handler);
@@ -119,6 +121,27 @@ export function ValPatches({
               modules: validationResponse.modules,
               validationErrors: validationResponse.validationErrors,
             })}
+            onDeletePatch={(patchId) => {
+              api
+                .deletePatches([patchId])
+                .then((res) => {
+                  if (result.isErr(res)) {
+                    console.error(res.error);
+                    return;
+                  }
+                  setPatchesByModule((patchesByModule) => {
+                    const newPatchesByModule = { ...patchesByModule };
+                    for (const moduleIdS in newPatchesByModule) {
+                      const moduleId = moduleIdS as ModuleId;
+                      newPatchesByModule[moduleId] = newPatchesByModule[
+                        moduleId
+                      ].filter((patch) => patchId !== patch.patch_id);
+                    }
+                    return newPatchesByModule;
+                  });
+                })
+                .catch(console.error);
+            }}
           />
         )}
         <div className="flex gap-x-4">
@@ -162,12 +185,15 @@ export function ValPatches({
 export function ReviewPanel({
   history,
   errors,
+  onDeletePatch,
 }: {
   history: History;
   errors?: ReviewErrors;
+  onDeletePatch: (patchId: PatchId) => void;
 }) {
   return (
     <div className="w-full">
+      <h2 className="mt-10 mb-6 text-xl font-bold">Timeline</h2>
       {history.length > 0 && (
         <ol>
           {history.map((item, index) => (
@@ -176,6 +202,7 @@ export function ReviewPanel({
                 index={index}
                 last={index === history.length - 1}
                 defaultOpen={history.length > 3 ? false : true}
+                onDeletePatch={onDeletePatch}
               >
                 {item}
               </HistoryItem>
@@ -369,11 +396,13 @@ function HistoryItem({
   defaultOpen,
   last,
   children: item,
+  onDeletePatch,
 }: {
   index: number;
   last: boolean;
   defaultOpen?: boolean;
   children: History[number];
+  onDeletePatch: (patchId: PatchId) => void;
 }) {
   const relativeDateTime = useRelativeDateTime();
   const [open, setOpen] = useState(defaultOpen);
@@ -410,7 +439,7 @@ function HistoryItem({
           <AccordionContent>
             {item.changes.map((change, index) => (
               <div key={index}>
-                <ChangeItem change={change} />
+                <ChangeItem change={change} onDeletePatch={onDeletePatch} />
               </div>
             ))}
           </AccordionContent>
@@ -428,8 +457,10 @@ function getInitials(name: string) {
 
 function ChangeItem({
   change,
+  onDeletePatch: onDelete,
 }: {
   change: History[number]["changes"][number];
+  onDeletePatch: (patchId: PatchId) => void;
 }) {
   const relativeDateTime = useRelativeDateTime();
   return (
@@ -460,6 +491,26 @@ function ChangeItem({
                   : "removed "}
               </span>
               {item.changedAt && <div>{relativeDateTime(item.changedAt)}</div>}
+              {/* show patch ids in accordion */}
+              <Accordion type="single" collapsible>
+                <AccordionItem value="patch-ids">
+                  <AccordionTrigger>Show Patch IDs</AccordionTrigger>
+                  <AccordionContent>
+                    {item.patchIds?.map((patchId) => (
+                      <div key={patchId} className="mr-2">
+                        <span>{patchId}</span>
+                        <button
+                          onClick={() => {
+                            onDelete(patchId);
+                          }}
+                        >
+                          <Undo2 />
+                        </button>
+                      </div>
+                    ))}
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </div>
           </li>
         ))}
