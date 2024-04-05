@@ -1,10 +1,5 @@
-import { ModuleId } from "@valbuild/core";
-import {
-  History,
-  ReviewErrors,
-  ReviewModuleError,
-  ReviewPanel as ReviewPanelComponent,
-} from "./ValPatches";
+import { ReviewPanel as ReviewPanelComponent } from "./ValPatches";
+import { History, ReviewErrors, ReviewModuleError } from "./convertPatchErrors";
 import { ValUIContext } from "./ValUIContext";
 import { Meta, StoryObj } from "@storybook/react";
 
