@@ -57,10 +57,10 @@ describe("stega transform", () => {
     });
     //
     expect(vercelStegaSplit(transformed[0].image.url).cleaned).toStrictEqual(
-      "/test1.png?sha256=1231"
+      "/api/val/files/public/test1.png?sha256=1231"
     );
     expect(vercelStegaSplit(transformed[1].image.url).cleaned).toStrictEqual(
-      "/test2.png?sha256=1232"
+      "/api/val/files/public/test2.png?sha256=1232"
     );
 
     expect(transformed[0].text.valPath).toStrictEqual('/test.0."text"');
