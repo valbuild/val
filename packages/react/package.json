@@ -13,8 +13,7 @@
     "@valbuild/shared": "~0.59.0",
     "@valbuild/ui": "~0.59.0",
     "@vercel/stega": "^0.1.0",
-    "base64-arraybuffer": "^1.0.2",
-    "style-to-object": "^0.4.1"
+    "base64-arraybuffer": "^1.0.2"
   },
   "devDependencies": {
     "@testing-library/react": "^14.0.0",
