@@ -5,11 +5,15 @@ import fs from "fs";
 
 export class ValSourceFileHandler {
   constructor(
-    private readonly projectRoot: string,
+    readonly projectRoot: string,
     private readonly compilerOptions: ts.CompilerOptions,
-    private readonly host: IValFSHost = {
+    readonly host: IValFSHost = {
       ...ts.sys,
-      writeFile: fs.writeFileSync,
+      writeFile: (fileName, data, encoding) => {
+        fs.mkdirSync(path.dirname(fileName), { recursive: true });
+        fs.writeFileSync(fileName, data, encoding);
+      },
+      rmFile: fs.rmSync,
     }
   ) {}
 

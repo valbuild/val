@@ -70,7 +70,7 @@ const initFetchValStega =
       }
 
       const host: string | null = headers && getHost(headers);
-      if (host && cookies && isProxyMode(config)) {
+      if (host && cookies) {
         const api = new ValApi(`${host}${valApiEndpoints}`);
         const valModuleIds = getModuleIds(selector);
         return api
@@ -106,7 +106,7 @@ const initFetchValStega =
             console.error("Val: failed while fetching modules", err);
             if (process.env.NODE_ENV === "development") {
               throw Error(
-                'You are running in "proxy" mode in development and Val could not fetch remote / proxy data. This is likely due to a misconfiguration. Check the console for more details.'
+                "Val: Could not fetch data. This is likely due to a misconfiguration or a bug. Check the console for more details."
               );
             }
             return stegaEncode(selector, {});
@@ -135,16 +135,6 @@ function getHost(headers: Headers) {
     return `${proto}://${host}`;
   }
   return null;
-}
-
-function isProxyMode(opts: Record<string, string>) {
-  const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
-  const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
-  const isProxyMode =
-    opts.mode === "proxy" ||
-    (opts.mode === undefined && (maybeApiKey || maybeValSecret));
-
-  return !!isProxyMode;
 }
 
 function getValAuthHeaders(cookies: {

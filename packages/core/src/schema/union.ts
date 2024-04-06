@@ -10,7 +10,7 @@ import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedUnionSchema = {
   type: "union";
-  key?: string;
+  key: string | SerializedSchema;
   items: SerializedSchema[];
   opt: boolean;
 };
@@ -260,6 +260,7 @@ export class UnionSchema<
     }
     return {
       type: "union",
+      key: this.key.serialize(),
       items: this.items.map((o) => o.serialize()),
       opt: this.opt,
     };

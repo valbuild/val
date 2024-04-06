@@ -11,7 +11,12 @@ export interface IValFSHost
     ts.ModuleResolutionHost {
   useCaseSensitiveFileNames: boolean;
 
-  writeFile(fileName: string, text: string, encoding: "binary" | "utf8"): void;
+  writeFile(
+    fileName: string,
+    data: string | Buffer,
+    encoding: "binary" | "utf8"
+  ): void;
+  rmFile(fileName: string): void;
 }
 
 export class ValFSHost implements IValFSHost {
@@ -37,7 +42,15 @@ export class ValFSHost implements IValFSHost {
     );
   }
 
-  writeFile(fileName: string, text: string, encoding: "binary" | "utf8"): void {
+  rmFile(fileName: string): void {
+    this.valFS.rmFile(fileName);
+  }
+
+  writeFile(
+    fileName: string,
+    text: string | Buffer,
+    encoding: "binary" | "utf8"
+  ): void {
     this.valFS.writeFile(fileName, text, encoding);
   }
 

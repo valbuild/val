@@ -40,6 +40,7 @@ export {
   type Val,
   type SerializedVal,
   type ModuleId,
+  type PatchId,
   type ModulePath,
   type SourcePath,
   type JsonOfSource,
@@ -60,18 +61,22 @@ export {
   type SelectorOf,
   GenericSelector,
 } from "./selector";
-import { getSource, resolvePath, splitModuleIdAndModulePath } from "./module";
+import {
+  getSource,
+  parsePath,
+  resolvePath,
+  splitModuleIdAndModulePath,
+} from "./module";
 import { getSchema } from "./selector";
-import { ModuleId, ModulePath, getValPath, isVal } from "./val";
+import { ModuleId, ModulePath, PatchId, getValPath, isVal } from "./val";
 import { convertFileSource } from "./schema/file";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
 import type { Json } from "./Json";
 import { SerializedSchema } from "./schema";
 import { getSHA256Hash } from "./getSha256";
-import { PatchJSON } from "./patch";
+import { Operation, Patch } from "./patch";
 import { initSchema } from "./initSchema";
-export { ValApi } from "./ValApi";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
@@ -86,13 +91,18 @@ export {
 } from "./schema/richtext";
 export { type SerializedUnionSchema, UnionSchema } from "./schema/union";
 export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
+export { deserializeSchema } from "./schema/deserialize";
+
+// Move to internal
+export { ValApi } from "./ValApi";
 
 export type ApiCommitResponse = {
+  validationErrors: false;
   modules: Record<
     ModuleId,
     {
       patches: {
-        applied: string[];
+        applied: PatchId[];
       };
     }
   >;
@@ -112,8 +122,8 @@ export type ApiTreeResponse = {
     {
       schema?: SerializedSchema;
       patches?: {
-        applied: string[];
-        failed?: string[];
+        applied: PatchId[];
+        failed?: PatchId[];
       };
       source?: Json;
       errors?:
@@ -130,18 +140,69 @@ export type ApiTreeResponse = {
     }
   >;
 };
-
 export type ApiGetPatchResponse = Record<
   ModuleId,
   {
-    patch: PatchJSON;
-    patch_id: string;
-    commit_sha: string;
-    author: string;
+    patch: Patch;
+    patch_id: PatchId;
     created_at: string;
+    // not available in local mode:
+    commit_sha?: string;
+    author?: string;
   }[]
 >;
-export type ApiPostPatchResponse = Record<ModuleId, string[]>;
+export type ApiDeletePatchResponse = PatchId[];
+export type ApiPostPatchResponse = Record<
+  ModuleId,
+  {
+    patch_id: PatchId;
+  }
+>;
+export type ApiPostValidationResponse = {
+  validationErrors: false;
+  modules: Record<
+    ModuleId,
+    {
+      patches: {
+        applied: PatchId[];
+      };
+    }
+  >;
+};
+export const FATAL_ERROR_TYPES = [
+  "no-schema",
+  "no-source",
+  "invalid-id",
+  "no-module",
+  "invalid-patch",
+] as const;
+export type FatalErrorType = (typeof FATAL_ERROR_TYPES)[number];
+export type ApiPostValidationErrorResponse = {
+  modules: Record<
+    ModuleId,
+    {
+      patches: {
+        applied: PatchId[];
+        failed?: PatchId[];
+      };
+    }
+  >;
+  validationErrors: Record<
+    ModuleId,
+    {
+      source?: Json;
+      errors: {
+        invalidModuleId?: ModuleId;
+        validation?: ValidationErrors;
+        fatal?: {
+          message: string;
+          stack?: string;
+          type?: FatalErrorType;
+        }[];
+      };
+    }
+  >;
+};
 
 const Internal = {
   convertFileSource,
@@ -155,11 +216,34 @@ const Internal = {
   createValPathOfItem,
   getSHA256Hash,
   initSchema,
+  notFileOp: (op: Operation) => op.op !== "file",
+  isFileOp: (
+    op: Operation
+  ): op is {
+    op: "file";
+    path: string[];
+    filePath: string;
+    value: string;
+  } => op.op === "file" && typeof op.filePath === "string",
   createPatchJSONPath: (modulePath: ModulePath) =>
     `/${modulePath
       .split(".")
       .map((segment) => segment && tryJsonParse(segment))
       .join("/")}`,
+  createPatchPath: (modulePath: ModulePath) => {
+    return parsePath(modulePath);
+  },
+  patchPathToModulePath: (patchPath: string[]): ModulePath => {
+    return patchPath
+      .map((segment) => {
+        // TODO: I am worried that something is lost here: what if the segment is a string that happens to be a parsable as a number? We could make those keys illegal?
+        if (Number.isInteger(Number(segment))) {
+          return segment;
+        }
+        return JSON.stringify(segment);
+      })
+      .join(".") as ModulePath;
+  },
   VAL_ENABLE_COOKIE_NAME: "val_enable" as const,
   VAL_STATE_COOKIE: "val_state" as const,
   VAL_SESSION_COOKIE: "val_session" as const,

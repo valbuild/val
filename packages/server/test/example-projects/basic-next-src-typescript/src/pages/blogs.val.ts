@@ -1,7 +1,7 @@
 import { s, c } from "src/val.config";
 
 export default c.define(
-  "/pages/blogs",
+  "/src/pages/blogs",
   s.array(s.object({ title: s.string({ maxLength: 1 }), text: s.string() })),
   [
     {

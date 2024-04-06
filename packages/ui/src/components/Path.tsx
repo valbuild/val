@@ -23,7 +23,7 @@ function Seg({ children: children }: { children: string }) {
         return (
           <Fragment key={`${children}.${seg}`}>
             <span>{i === 0 ? seg : JSON.parse(seg)}</span>
-            <span className="px-[2px] text-muted">{"."}</span>
+            <span className="text-muted">{"."}</span>
           </Fragment>
         );
       }
