@@ -8,7 +8,8 @@ import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedKeyOfSchema = {
   type: "keyOf";
-  selector: SourcePath;
+  path: SourcePath;
+  schema: SerializedSchema;
   opt: boolean;
   values: "string" | "number" | string[];
 };
@@ -31,15 +32,18 @@ type KeyOfSelector<Sel extends GenericSelector<SourceArray | SourceObject>> =
 export class KeyOfSchema<
   Sel extends GenericSelector<SourceArray | SourceObject>
 > extends Schema<KeyOfSelector<Sel>> {
-  constructor(readonly selector: Sel, readonly opt: boolean = false) {
+  constructor(
+    readonly schema?: SerializedSchema,
+    readonly sourcePath?: SourcePath,
+    readonly opt: boolean = false
+  ) {
     super();
   }
   validate(path: SourcePath, src: KeyOfSelector<Sel>): ValidationErrors {
     if (this.opt && (src === null || src === undefined)) {
       return false;
     }
-    const schema = this.selector[GetSchema];
-    if (!schema) {
+    if (!this.schema) {
       return {
         [path]: [
           {
@@ -48,7 +52,7 @@ export class KeyOfSchema<
         ],
       };
     }
-    const serializedSchema = schema.serialize();
+    const serializedSchema = this.schema;
 
     if (
       !(
@@ -107,11 +111,11 @@ export class KeyOfSchema<
     if (this.opt && (src === null || src === undefined)) {
       return true;
     }
-    const schema = this.selector[GetSchema];
+    const schema = this.schema;
     if (!schema) {
       return false;
     }
-    const serializedSchema = schema.serialize();
+    const serializedSchema = schema;
 
     if (
       !(
@@ -141,23 +145,23 @@ export class KeyOfSchema<
   }
 
   optional(): Schema<KeyOfSelector<Sel> | null> {
-    return new KeyOfSchema(this.selector, true);
+    return new KeyOfSchema(this.schema, undefined, true);
   }
 
   serialize(): SerializedSchema {
-    const path = getValPath(this.selector);
+    const path = this.sourcePath;
     if (!path) {
       throw new Error(
         "Cannot serialize keyOf schema with empty selector. TIP: keyOf must be used with a Val Module."
       );
     }
-    const serializedSubSchema = this.selector[GetSchema]?.serialize();
-    if (!serializedSubSchema) {
+    const serializedSchema = this.schema;
+    if (!serializedSchema) {
       throw new Error("Cannot serialize oneOf schema with empty selector.");
     }
 
     let values: SerializedKeyOfSchema["values"];
-    switch (serializedSubSchema.type) {
+    switch (serializedSchema.type) {
       case "array":
         values = "number";
         break;
@@ -165,16 +169,17 @@ export class KeyOfSchema<
         values = "string";
         break;
       case "object":
-        values = Object.keys(serializedSubSchema.items);
+        values = Object.keys(serializedSchema.items);
         break;
       default:
         throw new Error(
-          `Cannot serialize oneOf schema with selector of type '${serializedSubSchema.type}'. keyOf must be used with a Val Module.`
+          `Cannot serialize oneOf schema with selector of type '${serializedSchema.type}'. keyOf must be used with a Val Module.`
         );
     }
     return {
       type: "keyOf",
-      selector: path,
+      path: path,
+      schema: serializedSchema,
       opt: this.opt,
       values,
     } satisfies SerializedKeyOfSchema;
@@ -186,5 +191,8 @@ export const keyOf = <
 >(
   valModule: Src
 ): Schema<KeyOfSelector<Src>> => {
-  return new KeyOfSchema(valModule);
+  return new KeyOfSchema(
+    valModule?.[GetSchema]?.serialize(),
+    getValPath(valModule)
+  );
 };

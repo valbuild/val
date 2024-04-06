@@ -295,7 +295,7 @@ export function resolvePath<
       };
     } else if (isUnionSchema(resolvedSchema)) {
       const key = resolvedSchema.key;
-      if (!key) {
+      if (typeof key !== "string") {
         return {
           path: origParts
             .map((p) => {

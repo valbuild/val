@@ -1,14 +1,14 @@
 import { createService, ServiceOptions } from "./Service";
-import { ValServer, ValServerCallbacks } from "./ValServer";
+import { IValServer, ValServerCallbacks } from "./ValServer";
 import { LocalValServer, LocalValServerOptions } from "./LocalValServer";
 import { ProxyValServer, ProxyValServerOptions } from "./ProxyValServer";
 import { promises as fs } from "fs";
 import * as path from "path";
-import { Internal } from "@valbuild/core";
+import { Internal, ValConfig } from "@valbuild/core";
 import { ValServerGenericResult } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
 
-type Opts = ValServerOverrides & ServiceOptions;
+export type ValApiOptions = ValServerOverrides & ServiceOptions & ValConfig;
 
 type ValServerOverrides = Partial<{
   /**
@@ -111,16 +111,21 @@ type ValServerOverrides = Partial<{
    * @example "/api/draft/enable"
    */
   valDisableRedirectUrl?: string;
+  /**
+   * Disable the cache.
+   */
+  disableCache?: boolean;
 }>;
 
 export async function createValServer(
   route: string,
-  opts: Opts,
+  opts: ValApiOptions,
   callbacks: ValServerCallbacks
-): Promise<ValServer> {
+): Promise<IValServer> {
   const serverOpts = await initHandlerOptions(route, opts);
   if (serverOpts.mode === "proxy") {
-    return new ProxyValServer(serverOpts, callbacks);
+    const projectRoot = process.cwd(); //[process.cwd(), opts.root || ""]      .filter((seg) => seg)      .join("/");
+    return new ProxyValServer(projectRoot, serverOpts, opts, callbacks);
   } else {
     return new LocalValServer(serverOpts, callbacks);
   }
@@ -164,6 +169,7 @@ async function initHandlerOptions(
     if (!maybeValName) {
       throw new Error("VAL_CLOUD_NAME env var must be set in proxy mode");
     }
+
     return {
       mode: "proxy",
       route,
@@ -171,8 +177,10 @@ async function initHandlerOptions(
       valSecret: maybeValSecret,
       valBuildUrl,
       valContentUrl,
-      gitCommit: maybeGitCommit,
-      gitBranch: maybeGitBranch,
+      git: {
+        commit: maybeGitCommit,
+        branch: maybeGitBranch,
+      },
       valName: maybeValName,
       valEnableRedirectUrl:
         opts.valEnableRedirectUrl || process.env.VAL_ENABLE_REDIRECT_URL,
@@ -280,7 +288,7 @@ const FILES_PATH_PREFIX = "/files";
 
 export function createValApiRouter<Res>(
   route: string,
-  valServerPromise: Promise<ValServer>,
+  valServerPromise: Promise<IValServer>,
   convert: (valServerRes: ValServerGenericResult) => Res
 ): (req: Request) => Promise<Res> {
   const uiRequestHandler = createUIRequestHandler();
@@ -373,6 +381,14 @@ export function createValApiRouter<Res>(
       return convert(
         await valServer.postCommit(body, getCookies(req, [VAL_SESSION_COOKIE]))
       );
+    } else if (method === "POST" && path === "/validate") {
+      const body = (await req.json()) as unknown;
+      return convert(
+        await valServer.postValidate(
+          body,
+          getCookies(req, [VAL_SESSION_COOKIE])
+        )
+      );
     } else if (method === "GET" && path.startsWith(TREE_PATH_PREFIX)) {
       return withTreePath(
         path,
@@ -413,6 +429,20 @@ export function createValApiRouter<Res>(
         convert(
           await valServer.postPatches(
             body,
+            getCookies(req, [VAL_SESSION_COOKIE])
+          )
+        )
+      );
+    } else if (method === "DELETE" && path.startsWith(PATCHES_PATH_PREFIX)) {
+      return withTreePath(
+        path,
+        PATCHES_PATH_PREFIX
+      )(async () =>
+        convert(
+          await valServer.deletePatches(
+            {
+              id: url.searchParams.getAll("id"),
+            },
             getCookies(req, [VAL_SESSION_COOKIE])
           )
         )

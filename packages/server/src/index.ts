@@ -15,5 +15,5 @@ export { patchSourceFile } from "./patchValFile";
 export { formatSyntaxErrorTree } from "./patch/ts/syntax";
 export { LocalValServer } from "./LocalValServer";
 export { createFixPatch } from "./createFixPatch";
-export { PatchJSON } from "./patch/validation";
+export { PatchJSON, Patch } from "./patch/validation";
 export * from "./jwt";

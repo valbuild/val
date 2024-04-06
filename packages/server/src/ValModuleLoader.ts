@@ -4,6 +4,7 @@ import type { IValFSHost } from "./ValFSHost";
 import { ValSourceFileHandler } from "./ValSourceFileHandler";
 import fs from "fs";
 import { transform } from "sucrase";
+import path from "path";
 const JsFileLookupMapping: [resolvedFileExt: string, replacements: string[]][] =
   [
     // NOTE: first one matching will be used
@@ -17,7 +18,11 @@ export const createModuleLoader = (
   rootDir: string,
   host: IValFSHost = {
     ...ts.sys,
-    writeFile: fs.writeFileSync,
+    writeFile: (fileName, data, encoding) => {
+      fs.mkdirSync(path.dirname(fileName), { recursive: true });
+      fs.writeFileSync(fileName, data, encoding);
+    },
+    rmFile: fs.rmSync,
   }
 ): ValModuleLoader => {
   const compilerOptions = getCompilerOptions(rootDir, host);
@@ -35,7 +40,7 @@ export const createModuleLoader = (
   return loader;
 };
 
-const MAX_CACHE_SIZE = 10 * 1024 * 1024; // 10 mb
+const MAX_CACHE_SIZE = 100 * 1024 * 1024; // 100 mb
 const MAX_OBJECT_KEY_SIZE = 2 ** 27; // https://stackoverflow.com/questions/13367391/is-there-a-limit-on-length-of-the-key-string-in-js-object
 
 export class ValModuleLoader {
@@ -48,7 +53,11 @@ export class ValModuleLoader {
     private readonly sourceFileHandler: ValSourceFileHandler,
     private readonly host: IValFSHost = {
       ...ts.sys,
-      writeFile: fs.writeFileSync,
+      writeFile: (fileName, data, encoding) => {
+        fs.mkdirSync(path.dirname(fileName), { recursive: true });
+        fs.writeFileSync(fileName, data, encoding);
+      },
+      rmFile: fs.rmSync,
     },
     private readonly disableCache: boolean = false
   ) {

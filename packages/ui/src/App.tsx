@@ -12,6 +12,7 @@ import {
 import Logo from "./assets/icons/Logo";
 import { X } from "lucide-react";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { ValStore } from "@valbuild/shared/internal";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function fallbackRender({ error, resetErrorBoundary }: any) {
@@ -52,13 +53,14 @@ function fallbackRender({ error, resetErrorBoundary }: any) {
 }
 
 function App() {
+  const api = new ValApi("/api/val");
   const router = createBrowserRouter(
     [
       {
         path: "/*",
         element: (
           <ErrorBoundary fallbackRender={fallbackRender}>
-            <ValFullscreen api={new ValApi("/api/val")} />
+            <ValFullscreen api={api} store={new ValStore(api)} />
           </ErrorBoundary>
         ),
       },

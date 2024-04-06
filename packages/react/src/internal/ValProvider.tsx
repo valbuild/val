@@ -1,7 +1,7 @@
 "use client";
 import React, { lazy, useContext, useEffect, useMemo, useState } from "react";
-import { ValStore } from "./ValStore";
 import { Internal, ValApi } from "@valbuild/core";
+import { ValStore } from "@valbuild/shared/internal";
 
 export const useValStore = () => {
   if (!ValContext) {

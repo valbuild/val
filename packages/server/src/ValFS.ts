@@ -12,11 +12,17 @@ export interface ValFS {
     depth?: number | undefined
   ): readonly string[];
 
-  writeFile(filePath: string, data: string, encoding: "binary" | "utf8"): void;
+  writeFile(
+    filePath: string,
+    data: string | Buffer,
+    encoding: "binary" | "utf8"
+  ): void;
 
   fileExists(filePath: string): boolean;
 
   readFile(filePath: string): string | undefined;
+
+  rmFile(filePath: string): void;
 
   realpath(path: string): string;
 }

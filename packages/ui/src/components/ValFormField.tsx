@@ -15,7 +15,7 @@ import {
   VAL_EXTENSION,
   ValidationError,
 } from "@valbuild/core";
-import type { PatchJSON } from "@valbuild/core/patch";
+import type { Patch } from "@valbuild/core/patch";
 import { useState, useEffect, useRef, ChangeEvent } from "react";
 import {
   RemirrorJSON as ValidRemirrorJSON,
@@ -28,15 +28,7 @@ import {
 import { createFilename, readImage } from "../utils/readImage";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "./ui/select";
 import { PatchCallback } from "./usePatch";
-import { useValModuleFromPath } from "./ValFullscreen";
 import { useValUIContext } from "./ValUIContext";
 import classNames from "classnames";
 import { File } from "lucide-react";
@@ -51,7 +43,6 @@ export function ValFormField({
   disabled,
   source: source,
   schema: schema,
-  registerPatchCallback,
   onSubmit,
 }: {
   path: SourcePath;
@@ -59,7 +50,6 @@ export function ValFormField({
   source: Json;
   schema: SerializedSchema;
   onSubmit?: OnSubmit;
-  registerPatchCallback?: (callback: PatchCallback) => void;
 }) {
   if (
     (typeof source === "string" || source === null) &&
@@ -71,7 +61,6 @@ export function ValFormField({
         defaultValue={source}
         disabled={disabled}
         schema={schema}
-        registerPatchCallback={registerPatchCallback}
         onSubmit={onSubmit}
       />
     );
@@ -84,7 +73,6 @@ export function ValFormField({
       <NumberField
         defaultValue={source}
         disabled={disabled}
-        registerPatchCallback={registerPatchCallback}
         onSubmit={onSubmit}
       />
     );
@@ -99,9 +87,8 @@ export function ValFormField({
       <KeyOfField
         defaultValue={source}
         disabled={disabled}
-        registerPatchCallback={registerPatchCallback}
         onSubmit={onSubmit}
-        selector={schema.selector}
+        selector={schema.path}
       />
     );
   }
@@ -113,7 +100,6 @@ export function ValFormField({
       <NumberField
         defaultValue={source}
         disabled={disabled}
-        registerPatchCallback={registerPatchCallback}
         onSubmit={onSubmit}
       />
     );
@@ -128,9 +114,8 @@ export function ValFormField({
       <KeyOfField
         defaultValue={source}
         disabled={disabled}
-        registerPatchCallback={registerPatchCallback}
         onSubmit={onSubmit}
-        selector={schema.selector}
+        selector={schema.path}
       />
     );
   }
@@ -153,7 +138,6 @@ export function ValFormField({
     return (
       <ImageField
         path={path}
-        registerPatchCallback={registerPatchCallback}
         onSubmit={onSubmit}
         defaultValue={source as ImageSource}
       />
@@ -167,7 +151,6 @@ export function ValFormField({
     return (
       <FileField
         path={path}
-        registerPatchCallback={registerPatchCallback}
         onSubmit={onSubmit}
         defaultValue={source as ImageSource}
       />
@@ -183,11 +166,11 @@ export function ValFormField({
 }
 
 export function createFilePatch(
-  path: string,
+  path: string[],
   data: string | null,
   filename: string | null,
   metadata: FileMetadata | ImageMetadata | undefined
-): PatchJSON {
+): Patch {
   const newFilePath = createFilename(data, filename, metadata);
   if (!newFilePath || !metadata) {
     return [];
@@ -212,10 +195,10 @@ export function createFilePatch(
 }
 
 export function createFileMetadataPatch(
-  path: string,
+  path: string[],
   metadata: ImageMetadata | FileMetadata
-): PatchJSON {
-  const metadataPath = path + "/metadata";
+): Patch {
+  const metadataPath = path.concat("metadata");
   return [
     {
       value: metadata,
@@ -264,11 +247,9 @@ function FileField({
   path,
   defaultValue,
   onSubmit,
-  registerPatchCallback,
 }: {
   path: string;
   onSubmit?: OnSubmit;
-  registerPatchCallback?: (callback: PatchCallback) => void;
   defaultValue?: ImageSource;
 }) {
   const [data, setData] = useState<{ filename?: string; src: string } | null>(
@@ -295,19 +276,6 @@ function FileField({
     //   setData({ ...data, filename });
     // }
   }, [defaultValue]);
-
-  useEffect(() => {
-    if (registerPatchCallback) {
-      registerPatchCallback(async (path) => {
-        return createFilePatch(
-          path,
-          data?.src ?? null,
-          data?.filename ?? null,
-          metadata
-        );
-      });
-    }
-  }, [data, defaultValue]);
 
   return (
     <FieldContainer>
@@ -406,11 +374,9 @@ function ImageField({
   path,
   defaultValue,
   onSubmit,
-  registerPatchCallback,
 }: {
   path: string;
   onSubmit?: OnSubmit;
-  registerPatchCallback?: (callback: PatchCallback) => void;
   defaultValue?: ImageSource;
 }) {
   const [data, setData] = useState<{ filename?: string; src: string } | null>(
@@ -426,21 +392,11 @@ function ImageField({
   }>();
   const [url, setUrl] = useState<string>();
   useEffect(() => {
-    setUrl(defaultValue && Internal.convertFileSource(defaultValue).url);
+    setUrl(
+      defaultValue &&
+        "/api/val/files/public" + Internal.convertFileSource(defaultValue).url
+    );
   }, [defaultValue]);
-
-  useEffect(() => {
-    if (registerPatchCallback) {
-      registerPatchCallback(async (path) => {
-        return createFilePatch(
-          path,
-          data?.src ?? null,
-          data?.filename ?? null,
-          metadata
-        );
-      });
-    }
-  }, [data, defaultValue]);
 
   // TODO: this smells bad:
   useEffect(() => {
@@ -576,8 +532,9 @@ function ImageField({
                 )
               ).finally(() => {
                 setLoading(false);
-                setData(null);
-                setMetadata(undefined);
+                // TODO: set url with the new metadata
+                // setData(null);
+                // setMetadata(undefined);
               });
             } else if (metadata) {
               setLoading(true);
@@ -585,8 +542,8 @@ function ImageField({
                 Promise.resolve(createFileMetadataPatch(path, metadata))
               ).finally(() => {
                 setLoading(false);
-                setData(null);
-                setMetadata(undefined);
+                // setData(null);
+                // setMetadata(undefined);
               });
             }
           }}
@@ -596,7 +553,7 @@ function ImageField({
   );
 }
 
-function createRichTextPatch(path: string, content?: ValidRemirrorJSON) {
+function createRichTextPatch(path: string[], content?: ValidRemirrorJSON) {
   const { templateStrings, exprs, files } = content
     ? remirrorToRichTextSource(content)
     : ({
@@ -689,113 +646,101 @@ function RichTextField({
 }
 
 function KeyOfField({
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   disabled,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   defaultValue,
-  registerPatchCallback,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onSubmit,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   selector,
 }: {
-  registerPatchCallback?: (callback: PatchCallback) => void;
   onSubmit?: OnSubmit;
   disabled: boolean;
   defaultValue?: string | number | null;
   selector: SourcePath;
 }) {
-  const valModule = useValModuleFromPath(selector);
-  const getValuesFromModule = (module: typeof valModule) => {
-    if (Array.isArray(module.moduleSource)) {
-      return {
-        type: "number",
-        values: Object.keys(module.moduleSource).map((key) => parseInt(key)),
-      };
-    }
-    return {
-      type: "string",
-      values: Object.keys(module.moduleSource ?? ["ERROR fetching source"]),
-    };
-  };
-  const typeAndValues = getValuesFromModule(valModule);
-  const [value, setValue] = useState(defaultValue || typeAndValues.values[0]);
-  const [loading, setLoading] = useState(false);
-  useEffect(() => {
-    setLoading(disabled);
-  }, [disabled]);
+  return <div>TODO</div>;
+  // const valModule = useValModuleFromPath(selector);
+  // const getValuesFromModule = (module: typeof valModule) => {
+  //   if (Array.isArray(module.moduleSource)) {
+  //     return {
+  //       type: "number",
+  //       values: Object.keys(module.moduleSource).map((key) => parseInt(key)),
+  //     };
+  //   }
+  //   return {
+  //     type: "string",
+  //     values: Object.keys(module.moduleSource ?? ["ERROR fetching source"]),
+  //   };
+  // };
+  // const typeAndValues = getValuesFromModule(valModule);
+  // const [value, setValue] = useState(defaultValue || typeAndValues.values[0]);
+  // const [loading, setLoading] = useState(false);
+  // useEffect(() => {
+  //   setLoading(disabled);
+  // }, [disabled]);
 
-  const parse = (value: string) => {
-    if (typeAndValues.type === "number") {
-      if (value === "") {
-        throw new Error("Value cannot be empty");
-      }
-      if (Number.isNaN(Number(value))) {
-        throw new Error("Value was not a number: " + JSON.stringify(value));
-      }
-      return Number(value);
-    }
-    return value;
-  };
+  // const parse = (value: string) => {
+  //   if (typeAndValues.type === "number") {
+  //     if (value === "") {
+  //       throw new Error("Value cannot be empty");
+  //     }
+  //     if (Number.isNaN(Number(value))) {
+  //       throw new Error("Value was not a number: " + JSON.stringify(value));
+  //     }
+  //     return Number(value);
+  //   }
+  //   return value;
+  // };
 
-  useEffect(() => {
-    if (registerPatchCallback) {
-      registerPatchCallback(async (path) => {
-        return [
-          {
-            op: "replace",
-            path,
-            value: value,
-          },
-        ];
-      });
-    }
-  }, [value]);
-
-  return (
-    <FieldContainer>
-      <Select
-        defaultValue={value.toString()}
-        disabled={loading}
-        onValueChange={(value) => {
-          setValue(parse(value));
-        }}
-      >
-        <SelectTrigger>
-          <SelectValue placeholder="Select a value" />
-        </SelectTrigger>
-        <SelectContent>
-          {typeAndValues.values.map((value) => (
-            <SelectItem key={value} value={value.toString()}>
-              {value.toString()}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      {onSubmit && (
-        <SubmitButton
-          loading={loading}
-          enabled={defaultValue !== value}
-          onClick={() => {
-            setLoading(true);
-            onSubmit(async (path) => [
-              {
-                op: "replace",
-                path,
-                value: value,
-              },
-            ]).finally(() => {
-              setLoading(false);
-            });
-          }}
-        />
-      )}
-    </FieldContainer>
-  );
+  // return (
+  //   <FieldContainer>
+  //     <Select
+  //       defaultValue={value.toString()}
+  //       disabled={loading}
+  //       onValueChange={(value) => {
+  //         setValue(parse(value));
+  //       }}
+  //     >
+  //       <SelectTrigger>
+  //         <SelectValue placeholder="Select a value" />
+  //       </SelectTrigger>
+  //       <SelectContent>
+  //         {typeAndValues.values.map((value) => (
+  //           <SelectItem key={value} value={value.toString()}>
+  //             {value.toString()}
+  //           </SelectItem>
+  //         ))}
+  //       </SelectContent>
+  //     </Select>
+  //     {onSubmit && (
+  //       <SubmitButton
+  //         loading={loading}
+  //         enabled={defaultValue !== value}
+  //         onClick={() => {
+  //           setLoading(true);
+  //           onSubmit(async (path) => [
+  //             {
+  //               op: "replace",
+  //               path,
+  //               value: value,
+  //             },
+  //           ]).finally(() => {
+  //             setLoading(false);
+  //           });
+  //         }}
+  //       />
+  //     )}
+  //   </FieldContainer>
+  // );
 }
+
 function NumberField({
   disabled,
   defaultValue,
-  registerPatchCallback,
   onSubmit,
 }: {
-  registerPatchCallback?: (callback: PatchCallback) => void;
   onSubmit?: OnSubmit;
   disabled: boolean;
   defaultValue?: number | null;
@@ -805,23 +750,7 @@ function NumberField({
   useEffect(() => {
     setLoading(disabled);
   }, [disabled]);
-
-  // ref is used to get the value of the textarea without closing over the value field
-  // to avoid registering a new callback every time the value changes
   const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (registerPatchCallback) {
-      registerPatchCallback(async (path) => {
-        return [
-          {
-            op: "replace",
-            path,
-            value: Number(ref.current?.value) || 0,
-          },
-        ];
-      });
-    }
-  }, []);
 
   return (
     <FieldContainer>
@@ -859,10 +788,8 @@ function StringField({
   defaultValue,
   path,
   schema,
-  registerPatchCallback,
   onSubmit,
 }: {
-  registerPatchCallback?: (callback: PatchCallback) => void;
   onSubmit?: OnSubmit;
   path: SourcePath;
   schema: SerializedStringSchema;
@@ -874,23 +801,8 @@ function StringField({
   useEffect(() => {
     setLoading(disabled);
   }, [disabled]);
-
-  // ref is used to get the value of the textarea without closing over the value field
-  // to avoid registering a new callback every time the value changes
   const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (registerPatchCallback) {
-      registerPatchCallback(async (path) => {
-        return [
-          {
-            op: "replace",
-            path,
-            value: ref.current?.value || "",
-          },
-        ];
-      });
-    }
-  }, []);
+
   const actualSchema = new StringSchema(
     schema.options
       ? {
@@ -918,7 +830,7 @@ function StringField({
         <SubmitButton
           validationErrors={validationErrors && validationErrors[path]}
           loading={loading}
-          enabled={defaultValue !== value && !validationErrors}
+          enabled={defaultValue !== value}
           onClick={() => {
             setLoading(true);
             onSubmit(async (path) => [
@@ -976,7 +888,12 @@ export function SubmitButton({
   const isProxy = session.status === "success" && session.data.mode === "proxy";
   return (
     <div className="sticky bottom-0 m-4 mt-2 ml-0">
-      <div className="flex justify-start w-full gap-2 text-sm">
+      <div className="grid justify-start gap-2 text">
+        {validationErrors ? (
+          <InlineValidationErrors errors={validationErrors || []} />
+        ) : (
+          <span></span>
+        )}
         <Button disabled={loading || !enabled} onClick={onClick}>
           {loading
             ? isProxy
@@ -986,11 +903,6 @@ export function SubmitButton({
             ? "Stage"
             : "Save"}
         </Button>{" "}
-        {validationErrors ? (
-          <InlineValidationErrors errors={validationErrors || []} />
-        ) : (
-          <span></span>
-        )}
       </div>
     </div>
   );

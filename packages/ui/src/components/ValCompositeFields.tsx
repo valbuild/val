@@ -19,6 +19,7 @@ import {
   RichText,
   RichTextNode,
   ModulePath,
+  ImageSource,
 } from "@valbuild/core";
 import { parseRichTextSource } from "@valbuild/shared/internal";
 import classNames from "classnames";
@@ -42,7 +43,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Switch } from "./ui/switch";
-import { JSONValue, PatchJSON } from "@valbuild/core/patch";
+import { JSONValue, Patch } from "@valbuild/core/patch";
 import {
   Dialog,
   DialogClose,
@@ -54,6 +55,7 @@ import {
 } from "./ui/dialog";
 import { Plus, RotateCw, Trash } from "lucide-react";
 import { Button } from "./ui/button";
+import { array } from "@valbuild/core/fp";
 
 export function AnyVal({
   path,
@@ -100,14 +102,27 @@ export function AnyVal({
       return <div>ERROR: expected object, but found {typeof source}</div>;
     }
     return (
-      <ValObject
-        source={source}
-        path={path}
-        schema={schema}
-        initOnSubmit={initOnSubmit}
-        setSelectedPath={setSelectedPath}
-        top={top}
-      />
+      <div>
+        {field ? (
+          <div className="text-left">{field}</div>
+        ) : (
+          <div
+            className="truncate max-w-[300px] text-left"
+            title={path}
+            dir="rtl"
+          >
+            <Path>{path}</Path>
+          </div>
+        )}
+        <ValObject
+          source={source}
+          path={path}
+          schema={schema}
+          initOnSubmit={initOnSubmit}
+          setSelectedPath={setSelectedPath}
+          top={top}
+        />
+      </div>
     );
   } else if (schema.type === "array") {
     if (typeof source !== "object" || !isJsonArray(source)) {
@@ -168,7 +183,11 @@ export function AnyVal({
       </div>
     );
   } else if (schema?.type === "union") {
-    if (schema.key && typeof source === "object" && !isJsonArray(source)) {
+    if (
+      typeof schema.key === "string" &&
+      typeof source === "object" &&
+      !isJsonArray(source)
+    ) {
       return (
         <ValTaggedUnion
           field={field}
@@ -468,31 +487,24 @@ function ValList({
   setSelectedPath: (path: SourcePath | ModuleId) => void;
 }): React.ReactElement {
   const onSubmit = initOnSubmit(path);
-  const [count, setCount] = useState<number>();
-  const loading = count !== source.length;
   const [, modulePath] = Internal.splitModuleIdAndModulePath(path);
-  useEffect(() => {
-    setCount(source.length);
-  }, [schema, source]);
 
   return (
     <FieldContainer key={path} className="flex flex-col gap-4 p-2 pb-8">
       <button
-        disabled={loading}
         onClick={() => {
-          setCount(source.length + 1);
           onSubmit(async () => {
-            const patch: PatchJSON = [];
+            const patch: Patch = [];
             if (source === null) {
               patch.push({
                 op: "replace",
-                path: Internal.createPatchJSONPath(modulePath),
+                path: Internal.createPatchPath(modulePath),
                 value: [],
               });
             }
             patch.push({
               op: "add",
-              path: Internal.createPatchJSONPath(
+              path: Internal.createPatchPath(
                 createValPathOfItem(modulePath, source.length)
               ),
               value: emptyOf(schema.item) as JSONValue,
@@ -501,7 +513,7 @@ function ValList({
           });
         }}
       >
-        {loading ? <RotateCw className="animate-spin" /> : <Plus />}
+        <Plus />
       </button>
       {source.map((item, index) => {
         const subPath = createValPathOfItem(path, index);
@@ -513,16 +525,21 @@ function ValList({
             key={subPath}
             path={subPath}
             source={item}
-            loading={loading}
+            loading={false}
             schema={schema.item}
             onDelete={() => {
-              setCount(source.length - 1);
-              onSubmit(async (path) => [
-                {
-                  op: "remove",
-                  path,
-                },
-              ]);
+              onSubmit(async (path) => {
+                if (path.length > 0) {
+                  return [
+                    {
+                      op: "remove",
+                      path: path as array.NonEmptyArray<string>,
+                    },
+                  ];
+                }
+                console.error("Cannot delete a root element");
+                return [];
+              });
             }}
             setSelectedPath={setSelectedPath}
           />
@@ -871,10 +888,10 @@ function ValOptional({
                           return [
                             {
                               op: "replace",
-                              path: Internal.createPatchJSONPath(modulePath),
+                              path: Internal.createPatchPath(modulePath),
                               value: null,
                             },
-                          ] as PatchJSON;
+                          ] as Patch;
                         })
                           .catch((err) => {
                             console.error(err);
@@ -915,7 +932,7 @@ function ValOptional({
             const [, subModulePath] =
               Internal.splitModuleIdAndModulePath(subPath);
             const patch = await callback(
-              Internal.createPatchJSONPath(subModulePath)
+              Internal.createPatchPath(subModulePath)
             );
             onSubmit(async () => {
               if (source === null) {
@@ -923,10 +940,10 @@ function ValOptional({
                   [
                     {
                       op: "replace",
-                      path: Internal.createPatchJSONPath(modulePath),
+                      path: Internal.createPatchPath(modulePath),
                       value: emptyOf(schema),
                     },
-                  ] as PatchJSON
+                  ] as Patch
                 ).concat(patch);
               }
               return patch;
@@ -947,6 +964,8 @@ function emptyOf(schema: SerializedSchema): Json {
     return [];
   } else if (schema.type === "record") {
     return {};
+  } else if (schema.opt) {
+    return null;
   } else if (schema.type === "richtext") {
     return {
       [VAL_EXTENSION]: "richtext",
@@ -954,21 +973,42 @@ function emptyOf(schema: SerializedSchema): Json {
       exprs: [],
     } satisfies RichTextSource<AnyRichTextOptions>;
   } else if (schema.type === "string") {
-    return null;
+    return "";
   } else if (schema.type === "boolean") {
-    return null;
+    return false;
   } else if (schema.type === "number") {
-    return null;
+    return 0;
   } else if (schema.type === "keyOf") {
-    return null;
+    if (schema.values === "number") {
+      return 0; // TODO: figure out this: user code might very well fail in this case
+    } else if (schema.values === "string") {
+      return ""; // TODO: figure out this: user code might very well fail in this case
+    } else {
+      return schema.values[0];
+    }
   } else if (schema.type === "file") {
-    return null;
+    return {
+      _ref: "/public/",
+      _type: "file",
+      metadata: {
+        sha256: "",
+      },
+    } satisfies FileSource;
   } else if (schema.type === "image") {
-    return null;
+    return {
+      _ref: "/public/",
+      _type: "file",
+      metadata: {
+        height: 0,
+        width: 0,
+        mimeType: "application/octet-stream",
+        sha256: "",
+      },
+    } satisfies ImageSource;
   } else if (schema.type === "literal") {
-    return null;
+    return schema.value;
   } else if (schema.type === "union") {
-    return null;
+    return emptyOf(schema.items[0]);
   }
   const _exhaustiveCheck: never = schema;
   throw Error("Unexpected schema type: " + JSON.stringify(_exhaustiveCheck));

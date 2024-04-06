@@ -1,24 +1,30 @@
-import { SourcePath, Internal, ModuleId, ValApi } from "@valbuild/core";
+import {
+  SourcePath,
+  Internal,
+  ModuleId,
+  ValApi,
+  PatchId,
+} from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
-import { PatchJSON } from "@valbuild/core/patch";
+import { Patch } from "@valbuild/core/patch";
 import { useCallback, useEffect, useState } from "react";
-import { ValSession, IValStore } from "@valbuild/shared/internal";
+import { ValSession, ValStore } from "@valbuild/shared/internal";
 import { type Remote } from "../utils/Remote";
 
-export type PatchCallback = (modulePath: string) => Promise<PatchJSON>;
+export type PatchCallback = (patchPath: string[]) => Promise<Patch>;
 
 export type InitPatchCallback = (
   paths: SourcePath[]
 ) => (callback: PatchCallback) => void;
 
 export type PatchCallbackState = {
-  [path: SourcePath]: () => Promise<PatchJSON>;
+  [path: SourcePath]: () => Promise<Patch>;
 };
 
 export function usePatchSubmit(
   paths: SourcePath[],
   api: ValApi,
-  valStore: IValStore,
+  valStore: ValStore,
   onSubmit: (refreshRequired: boolean) => void,
   session: Remote<ValSession>
 ) {
@@ -33,7 +39,7 @@ export function usePatchSubmit(
       return (callback: PatchCallback) => {
         setState((prev) => {
           const nextState = paths.reduce((acc, path) => {
-            const patchPath = Internal.createPatchJSONPath(
+            const patchPath = Internal.createPatchPath(
               Internal.splitModuleIdAndModulePath(path as SourcePath)[1]
             );
             return {
@@ -70,7 +76,7 @@ export function usePatchSubmit(
   const onSubmitPatch = useCallback(async () => {
     setError(null);
     setProgress("create_patch");
-    const patches: Record<ModuleId, PatchJSON> = {};
+    const patches: Record<ModuleId, Patch> = {};
 
     for (const path in state) {
       const [moduleId] = Internal.splitModuleIdAndModulePath(
@@ -130,14 +136,14 @@ async function maybeStartViewTransition(f: () => Promise<void>) {
 }
 
 export function usePatches(session: Remote<ValSession>, api: ValApi) {
-  const [patches, setPatches] = useState<Record<ModuleId, string[]>>({});
+  const [patches, setPatches] = useState<Record<ModuleId, PatchId[]>>({});
   const [patchResetId, setPatchResetId] = useState(0);
 
   useEffect(() => {
-    if (session.status === "success" && session.data.mode === "proxy") {
+    if (session.status === "success") {
       api.getPatches({}).then((patchRes) => {
         if (result.isOk(patchRes)) {
-          const patchesByModuleId: Record<ModuleId, string[]> = {};
+          const patchesByModuleId: Record<ModuleId, PatchId[]> = {};
           for (const moduleId in patchRes.value) {
             patchesByModuleId[moduleId as ModuleId] = patchRes.value[
               moduleId as ModuleId
