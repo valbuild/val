@@ -55,15 +55,6 @@ export const ValNextProvider = (props: {
   return (
     <ValContext.Provider value={{ valEvents }}>
       {props.children}
-      {IS_DEV && (
-        <Script type="module">{`import RefreshRuntime from "${route}/static/@react-refresh"
-if (RefreshRuntime.injectIntoGlobalHook) {
-  RefreshRuntime.injectIntoGlobalHook(window)
-  window.$RefreshReg$ = () => {}
-  window.$RefreshSig$ = () => (type) => type
-  window.__vite_plugin_react_preamble_installed__ = true
-}`}</Script>
-      )}
       <Script type="module" src={`${route}/static${VAL_APP_PATH}`} />
       <div id={VAL_OVERLAY_ID}></div>
     </ValContext.Provider>
