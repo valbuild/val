@@ -24,6 +24,6 @@ export default defineConfig({
         }
       },
     },
-    minify: true, // this is only the server so doesn't really matter much
+    minify: false, // do not minify server - it can corrupt the injected code
   },
 });
