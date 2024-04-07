@@ -2,10 +2,10 @@
 import { ValApi } from "@valbuild/core";
 import { ErrorBoundary } from "react-error-boundary";
 import { ValStore } from "@valbuild/shared/internal";
-import { ValOverlay } from "./exports";
 import { ShadowRoot } from "./components/ShadowRoot";
-import { VAL_CSS_PATH } from "./constants";
+import { VAL_CSS_PATH } from "../src/constants";
 import { fallbackRender } from "./fallbackRender";
+import { ValOverlay } from "./components/ValOverlay";
 
 function Overlay() {
   const host = "/api/val";

@@ -2,7 +2,7 @@ import {
   ValServerGenericResult,
   ValUIRequestHandler,
 } from "@valbuild/shared/internal";
-import { getServerMimeType } from "./serverMimeType";
+import { getServerMimeType } from "../spa/serverMimeType";
 import { VAL_APP_PATH, VAL_CSS_PATH } from "./constants";
 
 const files: Record<string, string> = JSON.parse(

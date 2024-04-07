@@ -8,7 +8,7 @@
  */
 
 import { ValUIRequestHandler } from "@valbuild/shared/internal";
-import { getServerMimeType } from "./serverMimeType";
+import { getServerMimeType } from "../spa/serverMimeType";
 import { VAL_APP_PATH } from "./constants";
 
 export function createUIRequestHandler(): ValUIRequestHandler {
@@ -16,7 +16,7 @@ export function createUIRequestHandler(): ValUIRequestHandler {
     const acceptType = getServerMimeType(path);
     let devPath = path;
     if (path === VAL_APP_PATH) {
-      devPath = "/src/main.jsx";
+      devPath = "/spa/main.jsx";
     }
     // TODO: believe we can clean up and remove: api/val/static
     const res = await fetch(`http://localhost:5173/api/val/static${devPath}`, {
