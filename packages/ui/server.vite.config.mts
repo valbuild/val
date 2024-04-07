@@ -8,7 +8,6 @@ export default defineConfig({
     lib: {
       entry: {
         "valbuild-ui-server": "./src/vite-server.ts",
-        "valbuild-ui-main": "./src/main.jsx",
       },
       formats: ["cjs", "es"],
       /**
@@ -25,7 +24,6 @@ export default defineConfig({
         }
       },
     },
-    // Output semi-readable code and let consumers handle minification
-    minify: false,
+    minify: true, // this is only the server so doesn't really matter much
   },
 });

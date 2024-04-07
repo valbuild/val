@@ -11,9 +11,9 @@
     "noEmit": true,
     "target": "ES5",
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
     "skipLibCheck": true,
     "baseUrl": "."
   },
-  "include": ["src/**/*"]
+  "include": ["spa/**/*", "src/**/*"]
 }

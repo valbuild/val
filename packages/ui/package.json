@@ -4,12 +4,12 @@
   "sideEffects": false,
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "vite build && vite --config server.vite.config.ts build && rollup --config rollup.config.js && vite --config fullscreen.vite.config.ts build && node fix-server-hack.js",
+    "build": "vite build && vite --config server.vite.config.mts build && rollup --config rollup.config.js && vite --config spa.vite.config.mts build && node fix-server-hack.js",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "dev": "vite"
   },
-  "dependencies": {
+  "devDependencies": {
     "@hookform/resolvers": "^3.3.2",
     "@radix-ui/react-accordion": "^1.1.2",
     "@radix-ui/react-alert-dialog": "^1.0.5",
@@ -61,9 +61,7 @@
     "rollup-plugin-typescript2": "^0.34.1",
     "tailwind-merge": "^2.0.0",
     "tailwindcss-animate": "^1.0.7",
-    "zod": "^3.22.4"
-  },
-  "devDependencies": {
+    "zod": "^3.22.4",
     "@rollup/plugin-babel": "^6.0.4",
     "@rollup/plugin-commonjs": "^25.0.7",
     "@rollup/plugin-node-resolve": "^15.2.3",
@@ -109,7 +107,7 @@
   },
   "preconstruct": {
     "entrypoints": [
-      "./index.tsx",
+      "./index.ts",
       "./server.ts"
     ],
     "exports": true

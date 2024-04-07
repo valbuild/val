@@ -148,7 +148,7 @@ const ShadowRoot = ({
   }, []);
 
   return (
-    <div ref={node} style={style} id="val-ui">
+    <div ref={node} style={style} id="val-shadow-root">
       {root && <ShadowContent root={root}>{children}</ShadowContent>}
     </div>
   );
