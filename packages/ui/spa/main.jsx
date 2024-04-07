@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import Overlay from "./Overlay";
-import { VAL_APP_ID, VAL_OVERLAY_ID } from "./constants";
+import { VAL_APP_ID, VAL_OVERLAY_ID } from "../src/constants";
 
 const valAppElem = document.getElementById(VAL_APP_ID);
 const valOverlayElem = document.getElementById(VAL_OVERLAY_ID);

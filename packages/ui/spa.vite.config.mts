@@ -5,5 +5,6 @@ export default defineConfig({
   base: "/api/val/static", // TODO: needs to be configurable
   build: {
     outDir: "./server/.tmp",
+    minify: true,
   },
 });

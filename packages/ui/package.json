@@ -4,7 +4,7 @@
   "sideEffects": false,
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "vite build && vite --config server.vite.config.ts build && rollup --config rollup.config.js && vite --config fullscreen.vite.config.ts build && node fix-server-hack.js",
+    "build": "vite build && vite --config server.vite.config.mts build && rollup --config rollup.config.js && vite --config spa.vite.config.mts build && node fix-server-hack.js",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "dev": "vite"
@@ -107,7 +107,7 @@
   },
   "preconstruct": {
     "entrypoints": [
-      "./index.tsx",
+      "./index.ts",
       "./server.ts"
     ],
     "exports": true
