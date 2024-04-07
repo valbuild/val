@@ -9,7 +9,7 @@ const { default: dts } = require("rollup-plugin-dts");
  */
 const config = [
   {
-    input: "./src/vite-index.tsx",
+    input: "./src/vite-index.ts",
     output: [{ file: "dist/valbuild-ui.cjs.d.ts", format: "es" }],
     plugins: [dts()],
   },

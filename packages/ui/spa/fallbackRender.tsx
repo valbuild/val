@@ -1,8 +1,3 @@
-"use client";
-import { ValApi } from "@valbuild/core";
-import { ValFullscreen } from "./components/ValFullscreen";
-import { ErrorBoundary } from "react-error-boundary";
-
 import {
   Accordion,
   AccordionItem,
@@ -11,11 +6,9 @@ import {
 } from "./components/ui/accordion";
 import Logo from "./assets/icons/Logo";
 import { X } from "lucide-react";
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
-import { ValStore } from "@valbuild/shared/internal";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function fallbackRender({ error, resetErrorBoundary }: any) {
+export function fallbackRender({ error, resetErrorBoundary }: any) {
   console.error(error);
   return (
     <div className="absolute top-0 left-0 flex items-center justify-center w-screen h-screen bg-card-foreground">
@@ -51,26 +44,3 @@ function fallbackRender({ error, resetErrorBoundary }: any) {
     </div>
   );
 }
-
-function App() {
-  const api = new ValApi("/api/val");
-  const router = createBrowserRouter(
-    [
-      {
-        path: "/*",
-        element: (
-          <ErrorBoundary fallbackRender={fallbackRender}>
-            <ValFullscreen api={api} store={new ValStore(api)} />
-          </ErrorBoundary>
-        ),
-      },
-    ],
-    {
-      basename: "/val",
-    }
-  );
-
-  return <RouterProvider router={router} />;
-}
-
-export default App;

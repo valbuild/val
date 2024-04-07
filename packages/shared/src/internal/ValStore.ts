@@ -125,7 +125,7 @@ export class ValStore {
     );
     if (result.isOk(patchRes)) {
       this.drafts[moduleId] = patchRes.value;
-
+      this.emitEvent(moduleId, patchRes.value);
       for (const [subscriberId, subscriberModules] of Array.from(
         this.subscribers.entries()
       )) {
@@ -144,6 +144,17 @@ export class ValStore {
     }
   }
 
+  private emitEvent(moduleId: ModuleId, source: Json) {
+    const event = new CustomEvent("val-event", {
+      detail: {
+        type: "module-update",
+        moduleId,
+        source,
+      },
+    });
+    window.dispatchEvent(event);
+  }
+
   async update(moduleIds: ModuleId[]) {
     await Promise.all(moduleIds.map((moduleId) => this.updateTree(moduleId)));
   }
@@ -152,7 +163,7 @@ export class ValStore {
     return this.updateTree();
   }
 
-  async updateTree(treePath?: string): Promise<
+  private async updateTree(treePath?: string): Promise<
     result.Result<
       ModuleId[],
       {
@@ -181,9 +192,11 @@ export class ValStore {
         moduleIds.push(moduleId);
         const source = data.value.modules[moduleId].source;
         if (typeof source !== "undefined") {
+          this.emitEvent(moduleId, source);
           const updatedSubscriberId = subscriberIds.find(
             (subscriberId) => subscriberId.includes(moduleId) // NOTE: dependent on
           );
+
           if (updatedSubscriberId) {
             updatedSubscriberIds.set(
               updatedSubscriberId,
