@@ -1,6 +1,6 @@
 "use client";
 import { ModuleId, ValConfig } from "@valbuild/core";
-import { IS_DEV, VAL_APP_PATH, VAL_OVERLAY_ID } from "@valbuild/ui";
+import { VAL_APP_PATH, VAL_OVERLAY_ID } from "@valbuild/ui";
 import { usePathname, useRouter } from "next/navigation";
 import Script from "next/script";
 import React, { useEffect, useMemo, useTransition } from "react";
