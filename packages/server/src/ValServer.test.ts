@@ -283,7 +283,11 @@ class TestValServer extends ValServer {
   /* Not (currently) needed to test server */
 
   protected execCommit(): Promise<
-    Record<ModuleId, { patches: { applied: PatchId[] } }>
+    | {
+        status: 200;
+        modules: Record<ModuleId, { patches: { applied: PatchId[] } }>;
+      }
+    | ValServerError
   > {
     throw new Error("Method not implemented.");
   }

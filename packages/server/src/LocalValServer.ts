@@ -28,9 +28,9 @@ import {
   bufferToReadableStream,
   getMimeTypeFromBase64,
   guessMimeTypeFromPath,
+  isCachedPatchFileOp,
 } from "./ValServer";
 import { SerializedModuleContent } from "./SerializedModuleContent";
-import { Operation } from "@valbuild/core/patch";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -422,9 +422,20 @@ export class LocalValServer extends ValServer {
     return this.options.service.get(moduleId);
   }
 
-  protected async execCommit(
-    patches: [PatchId, ModuleId, Patch][]
-  ): Promise<Record<ModuleId, { patches: { applied: PatchId[] } }>> {
+  protected async execCommit(patches: [PatchId, ModuleId, Patch][]): Promise<
+    | {
+        status: 200;
+        json: Record<
+          ModuleId,
+          {
+            patches: {
+              applied: PatchId[];
+            };
+          }
+        >;
+      }
+    | ValServerError
+  > {
     for (const [patchId, moduleId, patch] of patches) {
       // TODO: patch the entire module content directly by using a { path: "", op: "replace", value: patchedData }?
       // Reason: that would be more atomic? Not doing it now, because there are currently already too many moving pieces.
@@ -433,7 +444,7 @@ export class LocalValServer extends ValServer {
       this.host.rmFile(this.getPatchFilePath(patchId));
       await this.options.service.patch(moduleId, patch);
     }
-    return this.getPatchedModules(patches);
+    return { status: 200, json: await this.getPatchedModules(patches) };
   }
 
   /* Bad requests on Local Server: */
@@ -463,22 +474,3 @@ type PatchFileMetadata = {
   patchId: PatchId;
   createdAt: string;
 };
-
-function isCachedPatchFileOp(op: Operation): op is {
-  op: "file";
-  path: string[];
-  filePath: string;
-  value: {
-    sha256: string;
-  };
-} {
-  return !!(
-    op.op === "file" &&
-    typeof op.filePath === "string" &&
-    op.value &&
-    typeof op.value === "object" &&
-    !Array.isArray(op.value) &&
-    "sha256" in op.value &&
-    typeof op.value.sha256 === "string"
-  );
-}

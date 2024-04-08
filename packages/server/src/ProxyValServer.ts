@@ -6,6 +6,7 @@ import {
   ValServerCallbacks,
   bufferToReadableStream,
   guessMimeTypeFromPath,
+  isCachedPatchFileOp,
 } from "./ValServer";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -26,6 +27,7 @@ import {
   ApiDeletePatchResponse,
   PatchId,
   ModuleId,
+  Internal,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { RemoteFS } from "./RemoteFS";
@@ -82,7 +84,20 @@ export class ProxyValServer extends ValServer {
   protected execCommit(
     patches: [PatchId, ModuleId, Patch][],
     cookies: ValCookies<VAL_SESSION_COOKIE>
-  ): Promise<Record<ModuleId, { patches: { applied: PatchId[] } }>> {
+  ): Promise<
+    | {
+        status: 200;
+        json: Record<
+          ModuleId,
+          {
+            patches: {
+              applied: PatchId[];
+            };
+          }
+        >;
+      }
+    | ValServerError
+  > {
     return withAuth(
       this.options.valSecret,
       cookies,
@@ -99,7 +114,11 @@ export class ProxyValServer extends ValServer {
           };
         }
 
-        const params = `commit=${encodeURIComponent(commit)}`;
+        const params = `commit=${encodeURIComponent(
+          commit
+        )}&root=${encodeURIComponent(
+          this.apiOptions.root || "/"
+        )}&cwd=${encodeURIComponent(this.cwd)}`;
         const url = new URL(
           `/v1/commit/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
           this.options.valContentUrl
@@ -119,15 +138,35 @@ export class ProxyValServer extends ValServer {
           this.apiOptions,
           remoteFS
         );
-        for (const [, moduleId, patch] of patches) {
-          await service.patch(moduleId, patch);
+        // TODO: optimize patches, e.g. only take the last replace for a given thing, etc...
+        const patchIds: PatchId[] = [];
+        const binaryFileUpdates: Record<string, { sha256: string }> = {};
+        for (const [patchId, moduleId, patch] of patches) {
+          const patchableOps: Patch = [];
+          for (const op of patch) {
+            if (isCachedPatchFileOp(op)) {
+              binaryFileUpdates[op.filePath] = op.value;
+            } else {
+              if (Internal.isFileOp(op)) {
+                throw new Error(
+                  `Val: Unexpected file operation (file: ${op.filePath}). This is likely a Val bug.`
+                );
+              }
+              patchableOps.push(op);
+            }
+          }
+          await service.patch(moduleId, patchableOps);
+          patchIds.push(patchId);
         }
-        const fileOps = await remoteFS.getPendingOperations();
+        const sourceFileUpdates = await remoteFS.getPendingOperations();
         const fetchRes = await fetch(url, {
           method: "POST",
           headers: getAuthHeaders(token, "application/json"),
           body: JSON.stringify({
-            fileOps,
+            sourceFileUpdates: sourceFileUpdates.modified,
+            binaryFileUpdates,
+            deletedFiles: sourceFileUpdates.deleted,
+            patchIds,
           }),
         });
 
@@ -137,17 +176,7 @@ export class ProxyValServer extends ValServer {
             json: await fetchRes.json(),
           };
         } else {
-          console.error(
-            "Failed to get patches",
-            fetchRes.status,
-            await fetchRes.text()
-          );
-          return {
-            status: fetchRes.status as ValServerErrorStatus,
-            json: {
-              message: "Failed to get patches",
-            },
-          };
+          return createJsonError(fetchRes);
         }
       }
     );
@@ -180,33 +209,48 @@ export class ProxyValServer extends ValServer {
       });
       if (fetchRes.status === 200) {
         const json = await fetchRes.json();
-        remoteFS.initializeWith(json);
+
+        let error:
+          | false
+          | {
+              details: string;
+            } = false;
+        if (typeof json !== "object") {
+          error = {
+            details: "Invalid response: not an object",
+          };
+        }
+        if (typeof json.git !== "object") {
+          error = {
+            details: "Invalid response: missing git",
+          };
+        }
+        if (typeof json.git.commit !== "string") {
+          error = {
+            details: "Invalid response: missing git.commit",
+          };
+        }
+        if (typeof json.directories !== "object" || json.directories === null) {
+          error = {
+            details: "Invalid response: missing directories",
+          };
+        }
+        if (error) {
+          return {
+            status: 500,
+            json: {
+              message: "Failed to fetch remote files",
+              ...error,
+            },
+          };
+        }
+
+        remoteFS.initializeWith(json.directories);
         return {
           status: 200,
         };
       } else {
-        try {
-          if (
-            fetchRes.headers.get("Content-Type")?.includes("application/json")
-          ) {
-            const json = await fetchRes.json();
-            return {
-              status: fetchRes.status as 400 | 401 | 403 | 404 | 500 | 501,
-              json: {
-                message: "Failed to fetch remote files",
-                details: json,
-              },
-            };
-          }
-        } catch (err) {
-          console.error(err);
-        }
-        return {
-          status: fetchRes.status as 400 | 401 | 403 | 404 | 500 | 501,
-          json: {
-            message: "Unknown failure while fetching remote files",
-          },
-        };
+        return createJsonError(fetchRes);
       }
     } catch (err) {
       return {
@@ -503,17 +547,7 @@ export class ProxyValServer extends ValServer {
             json: await fetchRes.json(),
           };
         } else {
-          console.error(
-            "Failed to delete patches",
-            fetchRes.status,
-            await fetchRes.text()
-          );
-          return {
-            status: fetchRes.status as ValServerErrorStatus,
-            json: {
-              message: "Failed to delete patches",
-            },
-          };
+          return createJsonError(fetchRes);
         }
       }
     );
@@ -561,17 +595,7 @@ export class ProxyValServer extends ValServer {
             json: await fetchRes.json(),
           };
         } else {
-          console.error(
-            "Failed to get patches",
-            fetchRes.status,
-            await fetchRes.text()
-          );
-          return {
-            status: fetchRes.status as ValServerErrorStatus,
-            json: {
-              message: "Failed to get patches",
-            },
-          };
+          return createJsonError(fetchRes);
         }
       }
     );
@@ -627,9 +651,7 @@ export class ProxyValServer extends ValServer {
             json: await fetchRes.json(),
           };
         } else {
-          return {
-            status: fetchRes.status as ValServerErrorStatus,
-          };
+          return createJsonError(fetchRes);
         }
       }
     );
@@ -809,6 +831,26 @@ function getStateFromCookie(stateCookie: string):
       error: "Invalid state cookie: could not parse",
     };
   }
+}
+
+async function createJsonError(fetchRes: Response): Promise<ValServerError> {
+  if (fetchRes.headers.get("Content-Type")?.includes("application/json")) {
+    return {
+      status: fetchRes.status as ValServerErrorStatus,
+      json: await fetchRes.json(),
+    };
+  }
+  console.error(
+    "Unexpected failure (did not get a json) - Val down?",
+    fetchRes.status,
+    await fetchRes.text()
+  );
+  return {
+    status: fetchRes.status as ValServerErrorStatus,
+    json: {
+      message: "Unexpected failure (did not get a json) - Val down?",
+    },
+  };
 }
 
 function createStateCookie(state: StateCookie): string {
