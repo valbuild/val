@@ -124,10 +124,11 @@ export class ProxyValServer extends ValServer {
           this.options.valContentUrl
         );
 
-        // Creates a fresh copy of the fs. We cannot touch the existing fs, since we might still want to do
-        // other operations on it.
+        // Creates a fresh copy of the fs. We cannot touch the existing fs, since there might be parallel operations?
         // We could perhaps free up the other fs while doing this operation, but uncertain if we can actually do that and if that would actually help on memory.
-        // It is a concern we have, since we might be using quite a lot of memory when having the whole FS in memory. In particular because of images / files.
+        // It is a concern we have, since we might be using quite a lot of memory when having the whole FS in memory.
+        // NOTE that base64 values from patches are not part of the patches, nor are they part of the fs so at least we do not have to worry about them.
+        // This NOTE was written after we wrote the comments above. We are a bit uncertain whether memory usage should be a concern at this point.
         const remoteFS = new RemoteFS();
         const initRes = await this.initRemoteFS(commit, remoteFS, token);
         if (initRes.status !== 200) {
@@ -244,7 +245,6 @@ export class ProxyValServer extends ValServer {
             },
           };
         }
-
         remoteFS.initializeWith(json.directories);
         return {
           status: 200,
