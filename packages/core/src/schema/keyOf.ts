@@ -145,7 +145,7 @@ export class KeyOfSchema<
   }
 
   optional(): Schema<KeyOfSelector<Sel> | null> {
-    return new KeyOfSchema(this.schema, undefined, true);
+    return new KeyOfSchema(this.schema, this.sourcePath, true);
   }
 
   serialize(): SerializedSchema {
@@ -157,7 +157,7 @@ export class KeyOfSchema<
     }
     const serializedSchema = this.schema;
     if (!serializedSchema) {
-      throw new Error("Cannot serialize oneOf schema with empty selector.");
+      throw new Error("Cannot serialize keyOf schema with empty selector.");
     }
 
     let values: SerializedKeyOfSchema["values"];
@@ -173,7 +173,7 @@ export class KeyOfSchema<
         break;
       default:
         throw new Error(
-          `Cannot serialize oneOf schema with selector of type '${serializedSchema.type}'. keyOf must be used with a Val Module.`
+          `Cannot serialize keyOf schema with selector of type '${serializedSchema.type}'. keyOf must be used with a Val Module.`
         );
     }
     return {
