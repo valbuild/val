@@ -20,7 +20,12 @@ import {
   ValSession,
 } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
-import { JSONOps, JSONValue, applyPatch } from "@valbuild/core/patch";
+import {
+  JSONOps,
+  JSONValue,
+  Operation,
+  applyPatch,
+} from "@valbuild/core/patch";
 import { Patch } from "./patch/validation";
 import {
   ModuleId,
@@ -704,7 +709,11 @@ export abstract class ValServer implements IValServer {
       }
     >;
     if (commit) {
-      modules = await this.execCommit(patches, cookies);
+      const commitRes = await this.execCommit(patches, cookies);
+      if (commitRes.status !== 200) {
+        return commitRes;
+      }
+      modules = commitRes.json;
     } else {
       modules = await this.getPatchedModules(patches);
     }
@@ -761,14 +770,18 @@ export abstract class ValServer implements IValServer {
     patches: [PatchId, ModuleId, Patch][],
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<
-    Record<
-      ModuleId,
-      {
-        patches: {
-          applied: PatchId[];
-        };
+    | {
+        status: 200;
+        json: Record<
+          ModuleId,
+          {
+            patches: {
+              applied: PatchId[];
+            };
+          }
+        >;
       }
-    >
+    | ValServerError
   >;
   /* Abstract endpoints */
 
@@ -1070,4 +1083,23 @@ export function guessMimeTypeFromPath(filePath: string): string | null {
     return COMMON_MIME_TYPES[fileExt.toLowerCase()] || null;
   }
   return null;
+}
+
+export function isCachedPatchFileOp(op: Operation): op is {
+  op: "file";
+  path: string[];
+  filePath: string;
+  value: {
+    sha256: string;
+  };
+} {
+  return !!(
+    op.op === "file" &&
+    typeof op.filePath === "string" &&
+    op.value &&
+    typeof op.value === "object" &&
+    !Array.isArray(op.value) &&
+    "sha256" in op.value &&
+    typeof op.value.sha256 === "string"
+  );
 }

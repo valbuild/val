@@ -11,7 +11,7 @@ import { result } from "./fp";
 import { Patch } from "./patch";
 import { ModuleId, PatchId } from "./val";
 
-type FetchError = { message: string; statusCode?: number };
+type FetchError = { message: string; details?: unknown; statusCode?: number };
 
 // TODO: move this to internal, only reason this is here is that react, ui and server all depend on it
 export class ValApi {
@@ -193,7 +193,19 @@ export class ValApi {
 function createError<T>(err: unknown): result.Result<T, FetchError> {
   return result.err({
     statusCode: 500,
-    message: err instanceof Error ? err.message : "Unknown error",
+    message:
+      err instanceof Error
+        ? err.message
+        : typeof err === "object" &&
+          err &&
+          "message" in err &&
+          typeof err.message === "string"
+        ? err.message
+        : "Unknown error",
+    details:
+      typeof err === "object" && err && "details" in err
+        ? err.details
+        : undefined,
   });
 }
 

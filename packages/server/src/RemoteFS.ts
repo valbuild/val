@@ -1,7 +1,7 @@
 import minimatch from "minimatch";
 import path from "path";
 import { ValFS } from "./ValFS";
-import * as ts from "typescript";
+import ts from "typescript";
 
 const SEPARATOR = "/";
 
@@ -9,7 +9,7 @@ export class RemoteFS implements ValFS {
   private initialized = false;
   private readonly modifiedFiles: string[];
   private readonly deletedFiles: string[];
-  private data: Directories;
+  public data: Directories;
 
   constructor() {
     this.data = {};
@@ -32,8 +32,9 @@ export class RemoteFS implements ValFS {
     deleted: string[];
   }> {
     const modified: Record<string, string> = {};
-    for (const modifiedFile in this.modifiedFiles) {
-      modified[modifiedFile] = this.data[modifiedFile].utf8Files[modifiedFile];
+    for (const modifiedFile of this.modifiedFiles) {
+      const { directory, filename } = RemoteFS.parsePath(modifiedFile);
+      modified[modifiedFile] = this.data[directory].utf8Files[filename];
     }
 
     return {
@@ -105,7 +106,6 @@ export class RemoteFS implements ValFS {
 
     // if it fails below this should not be added, so maybe a try/catch?
     this.changedDirectories[directory].add(filename);
-
     this.data[directory].utf8Files[filename] = data;
     this.modifiedFiles.push(filePath);
   };

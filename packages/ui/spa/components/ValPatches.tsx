@@ -162,7 +162,13 @@ export function ValPatches({
                     if ("validationErrors" in res.error) {
                       alert("Cannot commit invalid patches");
                     } else {
-                      alert("Could not commit patches: " + res.error.message);
+                      alert(
+                        "Could not commit patches: " +
+                          res.error.message +
+                          (res.error.details
+                            ? ". Details:" + JSON.stringify(res.error.details)
+                            : ".")
+                      );
                     }
                   } else {
                     console.log("Committed patches: ", res.value);
