@@ -1,7 +1,7 @@
 {
   "name": "@valbuild/cli",
   "private": false,
-  "version": "0.60.3",
+  "version": "0.60.4",
   "description": "Val CLI tools",
   "bin": {
     "val": "./bin.js"
@@ -18,8 +18,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@valbuild/server": "~0.60.3",
-    "@valbuild/eslint-plugin": "~0.60.3",
+    "@valbuild/server": "~0.60.4",
+    "@valbuild/eslint-plugin": "~0.60.4",
     "eslint": "^8.31.0",
     "@inquirer/confirm": "^2.0.15",
     "@inquirer/prompts": "^3.0.2",
