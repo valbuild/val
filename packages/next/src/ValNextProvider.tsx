@@ -1,9 +1,10 @@
 "use client";
+
 import { ModuleId, ValConfig } from "@valbuild/core";
 import { VAL_APP_PATH, VAL_OVERLAY_ID } from "@valbuild/ui";
 import { usePathname, useRouter } from "next/navigation";
 import Script from "next/script";
-import React, { useEffect, useMemo, useTransition } from "react";
+import React from "react";
 import { ValContext, ValEvents } from "./ValContext";
 
 export const ValNextProvider = (props: {
@@ -18,11 +19,11 @@ export const ValNextProvider = (props: {
     return props.children;
   }
   const route = "/api/val";
-  const valEvents = useMemo(() => new ValEvents(), []);
-  const [, startTransition] = useTransition();
+  const valEvents = React.useMemo(() => new ValEvents(), []);
+  const [, startTransition] = React.useTransition();
   const router = useRouter();
 
-  useEffect(() => {
+  React.useEffect(() => {
     const valEventListener = (event: Event) => {
       if (event instanceof CustomEvent) {
         if (event.detail.type === "module-update") {
