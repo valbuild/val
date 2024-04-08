@@ -486,16 +486,16 @@ export class ProxyValServer extends ValServer {
       "deletePatches",
       async ({ token }) => {
         const patchIds = query.id || [];
-        const params = `${patchIds
-          .map((id) => `id=${encodeURIComponent(id)}`)
-          .join("&")}`;
         const url = new URL(
-          `/v1/patches/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
+          `/v1/patches/${this.options.valName}/heads/${this.options.git.branch}/~`,
           this.options.valContentUrl
         );
         const fetchRes = await fetch(url, {
-          method: "GET",
+          method: "DELETE",
           headers: getAuthHeaders(token, "application/json"),
+          body: JSON.stringify({
+            patches: patchIds,
+          }),
         });
         if (fetchRes.status === 200) {
           return {
