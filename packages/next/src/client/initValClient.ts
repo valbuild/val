@@ -34,7 +34,7 @@ function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
     return stegaEncode(selector, {
       disabled: !enabled,
       getModule: (moduleId) => {
-        if (moduleMap) {
+        if (moduleMap && enabled) {
           return moduleMap[moduleId as ModuleId];
         }
       },
