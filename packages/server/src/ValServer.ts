@@ -835,6 +835,7 @@ export function bufferToReadableStream(buffer: Buffer) {
     start(controller) {
       const chunkSize = 1024; // Adjust the chunk size as needed
       let offset = 0;
+      let isClosed = false;
 
       function push() {
         const chunk = buffer.subarray(offset, offset + chunkSize);
@@ -843,7 +844,8 @@ export function bufferToReadableStream(buffer: Buffer) {
         if (chunk.length > 0) {
           controller.enqueue(new Uint8Array(chunk));
           setTimeout(push, 0); // Enqueue the next chunk asynchronously
-        } else {
+        } else if (!isClosed) {
+          isClosed = true;
           controller.close();
         }
       }
