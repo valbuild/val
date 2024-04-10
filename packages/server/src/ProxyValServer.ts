@@ -36,6 +36,7 @@ import { SerializedModuleContent } from "./SerializedModuleContent";
 import { Patch } from "./patch/validation";
 import { ValApiOptions } from "./createValApiRouter";
 import path from "path";
+import { getSha256 } from "./extractMetadata";
 
 export type ProxyValServerOptions = {
   apiKey: string;
@@ -687,6 +688,7 @@ export class ProxyValServer extends ValServer {
               headers: {
                 "Content-Type": fetchRes.headers.get("Content-Type") || "",
                 "Content-Length": fetchRes.headers.get("Content-Length") || "0",
+                "Cache-Control": "public, max-age=31536000, immutable",
               },
               body: fetchRes.body,
             };
@@ -718,6 +720,21 @@ export class ProxyValServer extends ValServer {
           }
           const mimeType =
             guessMimeTypeFromPath(filePath) || "application/octet-stream";
+
+          if (query.sha256) {
+            const sha256 = getSha256(mimeType, buffer);
+            if (sha256 === query.sha256) {
+              return {
+                status: 200,
+                headers: {
+                  "Content-Type": mimeType,
+                  "Content-Length": buffer.byteLength.toString(),
+                  "Cache-Control": "public, max-age=31536000, immutable",
+                },
+                body: bufferToReadableStream(buffer),
+              };
+            }
+          }
           return {
             status: 200,
             headers: {

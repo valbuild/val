@@ -23,8 +23,18 @@ const initValNextAppRouter = (
       },
     }),
     (valRes): NextResponse => {
-      const headers =
-        "headers" in valRes ? new Headers(valRes.headers) : new Headers({});
+      let headersInit: HeadersInit | undefined = undefined;
+      const valResHeaders = ("headers" in valRes && valRes.headers) || {};
+      for (const key in valResHeaders) {
+        const value = valResHeaders[key];
+        if (typeof value === "string") {
+          if (!headersInit) {
+            headersInit = {};
+          }
+          headersInit[key] = value;
+        }
+      }
+      const headers = new Headers(headersInit);
       if ("cookies" in valRes && valRes.cookies) {
         headers.set("Set-Cookie", "");
         for (const [cookieName, cookie] of Object.entries(valRes.cookies)) {

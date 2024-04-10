@@ -40,7 +40,7 @@ export async function extractImageMetadata(
   };
 }
 
-function getSha256(mimeType: string, input: Buffer): string {
+export function getSha256(mimeType: string, input: Buffer): string {
   return Internal.getSHA256Hash(
     textEncoder.encode(
       // TODO: we should probably store the mimetype in the metadata and reuse it here
