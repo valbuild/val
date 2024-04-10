@@ -31,6 +31,7 @@ import {
   isCachedPatchFileOp,
 } from "./ValServer";
 import { SerializedModuleContent } from "./SerializedModuleContent";
+import { getSha256 } from "./extractMetadata";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -222,6 +223,7 @@ export class LocalValServer extends ValServer {
     filePath: string,
     query: { sha256?: string }
   ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
+    console.log("getfiles", query);
     if (query.sha256) {
       const fileExists = this.host.fileExists(
         this.getFilePath(filePath, query.sha256)
@@ -244,11 +246,13 @@ export class LocalValServer extends ValServer {
           );
         }
         const metadata: PatchFileMetadata = JSON.parse(metadataFileContent);
+
         return {
           status: 200,
           headers: {
             "Content-Type": metadata.mimeType,
             "Content-Length": fileContent.byteLength.toString(),
+            "Cache-Control": "public, max-age=31536000, immutable",
           },
           body: bufferToReadableStream(fileContent),
         };
@@ -266,6 +270,20 @@ export class LocalValServer extends ValServer {
           message: "File not found",
         },
       };
+    }
+    if (query.sha256) {
+      const sha256 = getSha256(mimeType, buffer);
+      if (sha256 === query.sha256) {
+        return {
+          status: 200,
+          headers: {
+            "Content-Type": mimeType,
+            "Content-Length": buffer.byteLength.toString(),
+            "Cache-Control": "public, max-age=31536000, immutable",
+          },
+          body: bufferToReadableStream(buffer),
+        };
+      }
     }
     return {
       status: 200,

@@ -45,7 +45,7 @@ export type ValServerRedirectResult<Names extends ValCookiesNames> =
       status: 302;
       cookies?: ValServerResultCookies<Names>;
       redirectTo: string;
-      headers?: Record<string, string>;
+      headers?: Record<string, string | undefined>;
     }
   | ValServerError;
 export type ValServerResult<
@@ -54,7 +54,7 @@ export type ValServerResult<
 > =
   | {
       status: 200 | 201;
-      headers?: Record<string, string>;
+      headers?: Record<string, string | undefined>;
       cookies?: ValServerResultCookies<Names>;
       body?: Body;
     }
