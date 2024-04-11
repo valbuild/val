@@ -53,18 +53,15 @@ export function createUIRequestHandler(): ValUIRequestHandler {
     );
   }
   const MAIN_CSS_FILE = cssFiles[0];
+  const htmlPage = decodedFiles["/index.html"];
+  if (!htmlPage) {
+    throw new Error(
+      "Val UI files missing (error: no index.html file found)! This Val version or build is corrupted!"
+    );
+  }
 
   return async (path, url): Promise<ValServerGenericResult> => {
-    if (path === "/" || path === "") {
-      return {
-        status: 200,
-        headers: {
-          "Content-Type": getServerMimeType(path) || "",
-          "Cache-Control": "max-age=90", // TODO: change this to something more aggressive
-        },
-        body: decodedFiles["/index.html"],
-      };
-    } else if (path === VAL_APP_PATH) {
+    if (path === VAL_APP_PATH) {
       return {
         status: 302,
         redirectTo: url.replace(path, MAIN_FILE),
@@ -86,13 +83,12 @@ export function createUIRequestHandler(): ValUIRequestHandler {
         };
       } else {
         return {
-          status: 404,
-          json: {
-            message: `Val UI file not found: ${path}`,
-            details: {
-              files: Object.keys(files),
-            },
+          status: 200,
+          headers: {
+            "Content-Type": getServerMimeType(path) || "",
+            "Cache-Control": "max-age=90", // TODO: change this to something more aggressive
           },
+          body: htmlPage,
         };
       }
     }
