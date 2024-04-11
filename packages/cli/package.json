@@ -18,6 +18,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@valbuild/core": "~0.60.10",
     "@valbuild/server": "~0.60.10",
     "@valbuild/eslint-plugin": "~0.60.10",
     "eslint": "^8.31.0",
