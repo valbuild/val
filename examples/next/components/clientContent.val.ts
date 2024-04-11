@@ -13,6 +13,7 @@ export const schema = s.object({
       value: s.string(),
     })
   ),
+  arrays: s.array(s.string()),
   stringEnum: s.union(
     s.literal("lit-0"),
     s.literal("lit-1"),
@@ -27,5 +28,6 @@ export default c.define("/components/clientContent", schema, {
     type: "object-type-2",
     value: "You can have multiple different types in a union",
   },
+  arrays: ["array-1", "array-2"],
   stringEnum: "lit-1",
 });

@@ -11,14 +11,29 @@ const isIntrinsicElement = (type: any) => {
 };
 
 const addValPathIfFound = (type: any, props: any) => {
-  const valSources: any = [];
+  const valSources: string[] = [];
 
-  function add(
+  // skip auto-tagging fragments since we can't add attributes to them
+  if (type === Symbol.for("react.fragment")) {
+    return;
+  }
+
+  function updateValSources(
     key: string | number,
     value: string,
     props: Record<string, unknown>,
     container: Record<string, unknown> | Array<unknown>
   ) {
+    if (!key) {
+      return;
+    }
+    // Prevent prototype pollution
+    if (key === "__proto__" || key === "constructor" || key === "prototype") {
+      console.error(
+        'Val: Could not auto tag. Reason: key is "__proto__" or "constructor" or "prototype".'
+      );
+      return;
+    }
     const valPath = stegaDecodeString(value);
     const attr = `data-val-attr-${key.toString().toLowerCase()}`;
     if (valPath && !props[attr]) {
@@ -26,8 +41,10 @@ const addValPathIfFound = (type: any, props: any) => {
       const cleanValue = isIntrinsicElement(type)
         ? vercelStegaSplit(value).cleaned
         : value;
-      if (Array.isArray(container) && typeof key === "number") {
-        container[key] = cleanValue;
+      // we do Object.entries earlier over props so props that are arrays have string keys:
+      const numberOfKey = Number(key);
+      if (Array.isArray(container) && numberOfKey > -1) {
+        container[numberOfKey] = cleanValue;
       } else if (typeof key === "string" && !Array.isArray(container)) {
         container[key] = cleanValue;
       } else {
@@ -41,7 +58,7 @@ const addValPathIfFound = (type: any, props: any) => {
   if (props && typeof props === "object") {
     for (const [key, value] of Object.entries(props)) {
       if (typeof value === "string" && value.match(VERCEL_STEGA_REGEX)) {
-        add(key, value, props, props);
+        updateValSources(key, value, props, props);
       } else if (typeof value === "object" && value !== null) {
         if (key === "style") {
           for (const [styleKey, styleValue] of Object.entries(value)) {
@@ -49,7 +66,7 @@ const addValPathIfFound = (type: any, props: any) => {
               typeof styleValue === "string" &&
               styleValue.match(VERCEL_STEGA_REGEX)
             ) {
-              add(
+              updateValSources(
                 styleKey,
                 styleValue,
                 props,
@@ -60,7 +77,7 @@ const addValPathIfFound = (type: any, props: any) => {
         } else if (value instanceof Array) {
           for (const [index, item] of Object.entries(value)) {
             if (typeof item === "string" && item.match(VERCEL_STEGA_REGEX)) {
-              add(index, item, props, value);
+              updateValSources(index, item, props, value);
             }
           }
         }

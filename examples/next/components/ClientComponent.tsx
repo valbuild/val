@@ -8,15 +8,32 @@ export function ClientComponent() {
   return (
     <div>
       <h1>Client Component</h1>
-      <SubComponent content={content} />
+      <SubComponent
+        content={content}
+        arrays={
+          content.arrays
+        } /* <- arrays provoked errors in auto-tagging earlier */
+      />
     </div>
   );
 }
 
-function SubComponent({ content }: { content: ClientContent }) {
+function SubComponent({
+  content,
+}: {
+  content: ClientContent;
+  arrays: ClientContent["arrays"];
+}) {
   return (
     <div>
-      <div>{content.text}</div>
+      <h1>
+        <>
+          {
+            /* fragments provoked errors in auto-tagging earlier */
+            [<div key={1}>{content.text}</div>]
+          }
+        </>
+      </h1>
       <h2>Example of union schema:</h2>
       <div
         style={{
