@@ -4,7 +4,7 @@ import {
   SerializedSchema,
   ModuleId,
   JsonObject,
-  SerializedUnionSchema,
+  SerializedSchema,
   SerializedObjectSchema,
   SerializedRecordSchema,
   JsonArray,
@@ -20,6 +20,7 @@ import {
   RichTextNode,
   ModulePath,
   ImageSource,
+  SerializedUnionSchema,
 } from "@valbuild/core";
 import { parseRichTextSource } from "@valbuild/shared/internal";
 import classNames from "classnames";
@@ -103,17 +104,7 @@ export function AnyVal({
     }
     return (
       <div>
-        {field ? (
-          <div className="text-left">{field}</div>
-        ) : (
-          <div
-            className="truncate max-w-[300px] text-left"
-            title={path}
-            dir="rtl"
-          >
-            <Path>{path}</Path>
-          </div>
-        )}
+        {field && <div className="text-left">{field}</div>}
         <ValObject
           source={source}
           path={path}
@@ -130,17 +121,7 @@ export function AnyVal({
     }
     return (
       <div>
-        {field ? (
-          <div className="text-left">{field}</div>
-        ) : (
-          <div
-            className="truncate max-w-[300px] text-left"
-            title={path}
-            dir="rtl"
-          >
-            <Path>{path}</Path>
-          </div>
-        )}
+        {field && <div className="text-left">{field}</div>}
         <ValList
           source={source}
           path={path}
@@ -163,17 +144,7 @@ export function AnyVal({
     }
     return (
       <div>
-        {field ? (
-          <div className="text-left">{field}</div>
-        ) : (
-          <div
-            className="truncate max-w-[300px] text-left"
-            title={path}
-            dir="rtl"
-          >
-            <Path>{path}</Path>
-          </div>
-        )}
+        {field && <div className="text-left">{field}</div>}
         <ValRecord
           source={source}
           path={path}
@@ -189,12 +160,19 @@ export function AnyVal({
       !isJsonArray(source)
     ) {
       return (
-        <ValTaggedUnion
+        <ValTagged
           field={field}
           tag={schema.key}
           source={source}
           path={path}
-          schema={schema}
+          schema={
+            schema as {
+              type: "union";
+              key: string;
+              items: SerializedSchema[];
+              opt: boolean;
+            }
+          }
           initOnSubmit={initOnSubmit}
           setSelectedPath={setSelectedPath}
           top={top}
@@ -207,17 +185,7 @@ export function AnyVal({
 
   return (
     <div className="py-2 gap-y-4">
-      {field ? (
-        <div className="text-left">{field}</div>
-      ) : (
-        <div
-          className="truncate max-w-[300px] text-left"
-          title={path}
-          dir="rtl"
-        >
-          <Path>{path}</Path>
-        </div>
-      )}
+      {field && <div className="text-left">{field}</div>}
       <ValFormField
         path={path}
         disabled={false}
@@ -229,7 +197,7 @@ export function AnyVal({
   );
 }
 
-function ValTaggedUnion({
+function ValTagged({
   tag,
   field,
   path,
@@ -243,7 +211,12 @@ function ValTaggedUnion({
   field?: string;
   source: JsonObject;
   path: SourcePath;
-  schema: SerializedUnionSchema;
+  schema: {
+    type: "union";
+    key: string;
+    items: SerializedSchema[];
+    opt: boolean;
+  };
   setSelectedPath: (path: SourcePath | ModuleId) => void;
   initOnSubmit: InitOnSubmit;
   top?: boolean;
@@ -307,16 +280,8 @@ function ValTaggedUnion({
         "border-l-2 border-border pl-6": !top,
       })}
     >
-      {field ? (
-        <div className="text-left">{field}</div>
-      ) : (
-        <div
-          className="truncate max-w-[300px] text-left"
-          title={path}
-          dir="rtl"
-        >
-          <Path>{path}</Path>
-        </div>
+      {(field || schema.key) && (
+        <div className="text-left">{field || schema.key}</div>
       )}
       <Select
         value={currentKey ?? undefined}
@@ -1062,7 +1027,10 @@ function ValDefaultOf({
     schema.type === "string" ||
     schema.type === "image" ||
     schema.type === "number" ||
-    schema.type === "keyOf"
+    schema.type === "keyOf" ||
+    schema.type === "boolean" ||
+    schema.type === "literal" ||
+    schema.type === "union"
   ) {
     return (
       <ValFormField
