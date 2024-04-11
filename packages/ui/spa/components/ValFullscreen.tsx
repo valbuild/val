@@ -333,6 +333,7 @@ function ValModule({
   if (!resolvedPath) {
     throw Error("Could not resolve module: " + path);
   }
+
   return (
     <AnyVal
       path={path as SourcePath}

@@ -34,6 +34,14 @@ import classNames from "classnames";
 import { File } from "lucide-react";
 import { RichTextEditor, useRichTextEditor } from "./RichTextEditor";
 import { RemirrorJSON } from "@remirror/core";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./ui/select";
 
 export type OnSubmit = (callback: PatchCallback) => Promise<void>;
 export type InitOnSubmit = (path: SourcePath) => OnSubmit;
@@ -156,13 +164,102 @@ export function ValFormField({
       />
     );
   }
-
+  if (
+    (typeof source === "string" || source === null) &&
+    schema?.type === "union" &&
+    typeof schema.key !== "string"
+  ) {
+    if (schema.key.type !== "literal") {
+      console.error(
+        "Val: found union with non-literal key type. Check schema corresponding to path:",
+        path
+      );
+    } else {
+      return (
+        <StringUnionField
+          path={path}
+          options={schema.items.flatMap((item) =>
+            item.type === "literal" ? [item.value] : []
+          )}
+          onSubmit={onSubmit}
+          defaultValue={source}
+        />
+      );
+    }
+  }
   return (
     <div>
       Unsupported schema: {schema.type} (source type: {typeof source} source:{" "}
       {JSON.stringify(source)})
     </div>
   );
+}
+
+function StringUnionField({
+  onSubmit,
+  options,
+  defaultValue,
+}: {
+  path: string;
+  options: string[];
+  onSubmit?: OnSubmit;
+  defaultValue?: string | null;
+}) {
+  const [value, setValue] = useState<string>();
+  useEffect(() => {
+    console.log({ defaultValue });
+    if (defaultValue !== null && defaultValue !== undefined) {
+      setValue(defaultValue);
+    }
+  }, [defaultValue]);
+  const [loading, setLoading] = useState(false);
+  return (
+    <FieldContainer>
+      <Select value={value} onValueChange={(value) => setValue(value)}>
+        <SelectTrigger className="w-[180px]">
+          <SelectValue placeholder="Select" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {options.map((option) => (
+              <SelectItem key={option} value={option}>
+                {option}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+      {onSubmit && (
+        <SubmitButton
+          loading={loading}
+          enabled={!!value && options.includes(value)}
+          onClick={() => {
+            if (value) {
+              setLoading(true);
+              onSubmit((path) =>
+                Promise.resolve(createStringUnionPatch(path, value))
+              ).finally(() => {
+                setLoading(false);
+              });
+            }
+          }}
+        />
+      )}
+    </FieldContainer>
+  );
+}
+
+export function createStringUnionPatch(
+  path: string[],
+  value: string | null
+): Patch {
+  return [
+    {
+      value,
+      op: "replace",
+      path,
+    },
+  ];
 }
 
 export function createFilePatch(
@@ -830,7 +927,7 @@ function StringField({
         <SubmitButton
           validationErrors={validationErrors && validationErrors[path]}
           loading={loading}
-          enabled={defaultValue !== value}
+          enabled={true}
           onClick={() => {
             setLoading(true);
             onSubmit(async (path) => [

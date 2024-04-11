@@ -160,7 +160,25 @@ export function ValPatches({
                   if (result.isErr(res)) {
                     console.error(res.error);
                     if ("validationErrors" in res.error) {
-                      alert("Cannot commit invalid patches");
+                      alert(
+                        `Cannot commit! Validation errors detected: ${Object.entries(
+                          res.error.validationErrors
+                        )
+                          .map(([moduleId, res]) =>
+                            res.errors.fatal
+                              ? `Module: ${moduleId}. FATAL errors: ${JSON.stringify(
+                                  res.errors.fatal,
+                                  null,
+                                  2
+                                )}`
+                              : `Module: ${moduleId}:\n${JSON.stringify(
+                                  res.errors.validation,
+                                  null,
+                                  4
+                                )}`
+                          )
+                          .join("\n")}`
+                      );
                     } else {
                       alert(
                         "Could not commit patches: " +
