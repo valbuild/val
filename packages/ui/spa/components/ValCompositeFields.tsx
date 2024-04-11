@@ -4,7 +4,6 @@ import {
   SerializedSchema,
   ModuleId,
   JsonObject,
-  SerializedSchema,
   SerializedObjectSchema,
   SerializedRecordSchema,
   JsonArray,
@@ -20,7 +19,6 @@ import {
   RichTextNode,
   ModulePath,
   ImageSource,
-  SerializedUnionSchema,
 } from "@valbuild/core";
 import { parseRichTextSource } from "@valbuild/shared/internal";
 import classNames from "classnames";
