@@ -42,6 +42,18 @@ export class ValStore {
       includeSource: true,
     });
     if (result.isOk(data)) {
+      if (!data.value.modules[moduleId]) {
+        console.error("Val: could not find the module", {
+          moduleIds: Object.keys(data.value.modules),
+          moduleId,
+        });
+        return result.err({
+          message:
+            "Could not fetch data. Could not find the module: " +
+            moduleId +
+            ". Verify that the module id and file name is correct.",
+        });
+      }
       const fetchedSource = data.value.modules[moduleId].source;
       const fetchedSchema = data.value.modules[moduleId].schema;
       if (fetchedSource !== undefined && fetchedSchema !== undefined) {
