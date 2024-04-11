@@ -79,3 +79,8 @@ img {
 .rt-paragraph {
   margin: 1em 0;
 }
+
+.rt-link {
+  color: blue;
+  text-decoration: underline;
+}

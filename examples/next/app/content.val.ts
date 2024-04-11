@@ -86,5 +86,7 @@ But, with all the benefits of having content hard-coded:
 - content can be **refactored** (change names, etc) just as if it was hard-coded (because it sort of is)
 - work **locally** or in **branches** just as if you didn't use a CMS
 - **no need for code-gen** and extra build steps
+
+Visit ${c.rt.link("Val", { href: "https://val.build" })} for more information.
 `,
 });
