@@ -843,7 +843,9 @@ export function bufferToReadableStream(buffer: Buffer) {
 
         if (chunk.length > 0) {
           controller.enqueue(new Uint8Array(chunk));
-          setTimeout(push, 0); // Enqueue the next chunk asynchronously
+          // TODO: evaluate if we need to enqueue the next chunk asynchronously - this should help performance (perhaps?), but we suspect it leads to issues as well
+          // setTimeout(push, 0); // Enqueue the next chunk asynchronously
+          push();
         } else if (!isClosed) {
           isClosed = true;
           controller.close();
