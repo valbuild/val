@@ -7,7 +7,7 @@ import { VAL_APP_ID, VAL_OVERLAY_ID } from "../src/constants";
 
 const valAppElem = document.getElementById(VAL_APP_ID);
 const valOverlayElem = document.getElementById(VAL_OVERLAY_ID);
-const valAppStaticElem = document.getElementById('val-app-static'); // used in index.html
+const valAppStaticElem = document.getElementById("val-app-static"); // used in index.html
 
 if (valAppElem) {
   ReactDOM.createRoot(valAppElem).render(
