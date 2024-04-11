@@ -63,7 +63,7 @@ export class ValApi {
   }
 
   getEditUrl() {
-    return `/val`;
+    return `/api/val/static`;
   }
 
   postPatches(
