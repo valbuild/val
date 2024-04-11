@@ -61,11 +61,16 @@ export const ValNextProvider = (props: {
         window.removeEventListener("val-event", valEventListener);
       };
     } else {
-      if (process.env["NODE_ENV"] === "development") {
+      if (
+        process.env["NODE_ENV"] === "development" &&
+        !document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`)
+      ) {
         console.warn(
-          `Val is currently hidden.
+          `This page is built with Val Build - the lightweight CMS where content is code.
 
-To enable Val go to the following URL:
+Val is currently hidden and disabled.
+
+To enable Val, go to the following URL:
 ${window.location.origin}/api/val/enable?redirect_to=${encodeURIComponent(
             window.location.href
           )}
