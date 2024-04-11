@@ -829,30 +829,17 @@ export abstract class ValServer implements IValServer {
   ): Promise<ValServerJsonResult<ApiGetPatchResponse>>;
 }
 
-// From slightly modified ChatGPT generated
+const chunkSize = 1024 * 1024;
 export function bufferToReadableStream(buffer: Buffer) {
   const stream = new ReadableStream({
     start(controller) {
-      const chunkSize = 1024; // Adjust the chunk size as needed
       let offset = 0;
-      let isClosed = false;
-
-      function push() {
+      while (offset < buffer.length) {
         const chunk = buffer.subarray(offset, offset + chunkSize);
+        controller.enqueue(chunk);
         offset += chunkSize;
-
-        if (chunk.length > 0) {
-          controller.enqueue(new Uint8Array(chunk));
-          // TODO: evaluate if we need to enqueue the next chunk asynchronously - this should help performance (perhaps?), but we suspect it leads to issues as well
-          // setTimeout(push, 0); // Enqueue the next chunk asynchronously
-          push();
-        } else if (!isClosed) {
-          isClosed = true;
-          controller.close();
-        }
       }
-
-      push();
+      controller.close();
     },
   });
   return stream;
