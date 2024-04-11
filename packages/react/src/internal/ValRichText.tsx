@@ -148,6 +148,7 @@ export function ValRichText<O extends RichTextOptions>({
       key: key?.toString(),
       className,
       children,
+      href: tag === "a" ? child.href : undefined,
     });
   }
   return (
