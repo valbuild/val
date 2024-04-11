@@ -223,7 +223,6 @@ export class LocalValServer extends ValServer {
     filePath: string,
     query: { sha256?: string }
   ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
-    console.log("getfiles", query);
     if (query.sha256) {
       const fileExists = this.host.fileExists(
         this.getFilePath(filePath, query.sha256)
