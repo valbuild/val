@@ -30,7 +30,7 @@ import {
   Internal,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
-import { RemoteFS } from "./RemoteFS";
+import { DirectoryNode, RemoteFS } from "./RemoteFS";
 import { Service, createService } from "./Service";
 import { SerializedModuleContent } from "./SerializedModuleContent";
 import { Patch } from "./patch/validation";
@@ -194,11 +194,9 @@ export class ProxyValServer extends ValServer {
         ? {
             root: this.apiOptions.root,
             commit,
-            cwd: this.cwd,
           }
         : {
             commit,
-            cwd: this.cwd,
           }
     );
     const url = new URL(
@@ -246,7 +244,17 @@ export class ProxyValServer extends ValServer {
             },
           };
         }
-        remoteFS.initializeWith(json.directories);
+        remoteFS.initializeWith(
+          Object.fromEntries(
+            Object.entries(json.directories).map(([dir, content]) => [
+              path.join(
+                this.cwd,
+                ...dir.split("/") // content is always posix - not sure that matters...
+              ),
+              content as DirectoryNode,
+            ])
+          )
+        );
         return {
           status: 200,
         };
