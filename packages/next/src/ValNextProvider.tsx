@@ -4,7 +4,7 @@ import { Internal, ModuleId, ValConfig } from "@valbuild/core";
 import { VAL_APP_PATH, VAL_OVERLAY_ID } from "@valbuild/ui";
 import { usePathname, useRouter } from "next/navigation";
 import Script from "next/script";
-import React, { useEffect } from "react";
+import React from "react";
 import { ValContext, ValEvents } from "./ValContext";
 
 export const ValNextProvider = (props: {
@@ -26,7 +26,7 @@ export const ValNextProvider = (props: {
   const router = useRouter();
   const [enabled, setEnabled] = React.useState(false);
 
-  useEffect(() => {
+  React.useEffect(() => {
     setEnabled(
       document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`)
     );
