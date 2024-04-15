@@ -114,10 +114,16 @@ export class ValModuleLoader {
     }
     const matches = this.findMatchingJsFile(sourceFileName);
     if (matches.match === false) {
+      let debugInfo = "";
+      if (sourceFileName.includes("val.config")) {
+        debugInfo = `\n@valbuild directory scan:\n${this.host
+          .readDirectory("/", ["js", "ts", "json"], [], ["**/@valbuild/*"])
+          .join("\n")}`;
+      }
       throw Error(
         `Could not find matching js file for module "${requestedModuleName}" requested by: "${containingFilePath}". Tried:\n${matches.tried.join(
           "\n"
-        )}`
+        )}${debugInfo}`
       );
     }
     const filePath = matches.match;
