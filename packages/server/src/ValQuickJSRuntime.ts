@@ -40,10 +40,11 @@ export async function newValQuickJSRuntime(
 export const ValOverlay = () => {
   throw Error("Cannot use 'ValOverlay' in this type of file")
 };
-export const VAL_CSS_PATH = "";
-export const VAL_APP_PATH = "";
-export const VAL_APP_ID = "";
-export const IS_DEV = false;2
+export const VAL_CSS_PATH = "/spa/index.css";
+export const VAL_APP_PATH = "/app";
+export const VAL_APP_ID = "val-app";
+export const VAL_OVERLAY_ID = "val-overlay";
+export const IS_DEV = false;
 `,
           };
         }
