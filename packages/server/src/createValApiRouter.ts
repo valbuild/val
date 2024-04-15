@@ -90,7 +90,7 @@ type ValServerOverrides = Partial<{
    *
    * @example "myorg/my-project"
    */
-  valCloud: string;
+  remote: string;
   /**
    * After Val is enabled, redirect to this url.
    *
@@ -164,10 +164,11 @@ async function initHandlerOptions(
     if (!maybeGitBranch) {
       throw new Error("VAL_GIT_BRANCH env var must be set in proxy mode");
     }
-    const maybeValName =
-      opts.valCloud || process.env.VAL_CLOUD_NAME || process.env.VAL_NAME; // VAL_NAME is deprecated
-    if (!maybeValName) {
-      throw new Error("VAL_CLOUD_NAME env var must be set in proxy mode");
+    const maybeValRemote = opts.remote || process.env.VAL_REMOTE;
+    if (!maybeValRemote) {
+      throw new Error(
+        "Proxy mode does not work unless the 'remote' option in val.config is defined or the VAL_REMOTE env var is set."
+      );
     }
 
     return {
@@ -181,7 +182,7 @@ async function initHandlerOptions(
         commit: maybeGitCommit,
         branch: maybeGitBranch,
       },
-      valName: maybeValName,
+      remote: maybeValRemote,
       valEnableRedirectUrl:
         opts.valEnableRedirectUrl || process.env.VAL_ENABLE_REDIRECT_URL,
       valDisableRedirectUrl:
