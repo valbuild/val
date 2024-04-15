@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/init",
-  "version": "0.60.14",
+  "version": "0.60.15",
   "description": "Initialize a new val.build project",
   "exports": {
     "./main": {
