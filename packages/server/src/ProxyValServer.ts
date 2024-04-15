@@ -48,7 +48,7 @@ export type ProxyValServerOptions = {
     commit: string;
     branch: string;
   };
-  valName: string;
+  remote: string;
   valEnableRedirectUrl?: string;
   valDisableRedirectUrl?: string;
 };
@@ -121,7 +121,7 @@ export class ProxyValServer extends ValServer {
           this.apiOptions.root || "/"
         )}&cwd=${encodeURIComponent(this.cwd)}`;
         const url = new URL(
-          `/v1/commit/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
+          `/v1/commit/${this.options.remote}/heads/${this.options.git.branch}/~?${params}`,
           this.options.valContentUrl
         );
 
@@ -202,7 +202,7 @@ export class ProxyValServer extends ValServer {
           }
     );
     const url = new URL(
-      `/v1/fs/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
+      `/v1/fs/${this.options.remote}/heads/${this.options.git.branch}/~?${params}`,
       this.options.valContentUrl
     );
     try {
@@ -430,7 +430,7 @@ export class ProxyValServer extends ValServer {
       "session",
       async (data) => {
         const url = new URL(
-          `/api/val/${this.options.valName}/auth/session`,
+          `/api/val/${this.options.remote}/auth/session`,
           this.options.valBuildUrl
         );
         const fetchRes = await fetch(url, {
@@ -466,7 +466,7 @@ export class ProxyValServer extends ValServer {
     token: string;
   } | null> {
     const url = new URL(
-      `/api/val/${this.options.valName}/auth/token`,
+      `/api/val/${this.options.remote}/auth/token`,
       this.options.valBuildUrl
     );
     url.searchParams.set("code", encodeURIComponent(code));
@@ -498,7 +498,7 @@ export class ProxyValServer extends ValServer {
 
   private getAuthorizeUrl(publicValApiRoute: string, token: string): string {
     const url = new URL(
-      `/auth/${this.options.valName}/authorize`,
+      `/auth/${this.options.remote}/authorize`,
       this.options.valBuildUrl
     );
     url.searchParams.set(
@@ -511,7 +511,7 @@ export class ProxyValServer extends ValServer {
 
   private getAppErrorUrl(error: string): string {
     const url = new URL(
-      `/auth/${this.options.valName}/authorize`,
+      `/auth/${this.options.remote}/authorize`,
       this.options.valBuildUrl
     );
     url.searchParams.set("error", encodeURIComponent(error));
@@ -532,7 +532,7 @@ export class ProxyValServer extends ValServer {
       async ({ token }) => {
         const patchIds = query.id || [];
         const url = new URL(
-          `/v1/patches/${this.options.valName}/heads/${this.options.git.branch}/~`,
+          `/v1/patches/${this.options.remote}/heads/${this.options.git.branch}/~`,
           this.options.valContentUrl
         );
         const fetchRes = await fetch(url, {
@@ -582,7 +582,7 @@ export class ProxyValServer extends ValServer {
                 .join("&")}`
             : `commit=${encodeURIComponent(commit)}`;
         const url = new URL(
-          `/v1/patches/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
+          `/v1/patches/${this.options.remote}/heads/${this.options.git.branch}/~?${params}`,
           this.options.valContentUrl
         );
         // Proxy patch to val.build
@@ -637,7 +637,7 @@ export class ProxyValServer extends ValServer {
         }
         const patches = parsedPatches.data;
         const url = new URL(
-          `/v1/patches/${this.options.valName}/heads/${this.options.git.branch}/~?${params}`,
+          `/v1/patches/${this.options.remote}/heads/${this.options.git.branch}/~?${params}`,
           this.options.valContentUrl
         );
         // Proxy patch to val.build
@@ -669,7 +669,7 @@ export class ProxyValServer extends ValServer {
       "getFiles",
       async (data) => {
         const url = new URL(
-          `/v1/files/${this.options.valName}${filePath}`,
+          `/v1/files/${this.options.remote}${filePath}`,
           this.options.valContentUrl
         );
         if (typeof query.sha256 === "string") {
