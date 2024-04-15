@@ -98,7 +98,7 @@ export const IS_DEV = false;2
         return { value: moduleLoader.getModule(modulePath) };
       } catch (e) {
         return {
-          error: Error(`Could not resolve module: '${modulePath}': `),
+          error: Error(`Could not resolve module: '${modulePath}'`),
         };
       }
     },
