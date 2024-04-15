@@ -1,7 +1,7 @@
 import { initVal } from "@valbuild/next";
 
 const { s, c, val, config } = initVal({
-  remote: "freekh/val-next-example",
+  remote: "valbuild/val-examples-next",
   root: "/examples/next",
 });
 
