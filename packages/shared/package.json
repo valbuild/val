@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/shared",
-  "version": "0.60.15",
+  "version": "0.60.16",
   "private": false,
   "description": "Val shared types and utilities",
   "scripts": {
@@ -29,7 +29,7 @@
     "exports": true
   },
   "dependencies": {
-    "@valbuild/core": "~0.60.15",
+    "@valbuild/core": "~0.60.16",
     "marked": "^9.0.3",
     "zod": "^3.22.4"
   },
