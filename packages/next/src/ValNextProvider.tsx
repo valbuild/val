@@ -83,13 +83,13 @@ You are seeing this message because you are in development mode.`
 
   // TODO: use portal to mount overlay
   return (
-    <ValContext.Provider value={{ valEvents }}>
+    <ValContext.Provider value={{ valEvents, enabled }}>
       {props.children}
       {enabled && (
-        <>
+        <React.Fragment>
           <Script type="module" src={`${route}/static${VAL_APP_PATH}`} />
           <div id={VAL_OVERLAY_ID}></div>
-        </>
+        </React.Fragment>
       )}
     </ValContext.Provider>
   );
