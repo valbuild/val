@@ -57,7 +57,7 @@ export const IS_DEV = false;
         if (modulePath.startsWith("next/navigation")) {
           return {
             value:
-              "export const useRouter = () => { throw Error(`Cannot use 'useRouter' in this type of file`) }; export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'next' in this file`) } } } );",
+              "export const usePathname = () => { throw Error(`Cannot use 'usePathname' in this type of file`) }; export const useRouter = () => { throw Error(`Cannot use 'useRouter' in this type of file`) }; export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'next' in this file`) } } } );",
           };
         }
         if (modulePath.startsWith("next")) {
