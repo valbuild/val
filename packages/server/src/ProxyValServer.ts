@@ -666,7 +666,11 @@ export class ProxyValServer extends ValServer {
   async getFiles(
     filePath: string,
     query: { sha256?: string },
-    cookies: ValCookies<VAL_SESSION_COOKIE>
+    cookies: ValCookies<VAL_SESSION_COOKIE>,
+    reqHeaders: {
+      host?: string;
+      "x-forwarded-proto"?: string;
+    }
   ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
     return withAuth(
       this.options.valSecret,
@@ -706,15 +710,42 @@ export class ProxyValServer extends ValServer {
             };
           }
         } else {
-          const fetchRes = await fetch(filePath.slice("public".length));
-          return {
-            status: fetchRes.status,
-            headers: {
-              "Content-Type": fetchRes.headers.get("Content-Type") || "",
-              "Content-Length": fetchRes.headers.get("Content-Length") || "0",
-            },
-            body: fetchRes.body,
-          };
+          if (!(reqHeaders.host && reqHeaders["x-forwarded-proto"])) {
+            return {
+              status: 500,
+              json: {
+                message: "Missing host or x-forwarded-proto header",
+              },
+            };
+          }
+          const host = `${reqHeaders["x-forwarded-proto"]}://${reqHeaders["host"]}`;
+          const fileUrl = filePath.slice("/public".length);
+          const fetchRes = await fetch(new URL(fileUrl, host));
+          if (fetchRes.status === 200 || fetchRes.status === 201) {
+            if (fetchRes.body === null) {
+              return {
+                status: 500,
+                json: {
+                  message: `No body in response for url: ${fileUrl}`,
+                },
+              };
+            }
+            return {
+              status: 200,
+              headers: {
+                "Content-Type": fetchRes.headers.get("Content-Type") || "",
+                "Content-Length": fetchRes.headers.get("Content-Length") || "0",
+              },
+              body: fetchRes.body,
+            };
+          } else {
+            return {
+              status: fetchRes.status as ValServerErrorStatus,
+              json: {
+                message: `Could not fetch for url: ${fileUrl}`,
+              },
+            };
+          }
         }
       }
     );

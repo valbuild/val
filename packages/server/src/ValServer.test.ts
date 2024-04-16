@@ -75,6 +75,7 @@ describe("ValServer", () => {
         {
           patch: true.toString(),
         },
+        {},
         {}
       )
     ).toHaveProperty("status", 200);
@@ -98,6 +99,7 @@ describe("ValServer", () => {
         {
           patch: true.toString(),
         },
+        {},
         {}
       )
     ).toHaveProperty("status", 200);

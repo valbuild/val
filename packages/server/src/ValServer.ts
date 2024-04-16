@@ -139,7 +139,8 @@ export abstract class ValServer implements IValServer {
     treePath: string,
     // TODO: use the params: patch, schema, source now we return everything, every time
     query: { patch?: string; schema?: string; source?: string },
-    cookies: ValCookies<VAL_SESSION_COOKIE>
+    cookies: ValCookies<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
   ): Promise<ValServerJsonResult<ApiTreeResponse>> {
     const ensureRes = await this.ensureRemoteFSInitialized("getTree", cookies);
     if (result.isErr(ensureRes)) {
@@ -180,7 +181,8 @@ export abstract class ValServer implements IValServer {
           patchesById,
           fileUpdates,
           applyPatches,
-          cookies
+          cookies,
+          requestHeaders
         );
       })
     );
@@ -208,7 +210,8 @@ export abstract class ValServer implements IValServer {
 
   async postValidate(
     rawBody: unknown,
-    cookies: ValCookies<VAL_SESSION_COOKIE>
+    cookies: ValCookies<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
   ): Promise<
     ValServerJsonResult<
       ApiPostValidationResponse | ApiPostValidationErrorResponse
@@ -221,12 +224,18 @@ export abstract class ValServer implements IValServer {
     if (result.isErr(ensureRes)) {
       return ensureRes.error;
     }
-    return this.validateThenMaybeCommit(rawBody, false, cookies);
+    return this.validateThenMaybeCommit(
+      rawBody,
+      false,
+      cookies,
+      requestHeaders
+    );
   }
 
   async postCommit(
     rawBody: unknown,
-    cookies: ValCookies<VAL_SESSION_COOKIE>
+    cookies: ValCookies<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
   ): Promise<
     ValServerJsonResult<ApiCommitResponse, ApiPostValidationErrorResponse>
   > {
@@ -237,7 +246,12 @@ export abstract class ValServer implements IValServer {
     if (result.isErr(ensureRes)) {
       return ensureRes.error;
     }
-    const res = await this.validateThenMaybeCommit(rawBody, true, cookies);
+    const res = await this.validateThenMaybeCommit(
+      rawBody,
+      true,
+      cookies,
+      requestHeaders
+    );
     if (res.status === 200) {
       if (res.json.validationErrors) {
         return {
@@ -269,7 +283,8 @@ export abstract class ValServer implements IValServer {
     patchesById: Record<PatchId, Patch>,
     fileUpdates: Record<string /* filePath */, PatchFileMetadata>,
     applyPatches: boolean,
-    cookies: ValCookies<VAL_SESSION_COOKIE>
+    cookies: ValCookies<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
   ): Promise<SerializedModuleContent> {
     const serializedModuleContent = await this.getModule(moduleId);
     const schema = serializedModuleContent.schema;
@@ -335,7 +350,8 @@ export abstract class ValServer implements IValServer {
       const revalidated = await this.revalidateImageAndFileValidation(
         validationErrors,
         fileUpdates,
-        cookies
+        cookies,
+        requestHeaders
       );
       return {
         path: moduleId as string as SourcePath,
@@ -363,7 +379,8 @@ export abstract class ValServer implements IValServer {
   private async revalidateImageAndFileValidation(
     validationErrors: Record<SourcePath, ValidationError[]>,
     fileUpdates: Record<string /* filePath */, PatchFileMetadata>,
-    cookies: ValCookies<VAL_SESSION_COOKIE>
+    cookies: ValCookies<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
   ): Promise<false | Record<SourcePath, ValidationError[]>> {
     const revalidatedValidationErrors: Record<SourcePath, ValidationError[]> =
       {};
@@ -393,7 +410,8 @@ export abstract class ValServer implements IValServer {
                   {
                     sha256: updatedFileMetadata.sha256,
                   },
-                  cookies
+                  cookies,
+                  requestHeaders
                 );
                 if (fileRes.status === 200 && fileRes.body) {
                   const res = new Response(fileRes.body);
@@ -617,7 +635,8 @@ export abstract class ValServer implements IValServer {
   private async validateThenMaybeCommit(
     rawBody: unknown,
     commit: boolean,
-    cookies: ValCookies<VAL_SESSION_COOKIE>
+    cookies: ValCookies<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
   ): Promise<
     Promise<
       ValServerJsonResult<
@@ -658,7 +677,8 @@ export abstract class ValServer implements IValServer {
         patchesById,
         fileUpdates,
         true,
-        cookies
+        cookies,
+        requestHeaders
       );
       if (serializedModuleContent.errors) {
         validationErrorsByModuleId[moduleId] = serializedModuleContent;
@@ -788,7 +808,8 @@ export abstract class ValServer implements IValServer {
   abstract getFiles(
     filePath: string,
     query: { sha256?: string },
-    cookies: ValCookies<VAL_SESSION_COOKIE>
+    cookies: ValCookies<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
   ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>>;
 
   /* Abstract auth endpoints: */
@@ -951,7 +972,8 @@ export interface IValServer {
   getTree(
     treePath: string,
     query: { patch?: string; schema?: string; source?: string },
-    cookies: ValCookies<VAL_SESSION_COOKIE>
+    cookies: ValCookies<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
   ): Promise<ValServerJsonResult<ApiTreeResponse>>;
   getPatches(
     query: { id?: string[] },
@@ -967,7 +989,8 @@ export interface IValServer {
   ): Promise<ValServerJsonResult<ApiDeletePatchResponse>>;
   postValidate(
     body: unknown,
-    cookies: ValCookies<VAL_SESSION_COOKIE>
+    cookies: ValCookies<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
   ): Promise<
     ValServerJsonResult<
       ApiPostValidationResponse | ApiPostValidationErrorResponse
@@ -975,7 +998,8 @@ export interface IValServer {
   >;
   postCommit(
     body: unknown,
-    cookies: ValCookies<VAL_SESSION_COOKIE>
+    cookies: ValCookies<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
     // eslint-disable-next-line @typescript-eslint/ban-types
   ): Promise<
     ValServerJsonResult<ApiCommitResponse, ApiPostValidationErrorResponse>
@@ -984,7 +1008,8 @@ export interface IValServer {
   getFiles(
     filePath: string,
     query: { sha256?: string },
-    cookies: ValCookies<VAL_SESSION_COOKIE>
+    cookies: ValCookies<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
   ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>>;
 }
 
@@ -1094,3 +1119,8 @@ export function isCachedPatchFileOp(op: Operation): op is {
     typeof op.value.sha256 === "string"
   );
 }
+
+export type RequestHeaders = {
+  host?: string | null;
+  "x-forwarded-proto"?: string | null;
+};
