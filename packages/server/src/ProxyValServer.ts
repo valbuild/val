@@ -671,7 +671,10 @@ export class ProxyValServer extends ValServer {
       host?: string;
       "x-forwarded-proto"?: string;
     }
-  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>> {
+  ): Promise<
+    | ValServerResult<never, ReadableStream<Uint8Array>>
+    | ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>
+  > {
     return withAuth(
       this.options.valSecret,
       cookies,
@@ -720,32 +723,10 @@ export class ProxyValServer extends ValServer {
           }
           const host = `${reqHeaders["x-forwarded-proto"]}://${reqHeaders["host"]}`;
           const fileUrl = filePath.slice("/public".length);
-          const fetchRes = await fetch(new URL(fileUrl, host));
-          if (fetchRes.status === 200 || fetchRes.status === 201) {
-            if (fetchRes.body === null) {
-              return {
-                status: 500,
-                json: {
-                  message: `No body in response for url: ${fileUrl}`,
-                },
-              };
-            }
-            return {
-              status: 200,
-              headers: {
-                "Content-Type": fetchRes.headers.get("Content-Type") || "",
-                "Content-Length": fetchRes.headers.get("Content-Length") || "0",
-              },
-              body: fetchRes.body,
-            };
-          } else {
-            return {
-              status: fetchRes.status as ValServerErrorStatus,
-              json: {
-                message: `Could not fetch for url: ${fileUrl}`,
-              },
-            };
-          }
+          return {
+            status: 302,
+            redirectTo: new URL(fileUrl, host).toString(),
+          };
         }
       }
     );

@@ -810,7 +810,10 @@ export abstract class ValServer implements IValServer {
     query: { sha256?: string },
     cookies: ValCookies<VAL_SESSION_COOKIE>,
     requestHeaders: RequestHeaders
-  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>>;
+  ): Promise<
+    | ValServerResult<never, ReadableStream<Uint8Array>>
+    | ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>
+  >;
 
   /* Abstract auth endpoints: */
   abstract session(
@@ -1010,7 +1013,10 @@ export interface IValServer {
     query: { sha256?: string },
     cookies: ValCookies<VAL_SESSION_COOKIE>,
     requestHeaders: RequestHeaders
-  ): Promise<ValServerResult<never, ReadableStream<Uint8Array>>>;
+  ): Promise<
+    | ValServerResult<never, ReadableStream<Uint8Array>>
+    | ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>
+  >;
 }
 
 // https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types
