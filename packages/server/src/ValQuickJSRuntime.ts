@@ -75,13 +75,19 @@ export const IS_DEV = false;
         if (modulePath.startsWith("react")) {
           return {
             value:
-              "export const useTransition = () => { throw Error(`Cannot use 'useTransition' in this type of file`) }; export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'react' in this file`) } } } )",
+              "export const createContext = () => new Proxy({}, { get() { return () => { throw new Error(`Cannot use 'createContext' in this file`) } } } ); export const useTransition = () => { throw Error(`Cannot use 'useTransition' in this type of file`) }; export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'react' in this file`) } } } )",
           };
         }
         if (modulePath.includes("/ValNextProvider")) {
           return {
             value:
               "export const ValNextProvider = new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'ValNextProvider' in this file`) } } } )",
+          };
+        }
+        if (modulePath.includes("/ValContext")) {
+          return {
+            value:
+              "export const useValEvents = () => { throw Error(`Cannot use 'useValEvents' in this type of file`) }; export const ValContext = new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'ValContext' in this file`) } } } ) export const ValEvents = new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'ValEvents' in this file`) } } } )",
           };
         }
         if (modulePath.includes("/ValImage")) {
@@ -130,6 +136,9 @@ export const IS_DEV = false;
           return { value: requestedName };
         }
         if (requestedName.includes("/ValNextProvider")) {
+          return { value: requestedName };
+        }
+        if (requestedName.includes("/ValContext")) {
           return { value: requestedName };
         }
         if (requestedName.includes("/ValImage")) {
