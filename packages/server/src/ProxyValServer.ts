@@ -4,8 +4,6 @@ import {
   ENABLE_COOKIE_VALUE,
   ValServer,
   ValServerCallbacks,
-  bufferToReadableStream,
-  guessMimeTypeFromPath,
   isCachedPatchFileOp,
 } from "./ValServer";
 import {
@@ -36,7 +34,6 @@ import { SerializedModuleContent } from "./SerializedModuleContent";
 import { Patch } from "./patch/validation";
 import { ValApiOptions } from "./createValApiRouter";
 import path from "path";
-import { getSha256 } from "./extractMetadata";
 
 export type ProxyValServerOptions = {
   apiKey: string;
@@ -709,47 +706,14 @@ export class ProxyValServer extends ValServer {
             };
           }
         } else {
-          const fileExists = this.remoteFS.fileExists(
-            path.join(this.cwd, filePath)
-          );
-          let buffer: Buffer | undefined;
-          if (fileExists) {
-            buffer = await this.readStaticBinaryFile(
-              path.join(this.cwd, filePath)
-            );
-          }
-          if (!buffer) {
-            return {
-              status: 404,
-              json: {
-                message: "File not found",
-              },
-            };
-          }
-          const mimeType =
-            guessMimeTypeFromPath(filePath) || "application/octet-stream";
-
-          if (query.sha256) {
-            const sha256 = getSha256(mimeType, buffer);
-            if (sha256 === query.sha256) {
-              return {
-                status: 200,
-                headers: {
-                  "Content-Type": mimeType,
-                  "Content-Length": buffer.byteLength.toString(),
-                  "Cache-Control": "public, max-age=31536000, immutable",
-                },
-                body: bufferToReadableStream(buffer),
-              };
-            }
-          }
+          const fetchRes = await fetch(filePath.slice("public".length));
           return {
-            status: 200,
+            status: fetchRes.status,
             headers: {
-              "Content-Type": mimeType,
-              "Content-Length": buffer.byteLength.toString(),
+              "Content-Type": fetchRes.headers.get("Content-Type") || "",
+              "Content-Length": fetchRes.headers.get("Content-Length") || "0",
             },
-            body: bufferToReadableStream(buffer),
+            body: fetchRes.body,
           };
         }
       }
