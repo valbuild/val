@@ -295,8 +295,10 @@ export function createValApiRouter<Res>(
   const uiRequestHandler = createUIRequestHandler();
   return async (req): Promise<Res> => {
     const valServer = await valServerPromise;
-    req.headers.get("content-type");
-    req.headers.get("Cookie");
+    const requestHeaders = {
+      host: req.headers.get("host"),
+      "x-forwarded-proto": req.headers.get("x-forwarded-proto"),
+    };
     const url = new URL(req.url);
     if (!url.pathname.startsWith(route)) {
       const error = {
@@ -380,14 +382,19 @@ export function createValApiRouter<Res>(
     } else if (method === "POST" && path === "/commit") {
       const body = (await req.json()) as unknown;
       return convert(
-        await valServer.postCommit(body, getCookies(req, [VAL_SESSION_COOKIE]))
+        await valServer.postCommit(
+          body,
+          getCookies(req, [VAL_SESSION_COOKIE]),
+          requestHeaders
+        )
       );
     } else if (method === "POST" && path === "/validate") {
       const body = (await req.json()) as unknown;
       return convert(
         await valServer.postValidate(
           body,
-          getCookies(req, [VAL_SESSION_COOKIE])
+          getCookies(req, [VAL_SESSION_COOKIE]),
+          requestHeaders
         )
       );
     } else if (method === "GET" && path.startsWith(TREE_PATH_PREFIX)) {
@@ -403,7 +410,8 @@ export function createValApiRouter<Res>(
               schema: url.searchParams.get("schema") || undefined,
               source: url.searchParams.get("source") || undefined,
             },
-            getCookies(req, [VAL_SESSION_COOKIE])
+            getCookies(req, [VAL_SESSION_COOKIE]),
+            requestHeaders
           )
         )
       );
@@ -456,7 +464,8 @@ export function createValApiRouter<Res>(
           {
             sha256: url.searchParams.get("sha256") || undefined,
           },
-          getCookies(req, [VAL_SESSION_COOKIE])
+          getCookies(req, [VAL_SESSION_COOKIE]),
+          requestHeaders
         )
       );
     } else {
