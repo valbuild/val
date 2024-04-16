@@ -70,10 +70,12 @@ function createSubscriberId(moduleIds: ModuleId[]): SubscriberId {
 
 export type ValContext = {
   readonly valEvents?: ValEvents;
+  readonly enabled: boolean;
 };
 
 export const ValContext = React.createContext<ValContext>({
   valEvents: undefined,
+  enabled: false,
 });
 
 export const useValEvents = () => {
