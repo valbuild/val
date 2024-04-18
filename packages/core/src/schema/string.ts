@@ -35,6 +35,30 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     super();
   }
 
+  min(minLength: number): StringSchema<Src> {
+    return new StringSchema<Src>(
+      { ...this.options, minLength },
+      this.opt,
+      this.isRaw
+    );
+  }
+
+  max(maxLength: number): StringSchema<Src> {
+    return new StringSchema<Src>(
+      { ...this.options, maxLength },
+      this.opt,
+      this.isRaw
+    );
+  }
+
+  regexp(regexp: RegExp): StringSchema<Src> {
+    return new StringSchema<Src>(
+      { ...this.options, regexp },
+      this.opt,
+      this.isRaw
+    );
+  }
+
   validate(path: SourcePath, src: Src): ValidationErrors {
     if (this.opt && (src === null || src === undefined)) {
       return false;
