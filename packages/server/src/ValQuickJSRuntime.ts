@@ -31,8 +31,10 @@ export async function newValQuickJSRuntime(
         }
         if (modulePath === "@valbuild/react/internal") {
           return {
-            value:
-              "export const useVal = () => { throw Error(`Cannot use 'useVal' in this type of file`) }; export function ValProvider() { throw Error(`Cannot use 'ValProvider' in this type of file`) }; export function ValRichText() { throw Error(`Cannot use 'ValRichText' in this type of file`)};",
+            value: `
+const useVal = () => { throw Error('Cannot use \\'useVal\\' in this type of file') };
+export function ValProvider() { throw Error('Cannot use \\'ValProvider\\' in this type of file') }; 
+export function ValRichText() { throw Error('Cannot use \\'ValRichText\\' in this type of file')};`,
           };
         }
         if (modulePath === "@valbuild/ui") {
@@ -75,8 +77,21 @@ export const IS_DEV = false;
         }
         if (modulePath.startsWith("react")) {
           return {
-            value:
-              "export const createContext = () => new Proxy({}, { get() { return () => { throw new Error(`Cannot use 'createContext' in this file`) } } } ); export const useTransition = () => { throw Error(`Cannot use 'useTransition' in this type of file`) }; export default new Proxy({}, { get() { return () => { throw new Error(`Cannot import 'react' in this file`) } } } )",
+            value: `
+export const createContext = () => new Proxy({}, { get() { return () => { throw new Error('Cannot use \\'createContext\\' in this file') } } } );
+export const useTransition = () => { throw Error('Cannot use \\'useTransition\\' in this type of file') }; 
+
+export default new Proxy({}, { 
+  get(target, props) { 
+    // React.createContext might be called on top-level
+    if (props === 'createContext') {
+      return createContext;
+    }
+    return () => {
+      throw new Error('Cannot import \\'react\\' in this file');
+    }
+  }
+})`,
           };
         }
         if (modulePath.includes("/ValNextProvider")) {

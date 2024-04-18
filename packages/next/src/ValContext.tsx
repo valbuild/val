@@ -1,6 +1,6 @@
 "use client";
 import { Json, ModuleId } from "@valbuild/core";
-import React, { createContext } from "react";
+import React from "react";
 
 export class ValEvents {
   private readonly subscribers: Map<SubscriberId, Record<ModuleId, Json>>; // uncertain whether this is the optimal way of returning
@@ -73,7 +73,7 @@ export type ValContext = {
   readonly enabled: boolean;
 };
 
-export const ValContext = createContext<ValContext>({
+export const ValContext = React.createContext<ValContext>({
   valEvents: undefined,
   enabled: false,
 });
