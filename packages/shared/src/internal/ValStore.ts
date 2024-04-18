@@ -202,9 +202,9 @@ export class ValStore {
 
       // Figure out which modules have been updated and map to updated subscribed id
       for (const moduleId of Object.keys(data.value.modules) as ModuleId[]) {
-        moduleIds.push(moduleId);
         const source = data.value.modules[moduleId].source;
         if (typeof source !== "undefined") {
+          moduleIds.push(moduleId);
           this.emitEvent(moduleId, source);
           const updatedSubscriberId = subscriberIds.find(
             (subscriberId) => subscriberId.includes(moduleId) // NOTE: dependent on
