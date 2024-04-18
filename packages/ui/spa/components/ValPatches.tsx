@@ -49,14 +49,14 @@ function useNow() {
 export function ValPatchesDialog(props: ValPatchesProps) {
   return (
     <Container>
-      <div className="flex justify-end p-2">
-        <button onClick={props.onCancel}>
-          <X />
-        </button>
+      <div className="flex items-center justify-between w-full px-4 mb-6">
+        <h1 className="block font-sans text-2xl font-bold">Review changes</h1>
+        <div className="flex justify-end p-2">
+          <button onClick={props.onCancel}>
+            <X />
+          </button>
+        </div>
       </div>
-      <h1 className="block mb-6 font-sans text-2xl font-bold">
-        Review changes
-      </h1>
       <ValPatches {...props} />
     </Container>
   );
@@ -114,7 +114,7 @@ export function ValPatches({
 
   return (
     <TimeContext.Provider value={Date.now()}>
-      <div className="flex flex-col items-start justify-start h-full p-8 gap-y-5">
+      <div className="flex flex-col items-start justify-start h-full px-4 gap-y-5">
         {patchesByModule && validationResponse && (
           <ReviewPanel
             {...convertPatchErrors(patchesByModule, {
@@ -144,7 +144,7 @@ export function ValPatches({
             }}
           />
         )}
-        <div className="flex gap-x-4">
+        <div className="flex justify-end w-full px-4 pb-4 gap-x-4">
           <Button variant={"secondary"} onClick={onCancel}>
             Cancel
           </Button>
@@ -225,7 +225,7 @@ export function ReviewPanel({
               <HistoryItem
                 index={index}
                 last={index === history.length - 1}
-                defaultOpen={history.length > 3 ? false : true}
+                defaultOpen={false}
                 onDeletePatch={onDeletePatch}
               >
                 {item}
@@ -549,7 +549,7 @@ function Container({
   children: React.ReactNode | React.ReactNode[];
 }) {
   return (
-    <div className="h-full w-full rounded-lg bg-gradient-to-br from-background/90 from-40% to-background backdrop-blur-lg text-primary drop-shadow-2xl">
+    <div className="h-full w-full rounded-lg bg-gradient-to-br from-background/90 from-40% to-background backdrop-blur-lg text-primary drop-shadow-2xl overflow-scroll">
       {children}
     </div>
   );
