@@ -9,6 +9,7 @@ import jcs from "jscodeshift";
 import semver from "semver";
 import packageJson from "../package.json";
 import {
+  BASIC_EXAMPLE,
   VAL_API_ROUTER,
   VAL_APP_PAGE,
   VAL_CLIENT,
@@ -96,6 +97,12 @@ type Analysis = Partial<{
   hasGit: boolean;
   isGitHub: boolean;
   isGitClean: boolean | "packages";
+  gitIgnorePath: string;
+  gitIgnoreFile?: string;
+  gitRemote: {
+    owner: string;
+    repo: string;
+  };
 
   // TODO:
   // check if modules are used
@@ -208,9 +215,26 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
       ? !!gitRemoteOrigin.includes("github.com")
       : false;
     analysis.isGitClean = getGitStatusIsClean(gitStatus);
+    // get owner and repo from git remote:
+    if (gitRemoteOrigin) {
+      // Split the URL by colon
+      const parts = gitRemoteOrigin.split(":");
+
+      // Extract owner and repo
+      const owner = parts[0].split("@")[1];
+      const repo = parts[1].replace(".git", ""); // Remove .git extension if present
+
+      analysis.gitRemote = {
+        owner,
+        repo,
+      };
+    }
   } catch (err) {
     // console.error(err);
   }
+  const gitIgnorePath = path.join(root, ".gitignore");
+  analysis.gitIgnorePath = gitIgnorePath;
+  analysis.gitIgnoreFile = fs.readFileSync(gitIgnorePath, "utf-8");
   return analysis;
 };
 
@@ -232,6 +256,15 @@ type Plan = Partial<{
   useJavascript: boolean;
   abort: boolean;
   ignoreGitDirty: boolean;
+  gitIgnore: false | FileOp;
+  gitRemote:
+    | false
+    | {
+        owner: string;
+        repo: string;
+      };
+  includeExample: false | FileOp;
+  vsCodeSettings: false | FileOp;
 }>;
 
 async function plan(
@@ -610,6 +643,109 @@ async function plan(
     }
   }
 
+  {
+    if (analysis.gitIgnorePath) {
+      const answer = await confirm({
+        message: "Append .gitignore entry for Val cache? (recommended)",
+        default: true,
+      });
+      if (answer) {
+        plan.gitIgnore = {
+          path: analysis.gitIgnorePath,
+          source:
+            (analysis.gitIgnoreFile ? `${analysis.gitIgnoreFile}\n\n` : "") +
+            "# Val local cache\n.val\n",
+        };
+      } else {
+        plan.gitIgnore = false;
+      }
+    } else {
+      plan.gitIgnore = false;
+    }
+  }
+  {
+    const answer = await confirm({
+      message: "Add the Val Build IntelliSense to .vscode/extensions.json?",
+      default: true,
+    });
+    if (answer) {
+      const vscodeDir = path.join(analysis.root, ".vscode");
+      const settingsPath = path.join(vscodeDir, "extensions.json");
+      let currentSettings = {};
+
+      try {
+        const currentSettingsFile = fs.readFileSync(settingsPath, "utf-8");
+        if (currentSettingsFile) {
+          try {
+            currentSettings = JSON.parse(currentSettingsFile);
+          } catch (err) {
+            logger.warn(
+              `Failed to parse VS Code extensions.json found here: ${settingsPath}.${
+                err instanceof Error ? `Parse error: ${err.message}` : ""
+              }`
+            );
+            return {
+              abort: true,
+            };
+          }
+        }
+      } catch {
+        // ignore - dir does not exist (most likely)
+      }
+      currentSettings = {
+        ...currentSettings,
+        recommendations: [
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ...((currentSettings as any).recommendations || []),
+          "valbuild.vscode-val-build",
+        ],
+      };
+      plan.vsCodeSettings = {
+        path: settingsPath,
+        source: JSON.stringify(currentSettings, null, 2),
+      };
+    } else {
+      plan.vsCodeSettings = false;
+    }
+  }
+
+  {
+    const answer = await confirm({
+      message: "Include example Val files?",
+      default: true,
+    });
+    if (answer) {
+      const exampleDir = path.join(analysis.srcDir, "examples", "val");
+      const examplePath = path.join(
+        exampleDir,
+        "example.val." + (analysis.isJavaScript ? "js" : "ts")
+      );
+      const exampleImport = path
+        .relative(exampleDir, valConfigPath)
+        .replace(".js", "")
+        .replace(".ts", "");
+      if (!analysis.packageJsonDir) {
+        throw Error(
+          "Could not detect package.json directory! This is a Val bug."
+        );
+      }
+      const exampleModuleId = `/${path
+        .relative(analysis.packageJsonDir, examplePath)
+        .replace(".val", "")
+        .replace(".js", "")
+        .replace(".ts", "")}`;
+
+      plan.includeExample = {
+        path: examplePath,
+        source: BASIC_EXAMPLE(
+          exampleModuleId,
+          exampleImport,
+          !!analysis.isJavaScript
+        ),
+      };
+    }
+  }
+
   return plan;
 }
 
@@ -621,17 +757,52 @@ async function execute(plan: Plan) {
     return logger.error("Failed to find root directory");
   }
   logger.info("Executing...");
-  for (const [key, fileOp] of Object.entries(plan)) {
-    writeFile(fileOp, plan.root, key.startsWith("update"));
+  for (const [key, maybeFileOp] of Object.entries(plan)) {
+    if (isFileOp(maybeFileOp)) {
+      writeFile(maybeFileOp, plan.root, key.startsWith("update"));
+    }
   }
+  logger.info(`
+  
+Val was successfully initialized!
+
+  Start the application:
+
+  $ ${chalk.gray("npm run dev")}
+
+  And open:
+
+  ${chalk
+    .hex("#8a37cd")
+    .underline(
+      `http://localhost:3000/api/val/enable?redirect_to=http://localhost:3000`
+    )}
+
+  To enable remote editor support, import the project by opening the following link:
+  
+  ${chalk
+    .hex("#8a37cd")
+    .underline(
+      `https://app.val.build/orgs/new${
+        plan.gitRemote
+          ? `?org=${encodeURIComponent(
+              plan.gitRemote.owner
+            )}&owner=${encodeURIComponent(
+              plan.gitRemote.owner
+            )}&repo=${encodeURIComponent(plan.gitRemote.repo)}`
+          : ""
+      }`
+    )}
+
+`);
 }
 
 function writeFile(
-  fileOp: string | FileOp | undefined | boolean,
+  fileOp: FileOp | undefined,
   rootDir: string,
   isUpdate: boolean
 ) {
-  if (fileOp && typeof fileOp !== "boolean" && typeof fileOp !== "string") {
+  if (fileOp) {
     fs.mkdirSync(path.dirname(fileOp.path), { recursive: true });
     fs.writeFileSync(fileOp.path, fileOp.source);
     logger.info(
@@ -666,4 +837,17 @@ function getGitStatusIsClean(gitStatus: StatusResult): Analysis["isGitClean"] {
     return true;
   }
   return false;
+}
+
+function isFileOp(maybeFileOp: unknown): maybeFileOp is FileOp {
+  return (
+    typeof maybeFileOp !== "boolean" &&
+    typeof maybeFileOp !== "string" &&
+    typeof maybeFileOp === "object" &&
+    !!maybeFileOp &&
+    "path" in maybeFileOp &&
+    "source" in maybeFileOp &&
+    typeof maybeFileOp.path === "string" &&
+    typeof maybeFileOp.source === "string"
+  );
 }
