@@ -272,9 +272,6 @@ export function ValOverlay({
                     key={path}
                     schema={schema}
                     source={source}
-                    setSelectedPath={() => {
-                      // TODO: go to full screen
-                    }}
                     top
                   />
                 );

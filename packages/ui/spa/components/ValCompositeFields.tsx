@@ -24,7 +24,6 @@ import { parseRichTextSource } from "@valbuild/shared/internal";
 import classNames from "classnames";
 import React, { useState, useEffect, Fragment } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router";
 import {
   ValFormField,
   FieldContainer,
@@ -55,12 +54,12 @@ import {
 import { Plus, RotateCw, Trash } from "lucide-react";
 import { Button } from "./ui/button";
 import { array } from "@valbuild/core/fp";
+import { useNavigate } from "./ValRouter";
 
 export function AnyVal({
   path,
   source,
   schema,
-  setSelectedPath,
   field,
   initOnSubmit,
   top,
@@ -68,7 +67,6 @@ export function AnyVal({
   path: SourcePath;
   source: Json;
   schema: SerializedSchema;
-  setSelectedPath: (path: SourcePath | ModuleId) => void;
   field?: string;
   initOnSubmit: InitOnSubmit;
   top?: boolean;
@@ -81,7 +79,6 @@ export function AnyVal({
         schema={schema}
         field={field}
         initOnSubmit={initOnSubmit}
-        setSelectedPath={setSelectedPath}
       />
     );
   }
@@ -91,7 +88,6 @@ export function AnyVal({
         source={source}
         schema={schema}
         path={path}
-        setSelectedPath={setSelectedPath}
         initOnSubmit={initOnSubmit}
       />
     );
@@ -108,7 +104,6 @@ export function AnyVal({
           path={path}
           schema={schema}
           initOnSubmit={initOnSubmit}
-          setSelectedPath={setSelectedPath}
           top={top}
         />
       </div>
@@ -125,7 +120,6 @@ export function AnyVal({
           path={path}
           schema={schema}
           initOnSubmit={initOnSubmit}
-          setSelectedPath={setSelectedPath}
         />
       </div>
     );
@@ -143,12 +137,7 @@ export function AnyVal({
     return (
       <div>
         {field && <div className="text-left">{field}</div>}
-        <ValRecord
-          source={source}
-          path={path}
-          schema={schema}
-          setSelectedPath={setSelectedPath}
-        />
+        <ValRecord source={source} path={path} schema={schema} />
       </div>
     );
   } else if (schema?.type === "union") {
@@ -172,7 +161,6 @@ export function AnyVal({
             }
           }
           initOnSubmit={initOnSubmit}
-          setSelectedPath={setSelectedPath}
           top={top}
         />
       );
@@ -201,7 +189,6 @@ function ValTagged({
   path,
   source,
   schema,
-  setSelectedPath,
   initOnSubmit,
   top,
 }: {
@@ -215,7 +202,6 @@ function ValTagged({
     items: SerializedSchema[];
     opt: boolean;
   };
-  setSelectedPath: (path: SourcePath | ModuleId) => void;
   initOnSubmit: InitOnSubmit;
   top?: boolean;
 }) {
@@ -309,7 +295,6 @@ function ValTagged({
           path={path as SourcePath}
           source={current.source ?? null}
           schema={current.schema}
-          setSelectedPath={setSelectedPath}
           initOnSubmit={initOnSubmit}
           top={top}
         />
@@ -322,14 +307,12 @@ function ValObject({
   path,
   source,
   schema,
-  setSelectedPath,
   initOnSubmit,
   top,
 }: {
   source: JsonObject;
   path: SourcePath;
   schema: SerializedObjectSchema;
-  setSelectedPath: (path: SourcePath | ModuleId) => void;
   initOnSubmit: InitOnSubmit;
   top?: boolean;
 }): React.ReactElement {
@@ -348,7 +331,6 @@ function ValObject({
             path={subPath}
             source={source?.[key] ?? null}
             schema={property}
-            setSelectedPath={setSelectedPath}
             field={key}
             initOnSubmit={initOnSubmit}
           />
@@ -361,12 +343,10 @@ function ValRecord({
   path,
   source,
   schema,
-  setSelectedPath,
 }: {
   source: JsonObject;
   path: SourcePath;
   schema: SerializedRecordSchema;
-  setSelectedPath: (path: SourcePath | ModuleId) => void;
 }): React.ReactElement {
   const navigate = useNavigate();
   return (
@@ -377,7 +357,6 @@ function ValRecord({
           <button
             key={subPath}
             onClick={() => {
-              setSelectedPath(subPath);
               navigate(subPath);
             }}
           >
@@ -440,14 +419,12 @@ function ValList({
   path,
   source,
   schema,
-  setSelectedPath,
   initOnSubmit,
 }: {
   source: JsonArray;
   path: SourcePath;
   schema: SerializedArraySchema;
   initOnSubmit: InitOnSubmit;
-  setSelectedPath: (path: SourcePath | ModuleId) => void;
 }): React.ReactElement {
   const onSubmit = initOnSubmit(path);
   const [, modulePath] = Internal.splitModuleIdAndModulePath(path);
@@ -504,7 +481,6 @@ function ValList({
                 return [];
               });
             }}
-            setSelectedPath={setSelectedPath}
           />
         );
       })}
@@ -519,7 +495,6 @@ function ValListItem({
   source,
   schema,
   loading,
-  setSelectedPath,
   onDelete,
 }: {
   index: number;
@@ -527,7 +502,6 @@ function ValListItem({
   path: SourcePath;
   schema: SerializedSchema;
   loading: boolean;
-  setSelectedPath: (path: SourcePath | ModuleId) => void;
   onDelete: () => void;
 }): React.ReactElement {
   const navigate = useNavigate();
@@ -556,7 +530,6 @@ function ValListItem({
         className="block"
         disabled={loading}
         onClick={() => {
-          setSelectedPath(path);
           navigate(path);
         }}
       >
@@ -801,14 +774,12 @@ function ValOptional({
   path,
   source,
   schema,
-  setSelectedPath,
   initOnSubmit,
   field,
 }: {
   path: SourcePath;
   source: Json;
   schema: SerializedSchema;
-  setSelectedPath: (path: SourcePath | ModuleId) => void;
   initOnSubmit: InitOnSubmit;
   field?: string;
 }) {
@@ -889,7 +860,6 @@ function ValOptional({
           source={source === null ? emptyOf(schema) : source}
           schema={schema}
           path={path}
-          setSelectedPath={setSelectedPath}
           initOnSubmit={(subPath) => async (callback) => {
             const [, modulePath] = Internal.splitModuleIdAndModulePath(path);
             const [, subModulePath] =
@@ -981,13 +951,11 @@ function ValDefaultOf({
   source,
   path,
   schema,
-  setSelectedPath,
   initOnSubmit,
 }: {
   source: Json;
   path: SourcePath;
   schema: SerializedSchema;
-  setSelectedPath: (path: SourcePath | ModuleId) => void;
   initOnSubmit: InitOnSubmit;
 }): React.ReactElement {
   if (schema.type === "array") {
@@ -1001,7 +969,6 @@ function ValDefaultOf({
           source={source === null ? [] : source}
           path={path}
           schema={schema}
-          setSelectedPath={setSelectedPath}
         />
       );
     }
@@ -1015,7 +982,6 @@ function ValDefaultOf({
           source={source as JsonObject}
           path={path}
           schema={schema}
-          setSelectedPath={setSelectedPath}
           initOnSubmit={initOnSubmit}
         />
       );
@@ -1078,16 +1044,15 @@ function dirPaths(paths: string[]): Record<string, string[]> {
 export function PathTree({
   selectedPath,
   paths,
-  setSelectedModuleId,
 }: {
   selectedPath: SourcePath | ModuleId | undefined;
   paths: string[];
-  setSelectedModuleId: (path: ModuleId | SourcePath) => void;
 }): React.ReactElement {
   const tree = dirPaths(paths);
   const selectedModuleId =
     selectedPath &&
     Internal.splitModuleIdAndModulePath(selectedPath as SourcePath)[0];
+  const navigate = useNavigate();
   return (
     <div className="flex flex-col w-full py-2 text-xs">
       {Object.entries(tree).map(([dir, files]) => {
@@ -1116,7 +1081,7 @@ export function PathTree({
                         selectedModuleId === moduleId,
                     })}
                     onClick={() => {
-                      setSelectedModuleId(moduleId);
+                      navigate(moduleId);
                     }}
                   >
                     {file}

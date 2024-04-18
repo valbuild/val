@@ -2,33 +2,25 @@
 import { ValApi } from "@valbuild/core";
 import { ValContentView } from "./components/ValContentView";
 import { ErrorBoundary } from "react-error-boundary";
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { ValStore } from "@valbuild/shared/internal";
 import { fallbackRender } from "./fallbackRender";
 import { useMemo } from "react";
+import { ValRouter } from "./components/ValRouter";
 
 function App() {
-  const router = useMemo(() => {
+  const { api, store } = useMemo(() => {
     const api = new ValApi("/api/val");
     const store = new ValStore(api);
-    return createBrowserRouter(
-      [
-        {
-          path: "/*",
-          element: (
-            <ErrorBoundary fallbackRender={fallbackRender}>
-              <ValContentView api={api} store={store} />
-            </ErrorBoundary>
-          ),
-        },
-      ],
-      {
-        basename: "/val",
-      }
-    );
+    return { api, store };
   }, []);
 
-  return <RouterProvider router={router} />;
+  return (
+    <ErrorBoundary fallbackRender={fallbackRender}>
+      <ValRouter>
+        <ValContentView api={api} store={store} />
+      </ValRouter>
+    </ErrorBoundary>
+  );
 }
 
 export default App;
