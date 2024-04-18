@@ -1,5 +1,6 @@
 import { JSModuleNormalizeResult, QuickJSWASMModule } from "quickjs-emscripten";
 import { ValModuleLoader } from "./ValModuleLoader";
+import { VAL_APP_ID, VAL_CSS_PATH, VAL_OVERLAY_ID } from "@valbuild/ui";
 
 export async function newValQuickJSRuntime(
   quickJSModule: Pick<QuickJSWASMModule, "newRuntime">,
@@ -40,10 +41,10 @@ export async function newValQuickJSRuntime(
 export const ValOverlay = () => {
   throw Error("Cannot use 'ValOverlay' in this type of file")
 };
-export const VAL_CSS_PATH = "/spa/index.css";
-export const VAL_APP_PATH = "/app";
-export const VAL_APP_ID = "val-app";
-export const VAL_OVERLAY_ID = "val-overlay";
+export const VAL_CSS_PATH = "${VAL_CSS_PATH}";
+export const VAL_APP_PATH = "${VAL_CSS_PATH}";
+export const VAL_APP_ID = "${VAL_APP_ID}";
+export const VAL_OVERLAY_ID = "${VAL_OVERLAY_ID}";
 export const IS_DEV = false;
 `,
           };
