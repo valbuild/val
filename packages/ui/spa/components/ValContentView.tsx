@@ -13,7 +13,6 @@ import Logo from "../assets/icons/Logo";
 import { ScrollArea } from "./ui/scroll-area";
 import { ChevronLeft, Languages, Minimize2, Send } from "lucide-react";
 import { ValUIContext } from "./ValUIContext";
-import { useNavigate, useParams } from "react-router";
 import { useTheme } from "./useTheme";
 import { usePatches } from "./usePatch";
 import { useSession } from "./useSession";
@@ -21,10 +20,10 @@ import { Path } from "./Path";
 import { ValPatches, ValPatchesProps } from "./ValPatches";
 import { AnyVal, PathTree, ValImagePreviewContext } from "./ValCompositeFields";
 import { InitOnSubmit } from "./ValFormField";
-
 import { ValSession, ValStore } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 import { Remote } from "../utils/Remote";
+import { useParams } from "./ValRouter";
 
 interface ValFullscreenProps {
   api: ValApi;
@@ -32,17 +31,11 @@ interface ValFullscreenProps {
 }
 
 export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
-  const { "*": pathFromParams } = useParams();
   const [error, setError] = useState<string | null>(null);
-  const [selectedPath, setSelectedPath] = useState<SourcePath | ModuleId>();
 
+  const params = useParams();
+  const selectedPath = params.sourcePath || ("" as SourcePath);
   const [moduleIds, setModuleIds] = useState<ModuleId[]>();
-  //
-  useEffect(() => {
-    setSelectedPath(
-      pathFromParams ? (`/${pathFromParams}` as ModuleId) : selectedPath
-    );
-  }, [pathFromParams]);
 
   useEffect(() => {
     store.reset().then((res) => {
@@ -55,7 +48,6 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
   }, []);
   const session = useSession(api);
 
-  const navigate = useNavigate();
   const [theme, setTheme] = useTheme();
   const { patches, setPatchResetId } = usePatches(session, api);
 
@@ -152,13 +144,7 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
               </div>
               <ScrollArea className="px-4">
                 {moduleIds ? (
-                  <PathTree
-                    selectedPath={selectedPath}
-                    paths={moduleIds}
-                    setSelectedModuleId={(path) => {
-                      navigate(path);
-                    }}
-                  />
+                  <PathTree selectedPath={selectedPath} paths={moduleIds} />
                 ) : (
                   !error && <div className="py-4">Loading...</div>
                 )}
@@ -184,7 +170,6 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
                 error={error}
                 initOnSubmit={initOnSubmit}
                 session={session}
-                setSelectedPath={setSelectedPath}
                 api={api}
                 store={store}
               />
@@ -224,7 +209,6 @@ function ModulePane({
   store,
   error: globalError,
   session,
-  setSelectedPath,
   initOnSubmit,
 }: {
   path?: SourcePath | ModuleId;
@@ -232,7 +216,6 @@ function ModulePane({
   store: ValStore;
   error: string | null;
   session: Remote<ValSession>;
-  setSelectedPath: (path: SourcePath | ModuleId) => void;
   initOnSubmit: InitOnSubmit;
 }) {
   const [loading, setLoading] = useState(false);
@@ -301,7 +284,6 @@ function ModulePane({
           path={path}
           source={rootModule.source}
           schema={rootModule.schema}
-          setSelectedPath={setSelectedPath}
           initOnSubmit={initOnSubmit}
         />
       )}
@@ -313,13 +295,11 @@ function ValModule({
   path,
   source: moduleSource,
   schema: moduleSchema,
-  setSelectedPath,
   initOnSubmit,
 }: {
   path: SourcePath | ModuleId;
   source: Json;
   schema: SerializedSchema;
-  setSelectedPath: (path: SourcePath | ModuleId) => void;
   initOnSubmit: InitOnSubmit;
 }): React.ReactElement {
   const [, modulePath] = Internal.splitModuleIdAndModulePath(
@@ -331,6 +311,11 @@ function ValModule({
     moduleSchema
   );
   if (!resolvedPath) {
+    console.error("Could not resolve module: " + path, {
+      modulePath,
+      moduleSource,
+      moduleSchema,
+    });
     throw Error("Could not resolve module: " + path);
   }
 
@@ -339,7 +324,6 @@ function ValModule({
       path={path as SourcePath}
       source={resolvedPath.source}
       schema={resolvedPath.schema as SerializedSchema}
-      setSelectedPath={setSelectedPath}
       initOnSubmit={initOnSubmit}
       top
     />

@@ -6,6 +6,7 @@ import { ShadowRoot } from "./components/ShadowRoot";
 import { VAL_CSS_PATH } from "../src/constants";
 import { fallbackRender } from "./fallbackRender";
 import { ValOverlay } from "./components/ValOverlay";
+import { ValRouter } from "./components/ValRouter";
 
 function Overlay() {
   const host = "/api/val";
@@ -34,19 +35,21 @@ function Overlay() {
           rel="stylesheet"
           href={`${host || "/api/val"}/static${VAL_CSS_PATH}`}
         />
-        <ValOverlay
-          api={api}
-          store={store}
-          onSubmit={() => {
-            const event = new CustomEvent("val-event", {
-              detail: {
-                type: "overlay-submit",
-                refreshRequired: true,
-              },
-            });
-            window.dispatchEvent(event);
-          }}
-        />
+        <ValRouter hardLink>
+          <ValOverlay
+            api={api}
+            store={store}
+            onSubmit={() => {
+              const event = new CustomEvent("val-event", {
+                detail: {
+                  type: "overlay-submit",
+                  refreshRequired: true,
+                },
+              });
+              window.dispatchEvent(event);
+            }}
+          />
+        </ValRouter>
       </ShadowRoot>
     </ErrorBoundary>
   );

@@ -46,6 +46,7 @@ export class ValStore {
         console.error("Val: could not find the module", {
           moduleIds: Object.keys(data.value.modules),
           moduleId,
+          data,
         });
         return result.err({
           message:

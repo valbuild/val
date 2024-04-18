@@ -207,7 +207,6 @@ function StringUnionField({
 }) {
   const [value, setValue] = useState<string>();
   useEffect(() => {
-    console.log({ defaultValue });
     if (defaultValue !== null && defaultValue !== undefined) {
       setValue(defaultValue);
     }
