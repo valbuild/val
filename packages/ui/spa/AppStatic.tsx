@@ -1,6 +1,6 @@
 "use client";
 import { ValApi } from "@valbuild/core";
-import { ValFullscreen } from "./components/ValFullscreen";
+import { ValContentView } from "./components/ValContentView";
 import { ErrorBoundary } from "react-error-boundary";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { ValStore } from "@valbuild/shared/internal";
@@ -18,7 +18,7 @@ function AppStatic() {
         path: "/*",
         element: (
           <ErrorBoundary fallbackRender={fallbackRender}>
-            <ValFullscreen api={api} store={store} />
+            <ValContentView api={api} store={store} />
           </ErrorBoundary>
         ),
       },

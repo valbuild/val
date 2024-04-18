@@ -31,7 +31,7 @@ interface ValFullscreenProps {
   store: ValStore;
 }
 
-export const ValFullscreen: FC<ValFullscreenProps> = ({ api, store }) => {
+export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
   const { "*": pathFromParams } = useParams();
   const [error, setError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<SourcePath | ModuleId>();
