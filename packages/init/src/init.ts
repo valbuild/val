@@ -27,7 +27,13 @@ export async function init(
   root: string = process.cwd(),
   { yes: defaultAnswers }: { yes?: boolean } = {}
 ) {
-  logger.info('Initializing Val in "' + root + '"...\n');
+  logger.info(
+    "Initializing " +
+      chalk.bgBlack.hex("#37cd99")("Val") +
+      ' in "' +
+      root +
+      '"...\n'
+  );
   process.stdout.write("Analyzing project...");
   const analysis = await analyze(path.resolve(root), walk(path.resolve(root)));
   // reset cursor:
@@ -256,7 +262,7 @@ type Plan = Partial<{
   useJavascript: boolean;
   abort: boolean;
   ignoreGitDirty: boolean;
-  gitIgnore: false | FileOp;
+  updateGitIgnore: false | FileOp;
   gitRemote:
     | false
     | {
@@ -264,7 +270,7 @@ type Plan = Partial<{
         repo: string;
       };
   includeExample: false | FileOp;
-  vsCodeSettings: false | FileOp;
+  updateVSCodeSettings: false | FileOp;
 }>;
 
 async function plan(
@@ -288,7 +294,7 @@ async function plan(
     return { abort: true };
   }
   if (analysis.srcDir) {
-    logger.info("  Source dir: " + analysis.root, { isGood: true });
+    logger.info("  Source dir: " + analysis.srcDir, { isGood: true });
   } else {
     logger.error("Failed to determine source directory");
     return { abort: true };
@@ -650,17 +656,17 @@ async function plan(
         default: true,
       });
       if (answer) {
-        plan.gitIgnore = {
+        plan.updateGitIgnore = {
           path: analysis.gitIgnorePath,
           source:
             (analysis.gitIgnoreFile ? `${analysis.gitIgnoreFile}\n\n` : "") +
             "# Val local cache\n.val\n",
         };
       } else {
-        plan.gitIgnore = false;
+        plan.updateGitIgnore = false;
       }
     } else {
-      plan.gitIgnore = false;
+      plan.updateGitIgnore = false;
     }
   }
   {
@@ -692,20 +698,24 @@ async function plan(
       } catch {
         // ignore - dir does not exist (most likely)
       }
-      currentSettings = {
-        ...currentSettings,
-        recommendations: [
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ...((currentSettings as any).recommendations || []),
-          "valbuild.vscode-val-build",
-        ],
-      };
-      plan.vsCodeSettings = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const currentRecommendations: string[] = (currentSettings as any)
+        .recommendations;
+      const valBuildIntelliSense = "valbuild.vscode-val-build";
+      if (!currentRecommendations.includes(valBuildIntelliSense)) {
+        currentSettings = {
+          ...currentSettings,
+          recommendations: (currentRecommendations || []).concat(
+            valBuildIntelliSense
+          ),
+        };
+      }
+      plan.updateVSCodeSettings = {
         path: settingsPath,
         source: JSON.stringify(currentSettings, null, 2),
       };
     } else {
-      plan.vsCodeSettings = false;
+      plan.updateVSCodeSettings = false;
     }
   }
 
@@ -770,18 +780,14 @@ Val was successfully initialized!
 
   $ ${chalk.gray("npm run dev")}
 
-  And open:
+  Open (assumes http://localhost:3000):
 
-  ${chalk
-    .hex("#8a37cd")
-    .underline(
-      `http://localhost:3000/api/val/enable?redirect_to=http://localhost:3000`
-    )}
+  ${chalk.bgBlack.hex("#37cd99").underline(`http://localhost:3000/val`)}
 
-  To enable remote editor support, import the project by opening the following link:
+  When you want to enable editor support, import the project by opening the following link:
   
-  ${chalk
-    .hex("#8a37cd")
+  ${chalk.bgBlack
+    .hex("#37cd99")
     .underline(
       `https://app.val.build/orgs/new${
         plan.gitRemote
