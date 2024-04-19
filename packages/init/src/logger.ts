@@ -1,11 +1,11 @@
 import chalk from "chalk";
 
 export function error(message: string) {
-  console.error(chalk.red("❌ ERROR: ") + message);
+  console.error(chalk.red("  ❌ ERROR: ") + message);
 }
 
 export function warn(message: string) {
-  console.error(chalk.yellow("⚠️  WARN:") + message);
+  console.error(chalk.yellow("  ⚠️  WARN:" + message));
 }
 
 export function info(
@@ -17,7 +17,7 @@ export function info(
     return;
   }
   if (opts.isGood) {
-    console.log(chalk.green("✅      ") + message);
+    console.log(chalk.hex("#37cd99")("  V") + message);
     return;
   }
   console.log(message);
