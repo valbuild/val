@@ -8,6 +8,7 @@ import {
   PatchId,
   ApiDeletePatchResponse,
   Internal,
+  ModulePath,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -435,8 +436,11 @@ export class LocalValServer extends ValServer {
     return result.ok(undefined);
   }
 
-  protected getModule(moduleId: ModuleId): Promise<SerializedModuleContent> {
-    return this.options.service.get(moduleId);
+  protected getModule(
+    moduleId: ModuleId,
+    options: { validate: boolean; source: boolean; schema: boolean }
+  ): Promise<SerializedModuleContent> {
+    return this.options.service.get(moduleId, "" as ModulePath, options);
   }
 
   protected async execCommit(patches: [PatchId, ModuleId, Patch][]): Promise<

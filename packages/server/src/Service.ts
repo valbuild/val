@@ -85,12 +85,14 @@ export class Service {
 
   async get(
     moduleId: ModuleId,
-    modulePath: ModulePath = "" as ModulePath
+    modulePath: ModulePath,
+    options?: { validate: boolean; source: boolean; schema: boolean }
   ): Promise<SerializedModuleContent> {
     const valModule = await readValFile(
       moduleId,
       this.valConfigPath,
-      this.runtime
+      this.runtime,
+      options ?? { validate: true, source: true, schema: true }
     );
 
     if (valModule.source && valModule.schema) {

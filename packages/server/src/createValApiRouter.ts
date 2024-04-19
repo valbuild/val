@@ -409,6 +409,7 @@ export function createValApiRouter<Res>(
               patch: url.searchParams.get("patch") || undefined,
               schema: url.searchParams.get("schema") || undefined,
               source: url.searchParams.get("source") || undefined,
+              validate: url.searchParams.get("validate") || undefined,
             },
             getCookies(req, [VAL_SESSION_COOKIE]),
             requestHeaders

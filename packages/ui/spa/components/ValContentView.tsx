@@ -36,16 +36,24 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
   const params = useParams();
   const selectedPath = params.sourcePath || ("" as SourcePath);
   const [moduleIds, setModuleIds] = useState<ModuleId[]>();
+  const [initializationState, setInitializationState] = useState<
+    "not-asked" | "running" | "complete" | "failed"
+  >("not-asked");
 
   useEffect(() => {
-    store.reset().then((res) => {
-      if (result.isOk(res)) {
-        setModuleIds(res.value);
-      } else {
-        setError(res.error.message);
-      }
-    });
-  }, []);
+    if (initializationState === "not-asked") {
+      setInitializationState("running");
+      store.initialize().then((res) => {
+        if (result.isOk(res)) {
+          setModuleIds(res.value);
+          setInitializationState("complete");
+        } else {
+          setError(res.error.message);
+          setInitializationState("failed");
+        }
+      });
+    }
+  }, [initializationState]);
   const session = useSession(api);
 
   const [theme, setTheme] = useTheme();
@@ -70,46 +78,48 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
 
   useEffect(() => {
     let ignore = false;
-    setIsValidating(true);
-    api
-      .postValidate({
-        patches,
-      })
-      .then((res) => {
-        if (!ignore) {
-          if (result.isOk(res)) {
-            setValidationResponse({
-              globalError: null,
-              validationErrors: res.value,
-            });
-          } else {
+    if (moduleIds !== undefined) {
+      setIsValidating(true);
+      api
+        .postValidate({
+          patches,
+        })
+        .then((res) => {
+          if (!ignore) {
+            if (result.isOk(res)) {
+              setValidationResponse({
+                globalError: null,
+                validationErrors: res.value,
+              });
+            } else {
+              setValidationResponse({
+                globalError: {
+                  message:
+                    "Could not validate changes: check if Val is correctly setup.",
+                  details: res.error,
+                },
+              });
+            }
+            setIsValidating(false);
+          }
+        })
+        .catch((err) => {
+          if (!ignore) {
             setValidationResponse({
               globalError: {
                 message:
-                  "Could not validate changes: check if Val is correctly setup.",
-                details: res.error,
+                  "Could not validate changes: check the internet connection.",
+                details: err,
               },
             });
+            setIsValidating(false);
           }
-          setIsValidating(false);
-        }
-      })
-      .catch((err) => {
-        if (!ignore) {
-          setValidationResponse({
-            globalError: {
-              message:
-                "Could not validate changes: check the internet connection.",
-              details: err,
-            },
-          });
-          setIsValidating(false);
-        }
-      });
+        });
+    }
     return () => {
       ignore = true;
     };
-  }, [patches]);
+  }, [patches, moduleIds]);
 
   return (
     <ValUIContext.Provider

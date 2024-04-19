@@ -6,7 +6,8 @@ import { SerializedModuleContent } from "./SerializedModuleContent";
 export const readValFile = async (
   id: string,
   valConfigPath: string,
-  runtime: QuickJSRuntime
+  runtime: QuickJSRuntime,
+  options: { validate: boolean; source: boolean; schema: boolean }
 ): Promise<SerializedModuleContent> => {
   const context = runtime.newContext();
 
@@ -27,8 +28,35 @@ export const readValFile = async (
   context.setProp(processHandle, "env", envHandle);
   context.setProp(context.global, "process", processHandle);
 
+  const optionsHandle = context.newObject();
+  if (options) {
+    if (options.validate !== undefined) {
+      context.setProp(
+        optionsHandle,
+        "validate",
+        context.newNumber(+options.validate)
+      );
+    }
+    if (options.source !== undefined) {
+      context.setProp(
+        optionsHandle,
+        "source",
+        context.newNumber(+options.source)
+      );
+    }
+    if (options.schema !== undefined) {
+      context.setProp(
+        optionsHandle,
+        "schema",
+        context.newNumber(+options.schema)
+      );
+    }
+  }
+  context.setProp(context.global, "__VAL_OPTIONS__", optionsHandle);
+
   envHandle.dispose();
   processHandle.dispose();
+  optionsHandle.dispose();
 
   try {
     const modulePath = `.${id}.val`;
@@ -37,12 +65,12 @@ import { Internal } from "@valbuild/core";
 
 globalThis.valModule = { 
   id: valModule?.default && Internal.getValPath(valModule?.default),
-  schema: valModule?.default && Internal.getSchema(valModule?.default)?.serialize(),
-  source: valModule?.default && Internal.getSource(valModule?.default),
-  validation: valModule?.default && Internal.getSchema(valModule?.default)?.validate(
+  schema: !!globalThis['__VAL_OPTIONS__'].schema ? valModule?.default && Internal.getSchema(valModule?.default)?.serialize() : undefined,
+  source: !!globalThis['__VAL_OPTIONS__'].source ? valModule?.default && Internal.getSource(valModule?.default) : undefined,
+  validation: !!globalThis['__VAL_OPTIONS__'].validate ? valModule?.default && Internal.getSchema(valModule?.default)?.validate(
     valModule?.default && Internal.getValPath(valModule?.default) || "/",
     valModule?.default && Internal.getSource(valModule?.default)
-  ),
+  ) : undefined,
   defaultExport: !!valModule?.default,
 };
 `;
@@ -97,9 +125,9 @@ globalThis.valModule = {
               valModule.id
             ).replace("%2F", "/")}'`
           );
-        } else if (valModule?.schema === undefined) {
+        } else if (valModule?.schema === undefined && options.schema) {
           fatalErrors.push(`Expected val id: '${id}' to have a schema`);
-        } else if (valModule?.source === undefined) {
+        } else if (valModule?.source === undefined && options.source) {
           fatalErrors.push(`Expected val id: '${id}' to have a source`);
         }
       }

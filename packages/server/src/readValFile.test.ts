@@ -41,7 +41,12 @@ describe("read val file", () => {
     const result = await readValFile(
       "/pages/blogs",
       testCase.valConfigPath,
-      testRuntime
+      testRuntime,
+      {
+        schema: true,
+        source: true,
+        validate: true,
+      }
     );
     expect(result).toHaveProperty("source");
     expect(result).toHaveProperty("schema");

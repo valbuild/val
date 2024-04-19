@@ -138,7 +138,12 @@ export abstract class ValServer implements IValServer {
   async getTree(
     treePath: string,
     // TODO: use the params: patch, schema, source now we return everything, every time
-    query: { patch?: string; schema?: string; source?: string },
+    query: {
+      patch?: string;
+      schema?: string;
+      source?: string;
+      validate?: string;
+    },
     cookies: ValCookies<VAL_SESSION_COOKIE>,
     requestHeaders: RequestHeaders
   ): Promise<ValServerJsonResult<ApiTreeResponse>> {
@@ -146,10 +151,13 @@ export abstract class ValServer implements IValServer {
     if (result.isErr(ensureRes)) {
       return ensureRes.error;
     }
+    const applyPatches = query.patch === "true";
+    const execValidations = query.validate === "true";
+    const includeSource = query.source === "true";
+    const includeSchema = query.schema === "true";
 
     const moduleIds = this.getAllModules(treePath);
 
-    const applyPatches = query.patch === "true";
     let {
       patchIdsByModuleId,
       patchesById,
@@ -180,9 +188,12 @@ export abstract class ValServer implements IValServer {
           patchIdsByModuleId,
           patchesById,
           fileUpdates,
-          applyPatches,
           cookies,
-          requestHeaders
+          requestHeaders,
+          applyPatches,
+          execValidations,
+          includeSource,
+          includeSchema
         );
       })
     );
@@ -282,16 +293,23 @@ export abstract class ValServer implements IValServer {
     patchIdsByModuleId: Record<ModuleId, PatchId[]>,
     patchesById: Record<PatchId, Patch>,
     fileUpdates: Record<string /* filePath */, PatchFileMetadata>,
-    applyPatches: boolean,
     cookies: ValCookies<VAL_SESSION_COOKIE>,
-    requestHeaders: RequestHeaders
+    requestHeaders: RequestHeaders,
+    applyPatches: boolean,
+    validate: boolean,
+    includeSource: boolean,
+    includeSchema: boolean
   ): Promise<SerializedModuleContent> {
-    const serializedModuleContent = await this.getModule(moduleId);
-    const schema = serializedModuleContent.schema;
-    const maybeSource = serializedModuleContent.source;
+    const serializedModuleContent = await this.getModule(moduleId, {
+      validate: validate,
+      source: includeSource,
+      schema: includeSchema,
+    });
     if (!applyPatches) {
       return serializedModuleContent;
     }
+    const schema = serializedModuleContent.schema;
+    const maybeSource = serializedModuleContent.source;
     if (
       serializedModuleContent.errors &&
       (serializedModuleContent.errors.fatal ||
@@ -342,25 +360,27 @@ export abstract class ValServer implements IValServer {
       }
     }
 
-    const validationErrors = deserializeSchema(schema).validate(
-      moduleId as string as SourcePath,
-      source
-    );
-    if (validationErrors) {
-      const revalidated = await this.revalidateImageAndFileValidation(
-        validationErrors,
-        fileUpdates,
-        cookies,
-        requestHeaders
+    if (validate) {
+      const validationErrors = deserializeSchema(schema).validate(
+        moduleId as string as SourcePath,
+        source
       );
-      return {
-        path: moduleId as string as SourcePath,
-        schema,
-        source,
-        errors: revalidated && {
-          validation: revalidated,
-        },
-      };
+      if (validationErrors) {
+        const revalidated = await this.revalidateImageAndFileValidation(
+          validationErrors,
+          fileUpdates,
+          cookies,
+          requestHeaders
+        );
+        return {
+          path: moduleId as string as SourcePath,
+          schema,
+          source,
+          errors: revalidated && {
+            validation: revalidated,
+          },
+        };
+      }
     }
 
     return {
@@ -380,7 +400,7 @@ export abstract class ValServer implements IValServer {
     validationErrors: Record<SourcePath, ValidationError[]>,
     fileUpdates: Record<string /* filePath */, PatchFileMetadata>,
     cookies: ValCookies<VAL_SESSION_COOKIE>,
-    requestHeaders: RequestHeaders
+    reqHeaders: RequestHeaders
   ): Promise<false | Record<SourcePath, ValidationError[]>> {
     const revalidatedValidationErrors: Record<SourcePath, ValidationError[]> =
       {};
@@ -411,7 +431,7 @@ export abstract class ValServer implements IValServer {
                     sha256: updatedFileMetadata.sha256,
                   },
                   cookies,
-                  requestHeaders
+                  reqHeaders
                 );
                 if (fileRes.status === 200 && fileRes.body) {
                   const res = new Response(fileRes.body);
@@ -688,9 +708,12 @@ export abstract class ValServer implements IValServer {
           patchIdsByModuleId,
         patchesById,
         fileUpdates,
-        true,
         cookies,
-        requestHeaders
+        requestHeaders,
+        true,
+        true,
+        true,
+        true
       );
       if (serializedModuleContent.errors) {
         validationErrorsByModuleId[moduleId] = serializedModuleContent;
@@ -795,7 +818,8 @@ export abstract class ValServer implements IValServer {
   ): Promise<result.Result<undefined, ValServerError>>;
 
   protected abstract getModule(
-    moduleId: ModuleId
+    moduleId: ModuleId,
+    options: { validate: boolean; source: boolean; schema: boolean }
   ): Promise<SerializedModuleContent>;
 
   protected abstract execCommit(
@@ -986,7 +1010,12 @@ export interface IValServer {
   ): Promise<ValServerJsonResult<ValSession>>;
   getTree(
     treePath: string,
-    query: { patch?: string; schema?: string; source?: string },
+    query: {
+      patch?: string;
+      schema?: string;
+      source?: string;
+      validate?: string;
+    },
     cookies: ValCookies<VAL_SESSION_COOKIE>,
     requestHeaders: RequestHeaders
   ): Promise<ValServerJsonResult<ApiTreeResponse>>;

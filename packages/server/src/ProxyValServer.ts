@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import {
   ENABLE_COOKIE_VALUE,
+  RequestHeaders,
   ValServer,
   ValServerCallbacks,
   isCachedPatchFileOp,
@@ -26,6 +27,7 @@ import {
   PatchId,
   ModuleId,
   Internal,
+  ModulePath,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { DirectoryNode, RemoteFS } from "./RemoteFS";
@@ -67,7 +69,8 @@ export class ProxyValServer extends ValServer {
   /** Remote FS dependent methods: */
 
   protected async getModule(
-    moduleId: ModuleId
+    moduleId: ModuleId,
+    options: { validate: boolean; source: boolean; schema: boolean }
   ): Promise<SerializedModuleContent> {
     if (!this.lazyService) {
       this.lazyService = await createService(
@@ -76,7 +79,7 @@ export class ProxyValServer extends ValServer {
         this.remoteFS
       );
     }
-    return this.lazyService.get(moduleId);
+    return this.lazyService.get(moduleId, "" as ModulePath, options);
   }
 
   protected execCommit(
@@ -667,10 +670,7 @@ export class ProxyValServer extends ValServer {
     filePath: string,
     query: { sha256?: string },
     cookies: ValCookies<VAL_SESSION_COOKIE>,
-    reqHeaders: {
-      host?: string;
-      "x-forwarded-proto"?: string;
-    }
+    reqHeaders: RequestHeaders
   ): Promise<
     | ValServerResult<never, ReadableStream<Uint8Array>>
     | ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>
