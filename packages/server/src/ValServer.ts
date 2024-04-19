@@ -452,19 +452,6 @@ export abstract class ValServer implements IValServer {
                 );
               }
               if (!fileBuffer) {
-                try {
-                  fileBuffer = await this.readStaticBinaryFile(filePath);
-                } catch (err) {
-                  console.error(
-                    "Val: unexpected error while reading image / file:",
-                    filePath,
-                    {
-                      error: err,
-                    }
-                  );
-                }
-              }
-              if (!fileBuffer) {
                 revalidatedValidationErrors[errorSourcePath].push({
                   message: `Could not read file: ${filePath}`,
                 });
