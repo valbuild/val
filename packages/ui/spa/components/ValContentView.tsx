@@ -232,6 +232,7 @@ function ModulePane({
     if (moduleId) {
       setRootModule(null);
       setLoading(true);
+      setModuleError(undefined);
       store
         .getModule(moduleId)
         .then((res) => {
