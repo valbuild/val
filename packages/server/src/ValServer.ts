@@ -426,6 +426,28 @@ export abstract class ValServer implements IValServer {
                   );
                 }
               }
+              // try fetch file directly via http
+              if (fileRef.startsWith("/public")) {
+                const fetchRes = await fetch(fileRef.slice("/public".length));
+                if (fetchRes.status === 200) {
+                  fileBuffer = Buffer.from(await fetchRes.arrayBuffer());
+                } else {
+                  console.error(
+                    "Val: unexpected error while fetching image / file:",
+                    fileRef,
+                    {
+                      error: {
+                        status: fetchRes.status,
+                      },
+                    }
+                  );
+                }
+              } else {
+                console.error(
+                  "Val: unexpected while getting public image / file (file reference did not start with /public)",
+                  fileRef
+                );
+              }
               if (!fileBuffer) {
                 try {
                   fileBuffer = await this.readStaticBinaryFile(filePath);
