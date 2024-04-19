@@ -73,11 +73,18 @@ export class ValStore {
         });
       }
     } else {
-      console.error("Val: failed to get module", data.error);
-      return result.err({
-        message:
-          "Could not fetch data. Verify that Val is correctly configured.",
-      });
+      if (data.error.statusCode === 504) {
+        console.error("Val: timeout", data.error);
+        return result.err({
+          message: "Timed out while fetching data. Try again later.",
+        });
+      } else {
+        console.error("Val: failed to get module", data.error);
+        return result.err({
+          message:
+            "Could not fetch data. Verify that Val is correctly configured.",
+        });
+      }
     }
   }
 
