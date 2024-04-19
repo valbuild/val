@@ -55,6 +55,7 @@ export type ProxyValServerOptions = {
 export class ProxyValServer extends ValServer {
   private remoteFS: RemoteFS;
   private lazyService: Service | undefined;
+  private moduleCache: Record<string, SerializedModuleContent> = {};
   constructor(
     readonly cwd: string,
     readonly options: ProxyValServerOptions,
@@ -72,6 +73,16 @@ export class ProxyValServer extends ValServer {
     moduleId: ModuleId,
     options: { validate: boolean; source: boolean; schema: boolean }
   ): Promise<SerializedModuleContent> {
+    const cacheKey =
+      moduleId +
+      ";" +
+      JSON.stringify(options) +
+      this.options.git.commit +
+      this.cwd;
+    const cachedModule = this.moduleCache[cacheKey];
+    if (cachedModule) {
+      return Promise.resolve(cachedModule);
+    }
     if (!this.lazyService) {
       this.lazyService = await createService(
         this.cwd,
@@ -79,7 +90,13 @@ export class ProxyValServer extends ValServer {
         this.remoteFS
       );
     }
-    return this.lazyService.get(moduleId, "" as ModulePath, options);
+    const currentModule = await this.lazyService.get(
+      moduleId,
+      "" as ModulePath,
+      options
+    );
+    this.moduleCache[cacheKey] = currentModule;
+    return currentModule;
   }
 
   protected execCommit(
