@@ -74,7 +74,11 @@ export async function validate({
   async function validateFile(file: string): Promise<number> {
     const moduleId = `/${file}`.replace(/(\.val\.(ts|js))$/, "") as ModuleId; // TODO: check if this always works? (Windows?)
     const start = Date.now();
-    const valModule = await service.get(moduleId, "" as ModulePath);
+    const valModule = await service.get(moduleId, "" as ModulePath, {
+      source: true,
+      schema: true,
+      validate: true,
+    });
     const fileContent = await fs.readFile(
       path.join(projectRoot, file),
       "utf-8"

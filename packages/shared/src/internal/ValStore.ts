@@ -40,6 +40,8 @@ export class ValStore {
       patch: true,
       treePath: moduleId,
       includeSource: true,
+      includeSchema: true,
+      validate: true,
     });
     if (result.isOk(data)) {
       if (!data.value.modules[moduleId]) {
@@ -100,6 +102,8 @@ export class ValStore {
         patch: true,
         treePath: moduleId,
         includeSource: true,
+        includeSchema: true,
+        validate: true,
       });
       if (result.isOk(data)) {
         const fetchedSource = data.value.modules[moduleId].source;
@@ -176,6 +180,52 @@ export class ValStore {
     return this.updateTree();
   }
 
+  async initialize(): Promise<
+    result.Result<
+      ModuleId[],
+      {
+        message: string;
+        details: {
+          fetchError: {
+            message: string;
+            statusCode?: number;
+          };
+        };
+      }
+    >
+  > {
+    const data = await this.api.getTree({
+      patch: false,
+      includeSource: false,
+      includeSchema: true,
+      validate: false,
+    });
+    if (result.isOk(data)) {
+      const moduleIds: ModuleId[] = [];
+      for (const moduleId of Object.keys(data.value.modules) as ModuleId[]) {
+        const schema = data.value.modules[moduleId].schema;
+        if (schema) {
+          moduleIds.push(moduleId);
+          this.schema[moduleId] = schema;
+        }
+      }
+      return result.ok(moduleIds);
+    } else {
+      let msg = "Failed to fetch content. ";
+      if (data.error.statusCode === 401) {
+        msg += "Authorization failed - check that you are logged in.";
+      } else {
+        msg += "Get a developer to verify that Val is correctly setup.";
+      }
+      return result.err({
+        message: msg,
+        details: {
+          fetchError: data.error,
+        },
+      });
+    }
+  }
+
   private async updateTree(treePath?: string): Promise<
     result.Result<
       ModuleId[],
@@ -194,6 +244,8 @@ export class ValStore {
       patch: true,
       treePath,
       includeSource: true,
+      includeSchema: true,
+      validate: true,
     });
     const moduleIds: ModuleId[] = [];
     if (result.isOk(data)) {

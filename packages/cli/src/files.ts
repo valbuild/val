@@ -33,7 +33,11 @@ export async function files({
   const absoluteFilesPathUsedByVal: string[] = [];
   async function printOrGetFileRefs(file: string) {
     const moduleId = `/${file}`.replace(/(\.val\.(ts|js))$/, "") as ModuleId; // TODO: check if this always works? (Windows?)
-    const valModule = await service.get(moduleId, "" as ModulePath);
+    const valModule = await service.get(moduleId, "" as ModulePath, {
+      validate: true,
+      source: true,
+      schema: true,
+    });
     // TODO: not sure using validation is the best way to do this, but it works currently.
     if (valModule.errors) {
       if (valModule.errors.validation) {

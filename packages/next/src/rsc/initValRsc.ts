@@ -79,6 +79,8 @@ const initFetchValStega =
             treePath: optimizeTreePath(valModuleIds) ?? undefined,
             patch: true,
             includeSource: true,
+            includeSchema: true,
+            validate: true,
             headers: getValAuthHeaders(cookies),
           })
           .then((res) => {

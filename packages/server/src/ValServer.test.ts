@@ -4,6 +4,7 @@ import {
   ApiDeletePatchResponse,
   ApiPostPatchResponse,
   ApiGetPatchResponse,
+  ModulePath,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { Result } from "@valbuild/core/src/fp/result";
@@ -74,6 +75,7 @@ describe("ValServer", () => {
         "/",
         {
           patch: true.toString(),
+          validate: true.toString(),
         },
         {},
         {}
@@ -98,6 +100,7 @@ describe("ValServer", () => {
         "/src/pages/metadata-tests",
         {
           patch: true.toString(),
+          validate: true.toString(),
         },
         {},
         {}
@@ -186,10 +189,11 @@ class TestValServer extends ValServer {
   }
 
   protected async getModule(
-    moduleId: ModuleId
+    moduleId: ModuleId,
+    options: { validate: boolean; source: boolean; schema: boolean }
   ): Promise<SerializedModuleContent> {
     const service = await createService(this.cwd, {}, this.remoteFS);
-    return service.get(moduleId);
+    return service.get(moduleId, "" as ModulePath, options);
   }
 
   async postPatches(
