@@ -1,7 +1,7 @@
 <p align="center">
   <h1 align="center">Val</h1>
   <p align="center">
-    ✨ <a href="https://app.val.build">https://app.val.build</a> ✨
+    ✨ <a href="https://val.build">https://val.build</a> ✨
     <br/>
     content - super-charged - hard-coded
   </p>
