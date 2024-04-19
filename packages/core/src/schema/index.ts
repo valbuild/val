@@ -38,6 +38,9 @@ export abstract class Schema<Src extends SelectorSource> {
   abstract assert(src: Src): boolean; // TODO: false | Record<SourcePath, string[]>;
   abstract optional(): Schema<Src | null>;
   abstract serialize(): SerializedSchema;
+  nullable(): Schema<Src | null> {
+    return this.optional();
+  }
   // remote(): Src extends RemoteCompatibleSource
   //   ? Schema<RemoteSource<Src>>
   //   : never {
