@@ -428,7 +428,9 @@ export abstract class ValServer implements IValServer {
               }
               // try fetch file directly via http
               if (fileRef.startsWith("/public")) {
-                const fetchRes = await fetch(fileRef.slice("/public".length));
+                const host = `${reqHeaders["x-forwarded-proto"]}://${reqHeaders["host"]}`;
+                const fileUrl = fileRef.slice("/public".length);
+                const fetchRes = await fetch(new URL(fileUrl, host));
                 if (fetchRes.status === 200) {
                   fileBuffer = Buffer.from(await fetchRes.arrayBuffer());
                 } else {
@@ -438,6 +440,7 @@ export abstract class ValServer implements IValServer {
                     {
                       error: {
                         status: fetchRes.status,
+                        url: fetchRes.url,
                       },
                     }
                   );
