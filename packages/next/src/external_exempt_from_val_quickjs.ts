@@ -36,6 +36,7 @@ export { ValProvider } from "./ValProvider";
 export { ValImage, type ValImageProps } from "./ValImage";
 export { ValApp } from "./ValApp";
 
+import { Internal as InternalCore } from "@valbuild/core";
 // Auto-tag JSX with Val paths:
 import { autoTagJSX } from "@valbuild/react/stega";
 
@@ -44,3 +45,18 @@ autoTagJSX();
 
 // Convenience types
 export type * as t from "./ValTypes";
+
+export const Internal = {
+  ...InternalCore,
+  VERSION: {
+    ...InternalCore.VERSION,
+    next: ((): string | null => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        return require("../package.json").version;
+      } catch {
+        return null;
+      }
+    })(),
+  },
+};
