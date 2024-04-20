@@ -149,6 +149,13 @@ export function ValRichText<O extends RichTextOptions>({
       className,
       children,
       href: tag === "a" ? child.href : undefined,
+      src:
+        tag === "img"
+          ? child.src && `/api/val/files/public${child.src}`
+          : undefined,
+      alt: tag === "img" ? child.alt : undefined,
+      width: tag === "img" ? child.width : undefined,
+      height: tag === "img" ? child.height : undefined,
     });
   }
   return (
