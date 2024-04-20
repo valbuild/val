@@ -205,6 +205,16 @@ export type ApiPostValidationErrorResponse = {
 };
 
 const Internal = {
+  VERSION: {
+    core: ((): string | null => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        return require("../package.json").version;
+      } catch {
+        return null;
+      }
+    })(),
+  },
   convertFileSource,
   getSchema,
   getValPath,
