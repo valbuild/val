@@ -21,16 +21,10 @@ import path from "path";
 
 export type ServiceOptions = {
   /**
-   * Relative path to the val.config.js file from the root directory.
-   *
-   * @example "./val.config"
-   */
-  valConfigPath?: string;
-  /**
    * Disable cache for transpilation
    *
    * @default false
-   *    */
+   */
   disableCache?: boolean;
 };
 
@@ -69,18 +63,18 @@ export async function createService(
           : opts.disableCache
       )
   );
-  return new Service(opts, sourceFileHandler, runtime);
+  return new Service(projectRoot, sourceFileHandler, runtime);
 }
 
 export class Service {
-  readonly valConfigPath: string;
+  readonly projectRoot: string;
 
   constructor(
-    { valConfigPath }: ServiceOptions,
+    projectRoot: string,
     readonly sourceFileHandler: ValSourceFileHandler,
     private readonly runtime: QuickJSRuntime
   ) {
-    this.valConfigPath = valConfigPath || "./val.config";
+    this.projectRoot = projectRoot;
   }
 
   async get(
@@ -90,7 +84,7 @@ export class Service {
   ): Promise<SerializedModuleContent> {
     const valModule = await readValFile(
       moduleId,
-      this.valConfigPath,
+      this.projectRoot,
       this.runtime,
       options ?? { validate: true, source: true, schema: true }
     );
@@ -131,7 +125,7 @@ export class Service {
   async patch(moduleId: ModuleId, patch: Patch): Promise<void> {
     await patchValFile(
       moduleId,
-      this.valConfigPath,
+      this.projectRoot,
       patch,
       this.sourceFileHandler,
       this.runtime

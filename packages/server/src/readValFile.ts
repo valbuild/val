@@ -5,7 +5,7 @@ import { SerializedModuleContent } from "./SerializedModuleContent";
 
 export const readValFile = async (
   id: string,
-  valConfigPath: string,
+  rootDirPath: string,
   runtime: QuickJSRuntime,
   options: { validate: boolean; source: boolean; schema: boolean }
 ): Promise<SerializedModuleContent> => {
@@ -77,7 +77,7 @@ globalThis.valModule = {
     const result = context.evalCode(
       code,
       // Synthetic module name
-      path.join(path.dirname(valConfigPath), "<val>")
+      path.join(path.dirname(rootDirPath), "<val>")
     );
     const fatalErrors: string[] = [];
     if (result.error) {
