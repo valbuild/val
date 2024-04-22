@@ -2,6 +2,8 @@ import meow from "meow";
 import { error } from "./logger";
 import { validate } from "./validate";
 import { files as files } from "./files";
+import { getVersions } from "./getVersions";
+import chalk from "chalk";
 
 async function main(): Promise<void> {
   const { input, flags, showHelp } = meow(
@@ -15,6 +17,7 @@ async function main(): Promise<void> {
       Commands:
         validate
         list-files
+        versions
       
       Command: validate
       Description: val-idate val modules
@@ -88,6 +91,8 @@ async function main(): Promise<void> {
         cfg: flags.cfg,
         managedDir: flags.managedDir,
       });
+    case "versions":
+      return versions();
     case "validate":
     case "idate":
       if (flags.managedDir) {
@@ -114,3 +119,9 @@ void main().catch((err) => {
   );
   process.exitCode = 1;
 });
+
+async function versions() {
+  const foundVersions = await getVersions();
+  console.log(`${chalk.cyan("@valbuild/core")}: ${foundVersions.coreVersion}`);
+  console.log(`${chalk.cyan("@valbuild/next")}: ${foundVersions.nextVersion}`);
+}
