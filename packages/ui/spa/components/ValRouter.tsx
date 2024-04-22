@@ -25,30 +25,32 @@ function sourcePathFromBasePath(basePath: string): SourcePath {
 
 export function ValRouter({
   children,
-  hardLink,
+  overlay,
 }: {
   children: React.ReactNode;
-  hardLink?: boolean;
+  overlay?: boolean;
 }) {
   const [basePath, setBasePath] = React.useState("");
   const [currentSourcePath, setCurrentSourcePath] = React.useState(
     sourcePathFromBasePath(basePath)
   );
   useEffect(() => {
-    const basePath = getBasePath();
-    if (basePath) {
-      setCurrentSourcePath(sourcePathFromBasePath(basePath));
-    }
+    if (!overlay) {
+      const basePath = getBasePath();
+      if (basePath) {
+        setCurrentSourcePath(sourcePathFromBasePath(basePath));
+      }
 
-    window.onpopstate = () => {
-      const pathSegments = window.location.pathname.split("/");
-      const valIndex = getBaseIndex(pathSegments);
-      const basePath = (
-        valIndex === -1 ? pathSegments : pathSegments.slice(valIndex + 1)
-      ).join("/");
-      setCurrentSourcePath(sourcePathFromBasePath(basePath));
-      setBasePath(basePath);
-    };
+      window.onpopstate = () => {
+        const pathSegments = window.location.pathname.split("/");
+        const valIndex = getBaseIndex(pathSegments);
+        const basePath = (
+          valIndex === -1 ? pathSegments : pathSegments.slice(valIndex + 1)
+        ).join("/");
+        setCurrentSourcePath(sourcePathFromBasePath(basePath));
+        setBasePath(basePath);
+      };
+    }
   }, []);
 
   const [moduleId, modulePath] =
@@ -57,9 +59,9 @@ export function ValRouter({
   return (
     <ValRouterContext.Provider
       value={{
-        hardLink: !!hardLink,
+        hardLink: !!overlay,
         useNavigate: () => (path: SourcePath | ModuleId) => {
-          if (hardLink) {
+          if (overlay) {
             // TODO: avoid hard coding here
             window.location.href = `/val${path}`;
           } else {

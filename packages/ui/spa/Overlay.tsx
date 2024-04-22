@@ -40,7 +40,7 @@ function Overlay() {
           rel="stylesheet"
           href={`${host || "/api/val"}/static${VAL_CSS_PATH}`}
         />
-        <ValRouter hardLink>
+        <ValRouter overlay>
           <ValOverlay
             api={api}
             store={store}
