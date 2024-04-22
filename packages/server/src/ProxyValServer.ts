@@ -634,87 +634,67 @@ export class ProxyValServer extends ValServer {
     | ValServerResult<never, ReadableStream<Uint8Array>>
     | ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>
   > {
-    return withAuth(
+    const url = new URL(
+      `/v1/files/${this.options.remote}${filePath}`,
+      this.options.valContentUrl
+    );
+    if (typeof query.sha256 === "string") {
+      url.searchParams.append("sha256", query.sha256 as string);
+    }
+    const fetchRes = await withAuth(
       this.options.valSecret,
       cookies,
       "getFiles",
       async (data) => {
-        const url = new URL(
-          `/v1/files/${this.options.remote}${filePath}`,
-          this.options.valContentUrl
-        );
-        if (typeof query.sha256 === "string") {
-          url.searchParams.append("sha256", query.sha256 as string);
-        } else {
-          console.warn("Missing sha256 query param");
-        }
-        const fetchRes = await fetch(url, {
+        return fetch(url, {
           headers: getAuthHeaders(data.token),
         });
-        if (fetchRes.status === 200) {
-          // TODO: does this stream data?
-          if (fetchRes.body) {
-            return {
-              status: fetchRes.status,
-              headers: {
-                "Content-Type": fetchRes.headers.get("Content-Type") || "",
-                "Content-Length": fetchRes.headers.get("Content-Length") || "0",
-                "Cache-Control": "public, max-age=31536000, immutable",
-              },
-              body: fetchRes.body,
-            };
-          } else {
-            return {
-              status: 500,
-              json: {
-                message: "No body in response",
-              },
-            };
-          }
-        } else {
-          if (!(reqHeaders.host && reqHeaders["x-forwarded-proto"])) {
-            return {
-              status: 500,
-              json: {
-                message: "Missing host or x-forwarded-proto header",
-              },
-            };
-          }
-          const host = `${reqHeaders["x-forwarded-proto"]}://${reqHeaders["host"]}`;
-          const staticPublicUrl = new URL(
-            filePath.slice("/public".length),
-            host
-          ).toString();
-          const fetchRes = await fetch(staticPublicUrl, {
-            headers: getAuthHeaders(data.token),
-          });
-          if (fetchRes.status === 200) {
-            // TODO: does this stream data?
-            if (fetchRes.body) {
-              return {
-                status: fetchRes.status,
-                headers: {
-                  "Content-Type": fetchRes.headers.get("Content-Type") || "",
-                  "Content-Length":
-                    fetchRes.headers.get("Content-Length") || "0",
-                  "Cache-Control": "public, max-age=31536000, immutable",
-                },
-                body: fetchRes.body,
-              };
-            } else {
-              return {
-                status: 500,
-                json: {
-                  message: "No body in response",
-                },
-              };
-            }
-          } else {
-            throw new Error("Failed to fetch file: " + filePath);
-          }
-        }
       }
     );
+    if (fetchRes.status === 200) {
+      // TODO: does this stream data?
+      if (fetchRes.body) {
+        return {
+          status: fetchRes.status,
+          headers: {
+            "Content-Type": fetchRes.headers.get("Content-Type") || "",
+            "Content-Length": fetchRes.headers.get("Content-Length") || "0",
+            "Cache-Control": fetchRes.headers.get("Cache-Control") || "",
+          },
+          body: fetchRes.body,
+        };
+      } else {
+        return {
+          status: 500,
+          json: {
+            message: "No body in response",
+          },
+        };
+      }
+    } else {
+      if (!(reqHeaders.host && reqHeaders["x-forwarded-proto"])) {
+        return {
+          status: 500,
+          json: {
+            message: "Missing host or x-forwarded-proto header",
+          },
+        };
+      }
+      const host = `${reqHeaders["x-forwarded-proto"]}://${reqHeaders["host"]}`;
+      const staticPublicUrl = new URL(
+        filePath.slice("/public".length),
+        host
+      ).toString();
+      const fetchRes = await fetch(staticPublicUrl);
+      return {
+        status: fetchRes.status,
+        // forward headers from static public url
+        headers: Object.fromEntries(fetchRes.headers.entries()),
+        body: fetchRes.body,
+      } as
+        | ValServerResult<never, ReadableStream<Uint8Array>>
+        | ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>;
+    }
   }
 }
 
