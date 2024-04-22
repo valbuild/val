@@ -25,6 +25,8 @@ import {
   ApiDeletePatchResponse,
   PatchId,
   ModuleId,
+  FileMetadata,
+  ImageMetadata,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { SerializedModuleContent } from "./SerializedModuleContent";
@@ -623,6 +625,32 @@ export class ProxyValServer extends ValServer {
         }
       }
     );
+  }
+
+  async getMetadata(
+    filePath: string,
+    sha256?: string
+  ): Promise<FileMetadata | ImageMetadata | undefined> {
+    const url = new URL(
+      `/v1/metadata/${this.options.remote}${filePath}?commit=${
+        this.options.git.commit
+      }${sha256 ? `&sha256=${sha256}` : ""}`,
+      this.options.valContentUrl
+    );
+    const fetchRes = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${this.options.apiKey}`,
+      },
+    });
+    if (fetchRes.status === 200) {
+      const json = await fetchRes.json();
+      if (json.type === "file") {
+        return json as FileMetadata;
+      } else if (json.type === "image") {
+        return json as ImageMetadata;
+      }
+    }
+    return undefined;
   }
 
   async getFiles(

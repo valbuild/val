@@ -9,6 +9,8 @@ import {
   ApiDeletePatchResponse,
   Internal,
   ModulePath,
+  FileMetadata,
+  ImageMetadata,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -216,6 +218,10 @@ export class LocalValServer extends ValServer {
       status: 200,
       json: res,
     };
+  }
+
+  async getMetadata(): Promise<FileMetadata | ImageMetadata | undefined> {
+    return undefined;
   }
 
   async getFiles(
