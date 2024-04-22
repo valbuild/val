@@ -35,7 +35,7 @@ export class I18nSchema<Locales extends readonly string[]> extends Schema<
     throw new Error("Method not implemented.");
   }
 
-  optional(): Schema<I18nSource<
+  nullable(): Schema<I18nSource<
     Locales,
     SelectorOfSchema<Schema<I18nCompatibleSource>>
   > | null> {

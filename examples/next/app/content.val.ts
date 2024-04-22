@@ -24,7 +24,7 @@ export const schema = s.object({
       ul: true, // enables unordered lists
       ol: true, // enables ordered lists
     })
-    .optional(),
+    .nullable(),
   /**
    * Reference to other content:
    */

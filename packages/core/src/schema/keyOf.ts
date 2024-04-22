@@ -144,7 +144,7 @@ export class KeyOfSchema<
     return true;
   }
 
-  optional(): Schema<KeyOfSelector<Sel> | null> {
+  nullable(): Schema<KeyOfSelector<Sel> | null> {
     return new KeyOfSchema(this.schema, this.sourcePath, true);
   }
 

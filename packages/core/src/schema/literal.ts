@@ -45,7 +45,7 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
     return typeof src === "string";
   }
 
-  optional(): Schema<Src | null> {
+  nullable(): Schema<Src | null> {
     return new LiteralSchema<Src | null>(this.value, true);
   }
 

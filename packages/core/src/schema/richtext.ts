@@ -26,7 +26,7 @@ export class RichTextSchema<
     return true; // TODO
   }
 
-  optional(): Schema<RichTextSource<O> | null> {
+  nullable(): Schema<RichTextSource<O> | null> {
     return new RichTextSchema(this.options, true);
   }
 

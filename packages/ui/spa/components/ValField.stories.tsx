@@ -67,7 +67,7 @@ export const OptionalStringField: Story = {
   args: {
     ...DefaultArgs,
     path: "/optional/string" as SourcePath,
-    ...create(s.string().optional(), "Hello World"),
+    ...create(s.string().nullable(), "Hello World"),
   },
 };
 
@@ -75,7 +75,7 @@ export const EmptyOptionalStringField: Story = {
   args: {
     ...DefaultArgs,
     path: "/empty/string" as SourcePath,
-    ...create(s.string().optional(), null),
+    ...create(s.string().nullable(), null),
   },
 };
 
@@ -107,7 +107,7 @@ export const BasicOptionalObject: Story = {
     ...DefaultArgs,
     path: "/basic/optional/object" as SourcePath,
     top: true,
-    ...create(s.object({ one: s.string().optional(), two: s.string() }), {
+    ...create(s.object({ one: s.string().nullable(), two: s.string() }), {
       one: "Test 1",
       two: "Test 2",
     }),
@@ -120,7 +120,7 @@ export const BasicEmptyObject: Story = {
     path: "/basic/empty/object" as SourcePath,
     top: true,
     ...create(
-      s.object({ one: s.string().optional(), two: s.string() }).optional(),
+      s.object({ one: s.string().nullable(), two: s.string() }).nullable(),
       null
     ),
   },
