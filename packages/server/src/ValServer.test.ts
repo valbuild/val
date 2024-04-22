@@ -5,6 +5,8 @@ import {
   ApiPostPatchResponse,
   ApiGetPatchResponse,
   ModulePath,
+  FileMetadata,
+  ImageMetadata,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { Result } from "@valbuild/core/src/fp/result";
@@ -75,7 +77,6 @@ describe("ValServer", () => {
         "/",
         {
           patch: true.toString(),
-          validate: true.toString(),
         },
         {},
         {}
@@ -100,7 +101,6 @@ describe("ValServer", () => {
         "/src/pages/metadata-tests",
         {
           patch: true.toString(),
-          validate: true.toString(),
         },
         {},
         {}
@@ -192,7 +192,10 @@ class TestValServer extends ValServer {
     options: { source: boolean; schema: boolean }
   ): Promise<SerializedModuleContent> {
     const service = await createService(this.cwd, {}, this.remoteFS);
-    return service.get(moduleId, "" as ModulePath, options);
+    return service.get(moduleId, "" as ModulePath, {
+      ...options,
+      validate: false,
+    });
   }
 
   protected async getAllModules(treePath: string): Promise<ModuleId[]> {
@@ -339,6 +342,9 @@ class TestValServer extends ValServer {
   callback(): Promise<
     ValServerRedirectResult<"val_enable" | "val_state" | "val_session">
   > {
+    throw new Error("Method not implemented.");
+  }
+  getMetadata(): Promise<FileMetadata | ImageMetadata | undefined> {
     throw new Error("Method not implemented.");
   }
 }
