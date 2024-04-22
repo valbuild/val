@@ -84,7 +84,7 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
     return typeof src === "object" && !Array.isArray(src);
   }
 
-  optional(): Schema<ObjectSchemaSrcOf<Props> | null> {
+  nullable(): Schema<ObjectSchemaSrcOf<Props> | null> {
     return new ObjectSchema(this.items, true);
   }
 

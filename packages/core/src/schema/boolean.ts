@@ -33,7 +33,7 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     return typeof src === "boolean";
   }
 
-  optional(): Schema<Src | null> {
+  nullable(): Schema<Src | null> {
     return new BooleanSchema<Src | null>(true);
   }
   serialize(): SerializedSchema {

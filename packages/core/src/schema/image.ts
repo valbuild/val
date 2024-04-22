@@ -104,7 +104,7 @@ export class ImageSchema<
     return src?.[FILE_REF_PROP] === "image" && src?.[VAL_EXTENSION] === "file";
   }
 
-  optional(): Schema<Src | null> {
+  nullable(): Schema<Src | null> {
     return new ImageSchema<Src | null>(this.options, true);
   }
 

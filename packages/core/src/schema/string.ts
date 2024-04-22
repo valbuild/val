@@ -104,7 +104,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     return typeof src === "string";
   }
 
-  optional(): StringSchema<Src | null> {
+  nullable(): StringSchema<Src | null> {
     return new StringSchema<Src | null>(this.options, true, this.isRaw);
   }
 

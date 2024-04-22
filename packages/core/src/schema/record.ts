@@ -83,7 +83,7 @@ export class RecordSchema<T extends Schema<SelectorSource>> extends Schema<
     return typeof src === "object" && !Array.isArray(src);
   }
 
-  optional(): Schema<Record<string, SelectorOfSchema<T>> | null> {
+  nullable(): Schema<Record<string, SelectorOfSchema<T>> | null> {
     return new RecordSchema(this.item, true);
   }
 

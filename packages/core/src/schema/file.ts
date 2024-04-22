@@ -92,7 +92,7 @@ export class FileSchema<
     return src?.[FILE_REF_PROP] === "file" && src?.[VAL_EXTENSION] === "file";
   }
 
-  optional(): Schema<Src | null> {
+  nullable(): Schema<Src | null> {
     return new FileSchema<Src | null>(this.options, true);
   }
 

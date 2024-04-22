@@ -72,7 +72,7 @@ describe("SelectorProxy", () => {
       [1, 2, undefined, null, "test"],
       sourcePath
     ) as Selector<(number | string | null)[]>;
-    expectValOrExpr(numbersVal.filter(string().optional())).toStrictEqual({
+    expectValOrExpr(numbersVal.filter(string().nullable())).toStrictEqual({
       val: [null, null, "test"],
       [Path]: "/app/numbers",
     });

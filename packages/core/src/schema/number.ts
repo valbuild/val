@@ -39,7 +39,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     return typeof src === "number";
   }
 
-  optional(): Schema<Src | null> {
+  nullable(): Schema<Src | null> {
     return new NumberSchema<Src | null>(this.options, true);
   }
   serialize(): SerializedSchema {

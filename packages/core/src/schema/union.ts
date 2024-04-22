@@ -246,7 +246,7 @@ export class UnionSchema<
   assert(src: SourceOf<Key, T>): boolean {
     return true;
   }
-  optional(): Schema<SourceOf<Key, T> | null> {
+  nullable(): Schema<SourceOf<Key, T> | null> {
     return new UnionSchema(this.key, this.items, true);
   }
   serialize(): SerializedSchema {

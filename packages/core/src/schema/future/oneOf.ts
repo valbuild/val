@@ -33,7 +33,7 @@ export class OneOfSchema<
   assert(src: OneOfSelector<Sel>): boolean {
     throw new Error("Method not implemented.");
   }
-  optional(): Schema<OneOfSelector<Sel> | null> {
+  nullable(): Schema<OneOfSelector<Sel> | null> {
     return new OneOfSchema(this.selector, true);
   }
 
