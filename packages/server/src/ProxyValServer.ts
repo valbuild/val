@@ -5,7 +5,6 @@ import {
   RequestHeaders,
   ValServer,
   ValServerCallbacks,
-  isCachedPatchFileOp,
 } from "./ValServer";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -26,16 +25,11 @@ import {
   ApiDeletePatchResponse,
   PatchId,
   ModuleId,
-  Internal,
-  ModulePath,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
-import { DirectoryNode, RemoteFS } from "./RemoteFS";
-import { Service, createService } from "./Service";
 import { SerializedModuleContent } from "./SerializedModuleContent";
 import { Patch } from "./patch/validation";
 import { ValApiOptions } from "./createValApiRouter";
-import path from "path";
 
 export type ProxyValServerOptions = {
   apiKey: string;
@@ -48,55 +42,46 @@ export type ProxyValServerOptions = {
     branch: string;
   };
   remote: string;
+  versions: {
+    core: string;
+    next: string;
+  };
   valEnableRedirectUrl?: string;
   valDisableRedirectUrl?: string;
 };
 
 export class ProxyValServer extends ValServer {
-  private remoteFS: RemoteFS;
-  private lazyService: Service | undefined;
-  private moduleCache: Record<string, SerializedModuleContent> = {};
+  private moduleCache: Record<ModuleId, SerializedModuleContent> | null = null;
   constructor(
     readonly cwd: string,
     readonly options: ProxyValServerOptions,
     readonly apiOptions: ValApiOptions,
     readonly callbacks: ValServerCallbacks
   ) {
-    const remoteFS = new RemoteFS();
-    super(cwd, remoteFS, options, callbacks);
-    this.remoteFS = remoteFS;
+    super(cwd, options, callbacks);
+    this.moduleCache = null;
   }
 
   /** Remote FS dependent methods: */
 
   protected async getModule(
     moduleId: ModuleId,
-    options: { validate: boolean; source: boolean; schema: boolean }
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options: { validate: boolean; source: boolean; schema: boolean }
   ): Promise<SerializedModuleContent> {
-    const cacheKey =
-      moduleId +
-      ";" +
-      JSON.stringify(options) +
-      this.options.git.commit +
-      this.cwd;
-    const cachedModule = this.moduleCache[cacheKey];
-    if (cachedModule) {
-      return Promise.resolve(cachedModule);
+    if (this.moduleCache) {
+      return this.moduleCache[moduleId];
     }
-    if (!this.lazyService) {
-      this.lazyService = await createService(
-        this.cwd,
-        this.apiOptions,
-        this.remoteFS
-      );
+    throw new Error("Module cache not initialized");
+  }
+
+  async getAllModules(treePath: string): Promise<ModuleId[]> {
+    if (!this.moduleCache) {
+      throw new Error("Module cache not initialized");
     }
-    const currentModule = await this.lazyService.get(
-      moduleId,
-      "" as ModulePath,
-      options
-    );
-    this.moduleCache[cacheKey] = currentModule;
-    return currentModule;
+    return Object.keys(this.moduleCache).filter((moduleId) =>
+      moduleId.startsWith(treePath)
+    ) as ModuleId[];
   }
 
   protected execCommit(
@@ -131,60 +116,27 @@ export class ProxyValServer extends ValServer {
             },
           };
         }
-
-        const params = `commit=${encodeURIComponent(
-          commit
-        )}&root=${encodeURIComponent(
-          this.apiOptions.root || "/"
-        )}&cwd=${encodeURIComponent(this.cwd)}`;
+        const params = createParams({
+          root: this.apiOptions.root,
+          commit,
+          ext: ["ts", "js", "json"],
+          package: [
+            "@valbuild/core@" + this.options.versions.core,
+            "@valbuild/next@" + this.options.versions.next,
+          ],
+          include: [
+            "**/*.val.{js,ts},package.json,tsconfig.json,jsconfig.json",
+          ],
+        });
         const url = new URL(
           `/v1/commit/${this.options.remote}/heads/${this.options.git.branch}/~?${params}`,
           this.options.valContentUrl
         );
-
-        // Creates a fresh copy of the fs. We cannot touch the existing fs, since there might be parallel operations?
-        // We could perhaps free up the other fs while doing this operation, but uncertain if we can actually do that and if that would actually help on memory.
-        // It is a concern we have, since we might be using quite a lot of memory when having the whole FS in memory.
-        // NOTE that base64 values from patches are not part of the patches, nor are they part of the fs so at least we do not have to worry about them.
-        // This NOTE was written after we wrote the comments above. We are a bit uncertain whether memory usage should be a concern at this point.
-        const remoteFS = new RemoteFS();
-        const initRes = await this.initRemoteFS(commit, remoteFS, token);
-        if (initRes.status !== 200) {
-          return initRes;
-        }
-        const service = await createService(
-          this.cwd,
-          this.apiOptions,
-          remoteFS
-        );
-        // TODO: optimize patches, e.g. only take the last replace for a given thing, etc...
-        const patchIds: PatchId[] = [];
-        const binaryFileUpdates: Record<string, { sha256: string }> = {};
-        for (const [patchId, moduleId, patch] of patches) {
-          const patchableOps: Patch = [];
-          for (const op of patch) {
-            if (isCachedPatchFileOp(op)) {
-              binaryFileUpdates[op.filePath] = op.value;
-            } else {
-              if (Internal.isFileOp(op)) {
-                throw new Error(
-                  `Val: Unexpected file operation (file: ${op.filePath}). This is likely a Val bug.`
-                );
-              }
-              patchableOps.push(op);
-            }
-          }
-          await service.patch(moduleId, patchableOps);
-          patchIds.push(patchId);
-        }
-        const sourceFileUpdates = await remoteFS.getPendingOperations();
+        const patchIds = patches.map(([patchId]) => patchId);
         const fetchRes = await fetch(url, {
           method: "POST",
           headers: getAuthHeaders(token, "application/json"),
           body: JSON.stringify({
-            sourceFileUpdates: sourceFileUpdates.modified,
-            binaryFileUpdates,
-            deletedFiles: sourceFileUpdates.deleted,
             patchIds,
           }),
         });
@@ -201,23 +153,22 @@ export class ProxyValServer extends ValServer {
     );
   }
 
-  private async initRemoteFS(
+  private async init(
     commit: string,
-    remoteFS: RemoteFS,
     token: string
   ): Promise<{ status: 200 } | ValServerError> {
-    const params = new URLSearchParams(
-      this.apiOptions.root
-        ? {
-            root: this.apiOptions.root,
-            commit,
-          }
-        : {
-            commit,
-          }
-    );
+    const params = createParams({
+      root: this.apiOptions.root,
+      commit,
+      ext: ["ts", "js", "json"],
+      package: [
+        "@valbuild/core@" + this.options.versions.core,
+        "@valbuild/next@" + this.options.versions.next,
+      ],
+      include: ["**/*.val.{js,ts},package.json,tsconfig.json,jsconfig.json"],
+    });
     const url = new URL(
-      `/v1/fs/${this.options.remote}/heads/${this.options.git.branch}/~?${params}`,
+      `/v1/eval/${this.options.remote}/heads/${this.options.git.branch}/~?${params}`,
       this.options.valContentUrl
     );
     try {
@@ -247,31 +198,22 @@ export class ProxyValServer extends ValServer {
             details: "Invalid response: missing git.commit",
           };
         }
-        if (typeof json.directories !== "object" || json.directories === null) {
+        if (typeof json.modules !== "object" || json.modules === null) {
           error = {
-            details: "Invalid response: missing directories",
+            details: "Invalid response: missing modules",
           };
         }
         if (error) {
+          console.error("Could not initialize remote modules", error);
           return {
             status: 500,
             json: {
-              message: "Failed to fetch remote files",
+              message: "Failed to fetch remote modules",
               ...error,
             },
           };
         }
-        remoteFS.initializeWith(
-          Object.fromEntries(
-            Object.entries(json.directories).map(([dir, content]) => [
-              path.join(
-                this.cwd,
-                ...dir.split("/") // content is always posix - not sure that matters...
-              ),
-              content as DirectoryNode,
-            ])
-          )
-        );
+        this.moduleCache = json.modules;
         return {
           status: 200,
         };
@@ -288,7 +230,7 @@ export class ProxyValServer extends ValServer {
     }
   }
 
-  protected async ensureRemoteFSInitialized(
+  protected async ensureInitialized(
     errorMessageType: string,
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<result.Result<undefined, ValServerError>> {
@@ -314,8 +256,8 @@ export class ProxyValServer extends ValServer {
           }
         | ValServerError
       > => {
-        if (!this.remoteFS.isInitialized()) {
-          return this.initRemoteFS(commit, this.remoteFS, data.token);
+        if (!this.moduleCache) {
+          return this.init(commit, data.token);
         } else {
           return {
             status: 200 as const,
@@ -960,4 +902,27 @@ function getAuthHeaders(
     "Content-Type": type,
     Authorization: `Bearer ${token}`,
   };
+}
+
+function createParams(
+  params: Record<string, string | string[] | undefined>
+): string {
+  let paramIdx = 0;
+  let paramsString = "";
+  for (const key in params) {
+    const param = params[key];
+    if (Array.isArray(param)) {
+      for (const value of param) {
+        paramsString += `${key}=${encodeURIComponent(value)}&`;
+      }
+    } else if (param) {
+      paramsString += `${key}=${encodeURIComponent(param)}`;
+    }
+    if (paramIdx < Object.keys(params).length - 1) {
+      paramsString += "&";
+    }
+    paramIdx++;
+  }
+
+  return paramsString;
 }
