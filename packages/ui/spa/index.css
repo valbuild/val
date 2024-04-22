@@ -153,3 +153,7 @@
     @apply underline text-accent;
   }
 }
+
+#val-overlay-container {
+  visibility: visible;
+}

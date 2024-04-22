@@ -188,6 +188,7 @@ export function ValOverlay({
       }}
     >
       <div
+        id="val-overlay-container"
         data-mode={theme}
         className="font-serif antialiased"
         style={{
