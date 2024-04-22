@@ -103,13 +103,11 @@ export class ValApi {
     includeSchema = false,
     includeSource = false,
     treePath = "/",
-    validate = false,
     headers,
   }: {
     patch?: boolean;
     includeSchema?: boolean;
     includeSource?: boolean;
-    validate?: boolean;
     treePath?: string;
     headers?: Record<string, string> | undefined;
   }) {
@@ -117,7 +115,6 @@ export class ValApi {
     params.set("patch", patch.toString());
     params.set("schema", includeSchema.toString());
     params.set("source", includeSource.toString());
-    params.set("validate", validate.toString());
     return fetch(`${this.host}/tree/~${treePath}?${params.toString()}`, {
       headers,
     })

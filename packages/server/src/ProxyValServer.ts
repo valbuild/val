@@ -69,7 +69,7 @@ export class ProxyValServer extends ValServer {
   protected async getModule(
     moduleId: ModuleId,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options: { validate: boolean; source: boolean; schema: boolean }
+    _options: { source: boolean; schema: boolean }
   ): Promise<SerializedModuleContent> {
     if (this.moduleCache) {
       return this.moduleCache[moduleId];

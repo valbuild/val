@@ -442,9 +442,12 @@ export class LocalValServer extends ValServer {
 
   protected getModule(
     moduleId: ModuleId,
-    options: { validate: boolean; source: boolean; schema: boolean }
+    options: { source: boolean; schema: boolean }
   ): Promise<SerializedModuleContent> {
-    return this.options.service.get(moduleId, "" as ModulePath, options);
+    return this.options.service.get(moduleId, "" as ModulePath, {
+      ...options,
+      validate: false,
+    });
   }
 
   protected async getAllModules(treePath: string): Promise<ModuleId[]> {

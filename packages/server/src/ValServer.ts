@@ -113,7 +113,6 @@ export abstract class ValServer implements IValServer {
       patch?: string;
       schema?: string;
       source?: string;
-      validate?: string;
     },
     cookies: ValCookies<VAL_SESSION_COOKIE>,
     requestHeaders: RequestHeaders
@@ -125,7 +124,6 @@ export abstract class ValServer implements IValServer {
       return ensureRes.error;
     }
     const applyPatches = query.patch === "true";
-    const execValidations = query.validate === "true";
     const includeSource = query.source === "true";
     const includeSchema = query.schema === "true";
 
@@ -158,6 +156,7 @@ export abstract class ValServer implements IValServer {
       fileUpdates = res.value.fileUpdates;
     }
 
+    const validate = false;
     const possiblyPatchedContent = await debugTiming(
       "applyAllPatchesThenValidate",
       () =>
@@ -171,7 +170,7 @@ export abstract class ValServer implements IValServer {
               cookies,
               requestHeaders,
               applyPatches,
-              execValidations,
+              validate,
               includeSource,
               includeSchema
             );
@@ -275,7 +274,6 @@ export abstract class ValServer implements IValServer {
     includeSchema: boolean
   ): Promise<SerializedModuleContent> {
     const serializedModuleContent = await this.getModule(moduleId, {
-      validate: validate,
       source: includeSource,
       schema: includeSchema,
     });
@@ -705,7 +703,7 @@ export abstract class ValServer implements IValServer {
         true,
         true,
         true,
-        true
+        commit
       );
       if (serializedModuleContent.errors) {
         validationErrorsByModuleId[moduleId] = serializedModuleContent;
@@ -811,7 +809,7 @@ export abstract class ValServer implements IValServer {
 
   protected abstract getModule(
     moduleId: ModuleId,
-    options: { validate: boolean; source: boolean; schema: boolean }
+    options: { source: boolean; schema: boolean }
   ): Promise<SerializedModuleContent>;
 
   protected abstract execCommit(
