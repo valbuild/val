@@ -39,6 +39,7 @@ export { ValApp } from "./ValApp";
 import { Internal as InternalCore } from "@valbuild/core";
 // Auto-tag JSX with Val paths:
 import { autoTagJSX } from "@valbuild/react/stega";
+import { VERSION } from "./version";
 
 // NOTE! Side effects:
 autoTagJSX();
@@ -50,13 +51,6 @@ export const Internal = {
   ...InternalCore,
   VERSION: {
     ...InternalCore.VERSION,
-    next: ((): string | null => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        return require("../package.json").version;
-      } catch {
-        return null;
-      }
-    })(),
+    next: VERSION,
   },
 };
