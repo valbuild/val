@@ -628,7 +628,7 @@ export class ProxyValServer extends ValServer {
   async getFiles(
     filePath: string,
     query: { sha256?: string },
-    cookies: ValCookies<VAL_SESSION_COOKIE>,
+    _cookies: ValCookies<VAL_SESSION_COOKIE>,
     reqHeaders: RequestHeaders
   ): Promise<
     | ValServerResult<never, ReadableStream<Uint8Array>>
@@ -641,16 +641,7 @@ export class ProxyValServer extends ValServer {
     if (typeof query.sha256 === "string") {
       url.searchParams.append("sha256", query.sha256 as string);
     }
-    const fetchRes = await withAuth(
-      this.options.valSecret,
-      cookies,
-      "getFiles",
-      async (data) => {
-        return fetch(url, {
-          headers: getAuthHeaders(data.token),
-        });
-      }
-    );
+    const fetchRes = await fetch(url);
     if (fetchRes.status === 200) {
       // TODO: does this stream data?
       if (fetchRes.body) {
