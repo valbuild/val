@@ -641,7 +641,11 @@ export class ProxyValServer extends ValServer {
     if (typeof query.sha256 === "string") {
       url.searchParams.append("sha256", query.sha256 as string);
     }
-    const fetchRes = await fetch(url);
+    const fetchRes = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${this.options.apiKey}`,
+      },
+    });
     if (fetchRes.status === 200) {
       // TODO: does this stream data?
       if (fetchRes.body) {
