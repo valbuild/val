@@ -178,6 +178,10 @@ async function initHandlerOptions(
       valSecret: maybeValSecret,
       valBuildUrl,
       valContentUrl,
+      versions: {
+        core: opts.coreVersion,
+        next: opts.nextVersion,
+      },
       git: {
         commit: maybeGitCommit,
         branch: maybeGitBranch,

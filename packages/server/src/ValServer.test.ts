@@ -131,7 +131,6 @@ class TestValServer extends ValServer {
     const remoteFS = new RemoteFS();
     super(
       projectRoot,
-      remoteFS,
       {
         git: FAKE_GIT,
       },
@@ -182,7 +181,7 @@ class TestValServer extends ValServer {
     await this.remoteFS.initializeWith(directories);
   }
 
-  protected async ensureRemoteFSInitialized(): Promise<
+  protected async ensureInitialized(): Promise<
     Result<undefined, ValServerError>
   > {
     return result.ok(undefined);
@@ -194,6 +193,33 @@ class TestValServer extends ValServer {
   ): Promise<SerializedModuleContent> {
     const service = await createService(this.cwd, {}, this.remoteFS);
     return service.get(moduleId, "" as ModulePath, options);
+  }
+
+  protected async getAllModules(treePath: string): Promise<ModuleId[]> {
+    const moduleIds: ModuleId[] = this.remoteFS
+      .readDirectory(
+        this.cwd,
+        ["ts", "js"],
+        ["node_modules", ".*"],
+        ["**/*.val.ts", "**/*.val.js"]
+      )
+      .filter((file) => {
+        if (treePath) {
+          return file.replace(this.cwd, "").startsWith(treePath);
+        }
+        return true;
+      })
+      .map(
+        (file) =>
+          file
+            .replace(this.cwd, "")
+            .replace(".val.js", "")
+            .replace(".val.ts", "")
+            .split(path.sep)
+            .join("/") as ModuleId
+      );
+
+    return moduleIds;
   }
 
   async postPatches(

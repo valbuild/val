@@ -43,7 +43,6 @@ import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
 import { extractFileMetadata, extractImageMetadata } from "./extractMetadata";
 import { validateMetadata } from "./validateMetadata";
 import { getValidationErrorMetadata } from "./getValidationErrorMetadata";
-import { IValFSHost } from "./ValFSHost";
 import fs from "fs";
 
 export type ValServerOptions = {
@@ -60,7 +59,6 @@ const ops = new JSONOps();
 export abstract class ValServer implements IValServer {
   constructor(
     readonly cwd: string,
-    readonly host: IValFSHost,
     readonly options: ValServerOptions,
     readonly callbacks: ValServerCallbacks
   ) {}
@@ -108,33 +106,6 @@ export abstract class ValServer implements IValServer {
     };
   }
 
-  private getAllModules(treePath: string) {
-    const moduleIds: ModuleId[] = this.host
-      .readDirectory(
-        this.cwd,
-        ["ts", "js"],
-        ["node_modules", ".*"],
-        ["**/*.val.ts", "**/*.val.js"]
-      )
-      .filter((file) => {
-        if (treePath) {
-          return file.replace(this.cwd, "").startsWith(treePath);
-        }
-        return true;
-      })
-      .map(
-        (file) =>
-          file
-            .replace(this.cwd, "")
-            .replace(".val.js", "")
-            .replace(".val.ts", "")
-            .split(path.sep)
-            .join("/") as ModuleId
-      );
-
-    return moduleIds;
-  }
-
   async getTree(
     treePath: string,
     // TODO: use the params: patch, schema, source now we return everything, every time
@@ -147,7 +118,7 @@ export abstract class ValServer implements IValServer {
     cookies: ValCookies<VAL_SESSION_COOKIE>,
     requestHeaders: RequestHeaders
   ): Promise<ValServerJsonResult<ApiTreeResponse>> {
-    const ensureRes = await this.ensureRemoteFSInitialized("getTree", cookies);
+    const ensureRes = await this.ensureInitialized("getTree", cookies);
     if (result.isErr(ensureRes)) {
       return ensureRes.error;
     }
@@ -156,7 +127,7 @@ export abstract class ValServer implements IValServer {
     const includeSource = query.source === "true";
     const includeSchema = query.schema === "true";
 
-    const moduleIds = this.getAllModules(treePath);
+    const moduleIds = await this.getAllModules(treePath);
 
     let {
       patchIdsByModuleId,
@@ -228,10 +199,7 @@ export abstract class ValServer implements IValServer {
       ApiPostValidationResponse | ApiPostValidationErrorResponse
     >
   > {
-    const ensureRes = await this.ensureRemoteFSInitialized(
-      "postValidate",
-      cookies
-    );
+    const ensureRes = await this.ensureInitialized("postValidate", cookies);
     if (result.isErr(ensureRes)) {
       return ensureRes.error;
     }
@@ -250,10 +218,7 @@ export abstract class ValServer implements IValServer {
   ): Promise<
     ValServerJsonResult<ApiCommitResponse, ApiPostValidationErrorResponse>
   > {
-    const ensureRes = await this.ensureRemoteFSInitialized(
-      "postCommit",
-      cookies
-    );
+    const ensureRes = await this.ensureInitialized("postCommit", cookies);
     if (result.isErr(ensureRes)) {
       return ensureRes.error;
     }
@@ -287,7 +252,6 @@ export abstract class ValServer implements IValServer {
   }
 
   /* */
-
   private async applyAllPatchesThenValidate(
     moduleId: ModuleId,
     patchIdsByModuleId: Record<ModuleId, PatchId[]>,
@@ -535,6 +499,8 @@ export abstract class ValServer implements IValServer {
     return hasErrors;
   }
 
+  protected abstract getAllModules(treePath: string): Promise<ModuleId[]>;
+
   protected sortPatchIds(
     patchesByModule: Record<
       ModuleId,
@@ -697,7 +663,7 @@ export abstract class ValServer implements IValServer {
     const { patchIdsByModuleId, patchesById, patches, fileUpdates } = res.value;
     const validationErrorsByModuleId: ApiPostValidationErrorResponse["validationErrors"] =
       {};
-    for (const moduleIdStr of this.getAllModules("/")) {
+    for (const moduleIdStr of await this.getAllModules("/")) {
       const moduleId = moduleIdStr as ModuleId;
       const serializedModuleContent = await this.applyAllPatchesThenValidate(
         moduleId,
@@ -812,7 +778,7 @@ export abstract class ValServer implements IValServer {
    * 1) The remote FS, if applicable, is initialized
    * 2) The error is returned via API if the remote FS could not be initialized
    * */
-  protected abstract ensureRemoteFSInitialized(
+  protected abstract ensureInitialized(
     errorMessageType: string,
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<result.Result<undefined, ValServerError>>;

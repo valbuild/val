@@ -1,27 +1,45 @@
-import { ValConfig } from "@valbuild/core";
+import { Internal, ValConfig } from "@valbuild/core";
 import { createValApiRouter } from "@valbuild/server";
 import { createValServer } from "@valbuild/server";
 import type { draftMode } from "next/headers";
 import { NextResponse } from "next/server";
+import { VERSION } from "../version";
 
 const initValNextAppRouter = (
   config: ValConfig,
   nextConfig: ValServerNextConfig
 ) => {
   const route = "/api/val"; // TODO: get from config
+  const coreVersion = Internal.VERSION.core;
+  if (!coreVersion) {
+    throw new Error("Could not get @valbuild/core package version");
+  }
+  const nextVersion = VERSION;
+  if (!nextVersion) {
+    throw new Error("Could not get @valbuild/next package version");
+  }
+
   return createValApiRouter(
     route,
-    createValServer(route, config, {
-      async isEnabled() {
-        return nextConfig.draftMode().isEnabled;
+    createValServer(
+      route,
+      {
+        ...config,
+        nextVersion,
+        coreVersion,
       },
-      async onEnable() {
-        nextConfig.draftMode().enable();
-      },
-      async onDisable() {
-        nextConfig.draftMode().disable();
-      },
-    }),
+      {
+        async isEnabled() {
+          return nextConfig.draftMode().isEnabled;
+        },
+        async onEnable() {
+          nextConfig.draftMode().enable();
+        },
+        async onDisable() {
+          nextConfig.draftMode().disable();
+        },
+      }
+    ),
     (valRes): NextResponse => {
       let headersInit: HeadersInit | undefined = undefined;
       const valResHeaders = ("headers" in valRes && valRes.headers) || {};

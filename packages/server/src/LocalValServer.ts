@@ -33,6 +33,7 @@ import {
 } from "./ValServer";
 import { SerializedModuleContent } from "./SerializedModuleContent";
 import { getSha256 } from "./extractMetadata";
+import { IValFSHost } from "./ValFSHost";
 
 export type LocalValServerOptions = {
   service: Service;
@@ -51,6 +52,7 @@ export interface ValServerBufferHost {
 
 const textEncoder = new TextEncoder();
 export class LocalValServer extends ValServer {
+  private readonly host: IValFSHost;
   private static readonly PATCHES_DIR = "patches";
   private static readonly FILES_DIR = "files";
   private readonly patchesRootPath: string;
@@ -58,16 +60,12 @@ export class LocalValServer extends ValServer {
     readonly options: LocalValServerOptions,
     readonly callbacks: ValServerCallbacks
   ) {
-    super(
-      options.service.sourceFileHandler.projectRoot,
-      options.service.sourceFileHandler.host,
-      options,
-      callbacks
-    );
+    super(options.service.sourceFileHandler.projectRoot, options, callbacks);
 
     this.patchesRootPath =
       options.cacheDir ||
       path.join(options.service.sourceFileHandler.projectRoot, ".val");
+    this.host = this.options.service.sourceFileHandler.host;
   }
 
   async session(): Promise<ValServerJsonResult<ValSession>> {
@@ -429,7 +427,7 @@ export class LocalValServer extends ValServer {
     };
   }
 
-  protected async ensureRemoteFSInitialized(): Promise<
+  protected async ensureInitialized(): Promise<
     result.Result<undefined, ValServerError>
   > {
     // No RemoteFS so nothing to ensure
@@ -441,6 +439,33 @@ export class LocalValServer extends ValServer {
     options: { validate: boolean; source: boolean; schema: boolean }
   ): Promise<SerializedModuleContent> {
     return this.options.service.get(moduleId, "" as ModulePath, options);
+  }
+
+  protected async getAllModules(treePath: string): Promise<ModuleId[]> {
+    const moduleIds: ModuleId[] = this.host
+      .readDirectory(
+        this.cwd,
+        ["ts", "js"],
+        ["node_modules", ".*"],
+        ["**/*.val.ts", "**/*.val.js"]
+      )
+      .filter((file) => {
+        if (treePath) {
+          return file.replace(this.cwd, "").startsWith(treePath);
+        }
+        return true;
+      })
+      .map(
+        (file) =>
+          file
+            .replace(this.cwd, "")
+            .replace(".val.js", "")
+            .replace(".val.ts", "")
+            .split(path.sep)
+            .join("/") as ModuleId
+      );
+
+    return moduleIds;
   }
 
   protected async execCommit(patches: [PatchId, ModuleId, Patch][]): Promise<
