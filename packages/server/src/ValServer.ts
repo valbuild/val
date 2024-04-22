@@ -1159,10 +1159,16 @@ export type RequestHeaders = {
 };
 
 export async function debugTiming<R>(id: string, fn: () => Promise<R>) {
-  const start = Date.now();
-  const r = await fn();
-  console.log(
-    `Timing: ${id} took: ${Date.now() - start}ms (${new Date().toISOString()})`
-  );
-  return r;
+  if (process.env["VAL_DEBUG_TIMING"] === "true") {
+    const start = Date.now();
+    const r = await fn();
+    console.log(
+      `Timing: ${id} took: ${
+        Date.now() - start
+      }ms (${new Date().toISOString()})`
+    );
+    return r;
+  } else {
+    return fn();
+  }
 }
