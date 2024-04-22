@@ -375,6 +375,11 @@ export abstract class ValServer implements IValServer {
     };
   }
 
+  abstract getMetadata(
+    fileRef: string,
+    sha256?: string
+  ): Promise<FileMetadata | ImageMetadata | undefined>;
+
   // TODO: name this better: we need to check for image and file validation errors
   // since they cannot be handled directly inside the validation function.
   // The reason is that validate will be called inside QuickJS (in the future, hopefully),
@@ -402,7 +407,8 @@ export abstract class ValServer implements IValServer {
           const fileRef = getValidationErrorFileRef(error);
           if (fileRef) {
             const filePath = path.join(this.cwd, fileRef);
-            let expectedMetadata: FileMetadata | ImageMetadata | undefined;
+            let expectedMetadata: FileMetadata | ImageMetadata | undefined =
+              await this.getMetadata(fileRef, fileUpdates[fileRef]?.sha256);
 
             // if this is a new file or we have an actual FS, we read the file and get the metadata
             if (!expectedMetadata) {
