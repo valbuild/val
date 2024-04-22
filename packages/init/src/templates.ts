@@ -101,9 +101,9 @@ export const testSchema = s.object({
   text: s.string(),
 
   /**
-   * Optional fields are marked with \`.optional()\`
+   * Nullable are optional fields in the UI that can be null or not
    */
-  optionals: s.string().optional(),
+  optionals: s.string().nullable(),
 
   arrays: s.array(s.string()),
   /**
@@ -140,7 +140,7 @@ export const testSchema = s.object({
    *
    * @see ValImage component to see how to render this in your app
    */
-  image: s.image().optional(),
+  image: s.image().nullable(),
 
   /**
    * String enums: presents as a dropdown in the UI
