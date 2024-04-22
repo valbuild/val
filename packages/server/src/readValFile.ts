@@ -4,7 +4,7 @@ import { QuickJSRuntime } from "quickjs-emscripten";
 import { SerializedModuleContent } from "./SerializedModuleContent";
 
 export const readValFile = async (
-  id: string,
+  id: ModuleId,
   rootDirPath: string,
   runtime: QuickJSRuntime,
   options: { validate: boolean; source: boolean; schema: boolean }
@@ -77,7 +77,7 @@ globalThis.valModule = {
     const result = context.evalCode(
       code,
       // Synthetic module name
-      path.join(path.dirname(rootDirPath), "<val>")
+      path.join(rootDirPath, "<val>")
     );
     const fatalErrors: string[] = [];
     if (result.error) {
@@ -87,7 +87,7 @@ globalThis.valModule = {
         error.stack
       );
       return {
-        path: id as SourcePath,
+        path: id as string as SourcePath,
         errors: {
           invalidModuleId: id as ModuleId,
           fatal: [

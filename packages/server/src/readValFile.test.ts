@@ -6,16 +6,17 @@ import { readValFile } from "./readValFile";
 import path from "path";
 import { createModuleLoader } from "./ValModuleLoader";
 import { newValQuickJSRuntime } from "./ValQuickJSRuntime";
+import { ModuleId } from "@valbuild/core";
 
 const TestCaseDir = "../test/example-projects";
 const TestCases = [
-  { name: "basic-next-typescript", valConfigPath: "./val.config" },
+  { name: "basic-next-typescript" },
   {
     name: "basic-next-src-typescript",
-    valConfigPath: "./src/val.config",
+    prefix: "/src",
   },
-  { name: "basic-next-javascript", valConfigPath: "./val.config" },
-  { name: "typescript-description-files", valConfigPath: "./val.config" },
+  { name: "basic-next-javascript" },
+  { name: "typescript-description-files" },
 ];
 
 describe("read val file", () => {
@@ -39,8 +40,8 @@ describe("read val file", () => {
       memoryLimit: 1024 * 640,
     });
     const result = await readValFile(
-      "/pages/blogs",
-      testCase.valConfigPath,
+      ((testCase.prefix ? testCase.prefix : "") + "/pages/blogs") as ModuleId,
+      rootDir,
       testRuntime,
       {
         schema: true,
