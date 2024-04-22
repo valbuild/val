@@ -134,7 +134,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
 }
 
 export const string = <T extends string>(
-  options?: StringOptions
+  options?: Record<string, never>
 ): StringSchema<T> => {
   return new StringSchema(options);
 };
