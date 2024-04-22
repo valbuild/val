@@ -681,11 +681,37 @@ export class ProxyValServer extends ValServer {
             };
           }
           const host = `${reqHeaders["x-forwarded-proto"]}://${reqHeaders["host"]}`;
-          const fileUrl = filePath.slice("/public".length);
-          return {
-            status: 302,
-            redirectTo: new URL(fileUrl, host).toString(),
-          };
+          const staticPublicUrl = new URL(
+            filePath.slice("/public".length),
+            host
+          ).toString();
+          const fetchRes = await fetch(staticPublicUrl, {
+            headers: getAuthHeaders(data.token),
+          });
+          if (fetchRes.status === 200) {
+            // TODO: does this stream data?
+            if (fetchRes.body) {
+              return {
+                status: fetchRes.status,
+                headers: {
+                  "Content-Type": fetchRes.headers.get("Content-Type") || "",
+                  "Content-Length":
+                    fetchRes.headers.get("Content-Length") || "0",
+                  "Cache-Control": "public, max-age=31536000, immutable",
+                },
+                body: fetchRes.body,
+              };
+            } else {
+              return {
+                status: 500,
+                json: {
+                  message: "No body in response",
+                },
+              };
+            }
+          } else {
+            throw new Error("Failed to fetch file: " + filePath);
+          }
         }
       }
     );
