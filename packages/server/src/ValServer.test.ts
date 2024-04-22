@@ -189,7 +189,7 @@ class TestValServer extends ValServer {
 
   protected async getModule(
     moduleId: ModuleId,
-    options: { validate: boolean; source: boolean; schema: boolean }
+    options: { source: boolean; schema: boolean }
   ): Promise<SerializedModuleContent> {
     const service = await createService(this.cwd, {}, this.remoteFS);
     return service.get(moduleId, "" as ModulePath, options);

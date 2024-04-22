@@ -41,7 +41,6 @@ export class ValStore {
       treePath: moduleId,
       includeSource: true,
       includeSchema: true,
-      validate: false,
     });
     if (result.isOk(data)) {
       if (!data.value.modules[moduleId]) {
@@ -110,7 +109,6 @@ export class ValStore {
         treePath: moduleId,
         includeSource: true,
         includeSchema: true,
-        validate: true,
       });
       if (result.isOk(data)) {
         const fetchedSource = data.value.modules[moduleId].source;
@@ -205,7 +203,6 @@ export class ValStore {
       patch: false,
       includeSource: false,
       includeSchema: true,
-      validate: false,
     });
     if (result.isOk(data)) {
       const moduleIds: ModuleId[] = [];
@@ -252,7 +249,6 @@ export class ValStore {
       treePath,
       includeSource: true,
       includeSchema: true,
-      validate: false,
     });
     const moduleIds: ModuleId[] = [];
     if (result.isOk(data)) {

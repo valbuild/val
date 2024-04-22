@@ -80,7 +80,6 @@ const initFetchValStega =
             patch: true,
             includeSource: true,
             includeSchema: true,
-            validate: true,
             headers: getValAuthHeaders(cookies),
           })
           .then((res) => {
