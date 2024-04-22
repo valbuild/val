@@ -6,11 +6,7 @@ export const schema = s.object({
   /**
    * Arrays and string:
    */
-  tags: s.array(
-    s.string({
-      regexp: /CMS|github|react|NextJS|headless/,
-    })
-  ),
+  tags: s.array(s.string().regexp(/CMS|github|react|NextJS|headless/)),
   /**
    * Rich Text that is optional:
    */
