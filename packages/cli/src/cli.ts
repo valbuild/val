@@ -23,7 +23,6 @@ async function main(): Promise<void> {
       Description: val-idate val modules
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
-        --cfg  [cfg],  -c [cfg]  Set path to config relative to root (default ./val.config)
         --fix  [fix]             Attempt to fix validation errors
         --noEslint [noEslint]    Disable eslint validation during validate
 
@@ -39,7 +38,6 @@ async function main(): Promise<void> {
       Options:
         --managedDir [dir]      If set, list files found in directory that are not managed by Val
         --root [root], -r [root] Set project root directory (default process.cwd())
-        --cfg  [cfg],  -c [cfg]  Set path to config relative to root (default ./val.config)
     `,
     {
       flags: {
@@ -51,10 +49,6 @@ async function main(): Promise<void> {
         root: {
           type: "string",
           alias: "r",
-        },
-        cfg: {
-          type: "string",
-          alias: "c",
         },
         fix: {
           type: "boolean",
@@ -88,7 +82,6 @@ async function main(): Promise<void> {
       }
       return files({
         root: flags.root,
-        cfg: flags.cfg,
         managedDir: flags.managedDir,
       });
     case "versions":
@@ -100,7 +93,6 @@ async function main(): Promise<void> {
       }
       return validate({
         root: flags.root,
-        cfg: flags.cfg,
         fix: flags.fix,
         noEslint: flags.noEslint,
       });

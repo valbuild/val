@@ -24,9 +24,11 @@ const initValNextAppRouter = (
     createValServer(
       route,
       {
+        versions: {
+          next: nextVersion,
+          core: coreVersion,
+        },
         ...config,
-        nextVersion,
-        coreVersion,
       },
       {
         async isEnabled() {

@@ -11,19 +11,15 @@ import path from "path";
 
 export async function files({
   root,
-  cfg,
   managedDir,
 }: {
   root?: string;
-  cfg?: string;
   managedDir?: string;
 }) {
   const printFilesUsedByVal = !managedDir;
   const projectRoot = root ? path.resolve(root) : process.cwd();
 
-  const service = await createService(projectRoot, {
-    valConfigPath: cfg ?? "./val.config",
-  });
+  const service = await createService(projectRoot, {});
 
   const valFiles: string[] = await glob("**/*.val.{js,ts}", {
     ignore: ["node_modules/**"],

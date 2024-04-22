@@ -8,7 +8,16 @@ import { Internal, ValConfig } from "@valbuild/core";
 import { ValServerGenericResult } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
 
-export type ValApiOptions = ValServerOverrides & ServiceOptions & ValConfig;
+type Versions = {
+  versions?: {
+    core?: string;
+    next?: string;
+  };
+};
+export type ValApiOptions = ValServerOverrides &
+  ServiceOptions &
+  ValConfig &
+  Versions;
 
 type ValServerOverrides = Partial<{
   /**
@@ -136,7 +145,7 @@ type ValServerOptions =
   | ({ mode: "local" } & LocalValServerOptions);
 async function initHandlerOptions(
   route: string,
-  opts: ValServerOverrides & ServiceOptions
+  opts: ValServerOverrides & ServiceOptions & Versions
 ): Promise<ValServerOptions> {
   const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
   const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
@@ -170,6 +179,14 @@ async function initHandlerOptions(
         "Proxy mode does not work unless the 'remote' option in val.config is defined or the VAL_REMOTE env var is set."
       );
     }
+    const coreVersion = opts.versions?.core;
+    if (!coreVersion) {
+      throw new Error("Could not determine version of @valbuild/core");
+    }
+    const nextVersion = opts.versions?.next;
+    if (!nextVersion) {
+      throw new Error("Could not determine version of @valbuild/next");
+    }
 
     return {
       mode: "proxy",
@@ -179,8 +196,8 @@ async function initHandlerOptions(
       valBuildUrl,
       valContentUrl,
       versions: {
-        core: opts.coreVersion,
-        next: opts.nextVersion,
+        core: coreVersion,
+        next: nextVersion,
       },
       git: {
         commit: maybeGitCommit,

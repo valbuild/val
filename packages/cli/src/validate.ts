@@ -8,12 +8,10 @@ import fs from "fs/promises";
 
 export async function validate({
   root,
-  cfg,
   fix,
   noEslint,
 }: {
   root?: string;
-  cfg?: string;
   fix?: boolean;
   noEslint?: boolean;
 }) {
@@ -23,9 +21,7 @@ export async function validate({
     ignore: false,
     useEslintrc: true,
   });
-  const service = await createService(projectRoot, {
-    valConfigPath: cfg ?? "./val.config",
-  });
+  const service = await createService(projectRoot, {});
 
   const valFiles: string[] = await glob("**/*.val.{js,ts}", {
     ignore: ["node_modules/**"],

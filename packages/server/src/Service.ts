@@ -21,14 +21,6 @@ import path from "path";
 
 export type ServiceOptions = {
   /**
-   * The version of the @valbuild/core package
-   */
-  coreVersion: string;
-  /**
-   * The version of the @valbuild/next package
-   */
-  nextVersion: string;
-  /**
    * Disable cache for transpilation
    *
    * @default false
