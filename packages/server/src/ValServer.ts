@@ -118,7 +118,9 @@ export abstract class ValServer implements IValServer {
     cookies: ValCookies<VAL_SESSION_COOKIE>,
     requestHeaders: RequestHeaders
   ): Promise<ValServerJsonResult<ApiTreeResponse>> {
-    const ensureRes = await this.ensureInitialized("getTree", cookies);
+    const ensureRes = await debugTiming("ensureInitialized", () =>
+      this.ensureInitialized("getTree", cookies)
+    );
     if (result.isErr(ensureRes)) {
       return ensureRes.error;
     }
@@ -127,7 +129,9 @@ export abstract class ValServer implements IValServer {
     const includeSource = query.source === "true";
     const includeSchema = query.schema === "true";
 
-    const moduleIds = await this.getAllModules(treePath);
+    const moduleIds = await debugTiming("getAllModules", () =>
+      this.getAllModules(treePath)
+    );
 
     let {
       patchIdsByModuleId,
@@ -143,7 +147,9 @@ export abstract class ValServer implements IValServer {
       fileUpdates: {},
     };
     if (applyPatches) {
-      const res = await this.readPatches(cookies);
+      const res = await debugTiming("readPatches", () =>
+        this.readPatches(cookies)
+      );
       if (result.isErr(res)) {
         return res.error;
       }
@@ -152,21 +158,25 @@ export abstract class ValServer implements IValServer {
       fileUpdates = res.value.fileUpdates;
     }
 
-    const possiblyPatchedContent = await Promise.all(
-      moduleIds.map(async (moduleId) => {
-        return this.applyAllPatchesThenValidate(
-          moduleId,
-          patchIdsByModuleId,
-          patchesById,
-          fileUpdates,
-          cookies,
-          requestHeaders,
-          applyPatches,
-          execValidations,
-          includeSource,
-          includeSchema
-        );
-      })
+    const possiblyPatchedContent = await debugTiming(
+      "applyAllPatchesThenValidate",
+      () =>
+        Promise.all(
+          moduleIds.map(async (moduleId) => {
+            return this.applyAllPatchesThenValidate(
+              moduleId,
+              patchIdsByModuleId,
+              patchesById,
+              fileUpdates,
+              cookies,
+              requestHeaders,
+              applyPatches,
+              execValidations,
+              includeSource,
+              includeSchema
+            );
+          })
+        )
     );
 
     const modules = Object.fromEntries(
@@ -286,55 +296,65 @@ export abstract class ValServer implements IValServer {
     }
     let source = maybeSource as JSONValue;
 
-    for (const patchId of patchIdsByModuleId[moduleId] ?? []) {
-      const patch = patchesById[patchId];
-      if (!patch) {
-        continue;
-      }
-      const patchRes = applyPatch(
-        source,
-        ops,
-        patch.filter(Internal.notFileOp)
-      );
-      if (result.isOk(patchRes)) {
-        source = patchRes.value;
-      } else {
-        console.error(
-          "Val: got an unexpected error while applying patch. Is there a mismatch in Val versions? Perhaps Val is misconfigured?",
-          {
-            patchId,
-            moduleId,
-            patch: JSON.stringify(patch, null, 2),
-            error: patchRes.error,
-          }
-        );
-        return {
-          path: moduleId as string as SourcePath,
-          schema,
+    await debugTiming("applyPatches:" + moduleId, async () => {
+      for (const patchId of patchIdsByModuleId[moduleId] ?? []) {
+        const patch = patchesById[patchId];
+        if (!patch) {
+          continue;
+        }
+        const patchRes = applyPatch(
           source,
-          errors: {
-            fatal: [
-              {
-                message: "Unexpected error applying patch",
-                type: "invalid-patch",
-              },
-            ],
-          },
-        };
+          ops,
+          patch.filter(Internal.notFileOp)
+        );
+        if (result.isOk(patchRes)) {
+          source = patchRes.value;
+        } else {
+          console.error(
+            "Val: got an unexpected error while applying patch. Is there a mismatch in Val versions? Perhaps Val is misconfigured?",
+            {
+              patchId,
+              moduleId,
+              patch: JSON.stringify(patch, null, 2),
+              error: patchRes.error,
+            }
+          );
+          return {
+            path: moduleId as string as SourcePath,
+            schema,
+            source,
+            errors: {
+              fatal: [
+                {
+                  message: "Unexpected error applying patch",
+                  type: "invalid-patch",
+                },
+              ],
+            },
+          };
+        }
       }
-    }
+    });
 
     if (validate) {
-      const validationErrors = deserializeSchema(schema).validate(
-        moduleId as string as SourcePath,
-        source
+      const validationErrors = await debugTiming(
+        "validate:" + moduleId,
+        async () =>
+          deserializeSchema(schema).validate(
+            moduleId as string as SourcePath,
+            source
+          )
       );
       if (validationErrors) {
-        const revalidated = await this.revalidateImageAndFileValidation(
-          validationErrors,
-          fileUpdates,
-          cookies,
-          requestHeaders
+        const revalidated = await debugTiming(
+          "revalidate image/file:" + moduleId,
+          async () =>
+            this.revalidateImageAndFileValidation(
+              validationErrors,
+              fileUpdates,
+              cookies,
+              requestHeaders
+            )
         );
         return {
           path: moduleId as string as SourcePath,
@@ -1137,3 +1157,12 @@ export type RequestHeaders = {
   host?: string | null;
   "x-forwarded-proto"?: string | null;
 };
+
+export async function debugTiming<R>(id: string, fn: () => Promise<R>) {
+  const start = Date.now();
+  const r = await fn();
+  console.log(
+    `Timing: ${id} took: ${Date.now() - start}ms (${new Date().toISOString()})`
+  );
+  return r;
+}
