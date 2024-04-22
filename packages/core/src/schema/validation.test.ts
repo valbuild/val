@@ -55,9 +55,9 @@ const ValidationTestCases: {
     expected: [testPath],
   },
   {
-    description: "optional boolean (null)",
+    description: "nullable boolean (null)",
     input: null,
-    schema: boolean().optional(),
+    schema: boolean().nullable(),
     expected: false,
   },
   {
@@ -105,69 +105,57 @@ const ValidationTestCases: {
     expected: [testPath],
   },
   {
-    description: "basic null optional string",
+    description: "basic null nullable string",
     input: null,
-    schema: string().optional(),
+    schema: string().nullable(),
     expected: false,
   },
   {
-    description: "nested optional string",
+    description: "nested nullable string",
     input: { test: null },
-    schema: object({ test: string().optional() }).optional(),
+    schema: object({ test: string().nullable() }).nullable(),
     expected: false,
   },
   {
-    description: "basic optional string",
+    description: "basic nullable string",
     input: "two",
-    schema: string().optional(),
+    schema: string().nullable(),
     expected: false,
   },
   {
     description: "failing max length",
     input: "three",
-    schema: string({
-      maxLength: 3,
-    }),
+    schema: string().max(3),
     expected: [testPath],
   },
   {
     description: "basic max length",
     input: "two",
-    schema: string({
-      maxLength: 3,
-    }),
+    schema: string().max(3),
     expected: false,
   },
   {
     description: "failing min length",
     input: "a",
-    schema: string({
-      minLength: 3,
-    }),
+    schema: string().min(3),
     expected: [testPath],
   },
   {
     description: "basic min length",
     input: "two",
-    schema: string({
-      minLength: 3,
-    }),
+    schema: string().min(3),
     expected: false,
   },
   {
     description: "basic reg exp",
     input: "two",
-    schema: string({
-      regexp: /two|three/,
-    }),
+    schema: string().regexp(/two|three/),
     expected: false,
   },
   {
     description: "failing reg exp",
     input: "one",
-    schema: string({
-      regexp: /two|three/,
-    }),
+    schema: string().regexp(/two|three/),
     expected: [testPath],
   },
   // literal
@@ -178,9 +166,9 @@ const ValidationTestCases: {
     expected: false,
   },
   {
-    description: "basic literal optional",
+    description: "basic literal nullable",
     input: "one",
-    schema: literal("one").optional(),
+    schema: literal("one").nullable(),
     expected: false,
   },
   {
@@ -286,9 +274,9 @@ const ValidationTestCases: {
   },
   // image / file
   {
-    description: "optional image",
+    description: "nullable image",
     input: null,
-    schema: image().optional(),
+    schema: image().nullable(),
     expected: false,
   },
   {
@@ -396,7 +384,7 @@ const ValidationTestCases: {
         items: union(
           "test",
           object({ test: literal("subItem1"), text1: string() }),
-          object({ test: literal("subItem2"), text2: string({ minLength: 2 }) })
+          object({ test: literal("subItem2"), text2: string().min(2) })
         ),
       })
     ),
