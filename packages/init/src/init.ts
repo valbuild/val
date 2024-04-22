@@ -778,7 +778,7 @@ Val was successfully initialized!
 
   Start the application:
 
-  $ ${chalk.gray("npm run dev")}
+  $ ${chalk.cyan("npm run dev")}
 
   Open (assumes http://localhost:3000):
 
