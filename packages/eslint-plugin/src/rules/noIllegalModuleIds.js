@@ -36,8 +36,6 @@ export default {
             maybeValConfigImportDeclaration?.type === "ImportDeclaration" &&
             typeof maybeValConfigImportDeclaration.source.value === "string"
           ) {
-            const valConfigImportSource =
-              maybeValConfigImportDeclaration.source.value;
             const filename = context.filename || context.getFilename();
             if (
               filename?.endsWith(".val.ts") ||
@@ -45,21 +43,7 @@ export default {
             ) {
               const root = context.cwd || process.cwd();
               const relativePath = path.relative(root, filename);
-              expectedValue = relativePath.replace(/\.val\.(ts|js)$/, "");
-              // TODO: this feels like a weird way to figure out the correct relative path,
-              // in a monorepo, the root dir will be the root of the monorepo, not the root of the package
-              // so we need to account for that
-              // Assume the import of the val.config is correct and that it is in the root folder
-              const numberOfDirsToRoot = valConfigImportSource
-                .split(".." + path.sep)
-                .reduce((acc, curr) => (curr === "" ? acc + 1 : acc), 0);
-              const pathSegments = expectedValue.split(path.sep);
-              expectedValue = `/${path.join(
-                ...pathSegments.slice(
-                  pathSegments.length - (numberOfDirsToRoot + 1),
-                  pathSegments.length
-                )
-              )}`;
+              expectedValue = `/${relativePath.replace(/\.val\.(ts|js)$/, "")}`;
             }
           }
         } else {
