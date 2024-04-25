@@ -149,7 +149,7 @@ Check out this README or the [examples](./examples) directory for examples.
 - Install the packages (@valbuild/eslint-plugin is recommended but not required):
 
 ```sh
-npm install @valbuild/next@latest @valbuild/eslint-plugin@latest
+npm install @valbuild/core@latest @valbuild/next@latest @valbuild/eslint-plugin@latest
 ```
 
 - Run the init script:
