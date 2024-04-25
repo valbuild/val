@@ -76,10 +76,15 @@ type Analysis = Partial<{
   isTypeScript: boolean;
   isJavaScript: boolean;
 
-  // Val package:
-  isValInstalled: boolean;
-  valVersion: string;
-  valVersionIsSatisfied: boolean;
+  // @valbuild/core package:
+  isValCoreInstalled: boolean;
+  valCoreVersion: string;
+  valCoreVersionIsSatisfied: boolean;
+
+  // @valbuild/next package:
+  isValNextInstalled: boolean;
+  valNextVersion: string;
+  valNextVersionIsSatisfied: boolean;
 
   // eslint:
   eslintRcJsonPath: string;
@@ -129,13 +134,17 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
     if (packageJsonText) {
       try {
         const packageJson = JSON.parse(packageJsonText);
-        analysis.isValInstalled = !!packageJson.dependencies["@valbuild/next"];
+        analysis.isValCoreInstalled =
+          !!packageJson.dependencies["@valbuild/core"];
+        analysis.isValNextInstalled =
+          !!packageJson.dependencies["@valbuild/next"];
         analysis.isNextInstalled = !!packageJson.dependencies["next"];
         analysis.valEslintVersion =
           packageJson.devDependencies["@valbuild/eslint-plugin"] ||
           packageJson.dependencies["@valbuild/eslint-plugin"];
         analysis.nextVersion = packageJson.dependencies["next"];
-        analysis.valVersion = packageJson.dependencies["@valbuild/next"];
+        analysis.valCoreVersion = packageJson.dependencies["@valbuild/core"];
+        analysis.valNextVersion = packageJson.dependencies["@valbuild/next"];
       } catch (err) {
         throw new Error(
           `Failed to parse package.json in file: ${packageJsonPath}`
@@ -152,10 +161,19 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
       );
     }
   }
-  if (analysis.valVersion) {
-    const minValVersion = semver.minVersion(analysis.valVersion)?.version;
+  if (analysis.valNextVersion) {
+    const minValVersion = semver.minVersion(analysis.valNextVersion)?.version;
     if (minValVersion) {
-      analysis.valVersionIsSatisfied = semver.satisfies(
+      analysis.valNextVersionIsSatisfied = semver.satisfies(
+        minValVersion,
+        ">=" + MIN_VAL_VERSION
+      );
+    }
+  }
+  if (analysis.valCoreVersion) {
+    const minValVersion = semver.minVersion(analysis.valCoreVersion)?.version;
+    if (minValVersion) {
+      analysis.valCoreVersionIsSatisfied = semver.satisfies(
         minValVersion,
         ">=" + MIN_VAL_VERSION
       );
@@ -303,13 +321,13 @@ async function plan(
     logger.error("Val requires a Next.js project");
     return { abort: true };
   }
-  if (!analysis.isValInstalled) {
-    logger.error("Install @valbuild/next first");
+  if (!analysis.isValCoreInstalled) {
+    logger.error("Install @valbuild/core first");
     return { abort: true };
   } else {
-    if (!analysis.valVersionIsSatisfied) {
+    if (!analysis.valCoreVersionIsSatisfied) {
       logger.warn(
-        `  This init script expects @valbuild/next >= ${MIN_VAL_VERSION}. Found: ${analysis.valVersion}`
+        `  This init script expects @valbuild/core >= ${MIN_VAL_VERSION}. Found: ${analysis.valCoreVersion}`
       );
       const answer = !defaultAnswers
         ? await confirm({
@@ -319,13 +337,40 @@ async function plan(
         : false;
       if (!answer) {
         logger.error(
-          `Aborted: val version is not satisfied.\n\nInstall the @valbuild/next@${MIN_VAL_VERSION} package with your favorite package manager.\n\nExample:\n\n  npm install -D @valbuild/next@${MIN_VAL_VERSION}\n`
+          `Aborted: @valbuild/core version is not satisfied.\n\nInstall the @valbuild/core@${MIN_VAL_VERSION} package with your favorite package manager.\n\nExample:\n\n  npm install -D @valbuild/core@${MIN_VAL_VERSION}\n`
         );
         return { abort: true };
       }
     } else {
       logger.info(
-        `  Val version: found ${analysis.valVersion} >= ${MIN_VAL_VERSION}`,
+        `  Val version: found ${analysis.valCoreVersion} >= ${MIN_VAL_VERSION}`,
+        { isGood: true }
+      );
+    }
+  }
+  if (!analysis.isValNextInstalled) {
+    logger.error("Install @valbuild/next first");
+    return { abort: true };
+  } else {
+    if (!analysis.valNextVersionIsSatisfied) {
+      logger.warn(
+        `  This init script expects @valbuild/next >= ${MIN_VAL_VERSION}. Found: ${analysis.valNextVersion}`
+      );
+      const answer = !defaultAnswers
+        ? await confirm({
+            message: "Continue?",
+            default: false,
+          })
+        : false;
+      if (!answer) {
+        logger.error(
+          `Aborted: @valbuild/next version is not satisfied.\n\nInstall the @valbuild/next@${MIN_VAL_VERSION} package with your favorite package manager.\n\nExample:\n\n  npm install -D @valbuild/next@${MIN_VAL_VERSION}\n`
+        );
+        return { abort: true };
+      }
+    } else {
+      logger.info(
+        `  Val version: found ${analysis.valNextVersion} >= ${MIN_VAL_VERSION}`,
         { isGood: true }
       );
     }
