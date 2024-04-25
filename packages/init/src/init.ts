@@ -698,11 +698,11 @@ async function plan(
       } catch {
         // ignore - dir does not exist (most likely)
       }
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const currentRecommendations: string[] = (currentSettings as any)
-        .recommendations;
+      const currentRecommendations: string[] | undefined =
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (currentSettings as any).recommendations;
       const valBuildIntelliSense = "valbuild.vscode-val-build";
-      if (!currentRecommendations.includes(valBuildIntelliSense)) {
+      if (!currentRecommendations?.includes(valBuildIntelliSense)) {
         currentSettings = {
           ...currentSettings,
           recommendations: (currentRecommendations || []).concat(
