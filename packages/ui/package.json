@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/ui",
-  "version": "0.60.24",
+  "version": "0.60.27",
   "sideEffects": false,
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -41,8 +41,8 @@
     "@remirror/pm": "^2.0.8",
     "@remirror/react": "^2.0.35",
     "@remirror/styles": "^2.0.7",
-    "@valbuild/core": "~0.60.24",
-    "@valbuild/shared": "~0.60.24",
+    "@valbuild/core": "~0.60.27",
+    "@valbuild/shared": "~0.60.27",
     "class-variance-authority": "^0.7.0",
     "classnames": "^2.3.2",
     "clsx": "^2.0.0",
