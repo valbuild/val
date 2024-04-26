@@ -1,7 +1,7 @@
 import { ModuleId, SourcePath } from "@valbuild/core";
-import path from "path";
 import { QuickJSRuntime } from "quickjs-emscripten";
 import { SerializedModuleContent } from "./SerializedModuleContent";
+import { getSyntheticContainingPath } from "./getSyntheticContainingPath";
 
 export const readValFile = async (
   id: ModuleId,
@@ -76,8 +76,7 @@ globalThis.valModule = {
 `;
     const result = context.evalCode(
       code,
-      // Synthetic module name
-      path.join(rootDirPath, "<val>")
+      getSyntheticContainingPath(rootDirPath)
     );
     const fatalErrors: string[] = [];
     if (result.error) {
