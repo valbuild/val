@@ -1,6 +1,8 @@
 "use client";
+import Link from "next/link";
 import { useVal } from "../val/client";
 import clientContentVal, { ClientContent } from "./clientContent.val";
+import linksVal from "./links.val";
 
 export function ClientComponent() {
   const content = useVal(clientContentVal);
@@ -24,6 +26,7 @@ function SubComponent({
   content: ClientContent;
   arrays: ClientContent["arrays"];
 }) {
+  const links = useVal(linksVal);
   return (
     <div>
       <h1>
@@ -52,6 +55,15 @@ function SubComponent({
           ? "This value is now lit-1"
           : "Value is something else than lit-1"}
       </div>
+      <Link
+        href={links.homepage}
+        style={{
+          color: "blue",
+          textDecoration: "underline",
+        }}
+      >
+        Val homepage (using next/link and rendered on client)
+      </Link>
     </div>
   );
 }

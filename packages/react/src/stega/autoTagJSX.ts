@@ -4,6 +4,7 @@ import jsxRuntimeDev from "react/jsx-dev-runtime";
 import React from "react";
 import { vercelStegaSplit, VERCEL_STEGA_REGEX } from "@vercel/stega";
 import { stegaDecodeString } from "./stegaDecodeString";
+// import { IS_AUTO_TAG_JSX_ENABLED } from ".";
 
 const isIntrinsicElement = (type: any) => {
   // TODO: think this is not correct, but good enough for now?
@@ -11,13 +12,17 @@ const isIntrinsicElement = (type: any) => {
 };
 
 const addValPathIfFound = (type: any, props: any) => {
-  const valSources: string[] = [];
+  // TODO: increases performance. Unsure about the implications right now - seems to work. Remember to look at RSC and client (and pages/?).
+  // if (!IS_AUTO_TAG_JSX_ENABLED()) {
+  //   return;
+  // }
+
+  const valSources = new Set<string>();
 
   // skip auto-tagging fragments since we can't add attributes to them
   if (type === Symbol.for("react.fragment")) {
     return;
   }
-
   function updateValSources(
     key: string | number,
     value: string,
@@ -35,24 +40,29 @@ const addValPathIfFound = (type: any, props: any) => {
       return;
     }
     const valPath = stegaDecodeString(value);
-    const attr = `data-val-attr-${key.toString().toLowerCase()}`;
-    if (valPath && !props[attr]) {
-      valSources.push(valPath);
-      const cleanValue = isIntrinsicElement(type)
-        ? vercelStegaSplit(value).cleaned
-        : value;
-      // we do Object.entries earlier over props so props that are arrays have string keys:
-      const numberOfKey = Number(key);
-      if (Array.isArray(container) && numberOfKey > -1) {
-        container[numberOfKey] = cleanValue;
-      } else if (typeof key === "string" && !Array.isArray(container)) {
-        container[key] = cleanValue;
-      } else {
-        console.error(
-          "Val: Could not auto tag. Reason: unexpected types found while cleaning and / or adding val path data props."
-        );
+    if (valPath) {
+      // Found val path - this is a stega encoded string
+      // The logic below is as follows:
+      //   if this is an intrinsic element (a, div, etc.), add data attrs will be on the DOM element
+      //   always add to sources (intrinsic or not)
+      //   if this is not an intrinsic element, we pass the stega encoded value downwards until we hit an intrinsic element
+      valSources.add(valPath);
+      if (isIntrinsicElement(type)) {
+        // clean values before adding them to the props
+        // we cannot do this
+        const cleanValue = vercelStegaSplit(value).cleaned;
+        // we do Object.entries earlier over props so props that are arrays have string keys:
+        const numberOfKey = Number(key);
+        if (Array.isArray(container) && numberOfKey > -1) {
+          container[numberOfKey] = cleanValue;
+        } else if (typeof key === "string" && !Array.isArray(container)) {
+          container[key] = cleanValue;
+        } else {
+          console.error(
+            "Val: Could not auto tag. Reason: unexpected types found while cleaning and / or adding val path data props."
+          );
+        }
       }
-      props[attr] = valPath;
     }
   }
   if (props && typeof props === "object") {
@@ -83,8 +93,8 @@ const addValPathIfFound = (type: any, props: any) => {
         }
       }
     }
-    if (valSources.length > 0 && !props["data-val-path"]) {
-      props["data-val-path"] = valSources.join(",");
+    if (valSources.size > 0 && !props["data-val-path"]) {
+      props["data-val-path"] = Array.from(valSources).join(",");
     }
   }
 };
