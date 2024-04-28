@@ -27,7 +27,6 @@ import {
   Internal,
 } from "@valbuild/core";
 import { Preview } from "./Preview";
-import { useNavigate } from "./ValRouter";
 
 export function SortableList({
   source,
@@ -145,9 +144,11 @@ export function SortableItem({
       const height = ref.current.getBoundingClientRect().height;
       if (height >= LIST_ITEM_MAX_HEIGHT) {
         setIsTruncated(true);
+      } else {
+        setIsTruncated(false);
       }
     }
-  }, []);
+  }, [id, source]);
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: id, disabled });
   const style = {
@@ -159,20 +160,20 @@ export function SortableItem({
     <div
       ref={setNodeRef}
       style={style}
-      className="grid items-center col-span-4 gap-4 grid-cols-subgrid"
+      className="grid items-start col-span-4 gap-4 grid-cols-subgrid"
     >
       <div
         {...attributes}
         {...listeners}
-        className={classNames({
+        className={classNames("pt-4", {
           "opacity-30": disabled,
         })}
       >
         <GripVertical />
       </div>
-      <div className="font-serif text-accent">{formatNumber(id)}</div>
+      <div className="pt-4 font-serif text-accent">{formatNumber(id)}</div>
       <div
-        className="relative p-4 overflow-hidden border rounded border-border bg-card gap-y-2 "
+        className="relative grid p-4 overflow-hidden border rounded border-border bg-card gap-y-2 grid-cols-subgrid cols-span-1"
         style={{
           maxHeight: LIST_ITEM_MAX_HEIGHT,
         }}
@@ -180,10 +181,13 @@ export function SortableItem({
       >
         <Preview source={source} schema={schema} />
         {isTruncated && (
-          <div className="absolute bottom-0 left-0 w-full h-[20px] bg-gradient-to-b from-transparent to-background"></div>
+          <div
+            className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"
+            style={{ height: 40 }}
+          ></div>
         )}
       </div>
-      <button>
+      <button className="pt-4">
         <EllipsisVertical />
       </button>
     </div>

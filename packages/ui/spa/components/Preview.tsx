@@ -26,7 +26,7 @@ export function Preview({
   schema?: SerializedSchema; // TODO: use schema: if this is a string we want to be able to directly edit - maybe there's other thing we want to do?
 }) {
   if (source === null) {
-    return <span className="text-accent">Empty</span>;
+    return <PreviewEmpty />;
   }
   if (typeof source === "object") {
     if (isJsonArray(source)) {
@@ -45,11 +45,18 @@ export function Preview({
       if (schema?.type === "object") {
         return <PreviewObject source={source} schema={schema} />;
       }
+      if (schema?.type === "record") {
+        return <PreviewRecord source={source} />;
+      }
       // fall back to unknown object
       return <PreviewObject source={source} />;
     }
   }
   return <span>{source.toString()}</span>;
+}
+
+function PreviewEmpty() {
+  return <span className="text-accent">Empty</span>;
 }
 
 function PreviewObject({
@@ -59,12 +66,13 @@ function PreviewObject({
   source: JsonObject;
   schema?: SerializedObjectSchema;
 }) {
+  const keys = (schema && Object.keys(schema?.items)) || Object.keys(source);
   return (
     <div>
-      {Object.keys(source).map((key) => {
+      {keys.map((key) => {
         return (
           <div key={key} className="grid grid-cols-[auto,1fr] gap-4">
-            <div className="font-serif text-accent">{key}:</div>
+            <span className="font-serif text-accent">{key}:</span>
             <Preview source={source[key] ?? null} schema={schema?.items[key]} />
           </div>
         );
@@ -76,7 +84,21 @@ function PreviewObject({
 function PreviewArray({ source }: { source: JsonArray }) {
   return (
     <span>
-      <span className="text-accent">{source.length}</span>
+      {source.length === 0 && <span>No</span>}
+      {source.length > 0 && (
+        <span className="text-accent">{source.length}</span>
+      )}
+      <span>{source.length === 1 ? " item" : " items"}</span>
+    </span>
+  );
+}
+
+function PreviewRecord({ source }: { source: JsonObject }) {
+  const keys = Object.keys(source);
+  return (
+    <span>
+      {keys.length === 0 && <span>No</span>}
+      {keys.length > 0 && <span className="text-accent">{keys.length}</span>}
       <span>{source.length === 1 ? " item" : " items"}</span>
     </span>
   );
