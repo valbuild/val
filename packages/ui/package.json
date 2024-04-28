@@ -90,7 +90,7 @@
     "eslint-plugin-react": "^7.32.2",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.3",
-    "lucide-react": "^0.290.0",
+    "lucide-react": "^0.376.0",
     "postcss": "^8.4.21",
     "prop-types": "^15.8.1",
     "react-day-picker": "^8.9.1",

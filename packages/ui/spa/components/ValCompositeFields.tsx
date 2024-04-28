@@ -55,6 +55,7 @@ import { Plus, RotateCw, Trash } from "lucide-react";
 import { Button } from "./ui/button";
 import { array } from "@valbuild/core/fp";
 import { useNavigate } from "./ValRouter";
+import { isJsonArray } from "../utils/isJsonArray";
 
 export function AnyVal({
   path,
@@ -1015,10 +1016,6 @@ function ValDefaultOf({
       {schema.type}
     </div>
   );
-}
-
-function isJsonArray(source: JsonArray | JsonObject): source is JsonArray {
-  return Array.isArray(source);
 }
 
 function dirPaths(paths: string[]): Record<string, string[]> {
