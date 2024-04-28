@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   DndContext,
   closestCenter,
@@ -27,6 +27,7 @@ import {
   Internal,
 } from "@valbuild/core";
 import { Preview } from "./Preview";
+import { useNavigate } from "./ValRouter";
 
 export function SortableList({
   source,
@@ -110,10 +111,20 @@ export function SortableList({
       });
       setTimeout(() => {
         setDisabled(false);
+        setItems((items) => {
+          return items.map((item, index) => {
+            return {
+              ...item,
+              id: index + 1,
+            };
+          });
+        });
       }, 500);
     }
   }
 }
+
+const LIST_ITEM_MAX_HEIGHT = 170;
 
 export function SortableItem({
   id,
@@ -127,12 +138,23 @@ export function SortableItem({
   schema: SerializedSchema;
   disabled: boolean;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [isTruncated, setIsTruncated] = useState<boolean>(false);
+  useEffect(() => {
+    if (ref.current) {
+      const height = ref.current.getBoundingClientRect().height;
+      if (height >= LIST_ITEM_MAX_HEIGHT) {
+        setIsTruncated(true);
+      }
+    }
+  }, []);
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: id, disabled });
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
   };
+
   return (
     <div
       ref={setNodeRef}
@@ -149,8 +171,17 @@ export function SortableItem({
         <GripVertical />
       </div>
       <div className="font-serif text-accent">{formatNumber(id)}</div>
-      <div className="p-4 border rounded border-border bg-card">
+      <div
+        className="relative p-4 overflow-hidden border rounded border-border bg-card gap-y-2 "
+        style={{
+          maxHeight: LIST_ITEM_MAX_HEIGHT,
+        }}
+        ref={ref}
+      >
         <Preview source={source} schema={schema} />
+        {isTruncated && (
+          <div className="absolute bottom-0 left-0 w-full h-[20px] bg-gradient-to-b from-transparent to-background"></div>
+        )}
       </div>
       <button>
         <EllipsisVertical />

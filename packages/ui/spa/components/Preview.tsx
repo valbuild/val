@@ -4,39 +4,49 @@ import {
   JsonArray,
   SerializedSchema,
   AnyRichTextOptions,
-  RichText,
   RichTextNode,
-  SourcePath,
   VAL_EXTENSION,
   RichTextSource,
+  FILE_REF_PROP,
+  FileSource,
+  Internal,
+  SerializedObjectSchema,
 } from "@valbuild/core";
 import { isJsonArray } from "../utils/isJsonArray";
-import React from "react";
+import React, { createElement, useState } from "react";
 import { parseRichTextSource } from "@valbuild/shared/internal";
+import { createPortal } from "react-dom";
+import { useValImagePreviewContext } from "./ValCompositeFields";
 
 export function Preview({
   source,
   schema,
 }: {
   source: Json;
-  schema: SerializedSchema; // TODO: use schema: if this is a string we want to be able to directly edit - maybe there's other thing we want to do?
+  schema?: SerializedSchema; // TODO: use schema: if this is a string we want to be able to directly edit - maybe there's other thing we want to do?
 }) {
   if (source === null) {
-    return <div className="text-accent">Empty</div>;
+    return <span className="text-accent">Empty</span>;
   }
-
   if (typeof source === "object") {
     if (isJsonArray(source)) {
       return <PreviewArray source={source} />;
     } else {
-      if (source[VAL_EXTENSION] === "richtext" && "children" in source) {
-        return (
-          <PreviewRichText>
-            {parseRichTextSource(source as RichTextSource<AnyRichTextOptions>)}
-          </PreviewRichText>
-        );
+      if (schema?.type === "richtext") {
+        return <PreviewRichText source={source} />;
       }
-      return <PreviewObject source={source} schema={schema} />;
+      if (schema?.type === "image") {
+        return <PreviewImage source={source} />;
+      }
+      // schema might be a file or the object is representing some sort of file:
+      if (schema?.type === "file" || source[VAL_EXTENSION] === "file") {
+        return <PreviewFile source={source} />;
+      }
+      if (schema?.type === "object") {
+        return <PreviewObject source={source} schema={schema} />;
+      }
+      // fall back to unknown object
+      return <PreviewObject source={source} />;
     }
   }
   return <span>{source.toString()}</span>;
@@ -47,7 +57,7 @@ function PreviewObject({
   schema,
 }: {
   source: JsonObject;
-  schema: SerializedSchema;
+  schema?: SerializedObjectSchema;
 }) {
   return (
     <div>
@@ -55,7 +65,7 @@ function PreviewObject({
         return (
           <div key={key} className="grid grid-cols-[auto,1fr] gap-4">
             <div className="font-serif text-accent">{key}:</div>
-            <Preview source={source[key] ?? null} schema={schema} />
+            <Preview source={source[key] ?? null} schema={schema?.items[key]} />
           </div>
         );
       })}
@@ -72,183 +82,143 @@ function PreviewArray({ source }: { source: JsonArray }) {
   );
 }
 
-// #region RichText
-const theme: { tags: Record<string, string>; classes: Record<string, string> } =
-  {
-    tags: {
-      h1: "font-bold",
-      h2: "font-bold",
-      h3: "font-bold",
-      h4: "font-bold",
-      h5: "font-bold",
-      h6: "font-bold",
-      p: "",
-    },
-    classes: {
-      bold: "font-bold",
-      italic: "italic",
-      lineThrough: "line-through",
-    },
-  };
-export function PreviewRichText({
-  children,
-}: {
-  children: RichText<AnyRichTextOptions>;
-}) {
-  const root = children as RichText<AnyRichTextOptions> & {
-    valPath: SourcePath;
-  };
-  function withRenderTag(clazz: string, current?: string) {
-    const renderClass = theme.tags[clazz];
-    if (renderClass && current) {
-      return [current, renderClass].join(" ");
-    }
-    if (renderClass) {
-      return renderClass;
-    }
-    return current;
+function PreviewFile({ source }: { source: JsonObject }) {
+  if (!(FILE_REF_PROP in source && typeof source[FILE_REF_PROP] === "string")) {
+    return <span className="text-destructive">Invalid File</span>;
   }
-  function withRenderClass(clazz: string, current?: string) {
-    const renderClass = theme.classes[clazz];
-    if (renderClass && current) {
-      return [current, renderClass].join(" ");
+  return (
+    <a href={Internal.convertFileSource(source as FileSource).url}>
+      {source[FILE_REF_PROP]}
+    </a>
+  );
+}
+
+function PreviewImage(
+  props:
+    | { source: JsonObject }
+    | {
+        src: string;
+        alt?: string;
+      }
+) {
+  const [isMouseOver, setIsMouseOver] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const hoverElem = useValImagePreviewContext()?.hoverElem;
+
+  let url;
+  let text: string;
+  if ("source" in props) {
+    if (
+      !(
+        FILE_REF_PROP in props.source &&
+        typeof props.source[FILE_REF_PROP] === "string"
+      )
+    ) {
+      return <span className="text-destructive">Invalid Image</span>;
     }
-    if (renderClass) {
-      return renderClass;
-    }
-    return current;
+    url = Internal.convertFileSource(props.source as FileSource).url;
+    text = props.source[FILE_REF_PROP];
+  } else {
+    url = props.src;
+    text = props.alt || url;
   }
 
-  function toReact(
+  return (
+    <span
+      onMouseOver={(ev) => {
+        setIsMouseOver({
+          x: ev.clientX,
+          y: ev.clientY,
+        });
+      }}
+      onMouseLeave={() => {
+        setIsMouseOver(null);
+      }}
+      className="relative flex items-center justify-start gap-1"
+    >
+      <a href={url} className="overflow-hidden underline truncate ">
+        {text}
+      </a>
+      {isMouseOver &&
+        hoverElem &&
+        createPortal(
+          <img
+            className="absolute z-[5] max-w-[10vw]"
+            style={{
+              left: isMouseOver.x + 10,
+              top: isMouseOver.y + 10,
+            }}
+            src={url}
+          ></img>,
+          hoverElem
+        )}
+    </span>
+  );
+}
+
+// #region RichText
+export function PreviewRichText({ source: source }: { source: JsonObject }) {
+  if (
+    !("templateStrings" in source && "exprs" in source) ||
+    source[VAL_EXTENSION] !== "richtext"
+  ) {
+    return <span className="text-destructive">Invalid RichText</span>;
+  }
+  const richText = parseRichTextSource(
+    source as RichTextSource<AnyRichTextOptions>
+  );
+  const root = richText;
+
+  function build(
     node: RichTextNode<AnyRichTextOptions>,
-    key: number | string
-  ): React.ReactNode {
+    key: number
+  ): React.ReactElement {
     if (typeof node === "string") {
-      return node;
+      return <span key={key}>{node}</span>;
     }
     if (node.tag === "p") {
-      return (
-        <p className={withRenderTag("p")} key={key}>
-          {node.children.map((child, key) => toReact(child, key))}
-        </p>
-      );
+      return <p key={key}>{node.children.map(build)}</p>;
     }
-    if (node.tag === "img") {
-      return <img className={withRenderTag("img")} key={key} src={node.src} />;
-    }
-    if (node.tag === "ul") {
+    if (
+      node.tag === "h1" ||
+      node.tag === "h2" ||
+      node.tag === "h3" ||
+      node.tag === "h4" ||
+      node.tag === "h5" ||
+      node.tag === "h6"
+    ) {
       return (
-        <ul className={withRenderTag("ul")} key={key}>
-          {node.children.map((child, key) => toReact(child, key))}
-        </ul>
-      );
-    }
-    if (node.tag === "ol") {
-      return (
-        <ol className={withRenderTag("ol")} key={key}>
-          {node.children.map((child, key) => toReact(child, key))}
-        </ol>
-      );
-    }
-    if (node.tag === "li") {
-      return (
-        <li className={withRenderTag("li")} key={key}>
-          {node.children.map((child, key) => toReact(child, key))}
-        </li>
-      );
-    }
-    if (node.tag === "span") {
-      return (
-        <span
-          key={key}
-          className={node.classes
-            .map((nodeClass) => {
-              switch (nodeClass) {
-                case "bold":
-                  return withRenderClass("bold");
-                case "line-through":
-                  return withRenderClass("lineThrough");
-                case "italic":
-                  return withRenderClass("italic");
-              }
-            })
-            .join(" ")}
-        >
-          {node.children.map((child, key) => toReact(child, key))}
+        <span key={key} className="font-bold text-accent">
+          {node.children.map(build)}
         </span>
       );
     }
-    if (node.tag === "h1") {
+    if (node.tag === "a") {
       return (
-        <h1 className={withRenderTag("h1")} key={key}>
-          {node.children.map((child, key) => toReact(child, key))}
-        </h1>
+        <span key={key} className="underline text-accent">
+          {node.children.map(build)}
+        </span>
       );
     }
-    if (node.tag === "h2") {
-      return (
-        <h2 className={withRenderTag("h2")} key={key}>
-          {node.children.map((child, key) => toReact(child, key))}
-        </h2>
-      );
+    if (node.tag === "img") {
+      return <PreviewImage key={key} src={node.src} alt={node.alt} />;
     }
-    if (node.tag === "h3") {
-      return (
-        <h3 className={withRenderTag("h3")} key={key}>
-          {node.children.map((child, key) => toReact(child, key))}
-        </h3>
-      );
-    }
-    if (node.tag === "h4") {
-      return (
-        <h4 className={withRenderTag("h4")} key={key}>
-          {node.children.map((child, key) => toReact(child, key))}
-        </h4>
-      );
-    }
-    if (node.tag === "h5") {
-      return (
-        <h5 className={withRenderTag("h5")} key={key}>
-          {node.children.map((child, key) => toReact(child, key))}
-        </h5>
-      );
-    }
-    if (node.tag === "h6") {
-      return (
-        <h6 className={withRenderTag("h6")} key={key}>
-          {node.children.map((child, key) => toReact(child, key))}
-        </h6>
-      );
-    }
-
     if (node.tag === "br") {
       return <br key={key} />;
     }
-    if (node.tag === "a") {
-      return (
-        <a href={node.href} key={key}>
-          {node.children.map((child, key) => toReact(child, key))}
-        </a>
-      );
-    }
-    console.error("Unknown tag", node.tag);
-    const _exhaustiveCheck: never = node.tag;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyNode = _exhaustiveCheck as any;
-    if (!anyNode?.tag) {
-      return null;
-    }
-    return React.createElement(anyNode.tag, {
+
+    return createElement(node.tag, {
       key,
-      className: anyNode.class?.join(" "),
-      children: anyNode.children?.map(toReact),
+      children: node.children.map(build),
     });
   }
 
   return (
-    <span data-val-path={root.valPath}>
+    <span>
       {root.children.map((child, i) => {
-        return toReact(child, i);
+        return build(child, i);
       })}
     </span>
   );
