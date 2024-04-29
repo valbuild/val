@@ -56,7 +56,7 @@ import { Button } from "./ui/button";
 import { array } from "@valbuild/core/fp";
 import { useNavigate } from "./ValRouter";
 import { isJsonArray } from "../utils/isJsonArray";
-
+import { SortableList } from "./SortableList";
 export function AnyVal({
   path,
   source,
@@ -427,64 +427,59 @@ function ValList({
   schema: SerializedArraySchema;
   initOnSubmit: InitOnSubmit;
 }): React.ReactElement {
+  const navigate = useNavigate();
   const onSubmit = initOnSubmit(path);
-  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const [loading, setLoading] = useState<boolean>(false);
 
   return (
     <FieldContainer key={path} className="flex flex-col gap-4 p-2 pb-8">
-      <button
-        onClick={() => {
-          onSubmit(async () => {
-            const patch: Patch = [];
-            if (source === null) {
-              patch.push({
-                op: "replace",
-                path: Internal.createPatchPath(modulePath),
-                value: [],
-              });
-            }
-            patch.push({
-              op: "add",
-              path: Internal.createPatchPath(
-                createValPathOfItem(modulePath, source.length)
-              ),
-              value: emptyOf(schema.item) as JSONValue,
+      <SortableList
+        path={path}
+        source={source}
+        schema={schema}
+        loading={loading}
+        onDelete={async (item) => {
+          setLoading(true);
+          return onSubmit(async (path) => {
+            return [
+              {
+                op: "remove",
+                path: path.concat(
+                  item.toString()
+                ) as array.NonEmptyArray<string>,
+              },
+            ];
+          })
+            .catch((err) => {
+              console.error("Could not delete item", err);
+            })
+            .finally(() => {
+              setLoading(false);
             });
-            return patch;
-          });
         }}
-      >
-        <Plus />
-      </button>
-      {source.map((item, index) => {
-        const subPath = createValPathOfItem(path, index);
-        const onSubmit = initOnSubmit(subPath);
-
-        return (
-          <ValListItem
-            index={index}
-            key={subPath}
-            path={subPath}
-            source={item}
-            loading={false}
-            schema={schema.item}
-            onDelete={() => {
-              onSubmit(async (path) => {
-                if (path.length > 0) {
-                  return [
-                    {
-                      op: "remove",
-                      path: path as array.NonEmptyArray<string>,
-                    },
-                  ];
-                }
-                console.error("Cannot delete a root element");
-                return [];
-              });
-            }}
-          />
-        );
-      })}
+        onMove={async (from, to) => {
+          return onSubmit(async (path) => {
+            const fromPath = path.concat(from.toString());
+            const toPath = path.concat(to.toString());
+            return [
+              {
+                op: "move",
+                from: fromPath,
+                path: toPath,
+              },
+            ] as Patch;
+          })
+            .catch((err) => {
+              console.error("Could not move item", err);
+            })
+            .finally(() => {
+              setLoading(false);
+            });
+        }}
+        onClick={(path) => {
+          navigate(path);
+        }}
+      />
     </FieldContainer>
   );
 }

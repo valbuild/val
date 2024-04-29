@@ -94,7 +94,7 @@ ${c.rt.image("/public/test.png")}
 export const Strings: Story = {
   render: (args) => (
     <div className="max-w-[800px]">
-      <SortableList {...args} />
+      <SortableList {...args} onClick={() => {}} onMove={() => {}} />
     </div>
   ),
   args: getArgs(s.array(s.string()), ["Item 1", "Item 2", "Item 3"]),

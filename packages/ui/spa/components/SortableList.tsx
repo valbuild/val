@@ -17,7 +17,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import classNames from "classnames";
-import { EllipsisVertical, GripVertical } from "lucide-react";
+import { EllipsisVertical, GripVertical, Trash2 } from "lucide-react";
 import {
   JsonArray,
   SourcePath,
@@ -27,16 +27,34 @@ import {
   Internal,
 } from "@valbuild/core";
 import { Preview } from "./Preview";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+} from "@radix-ui/react-dropdown-menu";
+import {
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+} from "./ui/dropdown-menu";
 
 export function SortableList({
   source,
   path,
   schema,
+  loading,
+  onClick,
+  onMove,
+  onDelete,
 }: {
   source: JsonArray;
   path: SourcePath;
   schema: SerializedArraySchema;
+  loading: boolean;
+  onMove: (from: number, to: number) => Promise<void>;
+  onClick: (path: SourcePath) => void;
+  onDelete: (item: number) => Promise<void>;
 }) {
+  const [disabled, setDisabled] = useState<boolean>(false);
   const [items, setItems] = useState<
     { source: Json; path: SourcePath; id: number }[]
   >([]);
@@ -48,7 +66,7 @@ export function SortableList({
     }[] = [];
     let id = 1; // NB: starts 1 - 0 doesn't work with DndKit (???) plus we want to show 1-based index
     for (const item of source) {
-      const itemPath = Internal.createValPathOfItem(path, id);
+      const itemPath = Internal.createValPathOfItem(path, id - 1);
       if (!itemPath) {
         console.error("Val: could not determine path of item", path, id);
         id++;
@@ -66,7 +84,6 @@ export function SortableList({
       coordinateGetter: sortableKeyboardCoordinates,
     })
   );
-  const [disabled, setDisabled] = useState(false);
 
   return (
     <DndContext
@@ -84,7 +101,23 @@ export function SortableList({
                 source={source}
                 schema={schema.item}
                 path={path}
-                disabled={disabled}
+                disabled={loading || disabled}
+                onClick={onClick}
+                onDelete={(id) => {
+                  setDisabled(true);
+                  onDelete(
+                    id -
+                      1 /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
+                  )
+                    .then(() => {
+                      setItems((items) => {
+                        return items.filter((item) => item.id !== id);
+                      });
+                    })
+                    .finally(() => {
+                      setDisabled(false);
+                    });
+                }}
               />
             );
           })}
@@ -98,27 +131,35 @@ export function SortableList({
 
     if (active?.id !== over?.id) {
       setDisabled(true);
+      const oldIndex = items.findIndex(
+        (item) => item.id === Number(active?.id)
+      );
+      const newIndex = items.findIndex((item) => item.id === Number(over?.id));
+      const prevItems = items.slice();
       setItems((items) => {
-        const oldIndex = items.findIndex(
-          (item) => item.id === Number(active?.id)
-        );
-        const newIndex = items.findIndex(
-          (item) => item.id === Number(over?.id)
-        );
-
         return arrayMove(items, oldIndex, newIndex);
       });
-      setTimeout(() => {
-        setDisabled(false);
-        setItems((items) => {
-          return items.map((item, index) => {
-            return {
-              ...item,
-              id: index + 1,
-            };
+      onMove(oldIndex, newIndex)
+        .catch(() => {
+          setItems(prevItems);
+        })
+        .then(() => {
+          setItems((items) => {
+            return items.map((item, i) => {
+              const itemPath = Internal.createValPathOfItem(path, i);
+              if (!itemPath) {
+                throw Error(
+                  "Val: could not determine path of item: " + path + " i:" + i
+                );
+              }
+
+              return { ...item, path: itemPath, id: i + 1 };
+            });
           });
+        })
+        .finally(() => {
+          setDisabled(false);
         });
-      }, 500);
     }
   }
 }
@@ -127,15 +168,20 @@ const LIST_ITEM_MAX_HEIGHT = 170;
 
 export function SortableItem({
   id,
+  path,
   source,
   schema,
   disabled,
+  onClick,
+  onDelete,
 }: {
   id: number;
   source: Json;
   path: SourcePath;
   schema: SerializedSchema;
   disabled: boolean;
+  onClick: (path: SourcePath) => void;
+  onDelete: (item: number) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [isTruncated, setIsTruncated] = useState<boolean>(false);
@@ -179,16 +225,38 @@ export function SortableItem({
         }}
         ref={ref}
       >
-        <Preview source={source} schema={schema} />
-        {isTruncated && (
-          <div
-            className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"
-            style={{ height: 40 }}
-          ></div>
-        )}
+        <button
+          onClick={() => {
+            onClick(path);
+          }}
+        >
+          <Preview source={source} schema={schema} />
+          {isTruncated && (
+            <div
+              className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"
+              style={{ height: 40 }}
+            ></div>
+          )}
+        </button>
       </div>
       <button className="pt-4">
-        <EllipsisVertical />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <EllipsisVertical />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-32">
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                onClick={() => {
+                  onDelete(id);
+                }}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                <span>Delete</span>
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </button>
     </div>
   );
