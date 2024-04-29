@@ -147,6 +147,7 @@ export function ValOverlay({
       api
         .postValidate({
           patches,
+          modules: false,
         })
         .then((res) => {
           if (ignore) {

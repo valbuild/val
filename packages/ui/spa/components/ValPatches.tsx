@@ -155,7 +155,7 @@ export function ValPatches({
             onClick={() => {
               setLoading(true);
               api
-                .postCommit({ patches: patchIdsByModule })
+                .postCommit({ patches: patchIdsByModule, validate: false })
                 .then((res) => {
                   if (result.isErr(res)) {
                     console.error(res.error);

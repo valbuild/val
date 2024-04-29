@@ -11,11 +11,15 @@ import {
   ModulePath,
   FileMetadata,
   ImageMetadata,
+  ApiCommitResponse,
+  ApiPostValidationErrorResponse,
+  ApiPostValidationResponse,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
   VAL_SESSION_COOKIE,
   VAL_STATE_COOKIE,
+  ValCookies,
   ValServerError,
   ValServerJsonResult,
   ValServerRedirectResult,
@@ -25,6 +29,8 @@ import {
 import path from "path";
 import { z } from "zod";
 import {
+  IValServer,
+  RequestHeaders,
   ValServer,
   ValServerCallbacks,
   bufferFromDataUrl,
@@ -53,7 +59,7 @@ export interface ValServerBufferHost {
 }
 
 const textEncoder = new TextEncoder();
-export class LocalValServer extends ValServer {
+export class LocalValServer extends ValServer implements IValServer {
   private readonly host: IValFSHost;
   private static readonly PATCHES_DIR = "patches";
   private static readonly FILES_DIR = "files";
@@ -70,6 +76,7 @@ export class LocalValServer extends ValServer {
     this.host = this.options.service.sourceFileHandler.host;
   }
 
+  // #region session
   async session(): Promise<ValServerJsonResult<ValSession>> {
     return {
       status: 200,
@@ -79,7 +86,9 @@ export class LocalValServer extends ValServer {
       },
     };
   }
+  // #endregion session
 
+  // #region deletePatches
   async deletePatches(query: {
     id?: string[];
   }): Promise<ValServerJsonResult<ApiDeletePatchResponse>> {
@@ -124,7 +133,9 @@ export class LocalValServer extends ValServer {
       json: deletedPatches,
     };
   }
+  // #endregion deletePatches
 
+  // #region postPatches
   async postPatches(
     body: unknown
   ): Promise<ValServerJsonResult<ApiPostPatchResponse>> {
@@ -219,11 +230,13 @@ export class LocalValServer extends ValServer {
       json: res,
     };
   }
+  // #endregion postPatches
 
   async getMetadata(): Promise<FileMetadata | ImageMetadata | undefined> {
     return undefined;
   }
 
+  // #region getFiles
   async getFiles(
     filePath: string,
     query: { sha256?: string }
@@ -298,7 +311,9 @@ export class LocalValServer extends ValServer {
       body: bufferToReadableStream(buffer),
     };
   }
+  // #endregion getFiles
 
+  // #region getPatches
   async getPatches(query: {
     id?: string[];
   }): Promise<ValServerJsonResult<ApiGetPatchResponse>> {
@@ -395,6 +410,7 @@ export class LocalValServer extends ValServer {
       json: res,
     };
   }
+  // #endregion getPatches
 
   private getFilePath(filename: string, sha256: string) {
     return path.join(
@@ -501,6 +517,58 @@ export class LocalValServer extends ValServer {
     }
     return { status: 200, json: await this.getPatchedModules(patches) };
   }
+
+  // #region postValidate
+  async postValidate(
+    rawBody: unknown,
+    _cookies: ValCookies<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
+  ): Promise<
+    ValServerJsonResult<
+      ApiPostValidationResponse | ApiPostValidationErrorResponse
+    >
+  > {
+    return this.validateThenMaybeCommit(rawBody, false, {}, requestHeaders);
+  }
+  // #endregion postValidate
+
+  // #region postCommit
+  async postCommit(
+    rawBody: unknown,
+    _cookies: ValCookies<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
+  ): Promise<
+    ValServerJsonResult<ApiCommitResponse, ApiPostValidationErrorResponse>
+  > {
+    const res = await this.validateThenMaybeCommit(
+      rawBody,
+      true,
+      {},
+      requestHeaders
+    );
+    if (res.status === 200) {
+      if (res.json.validationErrors) {
+        return {
+          status: 400,
+          json: {
+            ...res.json,
+          },
+        } as { status: 400; json: ApiPostValidationErrorResponse };
+      }
+      return {
+        status: 200,
+        json: {
+          ...res.json,
+          git: this.options.git,
+        },
+      };
+    }
+    return res as ValServerJsonResult<
+      ApiCommitResponse,
+      ApiPostValidationErrorResponse
+    >;
+  }
+  // #endregion postCommit
 
   /* Bad requests on Local Server: */
 

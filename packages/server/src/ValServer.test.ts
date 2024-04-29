@@ -7,6 +7,9 @@ import {
   ModulePath,
   FileMetadata,
   ImageMetadata,
+  ApiCommitResponse,
+  ApiPostValidationErrorResponse,
+  ApiPostValidationResponse,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { Result } from "@valbuild/core/src/fp/result";
@@ -19,6 +22,7 @@ import {
 } from "@valbuild/shared/internal";
 import { SerializedModuleContent } from "./SerializedModuleContent";
 import {
+  RequestHeaders,
   ValServer,
   bufferFromDataUrl,
   bufferToReadableStream,
@@ -345,6 +349,19 @@ class TestValServer extends ValServer {
     throw new Error("Method not implemented.");
   }
   getMetadata(): Promise<FileMetadata | ImageMetadata | undefined> {
+    throw new Error("Method not implemented.");
+  }
+
+  postCommit(): Promise<
+    ValServerJsonResult<ApiCommitResponse, ApiPostValidationErrorResponse>
+  > {
+    throw new Error("Method not implemented.");
+  }
+  postValidate(): Promise<
+    ValServerJsonResult<
+      ApiPostValidationErrorResponse | ApiPostValidationResponse
+    >
+  > {
     throw new Error("Method not implemented.");
   }
 }

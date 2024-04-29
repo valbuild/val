@@ -77,6 +77,8 @@ import { SerializedSchema } from "./schema";
 import { getSHA256Hash } from "./getSha256";
 import { Operation, Patch } from "./patch";
 import { initSchema } from "./initSchema";
+import { partitionFilesAndPureValidationErrors } from "./partitionFilesAndPureValidationErrors";
+import { isFileRef } from "./isFileRef";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
@@ -158,8 +160,17 @@ export type ApiPostPatchResponse = Record<
     patch_id: PatchId;
   }
 >;
+export type ApiPostValidateFile = {
+  sourcePath: string;
+  skip?: Partial<{
+    modified: number;
+  }>;
+};
+export type ApiPostValidateFileResponse = {
+  sourcePath: string;
+  attrs: Partial<{}>;
+};
 export type ApiPostValidationResponse = {
-  validationErrors: false;
   modules: Record<
     ModuleId,
     {
@@ -168,6 +179,8 @@ export type ApiPostValidationResponse = {
       };
     }
   >;
+  files: string[]; // File Refs
+  validationErrors: false;
 };
 export const FATAL_ERROR_TYPES = [
   "no-schema",
@@ -187,6 +200,7 @@ export type ApiPostValidationErrorResponse = {
       };
     }
   >;
+  files: string[];
   validationErrors: Record<
     ModuleId,
     {
@@ -226,6 +240,8 @@ const Internal = {
   createValPathOfItem,
   getSHA256Hash,
   initSchema,
+  isFileRef,
+  partitionFilesAndPureValidationErrors,
   notFileOp: (op: Operation) => op.op !== "file",
   isFileOp: (
     op: Operation

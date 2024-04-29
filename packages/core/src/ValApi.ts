@@ -6,6 +6,7 @@ import {
   ApiPostValidationResponse,
   ApiTreeResponse,
   Json,
+  ApiPostValidateFile,
 } from ".";
 import { result } from "./fp";
 import { Patch } from "./patch";
@@ -136,7 +137,7 @@ export class ValApi {
   > {
     return fetch(`${this.host}/commit`, {
       method: "POST",
-      body: JSON.stringify({ patches }),
+      body: JSON.stringify({ patches, validate }),
       headers: headers || {
         "Content-Type": "application/json",
       },
@@ -162,9 +163,13 @@ export class ValApi {
 
   postValidate({
     patches,
+    modules,
+    files,
     headers,
   }: {
     patches?: Record<ModuleId, PatchId[]>;
+    modules?: boolean;
+    files?: ApiPostValidateFile[];
     headers?: Record<string, string> | undefined;
   }): Promise<
     result.Result<
@@ -174,7 +179,7 @@ export class ValApi {
   > {
     return fetch(`${this.host}/validate`, {
       method: "POST",
-      body: JSON.stringify({ patches }),
+      body: JSON.stringify({ patches, modules, files }),
       headers: headers || {
         "Content-Type": "application/json",
       },

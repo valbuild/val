@@ -3,7 +3,7 @@ import {
   ModuleId,
   ModulePath,
   SourcePath,
-  VAL_EXTENSION,
+  Internal,
 } from "@valbuild/core";
 import { createService } from "@valbuild/server";
 import { glob } from "fast-glob";
@@ -42,7 +42,7 @@ export async function files({
           const validationError = valModule.errors.validation[sourcePath];
           for (const error of validationError) {
             const value = error.value;
-            if (isFileRef(value)) {
+            if (Internal.isFileRef(value)) {
               const absoluteFilePathUsedByVal = path.join(
                 projectRoot,
                 ...value[FILE_REF_PROP].split("/")
@@ -80,20 +80,4 @@ export async function files({
 
   service.dispose();
   return;
-}
-
-function isFileRef(
-  value: unknown
-): value is { [FILE_REF_PROP]: string; [VAL_EXTENSION]: "file" } {
-  if (!value) return false;
-  if (typeof value !== "object") return false;
-  if (FILE_REF_PROP in value && VAL_EXTENSION in value) {
-    if (
-      value[VAL_EXTENSION] === "file" &&
-      typeof value[FILE_REF_PROP] === "string"
-    ) {
-      return true;
-    }
-  }
-  return false;
 }

@@ -7,6 +7,7 @@ import {
   ApiDeletePatchResponse,
   ApiPostValidationResponse,
   Internal,
+  ApiPostValidateFile,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -199,65 +200,56 @@ export abstract class ValServer implements IValServer {
     };
   }
 
-  async postValidate(
-    rawBody: unknown,
-    cookies: ValCookies<VAL_SESSION_COOKIE>,
-    requestHeaders: RequestHeaders
-  ): Promise<
-    ValServerJsonResult<
-      ApiPostValidationResponse | ApiPostValidationErrorResponse
-    >
+  protected parsePostValidateBody(body: unknown): result.Result<
+    {
+      patches?: Record<ModuleId, PatchId[]>;
+      module?: boolean;
+      files?: ApiPostValidateFile[];
+    },
+    ValServerError
   > {
-    const ensureRes = await this.ensureInitialized("postValidate", cookies);
-    if (result.isErr(ensureRes)) {
-      return ensureRes.error;
+    const parseRes = z
+      .object({
+        patches: z.record(z.array(z.string().refine(isPatchId))).optional(),
+        module: z.boolean().optional(),
+      })
+      .safeParse(body);
+
+    if (parseRes.success) {
+      return result.ok(parseRes.data);
     }
-    return this.validateThenMaybeCommit(
-      rawBody,
-      false,
-      cookies,
-      requestHeaders
-    );
+    return result.err({
+      status: 400,
+      json: {
+        message: "Could not parse validate body",
+        details: parseRes.error,
+      },
+    });
   }
 
-  async postCommit(
-    rawBody: unknown,
-    cookies: ValCookies<VAL_SESSION_COOKIE>,
-    requestHeaders: RequestHeaders
-  ): Promise<
-    ValServerJsonResult<ApiCommitResponse, ApiPostValidationErrorResponse>
+  protected parsePostCommitBody(body: unknown): result.Result<
+    {
+      patches?: Record<ModuleId, PatchId[]>;
+    },
+    ValServerError
   > {
-    const ensureRes = await this.ensureInitialized("postCommit", cookies);
-    if (result.isErr(ensureRes)) {
-      return ensureRes.error;
+    const parseRes = z
+      .object({
+        patches: z.record(z.array(z.string().refine(isPatchId))).optional(),
+        validate: z.boolean().optional(),
+      })
+      .safeParse(body);
+
+    if (parseRes.success) {
+      return result.ok(parseRes.data);
     }
-    const res = await this.validateThenMaybeCommit(
-      rawBody,
-      true,
-      cookies,
-      requestHeaders
-    );
-    if (res.status === 200) {
-      if (res.json.validationErrors) {
-        return {
-          status: 400,
-          json: {
-            ...res.json,
-          },
-        } as { status: 400; json: ApiPostValidationErrorResponse };
-      }
-      return {
-        status: 200,
-        json: {
-          ...res.json,
-          git: this.options.git,
-        },
-      };
-    }
-    return res as ValServerJsonResult<
-      ApiCommitResponse,
-      ApiPostValidationErrorResponse
-    >;
+    return result.err({
+      status: 400,
+      json: {
+        message: "Could not parse commit body",
+        details: parseRes.error,
+      },
+    });
   }
 
   /* */
@@ -654,7 +646,7 @@ export abstract class ValServer implements IValServer {
     }
   }
 
-  private async validateThenMaybeCommit(
+  protected async validateThenMaybeCommit(
     rawBody: unknown,
     commit: boolean,
     cookies: ValCookies<VAL_SESSION_COOKIE>,
@@ -795,7 +787,7 @@ export abstract class ValServer implements IValServer {
     return modules;
   }
 
-  /* Abstract methods */
+  // #region Abstract methods
 
   /**
    * Runs before remoteFS dependent methods (e.g.getModule, ...) are called to make sure that:
@@ -829,8 +821,8 @@ export abstract class ValServer implements IValServer {
       }
     | ValServerError
   >;
-  /* Abstract endpoints */
 
+  // #region Abstract endpoints
   abstract getFiles(
     filePath: string,
     query: { sha256?: string },
@@ -877,6 +869,28 @@ export abstract class ValServer implements IValServer {
     },
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerJsonResult<ApiGetPatchResponse>>;
+
+  /* Other abstract endpoints: */
+
+  abstract postValidate(
+    body: unknown,
+    cookies: ValCookies<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
+  ): Promise<
+    ValServerJsonResult<
+      ApiPostValidationResponse | ApiPostValidationErrorResponse
+    >
+  >;
+
+  abstract postCommit(
+    body: unknown,
+    cookies: ValCookies<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
+  ): Promise<
+    ValServerJsonResult<ApiCommitResponse, ApiPostValidationErrorResponse>
+  >;
+
+  // #endregion Abstract endpoints
 }
 
 const chunkSize = 1024 * 1024;
@@ -1048,6 +1062,12 @@ export interface IValServer {
     | ValServerResult<never, ReadableStream<Uint8Array>>
     | ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>
   >;
+}
+
+// #region utils
+
+function isPatchId(arg: unknown): arg is PatchId {
+  return typeof arg === "string" && arg.length > 0; // TODO: we could be stricter here but it is different for local / dev and proxy / prod mode
 }
 
 // https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types

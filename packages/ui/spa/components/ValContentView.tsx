@@ -83,6 +83,7 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
       api
         .postValidate({
           patches,
+          modules: false,
         })
         .then((res) => {
           if (!ignore) {

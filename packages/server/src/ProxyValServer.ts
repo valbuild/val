@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import {
   ENABLE_COOKIE_VALUE,
+  IValServer,
   RequestHeaders,
   ValServer,
   ValServerCallbacks,
@@ -27,6 +28,9 @@ import {
   ModuleId,
   FileMetadata,
   ImageMetadata,
+  ApiCommitResponse,
+  ApiPostValidationErrorResponse,
+  ApiPostValidationResponse,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { SerializedModuleContent } from "./SerializedModuleContent";
@@ -52,7 +56,7 @@ export type ProxyValServerOptions = {
   valDisableRedirectUrl?: string;
 };
 
-export class ProxyValServer extends ValServer {
+export class ProxyValServer extends ValServer implements IValServer {
   private moduleCache: Record<ModuleId, SerializedModuleContent> | null = null;
   constructor(
     readonly cwd: string,
@@ -64,8 +68,7 @@ export class ProxyValServer extends ValServer {
     this.moduleCache = null;
   }
 
-  /** Remote FS dependent methods: */
-
+  // #region Remote FS
   protected async getModule(
     moduleId: ModuleId,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -273,8 +276,11 @@ export class ProxyValServer extends ValServer {
       return result.err(res);
     }
   }
+  // #endregion Remote FS dependent methods
+
   /* Auth endpoints */
 
+  // #region authorize
   async authorize(query: {
     redirect_to?: string;
   }): Promise<ValServerRedirectResult<VAL_STATE_COOKIE>> {
@@ -307,7 +313,9 @@ export class ProxyValServer extends ValServer {
       redirectTo: appAuthorizeUrl,
     };
   }
+  // #endregion authorize
 
+  // #region callback
   async callback(
     query: { code?: string; state?: string },
     cookies: ValCookies<"val_state">
@@ -373,7 +381,9 @@ export class ProxyValServer extends ValServer {
       redirectTo: callbackReqSuccess.redirect_uri || "/",
     };
   }
+  // #endregion callback
 
+  // #region logout
   async logout(): Promise<
     ValServerResult<VAL_SESSION_COOKIE | VAL_STATE_COOKIE>
   > {
@@ -389,7 +399,9 @@ export class ProxyValServer extends ValServer {
       },
     };
   }
+  // #endregion logout
 
+  // #region session
   async session(
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerJsonResult<ValSession>> {
@@ -426,6 +438,7 @@ export class ProxyValServer extends ValServer {
       }
     );
   }
+  // #endregion session
 
   private async consumeCode(code: string): Promise<{
     sub: string;
@@ -488,6 +501,7 @@ export class ProxyValServer extends ValServer {
   }
 
   /* Patch endpoints */
+  // #region deletePatches
   async deletePatches(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     query: { id?: string[] | undefined },
@@ -522,7 +536,9 @@ export class ProxyValServer extends ValServer {
       }
     );
   }
+  // #endregion deletePatches
 
+  // #region getPatches
   async getPatches(
     query: { id?: string[] },
     cookies: ValCookies<VAL_SESSION_COOKIE>
@@ -570,29 +586,31 @@ export class ProxyValServer extends ValServer {
       }
     );
   }
+  // #endregion getPatches
 
+  // #region postPatches
   async postPatches(
     body: unknown,
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerJsonResult<ApiPostPatchResponse>> {
-    const commit = this.options.git.commit;
-    if (!commit) {
-      return {
-        status: 401,
-        json: {
-          message:
-            "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
-        },
-      };
-    }
-    const params = new URLSearchParams({
-      commit,
-    });
     return withAuth(
       this.options.valSecret,
       cookies,
       "postPatches",
       async ({ token }) => {
+        const commit = this.options.git.commit;
+        if (!commit) {
+          return {
+            status: 401,
+            json: {
+              message:
+                "Could not detect the git commit. Check if env is missing VAL_GIT_COMMIT.",
+            },
+          };
+        }
+        const params = new URLSearchParams({
+          commit,
+        });
         // First validate that the body has the right structure
         const parsedPatches = z.record(Patch).safeParse(body);
         if (!parsedPatches.success) {
@@ -626,6 +644,7 @@ export class ProxyValServer extends ValServer {
       }
     );
   }
+  // #endregion postPatches
 
   async getMetadata(
     filePath: string,
@@ -653,6 +672,7 @@ export class ProxyValServer extends ValServer {
     return undefined;
   }
 
+  // #region getFiles
   async getFiles(
     filePath: string,
     query: { sha256?: string },
@@ -719,8 +739,48 @@ export class ProxyValServer extends ValServer {
         | ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>;
     }
   }
+  // #endregion getFiles
+
+  // #region postValidate
+  async postValidate(
+    rawBody: unknown,
+    cookies: ValSession<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
+  ): Promise<
+    ValServerJsonResult<
+      ApiPostValidationErrorResponse | ApiPostValidationResponse
+    >
+  > {
+    const bodyRes = this.parsePostValidateBody(rawBody);
+    if (result.isErr(bodyRes)) {
+      return bodyRes.error;
+    }
+    const body = bodyRes.value;
+    if (body.patches === undefined) {
+    }
+  }
+  // #endregion postValidate
+
+  // #region postCommit
+  async postCommit(
+    rawBody: unknown,
+    cookies: ValSession<VAL_SESSION_COOKIE>,
+    requestHeaders: RequestHeaders
+  ): Promise<
+    ValServerJsonResult<ApiCommitResponse, ApiPostValidationErrorResponse>
+  > {
+    const bodyRes = this.parsePostCommitBody(rawBody);
+    if (result.isErr(bodyRes)) {
+      return bodyRes.error;
+    }
+    const body = bodyRes.value;
+
+    throw new Error("Method not implemented." + body);
+  }
+  // #endregion postCommit
 }
 
+//#region Utils:
 function verifyCallbackReq(
   stateCookie: string | undefined,
   queryParams: Record<string, unknown>
