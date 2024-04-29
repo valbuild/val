@@ -77,6 +77,8 @@ import { SerializedSchema } from "./schema";
 import { getSHA256Hash } from "./getSha256";
 import { Operation, Patch } from "./patch";
 import { initSchema } from "./initSchema";
+
+export { type RichTextSelector } from "./selector/richtext";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";

@@ -6,6 +6,9 @@ describe("richtext to remirror", () => {
   test("basic to remirror", () => {
     const input: RichText<AnyRichTextOptions> = {
       _type: "richtext",
+      options: {
+        a: true,
+      } as AnyRichTextOptions,
       children: [
         { tag: "h1", children: ["Title 1"] },
         { tag: "h2", children: ["Title 2"] },

@@ -4,6 +4,7 @@ import {
   ModuleId,
   SelectorOf,
   SelectorSource,
+  Source,
 } from "@valbuild/core";
 import {
   StegaOfSource,
@@ -15,7 +16,11 @@ import { ValConfig } from "@valbuild/core";
 import { useValEvents } from "../ValContext";
 
 export type UseValType<T extends SelectorSource> =
-  SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never;
+  SelectorOf<T> extends GenericSelector<infer S>
+    ? StegaOfSource<S>
+    : T extends Source
+    ? StegaOfSource<T>
+    : never;
 function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
   const valEvents = useValEvents();
   const [enabled, setEnabled] = React.useState(false);

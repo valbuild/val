@@ -10,9 +10,10 @@ import { Source, SourceArray, SourceObject, SourcePrimitive } from "../source";
 import { Schema } from "../schema";
 import type { A } from "ts-toolbelt";
 import { FileSource } from "../source/file";
-import { RichText, RichTextOptions, RichTextSource } from "../source/richtext";
+import { RichTextOptions, RichTextSource } from "../source/richtext";
 import { ImageMetadata } from "../schema/image";
 import { ImageSelector } from "./image";
+import { RichTextSelector } from "./richtext";
 
 export type Selector<T extends Source> = Source extends T
   ? GenericSelector<T>
@@ -21,7 +22,7 @@ export type Selector<T extends Source> = Source extends T
     ? ImageSelector
     : FileSelector<M>
   : T extends RichTextSource<infer O>
-  ? RichText<O>
+  ? RichTextSelector<O>
   : T extends SourceObject
   ? ObjectSelector<T>
   : T extends SourceArray

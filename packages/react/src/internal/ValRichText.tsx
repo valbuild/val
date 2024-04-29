@@ -1,12 +1,12 @@
 /* eslint-disable @typescript-eslint/ban-types */
 import {
-  RichText,
   RichTextNode,
   AnyRichTextOptions,
-  SourcePath,
   RichTextOptions,
   Classes as ClassesOf,
+  RichTextSelector,
 } from "@valbuild/core";
+import { Path } from "@valbuild/core/src/selector";
 import React, { CSSProperties, ReactNode } from "react";
 
 type DefaultThemes = Partial<{
@@ -95,7 +95,7 @@ export function ValRichText<O extends RichTextOptions>({
   theme,
   transform,
 }: {
-  children: RichText<O>;
+  children: RichTextSelector<O>;
   className?: string;
   style?: CSSProperties;
   theme?: ThemeOptions<O>;
@@ -105,9 +105,7 @@ export function ValRichText<O extends RichTextOptions>({
     className?: string
   ) => JSX.Element | string | undefined;
 }) {
-  const root = children as RichText<AnyRichTextOptions> & {
-    valPath: SourcePath;
-  };
+  const root = children;
   function build(
     child: RichTextNode<AnyRichTextOptions>,
     key?: number
@@ -159,7 +157,7 @@ export function ValRichText<O extends RichTextOptions>({
     });
   }
   return (
-    <div className={className} style={style} data-val-path={root.valPath}>
+    <div className={className} style={style} data-val-path={root[Path]}>
       {root.children.map(build)}
     </div>
   );

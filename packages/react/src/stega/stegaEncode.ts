@@ -299,6 +299,7 @@ export function stegaEncode(
             return {
               ...parseRichTextSource(sourceOrSelector),
               valPath: recOpts.path,
+              options: recOpts.schema.options,
             };
           }
 

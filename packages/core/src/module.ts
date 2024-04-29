@@ -21,7 +21,13 @@ import {
   SerializedImageSchema,
 } from "./schema/image";
 import { FileSource } from "./source/file";
-import { AnyRichTextOptions, RichText } from "./source/richtext";
+import {
+  AnyRichTextOptions,
+  LinkNode,
+  RichText,
+  RichTextOptions,
+  RichTextSource,
+} from "./source/richtext";
 import { RecordSchema, SerializedRecordSchema } from "./schema/record";
 import { RawString } from "./schema/string";
 import { ImageSelector } from "./selector/image";
@@ -45,6 +51,8 @@ type ReplaceRawStringWithString<T extends SelectorSource> =
     ? string
     : T extends ImageSelector
     ? ImageSource
+    : T extends RichTextSource<RichTextOptions>
+    ? RichTextSource<RichTextOptions>
     : T extends { [key in string]: SelectorSource }
     ? {
         [key in keyof T]: ReplaceRawStringWithString<T[key]>;

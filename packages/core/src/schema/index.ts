@@ -1,5 +1,7 @@
 // import { RemoteCompatibleSource, RemoteSource } from "../source/remote";
 import { SelectorSource } from "../selector";
+import { RichTextSelector } from "../selector/richtext";
+import { RichTextSource } from "../source/richtext";
 import { SourcePath } from "../val";
 import { SerializedArraySchema } from "./array";
 import { SerializedBooleanSchema } from "./boolean";
@@ -10,7 +12,7 @@ import { SerializedLiteralSchema } from "./literal";
 import { SerializedNumberSchema } from "./number";
 import { SerializedObjectSchema } from "./object";
 import { SerializedRecordSchema } from "./record";
-import { SerializedRichTextSchema } from "./richtext";
+import { RichTextSchema, SerializedRichTextSchema } from "./richtext";
 import { SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
 import { ValidationErrors } from "./validation/ValidationError";
@@ -66,4 +68,9 @@ export abstract class Schema<Src extends SelectorSource> {
 }
 
 export type SelectorOfSchema<T extends Schema<SelectorSource>> =
-  T extends Schema<infer Src> ? Src : never; // TODO: SourceError<"Could not determine type of Schema">
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  T extends RichTextSchema<infer O, any>
+    ? RichTextSelector<O>
+    : T extends Schema<infer Src>
+    ? Src
+    : never; // TODO: SourceError<"Could not determine type of Schema">

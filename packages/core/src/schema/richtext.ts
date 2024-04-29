@@ -1,6 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
-import { RichTextSource, RichTextOptions } from "../source/richtext";
+import {
+  RichTextSource,
+  RichTextOptions,
+  AnyRichTextOptions,
+} from "../source/richtext";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 
@@ -43,4 +47,20 @@ export const richtext = <O extends RichTextOptions>(
   options?: O
 ): Schema<RichTextSource<O>> => {
   return new RichTextSchema<O, RichTextSource<O>>(options ?? ({} as O));
+};
+
+richtext.options = {
+  /** Enables all RichText features */
+  all: {
+    // styling:
+    bold: true, // enables bold
+    italic: true, // enables italic text
+    lineThrough: true, // enables line/strike-through
+    // tags:
+    headings: ["h1", "h2", "h3", "h4", "h5", "h6"], // sets which headings are available
+    a: true, // enables links
+    img: true, // enables images
+    ul: true, // enables unordered lists
+    ol: true, // enables ordered lists
+  } satisfies AnyRichTextOptions,
 };

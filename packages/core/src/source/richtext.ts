@@ -3,6 +3,7 @@ import { LinkSource } from "./link";
 import { ImageSource } from "./image";
 import { ImageMetadata } from "../schema/image";
 import { FILE_REF_PROP, FILE_REF_SUBTYPE_TAG, FileSource } from "./file";
+import { SourcePath } from "../val";
 
 export type RichTextOptions = {
   headings?: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];
@@ -163,22 +164,21 @@ export type RichTextSource<O extends RichTextOptions> = {
 };
 /**
  * RichText is accessible by users (after conversion via useVal / fetchVal)
- * Internally it is a Selector
  **/
 export type RichText<O extends RichTextOptions> = {
   [VAL_EXTENSION]: "richtext";
+  options: O;
   children: RootNode<O>[];
 };
 
-export function richtext<O extends RichTextOptions>(
+export function richtext(
   templateStrings: TemplateStringsArray,
   ...nodes: (ImageSource | LinkSource)[]
-): RichTextSource<O> {
+): RichTextSource<AnyRichTextOptions> {
   return {
     [VAL_EXTENSION]: "richtext",
     templateStrings: templateStrings as unknown as string[],
-    exprs:
-      nodes as RichTextSource<AnyRichTextOptions>["exprs"] as RichTextSource<O>["exprs"],
+    exprs: nodes as RichTextSource<AnyRichTextOptions>["exprs"],
   };
 }
 
