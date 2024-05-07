@@ -255,9 +255,16 @@ export function ValOverlay({
                   return (
                     <div key={path}>
                       <span>
-                        {path}: {data.status}
+                        {path}
+                        {data.status !== "error" && (
+                          <span>: {data.status}</span>
+                        )}
                       </span>
-                      {data.status === "error" && <pre>{data.error}</pre>}
+                      {data.status === "error" && (
+                        <pre className="text-red-600 whitespace-pre-wrap">
+                          {data.error}
+                        </pre>
+                      )}
                     </div>
                   );
                 }

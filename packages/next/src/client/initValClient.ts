@@ -17,8 +17,8 @@ import { useValEvents } from "../ValContext";
 export type UseValType<T extends SelectorSource> =
   SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never;
 function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
-  const valEvents = useValEvents();
   const [enabled, setEnabled] = React.useState(false);
+  const valEvents = useValEvents();
   React.useEffect(() => {
     setEnabled(
       document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`)
