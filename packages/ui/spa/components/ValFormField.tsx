@@ -895,6 +895,13 @@ function StringField({
 }) {
   const [value, setValue] = useState(defaultValue || "");
   const [loading, setLoading] = useState(false);
+  const [waiting, setWaiting] = useState(false);
+  const [didChange, setDidChange] = useState(false);
+
+  useEffect(() => {
+    setDidChange(false);
+  }, [path]);
+
   useEffect(() => {
     setLoading(disabled);
   }, [disabled]);
@@ -914,33 +921,46 @@ function StringField({
       : undefined
   );
   const validationErrors = actualSchema.validate(path, value);
+  useEffect(() => {
+    if (onSubmit && didChange) {
+      setWaiting(true);
+      const timeout = setTimeout(() => {
+        setLoading(true);
+        onSubmit(async (path) => [
+          {
+            op: "replace",
+            path,
+            value: ref.current?.value || "",
+          },
+        ]).finally(() => {
+          setLoading(false);
+          setWaiting(false);
+        });
+      }, 1000);
+      return () => {
+        clearTimeout(timeout);
+      };
+    }
+  }, [value, didChange]);
 
   return (
     <FieldContainer>
       <Input
         ref={ref}
-        disabled={loading}
         defaultValue={value ?? ""}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => {
+          setDidChange(true);
+          setValue(e.target.value);
+        }}
       />
-      {onSubmit && (
-        <SubmitButton
-          validationErrors={validationErrors && validationErrors[path]}
-          loading={loading}
-          enabled={true}
-          onClick={() => {
-            setLoading(true);
-            onSubmit(async (path) => [
-              {
-                op: "replace",
-                path,
-                value: ref.current?.value || "",
-              },
-            ]).finally(() => {
-              setLoading(false);
-            });
-          }}
+      {loading && "Saving..."}
+      {waiting && "Waiting..."}
+      {validationErrors && validationErrors[path] ? (
+        <InlineValidationErrors
+          errors={(validationErrors && validationErrors[path]) || []}
         />
+      ) : (
+        <span></span>
       )}
     </FieldContainer>
   );
