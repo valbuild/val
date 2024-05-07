@@ -7,6 +7,7 @@ This is a Next JS project with Val enabled.
 The following files are required in Val NextJS project:
 
 - `/val.config.ts` - this is the main Val config file
+- `/val.modules.ts` - defines the modules that are editable by Val
 - `/app/(val)/api/val/[[...val]]/route.ts` - all API call to Val goes via these endpoints
 - `/app/(val)/val/[[...val]]/page.tsx` - this is the URL to the Val full-screen app
 - `/val/server.ts` - this is the helper library for server related functions

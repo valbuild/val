@@ -1,4 +1,5 @@
 export { initVal } from "./initVal";
+export { modules, type ValModules } from "./modules";
 export type {
   InitVal,
   ValConfig,

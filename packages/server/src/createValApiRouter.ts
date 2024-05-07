@@ -4,7 +4,7 @@ import { LocalValServer, LocalValServerOptions } from "./LocalValServer";
 import { ProxyValServer, ProxyValServerOptions } from "./ProxyValServer";
 import { promises as fs } from "fs";
 import * as path from "path";
-import { Internal, ValConfig } from "@valbuild/core";
+import { Internal, ValConfig, ValModules } from "@valbuild/core";
 import { ValServerGenericResult } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
 
@@ -127,6 +127,7 @@ type ValServerOverrides = Partial<{
 }>;
 
 export async function createValServer(
+  valModules: ValModules,
   route: string,
   opts: ValApiOptions,
   callbacks: ValServerCallbacks
@@ -134,9 +135,15 @@ export async function createValServer(
   const serverOpts = await initHandlerOptions(route, opts);
   if (serverOpts.mode === "proxy") {
     const projectRoot = process.cwd(); //[process.cwd(), opts.root || ""]      .filter((seg) => seg)      .join("/");
-    return new ProxyValServer(projectRoot, serverOpts, opts, callbacks);
+    return new ProxyValServer(
+      projectRoot,
+      valModules,
+      serverOpts,
+      opts,
+      callbacks
+    );
   } else {
-    return new LocalValServer(serverOpts, callbacks);
+    return new LocalValServer(valModules, serverOpts, callbacks);
   }
 }
 
