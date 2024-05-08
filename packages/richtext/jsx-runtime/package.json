@@ -1,0 +1,8 @@
+{
+  "main": "dist/valbuild-richtext-jsx-runtime.cjs.js",
+  "module": "dist/valbuild-richtext-jsx-runtime.esm.js",
+  "browser": {
+    "./dist/valbuild-richtext-jsx-runtime.esm.js": "./dist/valbuild-richtext-jsx-runtime.browser.esm.js"
+  },
+  "types": "../src/jsx-runtime.d.ts"
+}
