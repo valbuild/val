@@ -132,6 +132,23 @@ class TestValServer extends ValServer {
     super(
       projectRoot,
       {
+        config: {},
+        modules: [
+          {
+            def: () =>
+              import(
+                "../test/example-projects/basic-next-src-typescript/src/pages/blogs.val"
+              ),
+          },
+          {
+            def: () =>
+              import(
+                "../test/example-projects/basic-next-src-typescript/src/pages/metadata-tests.val"
+              ),
+          },
+        ],
+      },
+      {
         git: FAKE_GIT,
       },
       {
@@ -187,6 +204,7 @@ class TestValServer extends ValServer {
     return result.ok(undefined);
   }
 
+  // TODO: remove this:
   protected async getModule(
     moduleId: ModuleId,
     options: { source: boolean; schema: boolean }
@@ -198,6 +216,7 @@ class TestValServer extends ValServer {
     });
   }
 
+  // TODO: remove this:
   protected async getAllModules(treePath: string): Promise<ModuleId[]> {
     const moduleIds: ModuleId[] = this.remoteFS
       .readDirectory(
