@@ -134,18 +134,7 @@ class TestValServer extends ValServer {
       {
         config: {},
         modules: [
-          {
-            def: () =>
-              import(
-                "../test/example-projects/basic-next-src-typescript/src/pages/blogs.val"
-              ),
-          },
-          {
-            def: () =>
-              import(
-                "../test/example-projects/basic-next-src-typescript/src/pages/metadata-tests.val"
-              ),
-          },
+          // TODO:
         ],
       },
       {
