@@ -7,7 +7,6 @@ import {
   ApiDeletePatchResponse,
   ApiPostValidationResponse,
   Internal,
-  ValModule,
   ValModules,
 } from "@valbuild/core";
 import {
