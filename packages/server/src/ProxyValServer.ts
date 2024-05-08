@@ -27,6 +27,9 @@ import {
   ModuleId,
   FileMetadata,
   ImageMetadata,
+  ValModules,
+  Internal,
+  SourcePath,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { SerializedModuleContent } from "./SerializedModuleContent";
@@ -56,34 +59,70 @@ export class ProxyValServer extends ValServer {
   private moduleCache: Record<ModuleId, SerializedModuleContent> | null = null;
   constructor(
     readonly cwd: string,
+    readonly valModules: ValModules,
     readonly options: ProxyValServerOptions,
     readonly apiOptions: ValApiOptions,
     readonly callbacks: ValServerCallbacks
   ) {
-    super(cwd, options, callbacks);
+    super(cwd, valModules, options, callbacks);
     this.moduleCache = null;
   }
 
-  /** Remote FS dependent methods: */
+  // TODO: restructure this
 
-  protected async getModule(
-    moduleId: ModuleId,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _options: { source: boolean; schema: boolean }
-  ): Promise<SerializedModuleContent> {
-    if (this.moduleCache) {
-      return this.moduleCache[moduleId];
-    }
-    throw new Error("Module cache not initialized");
+  private getSerializedModules(): Promise<SerializedModuleContent[]> {
+    return Promise.all(
+      this.valModules.modules.map(({ def }, i) => {
+        return def().then(({ default: valModule }) => {
+          const path = Internal.getValPath(valModule);
+          if (!path) {
+            throw Error(`Module defined at pos: ${i} is missing path`);
+          }
+          const source = Internal.getSource(valModule);
+          if (!source) {
+            // TODO
+            throw Error(`Module defined at pos: ${i} is missing source`);
+          }
+          const schema = Internal.getSchema(valModule)?.serialize();
+          if (!schema) {
+            // TODO
+            throw Error(`Module defined at pos: ${i} is missing schema`);
+          }
+
+          return {
+            path,
+            source: source,
+            errors: false, //valModule[GetSchema]?.validate(path, source),
+            schema: schema,
+          } as SerializedModuleContent;
+        });
+      })
+    );
   }
 
-  async getAllModules(treePath: string): Promise<ModuleId[]> {
-    if (!this.moduleCache) {
-      throw new Error("Module cache not initialized");
-    }
-    return Object.keys(this.moduleCache).filter((moduleId) =>
-      moduleId.startsWith(treePath)
-    ) as ModuleId[];
+  protected getModule(moduleId: ModuleId): Promise<SerializedModuleContent> {
+    // TODO: do not get all modules - we only should only get the ones we need
+    return this.getSerializedModules().then((all) => {
+      const found = all.find(
+        (valModule) => valModule.path === (moduleId as string as SourcePath)
+      );
+      if (!found) {
+        throw Error(`Module ${moduleId} not found`);
+      }
+      return found;
+    });
+  }
+
+  protected async getAllModules(treePath: string): Promise<ModuleId[]> {
+    const moduleIds: ModuleId[] = (await this.getSerializedModules())
+      .filter(({ path }) => {
+        if (treePath) {
+          return path.startsWith(treePath);
+        }
+        return true;
+      })
+      .map(({ path }) => path as string as ModuleId);
+    return moduleIds;
   }
 
   protected execCommit(
@@ -156,80 +195,12 @@ export class ProxyValServer extends ValServer {
   }
 
   private async init(
-    commit: string,
-    token: string
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _commit: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _token: string
   ): Promise<{ status: 200 } | ValServerError> {
-    const params = createParams({
-      root: this.apiOptions.root,
-      commit,
-      ext: ["ts", "js", "json"],
-      package: [
-        "@valbuild/core@" + this.options.versions.core,
-        "@valbuild/next@" + this.options.versions.next,
-      ],
-      include: ["**/*.val.{js,ts},package.json,tsconfig.json,jsconfig.json"],
-    });
-    const url = new URL(
-      `/v1/eval/${this.options.remote}/heads/${this.options.git.branch}/~?${params}`,
-      this.options.valContentUrl
-    );
-    try {
-      const fetchRes = await fetch(url, {
-        headers: getAuthHeaders(token, "application/json"),
-      });
-      if (fetchRes.status === 200) {
-        const json = await fetchRes.json();
-
-        let error:
-          | false
-          | {
-              details: string;
-            } = false;
-        if (typeof json !== "object") {
-          error = {
-            details: "Invalid response: not an object",
-          };
-        }
-        if (typeof json.git !== "object") {
-          error = {
-            details: "Invalid response: missing git",
-          };
-        }
-        if (typeof json.git.commit !== "string") {
-          error = {
-            details: "Invalid response: missing git.commit",
-          };
-        }
-        if (typeof json.modules !== "object" || json.modules === null) {
-          error = {
-            details: "Invalid response: missing modules",
-          };
-        }
-        if (error) {
-          console.error("Could not initialize remote modules", error);
-          return {
-            status: 500,
-            json: {
-              message: "Failed to fetch remote modules",
-              ...error,
-            },
-          };
-        }
-        this.moduleCache = json.modules;
-        return {
-          status: 200,
-        };
-      } else {
-        return createJsonError(fetchRes);
-      }
-    } catch (err) {
-      return {
-        status: 500,
-        json: {
-          message: "Failed to fetch: check network connection",
-        },
-      };
-    }
+    return { status: 200 };
   }
 
   protected async ensureInitialized(

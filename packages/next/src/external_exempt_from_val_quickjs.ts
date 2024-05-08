@@ -12,6 +12,7 @@ export {
   type SourcePath,
   type JsonOfSource,
 } from "@valbuild/core";
+export { modules, type ValModules } from "@valbuild/core";
 export type { Json, JsonPrimitive } from "@valbuild/core";
 export type { ValidationErrors, ValidationError } from "@valbuild/core";
 export type { ValidationFix } from "@valbuild/core";
