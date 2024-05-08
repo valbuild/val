@@ -1,4 +1,4 @@
-import { Internal, ValConfig } from "@valbuild/core";
+import { Internal, ValConfig, ValModules } from "@valbuild/core";
 import { createValApiRouter } from "@valbuild/server";
 import { createValServer } from "@valbuild/server";
 import type { draftMode } from "next/headers";
@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { VERSION } from "../version";
 
 const initValNextAppRouter = (
+  valModules: ValModules,
   config: ValConfig,
   nextConfig: ValServerNextConfig
 ) => {
@@ -22,6 +23,7 @@ const initValNextAppRouter = (
   return createValApiRouter(
     route,
     createValServer(
+      valModules,
       route,
       {
         versions: {
@@ -101,6 +103,7 @@ type ValServerNextConfig = {
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function initValServer(
+  valModules: ValModules,
   config: ValConfig & {
     disableCache?: boolean;
   },
@@ -109,6 +112,6 @@ export function initValServer(
   valNextAppRouter: ReturnType<typeof initValNextAppRouter>;
 } {
   return {
-    valNextAppRouter: initValNextAppRouter(config, nextConfig),
+    valNextAppRouter: initValNextAppRouter(valModules, config, nextConfig),
   };
 }

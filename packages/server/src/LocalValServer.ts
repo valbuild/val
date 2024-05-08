@@ -8,9 +8,10 @@ import {
   PatchId,
   ApiDeletePatchResponse,
   Internal,
-  ModulePath,
   FileMetadata,
   ImageMetadata,
+  ValModules,
+  SourcePath,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -59,10 +60,16 @@ export class LocalValServer extends ValServer {
   private static readonly FILES_DIR = "files";
   private readonly patchesRootPath: string;
   constructor(
+    readonly valModules: ValModules,
     readonly options: LocalValServerOptions,
     readonly callbacks: ValServerCallbacks
   ) {
-    super(options.service.sourceFileHandler.projectRoot, options, callbacks);
+    super(
+      options.service.sourceFileHandler.projectRoot,
+      valModules,
+      options,
+      callbacks
+    );
 
     this.patchesRootPath =
       options.cacheDir ||
@@ -440,40 +447,58 @@ export class LocalValServer extends ValServer {
     return result.ok(undefined);
   }
 
-  protected getModule(
-    moduleId: ModuleId,
-    options: { source: boolean; schema: boolean }
-  ): Promise<SerializedModuleContent> {
-    return this.options.service.get(moduleId, "" as ModulePath, {
-      ...options,
-      validate: false,
+  private getSerializedModules(): Promise<SerializedModuleContent[]> {
+    return Promise.all(
+      this.valModules.modules.map(({ def }, i) => {
+        return def().then(({ default: valModule }) => {
+          const path = Internal.getValPath(valModule);
+          if (!path) {
+            throw Error(`Module defined at pos: ${i} is missing path`);
+          }
+          const source = Internal.getSource(valModule);
+          if (!source) {
+            // TODO
+            throw Error(`Module defined at pos: ${i} is missing source`);
+          }
+          const schema = Internal.getSchema(valModule)?.serialize();
+          if (!schema) {
+            // TODO
+            throw Error(`Module defined at pos: ${i} is missing schema`);
+          }
+
+          return {
+            path,
+            source: source,
+            errors: false, //valModule[GetSchema]?.validate(path, source),
+            schema: schema,
+          } as SerializedModuleContent;
+        });
+      })
+    );
+  }
+
+  protected getModule(moduleId: ModuleId): Promise<SerializedModuleContent> {
+    // TODO: do not get all modules - we only should only get the ones we need
+    return this.getSerializedModules().then((all) => {
+      const found = all.find(
+        (valModule) => valModule.path === (moduleId as string as SourcePath)
+      );
+      if (!found) {
+        throw Error(`Module ${moduleId} not found`);
+      }
+      return found;
     });
   }
 
   protected async getAllModules(treePath: string): Promise<ModuleId[]> {
-    const moduleIds: ModuleId[] = this.host
-      .readDirectory(
-        this.cwd,
-        ["ts", "js"],
-        ["node_modules", ".*"],
-        ["**/*.val.ts", "**/*.val.js"]
-      )
-      .filter((file) => {
+    const moduleIds: ModuleId[] = (await this.getSerializedModules())
+      .filter(({ path }) => {
         if (treePath) {
-          return file.replace(this.cwd, "").startsWith(treePath);
+          return path.startsWith(treePath);
         }
         return true;
       })
-      .map(
-        (file) =>
-          file
-            .replace(this.cwd, "")
-            .replace(".val.js", "")
-            .replace(".val.ts", "")
-            .split(path.sep)
-            .join("/") as ModuleId
-      );
-
+      .map(({ path }) => path as string as ModuleId);
     return moduleIds;
   }
 

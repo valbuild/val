@@ -51,9 +51,9 @@ export class ValStore {
         });
         return result.err({
           message:
-            "Could not fetch data. Could not find the module: " +
+            "Could not fetch data.\nCould not find the module:\n" +
             moduleId +
-            ". Verify that the module id and file name is correct.",
+            "\n\nVerify that the val.modules file includes this module.",
         });
       }
       const fetchedSource = data.value.modules[moduleId].source;

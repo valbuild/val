@@ -7,6 +7,7 @@ import {
   ApiDeletePatchResponse,
   ApiPostValidationResponse,
   Internal,
+  ValModules,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -59,6 +60,7 @@ const ops = new JSONOps();
 export abstract class ValServer implements IValServer {
   constructor(
     readonly cwd: string,
+    readonly valModules: ValModules,
     readonly options: ValServerOptions,
     readonly callbacks: ValServerCallbacks
   ) {}
