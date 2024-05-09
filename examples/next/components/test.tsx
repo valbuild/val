@@ -5,10 +5,8 @@
 export const test = (
   <richtext>
     <h1 className="bold">hei</h1>
-    <img path="" sha256=""></img>
+    <img path="" sha256="" />
   </richtext>
 );
-
-test.tag === "h2";
 
 export default {};

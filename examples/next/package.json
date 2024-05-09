@@ -2,6 +2,7 @@
   "name": "example-next",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -15,9 +16,10 @@
     "@valbuild/next": "*",
     "@valbuild/richtext": "*",
     "next": "^14.0.3",
-    "react": "18.2.0",
-    "react-dom": "18.2.0",
-    "styled-jsx": "^5.1.2"
+    "react": ">=18.20.0",
+    "react-dom": ">=18.20.0",
+    "styled-jsx": "^5.1.2",
+    "tsx": "^4.9.3"
   },
   "devDependencies": {
     "@types/node": "20.10.0",
