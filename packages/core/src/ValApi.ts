@@ -137,7 +137,7 @@ export class ValApi {
   > {
     return fetch(`${this.host}/commit`, {
       method: "POST",
-      body: JSON.stringify({ patches, validate }),
+      body: JSON.stringify({ patches }),
       headers: headers || {
         "Content-Type": "application/json",
       },
