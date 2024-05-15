@@ -9,7 +9,7 @@ import {
 } from ".";
 import { result } from "./fp";
 import { Patch } from "./patch";
-import { ModuleId, PatchId } from "./val";
+import { ModuleFilePath, PatchId } from "./val";
 
 type FetchError = { message: string; details?: unknown; statusCode?: number };
 
@@ -67,7 +67,7 @@ export class ValApi {
   }
 
   postPatches(
-    moduleId: ModuleId,
+    path: ModuleFilePath,
     patches: Patch,
     headers?: Record<string, string> | undefined
   ): Promise<result.Result<ApiPostPatchResponse, FetchError>> {
@@ -76,7 +76,7 @@ export class ValApi {
         "Content-Type": "application/json",
       },
       method: "POST",
-      body: JSON.stringify({ [moduleId]: patches }),
+      body: JSON.stringify({ [path]: patches }),
     })
       .then(async (res) => {
         return parse<ApiPostPatchResponse>(res);
@@ -126,7 +126,7 @@ export class ValApi {
     patches,
     headers,
   }: {
-    patches?: Record<ModuleId, PatchId[]>;
+    patches?: Record<ModuleFilePath, PatchId[]>;
     headers?: Record<string, string> | undefined;
   }): Promise<
     result.Result<
@@ -164,7 +164,7 @@ export class ValApi {
     patches,
     headers,
   }: {
-    patches?: Record<ModuleId, PatchId[]>;
+    patches?: Record<ModuleFilePath, PatchId[]>;
     headers?: Record<string, string> | undefined;
   }): Promise<
     result.Result<

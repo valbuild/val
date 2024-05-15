@@ -19,14 +19,17 @@ export default {
         const filename = context.filename || context.getFilename();
 
         const isValFile =
-          filename.endsWith(".val.ts") || filename.endsWith(".val.js");
+          filename.endsWith(".val.ts") ||
+          filename.endsWith(".val.js") ||
+          filename.endsWith(".val.tsx") ||
+          filename.endsWith(".val.jsx");
         // only allow: .val files, @valbuild packages, and val config
         if (
           isValFile &&
           typeof importSource === "string" &&
-          !importSource.match(/\.val(\.ts|\.js|)$/) &&
+          !importSource.match(/\.val(\.ts|\.js|\.tsx|\.jsx|)$/) &&
           !importSource.match(/^@valbuild/) &&
-          !importSource.match(/val\.config(\.ts|\.js|)$/)
+          !importSource.match(/val\.config(\.ts|\.js|\.tsx|\.jsx|)$/)
         ) {
           if (
             "importKind" in node &&

@@ -6,6 +6,7 @@ import { convertFileSource } from "../schema/file";
 import { Source, SourcePrimitive, VAL_EXTENSION } from "../source";
 import { FILE_REF_PROP } from "../source/file";
 import { isSerializedVal, ModulePath, SourcePath } from "../val";
+import { Internal } from "..";
 
 function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
   return Object.prototype.hasOwnProperty.call(obj, prop);
@@ -214,9 +215,15 @@ export function createValPathOfItem(
       `Cannot create val path of array item with symbol prop: ${prop.toString()}`
     );
   }
-  return arrayPath !== undefined
-    ? (`${arrayPath}.${JSON.stringify(prop)}` as SourcePath)
-    : undefined;
+  if (!arrayPath) {
+    return undefined;
+  }
+  if (arrayPath.includes(Internal.ModuleFilePathSep)) {
+    return `${arrayPath}.${JSON.stringify(prop)}` as SourcePath;
+  }
+  return `${arrayPath}${Internal.ModuleFilePathSep}${JSON.stringify(
+    prop
+  )}` as SourcePath;
 }
 
 export function selectorToVal(s: any): any {

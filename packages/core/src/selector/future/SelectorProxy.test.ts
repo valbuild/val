@@ -98,7 +98,7 @@ describe("SelectorProxy", () => {
     ) as Selector<{ title: string }>;
     expectValOrExpr(blogsVal.title).toStrictEqual({
       val: "title1",
-      [Path]: '/app/blog."title"',
+      [Path]: '/app/blog?p="title"',
     });
   });
 
@@ -112,7 +112,7 @@ describe("SelectorProxy", () => {
       val: {
         title: "title1",
       },
-      [Path]: "/app/blogs.0",
+      [Path]: "/app/blogs?p=0",
     });
   });
 
@@ -126,7 +126,7 @@ describe("SelectorProxy", () => {
       val: {
         title: "title1",
       },
-      [Path]: "/app/blogs.0",
+      [Path]: "/app/blogs?p=0",
     });
   });
 
@@ -150,7 +150,7 @@ describe("SelectorProxy", () => {
     ) as Selector<{ title: string }[]>;
     expectValOrExpr(blogsVal.map((blog) => blog)[0].title).toStrictEqual({
       val: "title1",
-      [Path]: '/app/blogs.0."title"',
+      [Path]: '/app/blogs?p=0."title"',
     });
   });
 
@@ -162,7 +162,7 @@ describe("SelectorProxy", () => {
     ) as Selector<{ title: string }[]>;
     expectValOrExpr(blogsVal.map((blog) => blog.title)[0]).toStrictEqual({
       val: "title1",
-      [Path]: '/app/blogs.0."title"',
+      [Path]: '/app/blogs?p=0."title"',
     });
   });
 });

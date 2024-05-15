@@ -1,6 +1,6 @@
 {
   "plugins": ["@valbuild"],
   "rules": {
-    "@valbuild/no-illegal-module-ids": 2
+    "@valbuild/no-illegal-module-paths": 2
   }
 }

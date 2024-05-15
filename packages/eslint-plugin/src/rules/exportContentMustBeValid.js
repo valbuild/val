@@ -30,7 +30,12 @@ export default {
         ) {
           const filename = context.filename || context.getFilename();
           if (
-            !(filename?.endsWith(".val.ts") || filename?.endsWith(".val.js"))
+            !(
+              filename?.endsWith(".val.ts") ||
+              filename?.endsWith(".val.js") ||
+              filename?.endsWith(".val.tsx") ||
+              filename?.endsWith(".val.jsx")
+            )
           ) {
             context.report({
               node: node.declaration.callee,

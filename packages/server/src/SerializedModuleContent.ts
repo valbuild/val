@@ -3,7 +3,11 @@ import {
   type SerializedSchema,
   ValidationErrors,
 } from "@valbuild/core";
-import type { FatalErrorType, ModuleId, SourcePath } from "@valbuild/core";
+import type {
+  FatalErrorType,
+  ModuleFilePath,
+  SourcePath,
+} from "@valbuild/core";
 
 export type SerializedModuleContent =
   | {
@@ -17,7 +21,7 @@ export type SerializedModuleContent =
       schema?: SerializedSchema;
       path: SourcePath;
       errors: {
-        invalidModuleId?: ModuleId;
+        invalidModulePath?: ModuleFilePath;
         validation?: ValidationErrors;
         fatal?: {
           message: string;

@@ -1,23 +1,17 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   Internal,
-  ModuleId,
+  ModuleFilePath,
   PatchId,
   ValModules,
   initVal,
 } from "@valbuild/core";
-import { Patch, PatchError } from "@valbuild/core/patch";
+import { Patch } from "@valbuild/core/patch";
 import { bufferFromDataUrl, getMimeTypeFromBase64 } from "./ValServer";
-import sizeOf from "image-size";
-import { getSha256 } from "./extractMetadata";
 import { Script } from "node:vm";
 import { transform } from "sucrase";
-import {
-  GenericError,
-  GenericErrorMessage,
-  OpsMetadata,
-  ValOps,
-} from "./ValOps";
+import { GenericError, OpsMetadata, ValOps } from "./ValOps";
+import { createMetadataFromBuffer } from "./ValOpsFS";
 
 describe("ValServerOps", () => {
   test("flow", async () => {
@@ -61,7 +55,7 @@ describe("ValServerOps", () => {
       import { s, c } from "val.config";
       
       export default c.define(
-        "/test/test1",
+        "/test/test1.val.js",
         s.object({
           test: s.string().min(3),
           testImage: s.image(),
@@ -82,7 +76,7 @@ describe("ValServerOps", () => {
       import { s, c } from "val.config";
       
       export default c.define(
-        "/test/test2",
+        "/test/test2.val.js",
         s.object({
           test: s.string().min(30),
           testImage: s.image(),
@@ -120,29 +114,32 @@ describe("ValServerOps", () => {
       }
     );
     const schemas = await ops.getSchemas();
-    const patchRes1 = await ops.createPatch("/test/test1" as ModuleId, [
-      {
-        op: "replace",
-        path: ["testImage"],
-        value: {
-          _ref: "/public/managed/images/smallest.png",
-          _type: "file",
-          metadata: {
-            width: 8,
-            height: 1,
-            sha256:
-              "a30094a4957f7ec5fb432c14eae0a0c178ab37bac55ef06ff8286ff087f01fd3",
-            mimeType: "image/png",
+    const patchRes1 = await ops.createPatch(
+      "/test/test1.val.js" as ModuleFilePath,
+      [
+        {
+          op: "replace",
+          path: ["testImage"],
+          value: {
+            _ref: "/public/managed/images/smallest.png",
+            _type: "file",
+            metadata: {
+              width: 8,
+              height: 1,
+              sha256:
+                "a30094a4957f7ec5fb432c14eae0a0c178ab37bac55ef06ff8286ff087f01fd3",
+              mimeType: "image/png",
+            },
           },
         },
-      },
-      {
-        op: "file",
-        filePath: "/public/managed/images/smallest.png",
-        path: ["image"],
-        value: anotherSmallPng,
-      },
-    ]);
+        {
+          op: "file",
+          filePath: "/public/managed/images/smallest.png",
+          path: ["image"],
+          value: anotherSmallPng,
+        },
+      ]
+    );
     if (patchRes1.error) {
       console.log("patch error", patchRes1.error);
       return;
@@ -151,7 +148,7 @@ describe("ValServerOps", () => {
     const t0 = await ops.getTree();
     console.log("base tree", JSON.stringify(t0, null, 2));
     const v0 = await ops.validateSources(schemas, t0.sources);
-    console.log("base source validation", JSON.stringify(v0.errors, null, 2));
+    console.log("base source validation", JSON.stringify(v0, null, 2));
     const fv0 = await ops.validateFiles(schemas, t0.sources, v0.files);
     console.log("base files validation", JSON.stringify(fv0, null, 2));
     const patchAnalysis = ops.analyzePatches(
@@ -164,23 +161,28 @@ describe("ValServerOps", () => {
       t1.sources,
       patchAnalysis.patchesByModule
     );
-    console.log("source errors", JSON.stringify(v1.errors, null, 2));
+    console.log("source validation", JSON.stringify(v1, null, 2));
     const fv1 = await ops.validateFiles(
       schemas,
       t1.sources,
       v1.files,
       patchAnalysis.fileLastUpdatedByPatchId
     );
-    console.log("files errors", JSON.stringify(fv1, null, 2));
+    console.log("files validation", JSON.stringify(fv1, null, 2));
     const pc1 = await ops.prepareCommit(patchAnalysis);
     console.log("prepare commit", JSON.stringify(pc1, null, 2));
   });
 });
 
-const textEncoder = new TextEncoder();
 // #region MemoryValOps
 class MemoryValOps extends ValOps {
-  patches: { [patchId: PatchId]: { path: ModuleId; patch: Patch } } = {};
+  patches: {
+    [patchId: PatchId]: {
+      path: ModuleFilePath;
+      patch: Patch;
+      created_at: string;
+    };
+  } = {};
   patchFiles: {
     [patchId: PatchId]: Record<string, { data: string; sha256: string }>;
   } = {};
@@ -195,83 +197,24 @@ class MemoryValOps extends ValOps {
     super(valModules);
   }
 
-  async getPatchesById(
-    patchIds: PatchId[]
-  ): Promise<{ [patchId: PatchId]: { path: ModuleId; patch: Patch } }> {
-    const res: { [patchId: PatchId]: { path: ModuleId; patch: Patch } } = {};
+  async getPatchesById(patchIds: PatchId[]): Promise<{
+    [patchId: PatchId]: {
+      path: ModuleFilePath;
+      patch: Patch;
+      created_at: string;
+    };
+  }> {
+    const res: {
+      [patchId: PatchId]: {
+        path: ModuleFilePath;
+        patch: Patch;
+        created_at: string;
+      };
+    } = {};
     for (const patchId of patchIds) {
       res[patchId] = this.patches[patchId];
     }
     return res;
-  }
-
-  private createMetadataFromBuffer(
-    filePath: string,
-    type: "file" | "image",
-    fields: string[],
-    buffer: Buffer,
-    value?: string
-  ): OpsMetadata {
-    let mimeType;
-    if (value) {
-      mimeType = getMimeTypeFromBase64(value);
-      if (!mimeType) {
-        return {
-          metadata: {},
-          errors: [
-            {
-              message: "Could not get mimeType from base 64 encoded value",
-            },
-          ],
-        };
-      }
-    } else {
-      mimeType = this.getMimeTypeFromFile(filePath);
-      if (!mimeType) {
-        return {
-          metadata: {},
-          errors: [
-            {
-              message: "Could not get mimeType from file",
-              filePath,
-            },
-          ],
-        };
-      }
-    }
-    let sha256;
-    if (value) {
-      sha256 = Internal.getSHA256Hash(textEncoder.encode(value));
-    } else {
-      sha256 = getSha256(mimeType, buffer);
-    }
-    const errors = [];
-    let availableMetadata: Record<string, string | number | undefined | null>;
-    if (type === "image") {
-      const { width, height, type } = sizeOf(buffer);
-      availableMetadata = {
-        sha256: sha256,
-        mimeType: type && `image/${type}`,
-        height,
-        width,
-      };
-    } else {
-      availableMetadata = {
-        sha256: sha256,
-        mimeType: this.getMimeTypeFromFile(filePath),
-      };
-    }
-    const metadata: Record<string, string | number> = {};
-    for (const field of fields) {
-      const foundFieldData =
-        field in availableMetadata ? availableMetadata[field] : null;
-      if (foundFieldData !== undefined && foundFieldData !== null) {
-        metadata[field] = foundFieldData;
-      } else {
-        errors.push({ message: `Field not found: '${field}'`, field });
-      }
-    }
-    return { metadata, errors };
   }
 
   protected async getPatchBase64FileMetadata(
@@ -312,7 +255,7 @@ class MemoryValOps extends ValOps {
         ],
       };
     }
-    return this.createMetadataFromBuffer(
+    return createMetadataFromBuffer(
       filePath,
       type,
       fields,
@@ -333,47 +276,28 @@ class MemoryValOps extends ValOps {
         errors: [{ message: "File not found", filePath }],
       };
     }
-    return this.createMetadataFromBuffer(filePath, type, fields, buffer);
+    return createMetadataFromBuffer(filePath, type, fields, buffer);
   }
   protected async saveSourceFilePatch(
-    path: ModuleId,
+    path: ModuleFilePath,
     patch: Patch
   ): Promise<{ patchId: PatchId; error?: undefined } | GenericError> {
     const patchId = (this.patchIdCounter++).toString() as PatchId;
-    this.patches[patchId] = { path, patch };
+    this.patches[patchId] = {
+      path,
+      patch,
+      created_at: new Date().toISOString(),
+    };
     return { patchId };
   }
   protected async getSourceFile(
-    path: ModuleId
+    path: ModuleFilePath
   ): Promise<{ data: string; error?: undefined } | GenericError> {
-    const foundFile =
-      this.sourceFiles[`.${path}.val.ts`] ??
-      this.sourceFiles[`.${path}.val.js`] ??
-      null;
+    const foundFile = this.sourceFiles[`.${path}`] ?? null;
     if (!foundFile) {
       return { error: { message: "File not found" } };
     }
     return { data: foundFile };
-  }
-  protected async saveSourceFile(): Promise<
-    { path: ModuleId; error?: undefined } | GenericError
-  > {
-    return { error: { message: "Cannot save source file in memory ops" } };
-  }
-
-  protected async getPatchBase64File(
-    filePath: string,
-    patchId: PatchId
-  ): Promise<{ data: string; error?: undefined } | GenericError> {
-    const patch = this.patchFiles[patchId];
-    if (!patch) {
-      return { error: { message: "Patch not found" } };
-    }
-    const file = patch[filePath];
-    if (!file) {
-      return { error: { message: "File not found" } };
-    }
-    return { data: file.data };
   }
   protected async savePatchBase64File(
     filePath: string,

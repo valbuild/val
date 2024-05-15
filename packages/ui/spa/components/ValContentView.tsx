@@ -1,6 +1,6 @@
 import {
   Internal,
-  ModuleId,
+  ModuleFilePath,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
@@ -35,7 +35,7 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
 
   const params = useParams();
   const selectedPath = params.sourcePath || ("" as SourcePath);
-  const [moduleIds, setModuleIds] = useState<ModuleId[]>();
+  const [moduleFilePaths, setModuleFilePaths] = useState<ModuleFilePath[]>();
   const [initializationState, setInitializationState] = useState<
     "not-asked" | "running" | "complete" | "failed"
   >("not-asked");
@@ -45,7 +45,7 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
       setInitializationState("running");
       store.initialize().then((res) => {
         if (result.isOk(res)) {
-          setModuleIds(res.value);
+          setModuleFilePaths(res.value);
           setInitializationState("complete");
         } else {
           setError(res.error.message);
@@ -63,10 +63,11 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
 
   const initOnSubmit: InitOnSubmit = useCallback(
     (path) => async (callback) => {
-      const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
+      const [moduleFilePath, modulePath] =
+        Internal.splitModuleFilePathAndModulePath(path);
       const patch = await callback(Internal.createPatchPath(modulePath));
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const applyRes = store.applyPatch(moduleId, patch);
+      const applyRes = store.applyPatch(moduleFilePath, patch);
       // TODO: applyRes
       setPatchResetId((prev) => prev + 1);
     },
@@ -78,7 +79,7 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
 
   useEffect(() => {
     let ignore = false;
-    if (moduleIds !== undefined) {
+    if (moduleFilePaths !== undefined) {
       setIsValidating(true);
       api
         .postValidate({
@@ -119,7 +120,7 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
     return () => {
       ignore = true;
     };
-  }, [patches, moduleIds]);
+  }, [patches, moduleFilePaths]);
 
   return (
     <ValUIContext.Provider
@@ -153,8 +154,11 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
                 <Logo />
               </div>
               <ScrollArea className="px-4">
-                {moduleIds ? (
-                  <PathTree selectedPath={selectedPath} paths={moduleIds} />
+                {moduleFilePaths ? (
+                  <PathTree
+                    selectedPath={selectedPath}
+                    paths={moduleFilePaths}
+                  />
                 ) : (
                   !error && <div className="py-4">Loading...</div>
                 )}
@@ -221,7 +225,7 @@ function ModulePane({
   session,
   initOnSubmit,
 }: {
-  path?: SourcePath | ModuleId;
+  path?: SourcePath | ModuleFilePath;
   api: ValApi;
   store: ValStore;
   error: string | null;
@@ -235,7 +239,7 @@ function ModulePane({
     schema: SerializedSchema;
   } | null>(null);
   const [moduleId] = path
-    ? Internal.splitModuleIdAndModulePath(path as SourcePath)
+    ? Internal.splitModuleFilePathAndModulePath(path as SourcePath)
     : [undefined, undefined];
   useEffect(() => {
     let ignore = false;
@@ -308,12 +312,12 @@ function ValModule({
   schema: moduleSchema,
   initOnSubmit,
 }: {
-  path: SourcePath | ModuleId;
+  path: SourcePath | ModuleFilePath;
   source: Json;
   schema: SerializedSchema;
   initOnSubmit: InitOnSubmit;
 }): React.ReactElement {
-  const [, modulePath] = Internal.splitModuleIdAndModulePath(
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
     path as SourcePath
   );
   const resolvedPath = Internal.resolvePath(

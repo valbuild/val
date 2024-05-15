@@ -6,6 +6,7 @@ import { convertFileSource } from "../../schema/file";
 import { Source, SourcePrimitive, VAL_EXTENSION } from "../../source";
 import { FILE_REF_PROP } from "../../source/file";
 import { isSerializedVal, SourcePath } from "../../val";
+import { createValPathOfItem } from "../SelectorProxy";
 
 function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
   return Object.prototype.hasOwnProperty.call(obj, prop);
@@ -203,18 +204,6 @@ function selectorAsVal(sel: any): any {
     return null;
   }
   return sel;
-}
-
-export function createValPathOfItem(
-  arrayPath: SourcePath | undefined,
-  prop: string | number | symbol
-) {
-  if (typeof prop === "symbol") {
-    throw Error(
-      `Cannot create val path of array item with symbol prop: ${prop.toString()}`
-    );
-  }
-  return arrayPath && (`${arrayPath}.${JSON.stringify(prop)}` as SourcePath);
 }
 
 export function selectorToVal(s: any): any {

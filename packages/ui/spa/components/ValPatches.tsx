@@ -1,7 +1,7 @@
 import {
   ApiPostValidationErrorResponse,
   ApiPostValidationResponse,
-  ModuleId,
+  ModuleFilePath,
   PatchId,
   ValApi,
 } from "@valbuild/core";
@@ -36,7 +36,7 @@ export type ValPatchesProps = {
     | {
         globalError: null | { message: string; details?: unknown };
       } & Partial<ApiPostValidationResponse | ApiPostValidationErrorResponse>;
-  patches: Record<ModuleId, PatchId[]>;
+  patches: Record<ModuleFilePath, PatchId[]>;
   onCommit: () => void;
   onCancel?: () => void;
 };
@@ -84,7 +84,7 @@ export function ValPatches({
   }, []);
   const [patchesByModule, setPatchesByModule] = useState<
     Record<
-      ModuleId,
+      ModuleFilePath,
       {
         patch: Patch;
         patch_id: PatchId;
@@ -131,10 +131,10 @@ export function ValPatches({
                   }
                   setPatchesByModule((patchesByModule) => {
                     const newPatchesByModule = { ...patchesByModule };
-                    for (const moduleIdS in newPatchesByModule) {
-                      const moduleId = moduleIdS as ModuleId;
-                      newPatchesByModule[moduleId] = newPatchesByModule[
-                        moduleId
+                    for (const moduleFilePathS in newPatchesByModule) {
+                      const moduleFilePath = moduleFilePathS as ModuleFilePath;
+                      newPatchesByModule[moduleFilePath] = newPatchesByModule[
+                        moduleFilePath
                       ].filter((patch) => patchId !== patch.patch_id);
                     }
                     return newPatchesByModule;
@@ -243,14 +243,14 @@ export function ReviewPanel({
               Validation Notifications
             </h2>
             {Object.entries(errors?.errors || {}).map(
-              ([moduleId, moduleErrors]) =>
+              ([moduleFilePathS, moduleErrors]) =>
                 ((moduleErrors.fatalErrors &&
                   moduleErrors.fatalErrors.length > 0) ||
                   (moduleErrors.validations &&
                     moduleErrors.validations.length > 0)) && (
                   <ValidationModuleErrors
-                    key={moduleId}
-                    moduleId={moduleId as ModuleId}
+                    key={moduleFilePathS}
+                    moduleFilePath={moduleFilePathS as ModuleFilePath}
                   >
                     {moduleErrors}
                   </ValidationModuleErrors>
@@ -263,17 +263,17 @@ export function ReviewPanel({
 }
 
 function ValidationModuleErrors({
-  moduleId,
+  moduleFilePath: moduleFilePath,
   children: moduleErrors,
 }: {
-  moduleId: ModuleId;
+  moduleFilePath: ModuleFilePath;
   children: ReviewModuleError;
 }) {
   return (
     <div className="mt-6">
       <div>
         <span>
-          <Path>{moduleId}</Path>
+          <Path>{moduleFilePath}</Path>
         </span>
         {moduleErrors.fatalErrors && (
           <div className="mt-3">
@@ -490,7 +490,7 @@ function ChangeItem({
   return (
     <div>
       <div className="font-bold">
-        <Path>{change.moduleId}</Path>
+        <Path>{change.moduleFilePath}</Path>
       </div>
       <ol className="ml-2">
         {change.items.map((item, index) => (

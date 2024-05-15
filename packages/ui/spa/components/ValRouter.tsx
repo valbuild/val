@@ -1,21 +1,26 @@
-import { Internal, ModuleId, ModulePath, SourcePath } from "@valbuild/core";
+import {
+  Internal,
+  ModuleFilePath,
+  ModulePath,
+  SourcePath,
+} from "@valbuild/core";
 import React, { useContext, useEffect } from "react";
 
 /** Val routing: written to emulate the react-router (while also including some useful amenities: ) which does not work with Next Router */
 
 const ValRouterContext = React.createContext<{
   hardLink: boolean;
-  useNavigate: () => (path: SourcePath | ModuleId) => void;
+  useNavigate: () => (path: SourcePath | ModuleFilePath) => void;
   basePath: string;
   sourcePath: SourcePath;
-  moduleId: ModuleId;
+  moduleFilePath: ModuleFilePath;
   modulePath: ModulePath;
 }>({
   hardLink: false,
   useNavigate,
   basePath: "",
   sourcePath: "" as SourcePath,
-  moduleId: "" as ModuleId,
+  moduleFilePath: "" as ModuleFilePath,
   modulePath: "" as ModulePath,
 });
 
@@ -53,14 +58,14 @@ export function ValRouter({
     }
   }, []);
 
-  const [moduleId, modulePath] =
-    Internal.splitModuleIdAndModulePath(currentSourcePath);
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(currentSourcePath);
 
   return (
     <ValRouterContext.Provider
       value={{
         hardLink: !!overlay,
-        useNavigate: () => (path: SourcePath | ModuleId) => {
+        useNavigate: () => (path: SourcePath | ModuleFilePath) => {
           if (overlay) {
             // TODO: avoid hard coding here
             window.location.href = `/val${path}`;
@@ -71,7 +76,7 @@ export function ValRouter({
           }
         },
         basePath,
-        moduleId,
+        moduleFilePath: moduleFilePath,
         modulePath,
         sourcePath: currentSourcePath,
       }}
@@ -92,21 +97,21 @@ function navigate(path: string) {
   window.history.pushState(null, "", navigateTo);
 }
 
-export function useNavigate(): (path: SourcePath | ModuleId) => void {
+export function useNavigate(): (path: SourcePath | ModuleFilePath) => void {
   return useContext(ValRouterContext).useNavigate();
 }
 
 export function useParams(): {
   basePath: string;
   sourcePath?: SourcePath;
-  moduleId: ModuleId;
+  moduleFilePath: ModuleFilePath;
   modulePath: ModulePath;
 } {
   const ctx = useContext(ValRouterContext);
   return {
     basePath: ctx.basePath,
     sourcePath: ctx.sourcePath,
-    moduleId: ctx.moduleId,
+    moduleFilePath: ctx.moduleFilePath,
     modulePath: ctx.modulePath,
   };
 }

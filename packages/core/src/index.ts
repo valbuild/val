@@ -40,7 +40,7 @@ export type {
 export {
   type Val,
   type SerializedVal,
-  type ModuleId,
+  type ModuleFilePath,
   type PatchId,
   type ModulePath,
   type SourcePath,
@@ -66,10 +66,11 @@ import {
   getSource,
   parsePath,
   resolvePath,
-  splitModuleIdAndModulePath,
+  splitModuleFilePathAndModulePath,
+  ModuleFilePathSep,
 } from "./module";
 import { getSchema } from "./selector";
-import { ModuleId, ModulePath, PatchId, getValPath, isVal } from "./val";
+import { ModuleFilePath, ModulePath, PatchId, getValPath, isVal } from "./val";
 import { convertFileSource } from "./schema/file";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
@@ -100,7 +101,7 @@ export { ValApi } from "./ValApi";
 export type ApiCommitResponse = {
   validationErrors: false;
   modules: Record<
-    ModuleId,
+    ModuleFilePath,
     {
       patches: {
         applied: PatchId[];
@@ -119,7 +120,7 @@ export type ApiTreeResponse = {
     branch?: string;
   };
   modules: Record<
-    ModuleId,
+    ModuleFilePath,
     {
       schema?: SerializedSchema;
       patches?: {
@@ -130,7 +131,7 @@ export type ApiTreeResponse = {
       errors?:
         | false
         | {
-            invalidModuleId?: ModuleId;
+            invalidModulePath?: ModuleFilePath;
             validation?: ValidationErrors;
             fatal?: {
               message: string;
@@ -142,7 +143,7 @@ export type ApiTreeResponse = {
   >;
 };
 export type ApiGetPatchResponse = Record<
-  ModuleId,
+  ModuleFilePath,
   {
     patch: Patch;
     patch_id: PatchId;
@@ -154,7 +155,7 @@ export type ApiGetPatchResponse = Record<
 >;
 export type ApiDeletePatchResponse = PatchId[];
 export type ApiPostPatchResponse = Record<
-  ModuleId,
+  ModuleFilePath,
   {
     patch_id: PatchId;
   }
@@ -162,7 +163,7 @@ export type ApiPostPatchResponse = Record<
 export type ApiPostValidationResponse = {
   validationErrors: false;
   modules: Record<
-    ModuleId,
+    ModuleFilePath,
     {
       patches: {
         applied: PatchId[];
@@ -180,7 +181,7 @@ export const FATAL_ERROR_TYPES = [
 export type FatalErrorType = (typeof FATAL_ERROR_TYPES)[number];
 export type ApiPostValidationErrorResponse = {
   modules: Record<
-    ModuleId,
+    ModuleFilePath,
     {
       patches: {
         applied: PatchId[];
@@ -189,11 +190,11 @@ export type ApiPostValidationErrorResponse = {
     }
   >;
   validationErrors: Record<
-    ModuleId,
+    ModuleFilePath,
     {
       source?: Json;
       errors: {
-        invalidModuleId?: ModuleId;
+        invalidModulePath?: ModuleFilePath;
         validation?: ValidationErrors;
         fatal?: {
           message: string;
@@ -222,11 +223,12 @@ const Internal = {
   getVal,
   getSource,
   resolvePath,
-  splitModuleIdAndModulePath,
+  splitModuleFilePathAndModulePath,
   isVal,
   createValPathOfItem,
   getSHA256Hash,
   initSchema,
+  ModuleFilePathSep,
   notFileOp: (op: Operation) => op.op !== "file",
   isFileOp: (
     op: Operation

@@ -4,7 +4,6 @@ import { Patch } from "./patch/validation";
 import {
   ApiGetPatchResponse,
   ApiPostPatchResponse,
-  ModuleId,
   PatchId,
   ApiDeletePatchResponse,
   Internal,
@@ -12,6 +11,7 @@ import {
   ImageMetadata,
   ValModules,
   SourcePath,
+  ModuleFilePath,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -154,14 +154,14 @@ export class LocalValServer extends ValServer {
     }
     const patchId = fileId.toString() as PatchId;
     const res: ApiPostPatchResponse = {};
-    const parsedPatches: Record<ModuleId, Patch> = {};
-    for (const moduleIdStr in patches.data) {
-      const moduleId = moduleIdStr as ModuleId; // TODO: validate that this is a valid module id
-      res[moduleId] = {
+    const parsedPatches: Record<ModuleFilePath, Patch> = {};
+    for (const pathS in patches.data) {
+      const path = pathS as ModuleFilePath; // TODO: validate that this is a valid module id
+      res[path] = {
         patch_id: patchId,
       };
-      parsedPatches[moduleId] = [];
-      for (const op of patches.data[moduleId]) {
+      parsedPatches[path] = [];
+      for (const op of patches.data[path]) {
         // We do not want to include value of a file op in the patch as they potentially contain a lot of data,
         // therefore we store the file in a separate file and only store the sha256 hash in the patch.
         // I.e. the patch that frontend sends is not the same as the one stored.
@@ -207,12 +207,12 @@ export class LocalValServer extends ValServer {
             ),
             "utf8"
           );
-          parsedPatches[moduleId].push({
+          parsedPatches[path].push({
             ...op,
             value: { sha256, mimeType },
           });
         } else {
-          parsedPatches[moduleId].push(op);
+          parsedPatches[path].push(op);
         }
       }
     }
@@ -367,13 +367,13 @@ export class LocalValServer extends ValServer {
           };
         }
         const createdAt = patchId;
-        for (const moduleIdStr in currentParsedPatches.data) {
-          const moduleId = moduleIdStr as ModuleId;
-          if (!res[moduleId]) {
-            res[moduleId] = [];
+        for (const pathStr in currentParsedPatches.data) {
+          const modulePath = pathStr as ModuleFilePath;
+          if (!res[modulePath]) {
+            res[modulePath] = [];
           }
-          res[moduleId].push({
-            patch: currentParsedPatches.data[moduleId],
+          res[modulePath].push({
+            patch: currentParsedPatches.data[modulePath],
             patch_id: patchId,
             created_at: new Date(Number(createdAt)).toISOString(),
           });
@@ -477,36 +477,43 @@ export class LocalValServer extends ValServer {
     );
   }
 
-  protected getModule(moduleId: ModuleId): Promise<SerializedModuleContent> {
+  protected getModule(
+    moduleFilePath: ModuleFilePath
+  ): Promise<SerializedModuleContent> {
     // TODO: do not get all modules - we only should only get the ones we need
     return this.getSerializedModules().then((all) => {
       const found = all.find(
-        (valModule) => valModule.path === (moduleId as string as SourcePath)
+        (valModule) =>
+          valModule.path === (moduleFilePath as string as SourcePath)
       );
       if (!found) {
-        throw Error(`Module ${moduleId} not found`);
+        throw Error(`Module ${moduleFilePath} not found`);
       }
       return found;
     });
   }
 
-  protected async getAllModules(treePath: string): Promise<ModuleId[]> {
-    const moduleIds: ModuleId[] = (await this.getSerializedModules())
+  protected async getAllModules(treePath: string): Promise<ModuleFilePath[]> {
+    const moduleFilePaths: ModuleFilePath[] = (
+      await this.getSerializedModules()
+    )
       .filter(({ path }) => {
         if (treePath) {
           return path.startsWith(treePath);
         }
         return true;
       })
-      .map(({ path }) => path as string as ModuleId);
-    return moduleIds;
+      .map(({ path }) => path as string as ModuleFilePath);
+    return moduleFilePaths;
   }
 
-  protected async execCommit(patches: [PatchId, ModuleId, Patch][]): Promise<
+  protected async execCommit(
+    patches: [PatchId, ModuleFilePath, Patch][]
+  ): Promise<
     | {
         status: 200;
         json: Record<
-          ModuleId,
+          ModuleFilePath,
           {
             patches: {
               applied: PatchId[];

@@ -45,13 +45,13 @@ describe("stega transform", () => {
 
     expect(vercelStegaDecode(transformed[0].image.url)).toStrictEqual({
       data: {
-        valPath: '/test.0."image"',
+        valPath: '/test?p=0."image"',
       },
       origin: "val.build",
     });
     expect(vercelStegaDecode(transformed[1].image.url)).toStrictEqual({
       data: {
-        valPath: '/test.1."image"',
+        valPath: '/test?p=1."image"',
       },
       origin: "val.build",
     });
@@ -63,8 +63,8 @@ describe("stega transform", () => {
       "/api/val/files/public/test2.png?sha256=1232"
     );
 
-    expect(transformed[0].text.valPath).toStrictEqual('/test.0."text"');
-    expect(transformed[1].text.valPath).toStrictEqual('/test.1."text"');
+    expect(transformed[0].text.valPath).toStrictEqual('/test?p=0."text"');
+    expect(transformed[1].text.valPath).toStrictEqual('/test?p=1."text"');
   });
 
   test("get modules", () => {
@@ -97,7 +97,7 @@ describe("stega transform", () => {
     expect(vercelStegaSplit(transformed[0]).cleaned).toStrictEqual("1");
     expect(vercelStegaDecode(transformed[0])).toStrictEqual({
       data: {
-        valPath: "/test1.0",
+        valPath: "/test1?p=0",
       },
       origin: "val.build",
     });
@@ -136,7 +136,7 @@ describe("stega transform", () => {
     expect(vercelStegaSplit(transformed.str).cleaned).toStrictEqual("one");
     expect(vercelStegaDecode(transformed.str)).toStrictEqual({
       data: {
-        valPath: '/test1."str"',
+        valPath: '/test1?p="str"',
       },
       origin: "val.build",
     });
@@ -166,7 +166,7 @@ describe("stega transform", () => {
     );
     expect(vercelStegaDecode(transformed.foo[0].test[0])).toStrictEqual({
       data: {
-        valPath: "/test1.0",
+        valPath: "/test1?p=0",
       },
       origin: "val.build",
     });
@@ -178,7 +178,7 @@ describe("stega transform", () => {
     );
     expect(vercelStegaDecode(transformed.foo[1].test[0])).toStrictEqual({
       data: {
-        valPath: "/test2.0",
+        valPath: "/test2?p=0",
       },
       origin: "val.build",
     });

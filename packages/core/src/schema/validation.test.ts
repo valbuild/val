@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { createValPathOfItem } from "../selector/future/SelectorProxy";
 import { SourcePath } from "../val";
 import { array } from "./array";
 import { boolean } from "./boolean";
@@ -21,6 +20,7 @@ import { record } from "./record";
 import { keyOf } from "./keyOf";
 import { define } from "../module";
 import { union } from "./union";
+import { createValPathOfItem } from "../selector/SelectorProxy";
 
 const testPath = "/test" as SourcePath;
 const pathOf = (p: string | symbol | number) => {

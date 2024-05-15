@@ -33,9 +33,10 @@ type Story = StoryObj<typeof AnyVal>;
 
 const DefaultArgs = {
   initOnSubmit: ((path) => async (patchCallBack) => {
-    const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
+    const [moduleFilePath, modulePath] =
+      Internal.splitModuleFilePathAndModulePath(path);
     console.log(
-      moduleId,
+      moduleFilePath,
       await patchCallBack(Internal.createPatchPath(modulePath))
     );
   }) satisfies InitOnSubmit,

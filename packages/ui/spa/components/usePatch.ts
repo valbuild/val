@@ -1,7 +1,7 @@
 import {
   SourcePath,
   Internal,
-  ModuleId,
+  ModuleFilePath,
   ValApi,
   PatchId,
 } from "@valbuild/core";
@@ -40,7 +40,7 @@ export function usePatchSubmit(
         setState((prev) => {
           const nextState = paths.reduce((acc, path) => {
             const patchPath = Internal.createPatchPath(
-              Internal.splitModuleIdAndModulePath(path as SourcePath)[1]
+              Internal.splitModuleFilePathAndModulePath(path as SourcePath)[1]
             );
             return {
               ...acc,
@@ -76,26 +76,28 @@ export function usePatchSubmit(
   const onSubmitPatch = useCallback(async () => {
     setError(null);
     setProgress("create_patch");
-    const patches: Record<ModuleId, Patch> = {};
+    const patches: Record<ModuleFilePath, Patch> = {};
 
     for (const path in state) {
-      const [moduleId] = Internal.splitModuleIdAndModulePath(
+      const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
         path as SourcePath
       );
       const patch = await state[path as SourcePath]();
-      patches[moduleId] = patch;
+      patches[moduleFilePath] = patch;
     }
     return maybeStartViewTransition(() => {
       setProgress("patching");
       return Promise.all(
-        Object.entries(patches).map(([moduleId, patch]) =>
-          api.postPatches(moduleId as ModuleId, patch).then((res) => {
-            if (result.isErr(res)) {
-              throw res.error;
-            } else {
-              res.value;
-            }
-          })
+        Object.entries(patches).map(([moduleFilePathStr, patch]) =>
+          api
+            .postPatches(moduleFilePathStr as ModuleFilePath, patch)
+            .then((res) => {
+              if (result.isErr(res)) {
+                throw res.error;
+              } else {
+                res.value;
+              }
+            })
         )
       )
         .then(() => {
@@ -109,7 +111,7 @@ export function usePatchSubmit(
           return valStore.update(
             paths.map(
               (path) =>
-                Internal.splitModuleIdAndModulePath(path as SourcePath)[0]
+                Internal.splitModuleFilePathAndModulePath(path as SourcePath)[0]
             )
           );
         });
@@ -136,20 +138,21 @@ async function maybeStartViewTransition(f: () => Promise<void>) {
 }
 
 export function usePatches(session: Remote<ValSession>, api: ValApi) {
-  const [patches, setPatches] = useState<Record<ModuleId, PatchId[]>>({});
+  const [patches, setPatches] = useState<Record<ModuleFilePath, PatchId[]>>({});
   const [patchResetId, setPatchResetId] = useState(0);
 
   useEffect(() => {
     if (session.status === "success") {
       api.getPatches({}).then((patchRes) => {
         if (result.isOk(patchRes)) {
-          const patchesByModuleId: Record<ModuleId, PatchId[]> = {};
-          for (const moduleId in patchRes.value) {
-            patchesByModuleId[moduleId as ModuleId] = patchRes.value[
-              moduleId as ModuleId
-            ].map((patch) => patch.patch_id);
+          const patchesByModuleFilePath: Record<ModuleFilePath, PatchId[]> = {};
+          for (const moduleFilePathStr in patchRes.value) {
+            patchesByModuleFilePath[moduleFilePathStr as ModuleFilePath] =
+              patchRes.value[moduleFilePathStr as ModuleFilePath].map(
+                (patch) => patch.patch_id
+              );
           }
-          setPatches(patchesByModuleId);
+          setPatches(patchesByModuleFilePath);
         } else {
           console.error("Could not load patches", patchRes.error);
         }

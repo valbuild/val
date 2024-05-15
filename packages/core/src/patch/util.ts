@@ -1,6 +1,6 @@
 import { array, result } from "../fp";
 import { PatchError, ReadonlyJSONValue, ToMutable } from "./ops";
-import { splitModuleIdAndModulePath } from "../module";
+import { splitModuleFilePathAndModulePath } from "../module";
 import { SourcePath } from "../val";
 
 export function isNotRoot(path: string[]): path is array.NonEmptyArray<string> {
@@ -69,6 +69,6 @@ export function parseAndValidateArrayIndex(
 }
 
 export function sourceToPatchPath(sourcePath: SourcePath) {
-  const [, modulePath] = splitModuleIdAndModulePath(sourcePath);
+  const [, modulePath] = splitModuleFilePathAndModulePath(sourcePath);
   return modulePath.split(".").map((p) => JSON.parse(p).toString());
 }

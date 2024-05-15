@@ -2,7 +2,7 @@ import {
   SourcePath,
   Json,
   SerializedSchema,
-  ModuleId,
+  ModuleFilePath,
   JsonObject,
   SerializedObjectSchema,
   SerializedRecordSchema,
@@ -427,7 +427,7 @@ function ValList({
   initOnSubmit: InitOnSubmit;
 }): React.ReactElement {
   const onSubmit = initOnSubmit(path);
-  const [, modulePath] = Internal.splitModuleIdAndModulePath(path);
+  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
 
   return (
     <FieldContainer key={path} className="flex flex-col gap-4 p-2 pb-8">
@@ -817,7 +817,7 @@ function ValOptional({
                         setLoading(true);
                         setEnable(false);
                         const [, modulePath] =
-                          Internal.splitModuleIdAndModulePath(path);
+                          Internal.splitModuleFilePathAndModulePath(path);
                         onSubmit(async () => {
                           return [
                             {
@@ -861,9 +861,10 @@ function ValOptional({
           schema={schema}
           path={path}
           initOnSubmit={(subPath) => async (callback) => {
-            const [, modulePath] = Internal.splitModuleIdAndModulePath(path);
+            const [, modulePath] =
+              Internal.splitModuleFilePathAndModulePath(path);
             const [, subModulePath] =
-              Internal.splitModuleIdAndModulePath(subPath);
+              Internal.splitModuleFilePathAndModulePath(subPath);
             const patch = await callback(
               Internal.createPatchPath(subModulePath)
             );
@@ -1045,13 +1046,13 @@ export function PathTree({
   selectedPath,
   paths,
 }: {
-  selectedPath: SourcePath | ModuleId | undefined;
+  selectedPath: SourcePath | ModuleFilePath | undefined;
   paths: string[];
 }): React.ReactElement {
   const tree = dirPaths(paths);
   const selectedModuleId =
     selectedPath &&
-    Internal.splitModuleIdAndModulePath(selectedPath as SourcePath)[0];
+    Internal.splitModuleFilePathAndModulePath(selectedPath as SourcePath)[0];
   const navigate = useNavigate();
   return (
     <div className="flex flex-col w-full py-2 text-xs">
@@ -1072,16 +1073,16 @@ export function PathTree({
               })}
             >
               {files.map((file) => {
-                const moduleId = `/${dir}/${file}` as ModuleId;
+                const moduleFilePath = `/${dir}/${file}` as ModuleFilePath;
                 return (
                   <button
-                    key={moduleId}
+                    key={moduleFilePath}
                     className={classNames("block px-2 py-1 rounded-full", {
                       "bg-accent text-accent-foreground":
-                        selectedModuleId === moduleId,
+                        selectedModuleId === moduleFilePath,
                     })}
                     onClick={() => {
-                      navigate(moduleId);
+                      navigate(moduleFilePath);
                     }}
                   >
                     {file}

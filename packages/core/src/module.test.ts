@@ -2,7 +2,7 @@ import {
   resolvePath as resolveAtPath,
   getSourceAtPath,
   parsePath,
-  splitModuleIdAndModulePath,
+  splitModuleFilePathAndModulePath,
 } from "./module";
 import { SelectorOfSchema } from "./schema";
 import { array } from "./schema/array";
@@ -46,8 +46,8 @@ describe("module", () => {
   });
 
   test("getSourceAtPath: basic selector", () => {
-    const [, modulePath] = splitModuleIdAndModulePath(
-      '/app."foo"."bar".1."zoo"' as SourcePath
+    const [, modulePath] = splitModuleFilePathAndModulePath(
+      '/app?p="foo"."bar".1."zoo"' as SourcePath
     );
     expect(modulePath).toStrictEqual('"foo"."bar".1."zoo"');
     const resolvedModuleAtPath = getSourceAtPath(

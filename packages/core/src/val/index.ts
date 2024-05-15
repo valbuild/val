@@ -84,13 +84,13 @@ export type ModulePath = string & {
 };
 
 /**
- * The id of the module.
+ * The path of the module.
  *
  * @example
- * '/app/blogs' // the /app/blogs module
+ * '/app/blogs.val.ts'
  */
-export type ModuleId = string & {
-  [brand]: "ModuleId";
+export type ModuleFilePath = string & {
+  [brand]: "ModuleFilePath";
 };
 
 export type PatchId = string & {

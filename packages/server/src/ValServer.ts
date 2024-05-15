@@ -8,6 +8,7 @@ import {
   ApiPostValidationResponse,
   Internal,
   ValModules,
+  ModuleFilePath,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -29,7 +30,6 @@ import {
 } from "@valbuild/core/patch";
 import { Patch } from "./patch/validation";
 import {
-  ModuleId,
   PatchId,
   deserializeSchema,
   SourcePath,
@@ -134,15 +134,15 @@ export abstract class ValServer implements IValServer {
     );
 
     let {
-      patchIdsByModuleId,
+      patchIdsByModuleFilePaths: patchIdsByModuleFilePaths,
       patchesById,
       fileUpdates,
     }: {
-      patchIdsByModuleId: Record<ModuleId, PatchId[]>;
+      patchIdsByModuleFilePaths: Record<ModuleFilePath, PatchId[]>;
       patchesById: Record<PatchId, Patch>;
       fileUpdates: Record<string, PatchFileMetadata>;
     } = {
-      patchIdsByModuleId: {},
+      patchIdsByModuleFilePaths: {},
       patchesById: {},
       fileUpdates: {},
     };
@@ -153,7 +153,7 @@ export abstract class ValServer implements IValServer {
       if (result.isErr(res)) {
         return res.error;
       }
-      patchIdsByModuleId = res.value.patchIdsByModuleId;
+      patchIdsByModuleFilePaths = res.value.patchIdsByModuleFilePath;
       patchesById = res.value.patchesById;
       fileUpdates = res.value.fileUpdates;
     }
@@ -166,7 +166,7 @@ export abstract class ValServer implements IValServer {
           moduleIds.map(async (moduleId) => {
             return this.applyAllPatchesThenValidate(
               moduleId,
-              patchIdsByModuleId,
+              patchIdsByModuleFilePaths,
               patchesById,
               fileUpdates,
               cookies,
@@ -264,8 +264,8 @@ export abstract class ValServer implements IValServer {
 
   /* */
   private async applyAllPatchesThenValidate(
-    moduleId: ModuleId,
-    patchIdsByModuleId: Record<ModuleId, PatchId[]>,
+    moduleFilePath: ModuleFilePath,
+    patchIdsByModuleId: Record<ModuleFilePath, PatchId[]>,
     patchesById: Record<PatchId, Patch>,
     fileUpdates: Record<string /* filePath */, PatchFileMetadata>,
     cookies: ValCookies<VAL_SESSION_COOKIE>,
@@ -275,7 +275,7 @@ export abstract class ValServer implements IValServer {
     includeSource: boolean,
     includeSchema: boolean
   ): Promise<SerializedModuleContent> {
-    const serializedModuleContent = await this.getModule(moduleId, {
+    const serializedModuleContent = await this.getModule(moduleFilePath, {
       source: includeSource,
       schema: includeSchema,
     });
@@ -287,7 +287,7 @@ export abstract class ValServer implements IValServer {
     if (
       serializedModuleContent.errors &&
       (serializedModuleContent.errors.fatal ||
-        serializedModuleContent.errors.invalidModuleId)
+        serializedModuleContent.errors.invalidModulePath)
     ) {
       return serializedModuleContent;
     }
@@ -296,8 +296,8 @@ export abstract class ValServer implements IValServer {
     }
     let source = maybeSource as JSONValue;
 
-    await debugTiming("applyPatches:" + moduleId, async () => {
-      for (const patchId of patchIdsByModuleId[moduleId] ?? []) {
+    await debugTiming("applyPatches:" + moduleFilePath, async () => {
+      for (const patchId of patchIdsByModuleId[moduleFilePath] ?? []) {
         const patch = patchesById[patchId];
         if (!patch) {
           continue;
@@ -314,13 +314,13 @@ export abstract class ValServer implements IValServer {
             "Val: got an unexpected error while applying patch. Is there a mismatch in Val versions? Perhaps Val is misconfigured?",
             {
               patchId,
-              moduleId,
+              moduleId: moduleFilePath,
               patch: JSON.stringify(patch, null, 2),
               error: patchRes.error,
             }
           );
           return {
-            path: moduleId as string as SourcePath,
+            path: moduleFilePath as string as SourcePath,
             schema,
             source,
             errors: {
@@ -338,16 +338,16 @@ export abstract class ValServer implements IValServer {
 
     if (validate) {
       const validationErrors = await debugTiming(
-        "validate:" + moduleId,
+        "validate:" + moduleFilePath,
         async () =>
           deserializeSchema(schema).validate(
-            moduleId as string as SourcePath,
+            moduleFilePath as string as SourcePath,
             source
           )
       );
       if (validationErrors) {
         const revalidated = await debugTiming(
-          "revalidate image/file:" + moduleId,
+          "revalidate image/file:" + moduleFilePath,
           async () =>
             this.revalidateImageAndFileValidation(
               validationErrors,
@@ -357,7 +357,7 @@ export abstract class ValServer implements IValServer {
             )
         );
         return {
-          path: moduleId as string as SourcePath,
+          path: moduleFilePath as string as SourcePath,
           schema,
           source,
           errors: revalidated && {
@@ -368,7 +368,7 @@ export abstract class ValServer implements IValServer {
     }
 
     return {
-      path: moduleId as string as SourcePath,
+      path: moduleFilePath as string as SourcePath,
       schema,
       source,
       errors: false,
@@ -525,11 +525,11 @@ export abstract class ValServer implements IValServer {
     return hasErrors;
   }
 
-  protected abstract getAllModules(treePath: string): Promise<ModuleId[]>;
+  protected abstract getAllModules(treePath: string): Promise<ModuleFilePath[]>;
 
   protected sortPatchIds(
     patchesByModule: Record<
-      ModuleId,
+      ModuleFilePath,
       {
         patch: Patch;
         patch_id: PatchId;
@@ -559,8 +559,8 @@ export abstract class ValServer implements IValServer {
   ): Promise<
     result.Result<
       {
-        patches: [PatchId, ModuleId, Patch][];
-        patchIdsByModuleId: Record<ModuleId, PatchId[]>;
+        patches: [PatchId, ModuleFilePath, Patch][];
+        patchIdsByModuleFilePath: Record<ModuleFilePath, PatchId[]>;
         patchesById: Record<PatchId, Patch>;
         fileUpdates: Record<string /* filePath */, PatchFileMetadata>;
       },
@@ -582,7 +582,7 @@ export abstract class ValServer implements IValServer {
       return result.err(res);
     } else if (res.status === 200 || res.status === 201) {
       const patchesByModule: Record<
-        ModuleId,
+        ModuleFilePath,
         {
           patch: Patch;
           patch_id: PatchId;
@@ -591,18 +591,18 @@ export abstract class ValServer implements IValServer {
           author?: string;
         }[]
       > = res.json;
-      const patches: [PatchId, ModuleId, Patch][] = [];
-      const patchIdsByModuleId: Record<ModuleId, PatchId[]> = {};
+      const patches: [PatchId, ModuleFilePath, Patch][] = [];
+      const patchIdsByModuleFilePath: Record<ModuleFilePath, PatchId[]> = {};
       const patchesById: Record<PatchId, Patch> = {};
-      for (const [moduleIdS, modulePatchData] of Object.entries(
+      for (const [moduleFilePathS, modulePatchData] of Object.entries(
         patchesByModule
       )) {
-        const moduleId = moduleIdS as ModuleId;
-        patchIdsByModuleId[moduleId] = modulePatchData.map(
+        const moduleFilePath = moduleFilePathS as ModuleFilePath;
+        patchIdsByModuleFilePath[moduleFilePath] = modulePatchData.map(
           (patch) => patch.patch_id
         );
         for (const patchData of modulePatchData) {
-          patches.push([patchData.patch_id, moduleId, patchData.patch]);
+          patches.push([patchData.patch_id, moduleFilePath, patchData.patch]);
           patchesById[patchData.patch_id] = patchData.patch;
         }
       }
@@ -642,7 +642,7 @@ export abstract class ValServer implements IValServer {
       }
       return result.ok({
         patches,
-        patchIdsByModuleId,
+        patchIdsByModuleFilePath,
         patchesById,
         fileUpdates,
       });
@@ -686,15 +686,20 @@ export abstract class ValServer implements IValServer {
     if (result.isErr(res)) {
       return res.error;
     }
-    const { patchIdsByModuleId, patchesById, patches, fileUpdates } = res.value;
+    const {
+      patchIdsByModuleFilePath: patchIdsByModuleId,
+      patchesById,
+      patches,
+      fileUpdates,
+    } = res.value;
     const validationErrorsByModuleId: ApiPostValidationErrorResponse["validationErrors"] =
       {};
-    for (const moduleIdStr of await this.getAllModules("/")) {
-      const moduleId = moduleIdStr as ModuleId;
+    for (const moduleFilePathS of await this.getAllModules("/")) {
+      const moduleFilePath = moduleFilePathS as ModuleFilePath;
       const serializedModuleContent = await this.applyAllPatchesThenValidate(
-        moduleId,
+        moduleFilePath,
         (filterPatchesByModuleIdRes.data.patches as Record<
-          ModuleId,
+          ModuleFilePath,
           PatchId[]
         >) || // TODO: refine to ModuleId and PatchId when parsing
           patchIdsByModuleId,
@@ -708,12 +713,12 @@ export abstract class ValServer implements IValServer {
         commit
       );
       if (serializedModuleContent.errors) {
-        validationErrorsByModuleId[moduleId] = serializedModuleContent;
+        validationErrorsByModuleId[moduleFilePath] = serializedModuleContent;
       }
     }
     if (Object.keys(validationErrorsByModuleId).length > 0) {
       const modules: Record<
-        ModuleId,
+        ModuleFilePath,
         {
           patches: {
             applied: PatchId[];
@@ -748,7 +753,7 @@ export abstract class ValServer implements IValServer {
     }
 
     let modules: Record<
-      ModuleId,
+      ModuleFilePath,
       {
         patches: {
           applied: PatchId[];
@@ -774,10 +779,10 @@ export abstract class ValServer implements IValServer {
   }
 
   protected async getPatchedModules(
-    patches: [PatchId, ModuleId, Patch][]
-  ): Promise<Record<ModuleId, { patches: { applied: PatchId[] } }>> {
+    patches: [PatchId, ModuleFilePath, Patch][]
+  ): Promise<Record<ModuleFilePath, { patches: { applied: PatchId[] } }>> {
     const modules: Record<
-      ModuleId,
+      ModuleFilePath,
       {
         patches: {
           applied: PatchId[];
@@ -810,18 +815,18 @@ export abstract class ValServer implements IValServer {
   ): Promise<result.Result<undefined, ValServerError>>;
 
   protected abstract getModule(
-    moduleId: ModuleId,
+    moduleFilePath: ModuleFilePath,
     options: { source: boolean; schema: boolean }
   ): Promise<SerializedModuleContent>;
 
   protected abstract execCommit(
-    patches: [PatchId, ModuleId, Patch][],
+    patches: [PatchId, ModuleFilePath, Patch][],
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<
     | {
         status: 200;
         json: Record<
-          ModuleId,
+          ModuleFilePath,
           {
             patches: {
               applied: PatchId[];
