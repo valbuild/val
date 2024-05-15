@@ -7,7 +7,7 @@ export const schema = s.array(
 );
 
 export type Author = t.inferSchema<typeof schema>;
-export default c.define("/content/authors", schema, [
+export default c.define("/content/authors.val.ts", schema, [
   {
     name: "Fredrik Ekholdt",
   },

@@ -9,7 +9,7 @@ import {
   Path,
 } from "./selector";
 import { Source } from "./source";
-import { ModuleId, ModulePath, SourcePath } from "./val";
+import { ModuleFilePath, ModulePath, SourcePath } from "./val";
 import { Expr } from "./expr";
 import { ArraySchema, SerializedArraySchema } from "./schema/array";
 import { UnionSchema, SerializedUnionSchema } from "./schema/union";
@@ -77,17 +77,20 @@ export function getSource(valModule: ValModule<SelectorSource>): Source {
   return source;
 }
 
-export function splitModuleIdAndModulePath(
+export function splitModuleFilePathAndModulePath(
   path: SourcePath
-): [moduleId: ModuleId, path: ModulePath] {
-  if (path.indexOf(".") === -1) {
-    return [path as unknown as ModuleId, "" as ModulePath];
+): [moduleId: ModuleFilePath, path: ModulePath] {
+  const pathOfSep = path.indexOf(ModuleFilePathSep);
+  if (pathOfSep === -1) {
+    return [path as unknown as ModuleFilePath, "" as ModulePath];
   }
   return [
-    path.slice(0, path.indexOf(".")) as ModuleId,
-    path.slice(path.indexOf(".") + 1) as ModulePath,
+    path.slice(0, pathOfSep) as ModuleFilePath,
+    path.slice(pathOfSep + ModuleFilePathSep.length) as ModulePath,
   ];
 }
+
+export const ModuleFilePathSep = "?p=";
 
 export function getSourceAtPath(
   modulePath: ModulePath,

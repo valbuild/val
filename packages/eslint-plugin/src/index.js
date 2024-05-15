@@ -6,7 +6,7 @@
  * @typedef {import('eslint').Linter } RuleModule
  */
 
-import noIllegalModuleIds from "./rules/noIllegalModuleIds";
+import noIllegalModulePaths from "./rules/noIllegalModulePaths";
 import noIllegalImports from "./rules/noIllegalImports";
 import exportContentMustBeValid from "./rules/exportContentMustBeValid";
 
@@ -14,7 +14,7 @@ import exportContentMustBeValid from "./rules/exportContentMustBeValid";
  * @type {Plugin["rules"]}
  */
 export let rules = {
-  "no-illegal-module-ids": noIllegalModuleIds,
+  "no-illegal-module-paths": noIllegalModulePaths,
   "no-illegal-imports": noIllegalImports,
   "export-content-must-be-valid": exportContentMustBeValid,
 };
@@ -31,7 +31,7 @@ export const configs = {
   recommended: {
     plugins: ["@valbuild"],
     rules: {
-      "@valbuild/no-illegal-module-ids": "error",
+      "@valbuild/no-illegal-module-paths": "error",
       "@valbuild/no-illegal-imports": "error",
       "@valbuild/export-content-must-be-valid": "error",
     },

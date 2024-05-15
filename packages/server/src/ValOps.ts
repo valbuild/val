@@ -4,7 +4,7 @@ import {
   FileSource,
   ImageSchema,
   Internal,
-  ModuleId,
+  ModuleFilePath,
   PatchId,
   Schema,
   SelectorSource,
@@ -17,7 +17,6 @@ import {
 } from "@valbuild/core";
 import { pipe, result } from "@valbuild/core/fp";
 import { JSONOps, Patch, PatchError, applyPatch } from "@valbuild/core/patch";
-import { guessMimeTypeFromPath } from "./ValServer";
 import { TSOps } from "./patch/ts/ops";
 import { analyzeValModule } from "./patch/ts/valModule";
 import ts from "typescript";
@@ -27,11 +26,11 @@ export type BaseSha = string & { readonly _tag: unique symbol };
 export type ModulesError = { message: string };
 
 export type Schemas = {
-  [key: ModuleId]: Schema<SelectorSource>;
+  [key: ModuleFilePath]: Schema<SelectorSource>;
 };
 
 export type Sources = {
-  [key: ModuleId]: Source;
+  [key: ModuleFilePath]: Source;
 };
 
 const textEncoder = new TextEncoder();
@@ -51,8 +50,8 @@ export abstract class ValOps {
   private schemas: Schemas | null;
   /** The sha265 / hash of the current baseTree*/
   private baseSha: BaseSha | null;
-
   private modulesErrors: ModulesError[] | null;
+
   constructor(private readonly valModules: ValModules) {
     this.baseSha = null;
     this.modulesErrors = null;
@@ -70,24 +69,23 @@ export abstract class ValOps {
     return Internal.getSHA256Hash(textEncoder.encode(str));
   }
 
-  private addModuleErrorTODO(message: string, index: number) {
-    if (!this.modulesErrors) {
-      this.modulesErrors = [];
-    }
-    this.modulesErrors[index] = { message };
-  }
-
   // #region initTree
   private async initTree(): Promise<{
     baseSha: BaseSha;
     sources: Sources;
     schemas: Schemas;
+    moduleErrors: ModulesError[];
   }> {
     if (
       this.baseSha === null ||
       this.sources === null ||
-      this.schemas === null
+      this.schemas === null ||
+      this.modulesErrors === null
     ) {
+      const currentModulesErrors: ModulesError[] = [];
+      const addModuleError = (message: string, index: number) => {
+        currentModulesErrors[index] = { message };
+      };
       const currentSources: Sources = {};
       const currentSchemas: Schemas = {};
       let hash = this.hash(JSON.stringify(this.valModules.config));
@@ -98,53 +96,62 @@ export abstract class ValOps {
       ) {
         const module = this.valModules.modules[moduleIdx];
         if (!module.def) {
-          this.addModuleError("missing 'def' property", moduleIdx);
+          addModuleError("val.modules is missing 'def' property", moduleIdx);
           continue;
         }
         if (typeof module.def !== "function") {
-          this.addModuleError("'def' property is not a function", moduleIdx);
+          addModuleError(
+            "val.modules 'def' property is not a function",
+            moduleIdx
+          );
           continue;
         }
         await module.def().then((value) => {
           if (!value) {
-            this.addModuleError(`did not return a value`, moduleIdx);
+            addModuleError(
+              `val.modules 'def' did not return a value`,
+              moduleIdx
+            );
             return;
           }
           if (!value.default) {
-            this.addModuleError(`did not return a default export`, moduleIdx);
+            addModuleError(
+              `val.modules 'def' did not return a default export`,
+              moduleIdx
+            );
             return;
           }
 
           const path = Internal.getValPath(value.default);
           if (path === undefined) {
-            this.addModuleError(`path is undefined`, moduleIdx);
+            addModuleError(`path is undefined`, moduleIdx);
             return;
           }
           const schema = Internal.getSchema(value.default);
           if (schema === undefined) {
-            this.addModuleError(`schema is undefined`, moduleIdx);
+            addModuleError(`schema in path '${path}' is undefined`, moduleIdx);
             return;
           }
           if (!(schema instanceof Schema)) {
-            this.addModuleError(
-              `schema is not an instance of Schema`,
+            addModuleError(
+              `schema in path '${path}' is not an instance of Schema`,
               moduleIdx
             );
             return;
           }
           if (typeof schema.serialize !== "function") {
-            this.addModuleError(
-              `schema.serialize is not a function`,
+            addModuleError(
+              `schema.serialize in path '${path}' is not a function`,
               moduleIdx
             );
             return;
           }
           const source = Internal.getSource(value.default);
           if (source === undefined) {
-            this.addModuleError(`source is undefined`, moduleIdx);
+            addModuleError(`source in ${path} is undefined`, moduleIdx);
             return;
           }
-          const pathM = path as string as ModuleId;
+          const pathM = path as string as ModuleFilePath;
           currentSources[pathM] = source;
           currentSchemas[pathM] = schema;
           // make sure the checks above is enough that this does not fail - even if val modules are not set up correctly
@@ -152,17 +159,20 @@ export abstract class ValOps {
             path,
             schema: schema.serialize(),
             source,
+            modulesErrors: currentModulesErrors,
           });
         });
       }
       this.sources = currentSources;
       this.schemas = currentSchemas;
       this.baseSha = hash as BaseSha;
+      this.modulesErrors = currentModulesErrors;
     }
     return {
       baseSha: this.baseSha,
       sources: this.sources,
       schemas: this.schemas,
+      moduleErrors: this.modulesErrors,
     };
   }
 
@@ -176,16 +186,19 @@ export abstract class ValOps {
   async getSchemas(): Promise<Schemas> {
     return this.initTree().then((result) => result.schemas);
   }
+  async getModuleErrors(): Promise<ModulesError[]> {
+    return this.initTree().then((result) => result.moduleErrors);
+  }
   async getBaseSha(): Promise<BaseSha> {
     return this.initTree().then((result) => result.baseSha);
   }
 
   // #region analyzePatches
   analyzePatches(patchesById: {
-    [patchId: PatchId]: { path: ModuleId; patch: Patch };
+    [patchId: PatchId]: { path: ModuleFilePath; patch: Patch };
   }): PatchAnalysis {
     const patchesByModule: {
-      [path: ModuleId]: { patch: Patch; patchId: PatchId }[];
+      [path: ModuleFilePath]: { patch: Patch; patchId: PatchId }[];
     } = {};
     const fileLastUpdatedByPatchId: Record<string, PatchId> = {};
     for (const [patchIdS, { path, patch }] of Object.entries(patchesById)) {
@@ -214,7 +227,7 @@ export abstract class ValOps {
   async getTree(patchesByModule?: PatchAnalysis["patchesByModule"]): Promise<{
     sources: Sources;
     errors: Record<
-      ModuleId,
+      ModuleFilePath,
       { patchId?: PatchId; invalidPath?: boolean; error: PatchError }[]
     >;
   }> {
@@ -226,11 +239,11 @@ export abstract class ValOps {
 
     const patchedSources: Sources = {};
     const errors: Record<
-      ModuleId,
+      ModuleFilePath,
       { patchId?: PatchId; invalidPath?: boolean; error: PatchError }[]
     > = {};
     for (const [pathS, patches] of Object.entries(patchesByModule)) {
-      const path = pathS as ModuleId;
+      const path = pathS as ModuleFilePath;
       if (!sources[path]) {
         if (!errors[path]) {
           errors[path] = [];
@@ -277,7 +290,7 @@ export abstract class ValOps {
     patchesByModule?: PatchAnalysis["patchesByModule"]
   ): Promise<{
     errors: Record<
-      ModuleId,
+      ModuleFilePath,
       {
         invalidSource?: { message: string };
         validations: Record<SourcePath, ValidationError[]>;
@@ -286,7 +299,7 @@ export abstract class ValOps {
     files: Record<SourcePath, FileSource>;
   }> {
     const errors: Record<
-      ModuleId,
+      ModuleFilePath,
       {
         invalidSource?: { message: string };
         validations: Record<SourcePath, ValidationError[]>;
@@ -300,7 +313,7 @@ export abstract class ValOps {
       if (modulePathsToValidate && !modulePathsToValidate.includes(pathS)) {
         continue;
       }
-      const path = pathS as ModuleId;
+      const path = pathS as ModuleFilePath;
       const source = sources[path];
       if (source === undefined) {
         if (!errors[path]) {
@@ -360,12 +373,12 @@ export abstract class ValOps {
       sourcePath: SourcePath,
       value: FileSource
     ): Promise<ValidationErrors> => {
-      const [moduleId, modulePath] =
-        Internal.splitModuleIdAndModulePath(sourcePath);
+      const [fullModulePath, modulePath] =
+        Internal.splitModuleFilePathAndModulePath(sourcePath);
       const { schema: schemaAtPath } = Internal.resolvePath(
         modulePath,
-        sources[moduleId],
-        schemas[moduleId]
+        sources[fullModulePath],
+        schemas[fullModulePath]
       );
       const type = schemaAtPath instanceof ImageSchema ? "image" : "file";
       let fields = ["sha256", "mimeType"];
@@ -494,17 +507,17 @@ export abstract class ValOps {
   async prepareCommit(patchAnalysis: PatchAnalysis) {
     const { patchesByModule, fileLastUpdatedByPatchId } = patchAnalysis;
     const applySourceFilePatches = async (
-      path: ModuleId,
+      path: ModuleFilePath,
       patches: { patch: Patch; patchId: PatchId }[]
     ): Promise<
       | {
-          path: ModuleId;
+          path: ModuleFilePath;
           result: string;
           appliedPatches: PatchId[];
           errors?: undefined;
         }
       | {
-          path: ModuleId;
+          path: ModuleFilePath;
           appliedPatches?: PatchId[];
           triedPatches?: PatchId[];
           skippedPatches?: PatchId[];
@@ -570,15 +583,16 @@ export abstract class ValOps {
     };
     const allResults = await Promise.all(
       Object.entries(patchesByModule).map(([path, patches]) =>
-        applySourceFilePatches(path as ModuleId, patches)
+        applySourceFilePatches(path as ModuleFilePath, patches)
       )
     );
     let hasErrors = false;
-    const sourceFilePatchErrors: Record<ModuleId, PatchSourceError[]> = {};
-    const appliedPatches: Record<ModuleId, PatchId[]> = {};
-    const triedPatches: Record<ModuleId, PatchId[]> = {};
-    const skippedPatches: Record<ModuleId, PatchId[]> = {};
-    const appliedFiles: Record<ModuleId, string> = {};
+    const sourceFilePatchErrors: Record<ModuleFilePath, PatchSourceError[]> =
+      {};
+    const appliedPatches: Record<ModuleFilePath, PatchId[]> = {};
+    const triedPatches: Record<ModuleFilePath, PatchId[]> = {};
+    const skippedPatches: Record<ModuleFilePath, PatchId[]> = {};
+    const patchedSourceFiles: Record<ModuleFilePath, string> = {};
 
     //
     const globalAppliedPatches: PatchId[] = [];
@@ -590,36 +604,30 @@ export abstract class ValOps {
         triedPatches[res.path] = res.triedPatches ?? [];
         skippedPatches[res.path] = res.skippedPatches ?? [];
       } else {
-        appliedFiles[res.path] = res.result;
+        patchedSourceFiles[res.path] = res.result;
         appliedPatches[res.path] = res.appliedPatches ?? [];
       }
       for (const patchId of res.appliedPatches ?? []) {
         globalAppliedPatches.push(patchId);
       }
     }
-    const files: Record<string, string> = {};
+    const patchedBinaryFilesDescriptors: Record<
+      string,
+      {
+        patchId: PatchId;
+      }
+    > = {};
     const binaryFilePatchErrors: Record<string, { message: string }> = {};
     await Promise.all(
       Object.entries(fileLastUpdatedByPatchId).map(
         async ([filePath, patchId]) => {
           if (globalAppliedPatches.includes(patchId)) {
-            // TODO: instead of fetching these files, we can just add the filePath and patchId
-            // Maybe we want to make sure the file is there, that would be a weird error so it is enough to fail later on commit
-            // TODO: include sha256 to make sure we pick the right file since theoretically there could be multiple files with the same path in the same patch
-            // or maybe we always pick the latest always
-            const base64ValueRes = await this.getPatchBase64File2(
-              filePath,
-              patchId
-            );
-            // TODO: ugly to mutate from within a map of promises
-            if (base64ValueRes.error) {
-              hasErrors = true;
-              binaryFilePatchErrors[filePath] = {
-                message: base64ValueRes.error.message,
-              };
-            } else {
-              files[filePath] = base64ValueRes.data;
-            }
+            // TODO: do we want to make sure the file is there? Then again, it should be rare that it happens (unless there's a Val bug) so it might be enough to fail later (at commit)
+            // TODO: include sha256? This way we can make sure we pick the right file since theoretically there could be multiple files with the same path in the same patch
+            // or is that the case? We are picking the latest file by path so, that should be enough?
+            patchedBinaryFilesDescriptors[filePath] = {
+              patchId,
+            };
           } else {
             hasErrors = true;
             binaryFilePatchErrors[filePath] = {
@@ -634,8 +642,8 @@ export abstract class ValOps {
       hasErrors,
       sourceFilePatchErrors,
       binaryFilePatchErrors,
-      patchedSourceFiles: appliedFiles,
-      patchedBinaryFiles: files,
+      patchedSourceFiles,
+      patchedBinaryFilesDescriptors,
       appliedPatches,
       skippedPatches,
       triedPatches,
@@ -644,7 +652,7 @@ export abstract class ValOps {
 
   // #region createPatch
   async createPatch(
-    path: ModuleId,
+    path: ModuleFilePath,
     patch: Patch
   ): Promise<
     | {
@@ -729,39 +737,27 @@ export abstract class ValOps {
     };
   }
 
-  getMimeTypeFromFile(filePath: string) {
-    return guessMimeTypeFromPath(filePath);
-  }
-
   // #region abstract ops
   abstract getPatchesById(patchIds: PatchId[]): Promise<{
-    [patchId: PatchId]:
-      | { path: ModuleId; patch: Patch; error?: undefined }
-      | GenericError;
+    [patchId: PatchId]: WithGenericError<{
+      path: ModuleFilePath;
+      patch: Patch;
+      created_at: string;
+    }>;
   }>;
   protected abstract saveSourceFilePatch(
-    path: ModuleId,
+    path: ModuleFilePath,
     patch: Patch
-  ): Promise<{ patchId: PatchId; error?: undefined } | GenericError>;
+  ): Promise<WithGenericError<{ patchId: PatchId }>>;
   protected abstract getSourceFile(
-    path: ModuleId
-  ): Promise<{ data: string; error?: undefined } | GenericError>;
-  protected abstract saveSourceFile(
-    path: ModuleId,
-    data: string
-  ): Promise<{ path: ModuleId; error?: undefined } | GenericError>;
-  protected abstract getPatchBase64File(
-    filePath: string,
-    patchId: PatchId
-  ): Promise<{ data: string; error?: undefined } | GenericError>;
+    path: ModuleFilePath
+  ): Promise<WithGenericError<{ data: string }>>;
   protected abstract savePatchBase64File(
     filePath: string,
     patchId: PatchId,
     data: string,
     sha256: string
-  ): Promise<
-    { patchId: PatchId; filePath: string; error?: undefined } | GenericError
-  >;
+  ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>>;
   protected abstract getPatchBase64FileMetadata(
     filePath: string,
     type: "file" | "image",
@@ -800,6 +796,9 @@ function isFileSource(value: unknown): value is FileSource {
   return false;
 }
 
+export type WithGenericError<T extends Record<string, unknown>> =
+  | (T & { error?: undefined })
+  | GenericError;
 export type GenericError = {
   error: {
     message: string;
@@ -811,7 +810,7 @@ export type GenericErrorMessage = {
 
 export type PatchAnalysis = {
   patchesByModule: {
-    [path: ModuleId]: { patch: Patch; patchId: PatchId }[];
+    [path: ModuleFilePath]: { patch: Patch; patchId: PatchId }[];
   };
   fileLastUpdatedByPatchId: Record<string, PatchId>;
 };

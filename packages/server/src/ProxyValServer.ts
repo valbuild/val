@@ -24,12 +24,12 @@ import {
   ApiPostPatchResponse,
   ApiDeletePatchResponse,
   PatchId,
-  ModuleId,
   FileMetadata,
   ImageMetadata,
   ValModules,
   Internal,
   SourcePath,
+  ModuleFilePath,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { SerializedModuleContent } from "./SerializedModuleContent";
@@ -56,7 +56,8 @@ export type ProxyValServerOptions = {
 };
 
 export class ProxyValServer extends ValServer {
-  private moduleCache: Record<ModuleId, SerializedModuleContent> | null = null;
+  private moduleCache: Record<ModuleFilePath, SerializedModuleContent> | null =
+    null;
   constructor(
     readonly cwd: string,
     readonly valModules: ValModules,
@@ -100,39 +101,44 @@ export class ProxyValServer extends ValServer {
     );
   }
 
-  protected getModule(moduleId: ModuleId): Promise<SerializedModuleContent> {
+  protected getModule(
+    moduleFilePath: ModuleFilePath
+  ): Promise<SerializedModuleContent> {
     // TODO: do not get all modules - we only should only get the ones we need
     return this.getSerializedModules().then((all) => {
       const found = all.find(
-        (valModule) => valModule.path === (moduleId as string as SourcePath)
+        (valModule) =>
+          valModule.path === (moduleFilePath as string as SourcePath)
       );
       if (!found) {
-        throw Error(`Module ${moduleId} not found`);
+        throw Error(`Module ${moduleFilePath} not found`);
       }
       return found;
     });
   }
 
-  protected async getAllModules(treePath: string): Promise<ModuleId[]> {
-    const moduleIds: ModuleId[] = (await this.getSerializedModules())
+  protected async getAllModules(treePath: string): Promise<ModuleFilePath[]> {
+    const moduleFilePaths: ModuleFilePath[] = (
+      await this.getSerializedModules()
+    )
       .filter(({ path }) => {
         if (treePath) {
           return path.startsWith(treePath);
         }
         return true;
       })
-      .map(({ path }) => path as string as ModuleId);
-    return moduleIds;
+      .map(({ path }) => path as string as ModuleFilePath);
+    return moduleFilePaths;
   }
 
   protected execCommit(
-    patches: [PatchId, ModuleId, Patch][],
+    patches: [PatchId, ModuleFilePath, Patch][],
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<
     | {
         status: 200;
         json: Record<
-          ModuleId,
+          ModuleFilePath,
           {
             patches: {
               applied: PatchId[];

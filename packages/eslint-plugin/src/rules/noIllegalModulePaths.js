@@ -14,8 +14,7 @@ export default {
   meta: {
     type: "problem",
     docs: {
-      description:
-        "Check that the first argument of export default declaration matches the string from val.config.{j,t}s file.",
+      description: "Module path must match filename",
       recommended: true,
     },
     fixable: "code",
@@ -45,7 +44,9 @@ export default {
             const filename = context.filename || context.getFilename();
             if (
               filename?.endsWith(".val.ts") ||
-              filename?.endsWith(".val.js")
+              filename?.endsWith(".val.tsx") ||
+              filename?.endsWith(".val.js") ||
+              filename?.endsWith(".val.jsx")
             ) {
               let packageJsonDir =
                 PACKAGE_JSON_DIRS_CACHE[path.dirname(filename)];
@@ -62,7 +63,7 @@ export default {
                   packageJsonDir;
               }
               const relativePath = path.relative(packageJsonDir, filename);
-              expectedValue = `/${relativePath.replace(/\.val\.(ts|js)$/, "")}`;
+              expectedValue = `/${relativePath}`;
             }
           }
         } else {
@@ -81,7 +82,7 @@ export default {
           if (firstArg.type === "TemplateLiteral") {
             context.report({
               node: firstArg,
-              message: "Val: c.define id should not be a template literal",
+              message: "Val: c.define path should not be a template literal",
               fix: (fixer) => fixer.replaceText(firstArg, `"${expectedValue}"`),
             });
           }
@@ -94,7 +95,7 @@ export default {
               if (rawArg) {
                 context.report({
                   node: firstArg,
-                  message: `Val: c.define id should match the filename. Expected: '${expectedValue}'. Found: '${firstArg.value}'`,
+                  message: `Val: c.define path must match the filename. Expected: '${expectedValue}'. Found: '${firstArg.value}'`,
                   fix: (fixer) =>
                     fixer.replaceText(
                       firstArg,

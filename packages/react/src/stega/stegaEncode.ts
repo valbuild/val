@@ -210,7 +210,7 @@ export type StegaOfSource<T extends Source> = Json extends T
 export function stegaEncode(
   input: any,
   opts: {
-    getModule?: (moduleId: string) => any;
+    getModule?: (modulePath: string) => any;
     disabled?: boolean;
   }
 ): any {

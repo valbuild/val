@@ -64,20 +64,19 @@ export function ValOverlay({
     async function load() {
       const entries = await Promise.all(
         paths.map(async (path) => {
-          const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(
-            path as SourcePath
-          );
-          const res = await store.getModule(moduleId, false);
+          const [moduleFilePath, modulePath] =
+            Internal.splitModuleFilePathAndModulePath(path as SourcePath);
+          const res = await store.getModule(moduleFilePath, false);
           if (result.isErr(res)) {
             return [
-              moduleId,
+              moduleFilePath,
               { status: "error", error: res.error.message },
             ] as const;
           } else {
             const { source, schema } = res.value;
             if (!source || !schema) {
               return [
-                moduleId,
+                moduleFilePath,
                 {
                   status: "error",
                   error: "Val could load this content. Please try again.",
@@ -87,7 +86,7 @@ export function ValOverlay({
               const resolved = Internal.resolvePath(modulePath, source, schema);
               if (!resolved.source || !resolved.schema) {
                 return [
-                  moduleId,
+                  moduleFilePath,
                   {
                     status: "error",
                     error:
@@ -120,10 +119,11 @@ export function ValOverlay({
 
   const initOnSubmit: InitOnSubmit = useCallback(
     (path) => async (callback) => {
-      const [moduleId, modulePath] = Internal.splitModuleIdAndModulePath(path);
+      const [moduleFilePath, modulePath] =
+        Internal.splitModuleFilePathAndModulePath(path);
       const patch = await callback(Internal.createPatchPath(modulePath));
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const applyRes = store.applyPatch(moduleId, patch);
+      const applyRes = store.applyPatch(moduleFilePath, patch);
       // TODO: applyRes
       setPatchResetId((prev) => prev + 1);
       reloadPage(true);

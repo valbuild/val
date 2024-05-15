@@ -1,5 +1,4 @@
 import {
-  ModuleId,
   PatchId,
   ApiDeletePatchResponse,
   ApiPostPatchResponse,
@@ -7,6 +6,7 @@ import {
   ModulePath,
   FileMetadata,
   ImageMetadata,
+  ModuleFilePath,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { Result } from "@valbuild/core/src/fp/result";
@@ -195,19 +195,19 @@ class TestValServer extends ValServer {
 
   // TODO: remove this:
   protected async getModule(
-    moduleId: ModuleId,
+    path: ModuleFilePath,
     options: { source: boolean; schema: boolean }
   ): Promise<SerializedModuleContent> {
     const service = await createService(this.cwd, {}, this.remoteFS);
-    return service.get(moduleId, "" as ModulePath, {
+    return service.get(path, "" as ModulePath, {
       ...options,
       validate: false,
     });
   }
 
   // TODO: remove this:
-  protected async getAllModules(treePath: string): Promise<ModuleId[]> {
-    const moduleIds: ModuleId[] = this.remoteFS
+  protected async getAllModules(treePath: string): Promise<ModuleFilePath[]> {
+    const paths: ModuleFilePath[] = this.remoteFS
       .readDirectory(
         this.cwd,
         ["ts", "js"],
@@ -222,15 +222,10 @@ class TestValServer extends ValServer {
       })
       .map(
         (file) =>
-          file
-            .replace(this.cwd, "")
-            .replace(".val.js", "")
-            .replace(".val.ts", "")
-            .split(path.sep)
-            .join("/") as ModuleId
+          file.replace(this.cwd, "").split(path.sep).join("/") as ModuleFilePath
       );
 
-    return moduleIds;
+    return paths;
   }
 
   async postPatches(
@@ -262,9 +257,9 @@ class TestValServer extends ValServer {
     );
     const res: ApiPostPatchResponse = {};
 
-    for (const [moduleIdStr] of Object.entries(body)) {
-      const moduleId = moduleIdStr as ModuleId;
-      res[moduleId] = { patch_id: patchIdStr as PatchId };
+    for (const [pathStr] of Object.entries(body)) {
+      const path = pathStr as ModuleFilePath;
+      res[path] = { patch_id: patchIdStr as PatchId };
     }
     return {
       status: 200,
@@ -280,12 +275,12 @@ class TestValServer extends ValServer {
       if (query.id && query.id.length > 0 && !query.id.includes(patchIdStr)) {
         continue;
       }
-      for (const [moduleIdStr, patch] of Object.entries(patches)) {
-        const moduleId = moduleIdStr as ModuleId;
-        if (!res[moduleId]) {
-          res[moduleId] = [];
+      for (const [pathStr, patch] of Object.entries(patches)) {
+        const path = pathStr as ModuleFilePath;
+        if (!res[path]) {
+          res[path] = [];
         }
-        res[moduleId].push({
+        res[path].push({
           patch,
           created_at: patchIdStr,
           patch_id: patchIdStr as PatchId,
@@ -329,7 +324,7 @@ class TestValServer extends ValServer {
     | ValServerError
     | {
         status: 200;
-        json: Record<ModuleId, { patches: { applied: PatchId[] } }>;
+        json: Record<ModuleFilePath, { patches: { applied: PatchId[] } }>;
       }
   > {
     throw new Error("Method not implemented.");

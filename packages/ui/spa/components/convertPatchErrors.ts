@@ -1,5 +1,5 @@
 import {
-  ModuleId,
+  ModuleFilePath,
   PatchId,
   FatalErrorType,
   ValidationErrors,
@@ -42,13 +42,13 @@ export type History = {
   lastChangedAt: string;
   changeCount: number;
   changes: {
-    moduleId: ModuleId;
+    moduleFilePath: ModuleFilePath;
     items: SourceChangeItem[];
   }[];
 }[];
 
 export type ReviewErrors = {
-  errors?: Record<ModuleId, ReviewModuleError>;
+  errors?: Record<ModuleFilePath, ReviewModuleError>;
 };
 
 export type ReviewModuleError = {
@@ -66,7 +66,7 @@ export type ReviewModuleError = {
 
 export function convertPatchErrors(
   patches: Record<
-    ModuleId,
+    ModuleFilePath,
     {
       patch: Patch;
       patch_id: PatchId;
@@ -77,7 +77,7 @@ export function convertPatchErrors(
   >,
   validationRes?: {
     modules?: Record<
-      ModuleId,
+      ModuleFilePath,
       {
         patches: {
           applied: PatchId[];
@@ -88,7 +88,7 @@ export function convertPatchErrors(
     validationErrors?:
       | false
       | Record<
-          ModuleId,
+          ModuleFilePath,
           {
             errors?: {
               validation?: ValidationErrors;
@@ -111,7 +111,7 @@ export function convertPatchErrors(
 
   let lastHistoryItem: History[number] | undefined;
   let currentAuthorChanges: Record<
-    ModuleId,
+    ModuleFilePath,
     Record<
       ModulePath,
       {
@@ -126,8 +126,8 @@ export function convertPatchErrors(
   > = {};
   const lastChangedAtBySourcePath: Record<SourcePath, string> = {};
   const lastChangedAuthorBySourcePath: Record<SourcePath, Author> = {};
-  for (const [moduleIdS, modulePatches] of Object.entries(patches)) {
-    const moduleId = moduleIdS as ModuleId;
+  for (const [moduleFilePathS, modulePatches] of Object.entries(patches)) {
+    const moduleFilePath = moduleFilePathS as ModuleFilePath;
     for (const patch of modulePatches) {
       const author = authors?.[patch.author || ""];
 
@@ -151,8 +151,8 @@ export function convertPatchErrors(
         };
       }
 
-      if (!currentAuthorChanges[moduleId]) {
-        currentAuthorChanges[moduleId] = {};
+      if (!currentAuthorChanges[moduleFilePath]) {
+        currentAuthorChanges[moduleFilePath] = {};
       }
 
       for (const op of patch.patch) {
@@ -160,25 +160,26 @@ export function convertPatchErrors(
         lastHistoryItem.changeCount++;
 
         const modulePath = Internal.patchPathToModulePath(op.path);
-        if (!currentAuthorChanges[moduleId][modulePath]) {
-          currentAuthorChanges[moduleId][modulePath] = [];
+        if (!currentAuthorChanges[moduleFilePath][modulePath]) {
+          currentAuthorChanges[moduleFilePath][modulePath] = [];
         }
         if (
           !lastChangedAtBySourcePath[
-            `${moduleId}.${modulePath}` as SourcePath
+            `${moduleFilePath}.${modulePath}` as SourcePath
           ] ||
           new Date(patch.created_at).getTime() >
             new Date(
               lastChangedAtBySourcePath[
-                `${moduleId}.${modulePath}` as SourcePath
+                `${moduleFilePath}.${modulePath}` as SourcePath
               ]
             ).getTime()
         ) {
-          lastChangedAtBySourcePath[`${moduleId}.${modulePath}` as SourcePath] =
-            patch.created_at;
+          lastChangedAtBySourcePath[
+            `${moduleFilePath}.${modulePath}` as SourcePath
+          ] = patch.created_at;
           if (author) {
             lastChangedAuthorBySourcePath[
-              `${moduleId}.${modulePath}` as SourcePath
+              `${moduleFilePath}.${modulePath}` as SourcePath
             ] = author;
           }
         }
@@ -187,11 +188,11 @@ export function convertPatchErrors(
           case "remove":
           case "replace":
           case "move": {
-            const currentItem = currentAuthorChanges[moduleId][
+            const currentItem = currentAuthorChanges[moduleFilePath][
               modulePath
             ]?.find((change) => change.type === op.op);
             if (!currentItem) {
-              currentAuthorChanges[moduleId][modulePath].push({
+              currentAuthorChanges[moduleFilePath][modulePath].push({
                 type: op.op,
                 count: 1,
                 patchIds: [patch.patch_id],
@@ -207,11 +208,11 @@ export function convertPatchErrors(
           }
           case "file": {
             const filePath = op.filePath;
-            const currentFileChange = currentAuthorChanges[moduleId][
+            const currentFileChange = currentAuthorChanges[moduleFilePath][
               modulePath
             ].find((fileChange) => fileChange.filePath === filePath);
             if (!currentFileChange) {
-              currentAuthorChanges[moduleId][modulePath].push({
+              currentAuthorChanges[moduleFilePath][modulePath].push({
                 filePath: filePath,
                 type: "replace",
                 count: 1,
@@ -264,12 +265,12 @@ export function convertPatchErrors(
   });
 
   //
-  const reviewErrors: [ModuleId, ReviewModuleError][] = [];
+  const reviewErrors: [ModuleFilePath, ReviewModuleError][] = [];
   if (validationRes?.validationErrors) {
-    for (const [moduleIdS, validationError] of Object.entries(
+    for (const [moduleFilePathStr, validationError] of Object.entries(
       validationRes.validationErrors
     )) {
-      const moduleId = moduleIdS as ModuleId;
+      const moduleFilePath = moduleFilePathStr as ModuleFilePath;
       const reviewModuleError: ReviewModuleError = {
         validations: [],
       };
@@ -285,7 +286,7 @@ export function convertPatchErrors(
           const sourcePath = sourcePathS as SourcePath;
 
           const [, modulePath] =
-            Internal.splitModuleIdAndModulePath(sourcePath);
+            Internal.splitModuleFilePathAndModulePath(sourcePath);
           if (messages.length > 0) {
             reviewModuleError.validations.push({
               path: modulePath,
@@ -299,7 +300,7 @@ export function convertPatchErrors(
           }
         }
       }
-      reviewErrors.push([moduleId, reviewModuleError]);
+      reviewErrors.push([moduleFilePath, reviewModuleError]);
     }
   }
 
@@ -314,7 +315,7 @@ export function convertPatchErrors(
 
 function getChangesFromCurrent(
   currentAuthorChanges: Record<
-    ModuleId,
+    ModuleFilePath,
     Record<
       ModulePath,
       {
@@ -329,10 +330,10 @@ function getChangesFromCurrent(
   >
 ): History[number]["changes"] {
   const changes: History[number]["changes"] = [];
-  for (const [moduleIdS, moduleChanges] of Object.entries(
+  for (const [moduleFilePathStr, moduleChanges] of Object.entries(
     currentAuthorChanges
   )) {
-    const moduleId = moduleIdS as ModuleId;
+    const moduleFilePath = moduleFilePathStr as ModuleFilePath;
     const currentModuleChanges: SourceChangeItem[] = [];
     for (const [modulePathS, modulePathChanges] of Object.entries(
       moduleChanges
@@ -351,7 +352,7 @@ function getChangesFromCurrent(
       }
     }
     changes.push({
-      moduleId,
+      moduleFilePath: moduleFilePath,
       items: currentModuleChanges,
     });
   }

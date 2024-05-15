@@ -41,7 +41,7 @@ export const ReviewPanel: Story = {
         changeCount: 4,
         changes: [
           {
-            moduleId: "/app/content",
+            moduleFilePath: "/app/content",
             items: [
               {
                 path: '1."title"',
@@ -64,7 +64,7 @@ export const ReviewPanel: Story = {
         changeCount: 4,
         changes: [
           {
-            moduleId: "/app/content",
+            moduleFilePath: "/app/content",
             items: [
               {
                 path: '1."title"',
@@ -90,7 +90,7 @@ export const ReviewPanel: Story = {
         changeCount: 4,
         changes: [
           {
-            moduleId: "/app/content",
+            moduleFilePath: "/app/content",
             items: [
               {
                 path: '1."title"',
@@ -117,7 +117,7 @@ export const ReviewPanel: Story = {
         changeCount: 1,
         changes: [
           {
-            moduleId: "/app/content",
+            moduleFilePath: "/app/content",
             items: [
               {
                 path: '1."title"',

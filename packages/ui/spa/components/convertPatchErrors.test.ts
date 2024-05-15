@@ -1,13 +1,16 @@
 import {
   Internal,
-  ModuleId,
+  ModuleFilePath,
   ModulePath,
   PatchId,
   SourcePath,
 } from "@valbuild/core";
 import { convertPatchErrors } from "./convertPatchErrors";
 
-const moduleIds = ["/app/test", "/app/example"] as ModuleId[];
+const moduleIds = [
+  "/app/test.val.ts",
+  "/app/example.val.ts",
+] as ModuleFilePath[];
 const patchIds = ["1707928555701", "1707928555702"] as PatchId[];
 const modulePaths = ['1."test"', '1."example"'] as ModulePath[];
 const sourcePaths = [
@@ -109,7 +112,7 @@ describe("convertPatchErrors", () => {
       JSON.stringify(
         convertPatchErrors(
           {
-            ["/app/content" as ModuleId]: [
+            ["/app/content.val.ts" as ModuleFilePath]: [
               {
                 patch_id: "1707740944795" as PatchId,
                 patch: [
@@ -222,7 +225,7 @@ describe("convertPatchErrors", () => {
                 created_at: "2024-02-12T12:54:01.572Z",
               },
             ],
-            ["/components/clientContent" as ModuleId]: [
+            ["/components/clientContent.val.ts" as ModuleFilePath]: [
               {
                 patch_id: "1707742521155" as PatchId,
                 patch: [
@@ -249,7 +252,7 @@ describe("convertPatchErrors", () => {
           },
           {
             modules: {
-              ["/app/content" as ModuleId]: {
+              ["/app/content.val.ts" as ModuleFilePath]: {
                 patches: {
                   applied: [
                     "1707740944795",
@@ -263,7 +266,7 @@ describe("convertPatchErrors", () => {
                   ] as PatchId[],
                 },
               },
-              ["/components/clientContent" as ModuleId]: {
+              ["/components/clientContent.val.ts" as ModuleFilePath]: {
                 patches: {
                   applied: ["1707742521155", "1708335829764"] as PatchId[],
                 },

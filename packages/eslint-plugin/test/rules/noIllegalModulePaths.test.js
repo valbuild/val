@@ -2,7 +2,7 @@ import { RuleTester } from "eslint";
 import { rules as valRules } from "@valbuild/eslint-plugin";
 import path from "path";
 
-const rule = valRules["no-illegal-module-ids"];
+const rule = valRules["no-illegal-module-paths"];
 
 RuleTester.setDefaultConfig({
   parserOptions: {
@@ -16,13 +16,13 @@ RuleTester.setDefaultConfig({
 
 const ruleTester = new RuleTester();
 
-ruleTester.run("no-illegal-module-ids", rule, {
+ruleTester.run("no-illegal-module-paths", rule, {
   valid: [
     {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
       code: `import { c, s } from '../val.config.ts';
       export const schema = s.string();
-      export default c.define('/foo/test', schema, 'String')`,
+      export default c.define('/foo/test.val.ts', schema, 'String')`,
     },
   ],
   invalid: [
@@ -30,45 +30,45 @@ ruleTester.run("no-illegal-module-ids", rule, {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
       code: `import { c, s } from '../val.config.ts';
       export const schema = s.string();
-      export default c.define('foo', schema, 'String')`,
+      export default c.define('foo.val.ts', schema, 'String')`,
       errors: [
         {
           message:
-            "Val: c.define id should match the filename. Expected: '/foo/test'. Found: 'foo'",
+            "Val: c.define path must match the filename. Expected: '/foo/test.val.ts'. Found: 'foo.val.ts'",
         },
       ],
       output: `import { c, s } from '../val.config.ts';
       export const schema = s.string();
-      export default c.define('/foo/test', schema, 'String')`,
+      export default c.define('/foo/test.val.ts', schema, 'String')`,
     },
     {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
       code: `import { c, s } from "../val.config.ts";
       export const schema = s.string();
-      export default c.define("foo", schema, 'String')`,
+      export default c.define("foo.val.ts", schema, 'String')`,
       errors: [
         {
           message:
-            "Val: c.define id should match the filename. Expected: '/foo/test'. Found: 'foo'",
+            "Val: c.define path must match the filename. Expected: '/foo/test.val.ts'. Found: 'foo.val.ts'",
         },
       ],
       output: `import { c, s } from "../val.config.ts";
       export const schema = s.string();
-      export default c.define("/foo/test", schema, 'String')`,
+      export default c.define("/foo/test.val.ts", schema, 'String')`,
     },
     {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
       code: `import { c, s } from "../val.config.ts";
       export const schema = s.string();
-      export default c.define(\`foo\`, schema, 'String')`,
+      export default c.define(\`foo.val.ts\`, schema, 'String')`,
       errors: [
         {
-          message: "Val: c.define id should not be a template literal",
+          message: "Val: c.define path should not be a template literal",
         },
       ],
       output: `import { c, s } from "../val.config.ts";
       export const schema = s.string();
-      export default c.define("/foo/test", schema, 'String')`,
+      export default c.define("/foo/test.val.ts", schema, 'String')`,
     },
   ],
 });

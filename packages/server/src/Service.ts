@@ -11,7 +11,7 @@ import { IValFSHost } from "./ValFSHost";
 import fs from "fs";
 import { SerializedModuleContent } from "./SerializedModuleContent";
 import {
-  ModuleId,
+  ModuleFilePath,
   ModulePath,
   Internal,
   SourcePath,
@@ -78,12 +78,12 @@ export class Service {
   }
 
   async get(
-    moduleId: ModuleId,
+    moduleFilePath: ModuleFilePath,
     modulePath: ModulePath,
     options?: { validate: boolean; source: boolean; schema: boolean }
   ): Promise<SerializedModuleContent> {
     const valModule = await readValFile(
-      moduleId,
+      moduleFilePath,
       this.projectRoot,
       this.runtime,
       options ?? { validate: true, source: true, schema: true }
@@ -96,7 +96,9 @@ export class Service {
         valModule.schema
       );
       const sourcePath = (
-        resolved.path ? [moduleId, resolved.path].join(".") : moduleId
+        resolved.path
+          ? [moduleFilePath, resolved.path].join(".")
+          : moduleFilePath
       ) as SourcePath;
       return {
         path: sourcePath,
@@ -122,9 +124,9 @@ export class Service {
     }
   }
 
-  async patch(moduleId: ModuleId, patch: Patch): Promise<void> {
+  async patch(moduleFilePath: ModuleFilePath, patch: Patch): Promise<void> {
     await patchValFile(
-      moduleId,
+      moduleFilePath,
       this.projectRoot,
       patch,
       this.sourceFileHandler,
