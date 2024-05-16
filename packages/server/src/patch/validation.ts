@@ -136,7 +136,6 @@ const OperationT: z.ZodType<OperationT> = z.discriminatedUnion("op", [
         z.string(),
         z.object({
           sha256: z.string(),
-          mimeType: z.string(),
         }),
       ]),
     })
