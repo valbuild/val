@@ -200,15 +200,6 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
                   <Send size={14} />
                 </button>
               </div>
-              <ValPatches
-                patches={patches}
-                isValidating={isValidating}
-                validationResponse={validationResponse}
-                api={api}
-                onCommit={() => {
-                  setPatchResetId((patchResetId) => patchResetId + 1);
-                }}
-              />
             </Grid>
           </div>
         </ValImagePreviewContext.Provider>

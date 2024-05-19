@@ -20,7 +20,6 @@ import { AccordionItem, AccordionTrigger } from "@radix-ui/react-accordion";
 import { Path } from "./Path";
 import classNames from "classnames";
 import { AlertCircle, XCircle } from "react-feather";
-import { Patch } from "@valbuild/core/patch";
 import {
   Author,
   History,
@@ -62,6 +61,7 @@ export function ValPatchesDialog(props: ValPatchesProps) {
   );
 }
 
+// TODO: Remove this and the history etc that is no longer used
 export function ValPatches({
   api,
   isValidating,
@@ -86,7 +86,6 @@ export function ValPatches({
     Record<
       ModuleFilePath,
       {
-        patch: Patch;
         patch_id: PatchId;
         created_at: string;
         commit_sha?: string;
