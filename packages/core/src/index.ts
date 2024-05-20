@@ -51,7 +51,10 @@ export type {
   ValidationError,
   ValidationErrors,
 } from "./schema/validation/ValidationError";
-import type { ValidationErrors } from "./schema/validation/ValidationError";
+import type {
+  ValidationError,
+  ValidationErrors,
+} from "./schema/validation/ValidationError";
 export type { ValidationFix } from "./schema/validation/ValidationFix";
 export * as expr from "./expr/";
 export { FILE_REF_PROP, FILE_REF_SUBTYPE_TAG } from "./source/file";
@@ -70,15 +73,22 @@ import {
   ModuleFilePathSep,
 } from "./module";
 import { getSchema } from "./selector";
-import { ModuleFilePath, ModulePath, PatchId, getValPath, isVal } from "./val";
+import {
+  ModuleFilePath,
+  ModulePath,
+  PatchId,
+  SourcePath,
+  getValPath,
+  isVal,
+} from "./val";
 import { convertFileSource } from "./schema/file";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
 import type { Json } from "./Json";
-import { SerializedSchema } from "./schema";
 import { getSHA256Hash } from "./getSha256";
 import { Operation, Patch } from "./patch";
 import { initSchema } from "./initSchema";
+import { SerializedSchema } from "./schema";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
@@ -114,42 +124,48 @@ export type ApiCommitResponse = {
   };
 };
 
+export type ApiSchemaResponse = {
+  schemaSha: string;
+  schemas: Record<ModuleFilePath, SerializedSchema>;
+};
+
 export type ApiTreeResponse = {
-  git: {
-    commit?: string;
-    branch?: string;
-  };
+  schemaSha: string;
+  fatalErrors?: (
+    | {
+        message: string;
+        type: "invalid-module-file-path";
+        actualModuleFilePath: string;
+        expectedModuleFilePath: string;
+      }
+    | {
+        message: string;
+        stack?: string;
+        type?: undefined;
+      }
+  )[];
   modules: Record<
     ModuleFilePath,
     {
-      schema?: SerializedSchema;
+      source: Json;
       patches?: {
         applied: PatchId[];
-        failed?: PatchId[];
+        skipped?: PatchId[];
+        errors?: Record<PatchId, { message: string }>;
       };
-      source?: Json;
-      errors?:
-        | false
-        | {
-            invalidModulePath?: ModuleFilePath;
-            validation?: ValidationErrors;
-            fatal?: {
-              message: string;
-              stack?: string;
-              type?: string;
-            }[];
-          };
+      validationErrors?: Record<SourcePath, ValidationError[]>;
     }
   >;
 };
+
 export type ApiGetPatchResponse = Record<
   ModuleFilePath,
   {
-    patch: Patch;
     patch_id: PatchId;
     created_at: string;
+    // TODO:
+    // base_sha: string;
     // not available in local mode:
-    commit_sha?: string;
     author?: string;
   }[]
 >;

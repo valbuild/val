@@ -60,7 +60,6 @@ function replaceInNode(
       node[key] = value;
       return result.ok(replaced);
     } else {
-      console.log({ node });
       return result.err(
         new PatchError("Cannot replace object element which does not exist")
       );

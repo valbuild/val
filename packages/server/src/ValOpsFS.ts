@@ -140,7 +140,7 @@ export class ValOpsFS extends ValOps {
         errors[patchId] = error;
       }
     }
-    if (errors) {
+    if (errors && Object.keys(errors).length > 0) {
       return { patches, errors };
     }
     return { patches };
@@ -380,6 +380,18 @@ export class ValOpsFS extends ValOps {
     return parsed as OpsMetadata<T>;
   }
 
+  protected override async getBase64EncodedBinaryFileFromPatch(
+    filePath: string,
+    patchId: PatchId
+  ): Promise<Buffer | null> {
+    const absPath = this.getBinaryFilePath(filePath, patchId);
+
+    if (!this.host.fileExists(absPath)) {
+      return null;
+    }
+    return this.host.readBinaryFile(absPath);
+  }
+
   protected override async deletePatches(patchIds: PatchId[]): Promise<
     | { deleted: PatchId[]; errors?: undefined }
     | {
@@ -471,18 +483,28 @@ export class ValOpsFS extends ValOps {
     };
   }
 
+  protected override async getBinaryFile(
+    filePath: string
+  ): Promise<Buffer | null> {
+    const absPath = fsPath.join(this.rootDir, ...filePath.split("/"));
+    if (!this.host.fileExists(absPath)) {
+      return null;
+    }
+    const buffer = this.host.readBinaryFile(absPath);
+    return buffer;
+  }
+
   protected override async getBinaryFileMetadata<T extends BinaryFileType>(
     filePath: string,
     type: T
   ): Promise<OpsMetadata<T>> {
-    const absPath = fsPath.join(this.rootDir, ...filePath.split("/"));
-    if (!this.host.fileExists(absPath)) {
+    const buffer = await this.getBinaryFile(filePath);
+    if (!buffer) {
       return {
         errors: [{ message: "File not found", filePath }],
       };
     }
-    const buffer = this.host.readBinaryFile(absPath);
-    return createMetadataFromBuffer(absPath, type, buffer);
+    return createMetadataFromBuffer(filePath, type, buffer);
   }
 
   // #region fs file path helpers

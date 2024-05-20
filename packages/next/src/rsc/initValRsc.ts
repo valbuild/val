@@ -74,7 +74,7 @@ const initFetchValStega =
         const api = new ValApi(`${host}${valApiEndpoints}`);
         const valModuleIds = getModuleIds(selector);
         return api
-          .getTree({
+          .putTree({
             // TODO: get tree should probably have a list of ids instead
             treePath: optimizeTreePath(valModuleIds) ?? undefined,
             patch: true,

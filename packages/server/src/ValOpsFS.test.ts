@@ -207,7 +207,7 @@ describe("ValOpsFS", () => {
       Object.keys(fp0.patches) as PatchId[]
     );
     console.log("patches", patchesRes);
-    const patchAnalysis = ops.analyzePatches(patchesRes.patches);
+    const patchAnalysis = ops.analyzePatches(patchesRes);
     const t1 = await ops.getTree({
       ...patchAnalysis,
       ...patchesRes,
@@ -226,11 +226,11 @@ describe("ValOpsFS", () => {
       patchAnalysis.fileLastUpdatedByPatchId
     );
     console.log("files validation", JSON.stringify(fv1, null, 2));
-    const pc1 = await ops.prepareCommit({
+    const pc1 = await ops.prepare({
       ...patchAnalysis,
       ...patchesRes,
     });
-    console.log("prepare commit", JSON.stringify(pc1, null, 2));
+    console.log("prepare", JSON.stringify(pc1, null, 2));
     const s1 = await ops.saveFiles(pc1);
     console.log("save files", JSON.stringify(s1, null, 2));
     console.log(

@@ -1,6 +1,7 @@
 import {
   Internal,
   ModuleFilePath,
+  PatchId,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
@@ -14,10 +15,8 @@ import { ScrollArea } from "./ui/scroll-area";
 import { ChevronLeft, Languages, Minimize2, Send } from "lucide-react";
 import { ValUIContext } from "./ValUIContext";
 import { useTheme } from "./useTheme";
-import { usePatches } from "./usePatch";
 import { useSession } from "./useSession";
 import { Path } from "./Path";
-import { ValPatches, ValPatchesProps } from "./ValPatches";
 import { AnyVal, PathTree, ValImagePreviewContext } from "./ValCompositeFields";
 import { InitOnSubmit } from "./ValFormField";
 import { ValSession, ValStore } from "@valbuild/shared/internal";
@@ -57,9 +56,8 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
   const session = useSession(api);
 
   const [theme, setTheme] = useTheme();
-  const { patches, setPatchResetId } = usePatches(session, api);
-
   const hoverElemRef = React.useRef<HTMLDivElement | null>(null);
+  const [patches, setPatches] = useState<PatchId[]>([]);
 
   const initOnSubmit: InitOnSubmit = useCallback(
     (path) => async (callback) => {
@@ -67,60 +65,80 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
         Internal.splitModuleFilePathAndModulePath(path);
       const patch = await callback(Internal.createPatchPath(modulePath));
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const applyRes = store.applyPatch(moduleFilePath, patch);
+      const applyRes = await store.applyPatch(moduleFilePath, patches, patch);
       // TODO: applyRes
-      setPatchResetId((prev) => prev + 1);
+      if (result.isOk(applyRes)) {
+        for (const patchData of Object.values(applyRes.value)) {
+          patches.push(...patchData.patchIds);
+        }
+        setPatches(patches);
+      }
     },
-    []
+    [patches]
   );
-  const [isValidating, setIsValidating] = useState(false);
-  const [validationResponse, setValidationResponse] =
-    useState<ValPatchesProps["validationResponse"]>();
 
   useEffect(() => {
-    let ignore = false;
-    if (moduleFilePaths !== undefined) {
-      setIsValidating(true);
-      api
-        .postValidate({
-          patches,
-        })
-        .then((res) => {
-          if (!ignore) {
-            if (result.isOk(res)) {
-              setValidationResponse({
-                globalError: null,
-                validationErrors: res.value,
-              });
-            } else {
-              setValidationResponse({
-                globalError: {
-                  message:
-                    "Could not validate changes: check if Val is correctly setup.",
-                  details: res.error,
-                },
-              });
-            }
-            setIsValidating(false);
-          }
-        })
-        .catch((err) => {
-          if (!ignore) {
-            setValidationResponse({
-              globalError: {
-                message:
-                  "Could not validate changes: check the internet connection.",
-                details: err,
-              },
-            });
-            setIsValidating(false);
-          }
-        });
-    }
-    return () => {
-      ignore = true;
-    };
-  }, [patches, moduleFilePaths]);
+    api.getPatches().then((res) => {
+      if (result.isOk(res)) {
+        const patches: PatchId[] = [];
+        for (const patchData of Object.values(res.value).flat()) {
+          patches.push(patchData.patch_id);
+        }
+        setPatches(patches);
+      } else {
+        console.error("Could not get patches", res.error);
+      }
+    });
+  }, []);
+  // TODO: validation
+  // const [isValidating, setIsValidating] = useState(false);
+  // const [validationResponse, setValidationResponse] =
+  //   useState<ValPatchesProps["validationResponse"]>();
+
+  // useEffect(() => {
+  //   let ignore = false;
+  //   if (moduleFilePaths !== undefined) {
+  //     setIsValidating(true);
+  //     api
+  //       .postValidate({
+  //         patches,
+  //       })
+  //       .then((res) => {
+  //         if (!ignore) {
+  //           if (result.isOk(res)) {
+  //             setValidationResponse({
+  //               globalError: null,
+  //               validationErrors: res.value,
+  //             });
+  //           } else {
+  //             setValidationResponse({
+  //               globalError: {
+  //                 message:
+  //                   "Could not validate changes: check if Val is correctly setup.",
+  //                 details: res.error,
+  //               },
+  //             });
+  //           }
+  //           setIsValidating(false);
+  //         }
+  //       })
+  //       .catch((err) => {
+  //         if (!ignore) {
+  //           setValidationResponse({
+  //             globalError: {
+  //               message:
+  //                 "Could not validate changes: check the internet connection.",
+  //               details: err,
+  //             },
+  //           });
+  //           setIsValidating(false);
+  //         }
+  //       });
+  //   }
+  //   return () => {
+  //     ignore = true;
+  //   };
+  // }, [patches, moduleFilePaths]);
 
   return (
     <ValUIContext.Provider

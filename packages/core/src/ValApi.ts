@@ -6,12 +6,15 @@ import {
   ApiPostValidationResponse,
   ApiTreeResponse,
   Json,
+  ApiSchemaResponse,
 } from ".";
 import { result } from "./fp";
+import { getSHA256Hash } from "./getSha256";
 import { Patch } from "./patch";
 import { ModuleFilePath, PatchId } from "./val";
 
 type FetchError = { message: string; details?: unknown; statusCode?: number };
+const textEncoder = new TextEncoder();
 
 // TODO: move this to internal, only reason this is here is that react, ui and server all depend on it
 export class ValApi {
@@ -30,18 +33,9 @@ export class ValApi {
     return `${this.host}/enable?redirect_to=${encodeURIComponent(redirectTo)}`;
   }
 
-  async getPatches({
-    patchIds,
-    headers,
-  }: {
-    patchIds?: string[];
-    headers?: Record<string, string> | undefined;
-  }) {
-    const patchIdsParam = patchIds
-      ? `?${patchIds.map((id) => `${id}=${encodeURIComponent(id)}`).join("&")}`
-      : "";
-    return fetch(`${this.host}/patches/~${patchIdsParam}`, {
-      headers: headers || {
+  async getPatches() {
+    return fetch(`${this.host}/patches/~`, {
+      headers: {
         "Content-Type": "application/json",
       },
     })
@@ -66,24 +60,6 @@ export class ValApi {
     return `/val`;
   }
 
-  postPatches(
-    path: ModuleFilePath,
-    patches: Patch,
-    headers?: Record<string, string> | undefined
-  ): Promise<result.Result<ApiPostPatchResponse, FetchError>> {
-    return fetch(`${this.host}/patches/~`, {
-      headers: headers || {
-        "Content-Type": "application/json",
-      },
-      method: "POST",
-      body: JSON.stringify({ [path]: patches }),
-    })
-      .then(async (res) => {
-        return parse<ApiPostPatchResponse>(res);
-      })
-      .catch(createError<ApiPostPatchResponse>);
-  }
-
   getSession() {
     return fetch(`${this.host}/session`).then((res) =>
       parse<{
@@ -98,24 +74,54 @@ export class ValApi {
     );
   }
 
-  getTree({
-    patch = false,
-    includeSchema = false,
-    includeSource = false,
+  getSchema({ headers }: { headers?: Record<string, string> | undefined }) {
+    return fetch(`${this.host}/schema`, {
+      method: "GET",
+      headers,
+    })
+      .then((res) => parse<ApiSchemaResponse>(res))
+      .catch(createError<ApiSchemaResponse>);
+  }
+
+  putTree({
     treePath = "/",
+    patchIds,
+    addPatch,
+    validateAll,
+    validateSource,
+    validateBinaryFiles,
     headers,
   }: {
-    patch?: boolean;
-    includeSchema?: boolean;
-    includeSource?: boolean;
     treePath?: string;
+    patchIds?: PatchId[];
+    addPatch?: {
+      path: ModuleFilePath;
+      patch: Patch;
+    };
+    validateAll?: boolean;
+    validateSource?: boolean;
+    validateBinaryFiles?: boolean;
     headers?: Record<string, string> | undefined;
   }) {
     const params = new URLSearchParams();
-    params.set("patch", patch.toString());
-    params.set("schema", includeSchema.toString());
-    params.set("source", includeSource.toString());
+    const patchesSha = getSHA256Hash(
+      textEncoder.encode(
+        ((patchIds as string[]) || [])
+          .concat(JSON.stringify(addPatch || {}))
+          .join(";")
+      )
+    );
+
+    params.set("patches_sha", patchesSha);
+    params.set("validate_all", (validateAll || false).toString());
+    params.set("validate_source", (validateSource || false).toString());
+    params.set(
+      "validate_binary_files",
+      (validateBinaryFiles || false).toString()
+    );
     return fetch(`${this.host}/tree/~${treePath}?${params.toString()}`, {
+      method: "PUT",
+      body: JSON.stringify({ patchIds, addPatch }),
       headers,
     })
       .then((res) => parse<ApiTreeResponse>(res))
