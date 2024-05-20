@@ -236,10 +236,13 @@ export abstract class ValOps {
     const patchesByModule: {
       [path: ModuleFilePath]: {
         patchId: PatchId;
+        createdAt: string;
       }[];
     } = {};
     const fileLastUpdatedByPatchId: Record<string, PatchId> = {};
-    for (const [patchIdS, { path, patch }] of Object.entries(patchesById)) {
+    for (const [patchIdS, { path, patch, created_at }] of Object.entries(
+      patchesById
+    )) {
       const patchId = patchIdS as PatchId;
       for (const op of patch) {
         if (op.op === "file") {
@@ -251,7 +254,13 @@ export abstract class ValOps {
       }
       patchesByModule[path].push({
         patchId,
+        createdAt: created_at,
       });
+    }
+    for (const path in patchesByModule) {
+      patchesByModule[path as ModuleFilePath].sort((a, b) =>
+        a.createdAt.localeCompare(b.createdAt)
+      );
     }
 
     return {
@@ -472,6 +481,7 @@ export abstract class ValOps {
       let metadata;
       let metadataErrors;
 
+      // TODO: refactor so we call get metadata once instead of iterating like this. Reason: should be a lot faster
       if (patchId) {
         const patchFileMetadata =
           await this.getBase64EncodedBinaryFileMetadataFromPatch(
@@ -591,7 +601,7 @@ export abstract class ValOps {
   }
 
   // #region prepareCommit
-  async prepareCommit(
+  async prepare(
     patchAnalysis: PatchAnalysis & Patches
   ): Promise<PreparedCommit> {
     const { patchesByModule, fileLastUpdatedByPatchId } = patchAnalysis;
@@ -768,6 +778,7 @@ export abstract class ValOps {
     | {
         patchId: PatchId;
         error?: undefined;
+        created_at: string;
         files: {
           filePath: string;
           error?: PatchError;
@@ -920,6 +931,7 @@ export abstract class ValOps {
     return {
       patchId,
       files: saveFileRes,
+      created_at: new Date().toISOString(),
     };
   }
 
@@ -942,9 +954,14 @@ export abstract class ValOps {
     data: string,
     sha256: string
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>>;
+  protected abstract getBase64EncodedBinaryFileFromPatch(
+    filePath: string,
+    patchId: PatchId
+  ): Promise<Buffer | null>;
   protected abstract getBase64EncodedBinaryFileMetadataFromPatch<
     T extends "file" | "image"
   >(filePath: string, type: T, patchId: PatchId): Promise<OpsMetadata<T>>;
+  protected abstract getBinaryFile(filePath: string): Promise<Buffer | null>;
   protected abstract getBinaryFileMetadata<T extends "file" | "image">(
     filePath: string,
     type: T
@@ -1003,11 +1020,6 @@ export type PatchAnalysis = {
     }[];
   };
   fileLastUpdatedByPatchId: Record<string, PatchId>;
-  skippedPatches: Record<
-    PatchId,
-    { reason: "applied"; appliedAtBaseSha: BaseSha }
-    // | { reason: "replaced"; patchId: PatchId } TODO
-  >;
 };
 
 export type PatchSourceError =

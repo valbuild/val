@@ -1,12 +1,10 @@
 import { createService, ServiceOptions } from "./Service";
-import { IValServer, ValServerCallbacks } from "./ValServer";
-import { LocalValServer, LocalValServerOptions } from "./LocalValServer";
-import { ProxyValServer, ProxyValServerOptions } from "./ProxyValServer";
 import { promises as fs } from "fs";
 import * as path from "path";
 import { Internal, ValConfig, ValModules } from "@valbuild/core";
 import { ValServerGenericResult } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
+import { ValServer2, ValServerCallbacks } from "./ValServer2";
 
 type Versions = {
   versions?: {
@@ -131,20 +129,18 @@ export async function createValServer(
   route: string,
   opts: ValApiOptions,
   callbacks: ValServerCallbacks
-): Promise<IValServer> {
-  const serverOpts = await initHandlerOptions(route, opts);
-  if (serverOpts.mode === "proxy") {
-    const projectRoot = process.cwd(); //[process.cwd(), opts.root || ""]      .filter((seg) => seg)      .join("/");
-    return new ProxyValServer(
-      projectRoot,
-      valModules,
-      serverOpts,
-      opts,
-      callbacks
-    );
-  } else {
-    return new LocalValServer(valModules, serverOpts, callbacks);
-  }
+): Promise<ValServer2> {
+  return new ValServer2(
+    valModules,
+    {
+      cwd: process.cwd(),
+      valBuildUrl: "TODO", // TODO
+      route: "/api/val",
+      ...opts,
+      mode: "fs",
+    },
+    callbacks
+  );
 }
 
 type ValServerOptions =
@@ -317,7 +313,7 @@ const FILES_PATH_PREFIX = "/files";
 
 export function createValApiRouter<Res>(
   route: string,
-  valServerPromise: Promise<IValServer>,
+  valServerPromise: Promise<ValServer2>,
   convert: (valServerRes: ValServerGenericResult) => Res
 ): (req: Request) => Promise<Res> {
   const uiRequestHandler = createUIRequestHandler();
@@ -416,31 +412,37 @@ export function createValApiRouter<Res>(
           requestHeaders
         )
       );
-    } else if (method === "POST" && path === "/validate") {
-      const body = (await req.json()) as unknown;
+      // } else if (method === "POST" && path === "/validate") {
+      //   const body = (await req.json()) as unknown;
+      //   return convert(
+      //     await valServer.postValidate(
+      //       body,
+      //       getCookies(req, [VAL_SESSION_COOKIE]),
+      //       requestHeaders
+      //     )
+      //   );
+    } else if (method === "GET" && path === "/schema") {
       return convert(
-        await valServer.postValidate(
-          body,
-          getCookies(req, [VAL_SESSION_COOKIE]),
-          requestHeaders
-        )
+        await valServer.getSchema(getCookies(req, [VAL_SESSION_COOKIE]))
       );
-    } else if (method === "GET" && path.startsWith(TREE_PATH_PREFIX)) {
+    } else if (method === "PUT" && path.startsWith(TREE_PATH_PREFIX)) {
       return withTreePath(
         path,
         TREE_PATH_PREFIX
       )(async (treePath) =>
         convert(
-          await valServer.getTree(
+          await valServer.putTree(
+            (await req.json()) as unknown,
             treePath,
             {
-              patch: url.searchParams.get("patch") || undefined,
-              schema: url.searchParams.get("schema") || undefined,
-              source: url.searchParams.get("source") || undefined,
-              validate: url.searchParams.get("validate") || undefined,
+              patches_sha: url.searchParams.get("patches_sha") || undefined,
+              validate_all: url.searchParams.get("validate_all") || undefined,
+              validate_binary_files:
+                url.searchParams.get("validate_binary_files") || undefined,
+              validate_sources:
+                url.searchParams.get("validate_sources") || undefined,
             },
-            getCookies(req, [VAL_SESSION_COOKIE]),
-            requestHeaders
+            getCookies(req, [VAL_SESSION_COOKIE])
           )
         )
       );
@@ -452,7 +454,7 @@ export function createValApiRouter<Res>(
         convert(
           await valServer.getPatches(
             {
-              id: url.searchParams.getAll("id"),
+              authors: url.searchParams.getAll("author"),
             },
             getCookies(req, [VAL_SESSION_COOKIE])
           )
@@ -488,10 +490,12 @@ export function createValApiRouter<Res>(
     } else if (path.startsWith(FILES_PATH_PREFIX)) {
       const treePath = path.slice(FILES_PATH_PREFIX.length);
       return convert(
-        await valServer.getFiles(
+        await valServer.putFiles(
+          (await req.json()) as unknown,
           treePath,
           {
-            sha256: url.searchParams.get("sha256") || undefined,
+            base_sha: url.searchParams.get("base_sha") || undefined,
+            patches_sha: url.searchParams.get("patches_sha") || undefined,
           },
           getCookies(req, [VAL_SESSION_COOKIE]),
           requestHeaders

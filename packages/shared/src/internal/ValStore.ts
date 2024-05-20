@@ -1,5 +1,4 @@
 import {
-  Internal,
   Json,
   ModuleFilePath,
   PatchId,
@@ -7,13 +6,11 @@ import {
   ValApi,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
-import { JSONOps, Patch, PatchError, applyPatch } from "@valbuild/core/patch";
+import { Patch, PatchError } from "@valbuild/core/patch";
 
 type SubscriberId = string & {
   readonly _tag: unique symbol;
 };
-
-const ops = new JSONOps();
 
 export class ValStore {
   private readonly subscribers: Map<SubscriberId, Record<ModuleFilePath, Json>>; // uncertain whether this is the optimal way of returning
@@ -21,6 +18,7 @@ export class ValStore {
 
   private readonly drafts: Record<ModuleFilePath, Json>;
   private readonly schema: Record<ModuleFilePath, SerializedSchema>;
+  private readonly schemaSha: string | undefined;
 
   constructor(private readonly api: ValApi) {
     this.subscribers = new Map();
@@ -36,12 +34,10 @@ export class ValStore {
         schema: this.schema[path],
       });
     }
-    const data = await this.api.getTree({
-      patch: true,
+    const data = await this.api.putTree({
       treePath: path,
-      includeSource: true,
-      includeSchema: true,
     });
+
     if (result.isOk(data)) {
       if (!data.value.modules[path]) {
         console.error("Val: could not find the module", {
@@ -57,13 +53,20 @@ export class ValStore {
         });
       }
       const fetchedSource = data.value.modules[path].source;
-      const fetchedSchema = data.value.modules[path].schema;
-      if (fetchedSource !== undefined && fetchedSchema !== undefined) {
+      const schema: SerializedSchema | undefined = this.schema[path];
+      if (!this.schema[path]) {
+        await this.initialize();
+        if (!this.schema[path]) {
+          return result.err({
+            message: "Path not found in schema. Verify that the module exists.",
+          });
+        }
+      }
+      if (fetchedSource !== undefined) {
         this.drafts[path] = fetchedSource;
-        this.schema[path] = fetchedSchema;
         return result.ok({
           source: fetchedSource,
-          schema: fetchedSchema,
+          schema,
         });
       } else {
         console.error("Val: could not find the module source");
@@ -89,80 +92,60 @@ export class ValStore {
 
   async applyPatch(
     path: ModuleFilePath,
+    patchIds: PatchId[],
     patch: Patch
   ): Promise<
     result.Result<
       Record<
         ModuleFilePath,
         {
-          patch_id: PatchId;
+          patchIds: PatchId[];
         }
       >,
       PatchError | { message: string }
     >
   > {
-    let currentSource = this.drafts[path];
-    const currentSchema = this.schema[path];
-    if (!currentSource || !currentSchema) {
-      const data = await this.api.getTree({
-        patch: true,
-        treePath: path,
-        includeSource: true,
-        includeSchema: true,
-      });
-      if (result.isOk(data)) {
-        const fetchedSource = data.value.modules[path].source;
-        const fetchedSchema = data.value.modules[path].schema;
-        if (fetchedSource !== undefined && fetchedSchema !== undefined) {
-          currentSource = fetchedSource;
-          this.drafts[path] = fetchedSource;
-          this.schema[path] = fetchedSchema;
-        } else {
-          console.error("Val: could not find the module source");
-          return result.err({
-            message:
-              "Val: could not fetch data. Verify that the module exists.",
-          });
+    const data = await this.api.putTree({
+      treePath: path,
+      patchIds,
+      addPatch: {
+        path,
+        patch,
+      },
+    });
+    if (result.isOk(data)) {
+      const fetchedSource = data.value.modules[path].source;
+      if (fetchedSource !== undefined) {
+        this.drafts[path] = fetchedSource;
+        this.emitEvent(path, fetchedSource);
+        for (const [subscriberId, subscriberModules] of Array.from(
+          this.subscribers.entries()
+        )) {
+          if (subscriberModules[path]) {
+            this.subscribers.set(subscriberId, {
+              ...subscriberModules,
+              [path]: this.drafts[path],
+            });
+            this.emitChange(subscriberId);
+          }
         }
+        return result.ok({
+          [path]: {
+            patchIds: data.value.modules[path].patches?.applied || [],
+          },
+        });
       } else {
-        console.error("Val: failed to get module", data.error);
+        console.error("Val: could not patch");
         return result.err({
-          message:
-            "Val: could not fetch data. Verify that Val is correctly configured.",
+          message: "Val: could not fetch data. Verify that the module exists.",
         });
       }
-    }
-
-    // TODO: validate client side prior to posting if a (new) validate param is true
-
-    const res = await this.api.postPatches(path, patch);
-    if (result.isErr(res)) {
-      console.error("Val: failed to post patch", res.error);
-      return res;
-    }
-    const patchRes = applyPatch(
-      currentSource,
-      ops,
-      patch.filter(Internal.notFileOp) // we cannot apply file ops here
-    );
-    if (result.isOk(patchRes)) {
-      this.drafts[path] = patchRes.value;
-      this.emitEvent(path, patchRes.value);
-      for (const [subscriberId, subscriberModules] of Array.from(
-        this.subscribers.entries()
-      )) {
-        if (subscriberModules[path]) {
-          this.subscribers.set(subscriberId, {
-            ...subscriberModules,
-            [path]: this.drafts[path],
-          });
-          this.emitChange(subscriberId);
-        }
-      }
-      return res;
     } else {
-      console.error("Val: failed to apply patch", patchRes.error);
-      return patchRes;
+      console.error("Val: failed to get module", data.error);
+      return result.err({
+        message:
+          "Val: could not fetch data. Verify that Val is correctly configured.",
+      });
     }
   }
 
@@ -175,14 +158,6 @@ export class ValStore {
       },
     });
     window.dispatchEvent(event);
-  }
-
-  async update(paths: ModuleFilePath[]) {
-    await Promise.all(paths.map((moduleId) => this.updateTree(moduleId)));
-  }
-
-  async reset() {
-    return this.updateTree();
   }
 
   async initialize(): Promise<
@@ -199,104 +174,18 @@ export class ValStore {
       }
     >
   > {
-    const data = await this.api.getTree({
-      patch: false,
-      includeSource: false,
-      includeSchema: true,
-    });
+    const data = await this.api.getSchema({});
     if (result.isOk(data)) {
       const paths: ModuleFilePath[] = [];
       for (const moduleId of Object.keys(
-        data.value.modules
+        data.value.schemas
       ) as ModuleFilePath[]) {
-        const schema = data.value.modules[moduleId].schema;
+        const schema = data.value.schemas[moduleId];
         if (schema) {
           paths.push(moduleId);
           this.schema[moduleId] = schema;
         }
       }
-      return result.ok(paths);
-    } else {
-      let msg = "Failed to fetch content. ";
-      if (data.error.statusCode === 401) {
-        msg += "Authorization failed - check that you are logged in.";
-      } else {
-        msg += "Get a developer to verify that Val is correctly setup.";
-      }
-      return result.err({
-        message: msg,
-        details: {
-          fetchError: data.error,
-        },
-      });
-    }
-  }
-
-  private async updateTree(treePath?: string): Promise<
-    result.Result<
-      ModuleFilePath[],
-      {
-        message: string;
-        details: {
-          fetchError: {
-            message: string;
-            statusCode?: number;
-          };
-        };
-      }
-    >
-  > {
-    const data = await this.api.getTree({
-      patch: true,
-      treePath,
-      includeSource: true,
-      includeSchema: true,
-    });
-    const paths: ModuleFilePath[] = [];
-    if (result.isOk(data)) {
-      const updatedSubscriberIds = new Map<SubscriberId, ModuleFilePath[]>();
-      const subscriberIds = Array.from(this.subscribers.keys());
-
-      // Figure out which modules have been updated and map to updated subscribed id
-      for (const moduleId of Object.keys(
-        data.value.modules
-      ) as ModuleFilePath[]) {
-        const source = data.value.modules[moduleId].source;
-        if (typeof source !== "undefined") {
-          paths.push(moduleId);
-          this.emitEvent(moduleId, source);
-          const updatedSubscriberId = subscriberIds.find(
-            (subscriberId) => subscriberId.includes(moduleId) // NOTE: dependent on
-          );
-
-          if (updatedSubscriberId) {
-            updatedSubscriberIds.set(
-              updatedSubscriberId,
-              (updatedSubscriberIds.get(updatedSubscriberId) || []).concat(
-                moduleId
-              )
-            );
-          }
-        }
-      }
-
-      // For all updated subscribers: set new module data and emit change
-      for (const [updatedSubscriberId, moduleIds] of Array.from(
-        updatedSubscriberIds.entries()
-      )) {
-        const subscriberModules = Object.fromEntries(
-          moduleIds.flatMap((moduleId) => {
-            const source = data.value.modules[moduleId].source;
-            if (!source) {
-              return [];
-            }
-            return [[moduleId, source]];
-          })
-        );
-        this.subscribers.set(updatedSubscriberId, subscriberModules);
-        this.emitChange(updatedSubscriberId);
-      }
-
       return result.ok(paths);
     } else {
       let msg = "Failed to fetch content. ";
