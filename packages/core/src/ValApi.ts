@@ -2,7 +2,6 @@ import {
   ApiCommitResponse,
   ApiGetPatchResponse,
   ApiPostValidationErrorResponse,
-  ApiPostPatchResponse,
   ApiPostValidationResponse,
   ApiTreeResponse,
   Json,
@@ -14,7 +13,6 @@ import { Patch } from "./patch";
 import { ModuleFilePath, PatchId } from "./val";
 
 type FetchError = { message: string; details?: unknown; statusCode?: number };
-const textEncoder = new TextEncoder();
 
 // TODO: move this to internal, only reason this is here is that react, ui and server all depend on it
 export class ValApi {
@@ -104,6 +102,7 @@ export class ValApi {
     headers?: Record<string, string> | undefined;
   }) {
     const params = new URLSearchParams();
+    const textEncoder = new TextEncoder();
     const patchesSha = getSHA256Hash(
       textEncoder.encode(
         ((patchIds as string[]) || [])
@@ -128,22 +127,20 @@ export class ValApi {
       .catch(createError<ApiTreeResponse>);
   }
 
-  postCommit({
-    patches,
-    headers,
+  postSave({
+    patchIds,
   }: {
-    patches?: Record<ModuleFilePath, PatchId[]>;
-    headers?: Record<string, string> | undefined;
+    patchIds: PatchId[];
   }): Promise<
     result.Result<
       ApiCommitResponse,
       FetchError | ApiPostValidationErrorResponse
     >
   > {
-    return fetch(`${this.host}/commit`, {
+    return fetch(`${this.host}/save`, {
       method: "POST",
-      body: JSON.stringify({ patches }),
-      headers: headers || {
+      body: JSON.stringify({ patchIds }),
+      headers: {
         "Content-Type": "application/json",
       },
     })
@@ -155,11 +152,7 @@ export class ValApi {
           res.headers.get("content-type") === "application/json"
         ) {
           const jsonRes = await res.json();
-          if ("validationErrors" in jsonRes) {
-            return result.err(jsonRes as ApiPostValidationErrorResponse);
-          } else {
-            return formatError(res.status, jsonRes, res.statusText);
-          }
+          alert(JSON.stringify(jsonRes));
         }
         return parse<ApiCommitResponse>(res);
       })

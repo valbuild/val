@@ -86,7 +86,7 @@ import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
 import type { Json } from "./Json";
 import { getSHA256Hash } from "./getSha256";
-import { Operation, Patch } from "./patch";
+import { Operation } from "./patch";
 import { initSchema } from "./initSchema";
 import { SerializedSchema } from "./schema";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
@@ -108,21 +108,7 @@ export { deserializeSchema } from "./schema/deserialize";
 // Move to internal
 export { ValApi } from "./ValApi";
 
-export type ApiCommitResponse = {
-  validationErrors: false;
-  modules: Record<
-    ModuleFilePath,
-    {
-      patches: {
-        applied: PatchId[];
-      };
-    }
-  >;
-  git: {
-    commit?: string;
-    branch?: string;
-  };
-};
+export type ApiCommitResponse = {};
 
 export type ApiSchemaResponse = {
   schemaSha: string;
@@ -163,6 +149,7 @@ export type ApiGetPatchResponse = Record<
   {
     patch_id: PatchId;
     created_at: string;
+    applied_at_base_sha: string | null;
     // TODO:
     // base_sha: string;
     // not available in local mode:

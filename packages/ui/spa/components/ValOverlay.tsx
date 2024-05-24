@@ -11,18 +11,15 @@ import { Remote } from "../utils/Remote";
 import { ValWindow } from "./ValWindow";
 import { result } from "@valbuild/core/fp";
 import {
-  ApiPostValidationErrorResponse,
-  ApiPostValidationResponse,
   Internal,
   Json,
+  PatchId,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
-import { usePatches } from "./usePatch";
 import { useTheme } from "./useTheme";
 import { useSession } from "./useSession";
-import { ValPatchesDialog } from "./ValPatches";
 import { AnyVal } from "./ValCompositeFields";
 import { InitOnSubmit } from "./ValFormField";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
@@ -49,6 +46,9 @@ export function ValOverlay({
   const [hoverTarget, setHoverTarget] = useHoverTarget(editMode);
   const [windowTarget, setWindowTarget] = useState<WindowTarget | null>(null);
   const paths = windowTarget?.path ? windowTarget.path.split(",") : [];
+  useEffect(() => {
+    store.reset();
+  }, [store]);
 
   const [formData, setFormData] = useState<ValData>(
     Object.fromEntries(
@@ -111,69 +111,39 @@ export function ValOverlay({
   }, [paths.join(";")]);
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
-  useEffect(() => {
-    store.reset();
-  }, []);
+  const [patches, setPatches] = useState<PatchId[]>([]);
+  const [patchResetId, setPatchResetId] = useState(0);
 
-  const { patches, setPatchResetId } = usePatches(session, api);
+  useEffect(() => {
+    api.getPatches().then((res) => {
+      if (result.isErr(res)) {
+        console.error(res.error);
+        return;
+      }
+      setPatches(
+        Object.values(res.value).flatMap((v) => v.map((p) => p.patch_id))
+      );
+    });
+  }, [patchResetId]);
 
   const initOnSubmit: InitOnSubmit = useCallback(
     (path) => async (callback) => {
       const [moduleFilePath, modulePath] =
         Internal.splitModuleFilePathAndModulePath(path);
       const patch = await callback(Internal.createPatchPath(modulePath));
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const applyRes = store.applyPatch(moduleFilePath, patch);
-      // TODO: applyRes
+      const applyRes = await store.applyPatch(moduleFilePath, patches, patch);
+      if (result.isOk(applyRes)) {
+        const patches = [];
+        for (const patchData of Object.values(applyRes.value)) {
+          patches.push(...patchData.patchIds);
+        }
+        setPatches(patches);
+      }
       setPatchResetId((prev) => prev + 1);
       reloadPage(true);
     },
     []
   );
-  const [patchModalOpen, setPatchModalOpen] = useState(false);
-  const [validationRes, setValidationRes] = useState<
-    {
-      globalError: null | { message: string; details?: unknown };
-    } & Partial<ApiPostValidationResponse | ApiPostValidationErrorResponse>
-  >({
-    globalError: null,
-  });
-
-  const [isValidating, setIsValidating] = useState(false);
-  useEffect(() => {
-    let ignore = false;
-    if (Object.keys(patches).length > 0) {
-      setIsValidating(true);
-      api
-        .postValidate({
-          patches,
-        })
-        .then((res) => {
-          if (ignore) {
-            return;
-          }
-          if (result.isErr(res)) {
-            setValidationRes({
-              globalError: { message: res.error.message },
-            });
-          } else {
-            setValidationRes({
-              globalError: null,
-              ...res.value,
-            });
-          }
-        })
-        .finally(() => {
-          if (ignore) {
-            return;
-          }
-          setIsValidating(false);
-        });
-    }
-    return () => {
-      ignore = true;
-    };
-  }, [patches]);
 
   return (
     <ValUIContext.Provider
@@ -198,22 +168,6 @@ export function ValOverlay({
           zIndex: 8999, // 1 less than the NextJS error z-index: 9000
         }}
       >
-        {patchModalOpen && (
-          <div className="fixed z-5 top-[16px] left-[16px] w-[calc(100%-32px-50px-16px)] h-[calc(100svh-32px)]">
-            <ValPatchesDialog
-              patches={patches}
-              isValidating={isValidating}
-              validationResponse={validationRes}
-              api={api}
-              onCancel={() => {
-                setPatchModalOpen(false);
-              }}
-              onCommit={() => {
-                setPatchResetId((patchResetId) => patchResetId + 1);
-              }}
-            />
-          </div>
-        )}
         <Popover>
           <PopoverPrimitive.Portal />
           <div className="fixed -translate-y-1/2 right-4 top-1/2 z-overlay">
@@ -221,7 +175,21 @@ export function ValOverlay({
               direction="vertical"
               api={api}
               patches={patches}
-              onClickPatches={() => setPatchModalOpen((prev) => !prev)}
+              onClickPatches={() => {
+                api.postSave({ patchIds: patches }).then(async (res) => {
+                  if (result.isOk(res)) {
+                    const res = await api.deletePatches(patches);
+                    if (result.isOk(res)) {
+                      setPatches([]);
+                      await store.reset();
+                    } else {
+                      alert("Could not clean up");
+                    }
+                  } else {
+                    alert("Could not publish");
+                  }
+                });
+              }}
             />
           </div>
         </Popover>

@@ -1,6 +1,6 @@
 "use client";
 
-import { Internal, ModuleId, ValConfig } from "@valbuild/core";
+import { Internal, ModuleFilePath, ValConfig } from "@valbuild/core";
 import { VAL_APP_PATH, VAL_OVERLAY_ID } from "@valbuild/ui";
 import { usePathname, useRouter } from "next/navigation";
 import Script from "next/script";
@@ -37,9 +37,9 @@ export const ValNextProvider = (props: {
       const valEventListener = (event: Event) => {
         if (event instanceof CustomEvent) {
           if (event.detail.type === "module-update") {
-            const { moduleId, source } = event.detail;
-            if (typeof moduleId === "string" && source !== undefined) {
-              valEvents.update(moduleId as ModuleId, source);
+            const { path, source } = event.detail;
+            if (typeof path === "string" && source !== undefined) {
+              valEvents.update(path as ModuleFilePath, source);
             } else {
               console.error("Val: invalid event detail", event.detail);
             }
@@ -56,7 +56,6 @@ export const ValNextProvider = (props: {
         }
       };
       window.addEventListener("val-event", valEventListener);
-
       return () => {
         window.removeEventListener("val-event", valEventListener);
       };

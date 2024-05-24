@@ -18,13 +18,48 @@ export class ValStore {
 
   private readonly drafts: Record<ModuleFilePath, Json>;
   private readonly schema: Record<ModuleFilePath, SerializedSchema>;
-  private readonly schemaSha: string | undefined;
 
   constructor(private readonly api: ValApi) {
     this.subscribers = new Map();
     this.listeners = {};
     this.drafts = {};
     this.schema = {};
+  }
+
+  async reset() {
+    const patches = await this.api.getPatches();
+    if (result.isErr(patches)) {
+      console.error("Val: failed to get patches", patches.error);
+      return;
+    }
+    const allPatches = Object.values(patches.value).flatMap((mp) =>
+      mp.map((p) => p.patch_id)
+    );
+
+    const data = await this.api.putTree({
+      patchIds: allPatches,
+    });
+    await this.initialize();
+    if (result.isOk(data)) {
+      for (const pathS of Object.keys(data.value.modules)) {
+        const path = pathS as ModuleFilePath;
+        this.drafts[path] = data.value.modules[path].source;
+        this.emitEvent(path, this.drafts[path]);
+        for (const [subscriberId, subscriberModules] of Array.from(
+          this.subscribers.entries()
+        )) {
+          if (subscriberModules[path]) {
+            this.subscribers.set(subscriberId, {
+              ...subscriberModules,
+              [path]: this.drafts[path],
+            });
+            this.emitChange(subscriberId);
+          }
+        }
+      }
+    } else {
+      console.error("Val: failed to reset", data.error);
+    }
   }
 
   async getModule(path: ModuleFilePath, refetch: boolean = false) {
@@ -153,7 +188,7 @@ export class ValStore {
     const event = new CustomEvent("val-event", {
       detail: {
         type: "module-update",
-        moduleId: path,
+        path,
         source,
       },
     });

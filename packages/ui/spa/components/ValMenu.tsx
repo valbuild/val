@@ -1,5 +1,5 @@
 import { useValUIContext } from "./ValUIContext";
-import { ModuleFilePath, ValApi } from "@valbuild/core";
+import { PatchId, ValApi } from "@valbuild/core";
 import classNames from "classnames";
 import {
   ExternalLink,
@@ -31,7 +31,7 @@ export function ValMenu({
 }: {
   api: ValApi;
   direction: MenuDirection;
-  patches: Record<ModuleFilePath, string[]>;
+  patches: PatchId[];
   onClickPatches: () => void;
 }) {
   const { theme, setTheme, editMode, setEditMode, session } = useValUIContext();
@@ -59,11 +59,7 @@ export function ValMenu({
   }
   const [patchCount, setPatchCount] = useState<number>();
   useEffect(() => {
-    let patchCount = 0;
-    for (const moduleId in patches) {
-      patchCount += patches[moduleId as ModuleFilePath].length;
-    }
-    setPatchCount(patchCount);
+    setPatchCount(patches.length);
   }, [patches]);
   return (
     <MenuContainer direction={direction}>

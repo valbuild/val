@@ -1,10 +1,9 @@
-import { createService, ServiceOptions } from "./Service";
 import { promises as fs } from "fs";
 import * as path from "path";
 import { Internal, ValConfig, ValModules } from "@valbuild/core";
 import { ValServerGenericResult } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
-import { ValServer2, ValServerCallbacks } from "./ValServer2";
+import { ValServer, ValServerCallbacks, ValServerConfig } from "./ValServer";
 
 type Versions = {
   versions?: {
@@ -12,10 +11,7 @@ type Versions = {
     next?: string;
   };
 };
-export type ValApiOptions = ValServerOverrides &
-  ServiceOptions &
-  ValConfig &
-  Versions;
+export type ValApiOptions = ValServerOverrides & ValConfig & Versions;
 
 type ValServerOverrides = Partial<{
   /**
@@ -93,11 +89,11 @@ type ValServerOverrides = Partial<{
    */
   valContentUrl: string;
   /**
-   * The cloud name of this Val project.
+   * The full project name of the Val project.
    *
    * @example "myorg/my-project"
    */
-  remote: string;
+  project: string;
   /**
    * After Val is enabled, redirect to this url.
    *
@@ -128,37 +124,38 @@ export async function createValServer(
   valModules: ValModules,
   route: string,
   opts: ValApiOptions,
-  callbacks: ValServerCallbacks
-): Promise<ValServer2> {
-  return new ValServer2(
+  callbacks: ValServerCallbacks,
+  formatter?: (code: string, filePath: string) => string
+): Promise<ValServer> {
+  const valServerConfig = await initHandlerOptions(route, opts);
+  return new ValServer(
     valModules,
     {
-      cwd: process.cwd(),
-      valBuildUrl: "TODO", // TODO
-      route: "/api/val",
-      ...opts,
-      mode: "fs",
+      formatter,
+      ...valServerConfig,
     },
     callbacks
   );
 }
 
-type ValServerOptions =
-  | ({ mode: "proxy" } & ProxyValServerOptions)
-  | ({ mode: "local" } & LocalValServerOptions);
 async function initHandlerOptions(
   route: string,
-  opts: ValServerOverrides & ServiceOptions & Versions
-): Promise<ValServerOptions> {
+  opts: ValApiOptions
+): Promise<ValServerConfig> {
   const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
   const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
   const isProxyMode =
     opts.mode === "proxy" ||
     (opts.mode === undefined && (maybeApiKey || maybeValSecret));
+  const valEnableRedirectUrl =
+    opts.valEnableRedirectUrl || process.env.VAL_ENABLE_REDIRECT_URL;
+  const valDisableRedirectUrl =
+    opts.valDisableRedirectUrl || process.env.VAL_DISABLE_REDIRECT_URL;
 
+  const maybeValProject = opts.project || process.env.VAL_PROJECT;
+  const valBuildUrl =
+    opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://app.val.build";
   if (isProxyMode) {
-    const valBuildUrl =
-      opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://app.val.build";
     if (!maybeApiKey || !maybeValSecret) {
       throw new Error(
         "VAL_API_KEY and VAL_SECRET env vars must both be set in proxy mode"
@@ -176,10 +173,9 @@ async function initHandlerOptions(
     if (!maybeGitBranch) {
       throw new Error("VAL_GIT_BRANCH env var must be set in proxy mode");
     }
-    const maybeValRemote = opts.remote || process.env.VAL_REMOTE;
-    if (!maybeValRemote) {
+    if (!maybeValProject) {
       throw new Error(
-        "Proxy mode does not work unless the 'remote' option in val.config is defined or the VAL_REMOTE env var is set."
+        "Proxy mode does not work unless the 'project' option in val.config is defined or the VAL_PROJECT env var is set."
       );
     }
     const coreVersion = opts.versions?.core;
@@ -192,45 +188,38 @@ async function initHandlerOptions(
     }
 
     return {
-      mode: "proxy",
+      mode: "http",
       route,
       apiKey: maybeApiKey,
       valSecret: maybeValSecret,
-      valBuildUrl,
+      commit: maybeGitCommit,
+      branch: maybeGitBranch,
+      root: opts.root,
+      project: maybeValProject,
+      valEnableRedirectUrl,
+      valDisableRedirectUrl,
       valContentUrl,
-      versions: {
-        core: coreVersion,
-        next: nextVersion,
-      },
-      git: {
-        commit: maybeGitCommit,
-        branch: maybeGitBranch,
-      },
-      remote: maybeValRemote,
-      valEnableRedirectUrl:
-        opts.valEnableRedirectUrl || process.env.VAL_ENABLE_REDIRECT_URL,
-      valDisableRedirectUrl:
-        opts.valDisableRedirectUrl || process.env.VAL_DISABLE_REDIRECT_URL,
+      valBuildUrl,
     };
   } else {
     const cwd = process.cwd();
-    const service = await createService(cwd, opts);
-    const git = await safeReadGit(cwd);
+    const valBuildUrl =
+      opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://app.val.build";
     return {
-      mode: "local",
-      service,
-      valEnableRedirectUrl:
-        opts.valEnableRedirectUrl || process.env.VAL_ENABLE_REDIRECT_URL,
-      valDisableRedirectUrl:
-        opts.valDisableRedirectUrl || process.env.VAL_DISABLE_REDIRECT_URL,
-      git: {
-        commit: process.env.VAL_GIT_COMMIT || git.commit,
-        branch: process.env.VAL_GIT_BRANCH || git.branch,
-      },
+      mode: "fs",
+      cwd,
+      route,
+      valDisableRedirectUrl,
+      valEnableRedirectUrl,
+      valBuildUrl,
+      apiKey: maybeApiKey,
+      valSecret: maybeValSecret,
+      project: maybeValProject,
     };
   }
 }
 
+// TODO: remove
 export async function safeReadGit(
   cwd: string
 ): Promise<{ commit?: string; branch?: string }> {
@@ -313,16 +302,12 @@ const FILES_PATH_PREFIX = "/files";
 
 export function createValApiRouter<Res>(
   route: string,
-  valServerPromise: Promise<ValServer2>,
+  valServerPromise: Promise<ValServer>,
   convert: (valServerRes: ValServerGenericResult) => Res
 ): (req: Request) => Promise<Res> {
   const uiRequestHandler = createUIRequestHandler();
   return async (req): Promise<Res> => {
     const valServer = await valServerPromise;
-    const requestHeaders = {
-      host: req.headers.get("host"),
-      "x-forwarded-proto": req.headers.get("x-forwarded-proto"),
-    };
     const url = new URL(req.url);
     if (!url.pathname.startsWith(route)) {
       const error = {
@@ -403,14 +388,10 @@ export function createValApiRouter<Res>(
           redirect_to: url.searchParams.get("redirect_to") || undefined,
         })
       );
-    } else if (method === "POST" && path === "/commit") {
+    } else if (method === "POST" && path === "/save") {
       const body = (await req.json()) as unknown;
       return convert(
-        await valServer.postCommit(
-          body,
-          getCookies(req, [VAL_SESSION_COOKIE]),
-          requestHeaders
-        )
+        await valServer.postSave(body, getCookies(req, [VAL_SESSION_COOKIE]))
       );
       // } else if (method === "POST" && path === "/validate") {
       //   const body = (await req.json()) as unknown;
@@ -460,19 +441,6 @@ export function createValApiRouter<Res>(
           )
         )
       );
-    } else if (method === "POST" && path.startsWith(PATCHES_PATH_PREFIX)) {
-      const body = (await req.json()) as unknown;
-      return withTreePath(
-        path,
-        PATCHES_PATH_PREFIX
-      )(async () =>
-        convert(
-          await valServer.postPatches(
-            body,
-            getCookies(req, [VAL_SESSION_COOKIE])
-          )
-        )
-      );
     } else if (method === "DELETE" && path.startsWith(PATCHES_PATH_PREFIX)) {
       return withTreePath(
         path,
@@ -487,19 +455,13 @@ export function createValApiRouter<Res>(
           )
         )
       );
-    } else if (path.startsWith(FILES_PATH_PREFIX)) {
+    } else if (method === "GET" && path.startsWith(FILES_PATH_PREFIX)) {
       const treePath = path.slice(FILES_PATH_PREFIX.length);
+
       return convert(
-        await valServer.putFiles(
-          (await req.json()) as unknown,
-          treePath,
-          {
-            base_sha: url.searchParams.get("base_sha") || undefined,
-            patches_sha: url.searchParams.get("patches_sha") || undefined,
-          },
-          getCookies(req, [VAL_SESSION_COOKIE]),
-          requestHeaders
-        )
+        await valServer.getFiles(treePath, {
+          patch_id: url.searchParams.get("patch_id") || undefined,
+        })
       );
     } else {
       return convert({

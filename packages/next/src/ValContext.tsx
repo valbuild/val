@@ -1,9 +1,9 @@
 "use client";
-import { Json, ModuleId } from "@valbuild/core";
+import { Json, ModuleFilePath } from "@valbuild/core";
 import React from "react";
 
 export class ValEvents {
-  private readonly subscribers: Map<SubscriberId, Record<ModuleId, Json>>; // uncertain whether this is the optimal way of returning
+  private readonly subscribers: Map<SubscriberId, Record<ModuleFilePath, Json>>; // uncertain whether this is the optimal way of returning
   private readonly listeners: Record<SubscriberId, (() => void)[]>;
 
   constructor() {
@@ -11,8 +11,8 @@ export class ValEvents {
     this.listeners = {};
   }
 
-  subscribe = (moduleIds: ModuleId[]) => (listener: () => void) => {
-    const subscriberId = createSubscriberId(moduleIds);
+  subscribe = (paths: ModuleFilePath[]) => (listener: () => void) => {
+    const subscriberId = createSubscriberId(paths);
     if (!this.listeners[subscriberId]) {
       this.listeners[subscriberId] = [];
       this.subscribers.set(subscriberId, {});
@@ -27,14 +27,14 @@ export class ValEvents {
     };
   };
 
-  update(moduleId: ModuleId, source: Json) {
+  update(path: ModuleFilePath, source: Json) {
     const subscriberIds = Array.from(this.subscribers.keys());
     for (const subscriberId of subscriberIds) {
-      const isSubscribedToModule = subscriberId.includes(moduleId); // this should be accurate since the subscriber separator (;) is not a valid character in a module id
+      const isSubscribedToModule = subscriberId.includes(path); // TODO: hash paths instead
       if (isSubscribedToModule) {
         this.subscribers.set(subscriberId, {
           ...this.subscribers.get(subscriberId),
-          [moduleId]: source,
+          [path]: source,
         });
         this.emitChange(subscriberId);
       }
@@ -47,16 +47,16 @@ export class ValEvents {
     }
   }
 
-  getSnapshot = (moduleIds: ModuleId[]) => () => {
-    return this.get(moduleIds);
+  getSnapshot = (paths: ModuleFilePath[]) => () => {
+    return this.get(paths);
   };
 
-  getServerSnapshot = (moduleIds: ModuleId[]) => () => {
-    return this.get(moduleIds);
+  getServerSnapshot = (paths: ModuleFilePath[]) => () => {
+    return this.get(paths);
   };
 
-  get = (moduleIds: ModuleId[]): Record<ModuleId, Json> | undefined => {
-    const subscriberId = createSubscriberId(moduleIds);
+  get = (paths: ModuleFilePath[]): Record<ModuleFilePath, Json> | undefined => {
+    const subscriberId = createSubscriberId(paths);
     return this.subscribers.get(subscriberId);
   };
 }
@@ -64,8 +64,8 @@ type SubscriberId = string & {
   readonly _tag: unique symbol;
 };
 
-function createSubscriberId(moduleIds: ModuleId[]): SubscriberId {
-  return moduleIds.slice().sort().join("&") as SubscriberId;
+function createSubscriberId(paths: ModuleFilePath[]): SubscriberId {
+  return paths.slice().sort().join("&") as SubscriberId;
 }
 
 export type ValContext = {

@@ -19,6 +19,7 @@ export type FileSource<
   readonly [VAL_EXTENSION]: "file";
   readonly [FILE_REF_SUBTYPE_TAG]?: string;
   readonly metadata?: Metadata;
+  readonly patch_id?: string;
 };
 
 export function file<Metadata extends { readonly [key: string]: Json }>(

@@ -28,7 +28,6 @@ import {
 import { createFilename, readImage } from "../utils/readImage";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { PatchCallback } from "./usePatch";
 import { useValUIContext } from "./ValUIContext";
 import classNames from "classnames";
 import { File } from "lucide-react";
@@ -43,6 +42,7 @@ import {
   SelectValue,
 } from "./ui/select";
 
+export type PatchCallback = (patchPath: string[]) => Promise<Patch>;
 export type OnSubmit = (callback: PatchCallback) => Promise<void>;
 export type InitOnSubmit = (path: SourcePath) => OnSubmit;
 

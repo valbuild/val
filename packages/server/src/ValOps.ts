@@ -24,6 +24,8 @@ import { TSOps } from "./patch/ts/ops";
 import { analyzeValModule } from "./patch/ts/valModule";
 import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
+import { getSha256 } from "./extractMetadata";
+import sizeOf from "image-size";
 
 export type BaseSha = string & { readonly _tag: unique symbol };
 export type SchemaSha = string & { readonly _tag: unique symbol };
@@ -240,9 +242,10 @@ export abstract class ValOps {
       }[];
     } = {};
     const fileLastUpdatedByPatchId: Record<string, PatchId> = {};
-    for (const [patchIdS, { path, patch, created_at }] of Object.entries(
-      patchesById
-    )) {
+    for (const [
+      patchIdS,
+      { path, patch, createdAt: created_at },
+    ] of Object.entries(patchesById)) {
       const patchId = patchIdS as PatchId;
       for (const op of patch) {
         if (op.op === "file") {
@@ -300,19 +303,53 @@ export abstract class ValOps {
         });
       }
       const source = sources[path];
+      const addedPatchIdOnPath: Set<string> = new Set();
       for (const { patchId } of patches) {
-        const patchData = analysis.patches[patchId];
-        const patchRes = applyPatch(
-          source,
-          jsonOps,
-          patchData.patch.filter((op) => op.op !== "file")
-        );
         if (errors[path]) {
           errors[path].push({
             patchId: patchId,
             error: new PatchError(`Cannot apply patch: previous errors exists`),
           });
         } else {
+          const patchData = analysis.patches[patchId];
+          if (!patchData) {
+            errors[path].push({
+              patchId: patchId,
+              error: new PatchError(`Patch not found`),
+            });
+            continue;
+          }
+          const applicableOps: Patch = [];
+          const fileFixOps: Patch = [];
+          for (const op of patchData.patch) {
+            if (op.op === "file") {
+              // NOTE: We insert the last patch_id that modify a file
+              // when constructing the url the plan is to use the patch id (and the file path)
+              // to fetch the right file
+              const pathId = op.path.join("/");
+              if (addedPatchIdOnPath.has(pathId)) {
+                fileFixOps.push({
+                  op: "replace",
+                  path: op.path.concat("patch_id"),
+                  value: patchId,
+                });
+              } else {
+                fileFixOps.push({
+                  op: "add",
+                  path: op.path.concat("patch_id"),
+                  value: patchId,
+                });
+                addedPatchIdOnPath.add(pathId);
+              }
+            } else {
+              applicableOps.push(op);
+            }
+          }
+          const patchRes = applyPatch(
+            source,
+            jsonOps,
+            applicableOps.concat(...fileFixOps)
+          );
           if (result.isErr(patchRes)) {
             if (!errors[path]) {
               errors[path] = [];
@@ -778,7 +815,7 @@ export abstract class ValOps {
     | {
         patchId: PatchId;
         error?: undefined;
-        created_at: string;
+        createdAt: string;
         files: {
           filePath: string;
           error?: PatchError;
@@ -871,67 +908,117 @@ export abstract class ValOps {
 
     const saveFileRes: { filePath: string; error?: PatchError }[] =
       await Promise.all(
-        Object.entries(files).map(async ([filePath, data]) => {
-          if (data.error) {
-            return { filePath, error: data.error };
-          } else {
-            let type: string | null;
-            const modulePath = Internal.patchPathToModulePath(data.path);
-            try {
-              const { schema: schemaAtPath } = Internal.resolvePath(
-                modulePath,
-                source,
-                schema
-              );
-              type =
-                schemaAtPath instanceof ImageSchema
-                  ? "image"
-                  : schemaAtPath instanceof FileSchema
-                  ? "file"
-                  : schema.serialize().type;
-            } catch (e) {
-              if (e instanceof Error) {
+        Object.entries(files).map(
+          async ([filePath, data]): Promise<{
+            filePath: string;
+            error?: PatchError;
+          }> => {
+            if (data.error) {
+              return { filePath, error: data.error };
+            } else {
+              let type: string | null;
+              const modulePath = Internal.patchPathToModulePath(data.path);
+              try {
+                const { schema: schemaAtPath } = Internal.resolvePath(
+                  modulePath,
+                  source,
+                  schema
+                );
+                type =
+                  schemaAtPath instanceof ImageSchema
+                    ? "image"
+                    : schemaAtPath instanceof FileSchema
+                    ? "file"
+                    : schema.serialize().type;
+              } catch (e) {
+                if (e instanceof Error) {
+                  return {
+                    filePath,
+                    error: new PatchError(
+                      `Could not resolve file type at: ${modulePath}. Error: ${e.message}`
+                    ),
+                  };
+                }
                 return {
                   filePath,
                   error: new PatchError(
-                    `Could not resolve file type at: ${modulePath}. Error: ${e.message}`
+                    `Could not resolve file type at: ${modulePath}. Unknown error.`
                   ),
                 };
+              }
+              if (type !== "image" && type !== "file") {
+                return {
+                  filePath,
+                  error: new PatchError(
+                    "Unknown file type (resolved from schema): " + type
+                  ),
+                };
+              }
+
+              const mimeType = getMimeTypeFromBase64(data.value);
+              if (!mimeType) {
+                return {
+                  filePath,
+                  error: new PatchError(
+                    "Could not get mimeType from base 64 encoded value. First chars were: " +
+                      data.value.slice(0, 20)
+                  ),
+                };
+              }
+
+              const buffer = bufferFromDataUrl(data.value);
+              if (!buffer) {
+                return {
+                  filePath,
+                  error: new PatchError(
+                    "Could not create buffer from base 64 encoded value"
+                  ),
+                };
+              }
+              const metadataOps = createMetadataFromBuffer(
+                type,
+                mimeType,
+                buffer
+              );
+              if (metadataOps.errors) {
+                return {
+                  filePath,
+                  error: new PatchError(
+                    `Could not get metadata. Errors: ${metadataOps.errors
+                      .map((error) => error.message)
+                      .join(", ")}`
+                  ),
+                };
+              }
+              const MaxRetries = 3;
+              let lastRes;
+              for (let i = 0; i < MaxRetries; i++) {
+                lastRes = await this.saveBase64EncodedBinaryFileFromPatch(
+                  filePath,
+                  patchId,
+                  data.value,
+                  type,
+                  metadataOps.metadata
+                );
+                if (!lastRes.error) {
+                  return { filePath };
+                }
               }
               return {
                 filePath,
                 error: new PatchError(
-                  `Could not resolve file type at: ${modulePath}. Unknown error.`
+                  lastRes?.error?.message ||
+                    "Unexpectedly could not save patch file"
                 ),
               };
-            }
-            if (type !== "image" && type !== "file") {
-              return {
-                filePath,
-                error: new PatchError(
-                  "Unknown file type (resolved from schema): " + type
-                ),
-              };
-            }
-            const res = await this.saveBase64EncodedBinaryFileFromPatch(
-              filePath,
-              type,
-              patchId,
-              data.value,
-              data.sha256
-            );
-            if (!res.error) {
-              return { filePath };
-            } else {
-              return { filePath, error: new PatchError(res.error.message) };
             }
           }
-        })
+        )
       );
     return {
       patchId,
       files: saveFileRes,
-      created_at: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
     };
   }
 
@@ -949,29 +1036,30 @@ export abstract class ValOps {
   ): Promise<WithGenericError<{ data: string }>>;
   protected abstract saveBase64EncodedBinaryFileFromPatch(
     filePath: string,
-    type: "file" | "image",
     patchId: PatchId,
     data: string,
-    sha256: string
+    type: "file" | "image",
+    metadata: MetadataOfType<"file" | "image">
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>>;
-  protected abstract getBase64EncodedBinaryFileFromPatch(
+  abstract getBase64EncodedBinaryFileFromPatch(
     filePath: string,
     patchId: PatchId
   ): Promise<Buffer | null>;
   protected abstract getBase64EncodedBinaryFileMetadataFromPatch<
     T extends "file" | "image"
   >(filePath: string, type: T, patchId: PatchId): Promise<OpsMetadata<T>>;
-  protected abstract getBinaryFile(filePath: string): Promise<Buffer | null>;
+  abstract getBinaryFile(filePath: string): Promise<Buffer | null>;
   protected abstract getBinaryFileMetadata<T extends "file" | "image">(
     filePath: string,
     type: T
   ): Promise<OpsMetadata<T>>;
-  protected abstract deletePatches(patchIds: PatchId[]): Promise<
-    | { deleted: PatchId[]; errors?: undefined }
+  abstract deletePatches(patchIds: PatchId[]): Promise<
+    | { deleted: PatchId[]; errors?: undefined; error?: undefined }
     | {
         deleted: PatchId[];
-        errors: Record<PatchId, GenericErrorMessage & { patchId: PatchId }>;
+        errors: Record<PatchId, GenericErrorMessage>;
       }
+    | { error: GenericErrorMessage; errors?: undefined; deleted?: undefined }
   >;
 }
 
@@ -1031,7 +1119,7 @@ export type PatchSourceError =
   | ValSyntaxError
   | ValSyntaxErrorTree;
 
-type MetadataOfType<T extends "file" | "image"> = T extends "image"
+export type MetadataOfType<T extends "file" | "image"> = T extends "image"
   ? Omit<ImageMetadata, "hotspot">
   : FileMetadata;
 export type OpsMetadata<T extends "file" | "image"> =
@@ -1053,8 +1141,17 @@ export type OpsMetadata<T extends "file" | "image"> =
 export type BinaryFileType = "file" | "image";
 
 export type PreparedCommit = {
+  /**
+   * Updated / new source files that are ready to be committed / saved
+   */
   patchedSourceFiles: Record<ModuleFilePath, string>;
+  /**
+   * The file path and patch id in which they appear of binary files that are ready to be committed / saved
+   */
   patchedBinaryFilesDescriptors: Record<string, { patchId: PatchId }>;
+  /**
+   * Source file patches that were successfully applied to get to this result
+   */
   appliedPatches: Record<ModuleFilePath, PatchId[]>;
   //
   hasErrors: boolean;
@@ -1070,7 +1167,7 @@ export type Patches = {
     {
       path: ModuleFilePath;
       patch: Patch;
-      created_at: string;
+      createdAt: string;
       authorId: AuthorId | null;
       appliedAt: {
         baseSha: BaseSha;
@@ -1079,6 +1176,7 @@ export type Patches = {
       } | null;
     }
   >;
+  error?: GenericErrorMessage;
   errors?: Record<PatchId, GenericErrorMessage>;
 };
 
@@ -1086,6 +1184,7 @@ export type PatchErrors = Record<PatchId, GenericErrorMessage>;
 
 export type FindPatches = {
   patches: Record<PatchId, Omit<Patches["patches"][PatchId], "patch">>;
+  error?: GenericErrorMessage;
   errors?: Patches["errors"];
 };
 
@@ -1104,4 +1203,167 @@ export function getFieldsForType<T extends BinaryFileType>(
       string)[];
   }
   throw new Error("Unknown type: " + type);
+}
+
+export function createMetadataFromBuffer<T extends BinaryFileType>(
+  type: BinaryFileType,
+  mimeType: string,
+  buffer: Buffer
+): OpsMetadata<T> {
+  const sha256 = getSha256(mimeType, buffer);
+  const errors = [];
+  let availableMetadata: Record<string, string | number | undefined | null>;
+  if (type === "image") {
+    const { width, height, type } = sizeOf(buffer);
+    if (type !== undefined && `image/${type}` !== mimeType) {
+      return {
+        errors: [
+          {
+            message: `Mime type does not match image type: ${mimeType} vs ${type}`,
+          },
+        ],
+      };
+    }
+    availableMetadata = {
+      sha256: sha256,
+      mimeType,
+      height,
+      width,
+    };
+  } else {
+    availableMetadata = {
+      sha256: sha256,
+      mimeType,
+    };
+  }
+  const metadata: Record<string, string | number> = {};
+  for (const field of getFieldsForType(type)) {
+    const foundFieldData =
+      field in availableMetadata ? availableMetadata[field] : null;
+    if (foundFieldData !== undefined && foundFieldData !== null) {
+      metadata[field] = foundFieldData;
+    } else {
+      errors.push({ message: `Field not found: '${field}'`, field });
+    }
+  }
+  if (errors.length > 0) {
+    return { errors };
+  }
+  return { metadata } as OpsMetadata<T>;
+}
+
+const base64DataAttr = "data:";
+export function getMimeTypeFromBase64(content: string): string | null {
+  const dataIndex = content.indexOf(base64DataAttr);
+  const base64Index = content.indexOf(";base64,");
+  if (dataIndex > -1 || base64Index > -1) {
+    const mimeType = content.slice(
+      dataIndex + base64DataAttr.length,
+      base64Index
+    );
+    return mimeType;
+  }
+  return null;
+}
+
+// https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types
+const COMMON_MIME_TYPES: Record<string, string> = {
+  aac: "audio/aac",
+  abw: "application/x-abiword",
+  arc: "application/x-freearc",
+  avif: "image/avif",
+  avi: "video/x-msvideo",
+  azw: "application/vnd.amazon.ebook",
+  bin: "application/octet-stream",
+  bmp: "image/bmp",
+  bz: "application/x-bzip",
+  bz2: "application/x-bzip2",
+  cda: "application/x-cdf",
+  csh: "application/x-csh",
+  css: "text/css",
+  csv: "text/csv",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  eot: "application/vnd.ms-fontobject",
+  epub: "application/epub+zip",
+  gz: "application/gzip",
+  gif: "image/gif",
+  htm: "text/html",
+  html: "text/html",
+  ico: "image/vnd.microsoft.icon",
+  ics: "text/calendar",
+  jar: "application/java-archive",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  js: "text/javascript",
+  json: "application/json",
+  jsonld: "application/ld+json",
+  mid: "audio/midi",
+  midi: "audio/midi",
+  mjs: "text/javascript",
+  mp3: "audio/mpeg",
+  mp4: "video/mp4",
+  mpeg: "video/mpeg",
+  mpkg: "application/vnd.apple.installer+xml",
+  odp: "application/vnd.oasis.opendocument.presentation",
+  ods: "application/vnd.oasis.opendocument.spreadsheet",
+  odt: "application/vnd.oasis.opendocument.text",
+  oga: "audio/ogg",
+  ogv: "video/ogg",
+  ogx: "application/ogg",
+  opus: "audio/opus",
+  otf: "font/otf",
+  png: "image/png",
+  pdf: "application/pdf",
+  php: "application/x-httpd-php",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  rar: "application/vnd.rar",
+  rtf: "application/rtf",
+  sh: "application/x-sh",
+  svg: "image/svg+xml",
+  tar: "application/x-tar",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+  ts: "video/mp2t",
+  ttf: "font/ttf",
+  txt: "text/plain",
+  vsd: "application/vnd.visio",
+  wav: "audio/wav",
+  weba: "audio/webm",
+  webm: "video/webm",
+  webp: "image/webp",
+  woff: "font/woff",
+  woff2: "font/woff2",
+  xhtml: "application/xhtml+xml",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  xml: "application/xml",
+  xul: "application/vnd.mozilla.xul+xml",
+  zip: "application/zip",
+  "3gp": "video/3gpp; audio/3gpp if it doesn't contain video",
+  "3g2": "video/3gpp2; audio/3gpp2 if it doesn't contain video",
+  "7z": "application/x-7z-compressed",
+};
+
+export function guessMimeTypeFromPath(filePath: string): string | null {
+  const fileExt = filePath.split(".").pop();
+  if (fileExt) {
+    return COMMON_MIME_TYPES[fileExt.toLowerCase()] || null;
+  }
+  return null;
+}
+
+export function bufferFromDataUrl(dataUrl: string): Buffer | undefined {
+  let base64Data;
+  const base64Index = dataUrl.indexOf(";base64,");
+  if (base64Index > -1) {
+    base64Data = dataUrl.slice(base64Index + ";base64,".length);
+  }
+  if (base64Data) {
+    return Buffer.from(
+      base64Data,
+      "base64" // TODO: why does it not work with base64url?
+    );
+  }
 }
