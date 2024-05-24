@@ -12,3 +12,5 @@ tsconfig.tsbuildinfo
 
 packages/ui/server/.tmp
 out
+
+.tmp

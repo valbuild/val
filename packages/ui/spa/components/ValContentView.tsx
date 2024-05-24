@@ -12,7 +12,7 @@ import { Grid } from "./Grid";
 import React from "react";
 import Logo from "../assets/icons/Logo";
 import { ScrollArea } from "./ui/scroll-area";
-import { ChevronLeft, Languages, Minimize2, Send } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { ValUIContext } from "./ValUIContext";
 import { useTheme } from "./useTheme";
 import { useSession } from "./useSession";

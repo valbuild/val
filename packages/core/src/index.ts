@@ -108,6 +108,7 @@ export { deserializeSchema } from "./schema/deserialize";
 // Move to internal
 export { ValApi } from "./ValApi";
 
+// eslint-disable-next-line @typescript-eslint/ban-types
 export type ApiCommitResponse = {};
 
 export type ApiSchemaResponse = {
