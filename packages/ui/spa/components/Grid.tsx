@@ -125,13 +125,7 @@ export function Grid({ children }: GridProps): React.ReactElement {
             >
               {header1}
             </MenuButton>
-            <span
-              className={classNames({
-                "pl-[300px] md:pl-0": showMobileLeftMenu,
-              })}
-            >
-              {header2}
-            </span>
+            {header2}
           </span>
           <ScrollArea style={{ height: "calc(100vh - 50px)" }}>
             {body2}

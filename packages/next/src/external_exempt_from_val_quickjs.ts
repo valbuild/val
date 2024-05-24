@@ -7,7 +7,7 @@ export type { RichTextSource, RichText } from "@valbuild/core";
 export {
   type Val,
   type SerializedVal,
-  type ModuleId,
+  type ModuleFilePath,
   type ModulePath,
   type SourcePath,
   type JsonOfSource,

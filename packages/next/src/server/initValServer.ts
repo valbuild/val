@@ -8,7 +8,9 @@ import { VERSION } from "../version";
 const initValNextAppRouter = (
   valModules: ValModules,
   config: ValConfig,
-  nextConfig: ValServerNextConfig
+  nextConfig: ValServerNextConfig & {
+    formatter?: (code: string, filePath: string) => string;
+  }
 ) => {
   const route = "/api/val"; // TODO: get from config
   const coreVersion = Internal.VERSION.core;
@@ -42,7 +44,8 @@ const initValNextAppRouter = (
         async onDisable() {
           nextConfig.draftMode().disable();
         },
-      }
+      },
+      nextConfig.formatter
     ),
     (valRes): NextResponse => {
       let headersInit: HeadersInit | undefined = undefined;

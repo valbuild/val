@@ -1,20 +1,16 @@
-import {
-  getModuleIds,
-  stegaEncode,
-  type StegaOfSource,
-} from "@valbuild/react/stega";
+import { stegaEncode, type StegaOfSource } from "@valbuild/react/stega";
 import {
   SelectorSource,
   SelectorOf,
   GenericSelector,
-  ModuleId,
+  ModuleFilePath,
 } from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { Internal } from "@valbuild/core";
 import { ValConfig } from "@valbuild/core";
 import { cookies, draftMode, headers } from "next/headers";
-import { optimizeTreePath } from "../optimizeTreePath";
+import { ValOps } from "@valbuild/server/src/ValOps";
 
 const initFetchValStega =
   (
@@ -72,36 +68,44 @@ const initFetchValStega =
       const host: string | null = headers && getHost(headers);
       if (host && cookies) {
         const api = new ValApi(`${host}${valApiEndpoints}`);
-        const valModuleIds = getModuleIds(selector);
         return api
-          .putTree({
-            // TODO: get tree should probably have a list of ids instead
-            treePath: optimizeTreePath(valModuleIds) ?? undefined,
-            patch: true,
-            includeSource: true,
-            includeSchema: true,
-            headers: getValAuthHeaders(cookies),
-          })
-          .then((res) => {
-            if (result.isOk(res)) {
-              const { modules } = res.value;
-              return stegaEncode(selector, {
-                disabled: !enabled,
-                getModule: (moduleId) => {
-                  const module = modules[moduleId as ModuleId];
-                  if (module) {
-                    return module.source;
-                  }
-                },
-              });
-            } else {
-              if (res.error.statusCode === 401) {
-                console.warn("Val: authentication error: ", res.error.message);
-              } else {
-                console.error("Val: could not fetch modules", res.error);
-                throw Error(JSON.stringify(res.error, null, 2));
-              }
+          .getPatches()
+          .then(async (patchesRes) => {
+            if (result.isErr(patchesRes)) {
+              console.error("Val: could not fetch patches", patchesRes.error);
+              throw Error(JSON.stringify(patchesRes.error, null, 2));
             }
+            const allPatches = Object.values(patchesRes.value).flatMap((mp) =>
+              mp.map((p) => p.patch_id)
+            );
+            return api
+              .putTree({
+                patchIds: allPatches,
+              })
+              .then((res) => {
+                if (result.isOk(res)) {
+                  const { modules } = res.value;
+                  return stegaEncode(selector, {
+                    disabled: !enabled,
+                    getModule: (path) => {
+                      const module = modules[path as ModuleFilePath];
+                      if (module) {
+                        return module.source;
+                      }
+                    },
+                  });
+                } else {
+                  if (res.error.statusCode === 401) {
+                    console.warn(
+                      "Val: authentication error: ",
+                      res.error.message
+                    );
+                  } else {
+                    console.error("Val: could not fetch modules", res.error);
+                    throw Error(JSON.stringify(res.error, null, 2));
+                  }
+                }
+              });
           })
           .catch((err) => {
             console.error("Val: failed while fetching modules", err);

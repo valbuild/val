@@ -23,6 +23,7 @@ import { ValSession, ValStore } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 import { Remote } from "../utils/Remote";
 import { useParams } from "./ValRouter";
+import { Button } from "./ui/button";
 
 interface ValFullscreenProps {
   api: ValApi;
@@ -64,15 +65,15 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
       const [moduleFilePath, modulePath] =
         Internal.splitModuleFilePathAndModulePath(path);
       const patch = await callback(Internal.createPatchPath(modulePath));
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const applyRes = await store.applyPatch(moduleFilePath, patches, patch);
-      // TODO: applyRes
       if (result.isOk(applyRes)) {
+        const patches = [];
         for (const patchData of Object.values(applyRes.value)) {
           patches.push(...patchData.patchIds);
         }
         setPatches(patches);
       }
+      // TODO: applyRes error
     },
     [patches]
   );
@@ -82,7 +83,9 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
       if (result.isOk(res)) {
         const patches: PatchId[] = [];
         for (const patchData of Object.values(res.value).flat()) {
-          patches.push(patchData.patch_id);
+          if (!patchData.applied_at_base_sha) {
+            patches.push(patchData.patch_id);
+          }
         }
         setPatches(patches);
       } else {
@@ -90,55 +93,6 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
       }
     });
   }, []);
-  // TODO: validation
-  // const [isValidating, setIsValidating] = useState(false);
-  // const [validationResponse, setValidationResponse] =
-  //   useState<ValPatchesProps["validationResponse"]>();
-
-  // useEffect(() => {
-  //   let ignore = false;
-  //   if (moduleFilePaths !== undefined) {
-  //     setIsValidating(true);
-  //     api
-  //       .postValidate({
-  //         patches,
-  //       })
-  //       .then((res) => {
-  //         if (!ignore) {
-  //           if (result.isOk(res)) {
-  //             setValidationResponse({
-  //               globalError: null,
-  //               validationErrors: res.value,
-  //             });
-  //           } else {
-  //             setValidationResponse({
-  //               globalError: {
-  //                 message:
-  //                   "Could not validate changes: check if Val is correctly setup.",
-  //                 details: res.error,
-  //               },
-  //             });
-  //           }
-  //           setIsValidating(false);
-  //         }
-  //       })
-  //       .catch((err) => {
-  //         if (!ignore) {
-  //           setValidationResponse({
-  //             globalError: {
-  //               message:
-  //                 "Could not validate changes: check the internet connection.",
-  //               details: err,
-  //             },
-  //           });
-  //           setIsValidating(false);
-  //         }
-  //       });
-  //   }
-  //   return () => {
-  //     ignore = true;
-  //   };
-  // }, [patches, moduleFilePaths]);
 
   return (
     <ValUIContext.Provider
@@ -181,21 +135,46 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
                   !error && <div className="py-4">Loading...</div>
                 )}
               </ScrollArea>
-              <div className="flex items-center justify-start h-[50px] gap-2 font-serif text-xs">
-                <button
+              <div className="flex items-center justify-between h-[50px] w-full px-4">
+                <div className="flex items-center justify-start gap-2 font-serif text-xs">
+                  <button
+                    onClick={() => {
+                      history.back();
+                    }}
+                  >
+                    <ChevronLeft />
+                  </button>
+                  <div
+                    className="truncate max-w-[300px] text-left"
+                    dir="rtl"
+                    title={selectedPath}
+                  >
+                    <Path>{selectedPath || "/"}</Path>
+                  </div>
+                </div>
+                <Button
+                  disabled={
+                    !(session.status === "success" && session.data.enabled) ||
+                    patches.length === 0
+                  }
                   onClick={() => {
-                    history.back();
+                    api.postSave({ patchIds: patches }).then(async (res) => {
+                      if (result.isOk(res)) {
+                        const res = await api.deletePatches(patches);
+                        if (result.isOk(res)) {
+                          setPatches([]);
+                          alert("Success");
+                        } else {
+                          setError("Could not clean up");
+                        }
+                      } else {
+                        setError("Could not publish");
+                      }
+                    });
                   }}
                 >
-                  <ChevronLeft />
-                </button>
-                <div
-                  className="truncate max-w-[300px] text-left"
-                  dir="rtl"
-                  title={selectedPath}
-                >
-                  <Path>{selectedPath || "/"}</Path>
-                </div>
+                  Publish {patches.length > 0 && `(${patches.length})`}
+                </Button>
               </div>
               <ModulePane
                 path={selectedPath}
@@ -205,19 +184,6 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
                 api={api}
                 store={store}
               />
-              <div className="w-full flex items-center justify-end h-[50px] gap-2 font-serif text-xs px-6">
-                {/* MENU */}
-
-                <button className="px-4 py-2 border rounded border-border">
-                  <Minimize2 size={14} />
-                </button>
-                <button className="px-4 py-2 border rounded border-border">
-                  <Languages size={14} />
-                </button>
-                <button className="px-4 py-2 border rounded border-border bg-border">
-                  <Send size={14} />
-                </button>
-              </div>
             </Grid>
           </div>
         </ValImagePreviewContext.Provider>

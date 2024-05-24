@@ -121,7 +121,10 @@ export function convertFileSource<
     return {
       url:
         src[FILE_REF_PROP] +
-        (src.metadata?.sha256 ? `?sha256=${src.metadata?.sha256}` : ""),
+        (src.metadata?.sha256 ? `?sha256=${src.metadata?.sha256}` : "") + // TODO: remove sha256? we do not need anymore
+        (src.patch_id
+          ? `${src.metadata?.sha256 ? "&" : "?"}patch_id=${src["patch_id"]}`
+          : ""),
       metadata: src.metadata,
     };
   }
@@ -129,7 +132,10 @@ export function convertFileSource<
   return {
     url:
       src[FILE_REF_PROP].slice("/public".length) +
-      (src.metadata?.sha256 ? `?sha256=${src.metadata?.sha256}` : ""),
+      (src.metadata?.sha256 ? `?sha256=${src.metadata?.sha256}` : "") +
+      (src.patch_id
+        ? `${src.metadata?.sha256 ? "&" : "?"}patch_id=${src["patch_id"]}`
+        : ""),
     metadata: src.metadata,
   };
 }

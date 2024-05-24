@@ -1,3 +1,4 @@
+// TODO: remove
 export function optimizeTreePath(ids: string[]) {
   return findUpperDirectory(ids);
 }

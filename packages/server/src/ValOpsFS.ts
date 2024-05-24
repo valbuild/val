@@ -5,22 +5,24 @@ import {
   BinaryFileType,
   FindPatches,
   GenericErrorMessage,
+  MetadataOfType,
   OpsMetadata,
   Patches,
   PreparedCommit,
   ValOps,
   ValOpsOptions,
   WithGenericError,
+  bufferFromDataUrl,
+  createMetadataFromBuffer,
   getFieldsForType,
 } from "./ValOps";
 import fsPath from "path";
 import ts from "typescript";
 import { z } from "zod";
 import fs from "fs";
-import { getSha256 } from "./extractMetadata";
-import sizeOf from "image-size";
 import { fromError } from "zod-validation-error";
 import { Patch } from "./patch/validation";
+import { guessMimeTypeFromPath } from "./ValServer";
 
 export class ValOpsFS extends ValOps {
   private static readonly VAL_DIR = ".val";
@@ -91,7 +93,7 @@ export class ValOpsFS extends ValOps {
             // parseFile does keep refined types?
             path: ModuleFilePath;
             patch: Patch;
-            created_at: string;
+            createdAt: string;
             authorId: AuthorId | null;
             coreVersion: string;
           }),
@@ -131,7 +133,7 @@ export class ValOpsFS extends ValOps {
       }
       patches[patchId] = {
         path: patch.path,
-        created_at: patch.created_at,
+        createdAt: patch.createdAt,
         authorId: patch.authorId,
         appliedAt: patch.appliedAt,
       };
@@ -255,7 +257,7 @@ export class ValOpsFS extends ValOps {
         path,
         authorId,
         coreVersion: Internal.VERSION.core,
-        created_at: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
       };
       this.host.writeUf8File(
         this.getPatchFilePath(patchId),
@@ -302,10 +304,10 @@ export class ValOpsFS extends ValOps {
 
   protected override async saveBase64EncodedBinaryFileFromPatch(
     filePath: string,
-    type: BinaryFileType,
     patchId: PatchId,
-    data: string
-    // sha256: string
+    data: string,
+    _type: BinaryFileType,
+    metadata: MetadataOfType<BinaryFileType>
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
     const patchFilePath = this.getBinaryFilePath(filePath, patchId);
     const metadataFilePath = this.getBinaryFileMetadataPath(filePath, patchId);
@@ -320,20 +322,7 @@ export class ValOpsFS extends ValOps {
           },
         };
       }
-      const mimeType = getMimeTypeFromBase64(data);
-      if (!mimeType) {
-        return {
-          error: {
-            message:
-              "Could not get mimeType from base 64 encoded value. First chars were: " +
-              data.slice(0, 20),
-          },
-        };
-      }
-      this.host.writeUf8File(
-        metadataFilePath,
-        JSON.stringify(createMetadataFromBuffer(filePath, type, buffer))
-      );
+      this.host.writeUf8File(metadataFilePath, JSON.stringify(metadata));
       this.host.writeBinaryFile(patchFilePath, buffer);
       return { patchId, filePath };
     } catch (err) {
@@ -355,10 +344,7 @@ export class ValOpsFS extends ValOps {
     }
     const metadataParseRes = this.parseJsonFile(
       metadataFilePath,
-      z.object({
-        metadata: z.record(z.union([z.string(), z.number()])),
-        errors: z.array(z.object({ message: z.string() })).optional(),
-      })
+      z.record(z.union([z.string(), z.number()]))
     );
     if (metadataParseRes.error) {
       return { errors: [metadataParseRes.error] };
@@ -367,7 +353,7 @@ export class ValOpsFS extends ValOps {
     const expectedFields = getFieldsForType(type);
     const fieldErrors = [];
     for (const field of expectedFields) {
-      if (!(field in parsed.metadata)) {
+      if (!(field in parsed)) {
         fieldErrors.push({
           message: `Expected fields for type: ${type}. Field not found: '${field}'`,
           field,
@@ -377,10 +363,10 @@ export class ValOpsFS extends ValOps {
     if (fieldErrors.length > 0) {
       return { errors: fieldErrors };
     }
-    return parsed as OpsMetadata<T>;
+    return { metadata: parsed } as OpsMetadata<T>;
   }
 
-  protected override async getBase64EncodedBinaryFileFromPatch(
+  override async getBase64EncodedBinaryFileFromPatch(
     filePath: string,
     patchId: PatchId
   ): Promise<Buffer | null> {
@@ -392,18 +378,16 @@ export class ValOpsFS extends ValOps {
     return this.host.readBinaryFile(absPath);
   }
 
-  protected override async deletePatches(patchIds: PatchId[]): Promise<
-    | { deleted: PatchId[]; errors?: undefined }
+  override async deletePatches(patchIds: PatchId[]): Promise<
+    | { deleted: PatchId[]; errors?: undefined; error?: undefined }
     | {
         deleted: PatchId[];
-        errors: Record<PatchId, GenericErrorMessage & { patchId: PatchId }>;
+        errors: Record<PatchId, GenericErrorMessage>;
       }
+    | { error: GenericErrorMessage; errors?: undefined; deleted?: undefined }
   > {
     const deleted: PatchId[] = [];
-    let errors: Record<
-      PatchId,
-      GenericErrorMessage & { patchId: PatchId }
-    > | null = null;
+    let errors: Record<PatchId, GenericErrorMessage> | null = null;
     for (const patchId of patchIds) {
       try {
         this.host.deleteDir(this.getPatchDir(patchId));
@@ -414,7 +398,6 @@ export class ValOpsFS extends ValOps {
         }
         errors[patchId] = {
           message: err instanceof Error ? err.message : "Unknown error",
-          patchId,
         };
       }
     }
@@ -483,9 +466,7 @@ export class ValOpsFS extends ValOps {
     };
   }
 
-  protected override async getBinaryFile(
-    filePath: string
-  ): Promise<Buffer | null> {
+  override async getBinaryFile(filePath: string): Promise<Buffer | null> {
     const absPath = fsPath.join(this.rootDir, ...filePath.split("/"));
     if (!this.host.fileExists(absPath)) {
       return null;
@@ -504,7 +485,20 @@ export class ValOpsFS extends ValOps {
         errors: [{ message: "File not found", filePath }],
       };
     }
-    return createMetadataFromBuffer(filePath, type, buffer);
+    const mimeType = guessMimeTypeFromPath(filePath);
+    if (!mimeType) {
+      return {
+        errors: [
+          {
+            message: `Could not guess mime type of file ext: ${fsPath.extname(
+              filePath
+            )}`,
+            filePath,
+          },
+        ],
+      };
+    }
+    return createMetadataFromBuffer(type, mimeType, buffer);
   }
 
   // #region fs file path helpers
@@ -608,7 +602,7 @@ const FSPatch = z.object({
     .string()
     .refine((p): p is AuthorId => true)
     .nullable(),
-  created_at: z.string().datetime(),
+  createdAt: z.string().datetime(),
   coreVersion: z.string().nullable(), // TODO: use this to check if patch is compatible with current core version?
 });
 
@@ -616,169 +610,3 @@ const FSPatchBase = z.object({
   baseSha: z.string().refine((p): p is BaseSha => true),
   timestamp: z.string().datetime(),
 });
-
-export function createMetadataFromBuffer<T extends BinaryFileType>(
-  filePath: string,
-  type: BinaryFileType,
-  buffer: Buffer
-): OpsMetadata<T> {
-  const mimeType = guessMimeTypeFromPath(filePath);
-  if (!mimeType) {
-    return {
-      errors: [
-        {
-          message: "Could not get mimeType from file",
-          filePath,
-        },
-      ],
-    };
-  }
-  const sha256 = getSha256(mimeType, buffer);
-
-  const errors = [];
-  let availableMetadata: Record<string, string | number | undefined | null>;
-  if (type === "image") {
-    const { width, height, type } = sizeOf(buffer);
-    availableMetadata = {
-      sha256: sha256,
-      mimeType: type && `image/${type}`,
-      height,
-      width,
-    };
-  } else {
-    availableMetadata = {
-      sha256: sha256,
-      mimeType: guessMimeTypeFromPath(filePath),
-    };
-  }
-  const metadata: Record<string, string | number> = {};
-  for (const field of getFieldsForType(type)) {
-    const foundFieldData =
-      field in availableMetadata ? availableMetadata[field] : null;
-    if (foundFieldData !== undefined && foundFieldData !== null) {
-      metadata[field] = foundFieldData;
-    } else {
-      errors.push({ message: `Field not found: '${field}'`, field });
-    }
-  }
-  if (errors.length > 0) {
-    return { errors };
-  }
-  return { metadata } as OpsMetadata<T>;
-}
-
-const base64DataAttr = "data:";
-export function getMimeTypeFromBase64(content: string): string | null {
-  const dataIndex = content.indexOf(base64DataAttr);
-  const base64Index = content.indexOf(";base64,");
-  if (dataIndex > -1 || base64Index > -1) {
-    const mimeType = content.slice(
-      dataIndex + base64DataAttr.length,
-      base64Index
-    );
-    return mimeType;
-  }
-  return null;
-}
-
-// https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types
-const COMMON_MIME_TYPES: Record<string, string> = {
-  aac: "audio/aac",
-  abw: "application/x-abiword",
-  arc: "application/x-freearc",
-  avif: "image/avif",
-  avi: "video/x-msvideo",
-  azw: "application/vnd.amazon.ebook",
-  bin: "application/octet-stream",
-  bmp: "image/bmp",
-  bz: "application/x-bzip",
-  bz2: "application/x-bzip2",
-  cda: "application/x-cdf",
-  csh: "application/x-csh",
-  css: "text/css",
-  csv: "text/csv",
-  doc: "application/msword",
-  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  eot: "application/vnd.ms-fontobject",
-  epub: "application/epub+zip",
-  gz: "application/gzip",
-  gif: "image/gif",
-  htm: "text/html",
-  html: "text/html",
-  ico: "image/vnd.microsoft.icon",
-  ics: "text/calendar",
-  jar: "application/java-archive",
-  jpeg: "image/jpeg",
-  jpg: "image/jpeg",
-  js: "text/javascript",
-  json: "application/json",
-  jsonld: "application/ld+json",
-  mid: "audio/midi",
-  midi: "audio/midi",
-  mjs: "text/javascript",
-  mp3: "audio/mpeg",
-  mp4: "video/mp4",
-  mpeg: "video/mpeg",
-  mpkg: "application/vnd.apple.installer+xml",
-  odp: "application/vnd.oasis.opendocument.presentation",
-  ods: "application/vnd.oasis.opendocument.spreadsheet",
-  odt: "application/vnd.oasis.opendocument.text",
-  oga: "audio/ogg",
-  ogv: "video/ogg",
-  ogx: "application/ogg",
-  opus: "audio/opus",
-  otf: "font/otf",
-  png: "image/png",
-  pdf: "application/pdf",
-  php: "application/x-httpd-php",
-  ppt: "application/vnd.ms-powerpoint",
-  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  rar: "application/vnd.rar",
-  rtf: "application/rtf",
-  sh: "application/x-sh",
-  svg: "image/svg+xml",
-  tar: "application/x-tar",
-  tif: "image/tiff",
-  tiff: "image/tiff",
-  ts: "video/mp2t",
-  ttf: "font/ttf",
-  txt: "text/plain",
-  vsd: "application/vnd.visio",
-  wav: "audio/wav",
-  weba: "audio/webm",
-  webm: "video/webm",
-  webp: "image/webp",
-  woff: "font/woff",
-  woff2: "font/woff2",
-  xhtml: "application/xhtml+xml",
-  xls: "application/vnd.ms-excel",
-  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  xml: "application/xml",
-  xul: "application/vnd.mozilla.xul+xml",
-  zip: "application/zip",
-  "3gp": "video/3gpp; audio/3gpp if it doesn't contain video",
-  "3g2": "video/3gpp2; audio/3gpp2 if it doesn't contain video",
-  "7z": "application/x-7z-compressed",
-};
-
-export function guessMimeTypeFromPath(filePath: string): string | null {
-  const fileExt = filePath.split(".").pop();
-  if (fileExt) {
-    return COMMON_MIME_TYPES[fileExt.toLowerCase()] || null;
-  }
-  return null;
-}
-
-function bufferFromDataUrl(dataUrl: string): Buffer | undefined {
-  let base64Data;
-  const base64Index = dataUrl.indexOf(";base64,");
-  if (base64Index > -1) {
-    base64Data = dataUrl.slice(base64Index + ";base64,".length);
-  }
-  if (base64Data) {
-    return Buffer.from(
-      base64Data,
-      "base64" // TODO: why does it not work with base64url?
-    );
-  }
-}

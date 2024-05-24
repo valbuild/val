@@ -1,7 +1,7 @@
 import {
   GenericSelector,
   Internal,
-  ModuleId,
+  ModuleFilePath,
   SelectorOf,
   SelectorSource,
 } from "@valbuild/core";
@@ -25,7 +25,7 @@ function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
     );
   }, [valEvents]);
   if (valEvents) {
-    const moduleIds = getModuleIds(selector) as ModuleId[];
+    const moduleIds = getModuleIds(selector) as ModuleFilePath[];
     const moduleMap = React.useSyncExternalStore(
       valEvents.subscribe(moduleIds),
       valEvents.getSnapshot(moduleIds),
@@ -35,7 +35,7 @@ function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
       disabled: !enabled,
       getModule: (moduleId) => {
         if (moduleMap && enabled) {
-          return moduleMap[moduleId as ModuleId];
+          return moduleMap[moduleId as ModuleFilePath];
         }
       },
     });

@@ -1,7 +1,7 @@
 import { initVal } from "@valbuild/next";
 
 const { s, c, val, config } = initVal({
-  remote: "valbuild/val-examples-next",
+  project: "valbuild/val-examples-next",
   root: "/examples/next",
 });
 

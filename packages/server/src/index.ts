@@ -13,7 +13,6 @@ export type { IValFSHost } from "./ValFSHost";
 export type { ValFS } from "./ValFS";
 export { patchSourceFile } from "./patchValFile";
 export { formatSyntaxErrorTree } from "./patch/ts/syntax";
-export { LocalValServer } from "./LocalValServer";
 export { createFixPatch } from "./createFixPatch";
 export { PatchJSON, Patch } from "./patch/validation";
 export * from "./jwt";

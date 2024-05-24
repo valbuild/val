@@ -1,28 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import {
-  Internal,
-  ModuleFilePath,
-  PatchId,
-  ValModules,
-  initVal,
-} from "@valbuild/core";
-import { Patch } from "@valbuild/core/patch";
-import { bufferFromDataUrl, getMimeTypeFromBase64 } from "./ValServer";
+import { ModuleFilePath, PatchId, initVal } from "@valbuild/core";
 import { Script } from "node:vm";
 import { transform } from "sucrase";
-import {
-  AuthorId,
-  BaseSha,
-  BinaryFileType,
-  CommitSha,
-  GenericError,
-  GenericErrorMessage,
-  OpsMetadata,
-  SchemaSha,
-  ValOps,
-  WithGenericError,
-} from "./ValOps";
-import { ValOpsFS, createMetadataFromBuffer } from "./ValOpsFS";
+import { ValOpsFS } from "./ValOpsFS";
 import fs from "fs";
 import path from "node:path";
 import prettier from "prettier";
@@ -207,7 +187,7 @@ describe("ValOpsFS", () => {
       Object.keys(fp0.patches) as PatchId[]
     );
     console.log("patches", patchesRes);
-    const patchAnalysis = ops.analyzePatches(patchesRes);
+    const patchAnalysis = ops.analyzePatches(patchesRes.patches);
     const t1 = await ops.getTree({
       ...patchAnalysis,
       ...patchesRes,

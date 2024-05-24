@@ -1,6 +1,6 @@
 import path from "path";
 import { createFixPatch, createService } from "@valbuild/server";
-import { ModuleId, ModulePath, SourcePath } from "@valbuild/core";
+import { ModuleFilePath, ModulePath, SourcePath } from "@valbuild/core";
 import { glob } from "fast-glob";
 import picocolors from "picocolors";
 import { ESLint } from "eslint";
@@ -68,7 +68,10 @@ export async function validate({
   console.log("Validating...", valFiles.length, "files");
 
   async function validateFile(file: string): Promise<number> {
-    const moduleId = `/${file}`.replace(/(\.val\.(ts|js))$/, "") as ModuleId; // TODO: check if this always works? (Windows?)
+    const moduleId = `/${file}`.replace(
+      /(\.val\.(ts|js))$/,
+      ""
+    ) as ModuleFilePath; // TODO: check if this always works? (Windows?)
     const start = Date.now();
     const valModule = await service.get(moduleId, "" as ModulePath, {
       source: true,

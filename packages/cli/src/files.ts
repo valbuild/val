@@ -1,6 +1,6 @@
 import {
   FILE_REF_PROP,
-  ModuleId,
+  ModuleFilePath,
   ModulePath,
   SourcePath,
   VAL_EXTENSION,
@@ -28,7 +28,10 @@ export async function files({
 
   const absoluteFilesPathUsedByVal: string[] = [];
   async function printOrGetFileRefs(file: string) {
-    const moduleId = `/${file}`.replace(/(\.val\.(ts|js))$/, "") as ModuleId; // TODO: check if this always works? (Windows?)
+    const moduleId = `/${file}`.replace(
+      /(\.val\.(ts|js))$/,
+      ""
+    ) as ModuleFilePath; // TODO: check if this always works? (Windows?)
     const valModule = await service.get(moduleId, "" as ModulePath, {
       validate: true,
       source: true,

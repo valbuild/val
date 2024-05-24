@@ -5,16 +5,8 @@ import {
   PatchId,
   ValApi,
 } from "@valbuild/core";
-import { ChevronDown, Undo2, X } from "lucide-react";
-import { Button } from "./ui/button";
-import { result } from "@valbuild/core/fp";
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
+import { ChevronDown, Undo2 } from "lucide-react";
+import { createContext, useCallback, useContext, useState } from "react";
 import { Accordion, AccordionContent } from "./ui/accordion";
 import { AccordionItem, AccordionTrigger } from "@radix-ui/react-accordion";
 import { Path } from "./Path";
@@ -25,7 +17,6 @@ import {
   History,
   ReviewErrors,
   ReviewModuleError,
-  convertPatchErrors,
 } from "./convertPatchErrors";
 
 export type ValPatchesProps = {
@@ -45,165 +36,157 @@ function useNow() {
   return useContext(TimeContext);
 }
 
-export function ValPatchesDialog(props: ValPatchesProps) {
+export function ValPatchesDialog() {
   return (
     <Container>
-      <div className="flex items-center justify-between w-full px-4 mb-6">
-        <h1 className="block font-sans text-2xl font-bold">Review changes</h1>
-        <div className="flex justify-end p-2">
-          <button onClick={props.onCancel}>
-            <X />
-          </button>
-        </div>
-      </div>
-      <ValPatches {...props} />
+      <div></div>
     </Container>
   );
 }
 
 // TODO: Remove this and the history etc that is no longer used
-export function ValPatches({
-  api,
-  isValidating,
-  patches: patchIdsByModule,
-  validationResponse,
-  onCommit,
-  onCancel,
-}: ValPatchesProps) {
-  const [loading, setLoading] = useState(false);
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        if (onCancel) {
-          onCancel();
-        }
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
-  const [patchesByModule, setPatchesByModule] = useState<
-    Record<
-      ModuleFilePath,
-      {
-        patch_id: PatchId;
-        created_at: string;
-        commit_sha?: string;
-        author?: string;
-      }[]
-    >
-  >();
-  useEffect(() => {
-    let ignore = false;
-    api.getPatches(patchIdsByModule).then((res) => {
-      if (ignore) {
-        return;
-      }
-      if (result.isErr(res)) {
-        console.error(res.error);
-        return;
-      } else {
-        setPatchesByModule(res.value);
-      }
-    });
-    return () => {
-      ignore = true;
-    };
-  }, [patchIdsByModule]);
+// export function ValPatches({
+//   api,
+//   isValidating,
+//   patches: patchIdsByModule,
+//   validationResponse,
+//   onCommit,
+//   onCancel,
+// }: ValPatchesProps) {
+//   const [loading, setLoading] = useState(false);
+//   useEffect(() => {
+//     const handler = (e: KeyboardEvent) => {
+//       if (e.key === "Escape") {
+//         if (onCancel) {
+//           onCancel();
+//         }
+//       }
+//     };
+//     window.addEventListener("keydown", handler);
+//     return () => window.removeEventListener("keydown", handler);
+//   }, []);
+//   const [patchesByModule, setPatchesByModule] = useState<
+//     Record<
+//       ModuleFilePath,
+//       {
+//         patch_id: PatchId;
+//         created_at: string;
+//         commit_sha?: string;
+//         author?: string;
+//       }[]
+//     >
+//   >();
+//   useEffect(() => {
+//     let ignore = false;
+//     api.getPatches(patchIdsByModule).then((res) => {
+//       if (ignore) {
+//         return;
+//       }
+//       if (result.isErr(res)) {
+//         console.error(res.error);
+//         return;
+//       } else {
+//         setPatchesByModule(res.value);
+//       }
+//     });
+//     return () => {
+//       ignore = true;
+//     };
+//   }, [patchIdsByModule]);
 
-  return (
-    <TimeContext.Provider value={Date.now()}>
-      <div className="flex flex-col items-start justify-start h-full px-4 gap-y-5">
-        {patchesByModule && validationResponse && (
-          <ReviewPanel
-            {...convertPatchErrors(patchesByModule, {
-              modules: validationResponse.modules,
-              validationErrors: validationResponse.validationErrors,
-            })}
-            onDeletePatch={(patchId) => {
-              api
-                .deletePatches([patchId])
-                .then((res) => {
-                  if (result.isErr(res)) {
-                    console.error(res.error);
-                    return;
-                  }
-                  setPatchesByModule((patchesByModule) => {
-                    const newPatchesByModule = { ...patchesByModule };
-                    for (const moduleFilePathS in newPatchesByModule) {
-                      const moduleFilePath = moduleFilePathS as ModuleFilePath;
-                      newPatchesByModule[moduleFilePath] = newPatchesByModule[
-                        moduleFilePath
-                      ].filter((patch) => patchId !== patch.patch_id);
-                    }
-                    return newPatchesByModule;
-                  });
-                })
-                .catch(console.error);
-            }}
-          />
-        )}
-        <div className="flex justify-end w-full px-4 pb-4 gap-x-4">
-          <Button variant={"secondary"} onClick={onCancel}>
-            Cancel
-          </Button>
-          <Button
-            disabled={
-              isValidating || loading || !patchesByModule || !validationResponse
-            }
-            onClick={() => {
-              setLoading(true);
-              api
-                .postCommit({ patches: patchIdsByModule })
-                .then((res) => {
-                  if (result.isErr(res)) {
-                    console.error(res.error);
-                    if ("validationErrors" in res.error) {
-                      alert(
-                        `Cannot commit! Validation errors detected: ${Object.entries(
-                          res.error.validationErrors
-                        )
-                          .map(([moduleId, res]) =>
-                            res.errors.fatal
-                              ? `Module: ${moduleId}. FATAL errors: ${JSON.stringify(
-                                  res.errors.fatal,
-                                  null,
-                                  2
-                                )}`
-                              : `Module: ${moduleId}:\n${JSON.stringify(
-                                  res.errors.validation,
-                                  null,
-                                  4
-                                )}`
-                          )
-                          .join("\n")}`
-                      );
-                    } else {
-                      alert(
-                        "Could not commit patches: " +
-                          res.error.message +
-                          (res.error.details
-                            ? ". Details:" + JSON.stringify(res.error.details)
-                            : ".")
-                      );
-                    }
-                  } else {
-                    console.log("Committed patches: ", res.value);
-                    onCommit();
-                  }
-                })
-                .finally(() => {
-                  setLoading(false);
-                });
-            }}
-          >
-            {loading ? "Committing..." : "Commit"}
-          </Button>
-        </div>
-      </div>
-    </TimeContext.Provider>
-  );
-}
+//   return (
+//     <TimeContext.Provider value={Date.now()}>
+//       <div className="flex flex-col items-start justify-start h-full px-4 gap-y-5">
+//         {patchesByModule && validationResponse && (
+//           <ReviewPanel
+//             {...convertPatchErrors(patchesByModule, {
+//               modules: validationResponse.modules,
+//               validationErrors: validationResponse.validationErrors,
+//             })}
+//             onDeletePatch={(patchId) => {
+//               api
+//                 .deletePatches([patchId])
+//                 .then((res) => {
+//                   if (result.isErr(res)) {
+//                     console.error(res.error);
+//                     return;
+//                   }
+//                   setPatchesByModule((patchesByModule) => {
+//                     const newPatchesByModule = { ...patchesByModule };
+//                     for (const moduleFilePathS in newPatchesByModule) {
+//                       const moduleFilePath = moduleFilePathS as ModuleFilePath;
+//                       newPatchesByModule[moduleFilePath] = newPatchesByModule[
+//                         moduleFilePath
+//                       ].filter((patch) => patchId !== patch.patch_id);
+//                     }
+//                     return newPatchesByModule;
+//                   });
+//                 })
+//                 .catch(console.error);
+//             }}
+//           />
+//         )}
+//         <div className="flex justify-end w-full px-4 pb-4 gap-x-4">
+//           <Button variant={"secondary"} onClick={onCancel}>
+//             Cancel
+//           </Button>
+//           <Button
+//             disabled={
+//               isValidating || loading || !patchesByModule || !validationResponse
+//             }
+//             onClick={() => {
+//               setLoading(true);
+//               api
+//                 .postSave({ patches: patchIdsByModule })
+//                 .then((res) => {
+//                   if (result.isErr(res)) {
+//                     console.error(res.error);
+//                     if ("validationErrors" in res.error) {
+//                       alert(
+//                         `Cannot commit! Validation errors detected: ${Object.entries(
+//                           res.error.validationErrors
+//                         )
+//                           .map(([moduleId, res]) =>
+//                             res.errors.fatal
+//                               ? `Module: ${moduleId}. FATAL errors: ${JSON.stringify(
+//                                   res.errors.fatal,
+//                                   null,
+//                                   2
+//                                 )}`
+//                               : `Module: ${moduleId}:\n${JSON.stringify(
+//                                   res.errors.validation,
+//                                   null,
+//                                   4
+//                                 )}`
+//                           )
+//                           .join("\n")}`
+//                       );
+//                     } else {
+//                       alert(
+//                         "Could not commit patches: " +
+//                           res.error.message +
+//                           (res.error.details
+//                             ? ". Details:" + JSON.stringify(res.error.details)
+//                             : ".")
+//                       );
+//                     }
+//                   } else {
+//                     console.log("Committed patches: ", res.value);
+//                     onCommit();
+//                   }
+//                 })
+//                 .finally(() => {
+//                   setLoading(false);
+//                 });
+//             }}
+//           >
+//             {loading ? "Committing..." : "Commit"}
+//           </Button>
+//         </div>
+//       </div>
+//     </TimeContext.Provider>
+//   );
+// }
 
 export function ReviewPanel({
   history,
