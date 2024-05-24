@@ -7,10 +7,8 @@ import {
 } from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
-import { Internal } from "@valbuild/core";
 import { ValConfig } from "@valbuild/core";
 import { cookies, draftMode, headers } from "next/headers";
-import { ValOps } from "@valbuild/server/src/ValOps";
 
 const initFetchValStega =
   (
@@ -142,27 +140,28 @@ function getHost(headers: Headers) {
   return null;
 }
 
-function getValAuthHeaders(cookies: {
-  get(name: string): { name: string; value: string } | undefined;
-}): Record<string, string> {
-  try {
-    const session = cookies.get(Internal.VAL_SESSION_COOKIE);
-    if (session) {
-      return {
-        Cookie: `${Internal.VAL_SESSION_COOKIE}=${encodeURIComponent(
-          session.value
-        )}`,
-      };
-    }
-    return {};
-  } catch (err) {
-    console.error(
-      "Val: could not read cookies! fetchVal can only be used server-side. Use useVal on clients.",
-      err
-    );
-    return {};
-  }
-}
+// TODO: remove
+// function getValAuthHeaders(cookies: {
+//   get(name: string): { name: string; value: string } | undefined;
+// }): Record<string, string> {
+//   try {
+//     const session = cookies.get(Internal.VAL_SESSION_COOKIE);
+//     if (session) {
+//       return {
+//         Cookie: `${Internal.VAL_SESSION_COOKIE}=${encodeURIComponent(
+//           session.value
+//         )}`,
+//       };
+//     }
+//     return {};
+//   } catch (err) {
+//     console.error(
+//       "Val: could not read cookies! fetchVal can only be used server-side. Use useVal on clients.",
+//       err
+//     );
+//     return {};
+//   }
+// }
 
 const valApiEndpoints = "/api/val";
 
