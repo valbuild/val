@@ -756,6 +756,19 @@ export class ValServer {
             },
           };
         }
+        for (const fileRes of createPatchRes.files) {
+          if (fileRes.error) {
+            // clean up broken patch:
+            await this.serverOps.deletePatches([createPatchRes.patchId]);
+            return {
+              status: 500,
+              json: {
+                message: "Failed to create patch",
+                details: fileRes.error,
+              },
+            };
+          }
+        }
         patchOps.patches[createPatchRes.patchId] = {
           path: newPatchModuleFilePath,
           patch: newPatchOps,
@@ -787,6 +800,9 @@ export class ValServer {
       }
     } else {
       tree = await this.serverOps.getTree();
+    }
+    if (tree.errors && Object.keys(tree.errors).length > 0) {
+      console.error("Val: Failed to get tree", JSON.stringify(tree.errors));
     }
 
     if (
