@@ -530,6 +530,14 @@ export class ValServer {
         },
       };
     }
+    if (this.serverOps instanceof ValOpsHttp && !("id" in auth)) {
+      return {
+        status: 401,
+        json: {
+          message: "Unauthorized",
+        },
+      };
+    }
     const authors = query.authors as AuthorId[] | undefined;
     const patches = await this.serverOps.findPatches({
       authors,
@@ -576,7 +584,7 @@ export class ValServer {
         },
       };
     }
-    if (this.options.mode === "http" && !("id" in auth)) {
+    if (this.serverOps instanceof ValOpsHttp && !("id" in auth)) {
       return {
         status: 401,
         json: {
@@ -612,6 +620,14 @@ export class ValServer {
         status: 401,
         json: {
           message: auth.error,
+        },
+      };
+    }
+    if (this.serverOps instanceof ValOpsHttp && !("id" in auth)) {
+      return {
+        status: 401,
+        json: {
+          message: "Unauthorized",
         },
       };
     }
@@ -660,6 +676,14 @@ export class ValServer {
         status: 401,
         json: {
           message: auth.error,
+        },
+      };
+    }
+    if (this.serverOps instanceof ValOpsHttp && !("id" in auth)) {
+      return {
+        status: 401,
+        json: {
+          message: "Unauthorized",
         },
       };
     }
@@ -740,7 +764,7 @@ export class ValServer {
       if (bodyRes.data?.addPatch) {
         const newPatchModuleFilePath = bodyRes.data.addPatch.path;
         const newPatchOps = bodyRes.data.addPatch.patch;
-        const authorId = null; // TODO:
+        const authorId = "id" in auth ? (auth.id as AuthorId) : null;
         const createPatchRes = await this.serverOps.createPatch(
           newPatchModuleFilePath,
           newPatchOps,
