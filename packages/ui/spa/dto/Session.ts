@@ -8,7 +8,7 @@ export const Session: z.ZodType<ValSession> = z.union([
     full_name: z.string().optional().nullable(),
     username: z.string().optional().nullable(),
     avatar_url: z.string().url().optional().nullable(),
-    enabled: z.boolean(),
+    enabled: z.boolean().optional(),
   }),
   z.object({
     mode: z.literal("local"),

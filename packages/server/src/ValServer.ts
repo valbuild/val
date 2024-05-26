@@ -340,7 +340,7 @@ export class ValServer {
             status: fetchRes.status,
             json: {
               mode: "proxy",
-              d: await this.callbacks.isEnabled(),
+              enabled: await this.callbacks.isEnabled(),
               ...(await fetchRes.json()),
             },
           };
