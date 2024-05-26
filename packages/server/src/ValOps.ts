@@ -1207,7 +1207,8 @@ export function createMetadataFromBuffer<T extends BinaryFileType>(
   let availableMetadata: Record<string, string | number | undefined | null>;
   if (type === "image") {
     const { width, height, type } = sizeOf(buffer);
-    if (type !== undefined && `image/${type}` !== mimeType) {
+    const normalizedType = type === "jpg" ? "jpeg" : type;
+    if (type !== undefined && `image/${normalizedType}` !== mimeType) {
       return {
         errors: [
           {
@@ -1253,7 +1254,9 @@ export function getMimeTypeFromBase64(content: string): string | null {
       dataIndex + base64DataAttr.length,
       base64Index
     );
-    return mimeType;
+    const normalizedMimeType =
+      mimeType === "image/jpg" ? "image/jpeg" : mimeType;
+    return normalizedMimeType;
   }
   return null;
 }
