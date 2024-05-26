@@ -573,6 +573,7 @@ function ImageField({
             hidden
             id={`img_input:${path}`}
             type="file"
+            accept="image/*"
             onChange={(ev) => {
               readImage(ev)
                 .then((res) => {
