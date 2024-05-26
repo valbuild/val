@@ -303,7 +303,6 @@ export abstract class ValOps {
         });
       }
       const source = sources[path];
-      const addedPatchIdOnPath: Set<string> = new Set();
       for (const { patchId } of patches) {
         if (errors[path]) {
           errors[path].push({
@@ -320,27 +319,20 @@ export abstract class ValOps {
             continue;
           }
           const applicableOps: Patch = [];
-          const fileFixOps: Patch = [];
+          const fileFixOps: Record<string, Patch> = {};
           for (const op of patchData.patch) {
             if (op.op === "file") {
               // NOTE: We insert the last patch_id that modify a file
-              // when constructing the url the plan is to use the patch id (and the file path)
+              // when constructing the url we use the patch id (and the file path)
               // to fetch the right file
-              const pathId = op.path.join("/");
-              if (addedPatchIdOnPath.has(pathId)) {
-                fileFixOps.push({
-                  op: "replace",
-                  path: op.path.concat("patch_id"),
-                  value: patchId,
-                });
-              } else {
-                fileFixOps.push({
+              // NOTE: overwrite and use last patch_id if multiple patches modify the same file
+              fileFixOps[op.path.join("/")] = [
+                {
                   op: "add",
                   path: op.path.concat("patch_id"),
                   value: patchId,
-                });
-                addedPatchIdOnPath.add(pathId);
-              }
+                },
+              ];
             } else {
               applicableOps.push(op);
             }
@@ -348,7 +340,7 @@ export abstract class ValOps {
           const patchRes = applyPatch(
             source,
             jsonOps,
-            applicableOps.concat(...fileFixOps)
+            applicableOps.concat(...Object.values(fileFixOps))
           );
           if (result.isErr(patchRes)) {
             if (!errors[path]) {
