@@ -1,7 +1,7 @@
 import { c, s } from "../val.config";
 
 export default c.define(
-  "/components/links",
+  "/components/links.val.ts",
   s.object({
     homepage: s.string(),
   }),
