@@ -697,7 +697,10 @@ export abstract class ValOps {
         tsSourceFile = patchRes.value;
       }
       if (errors.length === 0) {
-        let sourceFileText = tsSourceFile.getText(tsSourceFile);
+        // https://github.com/microsoft/TypeScript/issues/36174
+        let sourceFileText = unescape(
+          tsSourceFile.getText(tsSourceFile).replace(/\\u/g, "%u")
+        );
         if (this.options?.formatter) {
           try {
             sourceFileText = this.options.formatter(sourceFileText, path);
