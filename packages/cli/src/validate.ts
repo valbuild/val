@@ -68,12 +68,9 @@ export async function validate({
   console.log("Validating...", valFiles.length, "files");
 
   async function validateFile(file: string): Promise<number> {
-    const moduleId = `/${file}`.replace(
-      /(\.val\.(ts|js))$/,
-      ""
-    ) as ModuleFilePath; // TODO: check if this always works? (Windows?)
+    const moduleFilePath = `/${file}` as ModuleFilePath; // TODO: check if this always works? (Windows?)
     const start = Date.now();
-    const valModule = await service.get(moduleId, "" as ModulePath, {
+    const valModule = await service.get(moduleFilePath, "" as ModulePath, {
       source: true,
       schema: true,
       validate: true,
@@ -85,12 +82,12 @@ export async function validate({
     const eslintResult = eslintResultsByFile?.[file];
     eslintResult?.messages.forEach((m) => {
       // display surrounding code
-      logEslintMessage(fileContent, moduleId, m);
+      logEslintMessage(fileContent, moduleFilePath, m);
     });
     if (!valModule.errors && eslintResult?.errorCount === 0) {
       console.log(
         picocolors.green("✔"),
-        moduleId,
+        moduleFilePath,
         "is valid (" + (Date.now() - start) + "ms)"
       );
       return 0;
@@ -114,7 +111,7 @@ export async function validate({
                   v
                 );
                 if (fix && fixPatch?.patch && fixPatch?.patch.length > 0) {
-                  await service.patch(moduleId, fixPatch.patch);
+                  await service.patch(moduleFilePath, fixPatch.patch);
                   console.log(
                     picocolors.yellow("⚠"),
                     "Applied fix for",
@@ -146,7 +143,7 @@ export async function validate({
           errors += 1;
           console.log(
             picocolors.red("✘"),
-            moduleId,
+            moduleFilePath,
             "is invalid:",
             fatalError.message
           );
@@ -154,7 +151,7 @@ export async function validate({
       } else {
         console.log(
           picocolors.green("✔"),
-          moduleId,
+          moduleFilePath,
           "is valid (" + (Date.now() - start) + "ms)"
         );
       }
