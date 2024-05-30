@@ -17,7 +17,7 @@ const ValRouterContext = React.createContext<{
   modulePath: ModulePath;
 }>({
   hardLink: false,
-  useNavigate,
+  useNavigate: () => () => {},
   basePath: "",
   sourcePath: "" as SourcePath,
   moduleFilePath: "" as ModuleFilePath,

@@ -41,7 +41,7 @@ import {
   SelectValue,
 } from "./ui/select";
 import { Switch } from "./ui/switch";
-import { JSONValue, Patch } from "@valbuild/core/patch";
+import { Patch } from "@valbuild/core/patch";
 import {
   Dialog,
   DialogClose,
@@ -51,11 +51,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./ui/dialog";
-import { Plus, RotateCw, Trash } from "lucide-react";
+import { RotateCw, Trash } from "lucide-react";
 import { Button } from "./ui/button";
 import { array } from "@valbuild/core/fp";
 import { useNavigate } from "./ValRouter";
-
+import { isJsonArray } from "../utils/isJsonArray";
+import { SortableList } from "./SortableList";
 export function AnyVal({
   path,
   source,
@@ -426,124 +427,60 @@ function ValList({
   schema: SerializedArraySchema;
   initOnSubmit: InitOnSubmit;
 }): React.ReactElement {
+  const navigate = useNavigate();
   const onSubmit = initOnSubmit(path);
-  const [, modulePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const [loading, setLoading] = useState<boolean>(false);
 
   return (
     <FieldContainer key={path} className="flex flex-col gap-4 p-2 pb-8">
-      <button
-        onClick={() => {
-          onSubmit(async () => {
-            const patch: Patch = [];
-            if (source === null) {
-              patch.push({
-                op: "replace",
-                path: Internal.createPatchPath(modulePath),
-                value: [],
-              });
-            }
-            patch.push({
-              op: "add",
-              path: Internal.createPatchPath(
-                createValPathOfItem(modulePath, source.length)
-              ),
-              value: emptyOf(schema.item) as JSONValue,
+      <SortableList
+        path={path}
+        source={source}
+        schema={schema}
+        loading={loading}
+        onDelete={async (item) => {
+          setLoading(true);
+          return onSubmit(async (path) => {
+            return [
+              {
+                op: "remove",
+                path: path.concat(
+                  item.toString()
+                ) as array.NonEmptyArray<string>,
+              },
+            ];
+          })
+            .catch((err) => {
+              console.error("Could not delete item", err);
+            })
+            .finally(() => {
+              setLoading(false);
             });
-            return patch;
-          });
         }}
-      >
-        <Plus />
-      </button>
-      {source.map((item, index) => {
-        const subPath = createValPathOfItem(path, index);
-        const onSubmit = initOnSubmit(subPath);
-
-        return (
-          <ValListItem
-            index={index}
-            key={subPath}
-            path={subPath}
-            source={item}
-            loading={false}
-            schema={schema.item}
-            onDelete={() => {
-              onSubmit(async (path) => {
-                if (path.length > 0) {
-                  return [
-                    {
-                      op: "remove",
-                      path: path as array.NonEmptyArray<string>,
-                    },
-                  ];
-                }
-                console.error("Cannot delete a root element");
-                return [];
-              });
-            }}
-          />
-        );
-      })}
-    </FieldContainer>
-  );
-}
-
-const LIST_ITEM_MAX_HEIGHT = RECORD_ITEM_MAX_HEIGHT;
-function ValListItem({
-  index,
-  path,
-  source,
-  schema,
-  loading,
-  onDelete,
-}: {
-  index: number;
-  source: Json | null;
-  path: SourcePath;
-  schema: SerializedSchema;
-  loading: boolean;
-  onDelete: () => void;
-}): React.ReactElement {
-  const navigate = useNavigate();
-  const ref = React.useRef<HTMLDivElement>(null);
-  const [isTruncated, setIsTruncated] = useState<boolean>(false);
-  useEffect(() => {
-    if (ref.current) {
-      const height = ref.current.getBoundingClientRect().height;
-      if (height >= LIST_ITEM_MAX_HEIGHT) {
-        setIsTruncated(true);
-      }
-    }
-  }, []);
-  return (
-    <Card
-      ref={ref}
-      className="relative px-4 pt-2 pb-4 overflow-hidden border gap-y-2"
-      style={{
-        maxHeight: LIST_ITEM_MAX_HEIGHT,
-      }}
-    >
-      <button className="block" disabled={loading} onClick={onDelete}>
-        {loading ? <RotateCw className="animate-spin" /> : <Trash />}
-      </button>
-      <button
-        className="block"
-        disabled={loading}
-        onClick={() => {
+        onMove={async (from, to) => {
+          return onSubmit(async (path) => {
+            const fromPath = path.concat(from.toString());
+            const toPath = path.concat(to.toString());
+            return [
+              {
+                op: "move",
+                from: fromPath,
+                path: toPath,
+              },
+            ] as Patch;
+          })
+            .catch((err) => {
+              console.error("Could not move item", err);
+            })
+            .finally(() => {
+              setLoading(false);
+            });
+        }}
+        onClick={(path) => {
           navigate(path);
         }}
-      >
-        <div className="pb-4 font-serif text-left uppercase text-accent">
-          {index + 1 < 10 ? `0${index + 1}` : index + 1}
-        </div>
-        <div className="text-xs">
-          <ValPreview path={path} source={source} schema={schema} />
-        </div>
-        {isTruncated && (
-          <div className="absolute bottom-0 left-0 w-full h-[20px] bg-gradient-to-b from-transparent to-background"></div>
-        )}
-      </button>
-    </Card>
+      />
+    </FieldContainer>
   );
 }
 
@@ -1015,10 +952,6 @@ function ValDefaultOf({
       {schema.type}
     </div>
   );
-}
-
-function isJsonArray(source: JsonArray | JsonObject): source is JsonArray {
-  return Array.isArray(source);
 }
 
 function dirPaths(paths: string[]): Record<string, string[]> {
