@@ -110,6 +110,7 @@ export async function validate({
                   sourcePath as SourcePath,
                   v
                 );
+                console.log({ fixPatch });
                 if (fix && fixPatch?.patch && fixPatch?.patch.length > 0) {
                   await service.patch(moduleFilePath, fixPatch.patch);
                   console.log(

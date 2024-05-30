@@ -209,7 +209,13 @@ function parseTokens(
 export function parseRichTextSource<O extends RichTextOptions>({
   templateStrings,
   exprs: nodes,
-}: RichTextSource<O>): RichText<O> {
+}: {
+  templateStrings: string[];
+  exprs: (
+    | (O["img"] extends true ? ImageSource : never)
+    | (O["a"] extends true ? LinkSource : never)
+  )[];
+}): RichText<O> {
   // TODO: validate that templateStrings does not contain VAL_NODE_PREFIX
   const inputText = templateStrings
     .flatMap((templateString, i) => {
@@ -237,8 +243,7 @@ export function parseRichTextSource<O extends RichTextOptions>({
       "Unexpectedly terminated markdown parsing. Possible reason: unclosed html tag?"
     );
   }
-  return {
-    [VAL_EXTENSION]: "richtext",
-    children,
-  } as RichText<O>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (children as any).markdownish = true; // Markdown is an intermediate format - we are planning on replacing it with a structured object format
+  return children as RichText<O>;
 }
