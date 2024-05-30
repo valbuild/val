@@ -3,6 +3,7 @@ import { LinkSource } from "./link";
 import { ImageSource } from "./image";
 import { ImageMetadata } from "../schema/image";
 import { FILE_REF_PROP, FILE_REF_SUBTYPE_TAG, FileSource } from "./file";
+import { parseRichTextSource } from "./parseRichTextSource";
 
 export type RichTextOptions = {
   headings?: ("h1" | "h2" | "h3" | "h4" | "h5" | "h6")[];
@@ -153,33 +154,24 @@ export type RootNode<O extends RichTextOptions> =
 /**
  * RichTextSource is defined in ValModules
  **/
-export type RichTextSource<O extends RichTextOptions> = {
-  [VAL_EXTENSION]: "richtext";
-  templateStrings: string[];
-  exprs: (
-    | (O["img"] extends true ? ImageSource : never)
-    | (O["a"] extends true ? LinkSource : never)
-  )[];
-};
+export type RichTextSource<O extends RichTextOptions> = RootNode<O>[];
 /**
  * RichText is accessible by users (after conversion via useVal / fetchVal)
  * Internally it is a Selector
  **/
-export type RichText<O extends RichTextOptions> = {
-  [VAL_EXTENSION]: "richtext";
-  children: RootNode<O>[];
-};
+export type RichText<O extends RichTextOptions> = RootNode<O>[];
 
 export function richtext<O extends RichTextOptions>(
   templateStrings: TemplateStringsArray,
   ...nodes: (ImageSource | LinkSource)[]
 ): RichTextSource<O> {
-  return {
-    [VAL_EXTENSION]: "richtext",
+  return parseRichTextSource({
     templateStrings: templateStrings as unknown as string[],
-    exprs:
-      nodes as RichTextSource<AnyRichTextOptions>["exprs"] as RichTextSource<O>["exprs"],
-  };
+    exprs: nodes as (
+      | (O["img"] extends true ? ImageSource : never)
+      | (O["a"] extends true ? LinkSource : never)
+    )[],
+  });
 }
 
 export const RT_IMAGE_TAG = "rt_image";

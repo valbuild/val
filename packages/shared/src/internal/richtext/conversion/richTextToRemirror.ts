@@ -28,7 +28,7 @@ export function richTextToRemirror(
 ): RemirrorJSON {
   return {
     type: "doc",
-    content: richtext.children.map((child) => toRemirrorNode(child)),
+    content: richtext.map((child) => toRemirrorNode(child)),
   };
 }
 

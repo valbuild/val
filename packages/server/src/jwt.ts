@@ -21,6 +21,7 @@ export function decodeJwt(
     );
     return null;
   }
+  
 
   try {
     const parsedHeader = JSON.parse(

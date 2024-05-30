@@ -19,7 +19,6 @@ import { FileSource, Source, SourceObject } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core";
 import { SourceArray } from "@valbuild/core";
 import { RawString } from "@valbuild/core";
-import { parseRichTextSource } from "@valbuild/shared/internal";
 
 declare const brand: unique symbol;
 
@@ -297,17 +296,6 @@ export function stegaEncode(
       }
 
       if (VAL_EXTENSION in sourceOrSelector) {
-        if (sourceOrSelector[VAL_EXTENSION] === "richtext") {
-          if (recOpts?.path) {
-            return {
-              ...parseRichTextSource(sourceOrSelector),
-              valPath: recOpts.path,
-            };
-          }
-
-          return parseRichTextSource(sourceOrSelector);
-        }
-
         if (
           sourceOrSelector[VAL_EXTENSION] === "file" &&
           typeof sourceOrSelector[FILE_REF_PROP] === "string"

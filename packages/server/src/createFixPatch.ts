@@ -4,7 +4,7 @@ import {
   SourcePath,
   ValidationError,
 } from "@valbuild/core";
-import { Patch, sourceToPatchPath } from "@valbuild/core/patch";
+import { JSONValue, Patch, sourceToPatchPath } from "@valbuild/core/patch";
 import fs from "fs";
 import { extractFileMetadata, extractImageMetadata } from "./extractMetadata";
 import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
@@ -274,6 +274,21 @@ export async function createFixPatch(
           },
         });
       }
+    } else if (fix === "fix:deprecated-richtext") {
+      if (!validationError.value) {
+        throw Error("Cannot fix richtext without a value");
+      }
+      patch.push({
+        op: "replace",
+        path: sourceToPatchPath(sourcePath),
+        value: validationError.value as JSONValue,
+      });
+    } else {
+      remainingErrors.push({
+        ...validationError,
+        message: `Unknown fix: ${fix}`,
+        fixes: undefined,
+      });
     }
   }
   if (!validationError.fixes || validationError.fixes.length === 0) {
