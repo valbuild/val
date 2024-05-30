@@ -4,7 +4,7 @@ import { define } from "./module";
 import { InitSchema, initSchema } from "./initSchema";
 import { getValPath as getPath } from "./val";
 import { file } from "./source/file";
-import { richtext, image as rtImage } from "./source/richtext";
+import { image as rtImage } from "./source/richtext";
 import { link } from "./source/link";
 // import { i18n, I18n } from "./source/future/i18n";
 // import { remote } from "./source/future/remote";
@@ -17,7 +17,6 @@ export type ContentConstructor = {
     image: typeof file;
     link: typeof link;
   };
-  richtext: typeof richtext;
 };
 export type ValConstructor = {
   unstable_getPath: typeof getPath;
