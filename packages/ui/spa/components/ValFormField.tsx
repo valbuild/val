@@ -6,7 +6,9 @@ import {
   ImageSource,
   Internal,
   Json,
+  NumberSchema,
   RichTextSource,
+  SerializedNumberSchema,
   SerializedRichTextSchema,
   SerializedSchema,
   SerializedStringSchema,
@@ -14,9 +16,10 @@ import {
   StringSchema,
   VAL_EXTENSION,
   ValidationError,
+  ValidationErrors,
 } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
-import { useState, useEffect, useRef, ChangeEvent } from "react";
+import { useState, useEffect, useRef, ChangeEvent, RefObject } from "react";
 import {
   RemirrorJSON as ValidRemirrorJSON,
   getMimeType,
@@ -30,7 +33,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { useValUIContext } from "./ValUIContext";
 import classNames from "classnames";
-import { File } from "lucide-react";
+import { CheckCircle2, File, RefreshCw } from "lucide-react";
 import { RichTextEditor, useRichTextEditor } from "./RichTextEditor";
 import { RemirrorJSON } from "@remirror/core";
 import {
@@ -41,9 +44,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
+import { OnSubmit, SubmitStatus, useBounceSubmit } from "./SubmitStatus";
 
-export type PatchCallback = (patchPath: string[]) => Promise<Patch>;
-export type OnSubmit = (callback: PatchCallback) => Promise<void>;
 export type InitOnSubmit = (path: SourcePath) => OnSubmit;
 
 export function ValFormField({
@@ -64,12 +66,27 @@ export function ValFormField({
     schema?.type === "string"
   ) {
     return (
-      <StringField
+      <BasicInputField
         path={path}
         defaultValue={source}
-        disabled={disabled}
         schema={schema}
         onSubmit={onSubmit}
+        type="text"
+        validate={(path, value) => {
+          return new StringSchema(
+            schema.options
+              ? {
+                  ...schema.options,
+                  regexp: schema.options.regexp
+                    ? new RegExp(
+                        schema.options.regexp.source,
+                        schema.options.regexp.flags
+                      )
+                    : undefined,
+                }
+              : undefined
+          ).validate(path, value);
+        }}
       />
     );
   }
@@ -78,10 +95,15 @@ export function ValFormField({
     schema?.type === "number"
   ) {
     return (
-      <NumberField
-        defaultValue={source}
-        disabled={disabled}
+      <BasicInputField
+        path={path}
+        defaultValue={source?.toString()}
+        schema={schema}
         onSubmit={onSubmit}
+        type="number"
+        validate={(path, value) => {
+          return new NumberSchema(schema.options).validate(path, Number(value));
+        }}
       />
     );
   }
@@ -97,18 +119,6 @@ export function ValFormField({
         disabled={disabled}
         onSubmit={onSubmit}
         selector={schema.path}
-      />
-    );
-  }
-  if (
-    (typeof source === "number" || source === null) &&
-    schema?.type === "number"
-  ) {
-    return (
-      <NumberField
-        defaultValue={source}
-        disabled={disabled}
-        onSubmit={onSubmit}
       />
     );
   }
@@ -214,26 +224,12 @@ function StringUnionField({
   const [loading, setLoading] = useState(false);
   return (
     <FieldContainer>
-      <Select value={value} onValueChange={(value) => setValue(value)}>
-        <SelectTrigger className="w-[180px]">
-          <SelectValue placeholder="Select" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            {options.map((option) => (
-              <SelectItem key={option} value={option}>
-                {option}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-      {onSubmit && (
-        <SubmitButton
-          loading={loading}
-          enabled={!!value && options.includes(value)}
-          onClick={() => {
-            if (value) {
+      <div className="flex items-center justify-between">
+        <Select
+          value={value}
+          onValueChange={(value) => {
+            setValue(value);
+            if (onSubmit) {
               setLoading(true);
               onSubmit((path) =>
                 Promise.resolve(createStringUnionPatch(path, value))
@@ -242,8 +238,22 @@ function StringUnionField({
               });
             }
           }}
-        />
-      )}
+        >
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Select" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {options.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        <SubmitStatus submitStatus={loading ? "loading" : "idle"} />
+      </div>
     </FieldContainer>
   );
 }
@@ -292,7 +302,7 @@ export function createFilePatch(
 
 export function createFileMetadataPatch(
   path: string[],
-  metadata: ImageMetadata | FileMetadata
+  metadata: Partial<ImageMetadata | FileMetadata>
 ): Patch {
   const metadataPath = path.concat("metadata");
   return [
@@ -475,11 +485,9 @@ function ImageField({
   onSubmit?: OnSubmit;
   defaultValue?: ImageSource;
 }) {
-  const [data, setData] = useState<{ filename?: string; src: string } | null>(
-    null
-  );
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<string>();
   const [metadata, setMetadata] = useState<ImageMetadata>();
+  const [loading, setLoading] = useState(false);
   const [hotspot, setHotspot] = useState<{
     x: number;
     y: number;
@@ -492,31 +500,8 @@ function ImageField({
       defaultValue &&
         "/api/val/files/public" + Internal.convertFileSource(defaultValue).url
     );
+    setHotspot(defaultValue?.metadata?.hotspot);
   }, [defaultValue]);
-
-  // TODO: this smells bad:
-  useEffect(() => {
-    if (hotspot) {
-      if (metadata) {
-        const newMetadata = {
-          ...metadata,
-          hotspot,
-        };
-        setMetadata(newMetadata);
-      } else if (defaultValue?.metadata) {
-        setMetadata({
-          ...defaultValue.metadata,
-          hotspot,
-        });
-      } else {
-        console.error("Neither image metadata nor value is set");
-      }
-    } else {
-      if (defaultValue?.metadata?.hotspot) {
-        setHotspot(defaultValue.metadata.hotspot);
-      }
-    }
-  }, [hotspot, defaultValue]);
 
   return (
     <FieldContainer>
@@ -537,7 +522,7 @@ function ImageField({
                 />
               )}
               <img
-                src={data?.src || url}
+                src={data || url}
                 draggable={false}
                 className="object-contain w-full max-h-[500px]"
                 style={{
@@ -555,6 +540,34 @@ function ImageField({
                     width: 1,
                     height: 1,
                   });
+                  setLoading(true);
+                  if (onSubmit) {
+                    onSubmit(async (path) => {
+                      if (metadata) {
+                        return createFileMetadataPatch(path, {
+                          ...metadata,
+                          hotspot: {
+                            x: hotspotX,
+                            y: hotspotY,
+                            width: 1,
+                            height: 1,
+                          },
+                        });
+                      } else if (defaultValue) {
+                        return createFileMetadataPatch(path, {
+                          ...defaultValue.metadata,
+                          hotspot: {
+                            x: hotspotX,
+                            y: hotspotY,
+                            width: 1,
+                            height: 1,
+                          },
+                        });
+                      } else {
+                        throw new Error("No metadata to update");
+                      }
+                    });
+                  }
                 }}
               />
             </div>
@@ -562,90 +575,60 @@ function ImageField({
             <div>Select image below</div>
           )}
         </div>
-        <div className="p-4 border border-t-0 rounded-b-sm bg-background border-input">
+        <div className="relative p-4 border border-t-0 rounded-b-sm bg-background border-input">
           <label
             htmlFor={`img_input:${path}`}
             className="block px-1 py-2 text-sm text-center rounded-md cursor-pointer bg-primary text-background"
           >
             Update
           </label>
+          <div className="absolute top-6 right-6 text-background">
+            <SubmitStatus submitStatus={loading ? "loading" : "idle"} />
+          </div>
           <input
             hidden
             id={`img_input:${path}`}
             type="file"
             accept="image/*"
             onChange={(ev) => {
-              readImage(ev)
-                .then((res) => {
-                  setData({ src: res.src, filename: res.filename });
-                  if (res.width && res.height && res.mimeType) {
-                    setMetadata({
-                      sha256: res.sha256,
-                      width: res.width,
-                      height: res.height,
-                      mimeType: res.mimeType,
-                      hotspot,
-                    });
-                  } else {
-                    setMetadata(undefined);
+              if (onSubmit) {
+                readImage(ev)
+                  .then((res) => {
+                    const data = { src: res.src, filename: res.filename };
+                    setData(res.src);
                     setHotspot(undefined);
-                  }
-                })
-                .catch((err) => {
-                  console.error(err.message);
-                  setData(null);
-                  setHotspot(undefined);
-                  setMetadata(undefined);
-                });
+                    let metadata: ImageMetadata | undefined;
+                    if (res.width && res.height && res.mimeType) {
+                      metadata = {
+                        sha256: res.sha256,
+                        width: res.width,
+                        height: res.height,
+                        mimeType: res.mimeType,
+                      };
+                      setMetadata(metadata);
+                    }
+                    setLoading(true);
+                    onSubmit((path) =>
+                      Promise.resolve(
+                        createFilePatch(
+                          path,
+                          data.src,
+                          data.filename ?? null,
+                          metadata
+                        )
+                      )
+                    ).finally(() => {
+                      setLoading(false);
+                    });
+                  })
+                  .catch((err) => {
+                    console.error(err.message);
+                  });
+              }
             }}
           />
         </div>
       </div>
-      {onSubmit && (
-        <SubmitButton
-          loading={loading}
-          enabled={
-            !!data ||
-            defaultValue?.metadata?.hotspot?.height !== hotspot?.height ||
-            defaultValue?.metadata?.hotspot?.width !== hotspot?.width ||
-            defaultValue?.metadata?.hotspot?.x !== hotspot?.x ||
-            defaultValue?.metadata?.hotspot?.y !== hotspot?.y ||
-            defaultValue?.metadata?.width !== metadata?.width ||
-            defaultValue?.metadata?.height !== metadata?.height ||
-            defaultValue?.metadata?.mimeType !== metadata?.mimeType ||
-            defaultValue?.metadata?.sha256 !== metadata?.sha256
-          }
-          onClick={() => {
-            if (data) {
-              setLoading(true);
-              onSubmit((path) =>
-                Promise.resolve(
-                  createFilePatch(
-                    path,
-                    data.src,
-                    data.filename ?? null,
-                    metadata
-                  )
-                )
-              ).finally(() => {
-                setLoading(false);
-                // TODO: set url with the new metadata
-                // setData(null);
-                // setMetadata(undefined);
-              });
-            } else if (metadata) {
-              setLoading(true);
-              onSubmit((path) =>
-                Promise.resolve(createFileMetadataPatch(path, metadata))
-              ).finally(() => {
-                setLoading(false);
-                // setData(null);
-                // setMetadata(undefined);
-              });
-            }
-          }}
-        />
-      )}
     </FieldContainer>
   );
 }
@@ -691,14 +674,30 @@ function RichTextField({
   defaultValue?: RichTextSource<AnyRichTextOptions>;
 }) {
   const [didChange, setDidChange] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [content, setContent] = useState<RemirrorJSON>();
   useEffect(() => {
-    setDidChange(true);
+    setDidChange(false);
     setContent(undefined);
   }, [defaultValue]);
   const { state, manager } = useRichTextEditor(
     defaultValue && richTextToRemirror(parseRichTextSource(defaultValue))
+  );
+
+  const submitStatus = useBounceSubmit<RemirrorJSON | undefined>(
+    didChange,
+    content,
+    onSubmit,
+    async (value, patchPath) => {
+      if (!value) {
+        return [];
+      }
+      const validRemirrorJSON = ValidRemirrorJSON.safeParse(content);
+      if (validRemirrorJSON.success) {
+        return createRichTextPatch(patchPath, validRemirrorJSON.data);
+      } else {
+        return [];
+      }
+    }
   );
 
   return (
@@ -711,33 +710,8 @@ function RichTextField({
         }}
         state={state}
         manager={manager}
+        submitStatus={submitStatus}
       />
-      {onSubmit && (
-        <SubmitButton
-          loading={loading}
-          enabled={didChange}
-          onClick={() => {
-            if (content) {
-              setLoading(true);
-              const validRemirrorJSON = ValidRemirrorJSON.safeParse(content);
-              if (validRemirrorJSON.success) {
-                onSubmit(async (path) =>
-                  createRichTextPatch(path, validRemirrorJSON.data)
-                ).finally(() => {
-                  setLoading(false);
-                  setDidChange(false);
-                });
-              } else {
-                setLoading(false);
-                alert(
-                  "Could not parse Rich Text\n" +
-                    JSON.stringify(validRemirrorJSON.error, null, 2)
-                );
-              }
-            }
-          }}
-        />
-      )}
     </FieldContainer>
   );
 }
@@ -833,128 +807,66 @@ function KeyOfField({
   // );
 }
 
-function NumberField({
-  disabled,
-  defaultValue,
-  onSubmit,
-}: {
-  onSubmit?: OnSubmit;
-  disabled: boolean;
-  defaultValue?: number | null;
-}) {
-  const [value, setValue] = useState(defaultValue || 0);
-  const [loading, setLoading] = useState(false);
-  useEffect(() => {
-    setLoading(disabled);
-  }, [disabled]);
-  const ref = useRef<HTMLInputElement>(null);
-
-  return (
-    <FieldContainer>
-      <Input
-        ref={ref}
-        disabled={loading}
-        defaultValue={value ?? 0}
-        onChange={(e) => setValue(Number(e.target.value))}
-        type="number"
-      />
-      {onSubmit && (
-        <SubmitButton
-          loading={loading}
-          enabled={defaultValue !== value}
-          onClick={() => {
-            setLoading(true);
-            onSubmit(async (path) => [
-              {
-                op: "replace",
-                path,
-                value: Number(ref.current?.value) || 0,
-              },
-            ]).finally(() => {
-              setLoading(false);
-            });
-          }}
-        />
-      )}
-    </FieldContainer>
-  );
-}
-
-function StringField({
-  disabled,
+function BasicInputField({
   defaultValue,
   path,
-  schema,
   onSubmit,
-}: {
-  onSubmit?: OnSubmit;
-  path: SourcePath;
-  schema: SerializedStringSchema;
-  disabled: boolean;
-  defaultValue?: string | null;
-}) {
+  type,
+  validate,
+}:
+  | {
+      onSubmit?: OnSubmit;
+      path: SourcePath;
+      schema: SerializedStringSchema;
+      defaultValue?: string | null;
+      type: "text";
+      validate: (path: SourcePath, value: string) => ValidationErrors;
+    }
+  | {
+      onSubmit?: OnSubmit;
+      path: SourcePath;
+      schema: SerializedNumberSchema;
+      defaultValue?: string | null;
+      type: "number";
+      validate: (path: SourcePath, value: string) => ValidationErrors;
+    }) {
   const [value, setValue] = useState(defaultValue || "");
-  const [loading, setLoading] = useState(false);
-  const [waiting, setWaiting] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
   const [didChange, setDidChange] = useState(false);
-
   useEffect(() => {
     setDidChange(false);
   }, [path]);
-
-  useEffect(() => {
-    setLoading(disabled);
-  }, [disabled]);
-  const ref = useRef<HTMLInputElement>(null);
-
-  const actualSchema = new StringSchema(
-    schema.options
-      ? {
-          ...schema.options,
-          regexp: schema.options.regexp
-            ? new RegExp(
-                schema.options.regexp.source,
-                schema.options.regexp.flags
-              )
-            : undefined,
-        }
-      : undefined
+  const validationErrors = validate(path, value);
+  const submitStatus = useBounceSubmit(
+    didChange,
+    value,
+    onSubmit,
+    async (value, path) => [
+      {
+        op: "replace",
+        path,
+        value: type === "number" ? Number(value) : value,
+      },
+    ],
+    ref.current?.value ?? null
   );
-  const validationErrors = actualSchema.validate(path, value);
-  useEffect(() => {
-    if (onSubmit && didChange) {
-      setWaiting(true);
-      const timeout = setTimeout(() => {
-        setLoading(true);
-        onSubmit(async (path) => [
-          {
-            op: "replace",
-            path,
-            value: ref.current?.value || "",
-          },
-        ]).finally(() => {
-          setLoading(false);
-          setWaiting(false);
-        });
-      }, 1000);
-      return () => {
-        clearTimeout(timeout);
-      };
-    }
-  }, [value, didChange]);
 
   return (
     <FieldContainer>
-      <Input
-        ref={ref}
-        defaultValue={value ?? ""}
-        onChange={(e) => {
-          setDidChange(true);
-          setValue(e.target.value);
-        }}
-      />
-      {loading && "Saving..."}
-      {waiting && "Waiting..."}
+      <div className="relative flex gap-2">
+        <Input
+          ref={ref}
+          defaultValue={value ?? ""}
+          onChange={(e) => {
+            setDidChange(true);
+            setValue(e.target.value);
+          }}
+          type={type}
+        />
+        <div className="absolute top-2 right-2">
+          <SubmitStatus submitStatus={submitStatus} />
+        </div>
+      </div>
       {validationErrors && validationErrors[path] ? (
         <InlineValidationErrors
           errors={(validationErrors && validationErrors[path]) || []}

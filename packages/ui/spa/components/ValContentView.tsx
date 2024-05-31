@@ -35,6 +35,7 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
 
   const params = useParams();
   const selectedPath = params.sourcePath || ("" as SourcePath);
+  console.log("selectedPath", selectedPath);
   const [moduleFilePaths, setModuleFilePaths] = useState<ModuleFilePath[]>();
   const [initializationState, setInitializationState] = useState<
     "not-asked" | "running" | "complete" | "failed"
