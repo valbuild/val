@@ -51,7 +51,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "./ui/dialog";
-import { RotateCw, Trash } from "lucide-react";
+import { Trash } from "lucide-react";
 import { Button } from "./ui/button";
 import { array } from "@valbuild/core/fp";
 import { useNavigate } from "./ValRouter";
