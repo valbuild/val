@@ -25,6 +25,7 @@ import { InitOnSubmit } from "./ValFormField";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Popover } from "./ui/popover";
 import { ValStore } from "@valbuild/shared/internal";
+import { ValStoreProvider } from "./ValStoreContext";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -146,117 +147,121 @@ export function ValOverlay({
   );
 
   return (
-    <ValUIContext.Provider
-      value={{
-        theme,
-        session,
-        editMode,
-        setEditMode,
-        setTheme,
-        windowSize,
-        setWindowSize,
-      }}
-    >
-      <div
-        id="val-overlay-container"
-        data-mode={theme}
-        className="font-serif antialiased"
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          zIndex: 8999, // 1 less than the NextJS error z-index: 9000
+    <ValStoreProvider store={store}>
+      <ValUIContext.Provider
+        value={{
+          theme,
+          session,
+          editMode,
+          setEditMode,
+          setTheme,
+          windowSize,
+          setWindowSize,
         }}
       >
-        <Popover>
-          <PopoverPrimitive.Portal />
-          <div className="fixed -translate-y-1/2 right-4 top-1/2 z-overlay">
-            <ValMenu
-              direction="vertical"
-              api={api}
-              patches={patches}
-              onClickPatches={() => {
-                api.postSave({ patchIds: patches }).then(async (res) => {
-                  if (result.isOk(res)) {
-                    const res = await api.deletePatches(patches);
+        <div
+          id="val-overlay-container"
+          data-mode={theme}
+          className="font-serif antialiased"
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            zIndex: 8999, // 1 less than the NextJS error z-index: 9000
+          }}
+        >
+          <Popover>
+            <PopoverPrimitive.Portal />
+            <div className="fixed -translate-y-1/2 right-4 top-1/2 z-overlay">
+              <ValMenu
+                direction="vertical"
+                api={api}
+                patches={patches}
+                onClickPatches={() => {
+                  api.postSave({ patchIds: patches }).then(async (res) => {
                     if (result.isOk(res)) {
-                      setPatches([]);
-                      await store.reset();
+                      const res = await api.deletePatches(patches);
+                      if (result.isOk(res)) {
+                        setPatches([]);
+                        await store.reset();
+                      } else {
+                        alert("Could not clean up");
+                      }
                     } else {
-                      alert("Could not clean up");
+                      alert("Could not publish");
                     }
-                  } else {
-                    alert("Could not publish");
-                  }
-                });
-              }}
-            />
-          </div>
-        </Popover>
-        {session.status === "success" &&
-          session.data.enabled &&
-          (editMode === "hover" || editMode === "window") &&
-          hoverTarget.path && (
-            <ValHover
-              hoverTarget={hoverTarget}
-              setHoverTarget={setHoverTarget}
-              setEditMode={setEditMode}
-              setWindowTarget={setWindowTarget}
-            />
-          )}
-        {editMode === "window" && windowTarget && (
-          <ValWindow
-            onClose={() => {
-              setWindowTarget(null);
-              setEditMode("hover");
-            }}
-          >
-            <div
-              className="p-4"
-              style={{
-                maxHeight: windowSize?.innerHeight,
-                maxWidth: windowSize?.width,
+                  });
+                }}
+              />
+            </div>
+          </Popover>
+          {session.status === "success" &&
+            session.data.enabled &&
+            (editMode === "hover" || editMode === "window") &&
+            hoverTarget.path && (
+              <ValHover
+                hoverTarget={hoverTarget}
+                setHoverTarget={setHoverTarget}
+                setEditMode={setEditMode}
+                setWindowTarget={setWindowTarget}
+              />
+            )}
+          {editMode === "window" && windowTarget && (
+            <ValWindow
+              onClose={() => {
+                setWindowTarget(null);
+                setEditMode("hover");
               }}
             >
-              {Object.entries(formData).map(([path, data]) => {
-                if (data.status !== "success") {
-                  return (
-                    <div key={path}>
-                      <span>
-                        {path}
-                        {data.status !== "error" && (
-                          <span>: {data.status}</span>
+              <div
+                className="p-4"
+                style={{
+                  maxHeight: windowSize?.innerHeight,
+                  maxWidth: windowSize?.width,
+                }}
+              >
+                {Object.entries(formData).map(([path, data]) => {
+                  if (data.status !== "success") {
+                    return (
+                      <div key={path}>
+                        <span>
+                          {path}
+                          {data.status !== "error" && (
+                            <span>: {data.status}</span>
+                          )}
+                        </span>
+                        {data.status === "error" && (
+                          <pre className="text-red-600 whitespace-pre-wrap">
+                            {data.error}
+                          </pre>
                         )}
-                      </span>
-                      {data.status === "error" && (
-                        <pre className="text-red-600 whitespace-pre-wrap">
-                          {data.error}
-                        </pre>
-                      )}
-                    </div>
-                  );
-                }
-                const { source, schema } = data.data;
-                if (!source || !schema) {
-                  return <div>Module: {path} is missing source or schema</div>;
-                }
+                      </div>
+                    );
+                  }
+                  const { source, schema } = data.data;
+                  if (!source || !schema) {
+                    return (
+                      <div>Module: {path} is missing source or schema</div>
+                    );
+                  }
 
-                return (
-                  <AnyVal
-                    initOnSubmit={initOnSubmit}
-                    path={path as SourcePath}
-                    key={path}
-                    schema={schema}
-                    source={source}
-                    top
-                  />
-                );
-              })}
-            </div>
-          </ValWindow>
-        )}
-      </div>
-    </ValUIContext.Provider>
+                  return (
+                    <AnyVal
+                      initOnSubmit={initOnSubmit}
+                      path={path as SourcePath}
+                      key={path}
+                      schema={schema}
+                      source={source}
+                      top
+                    />
+                  );
+                })}
+              </div>
+            </ValWindow>
+          )}
+        </div>
+      </ValUIContext.Provider>
+    </ValStoreProvider>
   );
 }
 

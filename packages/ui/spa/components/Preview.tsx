@@ -68,10 +68,10 @@ function PreviewObject({
 }) {
   const keys = (schema && Object.keys(schema?.items)) || Object.keys(source);
   return (
-    <div>
+    <div className="grid grid-cols-[min-content,auto] text-left">
       {keys.map((key) => {
         return (
-          <div key={key} className="grid grid-cols-[auto,1fr] gap-4">
+          <div key={key} className="grid col-span-2 gap-1 grid-cols-subgrid">
             <span className="font-serif text-accent">{key}:</span>
             <Preview source={source[key] ?? null} schema={schema?.items[key]} />
           </div>

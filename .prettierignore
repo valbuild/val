@@ -14,3 +14,4 @@ packages/ui/server/.tmp
 out
 
 .tmp
+examples/next*/.val/*
