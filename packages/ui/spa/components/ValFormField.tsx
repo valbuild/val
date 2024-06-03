@@ -6,7 +6,10 @@ import {
   ImageSource,
   Internal,
   Json,
+  NumberSchema,
   RichTextSource,
+  SerializedBooleanSchema,
+  SerializedNumberSchema,
   SerializedRichTextSchema,
   SerializedSchema,
   SerializedStringSchema,
@@ -14,6 +17,7 @@ import {
   StringSchema,
   VAL_EXTENSION,
   ValidationError,
+  ValidationErrors,
 } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
 import { useState, useEffect, useRef, ChangeEvent } from "react";
@@ -41,51 +45,88 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
+import { OnSubmit, SubmitStatus, useBounceSubmit } from "./SubmitStatus";
+import { AnyVal } from "./ValCompositeFields";
+import { emptyOf } from "./emptyOf";
+import { useValFromPath } from "./ValStoreContext";
+import { Preview } from "./Preview";
+import { isJsonArray } from "../utils/isJsonArray";
+import { Checkbox } from "./ui/checkbox";
 
-export type PatchCallback = (patchPath: string[]) => Promise<Patch>;
-export type OnSubmit = (callback: PatchCallback) => Promise<void>;
 export type InitOnSubmit = (path: SourcePath) => OnSubmit;
 
 export function ValFormField({
   path,
-  disabled,
   source: source,
   schema: schema,
-  onSubmit,
+  initOnSubmit,
 }: {
   path: SourcePath;
-  disabled: boolean;
   source: Json;
   schema: SerializedSchema;
-  onSubmit?: OnSubmit;
+  initOnSubmit: InitOnSubmit;
 }) {
+  const onSubmit = initOnSubmit(path);
   if (
     (typeof source === "string" || source === null) &&
     schema?.type === "string"
   ) {
     return (
-      <StringField
+      <BasicInputField
         path={path}
         defaultValue={source}
-        disabled={disabled}
+        schema={schema}
+        onSubmit={onSubmit}
+        type="text"
+        validate={(path, value) => {
+          return new StringSchema(
+            schema.options
+              ? {
+                  ...schema.options,
+                  regexp: schema.options.regexp
+                    ? new RegExp(
+                        schema.options.regexp.source,
+                        schema.options.regexp.flags
+                      )
+                    : undefined,
+                }
+              : undefined
+          ).validate(path, value);
+        }}
+      />
+    );
+  }
+  if (
+    (typeof source === "number" || source === null) &&
+    schema?.type === "number"
+  ) {
+    return (
+      <BasicInputField
+        path={path}
+        defaultValue={source?.toString()}
+        schema={schema}
+        onSubmit={onSubmit}
+        type="number"
+        validate={(path, value) => {
+          return new NumberSchema(schema.options).validate(path, Number(value));
+        }}
+      />
+    );
+  }
+  if (
+    (typeof source === "boolean" || source === null) &&
+    schema?.type === "boolean"
+  ) {
+    return (
+      <BooleanField
+        path={path}
+        defaultValue={source}
         schema={schema}
         onSubmit={onSubmit}
       />
     );
   }
   if (
-    (typeof source === "number" || source === null) &&
-    schema?.type === "number"
-  ) {
-    return (
-      <NumberField
-        defaultValue={source}
-        disabled={disabled}
-        onSubmit={onSubmit}
-      />
-    );
-  }
-  if (
     (typeof source === "number" ||
       typeof source === "string" ||
       source === null) &&
@@ -94,25 +135,12 @@ export function ValFormField({
     return (
       <KeyOfField
         defaultValue={source}
-        disabled={disabled}
         onSubmit={onSubmit}
         selector={schema.path}
       />
     );
   }
   if (
-    (typeof source === "number" || source === null) &&
-    schema?.type === "number"
-  ) {
-    return (
-      <NumberField
-        defaultValue={source}
-        disabled={disabled}
-        onSubmit={onSubmit}
-      />
-    );
-  }
-  if (
     (typeof source === "number" ||
       typeof source === "string" ||
       source === null) &&
@@ -121,7 +149,6 @@ export function ValFormField({
     return (
       <KeyOfField
         defaultValue={source}
-        disabled={disabled}
         onSubmit={onSubmit}
         selector={schema.path}
       />
@@ -187,11 +214,62 @@ export function ValFormField({
       );
     }
   }
+
+  console.warn(
+    `Unsupported schema: ${
+      schema.type
+    } (source type: ${typeof source}) source:`,
+    source
+  );
   return (
-    <div>
-      Unsupported schema: {schema.type} (source type: {typeof source} source:{" "}
-      {JSON.stringify(source)})
-    </div>
+    <AnyVal
+      path={path}
+      schema={schema}
+      source={emptyOf(schema)}
+      initOnSubmit={initOnSubmit}
+    />
+  );
+}
+
+function BooleanField({
+  defaultValue,
+  onSubmit,
+}: {
+  path: SourcePath;
+  defaultValue?: boolean | null;
+  schema: SerializedBooleanSchema;
+  onSubmit?: OnSubmit;
+}) {
+  const [value, setValue] = useState<boolean | null>(defaultValue ?? null);
+  const [loading, setLoading] = useState(false);
+  return (
+    <FieldContainer>
+      <div className="flex items-center justify-between">
+        <Checkbox
+          checked={value || false}
+          onCheckedChange={(checkedValue) => {
+            const value =
+              typeof checkedValue === "boolean" ? checkedValue : null;
+            setValue(value);
+            if (onSubmit) {
+              setLoading(true);
+              onSubmit((path) =>
+                Promise.resolve([
+                  {
+                    op: "replace",
+                    path,
+                    value,
+                  },
+                ])
+              ).finally(() => {
+                setLoading(false);
+              });
+            }
+          }}
+        />
+        <SubmitStatus submitStatus={loading ? "loading" : "idle"} />
+      </div>
+    </FieldContainer>
   );
 }
 
@@ -214,26 +292,12 @@ function StringUnionField({
   const [loading, setLoading] = useState(false);
   return (
     <FieldContainer>
-      <Select value={value} onValueChange={(value) => setValue(value)}>
-        <SelectTrigger className="w-[180px]">
-          <SelectValue placeholder="Select" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            {options.map((option) => (
-              <SelectItem key={option} value={option}>
-                {option}
-              </SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-      {onSubmit && (
-        <SubmitButton
-          loading={loading}
-          enabled={!!value && options.includes(value)}
-          onClick={() => {
-            if (value) {
+      <div className="flex items-center justify-between">
+        <Select
+          value={value}
+          onValueChange={(value) => {
+            setValue(value);
+            if (onSubmit) {
               setLoading(true);
               onSubmit((path) =>
                 Promise.resolve(createStringUnionPatch(path, value))
@@ -242,8 +306,22 @@ function StringUnionField({
               });
             }
           }}
-        />
-      )}
+        >
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Select" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {options.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+        <SubmitStatus submitStatus={loading ? "loading" : "idle"} />
+      </div>
     </FieldContainer>
   );
 }
@@ -292,7 +370,7 @@ export function createFilePatch(
 
 export function createFileMetadataPatch(
   path: string[],
-  metadata: ImageMetadata | FileMetadata
+  metadata: Partial<ImageMetadata | FileMetadata>
 ): Patch {
   const metadataPath = path.concat("metadata");
   return [
@@ -339,6 +417,7 @@ export function readFile(ev: ChangeEvent<HTMLInputElement>) {
     }
   });
 }
+
 function FileField({
   path,
   defaultValue,
@@ -352,27 +431,11 @@ function FileField({
     null
   );
   const [loading, setLoading] = useState(false);
-  const [metadata, setMetadata] = useState<FileMetadata>();
   const [url, setUrl] = useState<string>();
   useEffect(() => {
     const url = defaultValue && Internal.convertFileSource(defaultValue).url;
     setUrl(url);
-    // TODO: get filename
-    // const filename = url
-    //   ?.split("/")
-    //   .pop()
-    //   ?.slice(
-    //     0,
-    //     -(metadata?.sha256
-    //       ? metadata.sha256.length + "?sha256=".length
-    //       : url.length)
-    //   );
-    // console.log("url", url, "filename", filename);
-    // if (filename && data) {
-    //   setData({ ...data, filename });
-    // }
   }, [defaultValue]);
-
   return (
     <FieldContainer>
       <div className="w-fit">
@@ -398,70 +461,50 @@ function FileField({
           >
             Update
           </label>
+          <div className="absolute top-6 right-6 text-background">
+            <SubmitStatus submitStatus={loading ? "loading" : "idle"} />
+          </div>
           <input
             hidden
+            disabled={loading}
             id={`img_input:${path}`}
             type="file"
             onChange={(ev) => {
-              readFile(ev)
-                .then((res) => {
-                  setData({ src: res.src, filename: res.filename });
-                  if (res.mimeType) {
-                    setMetadata({
-                      sha256: res.sha256,
-                      mimeType: res.mimeType,
+              if (onSubmit) {
+                readFile(ev)
+                  .then((res) => {
+                    const data = { src: res.src, filename: res.filename };
+                    setData(data);
+                    let metadata: FileMetadata | undefined;
+                    if (res.mimeType) {
+                      metadata = {
+                        sha256: res.sha256,
+                        mimeType: res.mimeType,
+                      };
+                    }
+                    setLoading(true);
+                    onSubmit((path) =>
+                      Promise.resolve(
+                        createFilePatch(
+                          path,
+                          data.src,
+                          data.filename ?? null,
+                          metadata
+                        )
+                      )
+                    ).finally(() => {
+                      setLoading(false);
                     });
-                  } else {
-                    setMetadata(undefined);
-                  }
-                })
-                .catch((err) => {
-                  console.error(err.message);
-                  setData(null);
-                  setMetadata(undefined);
-                });
+                  })
+                  .catch((err) => {
+                    console.error(err.message);
+                    setData(null);
+                  });
+              }
             }}
           />
         </div>
       </div>
-      {onSubmit && (
-        <SubmitButton
-          loading={loading}
-          enabled={
-            !!data ||
-            defaultValue?.metadata?.mimeType !== metadata?.mimeType ||
-            defaultValue?.metadata?.sha256 !== metadata?.sha256
-          }
-          onClick={() => {
-            if (data) {
-              setLoading(true);
-              onSubmit((path) =>
-                Promise.resolve(
-                  createFilePatch(
-                    path,
-                    data.src,
-                    data.filename ?? null,
-                    metadata
-                  )
-                )
-              ).finally(() => {
-                setLoading(false);
-                setData(null);
-                setMetadata(undefined);
-              });
-            } else if (metadata) {
-              setLoading(true);
-              onSubmit((path) =>
-                Promise.resolve(createFileMetadataPatch(path, metadata))
-              ).finally(() => {
-                setLoading(false);
-                setData(null);
-                setMetadata(undefined);
-              });
-            }
-          }}
-        />
-      )}
     </FieldContainer>
   );
 }
@@ -475,11 +518,9 @@ function ImageField({
   onSubmit?: OnSubmit;
   defaultValue?: ImageSource;
 }) {
-  const [data, setData] = useState<{ filename?: string; src: string } | null>(
-    null
-  );
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<string>();
   const [metadata, setMetadata] = useState<ImageMetadata>();
+  const [loading, setLoading] = useState(false);
   const [hotspot, setHotspot] = useState<{
     x: number;
     y: number;
@@ -492,35 +533,12 @@ function ImageField({
       defaultValue &&
         "/api/val/files/public" + Internal.convertFileSource(defaultValue).url
     );
+    setHotspot(defaultValue?.metadata?.hotspot);
   }, [defaultValue]);
-
-  // TODO: this smells bad:
-  useEffect(() => {
-    if (hotspot) {
-      if (metadata) {
-        const newMetadata = {
-          ...metadata,
-          hotspot,
-        };
-        setMetadata(newMetadata);
-      } else if (defaultValue?.metadata) {
-        setMetadata({
-          ...defaultValue.metadata,
-          hotspot,
-        });
-      } else {
-        console.error("Neither image metadata nor value is set");
-      }
-    } else {
-      if (defaultValue?.metadata?.hotspot) {
-        setHotspot(defaultValue.metadata.hotspot);
-      }
-    }
-  }, [hotspot, defaultValue]);
 
   return (
     <FieldContainer>
-      <div className="w-fit">
+      <div className="pr-6 w-fit">
         <div
           className="flex flex-col justify-start p-2 border border-b-0 rounded-sm rounded-b-none gap-y-4 bg-background text-foreground border-input"
           key={path}
@@ -537,7 +555,7 @@ function ImageField({
                 />
               )}
               <img
-                src={data?.src || url}
+                src={data || url}
                 draggable={false}
                 className="object-contain w-full max-h-[500px]"
                 style={{
@@ -555,6 +573,36 @@ function ImageField({
                     width: 1,
                     height: 1,
                   });
+                  if (onSubmit) {
+                    setLoading(true);
+                    onSubmit(async (path) => {
+                      if (metadata) {
+                        return createFileMetadataPatch(path, {
+                          ...metadata,
+                          hotspot: {
+                            x: hotspotX,
+                            y: hotspotY,
+                            width: 1,
+                            height: 1,
+                          },
+                        });
+                      } else if (defaultValue) {
+                        return createFileMetadataPatch(path, {
+                          ...defaultValue.metadata,
+                          hotspot: {
+                            x: hotspotX,
+                            y: hotspotY,
+                            width: 1,
+                            height: 1,
+                          },
+                        });
+                      } else {
+                        throw new Error("No metadata to update");
+                      }
+                    }).finally(() => {
+                      setLoading(false);
+                    });
+                  }
                 }}
               />
             </div>
@@ -562,90 +610,61 @@ function ImageField({
             <div>Select image below</div>
           )}
         </div>
-        <div className="p-4 border border-t-0 rounded-b-sm bg-background border-input">
+        <div className="relative p-4 border border-t-0 rounded-b-sm bg-background border-input">
           <label
             htmlFor={`img_input:${path}`}
             className="block px-1 py-2 text-sm text-center rounded-md cursor-pointer bg-primary text-background"
           >
             Update
           </label>
+          <div className="absolute top-6 right-6 text-background">
+            <SubmitStatus submitStatus={loading ? "loading" : "idle"} />
+          </div>
           <input
             hidden
+            disabled={loading}
             id={`img_input:${path}`}
             type="file"
             accept="image/*"
             onChange={(ev) => {
-              readImage(ev)
-                .then((res) => {
-                  setData({ src: res.src, filename: res.filename });
-                  if (res.width && res.height && res.mimeType) {
-                    setMetadata({
-                      sha256: res.sha256,
-                      width: res.width,
-                      height: res.height,
-                      mimeType: res.mimeType,
-                      hotspot,
-                    });
-                  } else {
-                    setMetadata(undefined);
+              if (onSubmit) {
+                readImage(ev)
+                  .then((res) => {
+                    const data = { src: res.src, filename: res.filename };
+                    setData(res.src);
                     setHotspot(undefined);
-                  }
-                })
-                .catch((err) => {
-                  console.error(err.message);
-                  setData(null);
-                  setHotspot(undefined);
-                  setMetadata(undefined);
-                });
+                    let metadata: ImageMetadata | undefined;
+                    if (res.width && res.height && res.mimeType) {
+                      metadata = {
+                        sha256: res.sha256,
+                        width: res.width,
+                        height: res.height,
+                        mimeType: res.mimeType,
+                      };
+                      setMetadata(metadata);
+                    }
+                    setLoading(true);
+                    onSubmit((path) =>
+                      Promise.resolve(
+                        createFilePatch(
+                          path,
+                          data.src,
+                          data.filename ?? null,
+                          metadata
+                        )
+                      )
+                    ).finally(() => {
+                      setLoading(false);
+                    });
+                  })
+                  .catch((err) => {
+                    console.error(err.message);
+                  });
+              }
             }}
           />
         </div>
       </div>
-      {onSubmit && (
-        <SubmitButton
-          loading={loading}
-          enabled={
-            !!data ||
-            defaultValue?.metadata?.hotspot?.height !== hotspot?.height ||
-            defaultValue?.metadata?.hotspot?.width !== hotspot?.width ||
-            defaultValue?.metadata?.hotspot?.x !== hotspot?.x ||
-            defaultValue?.metadata?.hotspot?.y !== hotspot?.y ||
-            defaultValue?.metadata?.width !== metadata?.width ||
-            defaultValue?.metadata?.height !== metadata?.height ||
-            defaultValue?.metadata?.mimeType !== metadata?.mimeType ||
-            defaultValue?.metadata?.sha256 !== metadata?.sha256
-          }
-          onClick={() => {
-            if (data) {
-              setLoading(true);
-              onSubmit((path) =>
-                Promise.resolve(
-                  createFilePatch(
-                    path,
-                    data.src,
-                    data.filename ?? null,
-                    metadata
-                  )
-                )
-              ).finally(() => {
-                setLoading(false);
-                // TODO: set url with the new metadata
-                // setData(null);
-                // setMetadata(undefined);
-              });
-            } else if (metadata) {
-              setLoading(true);
-              onSubmit((path) =>
-                Promise.resolve(createFileMetadataPatch(path, metadata))
-              ).finally(() => {
-                setLoading(false);
-                // setData(null);
-                // setMetadata(undefined);
-              });
-            }
-          }}
-        />
-      )}
     </FieldContainer>
   );
 }
@@ -691,14 +710,30 @@ function RichTextField({
   defaultValue?: RichTextSource<AnyRichTextOptions>;
 }) {
   const [didChange, setDidChange] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [content, setContent] = useState<RemirrorJSON>();
   useEffect(() => {
-    setDidChange(true);
+    setDidChange(false);
     setContent(undefined);
   }, [defaultValue]);
   const { state, manager } = useRichTextEditor(
     defaultValue && richTextToRemirror(parseRichTextSource(defaultValue))
+  );
+
+  const submitStatus = useBounceSubmit<RemirrorJSON | undefined>(
+    didChange,
+    content,
+    onSubmit,
+    async (value, patchPath) => {
+      if (!value) {
+        return [];
+      }
+      const validRemirrorJSON = ValidRemirrorJSON.safeParse(content);
+      if (validRemirrorJSON.success) {
+        return createRichTextPatch(patchPath, validRemirrorJSON.data);
+      } else {
+        return [];
+      }
+    }
   );
 
   return (
@@ -711,236 +746,236 @@ function RichTextField({
         }}
         state={state}
         manager={manager}
+        submitStatus={submitStatus}
       />
-      {onSubmit && (
-        <SubmitButton
-          loading={loading}
-          enabled={didChange}
-          onClick={() => {
-            if (content) {
-              setLoading(true);
-              const validRemirrorJSON = ValidRemirrorJSON.safeParse(content);
-              if (validRemirrorJSON.success) {
-                onSubmit(async (path) =>
-                  createRichTextPatch(path, validRemirrorJSON.data)
-                ).finally(() => {
-                  setLoading(false);
-                  setDidChange(false);
-                });
-              } else {
-                setLoading(false);
-                alert(
-                  "Could not parse Rich Text\n" +
-                    JSON.stringify(validRemirrorJSON.error, null, 2)
-                );
-              }
-            }
-          }}
-        />
-      )}
     </FieldContainer>
   );
 }
 
 function KeyOfField({
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  disabled,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   defaultValue,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onSubmit,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   selector,
 }: {
   onSubmit?: OnSubmit;
-  disabled: boolean;
   defaultValue?: string | number | null;
   selector: SourcePath;
 }) {
-  return <div>TODO</div>;
-  // const valModule = useValModuleFromPath(selector);
-  // const getValuesFromModule = (module: typeof valModule) => {
-  //   if (Array.isArray(module.moduleSource)) {
-  //     return {
-  //       type: "number",
-  //       values: Object.keys(module.moduleSource).map((key) => parseInt(key)),
-  //     };
-  //   }
-  //   return {
-  //     type: "string",
-  //     values: Object.keys(module.moduleSource ?? ["ERROR fetching source"]),
-  //   };
-  // };
-  // const typeAndValues = getValuesFromModule(valModule);
-  // const [value, setValue] = useState(defaultValue || typeAndValues.values[0]);
-  // const [loading, setLoading] = useState(false);
-  // useEffect(() => {
-  //   setLoading(disabled);
-  // }, [disabled]);
-
-  // const parse = (value: string) => {
-  //   if (typeAndValues.type === "number") {
-  //     if (value === "") {
-  //       throw new Error("Value cannot be empty");
-  //     }
-  //     if (Number.isNaN(Number(value))) {
-  //       throw new Error("Value was not a number: " + JSON.stringify(value));
-  //     }
-  //     return Number(value);
-  //   }
-  //   return value;
-  // };
-
-  // return (
-  //   <FieldContainer>
-  //     <Select
-  //       defaultValue={value.toString()}
-  //       disabled={loading}
-  //       onValueChange={(value) => {
-  //         setValue(parse(value));
-  //       }}
-  //     >
-  //       <SelectTrigger>
-  //         <SelectValue placeholder="Select a value" />
-  //       </SelectTrigger>
-  //       <SelectContent>
-  //         {typeAndValues.values.map((value) => (
-  //           <SelectItem key={value} value={value.toString()}>
-  //             {value.toString()}
-  //           </SelectItem>
-  //         ))}
-  //       </SelectContent>
-  //     </Select>
-  //     {onSubmit && (
-  //       <SubmitButton
-  //         loading={loading}
-  //         enabled={defaultValue !== value}
-  //         onClick={() => {
-  //           setLoading(true);
-  //           onSubmit(async (path) => [
-  //             {
-  //               op: "replace",
-  //               path,
-  //               value: value,
-  //             },
-  //           ]).finally(() => {
-  //             setLoading(false);
-  //           });
-  //         }}
-  //       />
-  //     )}
-  //   </FieldContainer>
-  // );
-}
-
-function NumberField({
-  disabled,
-  defaultValue,
-  onSubmit,
-}: {
-  onSubmit?: OnSubmit;
-  disabled: boolean;
-  defaultValue?: number | null;
-}) {
-  const [value, setValue] = useState(defaultValue || 0);
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(selector);
+  const moduleRes = useValFromPath(moduleFilePath, modulePath);
+  const [current, setCurrent] = useState<{
+    source: Json;
+    schema: SerializedSchema;
+  }>();
   const [loading, setLoading] = useState(false);
+  const [currentSelector, setCurrentSelector] = useState<
+    string | number | null | undefined
+  >(defaultValue);
   useEffect(() => {
-    setLoading(disabled);
-  }, [disabled]);
-  const ref = useRef<HTMLInputElement>(null);
+    setCurrentSelector(defaultValue);
+  }, [defaultValue]);
+  useEffect(() => {
+    if (moduleRes.status === "success" && currentSelector !== null) {
+      const { source: selectorSource, schema: selectorSchema } = moduleRes;
+      if (typeof selectorSource !== "object") {
+        console.error("Invalid selector source", selectorSource);
+        return;
+      }
+      if (selectorSource === null) {
+        return;
+      }
+      if (currentSelector === undefined) {
+        return;
+      }
+      let source;
+      if (isJsonArray(selectorSource)) {
+        source = selectorSource[Number(currentSelector)];
+      } else {
+        source = selectorSource[currentSelector];
+      }
+      if (selectorSchema.type === "object") {
+        setCurrent({
+          source: source,
+          schema: selectorSchema.items[currentSelector],
+        });
+      } else if (
+        selectorSchema.type === "array" ||
+        selectorSchema.type === "record"
+      ) {
+        setCurrent({ source: source, schema: selectorSchema.item });
+      } else {
+        console.error("Invalid selector schema", selectorSchema);
+      }
+    }
+  }, [moduleRes, currentSelector]);
+
+  if (moduleRes.status === "loading" || moduleRes.status === "idle") {
+    return <span>Loading...</span>;
+  }
+  if (moduleRes.status === "error") {
+    return <span>Error: {moduleRes.error.message}</span>;
+  }
+  const { source: selectorSource, schema: selectorSchema } = moduleRes;
+
+  if (
+    !(
+      selectorSchema.type === "array" ||
+      selectorSchema.type === "record" ||
+      selectorSchema.type === "object"
+    )
+  ) {
+    return (
+      <span>
+        Contact developer. Cannot use key of on: {selectorSchema.type}
+      </span>
+    );
+  }
+
+  if (selectorSource === null) {
+    return <span>Module not found</span>;
+  }
+  if (typeof selectorSource !== "object") {
+    return <span>Invalid module source</span>;
+  }
 
   return (
-    <FieldContainer>
-      <Input
-        ref={ref}
-        disabled={loading}
-        defaultValue={value ?? 0}
-        onChange={(e) => setValue(Number(e.target.value))}
-        type="number"
-      />
-      {onSubmit && (
-        <SubmitButton
-          loading={loading}
-          enabled={defaultValue !== value}
-          onClick={() => {
-            setLoading(true);
-            onSubmit(async (path) => [
+    <Select
+      disabled={loading}
+      onValueChange={(key) => {
+        if (onSubmit) {
+          setLoading(true);
+          onSubmit((path) => {
+            setCurrentSelector(key);
+            return Promise.resolve([
               {
                 op: "replace",
                 path,
-                value: Number(ref.current?.value) || 0,
+                value: moduleRes.schema.type === "array" ? Number(key) : key,
               },
-            ]).finally(() => {
-              setLoading(false);
-            });
-          }}
-        />
-      )}
-    </FieldContainer>
+            ]);
+          }).finally(() => {
+            setLoading(false);
+          });
+        }
+      }}
+    >
+      <SelectTrigger className="h-[8ch]">
+        {current && current.source !== undefined ? (
+          <PreviewDropDownItem
+            source={current.source}
+            schema={current.schema}
+          />
+        ) : (
+          <SelectValue className="h-[8ch]" />
+        )}
+      </SelectTrigger>
+      <SelectContent>
+        <div className="relative pr-6">
+          {Object.keys(selectorSource).map((key) => (
+            <SelectItem className="h-[8ch]" key={key} value={key}>
+              <PreviewDropDownItem
+                source={
+                  isJsonArray(selectorSource)
+                    ? selectorSource[Number(key)]
+                    : selectorSource[key]
+                }
+                schema={
+                  selectorSchema.type === "object"
+                    ? selectorSchema.items[key]
+                    : selectorSchema.item
+                }
+              />
+            </SelectItem>
+          ))}
+          <div className="absolute top-2 -right-4">
+            <SubmitStatus submitStatus={loading ? "loading" : "idle"} />
+          </div>
+        </div>
+      </SelectContent>
+    </Select>
   );
 }
 
-function StringField({
-  disabled,
+function PreviewDropDownItem({
+  source,
+  schema,
+}: {
+  source: Json;
+  schema: SerializedSchema;
+}) {
+  return (
+    <div className="h-[5ch] overflow-y-hidden ">
+      <Preview source={source} schema={schema} />
+    </div>
+  );
+}
+
+function BasicInputField({
   defaultValue,
   path,
-  schema,
   onSubmit,
-}: {
-  onSubmit?: OnSubmit;
-  path: SourcePath;
-  schema: SerializedStringSchema;
-  disabled: boolean;
-  defaultValue?: string | null;
-}) {
+  type,
+  validate,
+}:
+  | {
+      onSubmit?: OnSubmit;
+      path: SourcePath;
+      schema: SerializedStringSchema;
+      defaultValue?: string | null;
+      type: "text";
+      validate: (path: SourcePath, value: string) => ValidationErrors;
+    }
+  | {
+      onSubmit?: OnSubmit;
+      path: SourcePath;
+      schema: SerializedNumberSchema;
+      defaultValue?: string | null;
+      type: "number";
+      validate: (path: SourcePath, value: string) => ValidationErrors;
+    }) {
   const [value, setValue] = useState(defaultValue || "");
-  const [loading, setLoading] = useState(false);
-  useEffect(() => {
-    setLoading(disabled);
-  }, [disabled]);
   const ref = useRef<HTMLInputElement>(null);
-
-  const actualSchema = new StringSchema(
-    schema.options
-      ? {
-          ...schema.options,
-          regexp: schema.options.regexp
-            ? new RegExp(
-                schema.options.regexp.source,
-                schema.options.regexp.flags
-              )
-            : undefined,
-        }
-      : undefined
+  const [didChange, setDidChange] = useState(false);
+  useEffect(() => {
+    setDidChange(false);
+  }, [path]);
+  const validationErrors = validate(path, value);
+  const submitStatus = useBounceSubmit(
+    didChange,
+    value,
+    onSubmit,
+    async (value, path) => [
+      {
+        op: "replace",
+        path,
+        value: type === "number" ? Number(value) : value,
+      },
+    ],
+    ref.current?.value ?? null
   );
-  const validationErrors = actualSchema.validate(path, value);
-
   return (
     <FieldContainer>
-      <Input
-        ref={ref}
-        disabled={loading}
-        defaultValue={value ?? ""}
-        onChange={(e) => setValue(e.target.value)}
-      />
-      {onSubmit && (
-        <SubmitButton
-          validationErrors={validationErrors && validationErrors[path]}
-          loading={loading}
-          enabled={true}
-          onClick={() => {
-            setLoading(true);
-            onSubmit(async (path) => [
-              {
-                op: "replace",
-                path,
-                value: ref.current?.value || "",
-              },
-            ]).finally(() => {
-              setLoading(false);
-            });
+      <div className="relative flex gap-2 pr-6">
+        <Input
+          ref={ref}
+          defaultValue={value ?? ""}
+          onChange={(e) => {
+            setDidChange(true);
+            setValue(e.target.value);
           }}
+          type={type}
         />
+        <div className="absolute top-2 -right-4">
+          <SubmitStatus submitStatus={submitStatus} />
+        </div>
+      </div>
+      {validationErrors && validationErrors[path] ? (
+        <InlineValidationErrors
+          errors={(validationErrors && validationErrors[path]) || []}
+        />
+      ) : (
+        <span></span>
       )}
     </FieldContainer>
   );
@@ -963,11 +998,7 @@ export function FieldContainer({
   children: React.ReactNode;
   className?: string;
 }) {
-  return (
-    <div className={classNames("relative max-w-lg px-4 pt-4", className)}>
-      {children}
-    </div>
-  );
+  return <div className={classNames("pl-4 pt-4", className)}>{children}</div>;
 }
 
 export function SubmitButton({
