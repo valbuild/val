@@ -24,6 +24,7 @@ import { result } from "@valbuild/core/fp";
 import { Remote } from "../utils/Remote";
 import { useParams } from "./ValRouter";
 import { Button } from "./ui/button";
+import { ValStoreProvider } from "./ValStoreContext";
 
 interface ValFullscreenProps {
   api: ValApi;
@@ -95,100 +96,102 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
   }, []);
 
   return (
-    <ValUIContext.Provider
-      value={{
-        theme,
-        setTheme,
-        editMode: "full",
-        session,
-        setEditMode: () => {
-          //
-        },
-        setWindowSize: () => {
-          //
-        },
-      }}
-    >
-      <div
-        id="val-fullscreen-container"
-        className="relative w-full h-[100] overflow-hidden font-serif antialiased bg-background text-primary"
-        data-mode={theme}
+    <ValStoreProvider store={store}>
+      <ValUIContext.Provider
+        value={{
+          theme,
+          setTheme,
+          editMode: "full",
+          session,
+          setEditMode: () => {
+            //
+          },
+          setWindowSize: () => {
+            //
+          },
+        }}
       >
-        <div id="val-fullscreen-hover" ref={hoverElemRef}></div>
-        <ValImagePreviewContext.Provider
-          value={{
-            hoverElem: hoverElemRef?.current,
-          }}
+        <div
+          id="val-fullscreen-container"
+          className="relative w-full h-[100] overflow-hidden font-serif antialiased bg-background text-primary"
+          data-mode={theme}
         >
-          <div className="text-primary">
-            <Grid>
-              <div className="px-4 h-[50px] flex items-center justify-center">
-                <Logo />
-              </div>
-              <ScrollArea className="px-4">
-                {moduleFilePaths ? (
-                  <PathTree
-                    selectedPath={selectedPath}
-                    paths={moduleFilePaths}
-                  />
-                ) : (
-                  !error && <div className="py-4">Loading...</div>
-                )}
-              </ScrollArea>
-              <div className="flex items-center justify-between h-[50px] w-full px-4">
-                <div className="flex items-center justify-start gap-2 font-serif text-xs">
-                  <button
+          <div id="val-fullscreen-hover" ref={hoverElemRef}></div>
+          <ValImagePreviewContext.Provider
+            value={{
+              hoverElem: hoverElemRef?.current,
+            }}
+          >
+            <div className="text-primary">
+              <Grid>
+                <div className="px-4 h-[50px] flex items-center justify-center">
+                  <Logo />
+                </div>
+                <ScrollArea className="px-4">
+                  {moduleFilePaths ? (
+                    <PathTree
+                      selectedPath={selectedPath}
+                      paths={moduleFilePaths}
+                    />
+                  ) : (
+                    !error && <div className="py-4">Loading...</div>
+                  )}
+                </ScrollArea>
+                <div className="flex items-center justify-between h-[50px] w-full px-4">
+                  <div className="flex items-center justify-start gap-2 font-serif text-xs">
+                    <button
+                      onClick={() => {
+                        history.back();
+                      }}
+                    >
+                      <ChevronLeft />
+                    </button>
+                    <div
+                      className="truncate max-w-[300px] text-left"
+                      dir="rtl"
+                      title={selectedPath}
+                    >
+                      <Path>{selectedPath || "/"}</Path>
+                    </div>
+                  </div>
+                  <Button
+                    disabled={
+                      !(session.status === "success" && session.data.enabled) ||
+                      patches.length === 0
+                    }
                     onClick={() => {
-                      history.back();
+                      api.postSave({ patchIds: patches }).then(async (res) => {
+                        if (result.isOk(res)) {
+                          const res = await api.deletePatches(patches);
+                          if (result.isOk(res)) {
+                            setPatches([]);
+                            alert("Success");
+                          } else {
+                            setError("Could not clean up");
+                          }
+                        } else {
+                          setError("Could not publish");
+                        }
+                      });
                     }}
                   >
-                    <ChevronLeft />
-                  </button>
-                  <div
-                    className="truncate max-w-[300px] text-left"
-                    dir="rtl"
-                    title={selectedPath}
-                  >
-                    <Path>{selectedPath || "/"}</Path>
-                  </div>
+                    Publish {patches.length > 0 && `(${patches.length})`}
+                  </Button>
                 </div>
-                <Button
-                  disabled={
-                    !(session.status === "success" && session.data.enabled) ||
-                    patches.length === 0
-                  }
-                  onClick={() => {
-                    api.postSave({ patchIds: patches }).then(async (res) => {
-                      if (result.isOk(res)) {
-                        const res = await api.deletePatches(patches);
-                        if (result.isOk(res)) {
-                          setPatches([]);
-                          alert("Success");
-                        } else {
-                          setError("Could not clean up");
-                        }
-                      } else {
-                        setError("Could not publish");
-                      }
-                    });
-                  }}
-                >
-                  Publish {patches.length > 0 && `(${patches.length})`}
-                </Button>
-              </div>
-              <ModulePane
-                path={selectedPath}
-                error={error}
-                initOnSubmit={initOnSubmit}
-                session={session}
-                api={api}
-                store={store}
-              />
-            </Grid>
-          </div>
-        </ValImagePreviewContext.Provider>
-      </div>
-    </ValUIContext.Provider>
+                <ModulePane
+                  path={selectedPath}
+                  error={error}
+                  initOnSubmit={initOnSubmit}
+                  session={session}
+                  api={api}
+                  store={store}
+                />
+              </Grid>
+            </div>
+          </ValImagePreviewContext.Provider>
+        </div>
+      </ValUIContext.Provider>
+    </ValStoreProvider>
   );
 };
 
@@ -249,19 +252,19 @@ function ModulePane({
   }, [moduleId, path, session]);
 
   return (
-    <div className="p-4">
+    <div className="max-w-xl p-4">
       {(globalError || moduleError) && (
-        <div className="max-w-xl p-4 text-lg bg-destructive text-destructive-foreground">
+        <div className="p-4 text-lg bg-destructive text-destructive-foreground">
           ERROR: {globalError || moduleError}
         </div>
       )}
       {session.status === "success" && session.data.mode === "unauthorized" && (
-        <div className="max-w-xl p-4 text-lg bg-destructive text-destructive-foreground">
+        <div className="p-4 text-lg bg-destructive text-destructive-foreground">
           Not authorized
         </div>
       )}
       {session.status === "success" && !session.data.enabled && (
-        <div className="max-w-xl p-4 text-lg">
+        <div className="p-4 text-lg">
           <div>Val is currently not enabled</div>
           <a href={api.getEnableUrl(window?.location?.href || "/val")}>
             Enable Val

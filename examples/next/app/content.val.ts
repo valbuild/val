@@ -37,6 +37,8 @@ export const schema = s.object({
     title: s.string(),
     image,
   }),
+  // Boolean:
+  featured: s.boolean(),
 });
 
 export type Content = t.inferSchema<typeof schema>;
@@ -60,7 +62,7 @@ export default c.define("/app/content.val.ts", schema, {
     },
   },
   tags: ["CMS", "react", "github", "NextJS"],
-  author: 0,
+  author: "freekh",
   text: c.richtext`
 Val is a CMS where **content** is **code** in your git repo.
 
@@ -85,4 +87,5 @@ But, with all the benefits of having content hard-coded:
 
 Visit ${c.rt.link("Val", { href: "https://val.build" })} for more information.
 `,
+  featured: false,
 });

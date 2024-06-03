@@ -18,19 +18,12 @@ import {
   RichText,
   RichTextNode,
   ModulePath,
-  ImageSource,
 } from "@valbuild/core";
 import { parseRichTextSource } from "@valbuild/shared/internal";
 import classNames from "classnames";
 import React, { useState, useEffect, Fragment } from "react";
 import { createPortal } from "react-dom";
-import {
-  ValFormField,
-  FieldContainer,
-  SubmitButton,
-  InitOnSubmit,
-} from "./ValFormField";
-import { useValUIContext } from "./ValUIContext";
+import { ValFormField, FieldContainer, InitOnSubmit } from "./ValFormField";
 import { Card } from "./ui/card";
 import { Path } from "./Path";
 import {
@@ -40,23 +33,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
-import { Switch } from "./ui/switch";
-import { Patch } from "@valbuild/core/patch";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "./ui/dialog";
-import { RotateCw, Trash } from "lucide-react";
-import { Button } from "./ui/button";
+import { JSONValue, Patch } from "@valbuild/core/patch";
 import { array } from "@valbuild/core/fp";
 import { useNavigate } from "./ValRouter";
 import { isJsonArray } from "../utils/isJsonArray";
 import { SortableList } from "./SortableList";
+import { emptyOf } from "./emptyOf";
+import { SubmitStatus } from "./SubmitStatus";
+import { Checkbox } from "./ui/checkbox";
+
 export function AnyVal({
   path,
   source,
@@ -74,7 +59,7 @@ export function AnyVal({
 }): React.ReactElement {
   if (schema.opt) {
     return (
-      <ValOptional
+      <ValNullable
         path={path}
         source={source}
         schema={schema}
@@ -148,9 +133,8 @@ export function AnyVal({
       !isJsonArray(source)
     ) {
       return (
-        <ValTagged
+        <ValTaggedUnion
           field={field}
-          tag={schema.key}
           source={source}
           path={path}
           schema={
@@ -175,17 +159,15 @@ export function AnyVal({
       {field && <div className="text-left">{field}</div>}
       <ValFormField
         path={path}
-        disabled={false}
         source={source}
         schema={schema}
-        onSubmit={initOnSubmit(path)}
+        initOnSubmit={initOnSubmit}
       />
     </div>
   );
 }
 
-function ValTagged({
-  tag,
+function ValTaggedUnion({
   field,
   path,
   source,
@@ -193,7 +175,6 @@ function ValTagged({
   initOnSubmit,
   top,
 }: {
-  tag: string;
   field?: string;
   source: JsonObject;
   path: SourcePath;
@@ -206,57 +187,34 @@ function ValTagged({
   initOnSubmit: InitOnSubmit;
   top?: boolean;
 }) {
+  const keys = getKeysOfUnionObject(schema);
   const [currentKey, setCurrentKey] = useState<string | null>(null);
-  const [current, setCurrent] = useState<{
+  const [currentSourceAndSchema, setCurrentSourceAndSchema] = useState<{
+    source: Json | null;
     schema: SerializedSchema;
-    source?: Json;
   } | null>(null);
-
-  const keys = schema.items.flatMap((item) => {
-    if (item.type === "object" && item.items[tag]) {
-      const maybeLiteral = item.items[tag];
-      if (maybeLiteral.type === "literal") {
-        return [maybeLiteral.value];
-      }
-    }
-    return [];
-  });
   useEffect(() => {
-    if (!currentKey) {
-      const maybeCurrentKey = source?.[tag];
-      if (maybeCurrentKey && typeof maybeCurrentKey === "string") {
-        setCurrentKey(maybeCurrentKey);
-      }
-    } else {
-      const sourceKey = source[tag];
-      const unionSchema = schema.items.find((item) => {
-        if (item.type === "object" && item.items[tag]) {
-          const maybeLiteral = item.items[tag];
-          if (maybeLiteral.type === "literal") {
-            return maybeLiteral.value === currentKey;
+    const key = source[schema.key];
+    if (typeof key !== "string") {
+      console.error("Expected key to be a string, but got", key);
+      return;
+    }
+    setCurrentKey(key);
+    for (const item of schema.items) {
+      if (item.type === "object" && item.items[schema.key]) {
+        const maybeLiteral = item.items[schema.key];
+        if (maybeLiteral.type === "literal") {
+          if (maybeLiteral.value === key) {
+            setCurrentSourceAndSchema({
+              schema: item,
+              source,
+            });
           }
-          return false;
         }
-      });
-      if (sourceKey && typeof sourceKey === "string" && unionSchema) {
-        setCurrent({ source, schema: unionSchema });
-      } else if (unionSchema) {
-        setCurrent({ schema: unionSchema });
-      } else {
-        console.error(
-          "Could not find source or schema of key",
-          currentKey,
-          source,
-          schema
-        );
-        setCurrent(null);
       }
     }
-  }, [currentKey, source, tag, schema, keys]);
-  if (keys.length !== schema.items.length) {
-    console.warn("Not all items have tag:", tag);
-  }
-  const loading = false;
+  }, [schema, source]);
+  const [loading, setLoading] = useState<boolean>(false);
   const onSubmit = initOnSubmit(path);
   return (
     <FieldContainer
@@ -273,35 +231,90 @@ function ValTagged({
         disabled={loading}
         onValueChange={(key) => {
           setCurrentKey(key);
+          for (const item of schema.items) {
+            if (item.type === "object" && item.items[schema.key]) {
+              const maybeLiteral = item.items[schema.key];
+              if (maybeLiteral.type === "literal") {
+                if (maybeLiteral.value === key) {
+                  const nextSource = {
+                    ...Object.fromEntries(
+                      Object.keys(item.items).map((key) => [
+                        key,
+                        emptyOf(item.items[key]),
+                      ])
+                    ),
+                    [schema.key]: key,
+                  };
+                  setCurrentSourceAndSchema({
+                    schema: item,
+                    source: nextSource,
+                  });
+                  setLoading(true);
+                  onSubmit(async (path) => {
+                    return [
+                      {
+                        op: "replace",
+                        path: path,
+                        value: nextSource as JSONValue,
+                      },
+                    ];
+                  }).finally(() => {
+                    setLoading(false);
+                  });
+                  return;
+                }
+              }
+            }
+          }
+          console.error("Could not find key", key);
         }}
       >
-        <SelectTrigger>
-          <SelectValue placeholder="Select type" />
-        </SelectTrigger>
-        <SelectContent>
-          {keys.map((tag) => (
-            <SelectItem key={tag} value={tag.toString()}>
-              {tag.toString()}
-            </SelectItem>
-          ))}
-        </SelectContent>
+        <div className="relative pr-6">
+          <SelectTrigger>
+            <SelectValue placeholder="Select type" />
+          </SelectTrigger>
+          <SelectContent>
+            {keys.map((tag) => (
+              <SelectItem key={tag} value={tag.toString()}>
+                {tag.toString()}
+              </SelectItem>
+            ))}
+          </SelectContent>
+          <div className="absolute top-2 -right-4">
+            <SubmitStatus submitStatus={loading ? "loading" : "idle"} />
+          </div>
+        </div>
       </Select>
-      <SubmitButton
-        loading={loading}
-        enabled={false}
-        onClick={() => onSubmit(async () => [])}
-      />
-      {current && (
+      {currentSourceAndSchema && (
         <AnyVal
+          key={JSON.stringify(currentSourceAndSchema.schema)}
           path={path as SourcePath}
-          source={current.source ?? null}
-          schema={current.schema}
+          source={currentSourceAndSchema.source}
+          schema={currentSourceAndSchema.schema}
           initOnSubmit={initOnSubmit}
           top={top}
         />
       )}
     </FieldContainer>
   );
+}
+
+function getKeysOfUnionObject(schema: {
+  type: "union";
+  key: string;
+  items: SerializedSchema[];
+  opt: boolean;
+}): string[] {
+  const keys = [];
+  for (const item of schema.items) {
+    if (item.type === "object" && item.items[schema.key]) {
+      const maybeLiteral = item.items[schema.key];
+      if (maybeLiteral.type === "literal") {
+        keys.push(maybeLiteral.value);
+      }
+    }
+  }
+  return keys;
 }
 
 function ValObject({
@@ -340,6 +353,7 @@ function ValObject({
     </div>
   );
 }
+
 function ValRecord({
   path,
   source,
@@ -707,7 +721,7 @@ function ValPreview({
   return <div key={path}>TODO: {schema.type}</div>;
 }
 
-function ValOptional({
+function ValNullable({
   path,
   source,
   schema,
@@ -721,69 +735,15 @@ function ValOptional({
   field?: string;
 }) {
   const [enable, setEnable] = useState<boolean>(source !== null);
-  const { editMode } = useValUIContext();
   const onSubmit = initOnSubmit(path);
   const [loading, setLoading] = useState<boolean>(false);
+  useEffect(() => {
+    setEnable(source !== null);
+  }, [source]);
 
   return (
     <div className="flex flex-col gap-y-2" key={path}>
-      <div className="relative flex items-center justify-start gap-x-4">
-        {editMode === "full" && !enable && (
-          <Switch
-            disabled={loading}
-            checked={enable}
-            onClick={() => {
-              setEnable((prev) => !prev);
-            }}
-          />
-        )}
-        {editMode === "full" && enable && (
-          <Dialog>
-            <DialogTrigger>
-              <Trash />
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>About to delete. Are you sure?</DialogTitle>
-                <DialogFooter className="sm:justify-start">
-                  <DialogClose asChild>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={async () => {
-                        setLoading(true);
-                        setEnable(false);
-                        const [, modulePath] =
-                          Internal.splitModuleFilePathAndModulePath(path);
-                        onSubmit(async () => {
-                          return [
-                            {
-                              op: "replace",
-                              path: Internal.createPatchPath(modulePath),
-                              value: null,
-                            },
-                          ] as Patch;
-                        })
-                          .catch((err) => {
-                            console.error(err);
-                            setEnable(true);
-                          })
-                          .finally(() => {
-                            setLoading(false);
-                          });
-                      }}
-                    >
-                      Yes
-                    </Button>
-                  </DialogClose>
-                  <DialogClose asChild>
-                    <Button type="button">Cancel</Button>
-                  </DialogClose>
-                </DialogFooter>
-              </DialogHeader>
-            </DialogContent>
-          </Dialog>
-        )}
+      <div className="relative flex items-center justify-between gap-x-4">
         <div
           className="truncate max-w-[300px] text-left"
           title={path}
@@ -791,98 +751,43 @@ function ValOptional({
         >
           {field ? field : <Path>{path}</Path>}
         </div>
+        <Checkbox
+          disabled={loading}
+          checked={enable}
+          onCheckedChange={(e) => {
+            if (typeof e === "boolean") {
+              setLoading(true);
+              onSubmit(async (path) => {
+                return [
+                  {
+                    op: "replace",
+                    path,
+                    value: e ? (emptyOf(schema) as JSONValue) : null,
+                  },
+                ];
+              })
+                .then(() => {
+                  setEnable(e);
+                })
+                .finally(() => {
+                  setLoading(false);
+                });
+            } else {
+              console.error("Expected boolean, but got", e);
+            }
+          }}
+        />
       </div>
       {enable && (
         <ValDefaultOf
-          source={source === null ? emptyOf(schema) : source}
+          source={emptyOf(schema)}
           schema={schema}
           path={path}
-          initOnSubmit={(subPath) => async (callback) => {
-            const [, modulePath] =
-              Internal.splitModuleFilePathAndModulePath(path);
-            const [, subModulePath] =
-              Internal.splitModuleFilePathAndModulePath(subPath);
-            const patch = await callback(
-              Internal.createPatchPath(subModulePath)
-            );
-            onSubmit(async () => {
-              if (source === null) {
-                return (
-                  [
-                    {
-                      op: "replace",
-                      path: Internal.createPatchPath(modulePath),
-                      value: emptyOf(schema),
-                    },
-                  ] as Patch
-                ).concat(patch);
-              }
-              return patch;
-            });
-          }}
+          initOnSubmit={initOnSubmit}
         />
       )}
     </div>
   );
-}
-
-function emptyOf(schema: SerializedSchema): Json {
-  if (schema.type === "object") {
-    return Object.fromEntries(
-      Object.keys(schema.items).map((key) => [key, emptyOf(schema.items[key])])
-    );
-  } else if (schema.type === "array") {
-    return [];
-  } else if (schema.type === "record") {
-    return {};
-  } else if (schema.opt) {
-    return null;
-  } else if (schema.type === "richtext") {
-    return {
-      [VAL_EXTENSION]: "richtext",
-      templateStrings: [""],
-      exprs: [],
-    } satisfies RichTextSource<AnyRichTextOptions>;
-  } else if (schema.type === "string") {
-    return "";
-  } else if (schema.type === "boolean") {
-    return false;
-  } else if (schema.type === "number") {
-    return 0;
-  } else if (schema.type === "keyOf") {
-    if (schema.values === "number") {
-      return 0; // TODO: figure out this: user code might very well fail in this case
-    } else if (schema.values === "string") {
-      return ""; // TODO: figure out this: user code might very well fail in this case
-    } else {
-      return schema.values[0];
-    }
-  } else if (schema.type === "file") {
-    return {
-      _ref: "/public/",
-      _type: "file",
-      metadata: {
-        sha256: "",
-      },
-    } satisfies FileSource;
-  } else if (schema.type === "image") {
-    return {
-      _ref: "/public/",
-      _type: "file",
-      metadata: {
-        height: 0,
-        width: 0,
-        mimeType: "application/octet-stream",
-        sha256: "",
-      },
-    } satisfies ImageSource;
-  } else if (schema.type === "literal") {
-    return schema.value;
-  } else if (schema.type === "union") {
-    return emptyOf(schema.items[0]);
-  }
-  const _exhaustiveCheck: never = schema;
-  throw Error("Unexpected schema type: " + JSON.stringify(_exhaustiveCheck));
 }
 
 function ValDefaultOf({
@@ -938,10 +843,9 @@ function ValDefaultOf({
       <ValFormField
         key={path}
         path={path}
-        disabled={false}
         source={source}
         schema={schema}
-        onSubmit={initOnSubmit(path)}
+        initOnSubmit={initOnSubmit}
       />
     );
   }
