@@ -19,7 +19,7 @@ import {
   ValidationErrors,
 } from "@valbuild/core";
 import type { Patch } from "@valbuild/core/patch";
-import { useState, useEffect, useRef, ChangeEvent, RefObject } from "react";
+import { useState, useEffect, useRef, ChangeEvent } from "react";
 import {
   RemirrorJSON as ValidRemirrorJSON,
   getMimeType,
@@ -33,7 +33,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { useValUIContext } from "./ValUIContext";
 import classNames from "classnames";
-import { CheckCircle2, File, RefreshCw } from "lucide-react";
+import { File } from "lucide-react";
 import { RichTextEditor, useRichTextEditor } from "./RichTextEditor";
 import { RemirrorJSON } from "@remirror/core";
 import {
@@ -349,6 +349,7 @@ export function readFile(ev: ChangeEvent<HTMLInputElement>) {
     }
   });
 }
+
 function FileField({
   path,
   defaultValue,
@@ -362,25 +363,10 @@ function FileField({
     null
   );
   const [loading, setLoading] = useState(false);
-  const [metadata, setMetadata] = useState<FileMetadata>();
   const [url, setUrl] = useState<string>();
   useEffect(() => {
     const url = defaultValue && Internal.convertFileSource(defaultValue).url;
     setUrl(url);
-    // TODO: get filename
-    // const filename = url
-    //   ?.split("/")
-    //   .pop()
-    //   ?.slice(
-    //     0,
-    //     -(metadata?.sha256
-    //       ? metadata.sha256.length + "?sha256=".length
-    //       : url.length)
-    //   );
-    // console.log("url", url, "filename", filename);
-    // if (filename && data) {
-    //   setData({ ...data, filename });
-    // }
   }, [defaultValue]);
 
   return (
@@ -408,70 +394,50 @@ function FileField({
           >
             Update
           </label>
+          <div className="absolute top-6 right-6 text-background">
+            <SubmitStatus submitStatus={loading ? "loading" : "idle"} />
+          </div>
           <input
             hidden
+            disabled={loading}
             id={`img_input:${path}`}
             type="file"
             onChange={(ev) => {
-              readFile(ev)
-                .then((res) => {
-                  setData({ src: res.src, filename: res.filename });
-                  if (res.mimeType) {
-                    setMetadata({
-                      sha256: res.sha256,
-                      mimeType: res.mimeType,
+              if (onSubmit) {
+                readFile(ev)
+                  .then((res) => {
+                    const data = { src: res.src, filename: res.filename };
+                    setData(data);
+                    let metadata: FileMetadata | undefined;
+                    if (res.mimeType) {
+                      metadata = {
+                        sha256: res.sha256,
+                        mimeType: res.mimeType,
+                      };
+                    }
+                    setLoading(true);
+                    onSubmit((path) =>
+                      Promise.resolve(
+                        createFilePatch(
+                          path,
+                          data.src,
+                          data.filename ?? null,
+                          metadata
+                        )
+                      )
+                    ).finally(() => {
+                      setLoading(false);
                     });
-                  } else {
-                    setMetadata(undefined);
-                  }
-                })
-                .catch((err) => {
-                  console.error(err.message);
-                  setData(null);
-                  setMetadata(undefined);
-                });
+                  })
+                  .catch((err) => {
+                    console.error(err.message);
+                    setData(null);
+                  });
+              }
             }}
           />
         </div>
       </div>
-      {onSubmit && (
-        <SubmitButton
-          loading={loading}
-          enabled={
-            !!data ||
-            defaultValue?.metadata?.mimeType !== metadata?.mimeType ||
-            defaultValue?.metadata?.sha256 !== metadata?.sha256
-          }
-          onClick={() => {
-            if (data) {
-              setLoading(true);
-              onSubmit((path) =>
-                Promise.resolve(
-                  createFilePatch(
-                    path,
-                    data.src,
-                    data.filename ?? null,
-                    metadata
-                  )
-                )
-              ).finally(() => {
-                setLoading(false);
-                setData(null);
-                setMetadata(undefined);
-              });
-            } else if (metadata) {
-              setLoading(true);
-              onSubmit((path) =>
-                Promise.resolve(createFileMetadataPatch(path, metadata))
-              ).finally(() => {
-                setLoading(false);
-                setData(null);
-                setMetadata(undefined);
-              });
-            }
-          }}
-        />
-      )}
     </FieldContainer>
   );
 }
@@ -540,8 +506,8 @@ function ImageField({
                     width: 1,
                     height: 1,
                   });
-                  setLoading(true);
                   if (onSubmit) {
+                    setLoading(true);
                     onSubmit(async (path) => {
                       if (metadata) {
                         return createFileMetadataPatch(path, {
@@ -566,6 +532,8 @@ function ImageField({
                       } else {
                         throw new Error("No metadata to update");
                       }
+                    }).finally(() => {
+                      setLoading(false);
                     });
                   }
                 }}
@@ -587,6 +555,7 @@ function ImageField({
           </div>
           <input
             hidden
+            disabled={loading}
             id={`img_input:${path}`}
             type="file"
             accept="image/*"
@@ -853,7 +822,7 @@ function BasicInputField({
 
   return (
     <FieldContainer>
-      <div className="relative flex gap-2">
+      <div className="relative flex gap-2 pr-6">
         <Input
           ref={ref}
           defaultValue={value ?? ""}
@@ -863,7 +832,7 @@ function BasicInputField({
           }}
           type={type}
         />
-        <div className="absolute top-2 right-2">
+        <div className="absolute top-2 -right-4">
           <SubmitStatus submitStatus={submitStatus} />
         </div>
       </div>
