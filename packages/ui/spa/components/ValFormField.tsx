@@ -8,6 +8,7 @@ import {
   Json,
   NumberSchema,
   RichTextSource,
+  SerializedBooleanSchema,
   SerializedNumberSchema,
   SerializedRichTextSchema,
   SerializedSchema,
@@ -45,22 +46,27 @@ import {
   SelectValue,
 } from "./ui/select";
 import { OnSubmit, SubmitStatus, useBounceSubmit } from "./SubmitStatus";
+import { AnyVal } from "./ValCompositeFields";
+import { emptyOf } from "./emptyOf";
+import { useValFromPath } from "./ValStoreContext";
+import { Preview } from "./Preview";
+import { isJsonArray } from "../utils/isJsonArray";
+import { Checkbox } from "./ui/checkbox";
 
 export type InitOnSubmit = (path: SourcePath) => OnSubmit;
 
 export function ValFormField({
   path,
-  disabled,
   source: source,
   schema: schema,
-  onSubmit,
+  initOnSubmit,
 }: {
   path: SourcePath;
-  disabled: boolean;
   source: Json;
   schema: SerializedSchema;
-  onSubmit?: OnSubmit;
+  initOnSubmit: InitOnSubmit;
 }) {
+  const onSubmit = initOnSubmit(path);
   if (
     (typeof source === "string" || source === null) &&
     schema?.type === "string"
@@ -108,6 +114,19 @@ export function ValFormField({
     );
   }
   if (
+    (typeof source === "boolean" || source === null) &&
+    schema?.type === "boolean"
+  ) {
+    return (
+      <BooleanField
+        path={path}
+        defaultValue={source}
+        schema={schema}
+        onSubmit={onSubmit}
+      />
+    );
+  }
+  if (
     (typeof source === "number" ||
       typeof source === "string" ||
       source === null) &&
@@ -116,7 +135,6 @@ export function ValFormField({
     return (
       <KeyOfField
         defaultValue={source}
-        disabled={disabled}
         onSubmit={onSubmit}
         selector={schema.path}
       />
@@ -131,7 +149,6 @@ export function ValFormField({
     return (
       <KeyOfField
         defaultValue={source}
-        disabled={disabled}
         onSubmit={onSubmit}
         selector={schema.path}
       />
@@ -197,11 +214,62 @@ export function ValFormField({
       );
     }
   }
+
+  console.warn(
+    `Unsupported schema: ${
+      schema.type
+    } (source type: ${typeof source}) source:`,
+    source
+  );
   return (
-    <div>
-      Unsupported schema: {schema.type} (source type: {typeof source} source:{" "}
-      {JSON.stringify(source)})
-    </div>
+    <AnyVal
+      path={path}
+      schema={schema}
+      source={emptyOf(schema)}
+      initOnSubmit={initOnSubmit}
+    />
+  );
+}
+
+function BooleanField({
+  defaultValue,
+  onSubmit,
+}: {
+  path: SourcePath;
+  defaultValue?: boolean | null;
+  schema: SerializedBooleanSchema;
+  onSubmit?: OnSubmit;
+}) {
+  const [value, setValue] = useState<boolean | null>(defaultValue ?? null);
+  const [loading, setLoading] = useState(false);
+  return (
+    <FieldContainer>
+      <div className="flex items-center justify-between">
+        <Checkbox
+          checked={value || false}
+          onCheckedChange={(checkedValue) => {
+            const value =
+              typeof checkedValue === "boolean" ? checkedValue : null;
+            setValue(value);
+            if (onSubmit) {
+              setLoading(true);
+              onSubmit((path) =>
+                Promise.resolve([
+                  {
+                    op: "replace",
+                    path,
+                    value,
+                  },
+                ])
+              ).finally(() => {
+                setLoading(false);
+              });
+            }
+          }}
+        />
+        <SubmitStatus submitStatus={loading ? "loading" : "idle"} />
+      </div>
+    </FieldContainer>
   );
 }
 
@@ -368,7 +436,6 @@ function FileField({
     const url = defaultValue && Internal.convertFileSource(defaultValue).url;
     setUrl(url);
   }, [defaultValue]);
-
   return (
     <FieldContainer>
       <div className="w-fit">
@@ -471,7 +538,7 @@ function ImageField({
 
   return (
     <FieldContainer>
-      <div className="w-fit">
+      <div className="pr-6 w-fit">
         <div
           className="flex flex-col justify-start p-2 border border-b-0 rounded-sm rounded-b-none gap-y-4 bg-background text-foreground border-input"
           key={path}
@@ -686,94 +753,162 @@ function RichTextField({
 }
 
 function KeyOfField({
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  disabled,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   defaultValue,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onSubmit,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   selector,
 }: {
   onSubmit?: OnSubmit;
-  disabled: boolean;
   defaultValue?: string | number | null;
   selector: SourcePath;
 }) {
-  return <div>TODO</div>;
-  // const valModule = useValModuleFromPath(selector);
-  // const getValuesFromModule = (module: typeof valModule) => {
-  //   if (Array.isArray(module.moduleSource)) {
-  //     return {
-  //       type: "number",
-  //       values: Object.keys(module.moduleSource).map((key) => parseInt(key)),
-  //     };
-  //   }
-  //   return {
-  //     type: "string",
-  //     values: Object.keys(module.moduleSource ?? ["ERROR fetching source"]),
-  //   };
-  // };
-  // const typeAndValues = getValuesFromModule(valModule);
-  // const [value, setValue] = useState(defaultValue || typeAndValues.values[0]);
-  // const [loading, setLoading] = useState(false);
-  // useEffect(() => {
-  //   setLoading(disabled);
-  // }, [disabled]);
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(selector);
+  const moduleRes = useValFromPath(moduleFilePath, modulePath);
+  const [current, setCurrent] = useState<{
+    source: Json;
+    schema: SerializedSchema;
+  }>();
+  const [loading, setLoading] = useState(false);
+  const [currentSelector, setCurrentSelector] = useState<
+    string | number | null | undefined
+  >(defaultValue);
+  useEffect(() => {
+    setCurrentSelector(defaultValue);
+  }, [defaultValue]);
+  useEffect(() => {
+    if (moduleRes.status === "success" && currentSelector !== null) {
+      const { source: selectorSource, schema: selectorSchema } = moduleRes;
+      if (typeof selectorSource !== "object") {
+        console.error("Invalid selector source", selectorSource);
+        return;
+      }
+      if (selectorSource === null) {
+        return;
+      }
+      if (currentSelector === undefined) {
+        return;
+      }
+      let source;
+      if (isJsonArray(selectorSource)) {
+        source = selectorSource[Number(currentSelector)];
+      } else {
+        source = selectorSource[currentSelector];
+      }
+      if (selectorSchema.type === "object") {
+        setCurrent({
+          source: source,
+          schema: selectorSchema.items[currentSelector],
+        });
+      } else if (
+        selectorSchema.type === "array" ||
+        selectorSchema.type === "record"
+      ) {
+        setCurrent({ source: source, schema: selectorSchema.item });
+      } else {
+        console.error("Invalid selector schema", selectorSchema);
+      }
+    }
+  }, [moduleRes, currentSelector]);
 
-  // const parse = (value: string) => {
-  //   if (typeAndValues.type === "number") {
-  //     if (value === "") {
-  //       throw new Error("Value cannot be empty");
-  //     }
-  //     if (Number.isNaN(Number(value))) {
-  //       throw new Error("Value was not a number: " + JSON.stringify(value));
-  //     }
-  //     return Number(value);
-  //   }
-  //   return value;
-  // };
+  if (moduleRes.status === "loading" || moduleRes.status === "idle") {
+    return <span>Loading...</span>;
+  }
+  if (moduleRes.status === "error") {
+    return <span>Error: {moduleRes.error.message}</span>;
+  }
+  const { source: selectorSource, schema: selectorSchema } = moduleRes;
 
-  // return (
-  //   <FieldContainer>
-  //     <Select
-  //       defaultValue={value.toString()}
-  //       disabled={loading}
-  //       onValueChange={(value) => {
-  //         setValue(parse(value));
-  //       }}
-  //     >
-  //       <SelectTrigger>
-  //         <SelectValue placeholder="Select a value" />
-  //       </SelectTrigger>
-  //       <SelectContent>
-  //         {typeAndValues.values.map((value) => (
-  //           <SelectItem key={value} value={value.toString()}>
-  //             {value.toString()}
-  //           </SelectItem>
-  //         ))}
-  //       </SelectContent>
-  //     </Select>
-  //     {onSubmit && (
-  //       <SubmitButton
-  //         loading={loading}
-  //         enabled={defaultValue !== value}
-  //         onClick={() => {
-  //           setLoading(true);
-  //           onSubmit(async (path) => [
-  //             {
-  //               op: "replace",
-  //               path,
-  //               value: value,
-  //             },
-  //           ]).finally(() => {
-  //             setLoading(false);
-  //           });
-  //         }}
-  //       />
-  //     )}
-  //   </FieldContainer>
-  // );
+  if (
+    !(
+      selectorSchema.type === "array" ||
+      selectorSchema.type === "record" ||
+      selectorSchema.type === "object"
+    )
+  ) {
+    return (
+      <span>
+        Contact developer. Cannot use key of on: {selectorSchema.type}
+      </span>
+    );
+  }
+
+  if (selectorSource === null) {
+    return <span>Module not found</span>;
+  }
+  if (typeof selectorSource !== "object") {
+    return <span>Invalid module source</span>;
+  }
+
+  return (
+    <Select
+      disabled={loading}
+      onValueChange={(key) => {
+        if (onSubmit) {
+          setLoading(true);
+          onSubmit((path) => {
+            setCurrentSelector(key);
+            return Promise.resolve([
+              {
+                op: "replace",
+                path,
+                value: moduleRes.schema.type === "array" ? Number(key) : key,
+              },
+            ]);
+          }).finally(() => {
+            setLoading(false);
+          });
+        }
+      }}
+    >
+      <SelectTrigger className="h-[8ch]">
+        {current && current.source !== undefined ? (
+          <PreviewDropDownItem
+            source={current.source}
+            schema={current.schema}
+          />
+        ) : (
+          <SelectValue className="h-[8ch]" />
+        )}
+      </SelectTrigger>
+      <SelectContent>
+        <div className="relative pr-6">
+          {Object.keys(selectorSource).map((key) => (
+            <SelectItem className="h-[8ch]" key={key} value={key}>
+              <PreviewDropDownItem
+                source={
+                  isJsonArray(selectorSource)
+                    ? selectorSource[Number(key)]
+                    : selectorSource[key]
+                }
+                schema={
+                  selectorSchema.type === "object"
+                    ? selectorSchema.items[key]
+                    : selectorSchema.item
+                }
+              />
+            </SelectItem>
+          ))}
+          <div className="absolute top-2 -right-4">
+            <SubmitStatus submitStatus={loading ? "loading" : "idle"} />
+          </div>
+        </div>
+      </SelectContent>
+    </Select>
+  );
+}
+
+function PreviewDropDownItem({
+  source,
+  schema,
+}: {
+  source: Json;
+  schema: SerializedSchema;
+}) {
+  return (
+    <div className="h-[5ch] overflow-y-hidden ">
+      <Preview source={source} schema={schema} />
+    </div>
+  );
 }
 
 function BasicInputField({
@@ -819,7 +954,6 @@ function BasicInputField({
     ],
     ref.current?.value ?? null
   );
-
   return (
     <FieldContainer>
       <div className="relative flex gap-2 pr-6">
@@ -864,11 +998,7 @@ export function FieldContainer({
   children: React.ReactNode;
   className?: string;
 }) {
-  return (
-    <div className={classNames("relative max-w-lg px-4 pt-4", className)}>
-      {children}
-    </div>
-  );
+  return <div className={classNames("pl-4 pt-4", className)}>{children}</div>;
 }
 
 export function SubmitButton({

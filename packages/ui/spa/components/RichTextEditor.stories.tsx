@@ -50,6 +50,7 @@ const meta: Meta<StoryType> = {
           <RichTextEditor
             manager={manager}
             state={state}
+            submitStatus="idle"
             options={props.options}
             debug={DEBUG}
             onChange={(doc) => {

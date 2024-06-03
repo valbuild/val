@@ -164,7 +164,7 @@ export function SortableList({
   }
 }
 
-const LIST_ITEM_MAX_HEIGHT = 170;
+export const LIST_ITEM_MAX_HEIGHT = 170;
 
 export function SortableItem({
   id,
