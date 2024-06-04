@@ -21,12 +21,17 @@ const { fetchValStega: fetchVal } = initValRsc(config, {
 export { fetchVal };
 `;
 
-export const VAL_SERVER = (configImportPath: string) => `import "server-only";
+export const VAL_SERVER = (
+  configImportPath: string,
+  valModulesImportPath: string
+) => `import "server-only";
 import { initValServer } from "@valbuild/next/server";
 import { config } from "${configImportPath}";
 import { draftMode } from "next/headers";
+import valModules from "${valModulesImportPath}";
 
 const { valNextAppRouter } = initValServer(
+  valModules,
   { ...config },
   {
     draftMode,
@@ -76,8 +81,25 @@ export default function Val() {
 }
 `;
 
+export const VAL_MODULES = (
+  configImportPath: string,
+  exampleModuleImport?: string
+) => `import { modules } from "@valbuild/next";
+import { config } from "./${configImportPath}";
+
+export default modules(config, [
+  // Add your modules here${
+    exampleModuleImport
+      ? `
+  { def: () => import("./${exampleModuleImport}") },`
+      : ""
+  }
+]);
+
+`;
+
 export const BASIC_EXAMPLE = (
-  moduleId: string,
+  moduleFilePath: string,
   configImportPath: string,
   isJavaScript: boolean
 ) => `${isJavaScript ? "// @ts-check\n" : ""}/**
@@ -187,7 +209,7 @@ export type TestContent = t.inferSchema<typeof testSchema>;
  *
  * NOTE: the first argument, module id, must match the path of the file.
  */
-export default c.define("${moduleId}", testSchema, {
+export default c.define("${moduleFilePath}", testSchema, {
   text: "Basic text content",
   optionals: null,
   arrays: ["A string"],

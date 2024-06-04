@@ -14,6 +14,7 @@ import {
   VAL_APP_PAGE,
   VAL_CLIENT,
   VAL_CONFIG,
+  VAL_MODULES,
   VAL_RSC,
   VAL_SERVER,
 } from "./templates";
@@ -288,6 +289,7 @@ type Plan = Partial<{
         repo: string;
       };
   includeExample: false | FileOp;
+  includeModules: false | FileOp;
   updateVSCodeSettings: false | FileOp;
 }>;
 
@@ -486,19 +488,76 @@ async function plan(
     source: VAL_CONFIG(!!analysis.isTypeScript, {}),
   };
 
+  {
+    const answer = await confirm({
+      message: "Include example Val files?",
+      default: true,
+    });
+    if (answer) {
+      const exampleDir = path.join(analysis.srcDir, "examples", "val");
+      const examplePath = path.join(
+        exampleDir,
+        "example.val." + (analysis.isJavaScript ? "js" : "ts")
+      );
+      const exampleImport = path
+        .relative(exampleDir, valConfigPath)
+        .replace(".js", "")
+        .replace(".ts", "");
+      if (!analysis.packageJsonDir) {
+        throw Error(
+          "Could not detect package.json directory! This is a Val bug."
+        );
+      }
+      const exampleModuleFilePath = `/${path.relative(
+        analysis.packageJsonDir,
+        examplePath
+      )}`;
+
+      plan.includeExample = {
+        path: examplePath,
+        source: BASIC_EXAMPLE(
+          exampleModuleFilePath,
+          exampleImport,
+          !!analysis.isJavaScript
+        ),
+      };
+    }
+  }
+
+  const valModulesDir = analysis.root;
+  const valModulesImport = path
+    .relative(valModulesDir, valConfigPath)
+    .replace(".js", "")
+    .replace(".ts", "");
+  const exampleModuleFilePath = plan.includeExample
+    ? plan.includeExample.path
+    : undefined;
+  const exampleModuleImport =
+    exampleModuleFilePath &&
+    path
+      .relative(valModulesDir, exampleModuleFilePath)
+      .replace(".js", "")
+      .replace(".ts", "");
+  plan.includeModules = {
+    path: path.join(valModulesDir, "val.modules.ts"),
+    source: VAL_MODULES(valModulesImport, exampleModuleImport),
+  };
   const valUtilsDir = path.join(analysis.srcDir, "val");
+  const valModulesServerImport = path
+    .relative(valUtilsDir, plan.includeModules.path)
+    .replace(".js", "")
+    .replace(".ts", "");
   const valUtilsImportPath = path
     .relative(valUtilsDir, valConfigPath)
     .replace(".js", "")
     .replace(".ts", "");
-
   const valServerPath = path.join(
     valUtilsDir,
     analysis.isTypeScript ? "val.server.ts" : "val.server.js"
   );
   plan.createValServer = {
     path: valServerPath,
-    source: VAL_SERVER(valUtilsImportPath),
+    source: VAL_SERVER(valUtilsImportPath, valModulesServerImport),
   };
 
   if (!analysis.appRouterPath) {
@@ -761,43 +820,6 @@ async function plan(
       };
     } else {
       plan.updateVSCodeSettings = false;
-    }
-  }
-
-  {
-    const answer = await confirm({
-      message: "Include example Val files?",
-      default: true,
-    });
-    if (answer) {
-      const exampleDir = path.join(analysis.srcDir, "examples", "val");
-      const examplePath = path.join(
-        exampleDir,
-        "example.val." + (analysis.isJavaScript ? "js" : "ts")
-      );
-      const exampleImport = path
-        .relative(exampleDir, valConfigPath)
-        .replace(".js", "")
-        .replace(".ts", "");
-      if (!analysis.packageJsonDir) {
-        throw Error(
-          "Could not detect package.json directory! This is a Val bug."
-        );
-      }
-      const exampleModuleId = `/${path
-        .relative(analysis.packageJsonDir, examplePath)
-        .replace(".val", "")
-        .replace(".js", "")
-        .replace(".ts", "")}`;
-
-      plan.includeExample = {
-        path: examplePath,
-        source: BASIC_EXAMPLE(
-          exampleModuleId,
-          exampleImport,
-          !!analysis.isJavaScript
-        ),
-      };
     }
   }
 
