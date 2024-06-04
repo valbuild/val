@@ -41,7 +41,7 @@ import { SortableList } from "./SortableList";
 import { emptyOf } from "./emptyOf";
 import { SubmitStatus, useBounceSubmit } from "./SubmitStatus";
 import { Checkbox } from "./ui/checkbox";
-import { Plus } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { Input } from "./ui/input";
 
 export function AnyVal({
@@ -372,29 +372,61 @@ function ValRecord({
   schema: SerializedRecordSchema;
   initOnSubmit: InitOnSubmit;
 }): React.ReactElement {
+  const onSubmit = initOnSubmit(path);
   return (
     <FieldContainer className="flex flex-col">
       <button
-        className="self-end"
+        className="self-end p-2"
         onClick={() => {
-          alert("TODO");
+          onSubmit(async (path) => {
+            return [
+              {
+                op: "add",
+                path: path.concat("<new>"),
+                value: emptyOf(schema.item) as JSONValue,
+              },
+            ];
+          });
         }}
       >
         <Plus />
       </button>
       <div key={path} className="flex flex-col gap-4 p-2">
-        {Object.entries(source).map(([key, item]) => {
-          const subPath = createValPathOfItem(path, key);
-          return (
-            <ValRecordItem
-              recordKey={key}
-              path={subPath}
-              source={item}
-              schema={schema.item}
-              initOnSubmit={initOnSubmit}
-            />
-          );
-        })}
+        {Object.entries(source)
+          .sort(([key1], [key2]) => key1.localeCompare(key2))
+          .map(([key, item]) => {
+            const subPath = createValPathOfItem(path, key);
+            const onSubmit = initOnSubmit(subPath);
+            return (
+              <div
+                className="grid grid-cols-[auto,min-content] items-start gap-2"
+                key={key}
+              >
+                <ValRecordItem
+                  allKeys={Object.keys(source)}
+                  recordKey={key}
+                  path={subPath}
+                  source={item}
+                  schema={schema.item}
+                  initOnSubmit={initOnSubmit}
+                />
+                <button
+                  onClick={() => {
+                    onSubmit(async (path) => {
+                      return [
+                        {
+                          op: "remove",
+                          path: path as array.NonEmptyArray<string>,
+                        },
+                      ];
+                    });
+                  }}
+                >
+                  <X />
+                </button>
+              </div>
+            );
+          })}
       </div>
     </FieldContainer>
   );
@@ -403,12 +435,14 @@ function ValRecord({
 const RECORD_ITEM_MAX_HEIGHT = 170;
 function ValRecordItem({
   recordKey,
+  allKeys,
   path,
   source,
   schema,
   initOnSubmit,
 }: {
   recordKey: string;
+  allKeys: string[];
   source: Json | null;
   path: SourcePath;
   schema: SerializedSchema;
@@ -426,14 +460,13 @@ function ValRecordItem({
   }, []);
   const navigate = useNavigate();
   const onSubmit = initOnSubmit(path);
-  const [didChange, setDidChange] = useState<boolean>(false);
   const [currentKey, setCurrentKey] = useState<string>(recordKey);
   useEffect(() => {
     setCurrentKey(recordKey);
   }, [recordKey]);
-
+  const existingKey = allKeys.includes(currentKey);
   const submitStatus = useBounceSubmit(
-    didChange,
+    !existingKey,
     currentKey,
     onSubmit,
     async (value, path) => {
@@ -446,10 +479,10 @@ function ValRecordItem({
       ];
     }
   );
+  const [error, setError] = useState<string | null>(null);
 
   return (
     <Card
-      key={path}
       ref={ref}
       className="relative px-4 pt-2 pb-4 overflow-hidden border gap-y-2"
       style={{
@@ -458,15 +491,28 @@ function ValRecordItem({
     >
       <div className="relative flex gap-2 pr-6">
         <Input
+          disabled={submitStatus === "loading"}
           className="font-serif text-left text-accent"
           value={currentKey}
           onChange={(e) => {
-            setDidChange(true);
-            setCurrentKey(e.target.value);
+            const nextKey = e.target.value;
+            if (nextKey !== recordKey) {
+              if (!allKeys.includes(nextKey)) {
+                setCurrentKey(e.target.value);
+              } else {
+                setError("Key already exists");
+              }
+            }
           }}
         />
         <div className="absolute top-2 -right-4">
-          <SubmitStatus submitStatus={submitStatus} />
+          {error ? (
+            <div className="text-destructive" title={error}>
+              <X />
+            </div>
+          ) : (
+            <SubmitStatus submitStatus={submitStatus} />
+          )}
         </div>
       </div>
       <button
