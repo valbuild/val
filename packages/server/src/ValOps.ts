@@ -286,7 +286,6 @@ export abstract class ValOps {
       { patchId?: PatchId; invalidPath?: boolean; error: PatchError }[]
     >;
   }> {
-    console.log("analysis", analysis);
     if (!analysis) {
       const { sources } = await this.initTree();
       return { sources, errors: {} };
