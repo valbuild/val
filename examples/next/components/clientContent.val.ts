@@ -13,7 +13,7 @@ export const schema = s.object({
       value: s.string(),
     })
   ),
-  arrays: s.array(s.string()),
+  arrays: s.array(s.string()).nullable(),
   stringEnum: s.union(
     s.literal("lit-0"),
     s.literal("lit-1"),

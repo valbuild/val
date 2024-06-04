@@ -41,6 +41,8 @@ import { SortableList } from "./SortableList";
 import { emptyOf } from "./emptyOf";
 import { SubmitStatus } from "./SubmitStatus";
 import { Checkbox } from "./ui/checkbox";
+import { Plus } from "lucide-react";
+import { useStore, useValFromPath } from "./ValStoreContext";
 
 export function AnyVal({
   path,
@@ -99,7 +101,7 @@ export function AnyVal({
       return <div>ERROR: expected array, but found {typeof source}</div>;
     }
     return (
-      <div>
+      <div className="w-full">
         {field && <div className="text-left">{field}</div>}
         <ValList
           source={source}
@@ -444,56 +446,115 @@ function ValList({
   const navigate = useNavigate();
   const onSubmit = initOnSubmit(path);
   const [loading, setLoading] = useState<boolean>(false);
-
+  const [currentSource, setCurrentSource] = useState<JsonArray>(source);
+  useEffect(() => {
+    setCurrentSource(source);
+  }, [source]);
   return (
-    <FieldContainer key={path} className="flex flex-col gap-4 p-2 pb-8">
-      <SortableList
-        path={path}
-        source={source}
-        schema={schema}
-        loading={loading}
-        onDelete={async (item) => {
+    <FieldContainer key={path} className="flex flex-col items center">
+      <button
+        className="self-end p-2"
+        onClick={() => {
           setLoading(true);
-          return onSubmit(async (path) => {
+          onSubmit(async (path) => {
             return [
               {
-                op: "remove",
-                path: path.concat(
-                  item.toString()
-                ) as array.NonEmptyArray<string>,
+                op: "add",
+                path: path.concat("0"),
+                value: emptyOf(schema.item) as JSONValue,
               },
             ];
           })
-            .catch((err) => {
-              console.error("Could not delete item", err);
+            .then(async () => {
+              setCurrentSource((source) =>
+                [emptyOf(schema.item)].concat(...source)
+              );
             })
             .finally(() => {
               setLoading(false);
             });
         }}
-        onMove={async (from, to) => {
-          return onSubmit(async (path) => {
-            const fromPath = path.concat(from.toString());
-            const toPath = path.concat(to.toString());
-            return [
-              {
-                op: "move",
-                from: fromPath,
-                path: toPath,
-              },
-            ] as Patch;
-          })
-            .catch((err) => {
-              console.error("Could not move item", err);
+      >
+        <Plus />
+      </button>
+      <div className="flex flex-col gap-4 p-2 pb-8">
+        <SortableList
+          path={path}
+          source={currentSource}
+          schema={schema}
+          loading={loading}
+          onDelete={async (item) => {
+            setLoading(true);
+            return onSubmit(async (path) => {
+              return [
+                {
+                  op: "remove",
+                  path: path.concat(
+                    item.toString()
+                  ) as array.NonEmptyArray<string>,
+                },
+              ];
             })
-            .finally(() => {
-              setLoading(false);
-            });
-        }}
-        onClick={(path) => {
-          navigate(path);
-        }}
-      />
+              .catch((err) => {
+                console.error("Could not delete item", err);
+              })
+              .finally(() => {
+                setLoading(false);
+              });
+          }}
+          onMove={async (from, to) => {
+            return onSubmit(async (path) => {
+              const fromPath = path.concat(from.toString());
+              const toPath = path.concat(to.toString());
+              return [
+                {
+                  op: "move",
+                  from: fromPath,
+                  path: toPath,
+                },
+              ] as Patch;
+            })
+              .catch((err) => {
+                console.error("Could not move item", err);
+              })
+              .finally(() => {
+                setLoading(false);
+              });
+          }}
+          onClick={(path) => {
+            if (!loading) {
+              navigate(path);
+            }
+          }}
+        />
+      </div>
+      {currentSource.length > 0 && (
+        <button
+          className="self-end p-2"
+          onClick={() => {
+            setLoading(true);
+            onSubmit(async (path) => {
+              return [
+                {
+                  op: "add",
+                  path: path.concat("-") as array.NonEmptyArray<string>,
+                  value: emptyOf(schema.item) as JSONValue,
+                },
+              ];
+            })
+              .then(() => {
+                setCurrentSource((source) =>
+                  source.concat(emptyOf(schema.item))
+                );
+              })
+              .finally(() => {
+                setLoading(false);
+              });
+          }}
+        >
+          <Plus />
+        </button>
+      )}
     </FieldContainer>
   );
 }
@@ -742,8 +803,8 @@ function ValNullable({
   }, [source]);
 
   return (
-    <div className="flex flex-col gap-y-2" key={path}>
-      <div className="relative flex items-center justify-between gap-x-4">
+    <FieldContainer className="flex flex-col" key={path}>
+      <div className="relative flex items-center justify-between w-full gap-4 pr-3">
         <div
           className="truncate max-w-[300px] text-left"
           title={path}
@@ -762,7 +823,11 @@ function ValNullable({
                   {
                     op: "replace",
                     path,
-                    value: e ? (emptyOf(schema) as JSONValue) : null,
+                    value: (e
+                      ? source === null
+                        ? emptyOf(schema)
+                        : source
+                      : null) as JSONValue,
                   },
                 ];
               })
@@ -778,7 +843,7 @@ function ValNullable({
           }}
         />
       </div>
-      {enable && (
+      {enable && source === null && (
         <ValDefaultOf
           source={emptyOf(schema)}
           schema={schema}
@@ -786,7 +851,15 @@ function ValNullable({
           initOnSubmit={initOnSubmit}
         />
       )}
-    </div>
+      {enable && source !== null && (
+        <AnyVal
+          path={path}
+          source={source}
+          schema={{ ...schema, opt: false }}
+          initOnSubmit={initOnSubmit}
+        />
+      )}
+    </FieldContainer>
   );
 }
 

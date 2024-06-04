@@ -183,7 +183,7 @@ export function SortableItem({
   onClick: (path: SourcePath) => void;
   onDelete: (item: number) => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLButtonElement>(null);
   const [isTruncated, setIsTruncated] = useState<boolean>(false);
   useEffect(() => {
     if (ref.current) {
@@ -206,39 +206,49 @@ export function SortableItem({
     <div
       ref={setNodeRef}
       style={style}
-      className="grid items-start col-span-4 gap-4 grid-cols-subgrid"
+      className="grid items-start col-span-4 gap-4 grid-cols-subgrid disabled:opacity-55"
     >
-      <div
+      <button
         {...attributes}
         {...listeners}
         className={classNames("pt-4", {
           "opacity-30": disabled,
         })}
+        disabled={disabled}
+        onClick={() => {
+          onClick(path);
+        }}
       >
         <GripVertical />
-      </div>
-      <div className="pt-4 font-serif text-accent">{formatNumber(id)}</div>
-      <div
+      </button>
+      <button
+        className="pt-4 font-serif text-accent"
+        disabled={disabled}
+        onClick={() => {
+          onClick(path);
+        }}
+      >
+        {formatNumber(id)}
+      </button>
+      <button
         className="relative grid p-4 overflow-hidden border rounded border-border bg-card gap-y-2 grid-cols-subgrid cols-span-1"
         style={{
           maxHeight: LIST_ITEM_MAX_HEIGHT,
         }}
         ref={ref}
+        disabled={disabled}
+        onClick={() => {
+          onClick(path);
+        }}
       >
-        <button
-          onClick={() => {
-            onClick(path);
-          }}
-        >
-          <Preview source={source} schema={schema} />
-          {isTruncated && (
-            <div
-              className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"
-              style={{ height: 40 }}
-            ></div>
-          )}
-        </button>
-      </div>
+        <Preview source={source} schema={schema} />
+        {isTruncated && (
+          <div
+            className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"
+            style={{ height: 40 }}
+          ></div>
+        )}
+      </button>
       <button className="pt-4">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
