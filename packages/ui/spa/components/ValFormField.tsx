@@ -840,60 +840,62 @@ function KeyOfField({
   }
 
   return (
-    <Select
-      disabled={loading}
-      onValueChange={(key) => {
-        if (onSubmit) {
-          setLoading(true);
-          onSubmit((path) => {
-            setCurrentSelector(key);
-            return Promise.resolve([
-              {
-                op: "replace",
-                path,
-                value: moduleRes.schema.type === "array" ? Number(key) : key,
-              },
-            ]);
-          }).finally(() => {
-            setLoading(false);
-          });
-        }
-      }}
-    >
-      <SelectTrigger className="h-[8ch]">
-        {current && current.source !== undefined ? (
-          <PreviewDropDownItem
-            source={current.source}
-            schema={current.schema}
-          />
-        ) : (
-          <SelectValue className="h-[8ch]" />
-        )}
-      </SelectTrigger>
-      <SelectContent>
-        <div className="relative pr-6">
-          {Object.keys(selectorSource).map((key) => (
-            <SelectItem className="h-[8ch]" key={key} value={key}>
-              <PreviewDropDownItem
-                source={
-                  isJsonArray(selectorSource)
-                    ? selectorSource[Number(key)]
-                    : selectorSource[key]
-                }
-                schema={
-                  selectorSchema.type === "object"
-                    ? selectorSchema.items[key]
-                    : selectorSchema.item
-                }
-              />
-            </SelectItem>
-          ))}
-          <div className="absolute top-2 -right-4">
-            <SubmitStatus submitStatus={loading ? "loading" : "idle"} />
+    <FieldContainer>
+      <Select
+        disabled={loading}
+        onValueChange={(key) => {
+          if (onSubmit) {
+            setLoading(true);
+            onSubmit((path) => {
+              setCurrentSelector(key);
+              return Promise.resolve([
+                {
+                  op: "replace",
+                  path,
+                  value: moduleRes.schema.type === "array" ? Number(key) : key,
+                },
+              ]);
+            }).finally(() => {
+              setLoading(false);
+            });
+          }
+        }}
+      >
+        <SelectTrigger className="h-[8ch]">
+          {current && current.source !== undefined ? (
+            <PreviewDropDownItem
+              source={current.source}
+              schema={current.schema}
+            />
+          ) : (
+            <SelectValue className="h-[8ch]" />
+          )}
+        </SelectTrigger>
+        <SelectContent>
+          <div className="relative pr-6">
+            {Object.keys(selectorSource).map((key) => (
+              <SelectItem className="h-[8ch]" key={key} value={key}>
+                <PreviewDropDownItem
+                  source={
+                    isJsonArray(selectorSource)
+                      ? selectorSource[Number(key)]
+                      : selectorSource[key]
+                  }
+                  schema={
+                    selectorSchema.type === "object"
+                      ? selectorSchema.items[key]
+                      : selectorSchema.item
+                  }
+                />
+              </SelectItem>
+            ))}
+            <div className="absolute top-2 -right-4">
+              <SubmitStatus submitStatus={loading ? "loading" : "idle"} />
+            </div>
           </div>
-        </div>
-      </SelectContent>
-    </Select>
+        </SelectContent>
+      </Select>
+    </FieldContainer>
   );
 }
 

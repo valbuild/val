@@ -39,10 +39,10 @@ import { useNavigate } from "./ValRouter";
 import { isJsonArray } from "../utils/isJsonArray";
 import { SortableList } from "./SortableList";
 import { emptyOf } from "./emptyOf";
-import { SubmitStatus } from "./SubmitStatus";
+import { SubmitStatus, useBounceSubmit } from "./SubmitStatus";
 import { Checkbox } from "./ui/checkbox";
 import { Plus } from "lucide-react";
-import { useStore, useValFromPath } from "./ValStoreContext";
+import { Input } from "./ui/input";
 
 export function AnyVal({
   path,
@@ -125,7 +125,12 @@ export function AnyVal({
     return (
       <div>
         {field && <div className="text-left">{field}</div>}
-        <ValRecord source={source} path={path} schema={schema} />
+        <ValRecord
+          source={source}
+          path={path}
+          schema={schema}
+          initOnSubmit={initOnSubmit}
+        />
       </div>
     );
   } else if (schema?.type === "union") {
@@ -336,7 +341,7 @@ function ValObject({
     <div
       key={path}
       className={classNames("flex flex-col gap-y-1", {
-        "border-l-2 border-border pl-6": !top,
+        "border-l-2 border-border pl-6 mt-4": !top,
       })}
     >
       {Object.entries(schema.items).map(([key, property]) => {
@@ -360,33 +365,38 @@ function ValRecord({
   path,
   source,
   schema,
+  initOnSubmit,
 }: {
   source: JsonObject;
   path: SourcePath;
   schema: SerializedRecordSchema;
+  initOnSubmit: InitOnSubmit;
 }): React.ReactElement {
-  const navigate = useNavigate();
   return (
-    <div key={path} className="flex flex-col gap-4 p-2">
-      {Object.entries(source).map(([key, item]) => {
-        const subPath = createValPathOfItem(path, key);
-        return (
-          <button
-            key={subPath}
-            onClick={() => {
-              navigate(subPath);
-            }}
-          >
+    <FieldContainer className="flex flex-col">
+      <button
+        className="self-end"
+        onClick={() => {
+          alert("TODO");
+        }}
+      >
+        <Plus />
+      </button>
+      <div key={path} className="flex flex-col gap-4 p-2">
+        {Object.entries(source).map(([key, item]) => {
+          const subPath = createValPathOfItem(path, key);
+          return (
             <ValRecordItem
               recordKey={key}
               path={subPath}
               source={item}
               schema={schema.item}
+              initOnSubmit={initOnSubmit}
             />
-          </button>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+    </FieldContainer>
   );
 }
 
@@ -396,11 +406,13 @@ function ValRecordItem({
   path,
   source,
   schema,
+  initOnSubmit,
 }: {
   recordKey: string;
   source: Json | null;
   path: SourcePath;
   schema: SerializedSchema;
+  initOnSubmit: InitOnSubmit;
 }): React.ReactElement {
   const ref = React.useRef<HTMLDivElement>(null);
   const [isTruncated, setIsTruncated] = useState<boolean>(false);
@@ -412,6 +424,29 @@ function ValRecordItem({
       }
     }
   }, []);
+  const navigate = useNavigate();
+  const onSubmit = initOnSubmit(path);
+  const [didChange, setDidChange] = useState<boolean>(false);
+  const [currentKey, setCurrentKey] = useState<string>(recordKey);
+  useEffect(() => {
+    setCurrentKey(recordKey);
+  }, [recordKey]);
+
+  const submitStatus = useBounceSubmit(
+    didChange,
+    currentKey,
+    onSubmit,
+    async (value, path) => {
+      return [
+        {
+          op: "move",
+          from: path as array.NonEmptyArray<string>,
+          path: path.slice(0, -1).concat(value),
+        },
+      ];
+    }
+  );
+
   return (
     <Card
       key={path}
@@ -421,10 +456,28 @@ function ValRecordItem({
         maxHeight: RECORD_ITEM_MAX_HEIGHT,
       }}
     >
-      <div className="pb-4 font-serif text-left text-accent">{recordKey}</div>
-      <div className="text-xs">
-        <ValPreview path={path} source={source} schema={schema} />
+      <div className="relative flex gap-2 pr-6">
+        <Input
+          className="font-serif text-left text-accent"
+          value={currentKey}
+          onChange={(e) => {
+            setDidChange(true);
+            setCurrentKey(e.target.value);
+          }}
+        />
+        <div className="absolute top-2 -right-4">
+          <SubmitStatus submitStatus={submitStatus} />
+        </div>
       </div>
+      <button
+        className="text-xs"
+        key={path}
+        onClick={() => {
+          navigate(path);
+        }}
+      >
+        <ValPreview path={path} source={source} schema={schema} />
+      </button>
       {isTruncated && (
         <div className="absolute bottom-0 left-0 w-full h-[20px] bg-gradient-to-b from-transparent to-background"></div>
       )}
@@ -453,7 +506,7 @@ function ValList({
   return (
     <FieldContainer key={path} className="flex flex-col items center">
       <button
-        className="self-end p-2"
+        className="self-end px-2"
         onClick={() => {
           setLoading(true);
           onSubmit(async (path) => {
@@ -477,7 +530,7 @@ function ValList({
       >
         <Plus />
       </button>
-      <div className="flex flex-col gap-4 p-2 pb-8">
+      <div className="flex flex-col gap-4 p-2">
         <SortableList
           path={path}
           source={currentSource}
@@ -530,7 +583,7 @@ function ValList({
       </div>
       {currentSource.length > 0 && (
         <button
-          className="self-end p-2"
+          className="self-end px-2"
           onClick={() => {
             setLoading(true);
             onSubmit(async (path) => {
