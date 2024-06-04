@@ -41,8 +41,9 @@ import { SortableList } from "./SortableList";
 import { emptyOf } from "./emptyOf";
 import { SubmitStatus, useBounceSubmit } from "./SubmitStatus";
 import { Checkbox } from "./ui/checkbox";
-import { Plus, X } from "lucide-react";
+import { Check, Plus, X } from "lucide-react";
 import { Input } from "./ui/input";
+import { Button } from "./ui/button";
 
 export function AnyVal({
   path,
@@ -373,24 +374,57 @@ function ValRecord({
   initOnSubmit: InitOnSubmit;
 }): React.ReactElement {
   const onSubmit = initOnSubmit(path);
+  const [newKey, setNewKey] = useState<false | { key: string }>(false);
+  const [loading, setLoading] = useState<boolean>(false);
+  const allKeys = Object.keys(source);
   return (
     <FieldContainer className="flex flex-col">
-      <button
-        className="self-end p-2"
-        onClick={() => {
-          onSubmit(async (path) => {
-            return [
-              {
-                op: "add",
-                path: path.concat("<new>"),
-                value: emptyOf(schema.item) as JSONValue,
-              },
-            ];
-          });
-        }}
-      >
-        <Plus />
-      </button>
+      {newKey ? (
+        <form
+          className="flex gap-2"
+          onSubmit={(ev) => {
+            ev.preventDefault();
+            if (allKeys.includes(newKey.key)) {
+              return;
+            }
+            setLoading(true);
+            onSubmit(async (path) => {
+              return [
+                {
+                  op: "add",
+                  path: path.concat(newKey.key) as array.NonEmptyArray<string>,
+                  value: emptyOf(schema.item) as JSONValue,
+                },
+              ];
+            })
+              .then(() => {
+                setNewKey(false);
+              })
+              .finally(() => {
+                setLoading(false);
+              });
+          }}
+          title={allKeys.includes(newKey.key) ? "Key already exists" : ""}
+        >
+          <Input
+            value={newKey.key}
+            onChange={(e) => setNewKey({ key: e.target.value })}
+          />
+          <Button disabled={loading || allKeys.includes(newKey.key)}>
+            <Check />
+          </Button>
+        </form>
+      ) : (
+        <button
+          className="self-end p-2"
+          disabled={loading}
+          onClick={() => {
+            setNewKey({ key: "" });
+          }}
+        >
+          <Plus />
+        </button>
+      )}
       <div key={path} className="flex flex-col gap-4 p-2">
         {Object.entries(source)
           .sort(([key1], [key2]) => key1.localeCompare(key2))
@@ -403,7 +437,7 @@ function ValRecord({
                 key={key}
               >
                 <ValRecordItem
-                  allKeys={Object.keys(source)}
+                  allKeys={allKeys}
                   recordKey={key}
                   path={subPath}
                   source={item}
@@ -412,6 +446,7 @@ function ValRecord({
                 />
                 <button
                   onClick={() => {
+                    setLoading(true);
                     onSubmit(async (path) => {
                       return [
                         {
@@ -419,7 +454,13 @@ function ValRecord({
                           path: path as array.NonEmptyArray<string>,
                         },
                       ];
-                    });
+                    })
+                      .catch((err) => {
+                        console.error("Could not delete item", err);
+                      })
+                      .finally(() => {
+                        setLoading(false);
+                      });
                   }}
                 >
                   <X />
