@@ -19,7 +19,13 @@ import {
   ValidationErrors,
 } from "@valbuild/core";
 import { pipe, result } from "@valbuild/core/fp";
-import { JSONOps, Patch, PatchError, applyPatch } from "@valbuild/core/patch";
+import {
+  JSONOps,
+  Patch,
+  PatchError,
+  applyPatch,
+  deepClone,
+} from "@valbuild/core/patch";
 import { TSOps } from "./patch/ts/ops";
 import { analyzeValModule } from "./patch/ts/valModule";
 import ts from "typescript";
@@ -280,6 +286,7 @@ export abstract class ValOps {
       { patchId?: PatchId; invalidPath?: boolean; error: PatchError }[]
     >;
   }> {
+    console.log("analysis", analysis);
     if (!analysis) {
       const { sources } = await this.initTree();
       return { sources, errors: {} };
@@ -302,7 +309,7 @@ export abstract class ValOps {
           error: new PatchError(`Module at path: '${path}' not found`),
         });
       }
-      const source = sources[path];
+      patchedSources[path] = sources[path];
       for (const { patchId } of patches) {
         if (errors[path]) {
           errors[path].push({
@@ -338,7 +345,7 @@ export abstract class ValOps {
             }
           }
           const patchRes = applyPatch(
-            source,
+            deepClone(patchedSources[path]), // applyPatch mutates the source. On add operations it will add multiple items? There is something strange going on. DeepClone seems to fix, but is that the right?
             jsonOps,
             applicableOps.concat(...Object.values(fileFixOps))
           );

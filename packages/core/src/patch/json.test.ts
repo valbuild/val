@@ -56,6 +56,13 @@ describe("JSONOps", () => {
       expected: result.ok([null, "foo", "bar"]),
     },
     {
+      name: "item to array followed by other items",
+      input: { nested: ["foo", "bar"] },
+      path: ["nested", "0"],
+      value: null,
+      expected: result.ok({ nested: [null, "foo", "bar"] }),
+    },
+    {
       name: "item to end of array",
       input: ["foo", "bar"],
       path: ["2"],

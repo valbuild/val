@@ -52,7 +52,7 @@ export function Preview({
       return <PreviewObject source={source} />;
     }
   }
-  return <span>{source.toString()}</span>;
+  return <span className="min-h-6">{source.toString()}</span>;
 }
 
 function PreviewEmpty() {

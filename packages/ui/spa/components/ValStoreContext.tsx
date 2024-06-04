@@ -80,6 +80,11 @@ export function useValFromPath(
   return current;
 }
 
+export function useStore() {
+  const { store } = useContext(ValStoreContext);
+  return store;
+}
+
 export function ValStoreProvider({
   store,
   children,

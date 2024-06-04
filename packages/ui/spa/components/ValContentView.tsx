@@ -79,6 +79,50 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
     [patches]
   );
 
+  const [loading, setLoading] = useState(false);
+  const [moduleError, setModuleError] = useState<string>();
+  const [rootModule, setRootModule] = useState<{
+    source: Json;
+    schema: SerializedSchema;
+  } | null>(null);
+  const [moduleId] = selectedPath
+    ? Internal.splitModuleFilePathAndModulePath(selectedPath)
+    : [undefined, undefined];
+  useEffect(() => {
+    setRootModule(null);
+    setLoading(true);
+    setModuleError(undefined);
+  }, [moduleId]);
+  useEffect(() => {
+    let ignore = false;
+    if (moduleId) {
+      store
+        .reset()
+        .then(async () => {
+          const res = await store.getModule(moduleId);
+          if (!ignore) {
+            if (session.status === "success" && session.data.enabled) {
+              if (result.isOk(res)) {
+                setRootModule(res.value);
+              } else {
+                setModuleError(res.error.message);
+              }
+            }
+          }
+        })
+        .finally(() => {
+          if (!ignore) {
+            setLoading(false);
+          }
+        });
+    } else {
+      setRootModule(null);
+    }
+    return () => {
+      ignore = true;
+    };
+  }, [moduleId, selectedPath, session, patches]);
+
   useEffect(() => {
     api.getPatches().then((res) => {
       if (result.isOk(res)) {
@@ -178,14 +222,42 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
                     Publish {patches.length > 0 && `(${patches.length})`}
                   </Button>
                 </div>
-                <ModulePane
-                  path={selectedPath}
-                  error={error}
-                  initOnSubmit={initOnSubmit}
-                  session={session}
-                  api={api}
-                  store={store}
-                />
+                <div className="max-w-xl p-4">
+                  {moduleError && (
+                    <div className="p-4 text-lg bg-destructive text-destructive-foreground">
+                      ERROR: {moduleError}
+                    </div>
+                  )}
+                  {session.status === "success" &&
+                    session.data.mode === "unauthorized" && (
+                      <div className="p-4 text-lg bg-destructive text-destructive-foreground">
+                        Not authorized
+                      </div>
+                    )}
+                  {session.status === "success" && !session.data.enabled && (
+                    <div className="p-4 text-lg">
+                      <div>Val is currently not enabled</div>
+                      <a
+                        href={api.getEnableUrl(
+                          window?.location?.href || "/val"
+                        )}
+                      >
+                        Enable Val
+                      </a>
+                    </div>
+                  )}
+                  {loading && (
+                    <div className="flex place-content-center">Loading...</div>
+                  )}
+                  {rootModule && selectedPath && (
+                    <ValModule
+                      path={selectedPath}
+                      source={rootModule.source}
+                      schema={rootModule.schema}
+                      initOnSubmit={initOnSubmit}
+                    />
+                  )}
+                </div>
               </Grid>
             </div>
           </ValImagePreviewContext.Provider>
@@ -194,95 +266,6 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
     </ValStoreProvider>
   );
 };
-
-function ModulePane({
-  path,
-  api,
-  store,
-  error: globalError,
-  session,
-  initOnSubmit,
-}: {
-  path?: SourcePath | ModuleFilePath;
-  api: ValApi;
-  store: ValStore;
-  error: string | null;
-  session: Remote<ValSession>;
-  initOnSubmit: InitOnSubmit;
-}) {
-  const [loading, setLoading] = useState(false);
-  const [moduleError, setModuleError] = useState<string>();
-  const [rootModule, setRootModule] = useState<{
-    source: Json;
-    schema: SerializedSchema;
-  } | null>(null);
-  const [moduleId] = path
-    ? Internal.splitModuleFilePathAndModulePath(path as SourcePath)
-    : [undefined, undefined];
-  useEffect(() => {
-    let ignore = false;
-    if (moduleId) {
-      setRootModule(null);
-      setLoading(true);
-      setModuleError(undefined);
-      store
-        .getModule(moduleId)
-        .then((res) => {
-          if (!ignore) {
-            if (session.status === "success" && session.data.enabled) {
-              if (result.isOk(res)) {
-                setRootModule(res.value);
-              } else {
-                setModuleError(res.error.message);
-              }
-            }
-          }
-        })
-        .finally(() => {
-          if (!ignore) {
-            setLoading(false);
-          }
-        });
-    } else {
-      setRootModule(null);
-    }
-    return () => {
-      ignore = true;
-    };
-  }, [moduleId, path, session]);
-
-  return (
-    <div className="max-w-xl p-4">
-      {(globalError || moduleError) && (
-        <div className="p-4 text-lg bg-destructive text-destructive-foreground">
-          ERROR: {globalError || moduleError}
-        </div>
-      )}
-      {session.status === "success" && session.data.mode === "unauthorized" && (
-        <div className="p-4 text-lg bg-destructive text-destructive-foreground">
-          Not authorized
-        </div>
-      )}
-      {session.status === "success" && !session.data.enabled && (
-        <div className="p-4 text-lg">
-          <div>Val is currently not enabled</div>
-          <a href={api.getEnableUrl(window?.location?.href || "/val")}>
-            Enable Val
-          </a>
-        </div>
-      )}
-      {loading && <div className="flex place-content-center">Loading...</div>}
-      {rootModule && path && (
-        <ValModule
-          path={path}
-          source={rootModule.source}
-          schema={rootModule.schema}
-          initOnSubmit={initOnSubmit}
-        />
-      )}
-    </div>
-  );
-}
 
 function ValModule({
   path,
