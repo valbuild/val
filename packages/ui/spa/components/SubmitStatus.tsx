@@ -16,7 +16,7 @@ export function SubmitStatus({ submitStatus }: { submitStatus: SubmitStatus }) {
   return null;
 }
 export function useBounceSubmit<V>(
-  didChange: boolean,
+  enabled: boolean,
   value: V,
   onSubmit: OnSubmit | undefined,
   applyPatch: (value: V, patchPath: string[]) => Promise<Patch>,
@@ -27,7 +27,7 @@ export function useBounceSubmit<V>(
   const [lastSubmit, setLastSubmit] = useState<V | null>(null);
 
   useEffect(() => {
-    if (onSubmit && didChange) {
+    if (onSubmit && enabled) {
       setWaiting(true);
       const timeout = setTimeout(() => {
         setLoading(true);
@@ -61,7 +61,7 @@ export function useBounceSubmit<V>(
         clearTimeout(timeout);
       };
     }
-  }, [value, didChange]);
+  }, [value, enabled]);
   const loadingSuccess = lastSubmit !== null && lastSubmit === (value ?? "");
 
   if (loadingSuccess) {
