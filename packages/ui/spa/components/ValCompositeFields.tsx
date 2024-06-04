@@ -384,7 +384,7 @@ function ValRecord({
           className="flex gap-2"
           onSubmit={(ev) => {
             ev.preventDefault();
-            if (allKeys.includes(newKey.key)) {
+            if (!newKey.key || allKeys.includes(newKey.key)) {
               return;
             }
             setLoading(true);
