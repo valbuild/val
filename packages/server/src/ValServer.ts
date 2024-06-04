@@ -919,13 +919,27 @@ export class ValServer {
       };
     }
     const { patchIds } = bodyRes.data;
-
     const patches = await this.serverOps.getPatchOpsById(patchIds);
     const analysis = this.serverOps.analyzePatches(patches.patches);
     const preparedCommit = await this.serverOps.prepare({
       ...analysis,
       ...patches,
     });
+    if (preparedCommit.hasErrors) {
+      console.error("Failed to create commit", {
+        errors: preparedCommit.errors,
+        sourceFilePatchErrors: preparedCommit.sourceFilePatchErrors,
+        binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
+        fileLastUpdatedByPatchId: preparedCommit.fileLastUpdatedByPatchId,
+      });
+      return {
+        status: 400,
+        json: {
+          message: "Failed to create commit",
+          details: preparedCommit.errors,
+        },
+      };
+    }
     if (this.serverOps instanceof ValOpsFS) {
       await this.serverOps.saveFiles(preparedCommit);
       return {
