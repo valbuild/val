@@ -89,8 +89,10 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
     : [undefined, undefined];
   useEffect(() => {
     setRootModule(null);
-    setLoading(true);
     setModuleError(undefined);
+    if (moduleId) {
+      setLoading(true);
+    }
   }, [moduleId]);
   useEffect(() => {
     let ignore = false;
