@@ -199,29 +199,42 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
                       <Path>{selectedPath || "/"}</Path>
                     </div>
                   </div>
-                  <Button
-                    disabled={
-                      !(session.status === "success" && session.data.enabled) ||
-                      patches.length === 0
-                    }
-                    onClick={() => {
-                      api.postSave({ patchIds: patches }).then(async (res) => {
-                        if (result.isOk(res)) {
-                          const res = await api.deletePatches(patches);
-                          if (result.isOk(res)) {
-                            setPatches([]);
-                            alert("Success");
-                          } else {
-                            setError("Could not clean up");
-                          }
-                        } else {
-                          setError("Could not publish");
-                        }
-                      });
-                    }}
-                  >
-                    Publish {patches.length > 0 && `(${patches.length})`}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => {
+                        // go to root
+                        window.location.href = "/";
+                      }}
+                    >
+                      Preview
+                    </Button>
+                    <Button
+                      disabled={
+                        !(
+                          session.status === "success" && session.data.enabled
+                        ) || patches.length === 0
+                      }
+                      onClick={() => {
+                        api
+                          .postSave({ patchIds: patches })
+                          .then(async (res) => {
+                            if (result.isOk(res)) {
+                              const res = await api.deletePatches(patches);
+                              if (result.isOk(res)) {
+                                setPatches([]);
+                                alert("Success");
+                              } else {
+                                setError("Could not clean up");
+                              }
+                            } else {
+                              setError("Could not publish");
+                            }
+                          });
+                      }}
+                    >
+                      Publish {patches.length > 0 && `(${patches.length})`}
+                    </Button>
+                  </div>
                 </div>
                 <div className="max-w-xl p-4">
                   {moduleError && (
