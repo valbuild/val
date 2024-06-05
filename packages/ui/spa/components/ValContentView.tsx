@@ -7,7 +7,7 @@ import {
 } from "@valbuild/core";
 import { Json } from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
-import { FC, useCallback, useEffect, useState } from "react";
+import { FC, useCallback, useEffect, useRef, useState } from "react";
 import { Grid } from "./Grid";
 import React from "react";
 import Logo from "../assets/icons/Logo";
@@ -19,11 +19,13 @@ import { useSession } from "./useSession";
 import { Path } from "./Path";
 import { AnyVal, PathTree, ValImagePreviewContext } from "./ValCompositeFields";
 import { InitOnSubmit } from "./ValFormField";
-import { ValStore } from "@valbuild/shared/internal";
+import { ValSession, ValStore } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 import { useParams } from "./ValRouter";
 import { Button } from "./ui/button";
 import { ValStoreProvider } from "./ValStoreContext";
+import { Dialog, DialogContent } from "./ui/dialog";
+import { Remote } from "../utils/Remote";
 
 interface ValFullscreenProps {
   api: ValApi;
@@ -139,6 +141,7 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
       }
     });
   }, []);
+  const portal = useRef<HTMLDivElement>(null);
 
   return (
     <ValStoreProvider store={store}>
@@ -161,7 +164,8 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
           className="relative w-full h-[100] overflow-hidden font-serif antialiased bg-background text-primary"
           data-mode={theme}
         >
-          <div id="val-fullscreen-hover" ref={hoverElemRef}></div>
+          <div ref={portal}></div>
+          <div id="val-fullscreen-hover" ref={hoverElemRef} />
           <ValImagePreviewContext.Provider
             value={{
               hoverElem: hoverElemRef?.current,
@@ -237,27 +241,14 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
                   </div>
                 </div>
                 <div className="max-w-xl p-4">
+                  <LoginModal
+                    session={session}
+                    portal={portal.current}
+                    api={api}
+                  />
                   {moduleError && (
                     <div className="p-4 text-lg bg-destructive text-destructive-foreground">
                       ERROR: {moduleError}
-                    </div>
-                  )}
-                  {session.status === "success" &&
-                    session.data.mode === "unauthorized" && (
-                      <div className="p-4 text-lg bg-destructive text-destructive-foreground">
-                        Not authorized
-                      </div>
-                    )}
-                  {session.status === "success" && !session.data.enabled && (
-                    <div className="p-4 text-lg">
-                      <div>Val is currently not enabled</div>
-                      <a
-                        href={api.getEnableUrl(
-                          window?.location?.href || "/val"
-                        )}
-                      >
-                        Enable Val
-                      </a>
                     </div>
                   )}
                   {loading && (
@@ -280,6 +271,51 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
     </ValStoreProvider>
   );
 };
+
+function LoginModal({
+  api,
+  session,
+  portal,
+}: {
+  api: ValApi;
+  session: Remote<ValSession>;
+  portal: HTMLDivElement | null;
+}) {
+  const isUnauthorized =
+    session.status === "success" && session.data.mode === "unauthorized";
+  const isDisabled = session.status === "success" && !session.data.enabled;
+  return (
+    <Dialog open={isUnauthorized || isDisabled}>
+      <DialogContent
+        container={portal}
+        className="flex items-center justify-center p-0 border-t-0"
+        hideClose
+      >
+        <div className="flex flex-col items-center justify-center w-full gap-4 pb-4">
+          <h1 className="w-full py-2 text-lg font-bold text-center border-t rounded-t bg-accent text-primary">
+            {isUnauthorized ? "Login required" : "Enable Val"}
+          </h1>
+          <p>
+            {isUnauthorized
+              ? "You need to login to continue"
+              : "You must enable Val to continue"}
+          </p>
+          <Button asChild>
+            <a
+              href={
+                isUnauthorized
+                  ? api.getLoginUrl(window?.location?.href || "/val")
+                  : api.getEnableUrl(window?.location?.href || "/val")
+              }
+            >
+              {isUnauthorized ? "Login" : "Enable Val"}
+            </a>
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function ValModule({
   path,
