@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Script from "next/script";
 import React from "react";
 import { ValContext, ValEvents } from "./ValContext";
+import { SET_AUTO_TAG_JSX_ENABLED } from "@valbuild/react/stega";
 
 export const ValNextProvider = (props: {
   children: React.ReactNode | React.ReactNode[];
@@ -34,6 +35,7 @@ export const ValNextProvider = (props: {
 
   React.useEffect(() => {
     if (enabled) {
+      SET_AUTO_TAG_JSX_ENABLED(true);
       const valEventListener = (event: Event) => {
         if (event instanceof CustomEvent) {
           if (event.detail.type === "module-update") {
@@ -60,6 +62,7 @@ export const ValNextProvider = (props: {
         window.removeEventListener("val-event", valEventListener);
       };
     } else {
+      SET_AUTO_TAG_JSX_ENABLED(false);
       if (
         process.env["NODE_ENV"] === "development" &&
         !document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`)
