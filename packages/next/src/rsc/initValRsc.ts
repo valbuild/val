@@ -1,4 +1,8 @@
-import { stegaEncode, type StegaOfSource } from "@valbuild/react/stega";
+import {
+  SET_AUTO_TAG_JSX_ENABLED,
+  stegaEncode,
+  type StegaOfSource,
+} from "@valbuild/react/stega";
 import {
   SelectorSource,
   SelectorOf,
@@ -36,6 +40,7 @@ const initFetchValStega =
     }
 
     if (enabled) {
+      SET_AUTO_TAG_JSX_ENABLED(true);
       let headers;
       try {
         headers = getHeaders();
