@@ -6,4 +6,5 @@ export default modules(config, [
   { def: () => import("./app/content.val") },
   { def: () => import("./components/clientContent.val") },
   { def: () => import("./components/reactServerContent.val") },
+  { def: () => import("./components/links.val") },
 ]);
