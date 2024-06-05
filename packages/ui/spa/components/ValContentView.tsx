@@ -84,23 +84,23 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
     source: Json;
     schema: SerializedSchema;
   } | null>(null);
-  const [moduleId] = selectedPath
+  const [moduleFilePath] = selectedPath
     ? Internal.splitModuleFilePathAndModulePath(selectedPath)
     : [undefined, undefined];
   useEffect(() => {
     setRootModule(null);
     setModuleError(undefined);
-    if (moduleId) {
+    if (moduleFilePath) {
       setLoading(true);
     }
-  }, [moduleId]);
+  }, [moduleFilePath]);
   useEffect(() => {
     let ignore = false;
-    if (moduleId) {
+    if (moduleFilePath) {
       store
         .reset()
         .then(async () => {
-          const res = await store.getModule(moduleId);
+          const res = await store.getModule(moduleFilePath);
           if (!ignore) {
             if (session.status === "success" && session.data.enabled) {
               if (result.isOk(res)) {
@@ -122,7 +122,7 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
     return () => {
       ignore = true;
     };
-  }, [moduleId, selectedPath, session, patches]);
+  }, [moduleFilePath, selectedPath, session, patches]);
 
   useEffect(() => {
     api.getPatches().then((res) => {
