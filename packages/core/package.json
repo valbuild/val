@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/core",
-  "version": "0.62.4",
+  "version": "0.62.5",
   "private": false,
   "description": "Val - supercharged hard-coded content",
   "scripts": {
