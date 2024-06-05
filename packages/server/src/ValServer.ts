@@ -277,20 +277,6 @@ export class ValServer {
     };
   }
 
-  async log(): Promise<ValServerResult<VAL_SESSION_COOKIE | VAL_STATE_COOKIE>> {
-    return {
-      status: 200,
-      cookies: {
-        [VAL_SESSION_COOKIE]: {
-          value: null,
-        },
-        [VAL_STATE_COOKIE]: {
-          value: null,
-        },
-      },
-    };
-  }
-
   async session(
     cookies: ValCookies<VAL_SESSION_COOKIE>
   ): Promise<ValServerJsonResult<ValSession>> {
