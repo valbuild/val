@@ -927,16 +927,17 @@ export class ValServer {
     });
     if (preparedCommit.hasErrors) {
       console.error("Failed to create commit", {
-        errors: preparedCommit.errors,
         sourceFilePatchErrors: preparedCommit.sourceFilePatchErrors,
         binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
-        fileLastUpdatedByPatchId: preparedCommit.fileLastUpdatedByPatchId,
       });
       return {
         status: 400,
         json: {
           message: "Failed to create commit",
-          details: preparedCommit.errors,
+          details: {
+            sourceFilePatchErrors: preparedCommit.sourceFilePatchErrors,
+            binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
+          },
         },
       };
     }
