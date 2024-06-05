@@ -140,7 +140,9 @@ export class ValServer {
 
   async authorize(query: {
     redirect_to?: string;
-  }): Promise<ValServerRedirectResult<VAL_STATE_COOKIE>> {
+  }): Promise<
+    ValServerRedirectResult<VAL_STATE_COOKIE | VAL_ENABLE_COOKIE_NAME>
+  > {
     if (typeof query.redirect_to !== "string") {
       return {
         status: 400,
@@ -155,8 +157,10 @@ export class ValServer {
       `${redirectUrl.origin}/${this.options.route}`,
       token
     );
+    await this.callbacks.onEnable(true);
     return {
       cookies: {
+        [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
         [VAL_STATE_COOKIE]: {
           value: createStateCookie({ redirect_to: query.redirect_to, token }),
           options: {
