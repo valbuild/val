@@ -11,22 +11,31 @@ const isIntrinsicElement = (type: any) => {
   return typeof type === "string";
 };
 
-const addValPathIfFound = (type: any, props: any) => {
+const isForwardRef = (type: any) => {
+  return (
+    type === Symbol.for("react.forward_ref") ||
+    type["$$typeof"] === Symbol.for("react.forward_ref")
+  );
+};
+
+export const addValPathIfFound = (type: any, props: any) => {
   // TODO: increases performance. Unsure about the implications right now - seems to work. Remember to look at RSC and client (and pages/?).
   // if (!IS_AUTO_TAG_JSX_ENABLED()) {
   //   return;
   // }
 
   const valSources = new Set<string>();
-
+  console.log("type", type, "props", props);
   // skip auto-tagging fragments since we can't add attributes to them
-  if (type === Symbol.for("react.fragment")) {
+  if (
+    type === Symbol.for("react.fragment") || // TODO: will this happen?
+    type["$$typeof"] === Symbol.for("react.fragment")
+  ) {
     return;
   }
   function updateValSources(
     key: string | number,
     value: string,
-    props: Record<string, unknown>,
     container: Record<string, unknown> | Array<unknown>
   ) {
     if (!key) {
@@ -34,8 +43,8 @@ const addValPathIfFound = (type: any, props: any) => {
     }
     // Prevent prototype pollution
     if (key === "__proto__" || key === "constructor" || key === "prototype") {
-      console.error(
-        'Val: Could not auto tag. Reason: key is "__proto__" or "constructor" or "prototype".'
+      console.warn(
+        'Val: Will auto tag. Reason: key is "__proto__" or "constructor" or "prototype".'
       );
       return;
     }
@@ -47,7 +56,7 @@ const addValPathIfFound = (type: any, props: any) => {
       //   always add to sources (intrinsic or not)
       //   if this is not an intrinsic element, we pass the stega encoded value downwards until we hit an intrinsic element
       valSources.add(valPath);
-      if (isIntrinsicElement(type)) {
+      if (isIntrinsicElement(type) || isForwardRef(type)) {
         // clean values before adding them to the props
         // we cannot do this
         const cleanValue = vercelStegaSplit(value).cleaned;
@@ -68,7 +77,7 @@ const addValPathIfFound = (type: any, props: any) => {
   if (props && typeof props === "object") {
     for (const [key, value] of Object.entries(props)) {
       if (typeof value === "string" && value.match(VERCEL_STEGA_REGEX)) {
-        updateValSources(key, value, props, props);
+        updateValSources(key, value, props);
       } else if (typeof value === "object" && value !== null) {
         if (key === "style") {
           for (const [styleKey, styleValue] of Object.entries(value)) {
@@ -79,7 +88,6 @@ const addValPathIfFound = (type: any, props: any) => {
               updateValSources(
                 styleKey,
                 styleValue,
-                props,
                 value as Record<string, unknown>
               );
             }
@@ -87,7 +95,7 @@ const addValPathIfFound = (type: any, props: any) => {
         } else if (value instanceof Array) {
           for (const [index, item] of Object.entries(value)) {
             if (typeof item === "string" && item.match(VERCEL_STEGA_REGEX)) {
-              updateValSources(index, item, props, value);
+              updateValSources(index, item, value);
             }
           }
         }
