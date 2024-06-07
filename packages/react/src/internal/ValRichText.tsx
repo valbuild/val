@@ -2,10 +2,13 @@
 import {
   RichText,
   RichTextNode,
-  AnyRichTextOptions,
+  AllRichTextOptions,
   SourcePath,
   RichTextOptions,
-  Classes as ClassesOf,
+  Styles,
+  VAL_EXTENSION,
+  ImageMetadata,
+  FileSource,
 } from "@valbuild/core";
 import React, { CSSProperties, ReactNode } from "react";
 
@@ -31,7 +34,7 @@ type OptionalFields = {
   italic: string | null;
 };
 type AllThemes = DefaultThemes & OptionalFields;
-type ThemeOptions<O extends RichTextOptions = AnyRichTextOptions> =
+type ThemeOptions<O extends RichTextOptions = AllRichTextOptions> =
   DefaultThemes &
     Pick<
       OptionalFields,
@@ -105,11 +108,11 @@ export function ValRichText<O extends RichTextOptions>({
     className?: string
   ) => JSX.Element | string | undefined;
 }) {
-  const root = children as RichText<AnyRichTextOptions> & {
+  const root = children as RichText<AllRichTextOptions> & {
     valPath: SourcePath;
   };
   function build(
-    child: RichTextNode<AnyRichTextOptions>,
+    child: RichTextNode<AllRichTextOptions>,
     key?: number
   ): JSX.Element | string {
     if (typeof child === "string") {
@@ -119,9 +122,17 @@ export function ValRichText<O extends RichTextOptions>({
       }
       return child;
     }
+    if (isFileSource(child)) {
+      const transformed = transform && transform(child, []);
+      if (transformed !== undefined) {
+        return transformed;
+      }
+      return <img></img>;
+    }
+
     const className = classNameOfTag(
       child.tag,
-      "classes" in child ? child.classes : [],
+      child.tag === "span" ? child.styles : [],
       theme
     );
     const children =
@@ -158,16 +169,17 @@ export function ValRichText<O extends RichTextOptions>({
       height: tag === "img" ? child.height : undefined,
     });
   }
+  console.log({ root });
   return (
-    <div className={className} style={style}>
+    <div className={className} style={style} data-val-path={root.valPath}>
       {root.map(build)}
     </div>
   );
 }
 
 function classNameOfTag(
-  tag: AllTagsOf<AnyRichTextOptions>,
-  clazz: ClassesOf<AnyRichTextOptions>[],
+  tag: string,
+  clazz: Styles<AllRichTextOptions>[],
   theme?: Partial<AllThemes>
 ) {
   let thisTagClassName: string | null = null;
@@ -196,41 +208,11 @@ function classNameOfTag(
   ].join(" ");
 }
 
-type AllTagsOf<O extends RichTextOptions> =
-  | (O["img"] extends true ? "img" : never)
-  | (O["a"] extends true ? "a" : "nei")
-  | (O["ul"] extends true ? "ul" | "li" : never)
-  | (O["ol"] extends true ? "ol" | "li" : never)
-  | (O["headings"] extends Array<infer T>
-      ? T extends "h1"
-        ? "h1"
-        : never
-      : never)
-  | (O["headings"] extends Array<infer T>
-      ? T extends "h2"
-        ? "h2"
-        : never
-      : never)
-  | (O["headings"] extends Array<infer T>
-      ? T extends "h3"
-        ? "h3"
-        : never
-      : never)
-  | (O["headings"] extends Array<infer T>
-      ? T extends "h4"
-        ? "h4"
-        : never
-      : never)
-  | (O["headings"] extends Array<infer T>
-      ? T extends "h5"
-        ? "h5"
-        : never
-      : never)
-  | (O["headings"] extends Array<infer T>
-      ? T extends "h6"
-        ? "h6"
-        : never
-      : never)
-  | "br"
-  | "p"
-  | "span";
+function isFileSource(
+  child: RichTextNode<AllRichTextOptions>
+): child is FileSource<ImageMetadata> {
+  if (typeof child === "string") {
+    return true;
+  }
+  return VAL_EXTENSION in child && child[VAL_EXTENSION] === "file";
+}

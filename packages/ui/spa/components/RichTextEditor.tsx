@@ -147,13 +147,11 @@ export function RichTextEditor<E extends AnyExtension>({
 const Toolbar = ({
   options,
   hasOptions,
-  onShowToolbar,
   debug,
   submitStatus,
 }: {
   options?: RichTextOptions;
   hasOptions?: boolean;
-  onShowToolbar: (showToolbar: boolean) => void;
   debug?: boolean;
   submitStatus: SubmitStatus;
 }) => {
@@ -171,14 +169,11 @@ const Toolbar = ({
     active.bold() ||
     active.italic() ||
     active.strike();
-  useEffect(() => {
-    onShowToolbar(showToolbar);
-  }, [showToolbar]);
 
   const dropdownContainerRef = useRef<HTMLDivElement>(null);
 
   return (
-    <>
+    <div>
       <div className="h-0" ref={dropdownContainerRef}></div>
       <div
         className={classNames(
@@ -388,7 +383,7 @@ const Toolbar = ({
         </div>
         <LinkToolBar />
       </div>
-    </>
+    </div>
   );
 };
 

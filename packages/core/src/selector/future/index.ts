@@ -25,7 +25,7 @@ import {
 } from "../../source/future/remote";
 import { FileSource } from "../../source/file";
 import {
-  AnyRichTextOptions,
+  AllRichTextOptions,
   RichText,
   RichTextSource,
 } from "../../source/richtext";
@@ -87,7 +87,7 @@ export type SelectorSource =
   | I18nSource<readonly string[], I18nCompatibleSource>
   | RemoteSource<RemoteCompatibleSource>
   | FileSource
-  | RichTextSource<AnyRichTextOptions>
+  | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;
 
 /**

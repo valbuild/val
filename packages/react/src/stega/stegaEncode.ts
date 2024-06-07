@@ -278,6 +278,11 @@ export function stegaEncode(
         });
       }
     }
+    if (recOpts?.schema && isRichTextSchema(recOpts.schema)) {
+      const res = rec(sourceOrSelector);
+      res.valPath = recOpts.path;
+      return res;
+    }
 
     if (typeof sourceOrSelector === "object") {
       if (!sourceOrSelector) {
@@ -417,6 +422,12 @@ function isKeyOfSchema(
   schema: SerializedSchema | undefined
 ): schema is SerializedUnionSchema {
   return schema?.type === "keyOf";
+}
+
+function isRichTextSchema(
+  schema: SerializedSchema | undefined
+): schema is SerializedObjectSchema {
+  return schema?.type === "richtext";
 }
 
 function isObjectSchema(

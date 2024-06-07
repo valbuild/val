@@ -83,7 +83,7 @@ export const RemirrorHeading = z.intersection(
       attrs: z.object({
         level: z.number(),
       }),
-      content: z.array(z.union([RemirrorText, RemirrorBr])),
+      content: z.array(z.union([RemirrorText, RemirrorImage, RemirrorBr])),
     })
     .partial()
 );
@@ -119,11 +119,22 @@ export const RemirrorOrderedList: z.ZodType<{
 );
 export type RemirrorOrderedList = z.infer<typeof RemirrorOrderedList>;
 
-export const RemirrorListItem = z.lazy(() =>
+export const RemirrorListItem: z.ZodType<{
+  type: "listItem";
+  attrs?: {
+    closed?: boolean;
+    nested?: boolean;
+  };
+  content?: (RemirrorParagraph | RemirrorBulletList | RemirrorOrderedList)[];
+}> = z.lazy(() =>
   z.intersection(
     z.object({ type: z.literal("listItem") }),
     z
       .object({
+        attrs: z
+          .object({ closed: z.boolean(), nested: z.boolean() })
+          .partial()
+          .optional(),
         content: z.array(
           z.union([RemirrorParagraph, RemirrorBulletList, RemirrorOrderedList])
         ),
@@ -133,13 +144,18 @@ export const RemirrorListItem = z.lazy(() =>
 );
 export type RemirrorListItem = z.infer<typeof RemirrorListItem>;
 
-export const RemirrorParagraph = z.intersection(
-  z.object({ type: z.literal("paragraph") }),
-  z
-    .object({
-      content: z.array(z.union([RemirrorText, RemirrorImage, RemirrorBr])),
-    })
-    .partial()
+export const RemirrorParagraph: z.ZodType<{
+  type: "paragraph";
+  content?: (RemirrorText | RemirrorImage | RemirrorBr)[];
+}> = z.lazy(() =>
+  z.intersection(
+    z.object({ type: z.literal("paragraph") }),
+    z
+      .object({
+        content: z.array(z.union([RemirrorText, RemirrorImage, RemirrorBr])),
+      })
+      .partial()
+  )
 );
 export type RemirrorParagraph = z.infer<typeof RemirrorParagraph>;
 
