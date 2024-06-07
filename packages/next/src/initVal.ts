@@ -4,7 +4,7 @@ import {
   type InitVal,
   type ValConstructor,
   RichText,
-  AnyRichTextOptions,
+  AllRichTextOptions,
   ValModule,
   SelectorSource,
   Json,
@@ -22,7 +22,7 @@ export const initVal = (
   val: ValConstructor & {
     raw: typeof raw;
     attrs: <
-      T extends ValModule<SelectorSource> | Json | RichText<AnyRichTextOptions>
+      T extends ValModule<SelectorSource> | Json | RichText<AllRichTextOptions>
     >(
       target: T
     ) => ValAttrs;
@@ -43,7 +43,7 @@ export const initVal = (
         T extends
           | ValModule<SelectorSource>
           | Json
-          | RichText<AnyRichTextOptions>
+          | RichText<AllRichTextOptions>
       >(
         target: T
       ): ValAttrs => {

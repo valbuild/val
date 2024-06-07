@@ -1,9 +1,6 @@
 import {
   SerializedSchema,
   Json,
-  VAL_EXTENSION,
-  RichTextSource,
-  AnyRichTextOptions,
   FileSource,
   ImageSource,
 } from "@valbuild/core";
@@ -20,11 +17,7 @@ export function emptyOf(schema: SerializedSchema): Json {
   } else if (schema.opt) {
     return null;
   } else if (schema.type === "richtext") {
-    return {
-      [VAL_EXTENSION]: "richtext",
-      templateStrings: [""],
-      exprs: [],
-    } satisfies RichTextSource<AnyRichTextOptions>;
+    return [];
   } else if (schema.type === "string") {
     return "";
   } else if (schema.type === "boolean") {
@@ -61,12 +54,6 @@ export function emptyOf(schema: SerializedSchema): Json {
   } else if (schema.type === "literal") {
     return schema.value;
   } else if (schema.type === "union") {
-    if (typeof schema.key === "string") {
-      return {
-        [schema.key]:
-          schema.items[0].type === "literal" ? schema.items[0].value : "",
-      };
-    }
     return emptyOf(schema.items[0]);
   }
   const _exhaustiveCheck: never = schema;

@@ -14,12 +14,12 @@ export const schema = s.object({
     .richtext({
       // enables all features
       // styling:
-      styles: {
+      style: {
         bold: true, // enables bold
         italic: true, // enables italic text
         lineThrough: true, // enables line/strike-through
       },
-      blocks: {
+      block: {
         // tags:
         h1: true, // enables h1
         h2: true,

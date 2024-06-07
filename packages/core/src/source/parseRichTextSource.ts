@@ -1,7 +1,7 @@
 import * as marked from "marked";
 import {
   OrderedListNode,
-  AnyRichTextOptions,
+  AllRichTextOptions,
   UnorderedListNode,
   LinkSource,
   RichTextNode,
@@ -9,14 +9,12 @@ import {
   LinkNode,
   ListItemNode,
   RichTextOptions,
-  RichTextSource,
   RichText,
   VAL_EXTENSION,
   ParagraphNode,
   HeadingNode,
-  Internal,
   ImageSource,
-  Classes,
+  Styles,
 } from "@valbuild/core";
 
 const VAL_START_TAG_PREFIX = '<val value="';
@@ -24,16 +22,16 @@ const VAL_START_TAG_SUFFIX = '">';
 const VAL_END_TAG = "</val>";
 
 type AnyListChildren =
-  | OrderedListNode<AnyRichTextOptions>["children"]
-  | UnorderedListNode<AnyRichTextOptions>["children"];
+  | OrderedListNode<AllRichTextOptions>["children"]
+  | UnorderedListNode<AllRichTextOptions>["children"];
 
 function parseTokens(
   tokens: marked.Token[],
   sourceNodes: (ImageSource | LinkSource)[],
   cursor: number,
   insideList = false
-): { children: RichTextNode<AnyRichTextOptions>[]; cursor: number } {
-  const children: RichTextNode<AnyRichTextOptions>[] = [];
+): { children: RichTextNode<AllRichTextOptions>[]; cursor: number } {
+  const children: RichTextNode<AllRichTextOptions>[] = [];
 
   function merge(
     token:
@@ -41,18 +39,18 @@ function parseTokens(
       | marked.Tokens.Del
       | marked.Tokens.Em
       | marked.Tokens.Generic,
-    clazz: Classes<AnyRichTextOptions>
+    clazz: Styles<AllRichTextOptions>
   ) {
     const parsedTokens = parseTokens(
       token.tokens ? token.tokens : [],
       sourceNodes,
       0
-    ) as { children: [SpanNode<AnyRichTextOptions>] } | { children: string[] };
+    ) as { children: [SpanNode<AllRichTextOptions>] } | { children: string[] };
     children.push({
       tag: "span",
-      classes: [clazz].concat(
+      styles: [clazz].concat(
         parsedTokens.children.flatMap((child) =>
-          typeof child === "string" ? [] : child.classes
+          typeof child === "string" ? [] : child.styles
         )
       ),
       children: parsedTokens.children.flatMap((child) =>
@@ -66,13 +64,13 @@ function parseTokens(
       children.push({
         tag: `h${token.depth as 1 | 2 | 3 | 4 | 5 | 6}`,
         children: parseTokens(token.tokens ? token.tokens : [], sourceNodes, 0)
-          .children as HeadingNode<AnyRichTextOptions>["children"],
+          .children as HeadingNode<AllRichTextOptions>["children"],
       });
     } else if (token.type === "paragraph") {
       children.push({
         tag: "p",
         children: parseTokens(token.tokens ? token.tokens : [], sourceNodes, 0)
-          .children as ParagraphNode<AnyRichTextOptions>["children"],
+          .children as ParagraphNode<AllRichTextOptions>["children"],
       });
     } else if (token.type === "strong") {
       merge(token, "bold");
@@ -88,7 +86,7 @@ function parseTokens(
       } else {
         if (insideList && typeof token.raw === "string") {
           const lines = token.raw.split("\n");
-          const tags: RichTextNode<AnyRichTextOptions>[] = lines.flatMap(
+          const tags: RichTextNode<AllRichTextOptions>[] = lines.flatMap(
             (line, i) => {
               if (i === lines.length - 1) return [line];
               if (i === lines.length - 1 && line === "") return [];
@@ -115,7 +113,7 @@ function parseTokens(
           sourceNodes,
           0,
           true
-        ).children as ListItemNode<AnyRichTextOptions>["children"],
+        ).children as ListItemNode<AllRichTextOptions>["children"],
       });
     } else if (token.type === "space") {
       // do nothing
@@ -152,15 +150,12 @@ function parseTokens(
           children.push({
             tag: "a",
             href: sourceNode.href,
-            children: subChildren as LinkNode<AnyRichTextOptions>["children"],
+            children: subChildren as LinkNode<AllRichTextOptions>["children"],
           });
         } else if (sourceNode._type === "file") {
           children.push({
             tag: "img",
-            src: Internal.convertFileSource(sourceNode).url,
-            width: sourceNode.metadata?.width,
-            height: sourceNode.metadata?.height,
-            mimeType: sourceNode.metadata?.mimeType,
+            children: [sourceNode],
           });
         }
 
@@ -189,7 +184,7 @@ function parseTokens(
             token.tokens ? token.tokens : [],
             sourceNodes,
             0
-          ).children as LinkNode<AnyRichTextOptions>["children"],
+          ).children as LinkNode<AllRichTextOptions>["children"],
         });
       }
     } else if (token.type === "br") {
@@ -212,8 +207,8 @@ export function parseRichTextSource<O extends RichTextOptions>({
 }: {
   templateStrings: string[];
   exprs: (
-    | (O["img"] extends true ? ImageSource : never)
-    | (O["a"] extends true ? LinkSource : never)
+    | (NonNullable<O["inline"]>["img"] extends true ? ImageSource : never)
+    | (NonNullable<O["inline"]>["a"] extends true ? LinkSource : never)
   )[];
 }): RichText<O> {
   // TODO: validate that templateStrings does not contain VAL_NODE_PREFIX

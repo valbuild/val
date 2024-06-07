@@ -19,7 +19,7 @@ import {
   parseAndValidateArrayIndex,
 } from "@valbuild/core/patch";
 import {
-  AnyRichTextOptions,
+  AllRichTextOptions,
   FILE_REF_PROP,
   FILE_REF_SUBTYPE_TAG,
   FileSource,
@@ -129,7 +129,7 @@ function createValLink(value: LinkSource) {
 }
 
 function createValRichTextTaggedStringTemplate(
-  value: RichTextSource<AnyRichTextOptions>
+  value: RichTextSource<AllRichTextOptions>
 ): ts.Expression {
   const {
     templateStrings: [head, ...others],
@@ -683,7 +683,7 @@ function isValLinkValue(value: JSONValue): value is LinkSource {
 
 function isValRichTextValue(
   value: JSONValue
-): value is RichTextSource<AnyRichTextOptions> {
+): value is RichTextSource<AllRichTextOptions> {
   return !!(
     typeof value === "object" &&
     value &&

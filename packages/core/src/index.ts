@@ -17,9 +17,9 @@ export type { RawString } from "./schema/string";
 export type { ImageSource } from "./source/image";
 export { RT_IMAGE_TAG } from "./source/richtext";
 export type {
-  AnyRichTextOptions,
+  AllRichTextOptions,
   Bold,
-  Classes,
+  Styles,
   HeadingNode,
   ImageNode,
   Italic,
@@ -33,7 +33,7 @@ export type {
   RichTextNode,
   RichTextOptions,
   RichTextSource,
-  RootNode,
+  BlockNode,
   SpanNode,
   UnorderedListNode,
 } from "./source/richtext";

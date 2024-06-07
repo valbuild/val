@@ -1,14 +1,10 @@
 import {
-  LinkSource,
   FILE_REF_PROP,
   Internal,
   VAL_EXTENSION,
   RichTextSource,
-  AnyRichTextOptions,
-  ImageSource,
-  Classes,
-  RT_IMAGE_TAG,
-  FILE_REF_SUBTYPE_TAG,
+  AllRichTextOptions,
+  Styles,
 } from "@valbuild/core";
 import {
   filenameToMimeType,
@@ -23,291 +19,299 @@ import {
   RemirrorLinkMark,
   RemirrorListItem,
   RemirrorOrderedList,
+  RemirrorParagraph,
   RemirrorText,
 } from "./remirrorTypes";
+import {
+  BlockNode,
+  HeadingNode,
+  ImageNode,
+  LinkNode,
+  ListItemNode,
+  OrderedListNode,
+  ParagraphNode,
+  SpanNode,
+  UnorderedListNode,
+} from "@valbuild/core/src/source/richtext";
 
-type MarkdownIR = {
-  type: "block";
-  children: (string | ImageSource | LinkSource)[];
-};
-
-const MAX_LINE_LENGTH = 80;
-export function remirrorToRichTextSource(
-  node: RemirrorJSON
-): RichTextSource<AnyRichTextOptions> & { files: Record<string, string> } {
+export function remirrorToRichTextSource(node: RemirrorJSON): {
+  blocks: RichTextSource<AllRichTextOptions>;
+  files: Record<string, string>;
+} {
   const files: Record<string, string> = {};
-  const markdownIRBlocks: MarkdownIR[] = node.content.map((child) =>
-    createBlock(child, files)
-  );
-  return fromIRToRichTextSource(markdownIRBlocks, files);
+  const blocks: BlockNode<AllRichTextOptions>[] = [];
+  for (const child of node.content) {
+    const block = convertBlock(child, files);
+    blocks.push(block);
+  }
+  return { blocks, files };
 }
 
-// function createBlock(
-//   node: RemirrorJSON["content"][number],
-//   files: Record<string, string>
-// ): MarkdownIR {
-//   if (node.type === "heading") {
-//     let headingTag = "";
-//     const depth = node.attrs?.level || 1;
-//     if (Number.isNaN(depth)) {
-//       throw new Error("Invalid header depth");
-//     }
-//     for (let i = 0; i < Number(depth); i++) {
-//       headingTag += "#";
-//     }
-//     const headingText: MarkdownIR["children"] = [`${headingTag} `];
-//     return {
-//       type: "block",
-//       children: headingText.concat(
-//         ...(node.content?.map((child) => transformLeafNode(child, files)) || [])
-//       ),
-//     };
-//   } else if (node.type === "paragraph") {
-//     if (!node.content || node.content?.length === 0) {
-//       return {
-//         type: "block",
-//         children: ["<br />"],
-//       };
-//     }
-//     return {
-//       type: "block",
-//       children: node.content.map((child) => transformLeafNode(child, files)),
-//     };
-//   } else if (node.type === "bulletList" || node.type === "orderedList") {
-//     return {
-//       type: "block",
-//       children:
-//         node.content?.flatMap((child, i) =>
-//           formatListItemNode(getListPrefix(node), child, 0, files, i === 0)
-//         ) || [],
-//     };
-//   } else {
-//     const exhaustiveCheck: never = node;
-//     throw new Error(
-//       `Unhandled node type: ${
-//         "type" in exhaustiveCheck ? "exhaustiveCheck.type" : "unknown"
-//       }`
-//     );
-//   }
-// }
+function convertBlock(
+  node: RemirrorJSON["content"][number],
+  files: Record<string, string>
+): BlockNode<AllRichTextOptions> {
+  if (node.type === "heading") {
+    const depth = node.attrs?.level || 1;
+    if (Number.isNaN(depth)) {
+      throw new Error("Invalid header depth");
+    }
+    return {
+      tag: `h${depth}` as `h${1 | 2 | 3 | 4 | 5 | 6}`,
+      children:
+        node.content?.map((child) => convertHeadingChild(child, files)) || [],
+    };
+  } else if (node.type === "paragraph") {
+    return convertParagraph(node, files);
+  } else if (node.type === "bulletList") {
+    return convertBulletList(node, files);
+  } else if (node.type === "orderedList") {
+    return convertOrderedList(node, files);
+  } else {
+    const exhaustiveCheck: never = node;
+    throw new Error(
+      `Unhandled node type: ${
+        "type" in exhaustiveCheck ? "exhaustiveCheck.type" : "unknown"
+      }`
+    );
+  }
+}
 
-// function fromIRToRichTextSource(
-//   markdownIRBlocks: MarkdownIR[],
-//   files: Record<string, string>
-// ): RichTextSource<AnyRichTextOptions> & { files: Record<string, string> } {
-//   const templateStrings = ["\n"];
-//   const exprs = [];
-//   for (let blockIdx = 0; blockIdx < markdownIRBlocks.length; blockIdx++) {
-//     const block = markdownIRBlocks[blockIdx];
-//     for (const child of block.children) {
-//       if (typeof child === "string") {
-//         templateStrings[templateStrings.length - 1] += child;
-//       } else {
-//         if (child._type === "file") {
-//           exprs.push(child);
-//         } else if (child._type === "link") {
-//           exprs.push(child);
-//         } else {
-//           const exhaustiveCheck: never = child;
-//           throw new Error(
-//             `Unexpected node type: ${JSON.stringify(exhaustiveCheck, null, 2)}`
-//           );
-//         }
-//         templateStrings.push("");
-//       }
-//     }
-//     if (blockIdx === markdownIRBlocks.length - 1) {
-//       templateStrings[templateStrings.length - 1] += "\n";
-//     } else {
-//       templateStrings[templateStrings.length - 1] += "\n\n";
-//     }
-//   }
-//   return { [VAL_EXTENSION]: "richtext", templateStrings, exprs: exprs, files };
-// }
+function convertHeadingChild(
+  node: RemirrorText | RemirrorBr | RemirrorImage,
+  files: Record<string, string>
+): HeadingNode<AllRichTextOptions>["children"][number] {
+  if (node.type === "text") {
+    return convertTextNode(node);
+  } else if (node.type === "hardBreak") {
+    return {
+      tag: "br",
+    };
+  } else if (node.type === "image") {
+    return convertImageNode(node, files);
+  } else {
+    const exhaustiveCheck: never = node;
+    throw new Error(
+      `Unexpected heading child type: ${JSON.stringify(
+        exhaustiveCheck,
+        null,
+        2
+      )}`
+    );
+  }
+}
 
-// function formatText(node: RemirrorText): string {
-//   const classes: Classes<AnyRichTextOptions>[] =
-//     node.marks?.flatMap((mark) => {
-//       if (mark.type === "bold") {
-//         return ["bold"];
-//       } else if (mark.type === "italic") {
-//         return ["italic"];
-//       } else if (mark.type === "strike") {
-//         return ["line-through"];
-//       }
-//       return [];
-//     }) || [];
+function convertParagraph(
+  child: RemirrorParagraph,
+  files: Record<string, string>
+): ParagraphNode<AllRichTextOptions> {
+  return {
+    tag: "p",
+    children:
+      child.content?.map((child) => {
+        if (child.type === "text") {
+          return convertTextNode(child);
+        } else if (child.type === "hardBreak") {
+          return {
+            tag: "br",
+          };
+        } else if (child.type === "image") {
+          return convertImageNode(child, files);
+        }
+        const exhaustiveCheck: never = child;
+        throw new Error(
+          `Unexpected paragraph child type: ${JSON.stringify(
+            exhaustiveCheck,
+            null,
+            2
+          )}`
+        );
+      }) || [],
+  };
+}
 
-//   let text = node.text.trimStart();
-//   const prefixWS = node.text.length - text.length;
-//   text = text.trimEnd();
-//   const suffixWS = node.text.length - text.length - prefixWS;
-//   if (classes.includes("bold") && classes.includes("italic")) {
-//     text = `***${text}***`;
-//   } else if (classes.includes("bold")) {
-//     text = `**${text}**`;
-//   } else if (classes.includes("italic")) {
-//     text = `_${text}_`;
-//   }
-//   if (classes.includes("line-through")) {
-//     text = `~~${text}~~`;
-//   }
-//   // TODO:
-//   // text = splitIntoChunks(text);
-//   return `${" ".repeat(prefixWS)}${text}${" ".repeat(suffixWS)}`;
-// }
+function convertTextNode(
+  node: RemirrorText
+): string | SpanNode<AllRichTextOptions> | LinkNode<AllRichTextOptions> {
+  if (node.type === "text") {
+    const styles: Styles<AllRichTextOptions>[] =
+      node.marks?.flatMap((mark) => {
+        if (mark.type !== "link") {
+          if (mark.type === "strike") {
+            return ["line-through" as const];
+          }
+          return [mark.type];
+        } else {
+          return [];
+        }
+      }) || [];
+    if (node.marks?.some((mark) => mark.type === "link")) {
+      if (styles.length > 0) {
+        return {
+          tag: "a",
+          href:
+            node.marks.find(
+              (mark): mark is RemirrorLinkMark => mark.type === "link"
+            )?.attrs.href || "",
+          children: [
+            {
+              tag: "span",
+              styles,
+              children: [node.text],
+            },
+          ],
+        };
+      }
+    }
+    if (styles.length > 0) {
+      return {
+        tag: "span",
+        styles,
+        children: [node.text],
+      };
+    }
+    return node.text;
+  } else {
+    const exhaustiveCheck: never = node.type;
+    throw new Error(`Unexpected node type: ${exhaustiveCheck}`);
+  }
+}
 
-// function transformLeafNode(
-//   node: RemirrorText | RemirrorImage | RemirrorBr,
-//   files: Record<string, string>
-// ): string | ImageSource | LinkSource {
-//   if (node.type === "text") {
-//     const linkMark = node.marks?.find(
-//       (mark): mark is RemirrorLinkMark => mark.type === "link"
-//     );
-//     if (linkMark?.type === "link") {
-//       return {
-//         _type: "link",
-//         href: linkMark.attrs.href,
-//         children: [formatText(node)],
-//       };
-//     }
-//     return formatText(node);
-//   } else if (node.type === "hardBreak") {
-//     return "<br />";
-//   } else if (node.type === "image") {
-//     return fromRemirrorImageNode(node, files);
-//   } else {
-//     const exhaustiveCheck: never = node;
-//     throw new Error(`Unexpected node type: ${JSON.stringify(exhaustiveCheck)}`);
-//   }
-// }
+function convertListItem(
+  child: RemirrorListItem,
+  files: Record<string, string>
+): ListItemNode<AllRichTextOptions> {
+  return {
+    tag: "li",
+    children:
+      child.content?.map(
+        (child): ListItemNode<AllRichTextOptions>["children"][number] => {
+          if (child.type === "paragraph") {
+            return convertParagraph(child, files);
+          } else if (child.type === "bulletList") {
+            return convertBulletList(child, files);
+          } else if (child.type === "orderedList") {
+            return convertOrderedList(child, files);
+          } else {
+            const exhaustiveCheck: never = child;
+            throw new Error(`Unexpected list child type: ${exhaustiveCheck}`);
+          }
+        }
+      ) || [],
+  };
+}
 
-// function formatListItemNode(
-//   listPrefix: string,
-//   node: RemirrorListItem,
-//   indent: number,
-//   files: Record<string, string>,
-//   isFirstTopLevelListItem = false
-// ): (string | ImageSource | LinkSource)[] {
-//   const newLine = isFirstTopLevelListItem ? "" : "\n";
-//   const prefix: (string | ImageSource | LinkSource)[] = [
-//     `${newLine}${" ".repeat(indent)}${listPrefix}`,
-//   ];
-//   if (
-//     !(
-//       node.content?.[0]?.type === "bulletList" ||
-//       node.content?.[0]?.type === "orderedList"
-//     )
-//   ) {
-//     prefix.push(" ");
-//   }
+function convertBulletList(
+  node: RemirrorBulletList,
+  files: Record<string, string>
+): UnorderedListNode<AllRichTextOptions> {
+  return {
+    tag: "ul",
+    children:
+      node.content?.map((child) => {
+        if (child.type === "listItem") {
+          return convertListItem(child, files);
+        } else {
+          const exhaustiveCheck: never = child.type;
+          throw new Error(
+            `Unexpected bullet list child type: ${exhaustiveCheck}`
+          );
+        }
+      }) || [],
+  };
+}
 
-//   return prefix.concat(
-//     (node.content || []).flatMap((child, i) => {
-//       if (child.type === "bulletList" || child.type === "orderedList") {
-//         return (child.content || []).flatMap((subChild) =>
-//           formatListItemNode(getListPrefix(child), subChild, indent + 4, files)
-//         );
-//       } else {
-//         return (child.content || []).flatMap((subChild) => {
-//           const res: (string | ImageSource | LinkSource)[] = [];
-//           if (child.content?.length && child.content?.length > 0 && i > 0) {
-//             res.push("<br />\n");
-//           }
-//           res.push(transformLeafNode(subChild, files));
-//           return res;
-//         });
-//       }
-//     })
-//   );
-// }
+function convertOrderedList(
+  node: RemirrorOrderedList,
+  files: Record<string, string>
+): OrderedListNode<AllRichTextOptions> {
+  return {
+    tag: "ol",
+    children:
+      node.content?.map((child) => {
+        if (child.type === "listItem") {
+          return convertListItem(child, files);
+        } else {
+          const exhaustiveCheck: never = child.type;
+          throw new Error(
+            `Unexpected ordered list child type: ${exhaustiveCheck}`
+          );
+        }
+      }) || [],
+  };
+}
 
-// function getListPrefix(node: RemirrorBulletList | RemirrorOrderedList): string {
-//   if (node.type === "bulletList") {
-//     return "-";
-//   } else if (node.type === "orderedList") {
-//     return "1.";
-//   } else {
-//     const exhaustiveCheck: never = node;
-//     throw new Error(`Unhandled list node: ${JSON.stringify(exhaustiveCheck)}`);
-//   }
-// }
+const textEncoder = new TextEncoder();
+function convertImageNode(
+  node: RemirrorImage,
+  files: Record<string, string>
+): ImageNode<AllRichTextOptions> {
+  if (node.attrs && node.attrs.src.startsWith("data:")) {
+    const sha256 = Internal.getSHA256Hash(textEncoder.encode(node.attrs.src));
+    const mimeType = getMimeType(node.attrs.src);
+    if (mimeType === undefined) {
+      throw new Error(
+        `Could not detect Mime Type for image: ${node.attrs.src}`
+      );
+    }
+    const fileExt = mimeTypeToFileExt(mimeType);
+    const fileName = node.attrs.fileName || `${sha256}.${fileExt}`;
+    const filePath = `/public/${fileName}`;
+    files[filePath] = node.attrs.src;
+    return {
+      tag: "img",
+      children: [
+        {
+          [VAL_EXTENSION]: "file" as const,
+          [FILE_REF_PROP]: filePath as `/public/${string}`,
+          metadata: {
+            width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
+            height:
+              typeof node.attrs.height === "number" ? node.attrs.height : 0,
+            sha256: sha256 || "",
+            mimeType,
+          },
+        },
+      ],
+    };
+  } else if (node.attrs) {
+    const sha256 = getParam("sha256", node.attrs.src);
+    const noParamsSrc = node.attrs.src.split("?")[0];
+    return {
+      tag: "img",
+      children: [
+        {
+          [VAL_EXTENSION]: "file" as const,
+          [FILE_REF_PROP]: `/public${
+            node.attrs.src.split("?")[0]
+          }` as `/public/${string}`,
+          metadata: {
+            width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
+            height:
+              typeof node.attrs.height === "number" ? node.attrs.height : 0,
+            sha256: sha256 || "",
+            mimeType: (noParamsSrc && filenameToMimeType(noParamsSrc)) || "",
+          },
+        },
+      ],
+    };
+  } else {
+    throw new Error("Invalid image node (no attrs): " + JSON.stringify(node));
+  }
+}
 
-// // eslint-disable-next-line @typescript-eslint/no-unused-vars
-// function splitIntoChunks(str: string) {
-//   let line = "";
-//   for (let i = 0; i < str.length; i += 80) {
-//     const chunk = str.substring(i, i + MAX_LINE_LENGTH);
-//     line += chunk;
-//     if (i !== str.length - 1 && chunk.length >= 80) {
-//       line += "\n";
-//     }
-//   }
-//   return line;
-// }
+function getParam(param: string, url: string) {
+  const urlParts = url.split("?");
+  if (urlParts.length < 2) {
+    return undefined;
+  }
 
-// const textEncoder = new TextEncoder();
-// function fromRemirrorImageNode(
-//   node: RemirrorImage,
-//   files: Record<string, string>
-// ): ImageSource {
-//   if (node.attrs && node.attrs.src.startsWith("data:")) {
-//     const sha256 = Internal.getSHA256Hash(textEncoder.encode(node.attrs.src));
-//     const mimeType = getMimeType(node.attrs.src);
-//     if (mimeType === undefined) {
-//       throw new Error(
-//         `Could not detect Mime Type for image: ${node.attrs.src}`
-//       );
-//     }
-//     const fileExt = mimeTypeToFileExt(mimeType);
-//     const fileName = node.attrs.fileName || `${sha256}.${fileExt}`;
-//     const filePath = `/public/${fileName}`;
-//     files[filePath] = node.attrs.src;
-//     return {
-//       [VAL_EXTENSION]: "file" as const,
-//       [FILE_REF_PROP]: filePath as `/public/${string}`,
-//       [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
-//       metadata: {
-//         width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
-//         height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
-//         sha256: sha256 || "",
-//         mimeType,
-//       },
-//     };
-//   } else if (node.attrs) {
-//     const sha256 = getParam("sha256", node.attrs.src);
-//     const noParamsSrc = node.attrs.src.split("?")[0];
-//     return {
-//       [VAL_EXTENSION]: "file" as const,
-//       [FILE_REF_PROP]: `/public${
-//         node.attrs.src.split("?")[0]
-//       }` as `/public/${string}`,
-//       [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
-//       metadata: {
-//         width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
-//         height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
-//         sha256: sha256 || "",
-//         mimeType: (noParamsSrc && filenameToMimeType(noParamsSrc)) || "",
-//       },
-//     };
-//   } else {
-//     throw new Error("Invalid image node (no attrs): " + JSON.stringify(node));
-//   }
-// }
+  const queryString = urlParts[1];
+  const params = new URLSearchParams(queryString);
 
-// function getParam(param: string, url: string) {
-//   const urlParts = url.split("?");
-//   if (urlParts.length < 2) {
-//     return undefined;
-//   }
+  if (params.has(param)) {
+    return params.get(param);
+  }
 
-//   const queryString = urlParts[1];
-//   const params = new URLSearchParams(queryString);
-
-//   if (params.has(param)) {
-//     return params.get(param);
-//   }
-
-//   return undefined;
-// }
+  return undefined;
+}

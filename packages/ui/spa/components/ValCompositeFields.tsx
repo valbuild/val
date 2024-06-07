@@ -10,8 +10,7 @@ import {
   SerializedArraySchema,
   Internal,
   VAL_EXTENSION,
-  RichTextSource,
-  AnyRichTextOptions,
+  AllRichTextOptions,
   FILE_REF_PROP,
   FileSource,
   ImageMetadata,
@@ -19,7 +18,6 @@ import {
   RichTextNode,
   ModulePath,
 } from "@valbuild/core";
-import { parseRichTextSource } from "@valbuild/shared/internal";
 import classNames from "classnames";
 import React, { useState, useEffect, Fragment } from "react";
 import { createPortal } from "react-dom";
@@ -802,11 +800,7 @@ function ValPreview({
         </div>
       );
     }
-    return (
-      <ValRichText key={path}>
-        {parseRichTextSource(source as RichTextSource<AnyRichTextOptions>)}
-      </ValRichText>
-    );
+    return <ValRichText key={path}>{source}</ValRichText>;
   } else if (schema.type === "string") {
     if (source === null) {
       return (
@@ -1168,9 +1162,9 @@ const theme: { tags: Record<string, string>; classes: Record<string, string> } =
 export function ValRichText({
   children,
 }: {
-  children: RichText<AnyRichTextOptions>;
+  children: RichText<AllRichTextOptions>;
 }) {
-  const root = children as RichText<AnyRichTextOptions> & {
+  const root = children as RichText<AllRichTextOptions> & {
     valPath: SourcePath;
   };
   function withRenderTag(clazz: string, current?: string) {
@@ -1195,11 +1189,15 @@ export function ValRichText({
   }
 
   function toReact(
-    node: RichTextNode<AnyRichTextOptions>,
+    node: RichTextNode<AllRichTextOptions>,
     key: number | string
   ): React.ReactNode {
     if (typeof node === "string") {
       return node;
+    }
+    if (VAL_EXTENSION in node) {
+      // TODO:
+      return <img></img>;
     }
     if (node.tag === "p") {
       return (
@@ -1207,9 +1205,6 @@ export function ValRichText({
           {node.children.map((child, key) => toReact(child, key))}
         </p>
       );
-    }
-    if (node.tag === "img") {
-      return <img className={withRenderTag("img")} key={key} src={node.src} />;
     }
     if (node.tag === "ul") {
       return (
@@ -1236,7 +1231,7 @@ export function ValRichText({
       return (
         <span
           key={key}
-          className={node.classes
+          className={node.styles
             .map((nodeClass) => {
               switch (nodeClass) {
                 case "bold":
@@ -1306,8 +1301,10 @@ export function ValRichText({
         </a>
       );
     }
-    console.error("Unknown tag", node.tag);
-    const _exhaustiveCheck: never = node.tag;
+    const _exhaustiveCheck: never = node;
+    console.error(
+      "Unexpected RichText node: " + JSON.stringify(_exhaustiveCheck)
+    );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const anyNode = _exhaustiveCheck as any;
     if (!anyNode?.tag) {
