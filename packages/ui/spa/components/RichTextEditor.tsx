@@ -56,27 +56,30 @@ import {
 } from "@remirror/core";
 import { SubmitStatus } from "./SubmitStatus";
 
-const allExtensions = [
-  new BoldExtension(),
-  new ItalicExtension(),
-  new StrikeExtension(),
-  new ImageExtension({
-    enableResizing: false,
-  }),
-  new DropCursorExtension(),
-  new HeadingExtension({
-    levels: [1, 2, 3, 4, 5, 6],
-    defaultLevel: 1,
-  }),
-  new BulletListExtension(),
-  new OrderedListExtension(),
-  new LinkExtension({ autoLink: true }),
-  new HardBreakExtension(),
-] as const;
+const allExtensions = () => {
+  const extensions = [
+    new BoldExtension({}),
+    new ItalicExtension(),
+    new StrikeExtension(),
+    new ImageExtension({
+      enableResizing: false,
+    }),
+    new DropCursorExtension({}),
+    new HeadingExtension({
+      levels: [1, 2, 3, 4, 5, 6],
+      defaultLevel: 1,
+    }),
+    new BulletListExtension({}),
+    new OrderedListExtension(),
+    new LinkExtension({ autoLink: true }),
+    new HardBreakExtension(),
+  ] as const;
+  return extensions.slice();
+};
 
 export function useRichTextEditor(defaultValue?: RemirrorJSON) {
   const { manager, state } = useRemirror({
-    extensions: () => allExtensions.slice(), // TODO: filter on options?
+    extensions: allExtensions, // TODO: filter on options?
     content: defaultValue,
     selection: "start",
   });
@@ -156,7 +159,7 @@ const Toolbar = ({
 }) => {
   const chain = useChainedCommands();
 
-  const active = useActive<(typeof allExtensions)[number]>();
+  const active = useActive<ReturnType<typeof allExtensions>[number]>();
 
   const showToolbar =
     hasOptions ||
