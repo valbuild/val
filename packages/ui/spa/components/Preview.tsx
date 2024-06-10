@@ -3,18 +3,16 @@ import {
   JsonObject,
   JsonArray,
   SerializedSchema,
-  AnyRichTextOptions,
   RichTextNode,
   VAL_EXTENSION,
-  RichTextSource,
   FILE_REF_PROP,
   FileSource,
   Internal,
   SerializedObjectSchema,
+  AllRichTextOptions,
 } from "@valbuild/core";
 import { isJsonArray } from "../utils/isJsonArray";
 import React, { createElement, useState } from "react";
-import { parseRichTextSource } from "@valbuild/shared/internal";
 import { createPortal } from "react-dom";
 import { useValImagePreviewContext } from "./ValCompositeFields";
 
@@ -188,13 +186,14 @@ export function PreviewRichText({ source: source }: { source: JsonObject }) {
   ) {
     return <span className="text-destructive">Invalid RichText</span>;
   }
-  const richText = parseRichTextSource(
-    source as RichTextSource<AnyRichTextOptions>
-  );
-  const root = richText;
-
+  let rootChildren: RichTextNode<AllRichTextOptions>[] = [];
+  if (Array.isArray(source)) {
+    rootChildren = source;
+  } else {
+    console.warn("Invalid RichText source", source);
+  }
   function build(
-    node: RichTextNode<AnyRichTextOptions>,
+    node: RichTextNode<AllRichTextOptions>,
     key: number
   ): React.ReactElement {
     if (typeof node === "string") {
@@ -225,7 +224,7 @@ export function PreviewRichText({ source: source }: { source: JsonObject }) {
       );
     }
     if (node.tag === "img") {
-      return <PreviewImage key={key} src={node.src} alt={node.alt} />;
+      return <PreviewImage key={key} src={node.children[0][FILE_REF_PROP]} />;
     }
     if (node.tag === "br") {
       return <br key={key} />;
@@ -239,7 +238,7 @@ export function PreviewRichText({ source: source }: { source: JsonObject }) {
 
   return (
     <span>
-      {root.children.map((child, i) => {
+      {rootChildren.map((child, i) => {
         return build(child, i);
       })}
     </span>

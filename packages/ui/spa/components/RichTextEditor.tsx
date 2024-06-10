@@ -52,7 +52,6 @@ import {
   RemirrorManager,
   AnyExtension,
   EditorState,
-  ChainedFromExtensions,
 } from "@remirror/core";
 import { SubmitStatus } from "./SubmitStatus";
 
@@ -131,9 +130,7 @@ export function RichTextEditor<E extends AnyExtension>({
             hasOptions={hasOptions}
             options={options}
             debug={debug}
-            onShowToolbar={(showToolbar) => {
-              setShowToolbar(showToolbar);
-            }}
+            setShowToolbar={setShowToolbar}
             submitStatus={submitStatus}
           />
           <EditorComponent />
@@ -149,16 +146,16 @@ const Toolbar = ({
   hasOptions,
   debug,
   submitStatus,
+  setShowToolbar,
 }: {
   options?: RichTextOptions;
   hasOptions?: boolean;
   debug?: boolean;
   submitStatus: SubmitStatus;
+  setShowToolbar: (showToolbar: boolean) => void;
 }) => {
   const chain = useChainedCommands();
-
   const active = useActive<ReturnType<typeof allExtensions>[number]>();
-
   const showToolbar =
     hasOptions ||
     active.heading() ||
@@ -169,6 +166,10 @@ const Toolbar = ({
     active.bold() ||
     active.italic() ||
     active.strike();
+
+  useEffect(() => {
+    setShowToolbar(showToolbar);
+  }, [showToolbar]);
 
   const dropdownContainerRef = useRef<HTMLDivElement>(null);
 
@@ -185,7 +186,13 @@ const Toolbar = ({
       >
         <div className="flex items-center justify-between">
           <div className="flex flex-row items-center justify-start px-4 py-1 gap-x-3">
-            {(options?.headings || active.heading()) && (
+            {(options?.block?.h1 ||
+              options?.block?.h2 ||
+              options?.block?.h3 ||
+              options?.block?.h4 ||
+              options?.block?.h5 ||
+              options?.block?.h6 ||
+              active.heading()) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild className="pr-4">
                   <button>
@@ -207,7 +214,7 @@ const Toolbar = ({
                     Normal
                     {/* <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut> */}
                   </DropdownMenuItem>
-                  {options?.headings?.includes("h1") && (
+                  {options?.block?.h1 && (
                     <DropdownMenuItem
                       onClick={() => {
                         chain
@@ -219,7 +226,7 @@ const Toolbar = ({
                       <Heading1 size={16} />
                     </DropdownMenuItem>
                   )}
-                  {options?.headings?.includes("h2") && (
+                  {options?.block?.h2 && (
                     <DropdownMenuItem
                       onClick={() => {
                         chain
@@ -231,7 +238,7 @@ const Toolbar = ({
                       <Heading2 size={16} />
                     </DropdownMenuItem>
                   )}
-                  {options?.headings?.includes("h3") && (
+                  {options?.block?.h3 && (
                     <DropdownMenuItem
                       onClick={() => {
                         chain
@@ -243,7 +250,7 @@ const Toolbar = ({
                       <Heading3 size={16} />
                     </DropdownMenuItem>
                   )}
-                  {options?.headings?.includes("h4") && (
+                  {options?.block?.h4 && (
                     <DropdownMenuItem
                       onClick={() => {
                         chain
@@ -255,7 +262,7 @@ const Toolbar = ({
                       <Heading4 size={16} />
                     </DropdownMenuItem>
                   )}
-                  {options?.headings?.includes("h5") && (
+                  {options?.block?.h5 && (
                     <DropdownMenuItem
                       onClick={() => {
                         chain
@@ -267,7 +274,7 @@ const Toolbar = ({
                       <Heading5 size={16} />
                     </DropdownMenuItem>
                   )}
-                  {options?.headings?.includes("h5") && (
+                  {options?.block?.h6 && (
                     <DropdownMenuItem
                       onClick={() => {
                         chain
@@ -285,54 +292,45 @@ const Toolbar = ({
             <ToolbarButton
               icon={<Bold size={18} />}
               stroke={3}
-              mark="bold"
-              isOption={options?.bold}
+              isOption={options?.style?.bold}
               isActive={active.bold()}
-              onToggle={(chain) => chain.toggleBold().focus().run()}
+              onToggle={() => chain.toggleBold().focus().run()}
             />
             <ToolbarButton
               icon={<Strikethrough size={18} />}
               stroke={3}
-              mark="strike"
-              isOption={options?.lineThrough}
+              isOption={options?.style?.lineThrough}
               isActive={active.strike()}
-              onToggle={(chain) => chain.toggleStrike().focus().run()}
+              onToggle={() => chain.toggleStrike().focus().run()}
             />
             <ToolbarButton
               icon={<Italic size={18} />}
               stroke={3}
-              mark="italic"
-              isOption={options?.italic}
+              isOption={options?.style?.italic}
               isActive={active.italic()}
-              onToggle={(chain) => chain.toggleItalic().focus().run()}
+              onToggle={() => chain.toggleItalic().focus().run()}
             />
             <ToolbarButton
               icon={<List size={18} />}
               stroke={3}
-              mark="bulletList"
-              isOption={options?.ul}
               isActive={active.bulletList()}
-              onToggle={(chain) => chain.toggleBulletList().focus().run()}
+              onToggle={() => chain.toggleBulletList().focus().run()}
             />
             <ToolbarButton
               icon={<ListOrdered size={18} />}
               stroke={3}
-              mark="list"
-              isOption={options?.ol}
               isActive={active.orderedList()}
-              onToggle={(chain) => chain.toggleOrderedList().focus().run()}
+              onToggle={() => chain.toggleOrderedList().focus().run()}
             />
             <ToolbarButton
               icon={<Link size={18} />}
               stroke={3}
-              mark="link"
-              isOption={options?.ol}
               isActive={active.link()}
-              onToggle={(chain) =>
+              onToggle={() =>
                 chain.selectMark("link").updateLink({ href: "" }).focus().run()
               }
             />
-            {(options?.img || active.image()) && (
+            {(options?.inline?.img || active.image()) && (
               <label
                 className="cursor-pointer"
                 htmlFor="val-toolbar-image-select"
@@ -454,25 +452,16 @@ export interface ToolbarButtonProps
 
 function ToolbarButton({
   stroke,
-  mark,
-  isOption,
   isActive,
   onToggle,
   icon,
 }: {
   icon: React.ReactNode;
-  mark: string;
-  onToggle: (
-    chain: ChainedFromExtensions<AnyExtension | Remirror.Extensions>
-  ) => void;
+  onToggle: () => void;
   isActive: boolean;
   isOption?: boolean;
   stroke: 2 | 3;
 }) {
-  const chain = useChainedCommands();
-  if (!isOption && !isActive) {
-    return null;
-  }
   return (
     <button
       className={classNames({
@@ -482,11 +471,7 @@ function ToolbarButton({
       })}
       onClick={(ev) => {
         ev.preventDefault();
-        if (!isOption) {
-          onToggle(chain.selectMark(mark));
-        } else {
-          onToggle(chain);
-        }
+        onToggle();
       }}
     >
       {icon}
