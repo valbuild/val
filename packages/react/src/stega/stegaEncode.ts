@@ -3,7 +3,6 @@ import {
   Json,
   Internal,
   RichTextSource,
-  RichText,
   VAL_EXTENSION,
   FILE_REF_PROP,
   SerializedSchema,
@@ -13,6 +12,8 @@ import {
   SerializedLiteralSchema,
   ImageMetadata,
   FileMetadata,
+  RichTextOptions,
+  ImageSource,
 } from "@valbuild/core";
 import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
@@ -181,6 +182,27 @@ export type File<Metadata extends FileMetadata> = {
   readonly url: ValEncodedString;
   readonly metadata?: Metadata;
 };
+
+export type StegaOfRichTextSource<T extends Source> = Json extends T
+  ? Json
+  : T extends ImageSource
+  ? Image
+  : T extends SourceObject
+  ? {
+      [key in keyof T]: StegaOfRichTextSource<T[key]>;
+    }
+  : T extends SourceArray
+  ? StegaOfRichTextSource<T[number]>[]
+  : T extends JsonPrimitive
+  ? T
+  : never;
+
+/**
+ * RichText is accessible by users (after conversion via useVal / fetchVal)
+ **/
+export type RichText<O extends RichTextOptions> = StegaOfRichTextSource<
+  RichTextSource<O>
+> & { valPath: string };
 
 export type StegaOfSource<T extends Source> = Json extends T
   ? Json

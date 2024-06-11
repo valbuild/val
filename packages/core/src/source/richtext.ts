@@ -51,7 +51,7 @@ export type AllRichTextOptions = {
   };
 };
 
-// Classes
+//#region Classes
 export type LineThrough<O extends RichTextOptions> = NonNullable<
   O["style"]
 >["lineThrough"] extends true
@@ -75,7 +75,7 @@ export type Styles<O extends RichTextOptions> =
   | Italic<O>
   | Bold<O>;
 
-/// Paragraph
+//#region Paragraph
 export type ParagraphNode<O extends RichTextOptions> = {
   tag: "p";
   children: (
@@ -88,26 +88,26 @@ export type ParagraphNode<O extends RichTextOptions> = {
   )[];
 };
 
-/// Break
+//#region Break
 export type BrNode = {
   tag: "br";
 };
 
-/// Span
+//#region Span
 export type SpanNode<O extends RichTextOptions> = {
   tag: "span";
   styles: Styles<O>[];
   children: [string];
 };
 
-/// Image
+//#region Image
 export type ImageNode<O extends RichTextOptions> = NonNullable<
   O["inline"]
 >["img"] extends true
-  ? { tag: "img"; children: [FileSource<ImageMetadata>] }
+  ? { tag: "img"; children: [ImageSource] }
   : never;
 
-/// Link
+//#region Link
 type LinkTagNode<O extends RichTextOptions> = {
   tag: "a";
   href: string;
@@ -119,7 +119,7 @@ export type LinkNode<O extends RichTextOptions> = NonNullable<
   ? LinkTagNode<O>
   : never;
 
-/// List
+//#region List
 type ListItemTagNode<O extends RichTextOptions> = {
   tag: "li";
   children: (
@@ -160,7 +160,7 @@ export type OrderedListNode<O extends RichTextOptions> = NonNullable<
     }
   : never;
 
-/// Heading
+//#region Heading
 export type HeadingTagOf<
   S extends keyof NonNullable<NonNullable<O["block"]>>,
   O extends RichTextOptions
@@ -199,7 +199,7 @@ export type CustomInlineNode<O extends RichTextOptions> = never;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export type CustomBlockNode<O extends RichTextOptions> = never;
 
-/// Block and Inline nodes:
+//#region Block and Inline nodes:
 export type RichTextNode<O extends RichTextOptions> =
   | string
   | BlockNode<O>
@@ -218,17 +218,12 @@ export type BlockNode<O extends RichTextOptions> =
   | OrderedListNode<O>
   | CustomBlockNode<O>;
 
-/// Main types
+//#region Main types
 
 /**
- * RichTextSource is defined in ValModules
+ * RichText as defined in a ValModule
  **/
 export type RichTextSource<O extends RichTextOptions> = BlockNode<O>[];
-/**
- * RichText is accessible by users (after conversion via useVal / fetchVal)
- * Internally it is a Selector
- **/
-export type RichText<O extends RichTextOptions> = BlockNode<O>[];
 
 export function richtext<O extends RichTextOptions>(
   templateStrings: TemplateStringsArray,

@@ -229,7 +229,7 @@ function convertImageNodeToRemirror(
     attrs: {
       height: fileSource.metadata?.height,
       width: fileSource.metadata?.width,
-      src: fileSource[FILE_REF_PROP], // at time of writing we are not sure if src as href or data url works, also: how to keep mimeType etc?
+      src: `/api/val/files${fileSource[FILE_REF_PROP]}`, // at time of writing we are not sure if src as href or data url works, also: how to keep mimeType etc?
     },
   };
 }

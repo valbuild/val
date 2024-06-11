@@ -36,20 +36,22 @@ import {
 
 export function remirrorToRichTextSource(node: RemirrorJSON): {
   blocks: RichTextSource<AllRichTextOptions>;
-  files: Record<string, string>;
+  files: Record<string, { value: string; patchPaths: string[][] }>;
 } {
-  const files: Record<string, string> = {};
+  const files: Record<string, { value: string; patchPaths: string[][] }> = {};
   const blocks: BlockNode<AllRichTextOptions>[] = [];
+  let i = 0;
   for (const child of node.content) {
-    const block = convertBlock(child, files);
+    const block = convertBlock([(i++).toString()], child, files);
     blocks.push(block);
   }
   return { blocks, files };
 }
 
 function convertBlock(
+  path: string[],
   node: RemirrorJSON["content"][number],
-  files: Record<string, string>
+  files: Record<string, { value: string; patchPaths: string[][] }>
 ): BlockNode<AllRichTextOptions> {
   if (node.type === "heading") {
     const depth = node.attrs?.level || 1;
@@ -59,14 +61,20 @@ function convertBlock(
     return {
       tag: `h${depth}` as `h${1 | 2 | 3 | 4 | 5 | 6}`,
       children:
-        node.content?.map((child) => convertHeadingChild(child, files)) || [],
+        node.content?.map((child, i) =>
+          convertHeadingChild(
+            path.concat("children", i.toString()),
+            child,
+            files
+          )
+        ) || [],
     };
   } else if (node.type === "paragraph") {
-    return convertParagraph(node, files);
+    return convertParagraph(path, node, files);
   } else if (node.type === "bulletList") {
-    return convertBulletList(node, files);
+    return convertBulletList(path, node, files);
   } else if (node.type === "orderedList") {
-    return convertOrderedList(node, files);
+    return convertOrderedList(path, node, files);
   } else {
     const exhaustiveCheck: never = node;
     throw new Error(
@@ -78,8 +86,9 @@ function convertBlock(
 }
 
 function convertHeadingChild(
+  path: string[],
   node: RemirrorText | RemirrorBr | RemirrorImage,
-  files: Record<string, string>
+  files: Record<string, { value: string; patchPaths: string[][] }>
 ): HeadingNode<AllRichTextOptions>["children"][number] {
   if (node.type === "text") {
     return convertTextNode(node);
@@ -88,7 +97,7 @@ function convertHeadingChild(
       tag: "br",
     };
   } else if (node.type === "image") {
-    return convertImageNode(node, files);
+    return convertImageNode(path, node, files);
   } else {
     const exhaustiveCheck: never = node;
     throw new Error(
@@ -102,13 +111,14 @@ function convertHeadingChild(
 }
 
 function convertParagraph(
+  path: string[],
   child: RemirrorParagraph,
-  files: Record<string, string>
+  files: Record<string, { value: string; patchPaths: string[][] }>
 ): ParagraphNode<AllRichTextOptions> {
   return {
     tag: "p",
     children:
-      child.content?.map((child) => {
+      child.content?.map((child, i) => {
         if (child.type === "text") {
           return convertTextNode(child);
         } else if (child.type === "hardBreak") {
@@ -116,7 +126,11 @@ function convertParagraph(
             tag: "br",
           };
         } else if (child.type === "image") {
-          return convertImageNode(child, files);
+          return convertImageNode(
+            path.concat("children", i.toString()),
+            child,
+            files
+          );
         }
         const exhaustiveCheck: never = child;
         throw new Error(
@@ -162,6 +176,14 @@ function convertTextNode(
           ],
         };
       }
+      return {
+        tag: "a",
+        href:
+          node.marks.find(
+            (mark): mark is RemirrorLinkMark => mark.type === "link"
+          )?.attrs.href || "",
+        children: [node.text],
+      };
     }
     if (styles.length > 0) {
       return {
@@ -178,20 +200,33 @@ function convertTextNode(
 }
 
 function convertListItem(
+  path: string[],
   child: RemirrorListItem,
-  files: Record<string, string>
+  files: Record<string, { value: string; patchPaths: string[][] }>
 ): ListItemNode<AllRichTextOptions> {
   return {
     tag: "li",
     children:
       child.content?.map(
-        (child): ListItemNode<AllRichTextOptions>["children"][number] => {
+        (child, i): ListItemNode<AllRichTextOptions>["children"][number] => {
           if (child.type === "paragraph") {
-            return convertParagraph(child, files);
+            return convertParagraph(
+              path.concat("children", i.toString()),
+              child,
+              files
+            );
           } else if (child.type === "bulletList") {
-            return convertBulletList(child, files);
+            return convertBulletList(
+              path.concat("children", i.toString()),
+              child,
+              files
+            );
           } else if (child.type === "orderedList") {
-            return convertOrderedList(child, files);
+            return convertOrderedList(
+              path.concat("children", i.toString()),
+              child,
+              files
+            );
           } else {
             const exhaustiveCheck: never = child;
             throw new Error(`Unexpected list child type: ${exhaustiveCheck}`);
@@ -202,15 +237,20 @@ function convertListItem(
 }
 
 function convertBulletList(
+  path: string[],
   node: RemirrorBulletList,
-  files: Record<string, string>
+  files: Record<string, { value: string; patchPaths: string[][] }>
 ): UnorderedListNode<AllRichTextOptions> {
   return {
     tag: "ul",
     children:
-      node.content?.map((child) => {
+      node.content?.map((child, i) => {
         if (child.type === "listItem") {
-          return convertListItem(child, files);
+          return convertListItem(
+            path.concat("children", i.toString()),
+            child,
+            files
+          );
         } else {
           const exhaustiveCheck: never = child.type;
           throw new Error(
@@ -222,15 +262,20 @@ function convertBulletList(
 }
 
 function convertOrderedList(
+  path: string[],
   node: RemirrorOrderedList,
-  files: Record<string, string>
+  files: Record<string, { value: string; patchPaths: string[][] }>
 ): OrderedListNode<AllRichTextOptions> {
   return {
     tag: "ol",
     children:
-      node.content?.map((child) => {
+      node.content?.map((child, i) => {
         if (child.type === "listItem") {
-          return convertListItem(child, files);
+          return convertListItem(
+            path.concat("children", i.toString()),
+            child,
+            files
+          );
         } else {
           const exhaustiveCheck: never = child.type;
           throw new Error(
@@ -243,8 +288,9 @@ function convertOrderedList(
 
 const textEncoder = new TextEncoder();
 function convertImageNode(
+  path: string[],
   node: RemirrorImage,
-  files: Record<string, string>
+  files: Record<string, { value: string; patchPaths: string[][] }>
 ): ImageNode<AllRichTextOptions> {
   if (node.attrs && node.attrs.src.startsWith("data:")) {
     const sha256 = Internal.getSHA256Hash(textEncoder.encode(node.attrs.src));
@@ -257,7 +303,19 @@ function convertImageNode(
     const fileExt = mimeTypeToFileExt(mimeType);
     const fileName = node.attrs.fileName || `${sha256}.${fileExt}`;
     const filePath = `/public/${fileName}`;
-    files[filePath] = node.attrs.src;
+    const existingFilesEntry = files[filePath];
+    const thisPath = path
+      // files are added as first child (see below):
+      .concat("children", "0");
+    if (existingFilesEntry) {
+      existingFilesEntry.patchPaths.push(thisPath);
+    } else {
+      files[filePath] = {
+        value: node.attrs.src,
+        patchPaths: [thisPath],
+      };
+    }
+
     return {
       tag: "img",
       children: [
