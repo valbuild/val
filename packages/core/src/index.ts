@@ -29,7 +29,6 @@ export type {
   OrderedListNode,
   ParagraphNode,
   BrNode,
-  RichText,
   RichTextNode,
   RichTextOptions,
   RichTextSource,

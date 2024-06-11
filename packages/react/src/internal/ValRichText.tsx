@@ -1,16 +1,12 @@
 /* eslint-disable @typescript-eslint/ban-types */
 import {
-  RichText,
-  RichTextNode,
+  RichTextNode as RichTextSourceNode,
   AllRichTextOptions,
-  SourcePath,
   RichTextOptions,
   Styles,
-  VAL_EXTENSION,
-  ImageMetadata,
-  FileSource,
 } from "@valbuild/core";
 import React, { CSSProperties, ReactNode } from "react";
+import { RichText, StegaOfRichTextSource } from "../stega";
 
 type DefaultThemes = Partial<{
   br: string | null;
@@ -38,22 +34,29 @@ type ThemeOptions<O extends RichTextOptions = AllRichTextOptions> =
   DefaultThemes &
     Pick<
       OptionalFields,
-      | (O["img"] extends true ? "img" : never)
-      | (O["a"] extends true ? "a" : never)
-      | (O["ul"] extends true ? "ul" | "li" : never)
-      | (O["ol"] extends true ? "ol" | "li" : never)
-      | (O["lineThrough"] extends true ? "lineThrough" : never)
-      | (O["bold"] extends true ? "bold" : never)
-      | (O["italic"] extends true ? "italic" : never)
-      | (O["headings"] extends Array<infer T>
-          ? T extends "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
-            ? T
-            : never
+      | (NonNullable<O["inline"]>["img"] extends true ? "img" : never)
+      | (NonNullable<O["inline"]>["a"] extends true ? "a" : never)
+      | (NonNullable<O["block"]>["ul"] extends true ? "ul" | "li" : never)
+      | (NonNullable<O["block"]>["ol"] extends true ? "ol" | "li" : never)
+      | (NonNullable<O["style"]>["lineThrough"] extends true
+          ? "lineThrough"
           : never)
+      | (NonNullable<O["style"]>["bold"] extends true ? "bold" : never)
+      | (NonNullable<O["style"]>["italic"] extends true ? "italic" : never)
+      | (NonNullable<O["block"]>["h1"] extends true ? "h1" : never)
+      | (NonNullable<O["block"]>["h2"] extends true ? "h2" : never)
+      | (NonNullable<O["block"]>["h3"] extends true ? "h3" : never)
+      | (NonNullable<O["block"]>["h4"] extends true ? "h4" : never)
+      | (NonNullable<O["block"]>["h5"] extends true ? "h5" : never)
+      | (NonNullable<O["block"]>["h6"] extends true ? "h6" : never)
     >;
 
+type RichTextNode = StegaOfRichTextSource<
+  RichTextSourceNode<AllRichTextOptions>
+>;
+
 /**
- * Render RichText as HTML
+ * Render RichText using JSX
  *
  * @example
  * const content = useVal(contentVal);
@@ -103,18 +106,13 @@ export function ValRichText<O extends RichTextOptions>({
   style?: CSSProperties;
   theme?: ThemeOptions<O>;
   transform?: (
-    node: RichTextNode<O>,
+    node: RichTextNode,
     children: ReactNode | ReactNode[],
     className?: string
   ) => JSX.Element | string | undefined;
 }) {
-  const root = children as RichText<AllRichTextOptions> & {
-    valPath: SourcePath;
-  };
-  function build(
-    child: RichTextNode<AllRichTextOptions>,
-    key?: number
-  ): JSX.Element | string {
+  const root = children as RichText<AllRichTextOptions>;
+  function build(child: RichTextNode, key?: number): JSX.Element | string {
     if (typeof child === "string") {
       const transformed = transform && transform(child, []);
       if (transformed !== undefined) {
@@ -122,19 +120,25 @@ export function ValRichText<O extends RichTextOptions>({
       }
       return child;
     }
-    if (isFileSource(child)) {
-      const transformed = transform && transform(child, []);
-      if (transformed !== undefined) {
-        return transformed;
-      }
-      return <img></img>;
-    }
-
     const className = classNameOfTag(
       child.tag,
       child.tag === "span" ? child.styles : [],
       theme
     );
+    if (child.tag === "img") {
+      const transformed = transform && transform(child, []);
+      if (transformed !== undefined) {
+        return transformed;
+      }
+      return React.createElement("img", {
+        key: key?.toString(),
+        className,
+        src: child.children[0].url,
+        // alt: child.alt,
+        width: child.children[0].metadata?.width,
+        height: child.children[0].metadata?.height,
+      });
+    }
     const children =
       "children" in child
         ? // Why do this? We get a very weird error in NextJS 14.0.4 if we do not
@@ -146,7 +150,7 @@ export function ValRichText<O extends RichTextOptions>({
         : null;
     if (transform) {
       const transformed = transform(
-        child as RichTextNode<O>,
+        child as RichTextNode,
         children ?? [],
         className
       );
@@ -154,22 +158,14 @@ export function ValRichText<O extends RichTextOptions>({
         return transformed;
       }
     }
-    const tag = child.tag; // one of: "img" | "a" | "ul" | "ol" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "br" | "p" | "li" | "span"
+    const tag = child.tag; // one of:  "a" | "ul" | "ol" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "br" | "p" | "li" | "span"
     return React.createElement(tag, {
       key: key?.toString(),
       className,
       children,
-      href: tag === "a" ? child.href : undefined,
-      src:
-        tag === "img"
-          ? child.src && `/api/val/files/public${child.src}`
-          : undefined,
-      alt: tag === "img" ? child.alt : undefined,
-      width: tag === "img" ? child.width : undefined,
-      height: tag === "img" ? child.height : undefined,
+      href: child.tag === "a" ? child.href : undefined,
     });
   }
-  console.log({ root });
   return (
     <div className={className} style={style} data-val-path={root.valPath}>
       {root.map(build)}
@@ -179,16 +175,16 @@ export function ValRichText<O extends RichTextOptions>({
 
 function classNameOfTag(
   tag: string,
-  clazz: Styles<AllRichTextOptions>[],
+  style: Styles<AllRichTextOptions>[],
   theme?: Partial<AllThemes>
 ) {
   let thisTagClassName: string | null = null;
   if (theme && tag in theme) {
-    thisTagClassName = theme[tag] ?? null;
+    thisTagClassName = (theme as Record<string, string | null>)[tag] ?? null;
   }
   return [
     ...(thisTagClassName ? [thisTagClassName] : []),
-    ...clazz.map((style) => {
+    ...style.map((style) => {
       if (
         theme &&
         // not need on type-level, but defensive on runtime:
@@ -203,16 +199,7 @@ function classNameOfTag(
           return theme[style];
         }
       }
-      return clazz;
+      return style;
     }),
   ].join(" ");
-}
-
-function isFileSource(
-  child: RichTextNode<AllRichTextOptions>
-): child is FileSource<ImageMetadata> {
-  if (typeof child === "string") {
-    return true;
-  }
-  return VAL_EXTENSION in child && child[VAL_EXTENSION] === "file";
 }

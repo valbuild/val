@@ -329,7 +329,50 @@ describe("Remirror to RichTextSource", () => {
     });
   });
 
-  test("images", () => {
+  test("link", () => {
+    const input: RemirrorJSON = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "text",
+              text: "Link",
+              marks: [
+                {
+                  type: "link",
+                  attrs: {
+                    href: "https://example.com",
+                    auto: false,
+                    target: null,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    console.log(JSON.stringify(remirrorToRichTextSource(input), null, 2));
+    expect(remirrorToRichTextSource(input)).toEqual({
+      blocks: [
+        {
+          tag: "p",
+          children: [
+            {
+              tag: "a",
+              href: "https://example.com",
+              children: ["Link"],
+            },
+          ],
+        },
+      ],
+      files: {},
+    });
+  });
+
+  test("existing image", () => {
     const { c } = initVal();
     const input: RemirrorJSON = {
       type: "doc",
@@ -370,6 +413,189 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
       files: {},
+    });
+  });
+
+  test("new image", () => {
+    const { c } = initVal();
+    const smallPngBuffer =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQAAAAA3bvkkAAAACklEQVR4AWNgAAAAAgABc3UBGAAAAABJRU5ErkJggg==";
+
+    const input: RemirrorJSON = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "image",
+              attrs: {
+                src: smallPngBuffer,
+                fileName: "example.png",
+                alt: "Image",
+                width: 100,
+                height: 10,
+              },
+            },
+          ],
+        },
+      ],
+    };
+    expect(remirrorToRichTextSource(input)).toEqual({
+      blocks: [
+        {
+          tag: "p",
+          children: [
+            {
+              tag: "img",
+              children: [
+                c.file("/public/example.png", {
+                  mimeType: "image/png",
+                  sha256:
+                    "80d58a5b775debc85386b320c347a59ffeeae5eeb3ca30a3a3ca04b5aaed145d",
+                  width: 100,
+                  height: 10,
+                }),
+              ],
+            },
+          ],
+        },
+      ],
+      files: {
+        "/public/example.png": {
+          value: smallPngBuffer,
+          patchPaths: [["0", "children", "0", "children", "0"]],
+        },
+      },
+    });
+  });
+
+  test("nested new image", () => {
+    const { c } = initVal();
+    const smallPngBuffer =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABAQAAAAA3bvkkAAAACklEQVR4AWNgAAAAAgABc3UBGAAAAABJRU5ErkJggg==";
+
+    const input: RemirrorJSON = {
+      type: "doc",
+      content: [
+        {
+          type: "bulletList",
+          content: [
+            {
+              type: "listItem",
+              content: [
+                {
+                  type: "paragraph",
+                  content: [
+                    {
+                      type: "text",
+                      text: "image below:",
+                    },
+                  ],
+                },
+                {
+                  type: "paragraph",
+                  content: [
+                    {
+                      type: "image",
+                      attrs: {
+                        src: smallPngBuffer,
+                        fileName: "example.png",
+                        alt: "Image",
+                        width: 100,
+                        height: 10,
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "image",
+              attrs: {
+                src: smallPngBuffer,
+                fileName: "example.png",
+                alt: "Image",
+                width: 100,
+                height: 10,
+              },
+            },
+          ],
+        },
+      ],
+    };
+    expect(remirrorToRichTextSource(input)).toEqual({
+      blocks: [
+        {
+          tag: "ul",
+          children: [
+            {
+              tag: "li",
+              children: [
+                { tag: "p", children: ["image below:"] },
+                {
+                  tag: "p",
+                  children: [
+                    {
+                      tag: "img",
+                      children: [
+                        c.file("/public/example.png", {
+                          mimeType: "image/png",
+                          sha256:
+                            "80d58a5b775debc85386b320c347a59ffeeae5eeb3ca30a3a3ca04b5aaed145d",
+                          width: 100,
+                          height: 10,
+                        }),
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          tag: "p",
+          children: [
+            {
+              tag: "img",
+              children: [
+                c.file("/public/example.png", {
+                  mimeType: "image/png",
+                  sha256:
+                    "80d58a5b775debc85386b320c347a59ffeeae5eeb3ca30a3a3ca04b5aaed145d",
+                  width: 100,
+                  height: 10,
+                }),
+              ],
+            },
+          ],
+        },
+      ],
+      files: {
+        "/public/example.png": {
+          value: smallPngBuffer,
+          patchPaths: [
+            [
+              "0", // ul
+              "children",
+              "0", // first li
+              "children",
+              "1", // second paragraph
+              "children",
+              "0", // img
+              "children",
+              "0",
+            ],
+            ["1", "children", "0", "children", "0"],
+          ],
+        },
+      },
     });
   });
 

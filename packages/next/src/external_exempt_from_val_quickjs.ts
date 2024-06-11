@@ -3,7 +3,7 @@ export { Schema, type SerializedSchema } from "@valbuild/core";
 export type { SourceObject, SourcePrimitive, Source } from "@valbuild/core";
 export type { ValModule, SerializedModule } from "@valbuild/core";
 export type { FileSource } from "@valbuild/core";
-export type { RichTextSource, RichText } from "@valbuild/core";
+export type { RichTextSource } from "@valbuild/core";
 export {
   type Val,
   type SerializedVal,
@@ -30,7 +30,12 @@ export {
 export { ValRichText } from "@valbuild/react/internal";
 
 // Stega
-export { type ValEncodedString, type Image } from "@valbuild/react/stega";
+export {
+  type ValEncodedString,
+  type File,
+  type Image,
+  type RichText,
+} from "@valbuild/react/stega";
 
 // Next specific
 export { ValProvider } from "./ValProvider";

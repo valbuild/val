@@ -19,7 +19,7 @@ import {
   ValidationError,
   ValidationErrors,
 } from "@valbuild/core";
-import type { Patch } from "@valbuild/core/patch";
+import type { Operation, Patch } from "@valbuild/core/patch";
 import { useState, useEffect, useRef, ChangeEvent } from "react";
 import {
   RemirrorJSON as ValidRemirrorJSON,
@@ -668,27 +668,34 @@ function ImageField({
   );
 }
 
-function createRichTextPatch(path: string[], content?: ValidRemirrorJSON) {
-  console.log(content);
+function createRichTextPatch(
+  path: string[],
+  content?: ValidRemirrorJSON
+): Patch {
+  console.log("content", content);
   const { blocks, files } = content
     ? remirrorToRichTextSource(content)
     : {
         blocks: [],
         files: {},
       };
+  console.log("blocks", blocks);
   return [
     {
       op: "replace" as const,
       path,
       value: blocks,
     },
-    ...Object.entries(files).map(([filePath, value]) => {
-      return {
-        op: "file" as const,
-        path,
-        filePath,
-        value,
-      };
+    ...Object.entries(files).flatMap(([filePath, { value, patchPaths }]) => {
+      return patchPaths.map(
+        (patchPath): Operation => ({
+          op: "file" as const,
+          path,
+          filePath,
+          value,
+          nestedFilePath: patchPath,
+        })
+      );
     }),
   ];
 }
