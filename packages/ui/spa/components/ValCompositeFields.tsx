@@ -720,12 +720,6 @@ function ValPreview({
   path: SourcePath;
   schema: SerializedSchema;
 }): React.ReactElement {
-  const [isMouseOver, setIsMouseOver] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
-  const hoverElem = useValImagePreviewContext()?.hoverElem;
-
   if (schema.type === "object") {
     return (
       <div
@@ -843,41 +837,7 @@ function ValPreview({
         </div>
       );
     }
-    const url = Internal.convertFileSource(
-      source as FileSource<ImageMetadata>
-    ).url;
-    return (
-      <span
-        key={path}
-        onMouseOver={(ev) => {
-          setIsMouseOver({
-            x: ev.clientX,
-            y: ev.clientY,
-          });
-        }}
-        onMouseLeave={() => {
-          setIsMouseOver(null);
-        }}
-        className="relative flex items-center justify-start gap-1"
-      >
-        <a href={url} className="overflow-hidden underline truncate ">
-          {source[FILE_REF_PROP]}
-        </a>
-        {isMouseOver &&
-          hoverElem &&
-          createPortal(
-            <img
-              className="absolute z-[5] max-w-[10vw]"
-              style={{
-                left: isMouseOver.x + 10,
-                top: isMouseOver.y + 10,
-              }}
-              src={url}
-            ></img>,
-            hoverElem
-          )}
-      </span>
-    );
+    return <ValImagePreview key={path} source={source} />;
   } else if (schema.type === "boolean") {
     if (source === null) {
       return (
@@ -916,6 +876,58 @@ function ValPreview({
   }
 
   return <div key={path}>TODO: {schema.type}</div>;
+}
+
+function ValImagePreview({ source }: { source: JsonObject }) {
+  const [isMouseOver, setIsMouseOver] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const hoverElem = useValImagePreviewContext()?.hoverElem;
+  const fileSource = source as FileSource<ImageMetadata>;
+  if (
+    source[FILE_REF_PROP] === undefined ||
+    typeof source[FILE_REF_PROP] !== "string"
+  ) {
+    console.warn("Invalid image source (cannot display preview)", source);
+    return null;
+  }
+  const url = Internal.convertFileSource(fileSource).url;
+  if (typeof url !== "string" || !url.startsWith("/")) {
+    console.warn("Invalid image url (cannot display preview)", url);
+    return null;
+  }
+  return (
+    <span
+      onMouseOver={(ev) => {
+        setIsMouseOver({
+          x: ev.clientX,
+          y: ev.clientY,
+        });
+      }}
+      onMouseLeave={() => {
+        setIsMouseOver(null);
+      }}
+      className="relative flex items-center justify-start gap-1"
+    >
+      <a href={url} className="overflow-hidden underline truncate ">
+        {fileSource[FILE_REF_PROP]}
+      </a>
+      {isMouseOver &&
+        hoverElem &&
+        createPortal(
+          <img
+            className="absolute z-[5] max-w-[10vw]"
+            style={{
+              left: isMouseOver.x + 10,
+              top: isMouseOver.y + 10,
+            }}
+            src={url}
+          ></img>,
+          hoverElem
+        )}
+    </span>
+  );
 }
 
 function ValNullable({
@@ -1302,6 +1314,10 @@ export function ValRichTextPreview({
         </a>
       );
     }
+    if (node.tag === "img") {
+      return <ValImagePreview source={node.children[0]} />;
+    }
+
     const _exhaustiveCheck: never = node;
     console.error(
       "Unexpected RichText node: " + JSON.stringify(_exhaustiveCheck)
