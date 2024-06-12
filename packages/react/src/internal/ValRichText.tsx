@@ -133,10 +133,10 @@ export function ValRichText<O extends RichTextOptions>({
       return React.createElement("img", {
         key: key?.toString(),
         className,
-        src: child.children[0].url,
+        src: child.src.url,
         // alt: child.alt,
-        width: child.children[0].metadata?.width,
-        height: child.children[0].metadata?.height,
+        width: child.src.metadata?.width,
+        height: child.src.metadata?.height,
       });
     }
     const children =

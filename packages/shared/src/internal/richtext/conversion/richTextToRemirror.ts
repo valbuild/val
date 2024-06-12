@@ -220,7 +220,7 @@ function convertLinkNodeToRemirror(
 function convertImageNodeToRemirror(
   imageNode: ImageNode<AllRichTextOptions>
 ): RemirrorImage {
-  const fileSource = imageNode.children[0];
+  const fileSource = imageNode.src;
   if (!(VAL_EXTENSION in fileSource) || fileSource[VAL_EXTENSION] !== "file") {
     throw Error("Expected file source in image node");
   }

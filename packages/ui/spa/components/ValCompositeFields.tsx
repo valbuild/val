@@ -1315,7 +1315,7 @@ export function ValRichTextPreview({
       );
     }
     if (node.tag === "img") {
-      return <ValImagePreview source={node.children[0]} />;
+      return <ValImagePreview source={node.src} />;
     }
 
     const _exhaustiveCheck: never = node;

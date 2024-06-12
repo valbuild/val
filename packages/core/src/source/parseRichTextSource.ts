@@ -155,7 +155,7 @@ function parseTokens(
         } else if (sourceNode._type === "file") {
           children.push({
             tag: "img",
-            children: [sourceNode],
+            src: sourceNode,
           });
         }
 
