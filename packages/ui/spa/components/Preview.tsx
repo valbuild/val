@@ -224,7 +224,7 @@ export function PreviewRichText({ source: source }: { source: JsonObject }) {
       );
     }
     if (node.tag === "img") {
-      return <PreviewImage key={key} src={node.children[0][FILE_REF_PROP]} />;
+      return <PreviewImage key={key} src={node.src[FILE_REF_PROP]} />;
     }
     if (node.tag === "br") {
       return <br key={key} />;

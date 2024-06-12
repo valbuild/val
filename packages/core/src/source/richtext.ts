@@ -104,7 +104,7 @@ export type SpanNode<O extends RichTextOptions> = {
 export type ImageNode<O extends RichTextOptions> = NonNullable<
   O["inline"]
 >["img"] extends true
-  ? { tag: "img"; children: [ImageSource] }
+  ? { tag: "img"; src: ImageSource }
   : never;
 
 //#region Link

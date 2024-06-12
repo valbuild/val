@@ -318,40 +318,34 @@ function convertImageNode(
 
     return {
       tag: "img",
-      children: [
-        {
-          [VAL_EXTENSION]: "file" as const,
-          [FILE_REF_PROP]: filePath as `/public/${string}`,
-          metadata: {
-            width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
-            height:
-              typeof node.attrs.height === "number" ? node.attrs.height : 0,
-            sha256: sha256 || "",
-            mimeType,
-          },
+      src: {
+        [VAL_EXTENSION]: "file" as const,
+        [FILE_REF_PROP]: filePath as `/public/${string}`,
+        metadata: {
+          width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
+          height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
+          sha256: sha256 || "",
+          mimeType,
         },
-      ],
+      },
     };
   } else if (node.attrs) {
     const sha256 = getParam("sha256", node.attrs.src);
     const noParamsSrc = node.attrs.src.split("?")[0];
     return {
       tag: "img",
-      children: [
-        {
-          [VAL_EXTENSION]: "file" as const,
-          [FILE_REF_PROP]: `/public${
-            node.attrs.src.split("?")[0]
-          }` as `/public/${string}`,
-          metadata: {
-            width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
-            height:
-              typeof node.attrs.height === "number" ? node.attrs.height : 0,
-            sha256: sha256 || "",
-            mimeType: (noParamsSrc && filenameToMimeType(noParamsSrc)) || "",
-          },
+      src: {
+        [VAL_EXTENSION]: "file" as const,
+        [FILE_REF_PROP]: `/public${
+          node.attrs.src.split("?")[0]
+        }` as `/public/${string}`,
+        metadata: {
+          width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
+          height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
+          sha256: sha256 || "",
+          mimeType: (noParamsSrc && filenameToMimeType(noParamsSrc)) || "",
         },
-      ],
+      },
     };
   } else {
     throw new Error("Invalid image node (no attrs): " + JSON.stringify(node));
