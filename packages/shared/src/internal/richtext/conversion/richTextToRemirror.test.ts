@@ -1,10 +1,10 @@
-import { AllRichTextOptions, RichText } from "@valbuild/core";
+import { AllRichTextOptions, RichTextSource } from "@valbuild/core";
 import { RemirrorJSON } from "./remirrorTypes";
 import { richTextToRemirror } from "./richTextToRemirror";
 
 describe("richtext to remirror", () => {
   test("basic to remirror", () => {
-    const input: RichText<AllRichTextOptions> = [
+    const input: RichTextSource<AllRichTextOptions> = [
       { tag: "h1", children: ["Title 1"] },
       { tag: "h2", children: ["Title 2"] },
       { tag: "h3", children: ["Title 3"] },
@@ -275,7 +275,7 @@ describe("richtext to remirror", () => {
   });
 
   test("lists", () => {
-    const input: RichText<AllRichTextOptions> = [
+    const input: RichTextSource<AllRichTextOptions> = [
       {
         tag: "ul",
         children: [

@@ -32,7 +32,7 @@ import {
   ParagraphNode,
   SpanNode,
   UnorderedListNode,
-} from "@valbuild/core/src/source/richtext";
+} from "@valbuild/core";
 
 export function remirrorToRichTextSource(node: RemirrorJSON): {
   blocks: RichTextSource<AllRichTextOptions>;

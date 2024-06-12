@@ -315,9 +315,9 @@ const ValidationTestCases: {
   // richtext
   {
     description: "basic richtext",
-    input: richtextVal`test`,
+    input: [{ tag: "p", children: ["test"] }],
     expected: false,
-    schema: richtext({ bold: true }),
+    schema: richtext({ style: { bold: true } }),
   },
   // TODO: more richtext cases
   {

@@ -1,5 +1,4 @@
 import {
-  RichText,
   AllRichTextOptions,
   BlockNode,
   SpanNode,
@@ -11,6 +10,7 @@ import {
   ListItemNode,
   VAL_EXTENSION,
   FILE_REF_PROP,
+  RichTextSource,
 } from "@valbuild/core";
 import {
   RemirrorHeading,
@@ -26,7 +26,7 @@ import {
 } from "./remirrorTypes";
 
 export function richTextToRemirror(
-  richtext: RichText<AllRichTextOptions>
+  richtext: RichTextSource<AllRichTextOptions>
 ): RemirrorJSON {
   return {
     type: "doc",

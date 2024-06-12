@@ -21,7 +21,7 @@ import {
   SerializedImageSchema,
 } from "./schema/image";
 import { FileSource } from "./source/file";
-import { AllRichTextOptions, RichText } from "./source/richtext";
+import { AllRichTextOptions, RichTextSource } from "./source/richtext";
 import { RecordSchema, SerializedRecordSchema } from "./schema/record";
 import { RawString } from "./schema/string";
 import { ImageSelector } from "./selector/image";
@@ -160,7 +160,7 @@ function isUnionSchema(
 function isRichTextSchema(
   schema: Schema<SelectorSource> | SerializedSchema
 ): schema is
-  | Schema<RichText<AllRichTextOptions>> // TODO: RichTextSchema
+  | Schema<RichTextSource<AllRichTextOptions>>
   | SerializedRichTextSchema {
   return (
     schema instanceof RichTextSchema ||

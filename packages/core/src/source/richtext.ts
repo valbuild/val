@@ -228,14 +228,16 @@ export type RichTextSource<O extends RichTextOptions> = BlockNode<O>[];
 export function richtext<O extends RichTextOptions>(
   templateStrings: TemplateStringsArray,
   ...nodes: (ImageSource | LinkSource)[]
-): RichTextSource<O> {
+): // eslint-disable-next-line @typescript-eslint/ban-types
+RichTextSource<{}> {
   return parseRichTextSource({
     templateStrings: templateStrings as unknown as string[],
     exprs: nodes as (
       | (NonNullable<O["inline"]>["img"] extends true ? ImageSource : never)
       | (NonNullable<O["inline"]>["a"] extends true ? LinkSource : never)
     )[],
-  });
+    // eslint-disable-next-line @typescript-eslint/ban-types
+  }) as RichTextSource<{}>;
 }
 
 export const RT_IMAGE_TAG = "rt_image";
