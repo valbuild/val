@@ -2,7 +2,9 @@
 import { Schema, SerializedSchema } from "..";
 import { ValModuleBrand } from "../../module";
 import { GenericSelector } from "../../selector/future";
+import { RichTextSelector } from "../../selector/richtext";
 import { Source, SourceArray } from "../../source";
+import { RichTextSource } from "../../source/richtext";
 import { SourcePath } from "../../val";
 import { ValidationErrors } from "../validation/ValidationError";
 
@@ -14,7 +16,9 @@ export type SerializedOneOfSchema = {
 
 type OneOfSelector<Sel extends GenericSelector<SourceArray>> =
   Sel extends GenericSelector<infer S>
-    ? S extends (infer IS)[]
+    ? S extends RichTextSource<infer O>
+      ? RichTextSelector<O>
+      : S extends (infer IS)[]
       ? IS extends Source
         ? GenericSelector<IS>
         : never

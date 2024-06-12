@@ -29,12 +29,6 @@ export const schema = s.object({
       inline: {
         a: true,
         img: true,
-        custom: {
-          linkButton: s.object({
-            type: s.union(s.literal("primary"), s.literal("secondary")),
-            href: s.string(),
-          }),
-        },
       },
     })
     .nullable(),

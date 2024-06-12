@@ -15,11 +15,11 @@ export default c.define("/blogs", schema, [
   {
     en_US: {
       title: "Title 1",
-      text: c.richtext("Richtext 1"),
+      text: [{ tag: "p", children:["RichText"]}],
     },
     nb_NO: {
       title: "Tittel 1",
-      text: c.richtext("Riktekst?"),
+      text: [{ tag: "p", children:["RikTekst?"]}],
     },
   },
 ]);

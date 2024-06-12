@@ -19,13 +19,11 @@ import {
   parseAndValidateArrayIndex,
 } from "@valbuild/core/patch";
 import {
-  AllRichTextOptions,
   FILE_REF_PROP,
   FILE_REF_SUBTYPE_TAG,
   FileSource,
   ImageMetadata,
   RT_IMAGE_TAG,
-  RichTextSource,
   VAL_EXTENSION,
 } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core";
@@ -128,41 +126,6 @@ function createValLink(value: LinkSource) {
   );
 }
 
-function createValRichTextTaggedStringTemplate(
-  value: RichTextSource<AllRichTextOptions>
-): ts.Expression {
-  const {
-    templateStrings: [head, ...others],
-    exprs,
-  } = value;
-  const tag = ts.factory.createPropertyAccessExpression(
-    ts.factory.createIdentifier("c"),
-    ts.factory.createIdentifier("richtext")
-  );
-  if (exprs.length > 0) {
-    return ts.factory.createTaggedTemplateExpression(
-      tag,
-      undefined,
-      ts.factory.createTemplateExpression(
-        ts.factory.createTemplateHead(head, head),
-        others.map((s, i) =>
-          ts.factory.createTemplateSpan(
-            toExpression(exprs[i]),
-            i < others.length - 1
-              ? ts.factory.createTemplateMiddle(s, s)
-              : ts.factory.createTemplateTail(s, s)
-          )
-        )
-      )
-    );
-  }
-  return ts.factory.createTaggedTemplateExpression(
-    tag,
-    undefined,
-    ts.factory.createNoSubstitutionTemplateLiteral(head, head)
-  );
-}
-
 function toExpression(value: JSONValue): ts.Expression {
   if (typeof value === "string") {
     // TODO: Use configuration/heuristics to determine use of single quote or double quote
@@ -183,8 +146,6 @@ function toExpression(value: JSONValue): ts.Expression {
       return createValFileReference(value);
     } else if (isValLinkValue(value)) {
       return createValLink(value);
-    } else if (isValRichTextValue(value)) {
-      return createValRichTextTaggedStringTemplate(value);
     }
     return ts.factory.createObjectLiteralExpression(
       Object.entries(value).map(([key, value]) =>
@@ -678,20 +639,6 @@ function isValLinkValue(value: JSONValue): value is LinkSource {
     value &&
     VAL_EXTENSION in value &&
     value[VAL_EXTENSION] === "link"
-  );
-}
-
-function isValRichTextValue(
-  value: JSONValue
-): value is RichTextSource<AllRichTextOptions> {
-  return !!(
-    typeof value === "object" &&
-    value &&
-    VAL_EXTENSION in value &&
-    value[VAL_EXTENSION] === "richtext" &&
-    "templateStrings" in value &&
-    typeof value.templateStrings === "object" &&
-    Array.isArray(value.templateStrings)
   );
 }
 

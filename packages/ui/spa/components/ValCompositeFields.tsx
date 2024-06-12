@@ -14,9 +14,9 @@ import {
   FILE_REF_PROP,
   FileSource,
   ImageMetadata,
-  RichText,
   RichTextNode,
   ModulePath,
+  RichTextSource,
 } from "@valbuild/core";
 import classNames from "classnames";
 import React, { useState, useEffect, Fragment } from "react";
@@ -790,7 +790,7 @@ function ValPreview({
         </div>
       );
     }
-    if (!(VAL_EXTENSION in source) || source[VAL_EXTENSION] !== "richtext") {
+    if (!Array.isArray(source)) {
       return (
         <div
           key={path}
@@ -800,7 +800,9 @@ function ValPreview({
         </div>
       );
     }
-    return <ValRichText key={path}>{source}</ValRichText>;
+    return (
+      <ValRichTextPreview key={path}>{{ children: source }}</ValRichTextPreview>
+    );
   } else if (schema.type === "string") {
     if (source === null) {
       return (
@@ -1159,14 +1161,13 @@ const theme: { tags: Record<string, string>; classes: Record<string, string> } =
     },
   };
 
-export function ValRichText({
-  children,
+export function ValRichTextPreview({
+  children: root,
 }: {
-  children: RichText<AllRichTextOptions>;
-}) {
-  const root = children as RichText<AllRichTextOptions> & {
-    valPath: SourcePath;
+  children: {
+    children: RichTextSource<AllRichTextOptions>;
   };
+}) {
   function withRenderTag(clazz: string, current?: string) {
     const renderClass = theme.tags[clazz];
     if (renderClass && current) {
@@ -1318,7 +1319,7 @@ export function ValRichText({
   }
 
   return (
-    <span data-val-path={root.valPath}>
+    <span>
       {root.children.map((child, i) => {
         return toReact(child, i);
       })}

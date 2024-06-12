@@ -599,479 +599,479 @@ describe("Remirror to RichTextSource", () => {
     });
   });
 
-  test("example 1", () => {
-    const input: RemirrorJSON = {
-      type: "doc",
-      content: [
-        {
-          type: "paragraph",
-          content: [
-            {
-              type: "text",
-              text: "  ",
-            },
-            {
-              type: "text",
-              marks: [
-                {
-                  type: "bold",
-                },
-              ],
-              text: "Val",
-            },
-            {
-              type: "text",
-              text: " is a CMS where ",
-            },
-            {
-              type: "text",
-              marks: [
-                {
-                  type: "bold",
-                },
-              ],
-              text: "content",
-            },
-            {
-              type: "text",
-              text: " is ",
-            },
-            {
-              type: "text",
-              marks: [
-                {
-                  type: "bold",
-                },
-              ],
-              text: "code",
-            },
-            {
-              type: "text",
-              text: " ",
-            },
-            {
-              type: "text",
-              marks: [
-                {
-                  type: "bold",
-                },
-              ],
-              text: "in",
-            },
-            {
-              type: "text",
-              text: " your git repo.",
-            },
-          ],
-        },
-        {
-          type: "paragraph",
-          content: [
-            {
-              type: "hardBreak",
-            },
-          ],
-        },
-        {
-          type: "paragraph",
-          content: [
-            {
-              type: "text",
-              text: "  Val is a CMS, which is useful because:",
-            },
-          ],
-        },
-        {
-          type: "bulletList",
-          content: [
-            {
-              type: "listItem",
-              attrs: {
-                closed: false,
-                nested: false,
-              },
-              content: [
-                {
-                  type: "paragraph",
-                  content: [
-                    {
-                      type: "paragraph",
-                      content: [
-                        {
-                          type: "text",
-                          text: "editors can ",
-                        },
-                        {
-                          type: "text",
-                          marks: [
-                            {
-                              type: "bold",
-                            },
-                          ],
-                          text: "change content",
-                        },
-                        {
-                          type: "text",
-                          text: " without developer interactions",
-                        },
-                      ],
-                    },
-                  ],
-                },
-              ],
-            },
-            {
-              type: "listItem",
-              attrs: {
-                closed: false,
-                nested: false,
-              },
-              content: [
-                {
-                  type: "paragraph",
-                  content: [
-                    {
-                      type: "paragraph",
-                      content: [
-                        {
-                          type: "text",
-                          marks: [
-                            {
-                              type: "bold",
-                            },
-                          ],
-                          text: "images",
-                        },
-                        {
-                          type: "text",
-                          text: " can be managed without checking in code",
-                        },
-                      ],
-                    },
-                  ],
-                },
-              ],
-            },
-            {
-              type: "listItem",
-              attrs: {
-                closed: false,
-                nested: false,
-              },
-              content: [
-                {
-                  type: "paragraph",
-                  content: [
-                    {
-                      type: "paragraph",
-                      content: [
-                        {
-                          type: "text",
-                          marks: [
-                            {
-                              type: "bold",
-                            },
-                          ],
-                          text: "i18n",
-                        },
-                        {
-                          type: "text",
-                          text: " support is easy to add",
-                        },
-                      ],
-                    },
-                  ],
-                },
-              ],
-            },
-            {
-              type: "listItem",
-              attrs: {
-                closed: false,
-                nested: false,
-              },
-              content: [
-                {
-                  type: "paragraph",
-                  content: [
-                    {
-                      type: "paragraph",
-                      content: [
-                        {
-                          type: "text",
-                          text: "a ",
-                        },
-                        {
-                          type: "text",
-                          marks: [
-                            {
-                              type: "bold",
-                            },
-                          ],
-                          text: "well-documented",
-                        },
-                        {
-                          type: "text",
-                          text: " way to ",
-                        },
-                        {
-                          type: "text",
-                          marks: [
-                            {
-                              type: "bold",
-                            },
-                          ],
-                          text: "structure content",
-                        },
-                      ],
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-        {
-          type: "paragraph",
-          content: [
-            {
-              type: "hardBreak",
-            },
-          ],
-        },
-        {
-          type: "paragraph",
-          content: [
-            {
-              type: "text",
-              text: "  But, with all the benefits of having content hard-coded:",
-            },
-          ],
-        },
-        {
-          type: "bulletList",
-          content: [
-            {
-              type: "listItem",
-              attrs: {
-                closed: false,
-                nested: false,
-              },
-              content: [
-                {
-                  type: "paragraph",
-                  content: [
-                    {
-                      type: "paragraph",
-                      content: [
-                        {
-                          type: "text",
-                          text: "works as normal with your ",
-                        },
-                        {
-                          type: "text",
-                          marks: [
-                            {
-                              type: "bold",
-                            },
-                          ],
-                          text: "favorite IDE",
-                        },
-                        {
-                          type: "text",
-                          text: " without any plugins: search for content, references to usages, ...",
-                        },
-                      ],
-                    },
-                  ],
-                },
-              ],
-            },
-            {
-              type: "listItem",
-              attrs: {
-                closed: false,
-                nested: false,
-              },
-              content: [
-                {
-                  type: "paragraph",
-                  content: [
-                    {
-                      type: "paragraph",
-                      content: [
-                        {
-                          type: "text",
-                          text: "content is ",
-                        },
-                        {
-                          type: "text",
-                          marks: [
-                            {
-                              type: "bold",
-                            },
-                          ],
-                          text: "type-checked",
-                        },
-                        {
-                          type: "text",
-                          text: " so you see when something is wrong immediately",
-                        },
-                      ],
-                    },
-                  ],
-                },
-              ],
-            },
-            {
-              type: "listItem",
-              attrs: {
-                closed: false,
-                nested: false,
-              },
-              content: [
-                {
-                  type: "paragraph",
-                  content: [
-                    {
-                      type: "paragraph",
-                      content: [
-                        {
-                          type: "text",
-                          text: "content can be ",
-                        },
-                        {
-                          type: "text",
-                          marks: [
-                            {
-                              type: "bold",
-                            },
-                          ],
-                          text: "refactored",
-                        },
-                        {
-                          type: "text",
-                          text: " (change names, etc) just as if it was hard-coded (because it sort of is)",
-                        },
-                      ],
-                    },
-                  ],
-                },
-              ],
-            },
-            {
-              type: "listItem",
-              attrs: {
-                closed: false,
-                nested: false,
-              },
-              content: [
-                {
-                  type: "paragraph",
-                  content: [
-                    {
-                      type: "paragraph",
-                      content: [
-                        {
-                          type: "text",
-                          text: "work ",
-                        },
-                        {
-                          type: "text",
-                          marks: [
-                            {
-                              type: "bold",
-                            },
-                          ],
-                          text: "locally",
-                        },
-                        {
-                          type: "text",
-                          text: " or in ",
-                        },
-                        {
-                          type: "text",
-                          marks: [
-                            {
-                              type: "bold",
-                            },
-                          ],
-                          text: "branches",
-                        },
-                        {
-                          type: "text",
-                          text: " just as if you didn't use a CMS",
-                        },
-                      ],
-                    },
-                  ],
-                },
-              ],
-            },
-            {
-              type: "listItem",
-              attrs: {
-                closed: false,
-                nested: false,
-              },
-              content: [
-                {
-                  type: "paragraph",
-                  content: [
-                    {
-                      type: "paragraph",
-                      content: [
-                        {
-                          type: "text",
-                          marks: [
-                            {
-                              type: "bold",
-                            },
-                          ],
-                          text: "no need for code-gen",
-                        },
-                        {
-                          type: "text",
-                          text: " and extra build steps",
-                        },
-                      ],
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-        {
-          type: "paragraph",
-          content: [
-            {
-              type: "text",
-              text: "  Visift ",
-            },
-            {
-              type: "text",
-              marks: [
-                {
-                  type: "link",
-                  attrs: {
-                    href: "https://val.build",
-                    target: null,
-                    auto: false,
-                  },
-                },
-              ],
-              text: "Val",
-            },
-            {
-              type: "text",
-              text: " for more information.\n  ",
-            },
-          ],
-        },
-      ],
-    };
+  // test("example 1", () => {
+  //   const input: RemirrorJSON = {
+  //     type: "doc",
+  //     content: [
+  //       {
+  //         type: "paragraph",
+  //         content: [
+  //           {
+  //             type: "text",
+  //             text: "  ",
+  //           },
+  //           {
+  //             type: "text",
+  //             marks: [
+  //               {
+  //                 type: "bold",
+  //               },
+  //             ],
+  //             text: "Val",
+  //           },
+  //           {
+  //             type: "text",
+  //             text: " is a CMS where ",
+  //           },
+  //           {
+  //             type: "text",
+  //             marks: [
+  //               {
+  //                 type: "bold",
+  //               },
+  //             ],
+  //             text: "content",
+  //           },
+  //           {
+  //             type: "text",
+  //             text: " is ",
+  //           },
+  //           {
+  //             type: "text",
+  //             marks: [
+  //               {
+  //                 type: "bold",
+  //               },
+  //             ],
+  //             text: "code",
+  //           },
+  //           {
+  //             type: "text",
+  //             text: " ",
+  //           },
+  //           {
+  //             type: "text",
+  //             marks: [
+  //               {
+  //                 type: "bold",
+  //               },
+  //             ],
+  //             text: "in",
+  //           },
+  //           {
+  //             type: "text",
+  //             text: " your git repo.",
+  //           },
+  //         ],
+  //       },
+  //       {
+  //         type: "paragraph",
+  //         content: [
+  //           {
+  //             type: "hardBreak",
+  //           },
+  //         ],
+  //       },
+  //       {
+  //         type: "paragraph",
+  //         content: [
+  //           {
+  //             type: "text",
+  //             text: "  Val is a CMS, which is useful because:",
+  //           },
+  //         ],
+  //       },
+  //       {
+  //         type: "bulletList",
+  //         content: [
+  //           {
+  //             type: "listItem",
+  //             attrs: {
+  //               closed: false,
+  //               nested: false,
+  //             },
+  //             content: [
+  //               {
+  //                 type: "paragraph",
+  //                 content: [
+  //                   {
+  //                     type: "paragraph",
+  //                     content: [
+  //                       {
+  //                         type: "text",
+  //                         text: "editors can ",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         marks: [
+  //                           {
+  //                             type: "bold",
+  //                           },
+  //                         ],
+  //                         text: "change content",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         text: " without developer interactions",
+  //                       },
+  //                     ],
+  //                   },
+  //                 ],
+  //               },
+  //             ],
+  //           },
+  //           {
+  //             type: "listItem",
+  //             attrs: {
+  //               closed: false,
+  //               nested: false,
+  //             },
+  //             content: [
+  //               {
+  //                 type: "paragraph",
+  //                 content: [
+  //                   {
+  //                     type: "paragraph",
+  //                     content: [
+  //                       {
+  //                         type: "text",
+  //                         marks: [
+  //                           {
+  //                             type: "bold",
+  //                           },
+  //                         ],
+  //                         text: "images",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         text: " can be managed without checking in code",
+  //                       },
+  //                     ],
+  //                   },
+  //                 ],
+  //               },
+  //             ],
+  //           },
+  //           {
+  //             type: "listItem",
+  //             attrs: {
+  //               closed: false,
+  //               nested: false,
+  //             },
+  //             content: [
+  //               {
+  //                 type: "paragraph",
+  //                 content: [
+  //                   {
+  //                     type: "paragraph",
+  //                     content: [
+  //                       {
+  //                         type: "text",
+  //                         marks: [
+  //                           {
+  //                             type: "bold",
+  //                           },
+  //                         ],
+  //                         text: "i18n",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         text: " support is easy to add",
+  //                       },
+  //                     ],
+  //                   },
+  //                 ],
+  //               },
+  //             ],
+  //           },
+  //           {
+  //             type: "listItem",
+  //             attrs: {
+  //               closed: false,
+  //               nested: false,
+  //             },
+  //             content: [
+  //               {
+  //                 type: "paragraph",
+  //                 content: [
+  //                   {
+  //                     type: "paragraph",
+  //                     content: [
+  //                       {
+  //                         type: "text",
+  //                         text: "a ",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         marks: [
+  //                           {
+  //                             type: "bold",
+  //                           },
+  //                         ],
+  //                         text: "well-documented",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         text: " way to ",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         marks: [
+  //                           {
+  //                             type: "bold",
+  //                           },
+  //                         ],
+  //                         text: "structure content",
+  //                       },
+  //                     ],
+  //                   },
+  //                 ],
+  //               },
+  //             ],
+  //           },
+  //         ],
+  //       },
+  //       {
+  //         type: "paragraph",
+  //         content: [
+  //           {
+  //             type: "hardBreak",
+  //           },
+  //         ],
+  //       },
+  //       {
+  //         type: "paragraph",
+  //         content: [
+  //           {
+  //             type: "text",
+  //             text: "  But, with all the benefits of having content hard-coded:",
+  //           },
+  //         ],
+  //       },
+  //       {
+  //         type: "bulletList",
+  //         content: [
+  //           {
+  //             type: "listItem",
+  //             attrs: {
+  //               closed: false,
+  //               nested: false,
+  //             },
+  //             content: [
+  //               {
+  //                 type: "paragraph",
+  //                 content: [
+  //                   {
+  //                     type: "paragraph",
+  //                     content: [
+  //                       {
+  //                         type: "text",
+  //                         text: "works as normal with your ",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         marks: [
+  //                           {
+  //                             type: "bold",
+  //                           },
+  //                         ],
+  //                         text: "favorite IDE",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         text: " without any plugins: search for content, references to usages, ...",
+  //                       },
+  //                     ],
+  //                   },
+  //                 ],
+  //               },
+  //             ],
+  //           },
+  //           {
+  //             type: "listItem",
+  //             attrs: {
+  //               closed: false,
+  //               nested: false,
+  //             },
+  //             content: [
+  //               {
+  //                 type: "paragraph",
+  //                 content: [
+  //                   {
+  //                     type: "paragraph",
+  //                     content: [
+  //                       {
+  //                         type: "text",
+  //                         text: "content is ",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         marks: [
+  //                           {
+  //                             type: "bold",
+  //                           },
+  //                         ],
+  //                         text: "type-checked",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         text: " so you see when something is wrong immediately",
+  //                       },
+  //                     ],
+  //                   },
+  //                 ],
+  //               },
+  //             ],
+  //           },
+  //           {
+  //             type: "listItem",
+  //             attrs: {
+  //               closed: false,
+  //               nested: false,
+  //             },
+  //             content: [
+  //               {
+  //                 type: "paragraph",
+  //                 content: [
+  //                   {
+  //                     type: "paragraph",
+  //                     content: [
+  //                       {
+  //                         type: "text",
+  //                         text: "content can be ",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         marks: [
+  //                           {
+  //                             type: "bold",
+  //                           },
+  //                         ],
+  //                         text: "refactored",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         text: " (change names, etc) just as if it was hard-coded (because it sort of is)",
+  //                       },
+  //                     ],
+  //                   },
+  //                 ],
+  //               },
+  //             ],
+  //           },
+  //           {
+  //             type: "listItem",
+  //             attrs: {
+  //               closed: false,
+  //               nested: false,
+  //             },
+  //             content: [
+  //               {
+  //                 type: "paragraph",
+  //                 content: [
+  //                   {
+  //                     type: "paragraph",
+  //                     content: [
+  //                       {
+  //                         type: "text",
+  //                         text: "work ",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         marks: [
+  //                           {
+  //                             type: "bold",
+  //                           },
+  //                         ],
+  //                         text: "locally",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         text: " or in ",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         marks: [
+  //                           {
+  //                             type: "bold",
+  //                           },
+  //                         ],
+  //                         text: "branches",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         text: " just as if you didn't use a CMS",
+  //                       },
+  //                     ],
+  //                   },
+  //                 ],
+  //               },
+  //             ],
+  //           },
+  //           {
+  //             type: "listItem",
+  //             attrs: {
+  //               closed: false,
+  //               nested: false,
+  //             },
+  //             content: [
+  //               {
+  //                 type: "paragraph",
+  //                 content: [
+  //                   {
+  //                     type: "paragraph",
+  //                     content: [
+  //                       {
+  //                         type: "text",
+  //                         marks: [
+  //                           {
+  //                             type: "bold",
+  //                           },
+  //                         ],
+  //                         text: "no need for code-gen",
+  //                       },
+  //                       {
+  //                         type: "text",
+  //                         text: " and extra build steps",
+  //                       },
+  //                     ],
+  //                   },
+  //                 ],
+  //               },
+  //             ],
+  //           },
+  //         ],
+  //       },
+  //       {
+  //         type: "paragraph",
+  //         content: [
+  //           {
+  //             type: "text",
+  //             text: "  Visift ",
+  //           },
+  //           {
+  //             type: "text",
+  //             marks: [
+  //               {
+  //                 type: "link",
+  //                 attrs: {
+  //                   href: "https://val.build",
+  //                   target: null,
+  //                   auto: false,
+  //                 },
+  //               },
+  //             ],
+  //             text: "Val",
+  //           },
+  //           {
+  //             type: "text",
+  //             text: " for more information.\n  ",
+  //           },
+  //         ],
+  //       },
+  //     ],
+  //   };
 
-    console.log(JSON.stringify(remirrorToRichTextSource(input), null, 2));
-  });
+  //   console.log(JSON.stringify(remirrorToRichTextSource(input), null, 2));
+  // });
 });

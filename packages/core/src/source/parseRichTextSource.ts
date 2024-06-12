@@ -9,12 +9,12 @@ import {
   LinkNode,
   ListItemNode,
   RichTextOptions,
-  RichText,
   VAL_EXTENSION,
   ParagraphNode,
   HeadingNode,
   ImageSource,
   Styles,
+  RichTextSource,
 } from "@valbuild/core";
 
 const VAL_START_TAG_PREFIX = '<val value="';
@@ -210,7 +210,7 @@ export function parseRichTextSource<O extends RichTextOptions>({
     | (NonNullable<O["inline"]>["img"] extends true ? ImageSource : never)
     | (NonNullable<O["inline"]>["a"] extends true ? LinkSource : never)
   )[];
-}): RichText<O> {
+}): RichTextSource<O> {
   // TODO: validate that templateStrings does not contain VAL_NODE_PREFIX
   const inputText = templateStrings
     .flatMap((templateString, i) => {
@@ -240,5 +240,5 @@ export function parseRichTextSource<O extends RichTextOptions>({
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (children as any).markdownish = true; // Markdown is an intermediate format - we are planning on replacing it with a structured object format
-  return children as RichText<O>;
+  return children as RichTextSource<O>;
 }

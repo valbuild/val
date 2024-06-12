@@ -1,14 +1,12 @@
-import { initVal, RichTextSource, AnyRichTextOptions } from "@valbuild/core";
+import { AllRichTextOptions, initVal, RichTextSource } from "@valbuild/core";
 
-import { parseRichTextSource } from "./parseRichTextSource";
 import { remirrorToRichTextSource } from "./remirrorToRichTextSource";
 import { richTextToRemirror } from "./richTextToRemirror";
-import { stringifyRichTextSource } from "./stringifyRichTextSource";
 
 const { c } = initVal();
 const cases: {
   description: string;
-  input: RichTextSource<AnyRichTextOptions>;
+  input: RichTextSource<AllRichTextOptions>;
 }[] = [
   {
     description: "basic",
@@ -107,11 +105,7 @@ describe("isomorphic richtext <-> conversion", () => {
   test.each(cases)("$description", ({ input }) => {
     const inputSource = input;
 
-    const res = remirrorToRichTextSource(
-      richTextToRemirror(parseRichTextSource(inputSource))
-    );
-    const output = stringifyRichTextSource(res);
-    // console.log("EOF>>" + output + "<<EOF");
-    expect(output).toStrictEqual(stringifyRichTextSource(inputSource));
+    const res = remirrorToRichTextSource(richTextToRemirror(inputSource));
+    expect(res).toStrictEqual(inputSource);
   });
 });
