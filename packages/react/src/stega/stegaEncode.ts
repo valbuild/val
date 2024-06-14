@@ -218,6 +218,9 @@ export function stegaEncode(
     sourceOrSelector: any,
     recOpts?: { path: any; schema: any }
   ): any {
+    if (recOpts?.schema && isKeyOfSchema(recOpts?.schema)) {
+      return sourceOrSelector;
+    }
     if (recOpts?.schema && isLiteralSchema(recOpts?.schema)) {
       return sourceOrSelector;
     }
@@ -420,6 +423,12 @@ function isUnionSchema(
   schema: SerializedSchema | undefined
 ): schema is SerializedUnionSchema {
   return schema?.type === "union";
+}
+
+function isKeyOfSchema(
+  schema: SerializedSchema | undefined
+): schema is SerializedUnionSchema {
+  return schema?.type === "keyOf";
 }
 
 function isObjectSchema(
