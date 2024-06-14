@@ -11,7 +11,23 @@ export type SerializedObjectSchema = {
   opt: boolean;
 };
 
-type ObjectSchemaProps = { [key: string]: Schema<SelectorSource> };
+type ObjectSchemaProps = { [key: string]: Schema<SelectorSource> } & {
+  /** Cannot create object with key: valPath. It is a reserved name */
+  valPath?: never;
+  /** Cannot create object with key: val. It is a reserved name */
+  val?: never;
+  /** Cannot create object with key: _type. It is a reserved name */
+  _type?: never;
+  /** Cannot create object with key: _ref. It is a reserved name */
+  _ref?: never;
+  // The ones below we might want to allow (they are no longer intended to be used):
+  /** Cannot create object with key: andThen. It is a reserved name */
+  andThen?: never;
+  /** Cannot create object with key: assert. It is a reserved name */
+  assert?: never;
+  /** Cannot create object with key: fold. It is a reserved name */
+  fold?: never;
+};
 type ObjectSchemaSrcOf<Props extends ObjectSchemaProps> = {
   [key in keyof Props]: SelectorOfSchema<Props[key]>;
 };
