@@ -9,7 +9,6 @@ import {
   OrderedListNode,
   ListItemNode,
   VAL_EXTENSION,
-  FILE_REF_PROP,
   RichTextSource,
   Internal,
 } from "@valbuild/core";
@@ -56,8 +55,6 @@ function toRemirrorNode(child: BlockNode<AllRichTextOptions>): RemirrorNode {
       return convertUlToRemirror(child);
     case "ol":
       return convertOlToRemirror(child);
-    case "br":
-      return convertParagraphToRemirror([child]);
     default: {
       const _exhaustiveCheck: never = child;
       throw Error("Unexpected child node: " + JSON.stringify(_exhaustiveCheck));
@@ -292,21 +289,6 @@ function convertListItemToRemirrorParagraph(
       lastChildContent.push(convertStringToRemirror(child));
     } else {
       switch (child.tag) {
-        case "a": {
-          lastChildContent.push(...convertLinkNodeToRemirror(child));
-          break;
-        }
-        case "br": {
-          children.push({
-            type: "paragraph",
-            content: [], // create new paragraph
-          });
-          break;
-        }
-        case "span": {
-          lastChildContent.push(...convertSpanNodeToRemirror(child));
-          break;
-        }
         case "ol": {
           children.push(convertOlToRemirror(child));
           break;

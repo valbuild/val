@@ -25,8 +25,14 @@ describe("richtext to remirror", () => {
         tag: "p",
         children: ["Inline line break", { tag: "br" }],
       },
-      { tag: "br" },
-      { tag: "br" },
+      {
+        tag: "p",
+        children: [{ tag: "br" }],
+      },
+      {
+        tag: "p",
+        children: [{ tag: "br" }],
+      },
       {
         tag: "p",
         children: [
@@ -41,21 +47,28 @@ describe("richtext to remirror", () => {
             children: [
               {
                 tag: "ol",
-                dir: "rtl",
                 children: [
                   {
                     tag: "li",
                     children: [
                       {
-                        tag: "span",
-                        styles: ["italic"],
-                        children: ["number 1.1. breaking lines: "],
+                        tag: "p",
+                        children: [
+                          {
+                            tag: "span",
+                            styles: ["italic"],
+                            children: ["number 1.1. breaking lines: "],
+                          },
+                          { tag: "br" },
+                          " break",
+                        ],
                       },
-                      { tag: "br" },
-                      "after line break",
                     ],
                   },
-                  { tag: "li", children: ["number 1.2"] },
+                  {
+                    tag: "li",
+                    children: [{ tag: "p", children: ["number 1.2"] }],
+                  },
                 ],
               },
             ],
@@ -236,14 +249,13 @@ describe("richtext to remirror", () => {
                                 },
                               ],
                             },
-                          ],
-                        },
-                        {
-                          type: "paragraph",
-                          content: [
+                            {
+                              type: "hardBreak",
+                              marks: [],
+                            },
                             {
                               type: "text",
-                              text: "after line break",
+                              text: " break",
                             },
                           ],
                         },
@@ -311,7 +323,66 @@ describe("richtext to remirror", () => {
         ],
       },
     ];
-
-    console.log(JSON.stringify(richTextToRemirror(input), null, 2));
+    const output: RemirrorJSON = {
+      type: "doc",
+      content: [
+        {
+          type: "bulletList",
+          content: [
+            {
+              type: "listItem",
+              content: [
+                {
+                  type: "paragraph",
+                  content: [
+                    {
+                      type: "text",
+                      text: "editors can ",
+                    },
+                    {
+                      type: "text",
+                      text: "change content",
+                      marks: [
+                        {
+                          type: "bold",
+                        },
+                      ],
+                    },
+                    {
+                      type: "text",
+                      text: " without developer interactions",
+                    },
+                  ],
+                },
+              ],
+            },
+            {
+              type: "listItem",
+              content: [
+                {
+                  type: "paragraph",
+                  content: [
+                    {
+                      type: "text",
+                      text: "images",
+                      marks: [
+                        {
+                          type: "bold",
+                        },
+                      ],
+                    },
+                    {
+                      type: "text",
+                      text: " can be managed without checking in code",
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(richTextToRemirror(input)).toStrictEqual(output);
   });
 });
