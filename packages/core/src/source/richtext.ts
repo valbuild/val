@@ -136,7 +136,7 @@ export type UnorderedListNode<O extends RichTextOptions> = NonNullable<
 >["ul"] extends true
   ? {
       tag: "ul";
-      dir?: "ltr" | "rtl";
+      // dir?: "ltr" | "rtl"; TODO: add this
       children: ListItemNode<O>[];
     }
   : never;
@@ -146,7 +146,7 @@ export type OrderedListNode<O extends RichTextOptions> = NonNullable<
 >["ol"] extends true
   ? {
       tag: "ol";
-      dir?: "ltr" | "rtl";
+      // dir?: "ltr" | "rtl"; TODO: add this
       children: ListItemNode<O>[];
     }
   : never;
