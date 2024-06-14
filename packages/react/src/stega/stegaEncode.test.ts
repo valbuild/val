@@ -15,7 +15,7 @@ describe("stega transform", () => {
       })
     );
 
-    const valModule = c.define("/test", schema, [
+    const valModule = c.define("/test.val.ts", schema, [
       {
         image: c.file("/public/test1.png", {
           sha256: "1231",
@@ -45,13 +45,13 @@ describe("stega transform", () => {
 
     expect(vercelStegaDecode(transformed[0].image.url)).toStrictEqual({
       data: {
-        valPath: '/test?p=0."image"',
+        valPath: '/test.val.ts?p=0."image"',
       },
       origin: "val.build",
     });
     expect(vercelStegaDecode(transformed[1].image.url)).toStrictEqual({
       data: {
-        valPath: '/test?p=1."image"',
+        valPath: '/test.val.ts?p=1."image"',
       },
       origin: "val.build",
     });
@@ -63,8 +63,12 @@ describe("stega transform", () => {
       "/api/val/files/public/test2.png?sha256=1232"
     );
 
-    expect(transformed[0].text.valPath).toStrictEqual('/test?p=0."text"');
-    expect(transformed[1].text.valPath).toStrictEqual('/test?p=1."text"');
+    expect(transformed[0].text.valPath).toStrictEqual(
+      '/test.val.ts?p=0."text"'
+    );
+    expect(transformed[1].text.valPath).toStrictEqual(
+      '/test.val.ts?p=1."text"'
+    );
   });
 
   test("get modules", () => {
@@ -73,21 +77,21 @@ describe("stega transform", () => {
     expect(
       getModuleIds({
         foo: [
-          { test: c.define("/test1", schema, ["one", "two"]) },
-          { test: c.define("/test2", schema, ["one", "two"]) },
+          { test: c.define("/test1.val.ts", schema, ["one", "two"]) },
+          { test: c.define("/test2.val.ts", schema, ["one", "two"]) },
         ],
-        test: c.define("/test3", schema, ["one", "two"]),
+        test: c.define("/test3.val.ts", schema, ["one", "two"]),
       })
-    ).toStrictEqual(["/test1", "/test2", "/test3"]);
+    ).toStrictEqual(["/test1.val.ts", "/test2.val.ts", "/test3.val.ts"]);
   });
 
   test("basic transform with get modules", () => {
     const schema = s.array(s.string());
     const transformed = stegaEncode(
-      c.define("/test1", schema, ["one", "two"]),
+      c.define("/test1.val.ts", schema, ["one", "two"]),
       {
         getModule: (moduleId) => {
-          if (moduleId === "/test1") {
+          if (moduleId === "/test1.val.ts") {
             return ["1", "2"];
           }
         },
@@ -97,7 +101,7 @@ describe("stega transform", () => {
     expect(vercelStegaSplit(transformed[0]).cleaned).toStrictEqual("1");
     expect(vercelStegaDecode(transformed[0])).toStrictEqual({
       data: {
-        valPath: "/test1?p=0",
+        valPath: "/test1.val.ts?p=0",
       },
       origin: "val.build",
     });
@@ -106,7 +110,7 @@ describe("stega transform", () => {
   test("skip stegaEncode on raw strings", () => {
     const schema = s.object({ str: s.string(), rawStr: s.string().raw() });
     const transformed = stegaEncode(
-      c.define("/test1", schema, { str: "one", rawStr: "two" }),
+      c.define("/test1.val.ts", schema, { str: "one", rawStr: "two" }),
       {}
     );
     //expect(transformed.str).toStrictEqual("one");
@@ -115,7 +119,10 @@ describe("stega transform", () => {
 
   test("skip stegaEncode on union of strings", () => {
     const schema = s.union(s.literal("one"), s.literal("two"));
-    const transformed = stegaEncode(c.define("/test1", schema, "one"), {});
+    const transformed = stegaEncode(
+      c.define("/test1.val.ts", schema, "one"),
+      {}
+    );
     expect(transformed).toStrictEqual("one");
   });
 
@@ -126,7 +133,7 @@ describe("stega transform", () => {
       s.object({ type: s.literal("type2"), num: s.number() })
     );
     const transformed = stegaEncode(
-      c.define("/test1", schema, {
+      c.define("/test1.val.ts", schema, {
         type: "type1",
         str: "one",
       }),
@@ -136,10 +143,22 @@ describe("stega transform", () => {
     expect(vercelStegaSplit(transformed.str).cleaned).toStrictEqual("one");
     expect(vercelStegaDecode(transformed.str)).toStrictEqual({
       data: {
-        valPath: '/test1?p="str"',
+        valPath: '/test1.val.ts?p="str"',
       },
       origin: "val.build",
     });
+  });
+
+  test("skip stegaEncode when using keyOf", () => {
+    const schema1 = c.define("/test1.val.ts", s.record(s.string()), {
+      test: "one",
+    });
+    const schema2 = s.keyOf(schema1);
+    const transformed = stegaEncode(
+      c.define("/test2.val.ts", schema2, "test"),
+      {}
+    );
+    expect(transformed).toStrictEqual("test");
   });
 
   test("transform with get modules", () => {
@@ -147,14 +166,14 @@ describe("stega transform", () => {
     const transformed = stegaEncode(
       {
         foo: [
-          { test: c.define("/test1", schema, ["one", "two"]) },
-          { test: c.define("/test2", schema, ["one", "two"]) },
+          { test: c.define("/test1.val.ts", schema, ["one", "two"]) },
+          { test: c.define("/test2.val.ts", schema, ["one", "two"]) },
         ],
-        test: c.define("/test3", schema, ["one", "two"]),
+        test: c.define("/test3.val.ts", schema, ["one", "two"]),
       },
       {
         getModule: (moduleId) => {
-          if (moduleId === "/test2") {
+          if (moduleId === "/test2.val.ts") {
             return ["1", "2"];
           }
         },
@@ -166,7 +185,7 @@ describe("stega transform", () => {
     );
     expect(vercelStegaDecode(transformed.foo[0].test[0])).toStrictEqual({
       data: {
-        valPath: "/test1?p=0",
+        valPath: "/test1.val.ts?p=0",
       },
       origin: "val.build",
     });
@@ -178,7 +197,7 @@ describe("stega transform", () => {
     );
     expect(vercelStegaDecode(transformed.foo[1].test[0])).toStrictEqual({
       data: {
-        valPath: "/test2?p=0",
+        valPath: "/test2.val.ts?p=0",
       },
       origin: "val.build",
     });
