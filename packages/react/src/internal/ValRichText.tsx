@@ -79,8 +79,12 @@ type RichTextNode = StegaOfRichTextSource<
  * return (
  *   <ValRichText
  *     theme={{
- *        h1: 'text-4xl font-bold',
- *        img: 'rounded',
+ *        block: {
+ *          h1: 'text-4xl font-bold',
+ *        },
+ *        inline: {
+ *          img: 'rounded',
+ *        }
  *     }}
  *     transform={(node, className) => {
  *        if (node.tag === 'img') {
@@ -134,7 +138,7 @@ export function ValRichText<O extends RichTextOptions>({
         key: key?.toString(),
         className,
         src: child.src.url,
-        // alt: child.alt,
+        // alt: child.alt, TODO: add alt to the img html object
         width: child.src.metadata?.width,
         height: child.src.metadata?.height,
       });

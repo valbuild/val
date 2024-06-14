@@ -196,7 +196,9 @@ export const schema = s.object({
     s.object({
       title: s.string(),
       text: s.richtext({
-        bold: true, // <- Enables bold in richtext
+        style: {
+          bold: true, // <- Enables bold in richtext
+        }
       }),
     })
   ),
@@ -210,8 +212,15 @@ export default c.define(
     sections: [
       {
         title: "Section 1",
-        text: c.richtext`
-RichText is **awesome**`,
+        text: [
+          {
+            tag: "p",
+            children: [
+              "Val is",
+              { tag: "span", styles: ["bold"], children: ["awesome"] },
+            ],
+          },
+        ],
       },
     ],
   }
@@ -245,7 +254,9 @@ const Page: NextPage = () => {
           <h2>{section.title}</h2>
           <ValRichText
             theme={{
-              bold: "font-bold",
+              style: {
+                bold: "font-bold",
+              }
             }}
           >
             {section.text}
@@ -348,26 +359,43 @@ To initialize some text content using a RichText schema, you can use follow the 
 import { s, c } from "./val.config";
 
 export const schema = s.richtext({
-  // styling:
-  bold: true, // enables bold
-  //italic: true, // enables italic text
-  //lineThrough: true, // enables line/strike-through
+  // styling
+  style: {
+    bold: true, // enables bold
+    italic: true, // enables italic text
+    lineThrough: true, // enables line/strike-through
+  },
   // tags:
-  //headings: ["h1", "h2", "h3", "h4", "h5", "h6"], // sets which headings are available
-  //a: true, // enables links
-  //img: true, // enables images
-  //ul: true, // enables unordered lists
-  //ol: true, // enables ordered lists
+  block: {
+    //ul: true, // enables unordered lists
+    //ol: true, // enables ordered lists
+    // headings:
+    h1: true,
+    h2: true,
+    // h3: true,
+    // h4: true,
+    // h5: true,
+    // h6: true
+  },
+  inline: {
+    //a: true, // enables links
+    //img: true, // enables images
+  }
 });
 
 export default c.define(
   "/src/app/content",
   schema,
-  c.richtext`
-NOTE: this is markdown.
-
-**Bold** text.
-`
+  [
+    {
+      tag: "p",
+      children: ["This is richtext"],
+    },
+    {
+      tag: "p",
+      children: [{ tag: "span", styles: ["bold"], children: ["Bold"] }, "text"],
+    },
+  ]
 );
 ```
 
@@ -387,7 +415,9 @@ export default function Page() {
     <main>
       <ValRichText
         theme={{
-          bold: "font-bold", // <- maps bold to a class. NOTE: tailwind classes are supported
+          style: {
+            bold: "font-bold", // <- maps bold to a class. NOTE: tailwind classes are supported
+          }
           //
         }}
       >
