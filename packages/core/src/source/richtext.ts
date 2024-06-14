@@ -122,16 +122,7 @@ export type LinkNode<O extends RichTextOptions> = NonNullable<
 //#region List
 type ListItemTagNode<O extends RichTextOptions> = {
   tag: "li";
-  children: (
-    | string
-    | SpanNode<O>
-    | ParagraphNode<O>
-    | LinkNode<O>
-    | BrNode
-    | UnorderedListNode<O>
-    | OrderedListNode<O>
-    | CustomInlineNode<O>
-  )[];
+  children: (ParagraphNode<O> | UnorderedListNode<O> | OrderedListNode<O>)[];
 };
 export type ListItemNode<O extends RichTextOptions> =
   | NonNullable<O["block"]>["ul"] extends true
@@ -213,7 +204,6 @@ export type RichTextNode<O extends RichTextOptions> =
 export type BlockNode<O extends RichTextOptions> =
   | HeadingNode<O>
   | ParagraphNode<O>
-  | BrNode
   | UnorderedListNode<O>
   | OrderedListNode<O>
   | CustomBlockNode<O>;
