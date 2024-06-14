@@ -15,6 +15,7 @@ import {
   ImageSource,
   Styles,
   RichTextSource,
+  FILE_REF_SUBTYPE_TAG,
 } from "@valbuild/core";
 
 const VAL_START_TAG_PREFIX = '<val value="';
@@ -153,6 +154,8 @@ function parseTokens(
             children: subChildren as LinkNode<AllRichTextOptions>["children"],
           });
         } else if (sourceNode._type === "file") {
+          // @ts-expect-error We are transitioning from markdown to structured objects, with structured objects we no longer want c.rt.image
+          delete sourceNode[FILE_REF_SUBTYPE_TAG];
           children.push({
             tag: "img",
             src: sourceNode,
