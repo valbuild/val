@@ -24,8 +24,8 @@ import { FileSource } from "./source/file";
 import { AnyRichTextOptions, RichText } from "./source/richtext";
 import { RecordSchema, SerializedRecordSchema } from "./schema/record";
 import { RawString } from "./schema/string";
-import { ImageSelector } from "./selector/image";
 import { ImageSource } from "./source/image";
+import { RemoteSource } from "./source/remote";
 
 const brand = Symbol("ValModule");
 export type ValModule<T extends SelectorSource> = SelectorOf<T> &
@@ -41,9 +41,11 @@ export type InferValModuleType<T extends ValModule<SelectorSource>> =
 type ReplaceRawStringWithString<T extends SelectorSource> =
   SelectorSource extends T
     ? T
+    : T extends RemoteSource<infer S>
+    ? ReplaceRawStringWithString<S> | RemoteSource<S> // at type-level we allow both the actual source and the remote reference
     : T extends RawString
     ? string
-    : T extends ImageSelector
+    : T extends ImageSource // makes for prettier types by avoiding the disassembly of ImageSource (where instead of ImageSource, you get { _ref: ... })
     ? ImageSource
     : T extends { [key in string]: SelectorSource }
     ? {
@@ -54,11 +56,8 @@ type ReplaceRawStringWithString<T extends SelectorSource> =
     : T;
 
 export function define<T extends Schema<SelectorSource>>(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   id: string, // TODO: `/${string}`
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   schema: T,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   source: ReplaceRawStringWithString<SelectorOfSchema<T>>
 ): ValModule<SelectorOfSchema<T>> {
   return {

@@ -1,5 +1,5 @@
-import { Selector as UnknownSelector } from ".";
-import { RemoteCompatibleSource } from "../../source/future/remote";
+import { Selector as UnknownSelector } from "./future";
+import { RemoteCompatibleSource } from "../source/remote";
 
 declare const brand: unique symbol;
 

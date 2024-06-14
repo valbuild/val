@@ -1,5 +1,6 @@
 // import { RemoteCompatibleSource, RemoteSource } from "../source/remote";
 import { SelectorSource } from "../selector";
+import { RemoteCompatibleSource, RemoteSource } from "../source/future/remote";
 import { SourcePath } from "../val";
 import { SerializedArraySchema } from "./array";
 import { SerializedBooleanSchema } from "./boolean";
@@ -38,12 +39,11 @@ export abstract class Schema<Src extends SelectorSource> {
   abstract assert(src: Src): boolean; // TODO: false | Record<SourcePath, string[]>;
   abstract nullable(): Schema<Src | null>;
   abstract serialize(): SerializedSchema;
-  // remote(): Src extends RemoteCompatibleSource
-  //   ? Schema<RemoteSource<Src>>
-  //   : never {
-  //   // TODO: Schema<never, "Cannot create remote schema from non-remote source.">
-  //   throw new Error("You need Val Ultra to use .remote()");
-  // }
+  remote(): Src extends RemoteCompatibleSource
+    ? Schema<RemoteSource<Src>>
+    : never {
+    throw new Error("You need Val Ultra to use .remote()");
+  }
 
   /** MUTATES! since internal and perf sensitive */
   protected appendValidationError(
