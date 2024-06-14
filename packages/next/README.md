@@ -198,7 +198,7 @@ export const schema = s.object({
       text: s.richtext({
         style: {
           bold: true, // <- Enables bold in richtext
-        }
+        },
       }),
     })
   ),
@@ -256,7 +256,7 @@ const Page: NextPage = () => {
             theme={{
               style: {
                 bold: "font-bold",
-              }
+              },
             }}
           >
             {section.text}
@@ -380,23 +380,19 @@ export const schema = s.richtext({
   inline: {
     //a: true, // enables links
     //img: true, // enables images
-  }
+  },
 });
 
-export default c.define(
-  "/src/app/content",
-  schema,
-  [
-    {
-      tag: "p",
-      children: ["This is richtext"],
-    },
-    {
-      tag: "p",
-      children: [{ tag: "span", styles: ["bold"], children: ["Bold"] }, "text"],
-    },
-  ]
-);
+export default c.define("/src/app/content", schema, [
+  {
+    tag: "p",
+    children: ["This is richtext"],
+  },
+  {
+    tag: "p",
+    children: [{ tag: "span", styles: ["bold"], children: ["Bold"] }, "text"],
+  },
+]);
 ```
 
 ### Rendering RichText
@@ -417,7 +413,7 @@ export default function Page() {
         theme={{
           style: {
             bold: "font-bold", // <- maps bold to a class. NOTE: tailwind classes are supported
-          }
+          },
           //
         }}
       >

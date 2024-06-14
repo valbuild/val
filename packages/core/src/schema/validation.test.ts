@@ -8,7 +8,6 @@ import { number } from "./number";
 import { object } from "./object";
 import { string } from "./string";
 import { file as fileVal } from "../source/file";
-import { richtext as richtextVal } from "../source/richtext";
 import { image } from "./image";
 import { ValidationFix } from "./validation/ValidationFix";
 import {
