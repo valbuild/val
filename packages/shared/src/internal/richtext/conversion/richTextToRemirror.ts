@@ -11,6 +11,7 @@ import {
   VAL_EXTENSION,
   FILE_REF_PROP,
   RichTextSource,
+  Internal,
 } from "@valbuild/core";
 import {
   RemirrorHeading,
@@ -224,12 +225,13 @@ function convertImageNodeToRemirror(
   if (!(VAL_EXTENSION in fileSource) || fileSource[VAL_EXTENSION] !== "file") {
     throw Error("Expected file source in image node");
   }
+  const fileVal = Internal.convertFileSource(fileSource);
   return {
     type: "image",
     attrs: {
       height: fileSource.metadata?.height,
       width: fileSource.metadata?.width,
-      src: `/api/val/files${fileSource[FILE_REF_PROP]}`, // at time of writing we are not sure if src as href or data url works, also: how to keep mimeType etc?
+      src: fileVal.url,
     },
   };
 }
@@ -321,8 +323,9 @@ function convertListItemToRemirrorParagraph(
             } else {
               // no content - skip
             }
+          } else {
+            children.push(newChild);
           }
-          children.push(newChild);
           break;
         }
         default: {

@@ -331,9 +331,10 @@ function convertImageNode(
     };
   } else if (node.attrs) {
     const sha256 = getParam("sha256", node.attrs.src);
+    const patchId = getParam("patch_id", node.attrs.src);
     const noParamsSrc = node.attrs.src.split("?")[0];
-    return {
-      tag: "img",
+    const tag: ImageNode<AllRichTextOptions> = {
+      tag: "img" as const,
       src: {
         [VAL_EXTENSION]: "file" as const,
         [FILE_REF_PROP]: `/public${
@@ -345,8 +346,10 @@ function convertImageNode(
           sha256: sha256 || "",
           mimeType: (noParamsSrc && filenameToMimeType(noParamsSrc)) || "",
         },
+        ...(patchId ? { patch_id: patchId } : {}),
       },
     };
+    return tag;
   } else {
     throw new Error("Invalid image node (no attrs): " + JSON.stringify(node));
   }
