@@ -305,8 +305,8 @@ function convertImageNode(
     const filePath = `/public/${fileName}`;
     const existingFilesEntry = files[filePath];
     const thisPath = path
-      // files are added as first child (see below):
-      .concat("children", "0");
+      // file is added as src (see below):
+      .concat("src", "0");
     if (existingFilesEntry) {
       existingFilesEntry.patchPaths.push(thisPath);
     } else {
