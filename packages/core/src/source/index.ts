@@ -14,12 +14,19 @@ export type Source =
 
 export type SourceObject = { [key in string]: Source } & {
   // TODO: update these restricted parameters:
+  /** Reserved name */
   fold?: never;
+  /** Reserved name */
   assert?: never;
+  /** Reserved name */
   andThen?: never;
+  /** Reserved name */
   _ref?: never;
+  /** Reserved name */
   _type?: never;
+  /** Reserved name */
   val?: never;
+  /** Reserved name */
   valPath?: never; // used when serializing vals
 };
 export type SourceArray = readonly Source[];
