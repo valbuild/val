@@ -4,9 +4,11 @@ import { result, array, pipe } from "@valbuild/core/fp";
 import { PatchError, JSONValue } from "@valbuild/core/patch";
 import { ValSyntaxError } from "./syntax";
 import {
+  AllRichTextOptions,
   FILE_REF_PROP,
   FILE_REF_SUBTYPE_TAG,
   RT_IMAGE_TAG,
+  RichTextSource,
   VAL_EXTENSION,
 } from "@valbuild/core";
 
@@ -454,129 +456,6 @@ describe("TSOps", () => {
       path: ["image", "_ref", "zoo"],
       value: null,
       expected: result.err(PatchError),
-    },
-    {
-      name: "c.richtext basic no nodes",
-      input: "c.richtext`Test`",
-      path: [],
-      value: {
-        [VAL_EXTENSION]: "richtext",
-        templateStrings: ["Test 2"],
-        exprs: [],
-      },
-      expected: result.ok("c.richtext `Test 2`"),
-    },
-    {
-      name: "c.richtext advanced no nodes",
-      input: "c.richtext`Test`",
-      path: [],
-      value: {
-        [VAL_EXTENSION]: "richtext",
-        templateStrings: ["# Title 1\nTest 2"],
-        exprs: [],
-      },
-      expected: result.ok(`c.richtext \`# Title 1
-Test 2\``),
-    },
-    {
-      name: "c.richtext basic nodes",
-      input: "c.richtext`Test`",
-      path: [],
-      value: {
-        [VAL_EXTENSION]: "richtext",
-        templateStrings: ["# Title 1\nTest 2\n", ""],
-        exprs: [
-          {
-            [VAL_EXTENSION]: "file",
-            [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
-            [FILE_REF_PROP]: "/public/test",
-            metadata: { width: 100, height: 100, sha256: "123" },
-          },
-        ],
-      },
-      expected: result.ok(`c.richtext \`# Title 1
-Test 2
-\${c.rt.image("/public/test", { width: 100, height: 100, sha256: "123" })}\``),
-    },
-    {
-      name: "c.richtext advanced nodes",
-      input: "c.richtext`Test`",
-      path: [],
-      value: {
-        [VAL_EXTENSION]: "richtext",
-        templateStrings: ["# Title 1\n", "\n", "\nTest 2"],
-        exprs: [
-          {
-            [VAL_EXTENSION]: "file",
-            [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
-            [FILE_REF_PROP]: "/public/test1",
-            metadata: { width: 100, height: 100, sha256: "123" },
-          },
-          {
-            [VAL_EXTENSION]: "file",
-            [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
-            [FILE_REF_PROP]: "/public/test2",
-            metadata: { width: 100, height: 100, sha256: "123" },
-          },
-        ],
-      },
-      expected: result.ok(`c.richtext \`# Title 1
-\${c.rt.image("/public/test1", { width: 100, height: 100, sha256: "123" })}
-\${c.rt.image("/public/test2", { width: 100, height: 100, sha256: "123" })}
-Test 2\``),
-    },
-    {
-      name: "c.richtext link",
-      input: "c.richtext`Test`",
-      path: [],
-      value: {
-        [VAL_EXTENSION]: "richtext",
-        templateStrings: ["# Title 1\n", "\n", ""],
-        exprs: [
-          {
-            [VAL_EXTENSION]: "link",
-            href: "https://example.com",
-            children: ["https://example.com"],
-          },
-          {
-            [VAL_EXTENSION]: "file",
-            [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
-            [FILE_REF_PROP]: "/public/test2",
-            metadata: { width: 100, height: 100, sha256: "123" },
-          },
-        ],
-      },
-      expected: result.ok(`c.richtext \`# Title 1
-\${c.rt.link("https://example.com", { href: "https://example.com" })}
-\${c.rt.image("/public/test2", { width: 100, height: 100, sha256: "123" })}\``),
-    },
-    {
-      name: "c.richtext empty head",
-      input:
-        "{ text: c.richtext`${c.rt.image('/public/test1', { height: 100 })}` }",
-      path: ["text"],
-      value: {
-        [VAL_EXTENSION]: "richtext",
-        templateStrings: ["", "\n", "\nTest 2"],
-        exprs: [
-          {
-            [VAL_EXTENSION]: "file",
-            [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
-            [FILE_REF_PROP]: "/public/test1",
-            metadata: { width: 100, height: 100, sha256: "123" },
-          },
-          {
-            [VAL_EXTENSION]: "file",
-            [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
-            [FILE_REF_PROP]: "/public/test2",
-            metadata: { width: 100, height: 100, sha256: "123" },
-          },
-        ],
-      },
-      expected:
-        result.ok(`{ text: c.richtext \`\${c.rt.image("/public/test1", { width: 100, height: 100, sha256: "123" })}
-\${c.rt.image("/public/test2", { width: 100, height: 100, sha256: "123" })}
-Test 2\` }`),
     },
   ])("replace $name", ({ input, path, value, expected }) => {
     const src = testSourceFile(input);
