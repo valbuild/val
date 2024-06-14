@@ -2,9 +2,10 @@
 import { Schema, SerializedSchema } from "../schema";
 import { ValModuleBrand } from "../module";
 import { GenericSelector, GetSchema, Path } from "../selector";
-import { SourceArray, SourceObject } from "../source";
+import { Source, SourceArray, SourceObject } from "../source";
 import { SourcePath, getValPath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
+import { RawString } from "./string";
 
 export type SerializedKeyOfSchema = {
   type: "keyOf";
@@ -16,16 +17,14 @@ export type SerializedKeyOfSchema = {
 
 type KeyOfSelector<Sel extends GenericSelector<SourceArray | SourceObject>> =
   Sel extends GenericSelector<infer S>
-    ? // TODO: remove any:
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      S extends readonly any[]
+    ? S extends readonly Source[]
       ? number
       : S extends SourceObject
-      ? keyof S
-      : // TODO: remove any:
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      S extends Record<string, any>
-      ? string
+      ? string extends keyof S
+        ? RawString
+        : keyof S
+      : S extends Record<string, Source> // do we need record?
+      ? RawString
       : never
     : never;
 

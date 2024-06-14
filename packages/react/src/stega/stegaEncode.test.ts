@@ -1,5 +1,5 @@
 import { getModuleIds, stegaEncode } from "./stegaEncode";
-import { initVal } from "@valbuild/core";
+import { RawString, Schema, SelectorSource, initVal } from "@valbuild/core";
 import { vercelStegaDecode, vercelStegaSplit } from "@vercel/stega";
 
 const { s, c } = initVal();
@@ -161,6 +161,30 @@ describe("stega transform", () => {
     expect(transformed).toStrictEqual("test");
   });
 
+  test("schema of keyOf objects should be a union of specific strings (not a collapsed 'string')", () => {
+    const schema1 = c.define("/test1.val.ts", s.object({ test: s.string() }), {
+      test: "one",
+    });
+    const schema2 = s.keyOf(schema1);
+    const test: SchemaOf<typeof schema2> = "test";
+    if (test === "test") {
+      expect(true).toBeTruthy();
+    } else {
+      const _exhaustiveCheck: never = test;
+      expect(_exhaustiveCheck).toBeFalsy();
+    }
+  });
+
+  test("type of keyOf when using records should be RawString", () => {
+    const schema1 = c.define("/test1.val.ts", s.record(s.string()), {
+      test: "one",
+    });
+    const schema2 = s.keyOf(schema1);
+    const test: SchemaOf<typeof schema2> = "test" as RawString;
+    const check: RawString = test; // if const test: SchemaOf<typeof schema2> is a string not a RawString, this line will fail on type check
+    expect(check).toBeTruthy();
+  });
+
   test("transform with get modules", () => {
     const schema = s.array(s.string());
     const transformed = stegaEncode(
@@ -203,3 +227,7 @@ describe("stega transform", () => {
     });
   });
 });
+
+type SchemaOf<T extends Schema<SelectorSource>> = T extends Schema<infer S>
+  ? S
+  : never;
