@@ -19,10 +19,7 @@ import { Expr } from "../../expr/expr";
 import { RemoteSelector } from "../remote";
 import type { A } from "ts-toolbelt";
 import { I18nSource, I18nCompatibleSource } from "../../source/future/i18n";
-import {
-  RemoteCompatibleSource,
-  RemoteSource,
-} from "../../source/future/remote";
+import { RemoteCompatibleSource, RemoteSource } from "../../source/remote";
 import { FileSource } from "../../source/file";
 import {
   AnyRichTextOptions,

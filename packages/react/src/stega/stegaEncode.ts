@@ -20,6 +20,7 @@ import { JsonPrimitive } from "@valbuild/core";
 import { SourceArray } from "@valbuild/core";
 import { RawString } from "@valbuild/core";
 import { parseRichTextSource } from "@valbuild/shared/internal";
+import { RemoteCompatibleSource } from "@valbuild/core";
 
 declare const brand: unique symbol;
 
@@ -182,6 +183,19 @@ export type File<Metadata extends FileMetadata> = {
   readonly url: ValEncodedString;
   readonly metadata?: Metadata;
 };
+
+export type StegaOfRemoteSource<T extends RemoteCompatibleSource> =
+  Json extends T
+    ? Json
+    : T extends SourceObject
+    ? {
+        [key in keyof T]: StegaOfRemoteSource<T[key]>;
+      }
+    : T extends SourceArray
+    ? StegaOfRemoteSource<T[number]>[]
+    : T extends JsonPrimitive
+    ? T
+    : never;
 
 export type StegaOfSource<T extends Source> = Json extends T
   ? Json

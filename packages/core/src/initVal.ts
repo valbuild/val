@@ -7,7 +7,7 @@ import { file } from "./source/file";
 import { richtext, image as rtImage } from "./source/richtext";
 import { link } from "./source/link";
 // import { i18n, I18n } from "./source/future/i18n";
-import { remote } from "./source/future/remote";
+import { remote } from "./source/remote";
 
 export type ContentConstructor = {
   define: typeof define;

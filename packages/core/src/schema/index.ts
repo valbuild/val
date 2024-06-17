@@ -1,6 +1,6 @@
 // import { RemoteCompatibleSource, RemoteSource } from "../source/remote";
 import { SelectorSource } from "../selector";
-import { RemoteCompatibleSource, RemoteSource } from "../source/future/remote";
+import { RemoteCompatibleSource, RemoteSource } from "../source/remote";
 import { SourcePath } from "../val";
 import { SerializedArraySchema } from "./array";
 import { SerializedBooleanSchema } from "./boolean";

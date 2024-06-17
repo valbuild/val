@@ -13,6 +13,7 @@ import { FileSource } from "../source/file";
 import { RichText, RichTextOptions, RichTextSource } from "../source/richtext";
 import { ImageMetadata } from "../schema/image";
 import { ImageSelector } from "./image";
+import { RemoteCompatibleSource, RemoteSource } from "../source/remote";
 
 export type Selector<T extends Source> = Source extends T
   ? GenericSelector<T>
@@ -20,6 +21,8 @@ export type Selector<T extends Source> = Source extends T
   ? M extends ImageMetadata
     ? ImageSelector
     : FileSelector<M>
+  : T extends RemoteSource<infer S>
+  ? Selector<S>
   : T extends RichTextSource<infer O>
   ? RichText<O>
   : T extends SourceObject
@@ -45,6 +48,7 @@ export type SelectorSource =
     }
   | FileSource
   | RichTextSource<RichTextOptions>
+  | RemoteSource<RemoteCompatibleSource>
   | GenericSelector<Source>;
 
 /**

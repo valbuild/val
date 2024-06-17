@@ -3,9 +3,28 @@ import Link from "next/link";
 import { useVal } from "../val/client";
 import clientContentVal, { ClientContent } from "./clientContent.val";
 import linksVal from "./links.val";
+import { GenericSelector, SelectorOf, SelectorSource } from "@valbuild/next";
+import { StegaOfSource } from "../../../packages/react/src/stega";
+import remoteTestVal from "../app/remote-test.val";
+import { Schema, SelectorOfSchema } from "../../../packages/core/src";
+import { RemoteSource } from "../../../packages/core/src/source/remote";
+import { UseValType } from "../../../packages/next/src/client/initValClient";
+
+export type T<T extends SelectorSource> = SelectorOf<T> extends GenericSelector<
+  infer S
+>
+  ? StegaOfSource<S>
+  : never;
+
+type A = StegaOfSource<{ test: string }>;
+type B = SelectorOfSchema<Schema<RemoteSource<{ test: string }>>>;
+type C = SelectorOf<B>;
+type D = UseValType<C>;
 
 export function ClientComponent() {
   const content = useVal(clientContentVal);
+  const a = remoteTestVal;
+  const testRemote = useVal(remoteTestVal);
 
   return (
     <div>
@@ -16,6 +35,8 @@ export function ClientComponent() {
           content.arrays
         } /* <- arrays provoked errors in auto-tagging earlier */
       />
+      <h1>Remote content:</h1>
+      <div></div>
     </div>
   );
 }

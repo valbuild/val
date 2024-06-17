@@ -15,6 +15,7 @@ export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
 export type { RawString } from "./schema/string";
 export type { ImageSource } from "./source/image";
+export type { RemoteSource, RemoteCompatibleSource } from "./source/remote";
 export { RT_IMAGE_TAG } from "./source/richtext";
 export type {
   AnyRichTextOptions,
