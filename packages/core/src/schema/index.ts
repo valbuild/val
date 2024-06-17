@@ -42,7 +42,9 @@ export abstract class Schema<Src extends SelectorSource> {
   remote(): Src extends RemoteCompatibleSource
     ? Schema<RemoteSource<Src>>
     : never {
-    throw new Error("You need Val Ultra to use .remote()");
+    // TODO:
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return this as any;
   }
 
   /** MUTATES! since internal and perf sensitive */

@@ -79,7 +79,7 @@ InitVal => {
     },
     c: {
       define,
-      // remote,
+      remote,
       file,
       richtext,
       rt: {

@@ -36,7 +36,7 @@ export function ClientComponent() {
         } /* <- arrays provoked errors in auto-tagging earlier */
       />
       <h1>Remote content:</h1>
-      <div></div>
+      <div>{testRemote.test}</div>
     </div>
   );
 }
