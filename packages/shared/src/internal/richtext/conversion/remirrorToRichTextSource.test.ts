@@ -466,7 +466,7 @@ describe("Remirror to RichTextSource", () => {
       files: {
         "/public/example.png": {
           value: smallPngBuffer,
-          patchPaths: [["0", "children", "0", "src", "0"]],
+          patchPaths: [["0", "children", "0", "src"]],
         },
       },
     });
@@ -588,9 +588,8 @@ describe("Remirror to RichTextSource", () => {
               "children",
               "0", // img
               "src",
-              "0",
             ],
-            ["1", "children", "0", "src", "0"],
+            ["1", "children", "0", "src"],
           ],
         },
       },
