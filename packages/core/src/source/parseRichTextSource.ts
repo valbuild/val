@@ -91,8 +91,8 @@ function parseTokens(
             (line, i) => {
               if (i === lines.length - 1) return [line];
               if (i === lines.length - 1 && line === "") return [];
-              if (line === "") return { tag: "br" };
-              return [line, { tag: "br" }];
+              if (line === "") return [{ tag: "p", children: [{ tag: "br" }] }];
+              return [line, { tag: "p", children: [{ tag: "br" }] }];
             }
           );
           children.push(...tags);
@@ -109,12 +109,17 @@ function parseTokens(
     } else if (token.type === "list_item") {
       children.push({
         tag: "li",
-        children: parseTokens(
-          token.tokens ? token.tokens : [],
-          sourceNodes,
-          0,
-          true
-        ).children as ListItemNode<AllRichTextOptions>["children"],
+        children: [
+          {
+            tag: "p",
+            children: parseTokens(
+              token.tokens ? token.tokens : [],
+              sourceNodes,
+              0,
+              true
+            ).children,
+          },
+        ] as ListItemNode<AllRichTextOptions>["children"],
       });
     } else if (token.type === "space") {
       // do nothing
@@ -167,7 +172,8 @@ function parseTokens(
       const br_html_regex = /<br\s*\/?>/gi; // matches <br>, <br/>, <br />; case insensitive
       if (token.text.trim().match(br_html_regex)) {
         children.push({
-          tag: "br",
+          tag: "p",
+          children: [{ tag: "br" }],
         });
         if (tokens[cursor + 1]?.raw.trim() === "") {
           // if next token is a new line or white-spaces, skip it
@@ -192,7 +198,8 @@ function parseTokens(
       }
     } else if (token.type === "br") {
       children.push({
-        tag: "br",
+        tag: "p",
+        children: [{ tag: "br" }],
       });
     } else {
       console.error(
