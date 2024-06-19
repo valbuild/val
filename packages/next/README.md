@@ -63,7 +63,7 @@ This is release is only for **INTERNAL** **TESTING** PURPOSES.
 
 ## Content as code
 
-Val is a CMS where **content** is **TypeScript** / **JavaScript** files stored in your git repo.
+Val is a CMS library where **content** is **TypeScript** / **JavaScript** files stored in your git repo.
 
 As a CMS, Val is useful because:
 
