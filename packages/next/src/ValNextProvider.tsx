@@ -43,7 +43,10 @@ export const ValNextProvider = (props: {
             if (typeof path === "string" && source !== undefined) {
               valEvents.update(path as ModuleFilePath, source);
             } else {
-              console.error("Val: invalid event detail", event.detail);
+              console.error(
+                "Val: invalid event detail (path not string or source not defined)",
+                event.detail
+              );
             }
           } else if (event.detail.type === "overlay-submit") {
             const { refreshRequired } = event.detail;
@@ -53,7 +56,7 @@ export const ValNextProvider = (props: {
               });
             }
           } else {
-            console.error("Val: invalid event", event);
+            console.error("Val: invalid event type", event);
           }
         }
       };
