@@ -13,6 +13,7 @@ import { ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
 import { ValConfig } from "@valbuild/core";
 import { cookies, draftMode, headers } from "next/headers";
+import { fetchRemoteSource } from "@valbuild/server";
 
 const initFetchValStega =
   (
@@ -88,15 +89,17 @@ const initFetchValStega =
               .then((res) => {
                 if (result.isOk(res)) {
                   const { modules } = res.value;
-                  return stegaEncode(selector, {
-                    disabled: !enabled,
-                    getModule: (path) => {
-                      const module = modules[path as ModuleFilePath];
-                      if (module) {
-                        return module.source;
-                      }
-                    },
-                  });
+                  return fetchRemoteSource(
+                    stegaEncode(selector, {
+                      disabled: !enabled,
+                      getModule: (path) => {
+                        const module = modules[path as ModuleFilePath];
+                        if (module) {
+                          return module.source;
+                        }
+                      },
+                    })
+                  );
                 } else {
                   if (res.error.statusCode === 401) {
                     console.warn(
@@ -117,15 +120,19 @@ const initFetchValStega =
                 "Val: Could not fetch data. This is likely due to a misconfiguration or a bug. Check the console for more details."
               );
             }
-            return stegaEncode(selector, {});
+            return fetchRemoteSource(stegaEncode(selector, {}));
           }) as SelectorOf<T> extends GenericSelector<infer S>
           ? Promise<StegaOfSource<S>>
           : never;
       }
     }
-    return stegaEncode(selector, {
-      disabled: !enabled,
-    });
+    return fetchRemoteSource(
+      stegaEncode(selector, {
+        disabled: !enabled,
+      })
+    ) as SelectorOf<T> extends GenericSelector<infer S>
+      ? Promise<StegaOfSource<S>>
+      : never;
   };
 
 function getHost(headers: Headers) {
