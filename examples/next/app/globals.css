@@ -78,6 +78,13 @@ img {
 
 .rt-paragraph {
   margin: 1em 0;
+  line-height: 1.2;
+}
+
+.rt-paragraph:empty {
+  /* display: block;  */
+  height: calc(1em * 1.2);
+  margin: 0;
 }
 
 .rt-link {

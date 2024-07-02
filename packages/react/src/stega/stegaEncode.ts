@@ -3,7 +3,6 @@ import {
   Json,
   Internal,
   RichTextSource,
-  RichText,
   VAL_EXTENSION,
   FILE_REF_PROP,
   SerializedSchema,
@@ -13,13 +12,14 @@ import {
   SerializedLiteralSchema,
   ImageMetadata,
   FileMetadata,
+  RichTextOptions,
+  ImageSource,
 } from "@valbuild/core";
 import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core";
 import { SourceArray } from "@valbuild/core";
 import { RawString } from "@valbuild/core";
-import { parseRichTextSource } from "@valbuild/shared/internal";
 
 declare const brand: unique symbol;
 
@@ -183,6 +183,27 @@ export type File<Metadata extends FileMetadata> = {
   readonly metadata?: Metadata;
 };
 
+export type StegaOfRichTextSource<T extends Source> = Json extends T
+  ? Json
+  : T extends ImageSource
+  ? Image
+  : T extends SourceObject
+  ? {
+      [key in keyof T]: StegaOfRichTextSource<T[key]>;
+    }
+  : T extends SourceArray
+  ? StegaOfRichTextSource<T[number]>[]
+  : T extends JsonPrimitive
+  ? T
+  : never;
+
+/**
+ * RichText is accessible by users (after conversion via useVal / fetchVal)
+ **/
+export type RichText<O extends RichTextOptions> = StegaOfRichTextSource<
+  RichTextSource<O>
+> & { valPath: string };
+
 export type StegaOfSource<T extends Source> = Json extends T
   ? Json
   : T extends RichTextSource<infer O>
@@ -279,6 +300,11 @@ export function stegaEncode(
         });
       }
     }
+    if (recOpts?.schema && isRichTextSchema(recOpts.schema)) {
+      const res = rec(sourceOrSelector);
+      res.valPath = recOpts.path;
+      return res;
+    }
 
     if (typeof sourceOrSelector === "object") {
       if (!sourceOrSelector) {
@@ -297,17 +323,6 @@ export function stegaEncode(
       }
 
       if (VAL_EXTENSION in sourceOrSelector) {
-        if (sourceOrSelector[VAL_EXTENSION] === "richtext") {
-          if (recOpts?.path) {
-            return {
-              ...parseRichTextSource(sourceOrSelector),
-              valPath: recOpts.path,
-            };
-          }
-
-          return parseRichTextSource(sourceOrSelector);
-        }
-
         if (
           sourceOrSelector[VAL_EXTENSION] === "file" &&
           typeof sourceOrSelector[FILE_REF_PROP] === "string"
@@ -429,6 +444,12 @@ function isKeyOfSchema(
   schema: SerializedSchema | undefined
 ): schema is SerializedUnionSchema {
   return schema?.type === "keyOf";
+}
+
+function isRichTextSchema(
+  schema: SerializedSchema | undefined
+): schema is SerializedObjectSchema {
+  return schema?.type === "richtext";
 }
 
 function isObjectSchema(

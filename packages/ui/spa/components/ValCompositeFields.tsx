@@ -10,16 +10,14 @@ import {
   SerializedArraySchema,
   Internal,
   VAL_EXTENSION,
-  RichTextSource,
-  AnyRichTextOptions,
+  AllRichTextOptions,
   FILE_REF_PROP,
   FileSource,
   ImageMetadata,
-  RichText,
   RichTextNode,
   ModulePath,
+  RichTextSource,
 } from "@valbuild/core";
-import { parseRichTextSource } from "@valbuild/shared/internal";
 import classNames from "classnames";
 import React, { useState, useEffect, Fragment } from "react";
 import { createPortal } from "react-dom";
@@ -722,12 +720,6 @@ function ValPreview({
   path: SourcePath;
   schema: SerializedSchema;
 }): React.ReactElement {
-  const [isMouseOver, setIsMouseOver] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
-  const hoverElem = useValImagePreviewContext()?.hoverElem;
-
   if (schema.type === "object") {
     return (
       <div
@@ -792,7 +784,7 @@ function ValPreview({
         </div>
       );
     }
-    if (!(VAL_EXTENSION in source) || source[VAL_EXTENSION] !== "richtext") {
+    if (!Array.isArray(source)) {
       return (
         <div
           key={path}
@@ -803,9 +795,7 @@ function ValPreview({
       );
     }
     return (
-      <ValRichText key={path}>
-        {parseRichTextSource(source as RichTextSource<AnyRichTextOptions>)}
-      </ValRichText>
+      <ValRichTextPreview key={path}>{{ children: source }}</ValRichTextPreview>
     );
   } else if (schema.type === "string") {
     if (source === null) {
@@ -847,41 +837,7 @@ function ValPreview({
         </div>
       );
     }
-    const url = Internal.convertFileSource(
-      source as FileSource<ImageMetadata>
-    ).url;
-    return (
-      <span
-        key={path}
-        onMouseOver={(ev) => {
-          setIsMouseOver({
-            x: ev.clientX,
-            y: ev.clientY,
-          });
-        }}
-        onMouseLeave={() => {
-          setIsMouseOver(null);
-        }}
-        className="relative flex items-center justify-start gap-1"
-      >
-        <a href={url} className="overflow-hidden underline truncate ">
-          {source[FILE_REF_PROP]}
-        </a>
-        {isMouseOver &&
-          hoverElem &&
-          createPortal(
-            <img
-              className="absolute z-[5] max-w-[10vw]"
-              style={{
-                left: isMouseOver.x + 10,
-                top: isMouseOver.y + 10,
-              }}
-              src={url}
-            ></img>,
-            hoverElem
-          )}
-      </span>
-    );
+    return <ValImagePreview key={path} source={source} />;
   } else if (schema.type === "boolean") {
     if (source === null) {
       return (
@@ -920,6 +876,58 @@ function ValPreview({
   }
 
   return <div key={path}>TODO: {schema.type}</div>;
+}
+
+function ValImagePreview({ source }: { source: JsonObject }) {
+  const [isMouseOver, setIsMouseOver] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const hoverElem = useValImagePreviewContext()?.hoverElem;
+  const fileSource = source as FileSource<ImageMetadata>;
+  if (
+    source[FILE_REF_PROP] === undefined ||
+    typeof source[FILE_REF_PROP] !== "string"
+  ) {
+    console.warn("Invalid image source (cannot display preview)", source);
+    return null;
+  }
+  const url = Internal.convertFileSource(fileSource).url;
+  if (typeof url !== "string" || !url.startsWith("/")) {
+    console.warn("Invalid image url (cannot display preview)", url);
+    return null;
+  }
+  return (
+    <span
+      onMouseOver={(ev) => {
+        setIsMouseOver({
+          x: ev.clientX,
+          y: ev.clientY,
+        });
+      }}
+      onMouseLeave={() => {
+        setIsMouseOver(null);
+      }}
+      className="relative flex items-center justify-start gap-1"
+    >
+      <a href={url} className="overflow-hidden underline truncate ">
+        {fileSource[FILE_REF_PROP]}
+      </a>
+      {isMouseOver &&
+        hoverElem &&
+        createPortal(
+          <img
+            className="absolute z-[5] max-w-[10vw]"
+            style={{
+              left: isMouseOver.x + 10,
+              top: isMouseOver.y + 10,
+            }}
+            src={url}
+          ></img>,
+          hoverElem
+        )}
+    </span>
+  );
 }
 
 function ValNullable({
@@ -1165,14 +1173,13 @@ const theme: { tags: Record<string, string>; classes: Record<string, string> } =
     },
   };
 
-export function ValRichText({
-  children,
+export function ValRichTextPreview({
+  children: root,
 }: {
-  children: RichText<AnyRichTextOptions>;
-}) {
-  const root = children as RichText<AnyRichTextOptions> & {
-    valPath: SourcePath;
+  children: {
+    children: RichTextSource<AllRichTextOptions>;
   };
+}) {
   function withRenderTag(clazz: string, current?: string) {
     const renderClass = theme.tags[clazz];
     if (renderClass && current) {
@@ -1195,11 +1202,15 @@ export function ValRichText({
   }
 
   function toReact(
-    node: RichTextNode<AnyRichTextOptions>,
+    node: RichTextNode<AllRichTextOptions>,
     key: number | string
   ): React.ReactNode {
     if (typeof node === "string") {
       return node;
+    }
+    if (VAL_EXTENSION in node) {
+      // TODO:
+      return <img></img>;
     }
     if (node.tag === "p") {
       return (
@@ -1207,9 +1218,6 @@ export function ValRichText({
           {node.children.map((child, key) => toReact(child, key))}
         </p>
       );
-    }
-    if (node.tag === "img") {
-      return <img className={withRenderTag("img")} key={key} src={node.src} />;
     }
     if (node.tag === "ul") {
       return (
@@ -1236,7 +1244,7 @@ export function ValRichText({
       return (
         <span
           key={key}
-          className={node.classes
+          className={node.styles
             .map((nodeClass) => {
               switch (nodeClass) {
                 case "bold":
@@ -1306,8 +1314,14 @@ export function ValRichText({
         </a>
       );
     }
-    console.error("Unknown tag", node.tag);
-    const _exhaustiveCheck: never = node.tag;
+    if (node.tag === "img") {
+      return <ValImagePreview source={node.src} />;
+    }
+
+    const _exhaustiveCheck: never = node;
+    console.error(
+      "Unexpected RichText node: " + JSON.stringify(_exhaustiveCheck)
+    );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const anyNode = _exhaustiveCheck as any;
     if (!anyNode?.tag) {
@@ -1321,7 +1335,7 @@ export function ValRichText({
   }
 
   return (
-    <span data-val-path={root.valPath}>
+    <span>
       {root.children.map((child, i) => {
         return toReact(child, i);
       })}

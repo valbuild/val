@@ -6,8 +6,11 @@ export {
   stegaClean,
   type ValEncodedString,
   type StegaOfSource,
+  type StegaOfRichTextSource,
+  type File,
+  type Image,
+  type RichText,
 } from "./stegaEncode";
-export { type Image } from "./stegaEncode";
 export { stegaDecodeString } from "./stegaDecodeString";
 let autoTagJSXEnabled = false;
 export function IS_AUTO_TAG_JSX_ENABLED() {

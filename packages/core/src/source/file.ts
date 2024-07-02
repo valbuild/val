@@ -2,7 +2,7 @@ import { VAL_EXTENSION } from ".";
 import { Json } from "../Json";
 
 export const FILE_REF_PROP = "_ref" as const;
-export const FILE_REF_SUBTYPE_TAG = "_tag" as const;
+export const FILE_REF_SUBTYPE_TAG = "_tag" as const; // TODO: used earlier by c.rt.image, when we remove c.rt we can remove this
 
 export type FileMetadata = { readonly [key: string]: Json };
 

@@ -80,7 +80,11 @@ export type Operation =
     }
   | {
       op: "file";
+      /** path of the top-most element where the schema of the element points to */
       path: string[];
+      /** file path relative to project (starts with /public, e.g. /public/example.png) */
       filePath: string;
+      /** files can be nested within an object (for richtext), in order to find the actual file element this path can be used (we use this to add the patch_id on files) */
+      nestedFilePath?: string[];
       value: JSONValue;
     };
