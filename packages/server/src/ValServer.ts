@@ -770,19 +770,20 @@ export class ValServer {
             },
           };
         }
-        for (const fileRes of createPatchRes.files) {
-          if (fileRes.error) {
-            // clean up broken patch:
-            await this.serverOps.deletePatches([createPatchRes.patchId]);
-            return {
-              status: 500,
-              json: {
-                message: "Failed to create patch",
-                details: fileRes.error,
-              },
-            };
-          }
-        }
+        // TODO: evaluate if we need this: seems wrong to delete patches that are not applied
+        // for (const fileRes of createPatchRes.files) {
+        //   if (fileRes.error) {
+        //     // clean up broken patch:
+        //     await this.serverOps.deletePatches([createPatchRes.patchId]);
+        //     return {
+        //       status: 500,
+        //       json: {
+        //         message: "Failed to create patch",
+        //         details: fileRes.error,
+        //       },
+        //     };
+        //   }
+        // }
         patchOps.patches[createPatchRes.patchId] = {
           path: newPatchModuleFilePath,
           patch: newPatchOps,
