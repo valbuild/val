@@ -9,6 +9,7 @@ import {
   Internal,
   ModuleFilePath,
   PatchId,
+  RichTextSchema,
   Schema,
   SelectorSource,
   Source,
@@ -335,7 +336,9 @@ export abstract class ValOps {
               fileFixOps[op.path.join("/")] = [
                 {
                   op: "add",
-                  path: op.path.concat("patch_id"),
+                  path: op.path
+                    .concat(...(op.nestedFilePath || []))
+                    .concat("patch_id"),
                   value: patchId,
                 },
               ];
@@ -890,6 +893,7 @@ export abstract class ValOps {
             op: "file",
             path: op.path,
             filePath,
+            nestedFilePath: op.nestedFilePath,
             value: {
               sha256,
             },
@@ -906,7 +910,6 @@ export abstract class ValOps {
       return { error: saveRes.error };
     }
     const patchId = saveRes.patchId;
-
     const saveFileRes: { filePath: string; error?: PatchError }[] =
       await Promise.all(
         Object.entries(files).map(
@@ -926,11 +929,12 @@ export abstract class ValOps {
                   schema
                 );
                 type =
-                  schemaAtPath instanceof ImageSchema
+                  schemaAtPath instanceof ImageSchema ||
+                  schemaAtPath instanceof RichTextSchema // if it's a rich text schema, we assume it's an image - hope this assumption holds!
                     ? "image"
                     : schemaAtPath instanceof FileSchema
                     ? "file"
-                    : schema.serialize().type;
+                    : schemaAtPath.serialize().type;
               } catch (e) {
                 if (e instanceof Error) {
                   return {

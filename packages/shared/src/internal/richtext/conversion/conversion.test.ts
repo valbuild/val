@@ -1,105 +1,334 @@
-import { initVal, RichTextSource, AnyRichTextOptions } from "@valbuild/core";
+import { AllRichTextOptions, RichTextSource } from "@valbuild/core";
 
-import { parseRichTextSource } from "./parseRichTextSource";
 import { remirrorToRichTextSource } from "./remirrorToRichTextSource";
 import { richTextToRemirror } from "./richTextToRemirror";
-import { stringifyRichTextSource } from "./stringifyRichTextSource";
 
-const { c } = initVal();
 const cases: {
   description: string;
-  input: RichTextSource<AnyRichTextOptions>;
+  input: RichTextSource<AllRichTextOptions>;
 }[] = [
   {
     description: "basic",
-    input: c.richtext`
-# Title 1
-
-## Title 2
-
-### Title 3
-
-#### Title 4
-
-##### Title 5
-
-###### Title 6
-
-Some paragraph. Another sentence.
-
-Another paragraph.
-
-Formatting: **bold**, _italic_, ~~line-through~~, ***bold and italic***.
-
-- List 1
-    1. List 1.1
-    1. List 1.2
-`,
+    input: [
+      {
+        tag: "h1",
+        children: ["Title 1"],
+      },
+      {
+        tag: "h2",
+        children: ["Title 2"],
+      },
+      {
+        tag: "h3",
+        children: ["Title 3"],
+      },
+      {
+        tag: "h4",
+        children: ["Title 4"],
+      },
+      {
+        tag: "h5",
+        children: ["Title 5"],
+      },
+      {
+        tag: "h6",
+        children: ["Title 6"],
+      },
+      {
+        tag: "p",
+        children: ["Some paragraph. Another sentence."],
+      },
+      {
+        tag: "p",
+        children: ["Another paragraph."],
+      },
+      {
+        tag: "p",
+        children: [
+          "Formatting: ",
+          {
+            tag: "span",
+            styles: ["bold"],
+            children: ["bold"],
+          },
+          ", ",
+          {
+            tag: "span",
+            styles: ["italic"],
+            children: ["italic"],
+          },
+          ", ",
+          {
+            tag: "span",
+            styles: ["line-through"],
+            children: ["line-through"],
+          },
+          ", ",
+          {
+            tag: "span",
+            styles: ["italic", "bold"],
+            children: ["bold and italic"],
+          },
+          ".",
+        ],
+      },
+      {
+        tag: "ul",
+        children: [
+          {
+            tag: "li",
+            children: [
+              { tag: "p", children: ["List 1"] },
+              {
+                tag: "ol",
+                children: [
+                  {
+                    tag: "li",
+                    children: [{ tag: "p", children: ["List 1.1"] }],
+                  },
+                  {
+                    tag: "li",
+                    children: [{ tag: "p", children: ["List 1.2"] }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
   },
   {
     description: "all features",
-    input: c.richtext`
-# Title 1
-
-Title 1 content.
-
-## Title 2
-
-Title 2 content.
-
-### Title 3
-
-Title 3 content.
-
-#### Title 4
-
-Title 4 content.
-
-##### Title 5
-
-###### Title 6
-
-Some paragraph. Another sentence.
-
-Another paragraph.
-
-Formatting: **bold**, _italic_, ~~line-through~~, ***bold and italic***.
-
-- List 1
-    1. List 1.1
-    1. List 1.2
-
-Inline link: ${c.rt.link("**link**", { href: "https://link.com" })}
-
-<br />
-
-Block link:
-
-${c.rt.link("**link**", { href: "https://link.com" })}
-
-<br />
-
-Block Image:
-
-${c.rt.image("/public/test.jpg", {
-  width: 100,
-  height: 100,
-  sha256: "123",
-  mimeType: "image/jpeg",
-})}
-
-<br />
-
-<br />
-
-- List 1
-    1. List 1.1
-    1. List 1.2
-- List 2
-- List 3
-    1. Formatted **list**<br />
-Test 123
-`,
+    input: [
+      {
+        tag: "h1",
+        children: ["Title 1"],
+      },
+      {
+        tag: "p",
+        children: ["Title 1 content."],
+      },
+      {
+        tag: "h2",
+        children: ["Title 2"],
+      },
+      {
+        tag: "p",
+        children: ["Title 2 content."],
+      },
+      {
+        tag: "h3",
+        children: ["Title 3"],
+      },
+      {
+        tag: "p",
+        children: ["Title 3 content."],
+      },
+      {
+        tag: "h4",
+        children: ["Title 4"],
+      },
+      {
+        tag: "p",
+        children: ["Title 4 content."],
+      },
+      {
+        tag: "h5",
+        children: ["Title 5"],
+      },
+      {
+        tag: "h6",
+        children: ["Title 6"],
+      },
+      {
+        tag: "p",
+        children: ["Some paragraph. Another sentence."],
+      },
+      {
+        tag: "p",
+        children: ["Another paragraph."],
+      },
+      {
+        tag: "p",
+        children: [
+          "Formatting: ",
+          {
+            tag: "span",
+            styles: ["bold"],
+            children: ["bold"],
+          },
+          ", ",
+          {
+            tag: "span",
+            styles: ["italic"],
+            children: ["italic"],
+          },
+          ", ",
+          {
+            tag: "span",
+            styles: ["line-through"],
+            children: ["line-through"],
+          },
+          ", ",
+          {
+            tag: "span",
+            styles: ["italic", "bold"],
+            children: ["bold and italic"],
+          },
+          ".",
+        ],
+      },
+      {
+        tag: "ul",
+        children: [
+          {
+            tag: "li",
+            children: [
+              { tag: "p", children: ["List 1"] },
+              {
+                tag: "ol",
+                children: [
+                  {
+                    tag: "li",
+                    children: [{ tag: "p", children: ["List 1.1"] }],
+                  },
+                  {
+                    tag: "li",
+                    children: [{ tag: "p", children: ["List 1.2"] }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        tag: "p",
+        children: [
+          "Inline link: ",
+          {
+            tag: "a",
+            href: "https://link.com",
+            children: ["inline link"],
+          },
+        ],
+      },
+      {
+        tag: "p",
+        children: [{ tag: "br" }],
+      },
+      {
+        tag: "p",
+        children: ["Block link:"],
+      },
+      {
+        tag: "p",
+        children: [
+          {
+            tag: "a",
+            href: "https://link.com",
+            children: ["block link"],
+          },
+        ],
+      },
+      {
+        tag: "p",
+        children: [{ tag: "br" }],
+      },
+      {
+        tag: "p",
+        children: ["Block Image:"],
+      },
+      {
+        tag: "p",
+        children: [
+          {
+            tag: "img",
+            src: {
+              _ref: "/public/test.jpg",
+              _type: "file",
+              metadata: {
+                width: 100,
+                height: 100,
+                sha256: "123",
+                mimeType: "image/jpeg",
+              },
+            },
+          },
+        ],
+      },
+      {
+        tag: "p",
+        children: [{ tag: "br" }],
+      },
+      {
+        tag: "p",
+        children: [{ tag: "br" }],
+      },
+      {
+        tag: "ul",
+        children: [
+          {
+            tag: "li",
+            children: [
+              { tag: "p", children: ["List 1"] },
+              {
+                tag: "ol",
+                children: [
+                  {
+                    tag: "li",
+                    children: [{ tag: "p", children: ["List 1.1"] }],
+                  },
+                  {
+                    tag: "li",
+                    children: [{ tag: "p", children: ["List 1.2"] }],
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            tag: "li",
+            children: [{ tag: "p", children: ["List 2"] }],
+          },
+          {
+            tag: "li",
+            children: [
+              { tag: "p", children: ["List 3"] },
+              {
+                tag: "ol",
+                children: [
+                  {
+                    tag: "li",
+                    children: [
+                      {
+                        tag: "p",
+                        children: [
+                          "Formatted ",
+                          {
+                            tag: "span",
+                            styles: ["bold"],
+                            children: ["list"],
+                          },
+                          {
+                            tag: "br",
+                          },
+                          {
+                            tag: "br",
+                          },
+                          "Test 123",
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
   },
 ];
 
@@ -107,11 +336,7 @@ describe("isomorphic richtext <-> conversion", () => {
   test.each(cases)("$description", ({ input }) => {
     const inputSource = input;
 
-    const res = remirrorToRichTextSource(
-      richTextToRemirror(parseRichTextSource(inputSource))
-    );
-    const output = stringifyRichTextSource(res);
-    // console.log("EOF>>" + output + "<<EOF");
-    expect(output).toStrictEqual(stringifyRichTextSource(inputSource));
+    const res = remirrorToRichTextSource(richTextToRemirror(inputSource));
+    expect(res.blocks).toStrictEqual(inputSource);
   });
 });

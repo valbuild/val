@@ -24,11 +24,8 @@ import {
   RemoteSource,
 } from "../../source/future/remote";
 import { FileSource } from "../../source/file";
-import {
-  AnyRichTextOptions,
-  RichText,
-  RichTextSource,
-} from "../../source/richtext";
+import { AllRichTextOptions, RichTextSource } from "../../source/richtext";
+import { RichTextSelector } from "../richtext";
 
 /**
  * Selectors can be used to select parts of a Val module.
@@ -62,7 +59,7 @@ export type Selector<T extends Source> = Source extends T
   : T extends FileSource
   ? FileSelector
   : T extends RichTextSource<infer O>
-  ? RichText<O>
+  ? RichTextSelector<O>
   : T extends SourceObject
   ? ObjectSelector<T>
   : T extends SourceArray
@@ -87,7 +84,7 @@ export type SelectorSource =
   | I18nSource<readonly string[], I18nCompatibleSource>
   | RemoteSource<RemoteCompatibleSource>
   | FileSource
-  | RichTextSource<AnyRichTextOptions>
+  | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;
 
 /**

@@ -8,7 +8,6 @@ import { number } from "./number";
 import { object } from "./object";
 import { string } from "./string";
 import { file as fileVal } from "../source/file";
-import { richtext as richtextVal } from "../source/richtext";
 import { image } from "./image";
 import { ValidationFix } from "./validation/ValidationFix";
 import {
@@ -315,9 +314,9 @@ const ValidationTestCases: {
   // richtext
   {
     description: "basic richtext",
-    input: richtextVal`test`,
+    input: [{ tag: "p", children: ["test"] }],
     expected: false,
-    schema: richtext({ bold: true }),
+    schema: richtext({ style: { bold: true } }),
   },
   // TODO: more richtext cases
   {

@@ -19,6 +19,18 @@ export class RichTextSchema<
   }
 
   validate(path: SourcePath, src: Src): ValidationErrors {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((src as any)?.markdownish) {
+      return {
+        [path]: [
+          {
+            message: "Replace markdown with structured format",
+            value: src,
+            fixes: ["fix:deprecated-richtext"],
+          },
+        ],
+      };
+    }
     return false; //TODO
   }
 

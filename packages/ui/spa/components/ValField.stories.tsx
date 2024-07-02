@@ -84,11 +84,9 @@ export const BasicRichTextField: Story = {
   args: {
     ...DefaultArgs,
     path: "/basic/richText" as SourcePath,
-    ...create(s.richtext(), {
-      _type: "richtext",
-      exprs: [],
-      templateStrings: ["# Title 1"],
-    }),
+    ...create(s.richtext({ block: { h1: true } }), [
+      { tag: "h1", children: ["Title 1"] },
+    ]),
   },
 };
 

@@ -1,5 +1,5 @@
 import {
-  AnyRichTextOptions,
+  AllRichTextOptions,
   FILE_REF_PROP,
   FileMetadata,
   ImageMetadata,
@@ -19,13 +19,12 @@ import {
   ValidationError,
   ValidationErrors,
 } from "@valbuild/core";
-import type { Patch } from "@valbuild/core/patch";
+import type { Operation, Patch } from "@valbuild/core/patch";
 import { useState, useEffect, useRef, ChangeEvent } from "react";
 import {
   RemirrorJSON as ValidRemirrorJSON,
   getMimeType,
   mimeTypeToFileExt,
-  parseRichTextSource,
   remirrorToRichTextSource,
   richTextToRemirror,
 } from "@valbuild/shared/internal";
@@ -162,7 +161,7 @@ export function ValFormField({
       <RichTextField
         schema={schema}
         onSubmit={onSubmit}
-        defaultValue={source as RichTextSource<AnyRichTextOptions>}
+        defaultValue={source as RichTextSource<AllRichTextOptions>}
       />
     );
   }
@@ -669,34 +668,34 @@ function ImageField({
   );
 }
 
-function createRichTextPatch(path: string[], content?: ValidRemirrorJSON) {
-  const { templateStrings, exprs, files } = content
+function createRichTextPatch(
+  path: string[],
+  content?: ValidRemirrorJSON
+): Patch {
+  console.log("content", content);
+  const { blocks, files } = content
     ? remirrorToRichTextSource(content)
-    : ({
-        [VAL_EXTENSION]: "richtext",
-        templateStrings: [""],
-        exprs: [],
+    : {
+        blocks: [],
         files: {},
-      } as RichTextSource<AnyRichTextOptions> & {
-        files: Record<string, string>;
-      });
+      };
+  console.log("blocks", blocks);
   return [
     {
       op: "replace" as const,
       path,
-      value: {
-        templateStrings,
-        exprs,
-        [VAL_EXTENSION]: "richtext",
-      },
+      value: blocks,
     },
-    ...Object.entries(files).map(([filePath, value]) => {
-      return {
-        op: "file" as const,
-        path,
-        filePath,
-        value,
-      };
+    ...Object.entries(files).flatMap(([filePath, { value, patchPaths }]) => {
+      return patchPaths.map(
+        (patchPath): Operation => ({
+          op: "file" as const,
+          path,
+          filePath,
+          value,
+          nestedFilePath: patchPath,
+        })
+      );
     }),
   ];
 }
@@ -707,7 +706,7 @@ function RichTextField({
 }: {
   onSubmit?: OnSubmit;
   schema: SerializedRichTextSchema;
-  defaultValue?: RichTextSource<AnyRichTextOptions>;
+  defaultValue?: RichTextSource<AllRichTextOptions>;
 }) {
   const [didChange, setDidChange] = useState(false);
   const [content, setContent] = useState<RemirrorJSON>();
@@ -716,7 +715,7 @@ function RichTextField({
     setContent(undefined);
   }, [defaultValue]);
   const { state, manager } = useRichTextEditor(
-    defaultValue && richTextToRemirror(parseRichTextSource(defaultValue))
+    defaultValue && richTextToRemirror(defaultValue)
   );
 
   const submitStatus = useBounceSubmit<RemirrorJSON | undefined>(

@@ -1,7 +1,7 @@
 import { SourcePrimitive, VAL_EXTENSION, PhantomType } from "..";
 import { FileSource } from "../file";
 import { I18nCompatibleSource, I18nSource } from "./i18n";
-import { AnyRichTextOptions, RichTextSource } from "../richtext";
+import { AllRichTextOptions, RichTextSource } from "../richtext";
 
 /**
  * Remote sources cannot include other remote sources.
@@ -10,7 +10,7 @@ export type RemoteCompatibleSource =
   | SourcePrimitive
   | RemoteObject
   | RemoteArray
-  | RichTextSource<AnyRichTextOptions>
+  | RichTextSource<AllRichTextOptions>
   | FileSource
   | I18nSource<string[], I18nCompatibleSource>;
 export type RemoteObject = { [key in string]: RemoteCompatibleSource };

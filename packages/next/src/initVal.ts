@@ -3,8 +3,6 @@ import {
   type ValConfig,
   type InitVal,
   type ValConstructor,
-  RichText,
-  AnyRichTextOptions,
   ValModule,
   SelectorSource,
   Json,
@@ -21,11 +19,7 @@ export const initVal = (
 ): InitVal & {
   val: ValConstructor & {
     raw: typeof raw;
-    attrs: <
-      T extends ValModule<SelectorSource> | Json | RichText<AnyRichTextOptions>
-    >(
-      target: T
-    ) => ValAttrs;
+    attrs: <T extends ValModule<SelectorSource> | Json>(target: T) => ValAttrs;
     unstable_decodeValPathOfString: typeof decodeValPathOfString;
   };
 } => {
@@ -39,12 +33,7 @@ export const initVal = (
     c,
     val: {
       ...val,
-      attrs: <
-        T extends
-          | ValModule<SelectorSource>
-          | Json
-          | RichText<AnyRichTextOptions>
-      >(
+      attrs: <T extends ValModule<SelectorSource> | Json>(
         target: T
       ): ValAttrs => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

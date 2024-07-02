@@ -116,25 +116,26 @@ globalThis.valModule = {
       ) {
         if (valModule.path !== moduleFilePath) {
           fatalErrors.push(
-            `Wrong c.define id! Expected: '${moduleFilePath}', found: '${valModule.path}'`
+            `Wrong c.define path! Expected: '${moduleFilePath}', found: '${valModule.path}'`
           );
         } else if (
-          encodeURIComponent(valModule.id).replace(/%2F/g, "/") !== valModule.id
+          encodeURIComponent(valModule.path).replace(/%2F/g, "/") !==
+          valModule.path
         ) {
           fatalErrors.push(
-            `Invalid c.define id! Must be a web-safe path without escape characters, found: '${
-              valModule.id
+            `Invalid c.define path! Must be a web-safe path without escape characters, found: '${
+              valModule.path
             }', which was encoded as: '${encodeURIComponent(
-              valModule.id
+              valModule.path
             ).replace("%2F", "/")}'`
           );
         } else if (valModule?.schema === undefined && options.schema) {
           fatalErrors.push(
-            `Expected val id: '${moduleFilePath}' to have a schema`
+            `Expected val path: '${moduleFilePath}' to have a schema`
           );
         } else if (valModule?.source === undefined && options.source) {
           fatalErrors.push(
-            `Expected val id: '${moduleFilePath}' to have a source`
+            `Expected val path: '${moduleFilePath}' to have a source`
           );
         }
       }
@@ -155,7 +156,7 @@ globalThis.valModule = {
         };
       }
       return {
-        path: valModule.id || moduleFilePath, // NOTE: we use path here, since SerializedModuleContent (maybe bad name?) can be used for whole modules as well as subparts of modules
+        path: valModule.path || moduleFilePath, // NOTE: we use path here, since SerializedModuleContent (maybe bad name?) can be used for whole modules as well as subparts of modules
         source: valModule.source,
         schema: valModule.schema,
         errors,
