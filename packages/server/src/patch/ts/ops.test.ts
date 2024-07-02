@@ -3,14 +3,6 @@ import { TSOps } from "./ops";
 import { result, array, pipe } from "@valbuild/core/fp";
 import { PatchError, JSONValue } from "@valbuild/core/patch";
 import { ValSyntaxError } from "./syntax";
-import {
-  AllRichTextOptions,
-  FILE_REF_PROP,
-  FILE_REF_SUBTYPE_TAG,
-  RT_IMAGE_TAG,
-  RichTextSource,
-  VAL_EXTENSION,
-} from "@valbuild/core";
 
 function testSourceFile(expression: string): ts.SourceFile {
   return ts.createSourceFile(
