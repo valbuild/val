@@ -26,6 +26,48 @@ export class ValStore {
     this.schema = {};
   }
 
+  async reloadPaths(paths: ModuleFilePath[]) {
+    const patches = await this.api.getPatches();
+    if (result.isErr(patches)) {
+      console.error("Val: failed to get patches", patches.error);
+      return;
+    }
+    const filteredPatches = Object.entries(patches.value).flatMap(
+      ([patchModuleFilePath, mp]) => {
+        if (paths.includes(patchModuleFilePath as ModuleFilePath)) {
+          return mp.map((p) => p.patch_id);
+        } else {
+          return [];
+        }
+      }
+    );
+
+    const data = await this.api.putTree({
+      patchIds: filteredPatches,
+    });
+    await this.initialize();
+    if (result.isOk(data)) {
+      for (const pathS of Object.keys(data.value.modules)) {
+        const path = pathS as ModuleFilePath;
+        this.drafts[path] = data.value.modules[path].source;
+        this.emitEvent(path, this.drafts[path]);
+        for (const [subscriberId, subscriberModules] of Array.from(
+          this.subscribers.entries()
+        )) {
+          if (subscriberModules[path]) {
+            this.subscribers.set(subscriberId, {
+              ...subscriberModules,
+              [path]: this.drafts[path],
+            });
+            this.emitChange(subscriberId);
+          }
+        }
+      }
+    } else {
+      console.error("Val: failed to reload paths", paths, data.error);
+    }
+  }
+
   async reset() {
     const patches = await this.api.getPatches();
     if (result.isErr(patches)) {

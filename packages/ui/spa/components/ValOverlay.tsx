@@ -3,6 +3,7 @@ import {
   SetStateAction,
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { ValMenu } from "./ValMenu";
@@ -47,8 +48,29 @@ export function ValOverlay({
   const [hoverTarget, setHoverTarget] = useHoverTarget(editMode);
   const [windowTarget, setWindowTarget] = useState<WindowTarget | null>(null);
   const paths = windowTarget?.path ? windowTarget.path.split(",") : [];
+
+  const lastResetPatchesId = useRef("");
+  const currentPatchesId = useRef("");
   useEffect(() => {
     store.reset();
+    const valStoreListener = (event: Event) => {
+      if (event instanceof CustomEvent) {
+        if (event.detail.type === "reload-paths") {
+          // Avoid reloading unless the patches have changed since last time reload was called
+          // This would lead to an infinite loop
+          if (lastResetPatchesId.current !== currentPatchesId.current) {
+            lastResetPatchesId.current = currentPatchesId.current;
+            store.reloadPaths(event.detail.paths);
+          }
+        } else {
+          console.error("Val: invalid store event", event);
+        }
+      }
+    };
+    window.addEventListener("val-store", valStoreListener);
+    return () => {
+      window.removeEventListener("val-store", valStoreListener);
+    };
   }, [store]);
 
   const [formData, setFormData] = useState<ValData>(
@@ -113,6 +135,9 @@ export function ValOverlay({
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
   const [patches, setPatches] = useState<PatchId[]>([]);
+  useEffect(() => {
+    currentPatchesId.current = patches.map(String).join(";");
+  }, [patches]);
   const [patchResetId, setPatchResetId] = useState(0);
 
   useEffect(() => {
