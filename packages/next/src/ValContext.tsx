@@ -11,6 +11,16 @@ export class ValEvents {
     this.listeners = {};
   }
 
+  reloadPaths(paths: ModuleFilePath[]) {
+    const event = new CustomEvent("val-store", {
+      detail: {
+        type: "reload-paths",
+        paths,
+      },
+    });
+    window.dispatchEvent(event);
+  }
+
   subscribe = (paths: ModuleFilePath[]) => (listener: () => void) => {
     const subscriberId = createSubscriberId(paths);
     if (!this.listeners[subscriberId]) {

@@ -26,6 +26,13 @@ function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
   }, [valEvents]);
   if (valEvents) {
     const moduleIds = getModuleIds(selector) as ModuleFilePath[];
+    React.useEffect(() => {
+      // NOTE: we need to know when a re-render has happened so we can reload the modules if necessary.
+      // TODO: feels like we can do some optimizations here
+      if (enabled) {
+        valEvents.reloadPaths(moduleIds);
+      }
+    });
     const moduleMap = React.useSyncExternalStore(
       valEvents.subscribe(moduleIds),
       valEvents.getSnapshot(moduleIds),
