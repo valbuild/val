@@ -302,7 +302,9 @@ export function stegaEncode(
     }
     if (recOpts?.schema && isRichTextSchema(recOpts.schema)) {
       const res = rec(sourceOrSelector);
-      res.valPath = recOpts.path;
+      if (typeof res === "object" && res !== null) {
+        res.valPath = recOpts.path;
+      }
       return res;
     }
 
