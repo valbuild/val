@@ -102,6 +102,7 @@ const initValNextAppRouter = (
 
 type ValServerNextConfig = {
   draftMode: typeof draftMode;
+  formatter?: (code: string, filePath: string) => string;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
