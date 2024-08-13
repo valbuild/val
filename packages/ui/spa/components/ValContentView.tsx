@@ -104,7 +104,7 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
         .then(async () => {
           const res = await store.getModule(moduleFilePath);
           if (!ignore) {
-            if (session.status === "success" && session.data.enabled) {
+            if (session.status === "success") {
               if (result.isOk(res)) {
                 setRootModule(res.value);
               } else {
@@ -214,9 +214,7 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
                     </Button>
                     <Button
                       disabled={
-                        !(
-                          session.status === "success" && session.data.enabled
-                        ) || patches.length === 0
+                        !(session.status === "success") || patches.length === 0
                       }
                       onClick={() => {
                         api
@@ -283,9 +281,8 @@ function LoginModal({
 }) {
   const isUnauthorized =
     session.status === "success" && session.data.mode === "unauthorized";
-  const isDisabled = session.status === "success" && !session.data.enabled;
   return (
-    <Dialog open={isUnauthorized || isDisabled}>
+    <Dialog open={isUnauthorized}>
       <DialogContent
         container={portal}
         className="flex items-center justify-center p-0 border-t-0"
@@ -293,22 +290,12 @@ function LoginModal({
       >
         <div className="flex flex-col items-center justify-center w-full gap-4 pb-4">
           <h1 className="w-full py-2 text-lg font-bold text-center border-t rounded-t bg-accent text-primary">
-            {isUnauthorized ? "Login required" : "Enable Val"}
+            Login required
           </h1>
-          <p>
-            {isUnauthorized
-              ? "You need to login to continue"
-              : "You must enable Val to continue"}
-          </p>
+          <p>You need to login to continue</p>
           <Button asChild>
-            <a
-              href={
-                isUnauthorized
-                  ? api.getLoginUrl(window?.location?.href || "/val")
-                  : api.getEnableUrl(window?.location?.href || "/val")
-              }
-            >
-              {isUnauthorized ? "Login" : "Enable Val"}
+            <a href={api.getLoginUrl(window?.location?.href || "/val")}>
+              Login
             </a>
           </Button>
         </div>
