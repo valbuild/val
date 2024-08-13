@@ -125,7 +125,7 @@ export async function createValServer(
   route: string,
   opts: ValApiOptions,
   callbacks: ValServerCallbacks,
-  formatter?: (code: string, filePath: string) => string
+  formatter?: (code: string, filePath: string) => string | Promise<string>
 ): Promise<ValServer> {
   const valServerConfig = await initHandlerOptions(route, opts);
   return new ValServer(

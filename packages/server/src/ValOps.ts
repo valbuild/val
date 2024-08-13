@@ -58,7 +58,7 @@ const tsOps = new TSOps((document) => {
 });
 
 export type ValOpsOptions = {
-  formatter?: (code: string, filePath: string) => string;
+  formatter?: (code: string, filePath: string) => string | Promise<string>;
 };
 // #region ValOps
 export abstract class ValOps {
@@ -714,7 +714,7 @@ export abstract class ValOps {
         );
         if (this.options?.formatter) {
           try {
-            sourceFileText = this.options.formatter(sourceFileText, path);
+            sourceFileText = await this.options.formatter(sourceFileText, path);
           } catch (err) {
             errors.push({
               message:

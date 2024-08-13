@@ -40,7 +40,7 @@ export type ValServerOptions = {
   route: string;
   valEnableRedirectUrl?: string;
   valDisableRedirectUrl?: string;
-  formatter?: (code: string, filePath: string) => string;
+  formatter?: (code: string, filePath: string) => string | Promise<string>;
   valBuildUrl?: string;
   valSecret?: string;
   apiKey?: string;
@@ -52,7 +52,6 @@ export type ValServerConfig = ValServerOptions &
     | {
         mode: "fs";
         cwd: string;
-        formatter?: (code: string, filePath: string) => string;
       }
     | {
         mode: "http";
