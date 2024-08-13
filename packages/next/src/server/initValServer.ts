@@ -9,7 +9,7 @@ const initValNextAppRouter = (
   valModules: ValModules,
   config: ValConfig,
   nextConfig: ValServerNextConfig & {
-    formatter?: (code: string, filePath: string) => string;
+    formatter?: (code: string, filePath: string) => Promise<string> | string;
   }
 ) => {
   const route = "/api/val"; // TODO: get from config
@@ -102,7 +102,7 @@ const initValNextAppRouter = (
 
 type ValServerNextConfig = {
   draftMode: typeof draftMode;
-  formatter?: (code: string, filePath: string) => string;
+  formatter?: (code: string, filePath: string) => Promise<string> | string;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
