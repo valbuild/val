@@ -319,10 +319,12 @@ export abstract class ValOps {
         } else {
           const patchData = analysis.patches[patchId];
           if (!patchData) {
-            errors[path].push({
-              patchId: patchId,
-              error: new PatchError(`Patch not found`),
-            });
+            errors[path] = [
+              {
+                patchId: patchId,
+                error: new PatchError(`Patch not found`),
+              },
+            ];
             continue;
           }
           const applicableOps: Patch = [];
