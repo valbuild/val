@@ -67,7 +67,7 @@ declare const brand: unique symbol;
  * The path of the source value.
  *
  * @example
- * '/app/blogs.0.text' // the text property of the first element of the /app/blogs module
+ * '/app/blogs.val.ts?p=0.text' // the text property of the first element of the /app/blogs module
  */
 export type SourcePath = string & {
   [brand]: "SourcePath";
