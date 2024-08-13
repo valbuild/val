@@ -55,7 +55,8 @@ export class ValApi {
   }
 
   getEditUrl() {
-    return `/val`;
+    // TODO: make route configurable
+    return `/val/~`;
   }
 
   getSession() {
