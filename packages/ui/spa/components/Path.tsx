@@ -39,9 +39,9 @@ function Seg({ children: children }: { children: string }) {
         return <span key={children}>{JSON.parse(seg)}</span>;
       });
     }
-    return <span>{children}</span>;
+    return <span>{JSON.parse(children)}</span>;
   } catch (e) {
     console.error("Parser failure", { children }, e);
-    throw new Error("Unexpected path formatting failure");
+    return <span>{children}</span>;
   }
 }
