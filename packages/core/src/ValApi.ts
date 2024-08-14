@@ -31,12 +31,44 @@ export class ValApi {
     return `${this.host}/enable?redirect_to=${encodeURIComponent(redirectTo)}`;
   }
 
-  async getPatches() {
-    return fetch(`${this.host}/patches/~`, {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    })
+  async getPatches(filters?: {
+    patchIds?: string[];
+    authors?: string[];
+    moduleFilePaths?: string[];
+    omitPatches?: boolean;
+  }) {
+    const params: [string, string][] = [];
+    if (filters) {
+      if (filters.patchIds) {
+        for (const patchId of filters.patchIds) {
+          params.push(["patch_id", patchId]);
+        }
+      }
+      if (filters.authors) {
+        for (const author of filters.authors) {
+          params.push(["author", author]);
+        }
+      }
+      if (filters.moduleFilePaths) {
+        for (const moduleFilePath of filters.moduleFilePaths) {
+          params.push(["module_file_path", moduleFilePath]);
+        }
+      }
+      if (filters.omitPatches) {
+        params.push(["omit_patches", "true"]);
+      }
+    }
+    const searchParams = new URLSearchParams(params);
+    return fetch(
+      `${this.host}/patches/~${
+        searchParams.size > 0 ? `?${searchParams.toString()}` : ""
+      }`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+        },
+      }
+    )
       .then((res) => parse<ApiGetPatchResponse>(res))
       .catch(createError<ApiGetPatchResponse>);
   }

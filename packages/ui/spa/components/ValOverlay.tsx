@@ -141,15 +141,18 @@ export function ValOverlay({
   const [patchResetId, setPatchResetId] = useState(0);
 
   useEffect(() => {
-    api.getPatches().then((res) => {
-      if (result.isErr(res)) {
-        console.error(res.error);
-        return;
-      }
-      setPatches(
-        Object.values(res.value).flatMap((v) => v.map((p) => p.patch_id))
-      );
-    });
+    api
+      .getPatches({ omitPatches: true })
+      .then((res) => {
+        if (result.isErr(res)) {
+          console.error("Val: could not parse patches", res.error);
+          return;
+        }
+        setPatches(Object.keys(res.value.patches) as PatchId[]);
+      })
+      .catch((err) => {
+        console.warn("Val: could not fetch patches", err);
+      });
   }, [patchResetId]);
 
   const initOnSubmit: InitOnSubmit = useCallback(
@@ -159,16 +162,17 @@ export function ValOverlay({
       const patch = await callback(Internal.createPatchPath(modulePath));
       const applyRes = await store.applyPatch(moduleFilePath, patches, patch);
       if (result.isOk(applyRes)) {
-        const patches = [];
+        const allAppliedPatches = patches.slice();
         for (const patchData of Object.values(applyRes.value)) {
-          patches.push(...patchData.patchIds);
+          allAppliedPatches.push(
+            ...patchData.patchIds.filter((id) => !patches.includes(id))
+          );
         }
-        setPatches(patches);
+        setPatches(allAppliedPatches);
       }
-      setPatchResetId((prev) => prev + 1);
       reloadPage(true);
     },
-    []
+    [patches]
   );
 
   return (

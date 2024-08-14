@@ -8,6 +8,7 @@ import {
   SelectorOf,
   GenericSelector,
   ModuleFilePath,
+  PatchId,
 } from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
@@ -78,9 +79,9 @@ const initFetchValStega =
               console.error("Val: could not fetch patches", patchesRes.error);
               throw Error(JSON.stringify(patchesRes.error, null, 2));
             }
-            const allPatches = Object.values(patchesRes.value).flatMap((mp) =>
-              mp.map((p) => p.patch_id)
-            );
+            const allPatches = Object.keys(
+              patchesRes.value.patches
+            ) as PatchId[];
             return api
               .putTree({
                 patchIds: allPatches,
