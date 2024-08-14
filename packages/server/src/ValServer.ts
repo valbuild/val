@@ -507,7 +507,7 @@ export class ValServer {
 
   //#region patches
   async getPatches(
-    query: { authors?: string[] },
+    query: { authors?: string[]; patchIds?: string[]; omit_patch: string },
     cookies: Partial<Record<"val_session", string>>
   ): Promise<ValServerJsonResult<ApiGetPatchResponse>> {
     const auth = this.getAuth(cookies);
@@ -528,8 +528,10 @@ export class ValServer {
       };
     }
     const authors = query.authors as AuthorId[] | undefined;
-    const patches = await this.serverOps.findPatches({
+    const patches = await this.serverOps.fetchPatches({
       authors,
+      patchIds: query.patchIds as PatchId[] | undefined,
+      omitPatch: query.omit_patch === "true",
     });
     if (patches.errors && Object.keys(patches.errors).length > 0) {
       console.error("Val: Failed to get patches", patches.errors);
@@ -541,22 +543,9 @@ export class ValServer {
         },
       };
     }
-    const res: ApiGetPatchResponse = {};
-    for (const [patchIdS, patchData] of Object.entries(patches.patches)) {
-      const patchId = patchIdS as PatchId;
-      if (!res[patchData.path]) {
-        res[patchData.path] = [];
-      }
-      res[patchData.path].push({
-        patch_id: patchId,
-        created_at: patchData.createdAt,
-        applied_at_base_sha: patchData.appliedAt?.baseSha || null,
-        author: patchData.authorId ?? undefined,
-      });
-    }
     return {
       status: 200,
-      json: res,
+      json: patches,
     };
   }
 
@@ -737,7 +726,7 @@ export class ValServer {
       const patchIds = bodyRes.data?.patchIds;
       const patchOps =
         patchIds && patchIds.length > 0
-          ? await this.serverOps.getPatchOpsById(patchIds)
+          ? await this.serverOps.fetchPatches({ patchIds, omitPatch: false })
           : { patches: {} };
       let patchErrors: Record<PatchId, { message: string }> | undefined =
         undefined;
@@ -909,7 +898,10 @@ export class ValServer {
       };
     }
     const { patchIds } = bodyRes.data;
-    const patches = await this.serverOps.getPatchOpsById(patchIds);
+    const patches = await this.serverOps.fetchPatches({
+      patchIds,
+      omitPatch: false,
+    });
     const analysis = this.serverOps.analyzePatches(patches.patches);
     const preparedCommit = await this.serverOps.prepare({
       ...analysis,

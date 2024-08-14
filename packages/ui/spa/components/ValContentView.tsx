@@ -69,11 +69,13 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
       const patch = await callback(Internal.createPatchPath(modulePath));
       const applyRes = await store.applyPatch(moduleFilePath, patches, patch);
       if (result.isOk(applyRes)) {
-        const patches = [];
+        const allAppliedPatches = patches.slice();
         for (const patchData of Object.values(applyRes.value)) {
-          patches.push(...patchData.patchIds);
+          allAppliedPatches.push(
+            ...patchData.patchIds.filter((id) => !patches.includes(id))
+          );
         }
-        setPatches(patches);
+        setPatches(allAppliedPatches);
       }
       // TODO: applyRes error
     },
@@ -127,12 +129,12 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
   }, [moduleFilePath, selectedPath, session, patches]);
 
   useEffect(() => {
-    api.getPatches().then((res) => {
+    api.getPatches({ omitPatches: true }).then((res) => {
       if (result.isOk(res)) {
         const patches: PatchId[] = [];
-        for (const patchData of Object.values(res.value).flat()) {
-          if (!patchData.applied_at_base_sha) {
-            patches.push(patchData.patch_id);
+        for (const [patchId, patchData] of Object.entries(res.value.patches)) {
+          if (!patchData.appliedAt) {
+            patches.push(patchId as PatchId);
           }
         }
         setPatches(patches);

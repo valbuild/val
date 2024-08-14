@@ -10,7 +10,7 @@ import {
   type BaseSha,
   BinaryFileType,
   type CommitSha,
-  FindPatches,
+  PatchesMetadata,
   GenericErrorMessage,
   MetadataOfType,
   OpsMetadata,
@@ -172,15 +172,36 @@ export class ValOpsHttp extends ValOps {
     // TODO: unused for now. Implement or remove
   }
 
-  override async getPatchOpsById(patchIds: PatchId[]): Promise<Patches> {
-    const params = new URLSearchParams();
-    params.set("branch", this.branch);
-    if (patchIds.length > 0) {
-      params.set("patch_ids", encodeURIComponent(patchIds.join(",")));
+  override async fetchPatches<OmitPatch extends boolean>(filters: {
+    authors?: AuthorId[];
+    patchIds?: PatchId[];
+    moduleFilePaths?: ModuleFilePath[];
+    omitPatch: OmitPatch;
+  }): Promise<OmitPatch extends true ? PatchesMetadata : Patches> {
+    const params: [string, string][] = [];
+    params.push(["branch", this.branch]);
+    if (filters.patchIds) {
+      for (const patchId of filters.patchIds) {
+        params.push(["patch_id", patchId]);
+      }
     }
+    if (filters.authors) {
+      for (const author of filters.authors) {
+        params.push(["author_id", author]);
+      }
+    }
+    if (filters.omitPatch) {
+      params.push(["omit_patch", "true"]);
+    }
+    if (filters.moduleFilePaths) {
+      for (const moduleFilePath of filters.moduleFilePaths) {
+        params.push(["module_file_path", moduleFilePath]);
+      }
+    }
+    const searchParams = new URLSearchParams(params);
     return fetch(
       `${this.hostUrl}/v1/${this.project}/patches${
-        params.size > 0 ? "?" + params : ""
+        searchParams.size > 0 ? `?${searchParams.toString()}` : ""
       }`,
       {
         headers: {
@@ -188,117 +209,62 @@ export class ValOpsHttp extends ValOps {
           "Content-Type": "application/json",
         },
       }
-    ).then(async (res): Promise<Patches> => {
-      const patches: Patches["patches"] = {};
-      if (res.ok) {
-        const json = await res.json();
-        const parsed = GetPatches.safeParse(json);
-        if (parsed.success) {
-          const data = parsed.data;
-          const errors: Patches["errors"] = {};
-          for (const patchesRes of data.patches) {
-            patches[patchesRes.patchId] = {
-              path: patchesRes.path,
-              authorId: patchesRes.authorId,
-              createdAt: patchesRes.createdAt,
-              appliedAt: patchesRes.applied && {
-                baseSha: patchesRes.applied.baseSha,
-                timestamp: patchesRes.applied.appliedAt,
-                git: {
-                  commitSha: patchesRes.applied.commitSha,
+    ).then(
+      async (
+        res
+      ): Promise<OmitPatch extends true ? PatchesMetadata : Patches> => {
+        const patches: (OmitPatch extends true
+          ? PatchesMetadata
+          : Patches)["patches"] = {};
+        if (res.ok) {
+          const json = await res.json();
+          const parsed = GetPatches.safeParse(json);
+          if (parsed.success) {
+            const data = parsed.data;
+            const errors: (OmitPatch extends true
+              ? PatchesMetadata
+              : Patches)["errors"] = {};
+            for (const patchesRes of data.patches) {
+              patches[patchesRes.patchId] = {
+                path: patchesRes.path,
+                authorId: patchesRes.authorId,
+                createdAt: patchesRes.createdAt,
+                appliedAt: patchesRes.applied && {
+                  baseSha: patchesRes.applied.baseSha,
+                  timestamp: patchesRes.applied.appliedAt,
+                  git: {
+                    commitSha: patchesRes.applied.commitSha,
+                  },
                 },
-              },
-              patch: patchesRes.patch,
-            };
+                patch: patchesRes.patch,
+              };
+            }
+            return {
+              patches,
+              errors,
+            } as OmitPatch extends true ? PatchesMetadata : Patches;
           }
           return {
             patches,
-            errors,
-          };
+            error: {
+              message: `Could not parse get patches response. Error: ${fromError(
+                parsed.error
+              )}`,
+            },
+          } as OmitPatch extends true ? PatchesMetadata : Patches;
         }
         return {
           patches,
           error: {
-            message: `Could not parse get patches response. Error: ${fromError(
-              parsed.error
-            )}`,
+            message:
+              "Could not get patches. HTTP error: " +
+              res.status +
+              " " +
+              res.statusText,
           },
-        };
+        } as OmitPatch extends true ? PatchesMetadata : Patches;
       }
-      return {
-        patches,
-        error: {
-          message:
-            "Could not get patches. HTTP error: " +
-            res.status +
-            " " +
-            res.statusText,
-        },
-      };
-    });
-  }
-
-  async findPatches(filters: {
-    authors?: AuthorId[] | undefined;
-  }): Promise<FindPatches> {
-    const params = new URLSearchParams();
-    params.set("branch", this.branch);
-    if (filters.authors && filters.authors.length > 0) {
-      params.set("author_ids", encodeURIComponent(filters.authors.join(",")));
-    }
-    return fetch(
-      `${this.hostUrl}/v1/${this.project}/search/patches${
-        params.size > 0 ? "?" + params : ""
-      }`,
-      {
-        headers: {
-          ...this.authHeaders,
-          "Content-Type": "application/json",
-        },
-      }
-    ).then(async (res) => {
-      const patches: FindPatches["patches"] = {};
-      if (res.ok) {
-        const parsed = SearchPatches.safeParse(await res.json());
-        if (parsed.success) {
-          for (const patchesRes of parsed.data.patches) {
-            patches[patchesRes.patchId] = {
-              path: patchesRes.path,
-              authorId: patchesRes.authorId,
-              createdAt: patchesRes.createdAt,
-              appliedAt: patchesRes.applied && {
-                baseSha: patchesRes.applied.baseSha,
-                timestamp: patchesRes.applied.appliedAt,
-                git: {
-                  commitSha: patchesRes.applied.commitSha,
-                },
-              },
-            };
-          }
-          return {
-            patches,
-          };
-        }
-        return {
-          patches,
-          error: {
-            message: `Could not parse search patches response. Error: ${fromError(
-              parsed.error
-            )}`,
-          },
-        };
-      }
-      return {
-        patches,
-        error: {
-          message:
-            "Could not find patches. HTTP error: " +
-            res.status +
-            " " +
-            res.statusText,
-        },
-      };
-    });
+    );
   }
 
   protected async saveSourceFilePatch(

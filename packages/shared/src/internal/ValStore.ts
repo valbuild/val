@@ -27,21 +27,15 @@ export class ValStore {
   }
 
   async reloadPaths(paths: ModuleFilePath[]) {
-    const patches = await this.api.getPatches();
+    const patches = await this.api.getPatches({
+      omitPatches: true,
+      moduleFilePaths: paths,
+    });
     if (result.isErr(patches)) {
       console.error("Val: failed to get patches", patches.error);
       return;
     }
-    const filteredPatches = Object.entries(patches.value).flatMap(
-      ([patchModuleFilePath, mp]) => {
-        if (paths.includes(patchModuleFilePath as ModuleFilePath)) {
-          return mp.map((p) => p.patch_id);
-        } else {
-          return [];
-        }
-      }
-    );
-
+    const filteredPatches = Object.keys(patches.value.patches) as PatchId[];
     const data = await this.api.putTree({
       patchIds: filteredPatches,
     });
@@ -74,9 +68,7 @@ export class ValStore {
       console.error("Val: failed to get patches", patches.error);
       return;
     }
-    const allPatches = Object.values(patches.value).flatMap((mp) =>
-      mp.map((p) => p.patch_id)
-    );
+    const allPatches = Object.keys(patches.value.patches) as PatchId[];
 
     const data = await this.api.putTree({
       patchIds: allPatches,

@@ -1031,8 +1031,12 @@ export abstract class ValOps {
 
   // #region abstract ops
   abstract onInit(baseSha: BaseSha, schemaSha: SchemaSha): Promise<void>;
-  abstract getPatchOpsById(patchIds: PatchId[]): Promise<Patches>;
-  abstract findPatches(filters: { authors?: AuthorId[] }): Promise<FindPatches>;
+  abstract fetchPatches<OmitPatch extends boolean>(filters: {
+    authors?: AuthorId[];
+    patchIds?: PatchId[];
+    moduleFilePaths?: ModuleFilePath[];
+    omitPatch: OmitPatch;
+  }): Promise<OmitPatch extends true ? PatchesMetadata : Patches>;
   protected abstract saveSourceFilePatch(
     path: ModuleFilePath,
     patch: Patch,
@@ -1189,8 +1193,11 @@ export type Patches = {
 
 export type PatchErrors = Record<PatchId, GenericErrorMessage>;
 
-export type FindPatches = {
-  patches: Record<PatchId, Omit<Patches["patches"][PatchId], "patch">>;
+export type PatchesMetadata = {
+  patches: Record<
+    PatchId,
+    Omit<Patches["patches"][PatchId], "patch"> & { patch?: undefined }
+  >;
   error?: GenericErrorMessage;
   errors?: Patches["errors"];
 };

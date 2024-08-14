@@ -85,7 +85,7 @@ import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
 import type { Json } from "./Json";
 import { getSHA256Hash } from "./getSha256";
-import { Operation } from "./patch";
+import { Operation, Patch } from "./patch";
 import { initSchema } from "./initSchema";
 import { SerializedSchema } from "./schema";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
@@ -144,18 +144,31 @@ export type ApiTreeResponse = {
   >;
 };
 
-export type ApiGetPatchResponse = Record<
-  ModuleFilePath,
-  {
-    patch_id: PatchId;
-    created_at: string;
-    applied_at_base_sha: string | null;
-    // TODO:
-    // base_sha: string;
-    // not available in local mode:
-    author?: string;
-  }[]
->;
+export type ApiGetPatchResponse = {
+  patches: Record<
+    PatchId,
+    {
+      path: ModuleFilePath;
+      patch?: Patch;
+      createdAt: string;
+      authorId: string | null;
+      appliedAt: {
+        baseSha: string;
+        git?: { commitSha: string };
+        timestamp: string;
+      } | null;
+    }
+  >;
+  error?: {
+    message: string;
+  };
+  errors?: Record<
+    PatchId,
+    {
+      message: string;
+    }
+  >;
+};
 export type ApiDeletePatchResponse = PatchId[];
 export type ApiPostPatchResponse = Record<
   ModuleFilePath,

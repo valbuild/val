@@ -3,7 +3,7 @@ import {
   AuthorId,
   BaseSha,
   BinaryFileType,
-  FindPatches,
+  PatchesMetadata,
   GenericErrorMessage,
   MetadataOfType,
   OpsMetadata,
@@ -68,7 +68,7 @@ export class ValOpsFS extends ValOps {
         );
       }
       const patchId = patchIdNum.toString() as PatchId;
-      if (includes && !includes.includes(patchId)) {
+      if (includes && includes.length > 0 && !includes.includes(patchId)) {
         continue;
       }
       const parsedFSPatchRes = this.parseJsonFile(
@@ -113,16 +113,21 @@ export class ValOpsFS extends ValOps {
     return { patches };
   }
 
-  override async getPatchOpsById(patchIds: PatchId[]): Promise<Patches> {
-    return this.readPatches(patchIds);
-  }
-
-  override async findPatches(filters: {
+  override async fetchPatches<OmitPatch extends boolean>(filters: {
     authors?: AuthorId[];
-  }): Promise<FindPatches> {
-    const patches: FindPatches["patches"] = {};
-    const errors: NonNullable<FindPatches["errors"]> = {};
-    const { errors: allErrors, patches: allPatches } = await this.readPatches();
+    patchIds?: PatchId[];
+    moduleFilePaths?: ModuleFilePath[];
+    omitPatch: OmitPatch;
+  }): Promise<OmitPatch extends true ? PatchesMetadata : Patches> {
+    const patches: (OmitPatch extends true
+      ? PatchesMetadata
+      : Patches)["patches"] = {};
+    const errors: NonNullable<
+      (OmitPatch extends true ? PatchesMetadata : Patches)["errors"]
+    > = {};
+    const { errors: allErrors, patches: allPatches } = await this.readPatches(
+      filters.patchIds
+    );
     for (const [patchIdS, patch] of Object.entries(allPatches)) {
       const patchId = patchIdS as PatchId;
       if (
@@ -131,7 +136,14 @@ export class ValOpsFS extends ValOps {
       ) {
         continue;
       }
+      if (
+        filters.moduleFilePaths &&
+        !filters.moduleFilePaths.includes(patch.path)
+      ) {
+        continue;
+      }
       patches[patchId] = {
+        patch: filters.omitPatch ? undefined : patch.patch,
         path: patch.path,
         createdAt: patch.createdAt,
         authorId: patch.authorId,
@@ -143,9 +155,11 @@ export class ValOpsFS extends ValOps {
       }
     }
     if (errors && Object.keys(errors).length > 0) {
-      return { patches, errors };
+      return { patches, errors } as OmitPatch extends true
+        ? PatchesMetadata
+        : Patches;
     }
-    return { patches };
+    return { patches } as OmitPatch extends true ? PatchesMetadata : Patches;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
