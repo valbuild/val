@@ -1,9 +1,4 @@
-import {
-  SerializedSchema,
-  Json,
-  FileSource,
-  ImageSource,
-} from "@valbuild/core";
+import { SerializedSchema, Json } from "@valbuild/core";
 
 export function emptyOf(schema: SerializedSchema): Json {
   if (schema.type === "object") {
@@ -32,25 +27,8 @@ export function emptyOf(schema: SerializedSchema): Json {
     } else {
       return schema.values[0];
     }
-  } else if (schema.type === "file") {
-    return {
-      _ref: "/public/",
-      _type: "file",
-      metadata: {
-        sha256: "",
-      },
-    } satisfies FileSource;
-  } else if (schema.type === "image") {
-    return {
-      _ref: "/public/",
-      _type: "file",
-      metadata: {
-        height: 0,
-        width: 0,
-        mimeType: "application/octet-stream",
-        sha256: "",
-      },
-    } satisfies ImageSource;
+  } else if (schema.type === "file" || schema.type === "image") {
+    return null; // returning null is the only thing we can do, however, it means that the patches cannot be applied yet since that might fail
   } else if (schema.type === "literal") {
     return schema.value;
   } else if (schema.type === "union") {
