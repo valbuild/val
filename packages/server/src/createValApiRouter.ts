@@ -437,6 +437,7 @@ export function createValApiRouter<Res>(
             {
               authors: url.searchParams.getAll("author"),
               patchIds: url.searchParams.getAll("patch_id"),
+              omitPatch: url.searchParams.get("omit_patch") || undefined,
             },
             getCookies(req, [VAL_SESSION_COOKIE])
           )

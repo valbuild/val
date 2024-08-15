@@ -507,7 +507,7 @@ export class ValServer {
 
   //#region patches
   async getPatches(
-    query: { authors?: string[]; patchIds?: string[]; omit_patch: string },
+    query: { authors?: string[]; patchIds?: string[]; omitPatch?: string },
     cookies: Partial<Record<"val_session", string>>
   ): Promise<ValServerJsonResult<ApiGetPatchResponse>> {
     const auth = this.getAuth(cookies);
@@ -531,7 +531,7 @@ export class ValServer {
     const patches = await this.serverOps.fetchPatches({
       authors,
       patchIds: query.patchIds as PatchId[] | undefined,
-      omitPatch: query.omit_patch === "true",
+      omitPatch: query.omitPatch === "true",
     });
     if (patches.errors && Object.keys(patches.errors).length > 0) {
       console.error("Val: Failed to get patches", patches.errors);
