@@ -69,12 +69,9 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
       const patch = await callback(Internal.createPatchPath(modulePath));
       const applyRes = await store.applyPatch(moduleFilePath, patches, patch);
       if (result.isOk(applyRes)) {
-        const allAppliedPatches = patches.slice();
-        for (const patchData of Object.values(applyRes.value)) {
-          allAppliedPatches.push(
-            ...patchData.patchIds.filter((id) => !patches.includes(id))
-          );
-        }
+        const allAppliedPatches = patches
+          .slice()
+          .concat(applyRes.value.newPatchId);
         setPatches(allAppliedPatches);
       }
       // TODO: applyRes error

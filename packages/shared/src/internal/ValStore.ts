@@ -165,12 +165,15 @@ export class ValStore {
     patch: Patch
   ): Promise<
     result.Result<
-      Record<
-        ModuleFilePath,
-        {
-          patchIds: PatchId[];
-        }
-      >,
+      {
+        modules: Record<
+          ModuleFilePath,
+          {
+            patchIds: PatchId[];
+          }
+        >;
+        newPatchId: PatchId;
+      },
       PatchError | { message: string }
     >
   > {
@@ -183,6 +186,13 @@ export class ValStore {
       },
     });
     if (result.isOk(data)) {
+      const newPatchId = data.value.newPatchId;
+      if (!newPatchId) {
+        console.error("Val: could create patch", data);
+        return result.err({
+          message: "Val: could not create patch.",
+        });
+      }
       const fetchedSource = data.value.modules[path].source;
       if (fetchedSource !== undefined) {
         this.drafts[path] = fetchedSource;
@@ -199,8 +209,11 @@ export class ValStore {
           }
         }
         return result.ok({
-          [path]: {
-            patchIds: data.value.modules[path].patches?.applied || [],
+          newPatchId,
+          modules: {
+            [path]: {
+              patchIds: data.value.modules[path].patches?.applied || [],
+            },
           },
         });
       } else {

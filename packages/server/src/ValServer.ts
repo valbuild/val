@@ -718,6 +718,7 @@ export class ValServer {
       >;
     };
     let patchAnalysis: PatchAnalysis | null = null;
+    let newPatchId: PatchId | undefined = undefined;
     if (
       (bodyRes.data?.patchIds && bodyRes.data?.patchIds?.length > 0) ||
       bodyRes.data?.addPatch
@@ -772,6 +773,7 @@ export class ValServer {
         //     };
         //   }
         // }
+        newPatchId = createPatchRes.patchId;
         patchOps.patches[createPatchRes.patchId] = {
           path: newPatchModuleFilePath,
           patch: newPatchOps,
@@ -861,6 +863,7 @@ export class ValServer {
       json: {
         schemaSha,
         modules,
+        newPatchId,
       },
     };
   }
