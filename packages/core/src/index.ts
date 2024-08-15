@@ -130,6 +130,7 @@ export type ApiTreeResponse = {
         type?: undefined;
       }
   )[];
+  newPatchId?: PatchId;
   modules: Record<
     ModuleFilePath,
     {
