@@ -237,28 +237,32 @@ export const ValContentView: FC<ValFullscreenProps> = ({ api, store }) => {
                     </Button>
                   </div>
                 </div>
-                <div className="max-w-xl p-4">
-                  <LoginModal
-                    session={session}
-                    portal={portal.current}
-                    api={api}
-                  />
-                  {moduleError && (
-                    <div className="p-4 text-lg bg-destructive text-destructive-foreground">
-                      ERROR: {moduleError}
-                    </div>
-                  )}
-                  {loading && (
-                    <div className="flex place-content-center">Loading...</div>
-                  )}
-                  {rootModule && selectedPath && (
-                    <ValModule
-                      path={selectedPath}
-                      source={rootModule.source}
-                      schema={rootModule.schema}
-                      initOnSubmit={initOnSubmit}
+                <div className="flex justify-center">
+                  <div className="max-w-5xl p-4">
+                    <LoginModal
+                      session={session}
+                      portal={portal.current}
+                      api={api}
                     />
-                  )}
+                    {moduleError && (
+                      <div className="p-4 text-lg bg-destructive text-destructive-foreground">
+                        ERROR: {moduleError}
+                      </div>
+                    )}
+                    {loading && (
+                      <div className="flex place-content-center">
+                        Loading...
+                      </div>
+                    )}
+                    {rootModule && selectedPath && (
+                      <ValModule
+                        path={selectedPath}
+                        source={rootModule.source}
+                        schema={rootModule.schema}
+                        initOnSubmit={initOnSubmit}
+                      />
+                    )}
+                  </div>
                 </div>
               </Grid>
             </div>
