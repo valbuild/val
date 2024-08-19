@@ -141,15 +141,29 @@ export const testSchema = s.object({
    * @see ValRichText will render rich text
    */
   richText: s.richtext({
-    // All features enabled:
-    bold: true,
-    italic: true,
-    lineThrough: true,
-    headings: ["h1", "h2", "h3", "h4", "h5", "h6"],
-    a: true,
-    img: true,
-    ul: true,
-    ol: true,
+    // styling:
+    style: {
+      bold: true, // enables bold
+      italic: true, // enables italic text
+      lineThrough: true, // enables line/strike-through
+    },
+    // block-level elements:
+    block: {
+      // tags:
+      h1: true, // enables h1
+      h2: true,
+      h3: true,
+      h4: true,
+      h5: true,
+      h6: true,
+      ul: true, // enables unordered lists
+      ol: true, // enables ordered lists
+    },
+    // inline elements:
+    inline: {
+      a: true,
+      img: true,
+    },
   }),
 
   /**
@@ -216,13 +230,22 @@ export default c.define("${moduleFilePath}", testSchema, {
   records: {
     "unique-key-1": "A string",
   },
-  richText: c.richtext\`# Title 1
-
-\${c.rt.link("Val docs", { href: "https://val.build/docs" })}
-
-- List item 1
-- List item 2
-\`,
+  richText: [
+    { tag: "h1", children: ["Title 1"] },
+    {
+      tag: "p",
+      children: [
+        { tag: "a", href: "https://val.build/docs", children: ["Val docs"] },
+      ],
+    },
+    {
+      tag: "ul",
+      children: [
+        { tag: "li", children: [{ tag: "p", children: ["List item 1"] }] },
+        { tag: "li", children: [{ tag: "p", children: ["List item 2"] }] },
+      ],
+    },
+  ],
   image: null,
   slug: "test",
   objectUnions: {
