@@ -80,9 +80,6 @@ const GetPatches = z.object({
     )
     .optional(),
 });
-const SearchPatches = z.object({
-  patches: z.array(BasePatchResponse),
-});
 const FilesResponse = z.object({
   files: z.array(
     z.union([
