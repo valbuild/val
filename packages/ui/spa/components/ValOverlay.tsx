@@ -138,7 +138,6 @@ export function ValOverlay({
   useEffect(() => {
     currentPatchesId.current = patches.map(String).join(";");
   }, [patches]);
-  const [patchResetId, setPatchResetId] = useState(0);
 
   useEffect(() => {
     api
@@ -153,7 +152,7 @@ export function ValOverlay({
       .catch((err) => {
         console.warn("Val: could not fetch patches", err);
       });
-  }, [patchResetId]);
+  }, []);
 
   const initOnSubmit: InitOnSubmit = useCallback(
     (path) => async (callback) => {
