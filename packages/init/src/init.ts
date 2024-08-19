@@ -489,10 +489,12 @@ async function plan(
   };
 
   {
-    const answer = await confirm({
-      message: "Include example Val files?",
-      default: true,
-    });
+    const answer = !defaultAnswers
+      ? await confirm({
+          message: "Include example Val files?",
+          default: true,
+        })
+      : true;
     if (answer) {
       const exampleDir = path.join(analysis.srcDir, "examples", "val");
       const examplePath = path.join(
@@ -755,10 +757,12 @@ async function plan(
 
   {
     if (analysis.gitIgnorePath) {
-      const answer = await confirm({
-        message: "Append .gitignore entry for Val cache? (recommended)",
-        default: true,
-      });
+      const answer = !defaultAnswers
+        ? await confirm({
+            message: "Append .gitignore entry for Val cache? (recommended)",
+            default: true,
+          })
+        : true;
       if (answer) {
         plan.updateGitIgnore = {
           path: analysis.gitIgnorePath,
@@ -774,10 +778,12 @@ async function plan(
     }
   }
   {
-    const answer = await confirm({
-      message: "Add the Val Build IntelliSense to .vscode/extensions.json?",
-      default: true,
-    });
+    const answer = !defaultAnswers
+      ? await confirm({
+          message: "Add the Val Build IntelliSense to .vscode/extensions.json?",
+          default: true,
+        })
+      : true;
     if (answer) {
       const vscodeDir = path.join(analysis.root, ".vscode");
       const settingsPath = path.join(vscodeDir, "extensions.json");
