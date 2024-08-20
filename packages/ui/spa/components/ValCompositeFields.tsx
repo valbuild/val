@@ -873,9 +873,12 @@ function ValPreview({
         {source.toString()}
       </span>
     );
+  } else if (schema.type === "date") {
+    return <span>{source?.toString()}</span>;
   }
 
-  return <div key={path}>TODO: {schema.type}</div>;
+  console.error("Unexpected schema type", schema);
+  return <div key={path}>Missing preview of: {schema.type}</div>;
 }
 
 function ValImagePreview({ source }: { source: JsonObject }) {
