@@ -33,7 +33,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { useValUIContext } from "./ValUIContext";
 import classNames from "classnames";
-import { File } from "lucide-react";
+import { CalendarIcon, File } from "lucide-react";
 import { RichTextEditor, useRichTextEditor } from "./RichTextEditor";
 import { RemirrorJSON } from "@remirror/core";
 import {
@@ -45,12 +45,15 @@ import {
   SelectValue,
 } from "./ui/select";
 import { OnSubmit, SubmitStatus, useBounceSubmit } from "./SubmitStatus";
-import { AnyVal } from "./ValCompositeFields";
-import { emptyOf } from "./emptyOf";
 import { useValFromPath } from "./ValStoreContext";
 import { Preview } from "./Preview";
 import { isJsonArray } from "../utils/isJsonArray";
 import { Checkbox } from "./ui/checkbox";
+import { SerializedDateSchema } from "@valbuild/core";
+import { cn } from "../lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Calendar } from "./ui/calendar";
+import { format } from "date-fns";
 
 export type InitOnSubmit = (path: SourcePath) => OnSubmit;
 
@@ -214,19 +217,108 @@ export function ValFormField({
     }
   }
 
+  if (
+    (typeof source === "string" || source === null) &&
+    schema?.type === "date"
+  ) {
+    return (
+      <DateField
+        path={path}
+        defaultValue={source}
+        onSubmit={onSubmit}
+        schema={schema}
+      />
+    );
+  }
+
   console.warn(
     `Unsupported schema: ${
       schema.type
     } (source type: ${typeof source}) source:`,
     source
   );
+  throw Error(
+    `Unsupported schema: ${schema.type} (source type: ${typeof source}) source:`
+  );
+}
+
+function DateField({
+  defaultValue,
+  schema,
+  onSubmit,
+}: {
+  path: SourcePath;
+  defaultValue?: string | null;
+  schema: SerializedDateSchema;
+  onSubmit?: OnSubmit;
+}) {
+  const [date, setDate] = useState<Date>();
+  useEffect(() => {
+    try {
+      if (defaultValue) {
+        const date = new Date(defaultValue);
+        if (!isNaN(date.getTime())) {
+          setDate(date);
+        }
+      }
+    } catch (err) {
+      console.error("Invalid date", defaultValue);
+    }
+  }, [defaultValue]);
+
   return (
-    <AnyVal
-      path={path}
-      schema={schema}
-      source={emptyOf(schema)}
-      initOnSubmit={initOnSubmit}
-    />
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant={"outline"}
+          className={cn(
+            "w-[280px] justify-start text-left font-normal",
+            !date && "text-muted-foreground"
+          )}
+        >
+          <CalendarIcon className="w-4 h-4 mr-2" />
+          {date ? format(date, "PPP") : <span>Pick a date</span>}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0">
+        <Calendar
+          mode="single"
+          captionLayout="dropdown-buttons"
+          defaultMonth={date}
+          fromDate={
+            schema.options?.from ? new Date(schema.options.from) : undefined
+          }
+          toDate={schema.options?.to ? new Date(schema.options.to) : undefined}
+          selected={date}
+          onSelect={(date) => {
+            if (onSubmit) {
+              setDate(date);
+              onSubmit(async (path) => {
+                if (!date) {
+                  return [
+                    {
+                      op: "replace",
+                      path,
+                      value: null,
+                    },
+                  ];
+                }
+                return [
+                  {
+                    op: "replace",
+                    path,
+                    value: format(date, "yyyy-MM-dd"),
+                  },
+                ];
+              }).catch((err) => {
+                console.error("Could not save date", err);
+                setDate(undefined);
+              });
+            }
+          }}
+        />
+      </PopoverContent>
+    </Popover>
   );
 }
 

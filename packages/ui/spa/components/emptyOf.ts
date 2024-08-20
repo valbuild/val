@@ -1,4 +1,5 @@
 import { SerializedSchema, Json } from "@valbuild/core";
+import { format } from "date-fns";
 
 export function emptyOf(schema: SerializedSchema): Json {
   if (schema.type === "object") {
@@ -33,6 +34,8 @@ export function emptyOf(schema: SerializedSchema): Json {
     return schema.value;
   } else if (schema.type === "union") {
     return emptyOf(schema.items[0]);
+  } else if (schema.type === "date") {
+    return format(new Date(), "yyyy-MM-dd");
   }
   const _exhaustiveCheck: never = schema;
   throw Error("Unexpected schema type: " + JSON.stringify(_exhaustiveCheck));
