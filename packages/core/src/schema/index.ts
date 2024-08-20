@@ -13,6 +13,7 @@ import { SerializedRecordSchema } from "./record";
 import { SerializedRichTextSchema } from "./richtext";
 import { SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
+import { SerializedDateSchema } from "./date";
 import { ValidationErrors } from "./validation/ValidationError";
 // import { SerializedI18nSchema } from "./future/i18n";
 // import { SerializedOneOfSchema } from "./future/oneOf";
@@ -31,6 +32,7 @@ export type SerializedSchema =
   | SerializedRecordSchema
   | SerializedKeyOfSchema
   | SerializedFileSchema
+  | SerializedDateSchema
   | SerializedImageSchema;
 
 export abstract class Schema<Src extends SelectorSource> {

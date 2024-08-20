@@ -3,6 +3,7 @@ import { SelectorSource } from "../selector";
 import { SourcePath } from "../val";
 import { ArraySchema } from "./array";
 import { BooleanSchema } from "./boolean";
+import { DateSchema } from "./date";
 import { FileSchema } from "./file";
 import { ImageSchema } from "./image";
 import { KeyOfSchema } from "./keyOf";
@@ -76,7 +77,8 @@ export function deserializeSchema(
       return new FileSchema(serialized.options, serialized.opt);
     case "image":
       return new ImageSchema(serialized.options, serialized.opt);
-
+    case "date":
+      return new DateSchema(serialized.options);
     default: {
       const exhaustiveCheck: never = serialized;
       const unknownSerialized: unknown = exhaustiveCheck;
