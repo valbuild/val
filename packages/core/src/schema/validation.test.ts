@@ -20,6 +20,7 @@ import { keyOf } from "./keyOf";
 import { define } from "../module";
 import { union } from "./union";
 import { createValPathOfItem } from "../selector/SelectorProxy";
+import { date } from "./date";
 
 const testPath = "/test" as SourcePath;
 const pathOf = (p: string | symbol | number) => {
@@ -440,6 +441,42 @@ const ValidationTestCases: {
     fixes: {
       [pathOf("image") as string]: ["image:add-metadata"],
     },
+  },
+  {
+    description: "date validation: base case",
+    input: "2021-01-01",
+    schema: date(),
+    expected: false,
+  },
+  {
+    description: "date validation: from error",
+    input: "2020-01-01",
+    schema: date().from("2021-01-01"),
+    expected: [testPath],
+  },
+  {
+    description: "date validation: to error",
+    input: "2021-01-01",
+    schema: date().to("2019-12-31"),
+    expected: [testPath],
+  },
+  {
+    description: "date validation: between",
+    input: "2021-01-01",
+    schema: date().from("2020-01-01").to("2023-12-31"),
+    expected: false,
+  },
+  {
+    description: "date validation: between error",
+    input: "2021-01-01",
+    schema: date().from("2022-01-01").to("2022-12-31"),
+    expected: [testPath],
+  },
+  {
+    description: "date validation: from / to is not valid in schema error",
+    input: "2021-01-01",
+    schema: date().from("2022-01-01").to("2019-12-31"),
+    expected: [testPath],
   },
 
   // TODO: oneOf
