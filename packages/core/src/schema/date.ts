@@ -28,11 +28,7 @@ export type SerializedDateSchema = {
 };
 
 export class DateSchema<Src extends string | null> extends Schema<Src> {
-  constructor(
-    readonly options?: DateOptions,
-    readonly opt: boolean = false,
-    private readonly isRaw: boolean = true
-  ) {
+  constructor(readonly options?: DateOptions, readonly opt: boolean = false) {
     super();
   }
 
@@ -110,15 +106,15 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
   }
 
   from(from: string): DateSchema<Src> {
-    return new DateSchema<Src>({ ...this.options, from }, this.opt, this.isRaw);
+    return new DateSchema<Src>({ ...this.options, from }, this.opt);
   }
 
   to(to: string): DateSchema<Src> {
-    return new DateSchema<Src>({ ...this.options, to }, this.opt, this.isRaw);
+    return new DateSchema<Src>({ ...this.options, to }, this.opt);
   }
 
   nullable(): DateSchema<Src | null> {
-    return new DateSchema<Src | null>(this.options, true, this.isRaw);
+    return new DateSchema<Src | null>(this.options, true);
   }
 
   serialize(): SerializedSchema {
