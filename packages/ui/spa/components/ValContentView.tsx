@@ -17,8 +17,8 @@ import { ValUIContext } from "./ValUIContext";
 import { useTheme } from "./useTheme";
 import { useSession } from "./useSession";
 import { Path } from "./Path";
-import { AnyVal, PathTree, ValImagePreviewContext } from "./ValCompositeFields";
-import { InitOnSubmit } from "./ValFormField";
+import { AnyVal } from "./fields/ValCompositeFields";
+import { InitOnSubmit } from "./fields/ValFormField";
 import { ValSession, ValStore } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 import { useParams } from "./ValRouter";
@@ -26,6 +26,8 @@ import { Button } from "./ui/button";
 import { ValStoreProvider } from "./ValStoreContext";
 import { Dialog, DialogContent } from "./ui/dialog";
 import { Remote } from "../utils/Remote";
+import { PathTree } from "./fields/PathTree";
+import { ValImagePreviewContext } from "./fields/PreviewImage";
 
 interface ValFullscreenProps {
   api: ValApi;
