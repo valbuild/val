@@ -13,6 +13,7 @@ import {
   SourcePath,
   ValidationError,
   SerializedSchema,
+  ApiPutTreeErrorResponse,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -647,7 +648,7 @@ export class ValServer {
       validate_binary_files?: string;
     },
     cookies: Partial<Record<"val_session", string>>
-  ): Promise<ValServerJsonResult<ApiTreeResponse>> {
+  ): Promise<ValServerJsonResult<ApiTreeResponse, ApiPutTreeErrorResponse>> {
     const auth = this.getAuth(cookies);
     if (auth.error) {
       return {
@@ -708,14 +709,7 @@ export class ValServer {
     }
     let tree: {
       sources: Sources;
-      errors: Record<
-        ModuleFilePath,
-        {
-          patchId?: PatchId | undefined;
-          invalidPath?: boolean | undefined;
-          error: PatchError;
-        }[]
-      >;
+      errors: ApiPutTreeErrorResponse["errors"];
     };
     let patchAnalysis: PatchAnalysis | null = null;
     let newPatchId: PatchId | undefined = undefined;
@@ -808,6 +802,25 @@ export class ValServer {
     }
     if (tree.errors && Object.keys(tree.errors).length > 0) {
       console.error("Val: Failed to get tree", JSON.stringify(tree.errors));
+      return {
+        status: 400,
+        json: {
+          type: "patch-error",
+          errors: Object.fromEntries(
+            Object.entries(tree.errors).map(([key, value]) => [
+              key,
+              value.map((error) => ({
+                patchId: error.patchId,
+                skipped: error.skipped,
+                error: {
+                  message: error.error.message,
+                },
+              })),
+            ])
+          ),
+          message: "One or more patches failed to be applied",
+        },
+      };
     }
 
     if (
