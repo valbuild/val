@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
 import { SourcePath } from "../val";
+import { RawString } from "./string";
 import { ValidationErrors } from "./validation/ValidationError";
 
 type DateOptions = {
@@ -30,7 +31,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
   constructor(
     readonly options?: DateOptions,
     readonly opt: boolean = false,
-    private readonly isRaw: boolean = false
+    private readonly isRaw: boolean = true
   ) {
     super();
   }
@@ -129,7 +130,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
   }
 }
 
-export const date = <T extends string>(
+export const date = <T extends RawString>(
   options?: Record<string, never>
 ): DateSchema<T> => {
   return new DateSchema(options);
