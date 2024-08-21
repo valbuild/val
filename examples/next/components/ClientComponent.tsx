@@ -29,6 +29,9 @@ function SubComponent({
   const links = useVal(linksVal);
   return (
     <div>
+      <div key={1}>{content.date}</div>
+      <div key={2}>Length {content.date.length}</div>
+      <div key={3}>{new Date(content.date).toString()}</div>
       <h1>
         <>
           {
