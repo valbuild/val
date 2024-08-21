@@ -130,8 +130,8 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
   }
 }
 
-export const date = <T extends RawString>(
+export const date = (
   options?: Record<string, never>
-): DateSchema<T> => {
+): DateSchema<RawString> => {
   return new DateSchema(options);
 };
