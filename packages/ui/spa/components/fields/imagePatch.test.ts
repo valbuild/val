@@ -1,5 +1,5 @@
 import { FILE_REF_PROP, ImageSource, VAL_EXTENSION } from "@valbuild/core";
-import { createFilePatch } from "./ValFormField";
+import { createFilePatch } from "./primitives/FileField";
 
 describe("Imagepatch", () => {
   test("Use filename of new image", () => {

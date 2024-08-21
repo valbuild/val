@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import classNames from "classnames";
 import { Resizable } from "react-resizable";
-import { useValUIContext } from "./ValUIContext";
+import { useValUIContext } from "../ValUIContext";
 import { AlignJustifyIcon, XIcon } from "lucide-react";
-import { ScrollArea } from "./ui/scroll-area";
+import { ScrollArea } from "../ui/scroll-area";
 
 export type ValWindowProps = {
   children:

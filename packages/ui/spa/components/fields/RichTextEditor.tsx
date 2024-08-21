@@ -31,10 +31,10 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
-} from "./ui/dropdown-menu";
+} from "../ui/dropdown-menu";
 import { DayPickerProvider } from "react-day-picker";
 import { RichTextOptions } from "@valbuild/core";
-import { createFilename, readImage } from "../utils/readImage";
+import { createFilename, readImage } from "../../utils/readImage";
 import { BoldExtension } from "@remirror/extension-bold";
 import { ItalicExtension } from "@remirror/extension-italic";
 import { StrikeExtension } from "@remirror/extension-strike";

@@ -6,10 +6,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { ValMenu } from "./ValMenu";
-import { EditMode, ValUIContext, WindowSize } from "./ValUIContext";
-import { Remote } from "../utils/Remote";
-import { ValWindow } from "./ValWindow";
+import { EditMode, ValUIContext, WindowSize } from "../ValUIContext";
+import { Remote } from "../../utils/Remote";
 import { result } from "@valbuild/core/fp";
 import {
   Internal,
@@ -19,14 +17,16 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import { ValApi } from "@valbuild/core";
-import { useTheme } from "./useTheme";
-import { useSession } from "./useSession";
-import { AnyVal } from "./ValCompositeFields";
-import { InitOnSubmit } from "./ValFormField";
+import { useTheme } from "../useTheme";
+import { useSession } from "../useSession";
+import { AnyVal } from "../fields/ValCompositeFields";
+import { InitOnSubmit } from "../fields/ValFormField";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { Popover } from "./ui/popover";
+import { Popover } from "../ui/popover";
 import { ValStore } from "@valbuild/shared/internal";
-import { ValStoreProvider } from "./ValStoreContext";
+import { ValStoreProvider } from "../ValStoreContext";
+import { ValMenu } from "./ValMenu";
+import { ValWindow } from "./ValWindow";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";

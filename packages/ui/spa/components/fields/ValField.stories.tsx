@@ -1,6 +1,6 @@
 import { Schema, SerializedSchema, Source, SourcePath } from "@valbuild/core";
 import { AnyVal } from "./ValCompositeFields";
-import { ValUIContext } from "./ValUIContext";
+import { ValUIContext } from "../ValUIContext";
 import { Meta, StoryObj } from "@storybook/react";
 import { Internal } from "@valbuild/core";
 import { InitOnSubmit } from "./ValFormField";

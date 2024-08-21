@@ -1,6 +1,6 @@
 "use client";
 import { ValApi } from "@valbuild/core";
-import { ValContentView } from "./components/ValContentView";
+import { ValStudio } from "./components/studio/ValStudio";
 import { ErrorBoundary } from "react-error-boundary";
 import { ValStore } from "@valbuild/shared/internal";
 import { fallbackRender } from "./fallbackRender";
@@ -16,7 +16,7 @@ function AppStatic() {
   return (
     <ErrorBoundary fallbackRender={fallbackRender}>
       <ValRouter>
-        <ValContentView api={api} store={store} />
+        <ValStudio api={api} store={store} />
       </ValRouter>
     </ErrorBoundary>
   );
