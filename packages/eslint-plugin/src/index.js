@@ -9,6 +9,7 @@
 import noIllegalModulePaths from "./rules/noIllegalModulePaths";
 import noIllegalImports from "./rules/noIllegalImports";
 import exportContentMustBeValid from "./rules/exportContentMustBeValid";
+import noDefineWithVariable from "./rules/noDefineWithVariable";
 
 /**
  * @type {Plugin["rules"]}
@@ -17,6 +18,7 @@ export let rules = {
   "no-illegal-module-paths": noIllegalModulePaths,
   "no-illegal-imports": noIllegalImports,
   "export-content-must-be-valid": exportContentMustBeValid,
+  "no-define-with-variable": noDefineWithVariable,
 };
 
 /**
@@ -34,6 +36,7 @@ export const configs = {
       "@valbuild/no-illegal-module-paths": "error",
       "@valbuild/no-illegal-imports": "error",
       "@valbuild/export-content-must-be-valid": "error",
+      "@valbuild/no-define-with-variable": "error",
     },
   },
 };
