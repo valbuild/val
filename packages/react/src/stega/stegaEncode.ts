@@ -14,6 +14,7 @@ import {
   FileMetadata,
   RichTextOptions,
   ImageSource,
+  SerializedDateSchema,
 } from "@valbuild/core";
 import { vercelStegaCombine, vercelStegaSplit } from "@vercel/stega";
 import { FileSource, Source, SourceObject } from "@valbuild/core";
@@ -245,6 +246,9 @@ export function stegaEncode(
     if (recOpts?.schema && isLiteralSchema(recOpts?.schema)) {
       return sourceOrSelector;
     }
+    if (recOpts?.schema && isDateSchema(recOpts?.schema)) {
+      return sourceOrSelector;
+    }
     if (recOpts?.schema && isUnionSchema(recOpts?.schema)) {
       if (
         sourceOrSelector &&
@@ -429,6 +433,12 @@ function isLiteralSchema(
   schema: SerializedSchema | undefined
 ): schema is SerializedLiteralSchema {
   return schema?.type === "literal";
+}
+
+function isDateSchema(
+  schema: SerializedSchema | undefined
+): schema is SerializedDateSchema {
+  return schema?.type === "date";
 }
 
 function unknownSchema(schema: unknown) {
