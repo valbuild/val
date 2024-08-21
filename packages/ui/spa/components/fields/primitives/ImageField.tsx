@@ -6,7 +6,7 @@ import {
 } from "@valbuild/core";
 import { useState, useEffect } from "react";
 import { readImage } from "../../../utils/readImage";
-import { OnSubmit, SubmitStatus } from "../../SubmitStatus";
+import { OnSubmit, SubmitStatus } from "../SubmitStatus";
 import { createFilePatch } from "./FileField";
 import { Patch } from "@valbuild/core/patch";
 import { FieldContainer } from "../FieldContainer";

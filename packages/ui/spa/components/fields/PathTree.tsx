@@ -1,6 +1,6 @@
 import { SourcePath, ModuleFilePath, Internal } from "@valbuild/core";
 import classNames from "classnames";
-import { Path } from "../Path";
+import { Path } from "../studio/Path";
 import { useNavigate } from "../ValRouter";
 
 function dirPaths(paths: string[]): Record<string, string[]> {

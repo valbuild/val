@@ -1,6 +1,6 @@
 import { SourcePath, SerializedBooleanSchema } from "@valbuild/core";
 import { useState } from "react";
-import { OnSubmit, SubmitStatus } from "../../SubmitStatus";
+import { OnSubmit, SubmitStatus } from "../SubmitStatus";
 import { Checkbox } from "../../ui/checkbox";
 import { FieldContainer } from "../FieldContainer";
 

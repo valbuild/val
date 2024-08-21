@@ -1,8 +1,8 @@
 import { SourcePath, Json, SerializedSchema } from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
 import { useState, useEffect } from "react";
-import { emptyOf } from "../../emptyOf";
-import { Path } from "../../Path";
+import { emptyOf } from "../emptyOf";
+import { Path } from "../../studio/Path";
 import { AnyVal } from "../ValCompositeFields";
 import { InitOnSubmit } from "../ValFormField";
 import { FieldContainer } from "../FieldContainer";

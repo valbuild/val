@@ -4,7 +4,7 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import { BasicInputField } from "../BasicInputField";
-import { OnSubmit } from "../../SubmitStatus";
+import { OnSubmit } from "../SubmitStatus";
 
 export function NumberField({
   path,

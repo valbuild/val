@@ -1,6 +1,6 @@
 import { Patch } from "@valbuild/core/patch";
 import { useState, useEffect } from "react";
-import { OnSubmit, SubmitStatus } from "../../SubmitStatus";
+import { OnSubmit, SubmitStatus } from "../SubmitStatus";
 import {
   Select,
   SelectContent,

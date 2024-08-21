@@ -5,7 +5,7 @@ import {
   SerializedNumberSchema,
 } from "@valbuild/core";
 import { useState, useRef, useEffect } from "react";
-import { OnSubmit, useBounceSubmit, SubmitStatus } from "../SubmitStatus";
+import { OnSubmit, useBounceSubmit, SubmitStatus } from "./SubmitStatus";
 import { Input } from "../ui/input";
 import { InlineValidationErrors } from "./InlineValidationErrors";
 import { FieldContainer } from "./FieldContainer";
