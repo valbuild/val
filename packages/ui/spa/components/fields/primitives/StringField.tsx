@@ -3,7 +3,7 @@ import {
   SerializedStringSchema,
   StringSchema,
 } from "@valbuild/core";
-import { OnSubmit } from "../../SubmitStatus";
+import { OnSubmit } from "../SubmitStatus";
 import { BasicInputField } from "../BasicInputField";
 
 export function StringField({

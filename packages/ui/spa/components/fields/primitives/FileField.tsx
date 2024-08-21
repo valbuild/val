@@ -11,7 +11,7 @@ import { getMimeType, mimeTypeToFileExt } from "@valbuild/shared/internal";
 import { File } from "lucide-react";
 import { ChangeEvent, useState, useEffect } from "react";
 import { createFilename } from "../../../utils/readImage";
-import { OnSubmit, SubmitStatus } from "../../SubmitStatus";
+import { OnSubmit, SubmitStatus } from "../SubmitStatus";
 import { FieldContainer } from "../FieldContainer";
 
 export function createFilePatch(

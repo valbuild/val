@@ -6,7 +6,7 @@ import {
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
-import { OnSubmit } from "../SubmitStatus";
+import { OnSubmit } from "./SubmitStatus";
 import { BooleanField } from "./primitives/BooleanField";
 import { DateField } from "./primitives/DateField";
 import { FileField } from "./primitives/FileField";

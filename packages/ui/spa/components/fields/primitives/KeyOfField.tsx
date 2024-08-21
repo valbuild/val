@@ -2,7 +2,7 @@ import { SourcePath, Internal, Json, SerializedSchema } from "@valbuild/core";
 import { useState, useEffect } from "react";
 import { isJsonArray } from "../../../utils/isJsonArray";
 import { Preview } from "../Preview";
-import { OnSubmit, SubmitStatus } from "../../SubmitStatus";
+import { OnSubmit, SubmitStatus } from "../SubmitStatus";
 import {
   Select,
   SelectContent,

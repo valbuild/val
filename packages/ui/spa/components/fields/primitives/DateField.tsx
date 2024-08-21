@@ -8,7 +8,7 @@ import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 import { useState, useEffect } from "react";
 import { cn } from "../../../lib/utils";
-import { OnSubmit } from "../../SubmitStatus";
+import { OnSubmit } from "../SubmitStatus";
 import { Button } from "../../ui/button";
 import { Calendar } from "../../ui/calendar";
 

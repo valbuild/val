@@ -4,7 +4,7 @@ import { JsonArray, SourcePath, SerializedArraySchema } from "@valbuild/core";
 import { array } from "@valbuild/core/fp";
 import { JSONValue, Patch } from "@valbuild/core/patch";
 import { useState, useEffect } from "react";
-import { emptyOf } from "../../emptyOf";
+import { emptyOf } from "../emptyOf";
 import { InitOnSubmit } from "../ValFormField";
 import { useNavigate } from "../../ValRouter";
 import { FieldContainer } from "../FieldContainer";

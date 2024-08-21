@@ -11,8 +11,8 @@ import {
   remirrorToRichTextSource,
 } from "@valbuild/shared/internal";
 import { useState, useEffect } from "react";
-import { useRichTextEditor, RichTextEditor } from "../../RichTextEditor";
-import { OnSubmit, useBounceSubmit } from "../../SubmitStatus";
+import { useRichTextEditor, RichTextEditor } from "../RichTextEditor";
+import { OnSubmit, useBounceSubmit } from "../SubmitStatus";
 import { FieldContainer } from "../FieldContainer";
 
 export function RichTextField({

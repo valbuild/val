@@ -2,8 +2,8 @@ import { JsonObject, SourcePath, SerializedSchema, Json } from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
 import classNames from "classnames";
 import { useState, useEffect } from "react";
-import { emptyOf } from "../emptyOf";
-import { SubmitStatus } from "../SubmitStatus";
+import { emptyOf } from "./emptyOf";
+import { SubmitStatus } from "./SubmitStatus";
 import {
   Select,
   SelectContent,

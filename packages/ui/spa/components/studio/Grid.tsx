@@ -1,6 +1,6 @@
 import classNames from "classnames";
 import React, { Children, useEffect, useRef, useState } from "react";
-import { ScrollArea } from "./ui/scroll-area";
+import { ScrollArea } from "../ui/scroll-area";
 import { Menu } from "lucide-react";
 
 type GridProps = {

@@ -1,5 +1,9 @@
-import { JsonObject, SourcePath, SerializedObjectSchema } from "@valbuild/core";
-import { createValPathOfItem } from "@valbuild/core/src/selector/SelectorProxy";
+import {
+  JsonObject,
+  SourcePath,
+  SerializedObjectSchema,
+  Internal,
+} from "@valbuild/core";
 import classNames from "classnames";
 import { AnyVal } from "../ValCompositeFields";
 import { InitOnSubmit } from "../ValFormField";
@@ -25,7 +29,7 @@ export function ObjectFields({
       })}
     >
       {Object.entries(schema.items).map(([key, property]) => {
-        const subPath = createValPathOfItem(path, key);
+        const subPath = Internal.createValPathOfItem(path, key);
         if (!subPath) {
           console.error("Could not extract subpath from", path, key);
           return null;

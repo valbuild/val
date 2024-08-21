@@ -1,4 +1,3 @@
-import { useValUIContext } from "./ValUIContext";
 import { PatchId, ValApi } from "@valbuild/core";
 import classNames from "classnames";
 import {
@@ -16,7 +15,8 @@ import {
 import React, { MouseEventHandler, useEffect, useState } from "react";
 import * as SwitchPrimitives from "@radix-ui/react-switch";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { PopoverTrigger } from "./ui/popover";
+import { PopoverTrigger } from "../ui/popover";
+import { useValUIContext } from "../ValUIContext";
 
 const className = "p-1 border rounded-full shadow border-accent";
 const PREV_URL_KEY = "valbuild:urlBeforeNavigation";
