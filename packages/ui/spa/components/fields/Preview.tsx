@@ -11,10 +11,10 @@ import {
   SerializedObjectSchema,
   AllRichTextOptions,
 } from "@valbuild/core";
-import { isJsonArray } from "../utils/isJsonArray";
+import { isJsonArray } from "../../utils/isJsonArray";
 import React, { createElement, useState } from "react";
 import { createPortal } from "react-dom";
-import { useValImagePreviewContext } from "./ValCompositeFields";
+import { useValImagePreviewContext } from "./PreviewImage";
 
 export function Preview({
   source,
