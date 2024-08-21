@@ -224,6 +224,21 @@ export type ApiPostValidationErrorResponse = {
   >;
 };
 
+export type ApiPutTreeErrorResponse = {
+  type: "patch-error";
+  errors: Record<
+    ModuleFilePath,
+    {
+      patchId: PatchId;
+      skipped: boolean;
+      invalidPath?: boolean | undefined;
+      error: {
+        message: string;
+      };
+    }[]
+  >;
+};
+
 const Internal = {
   VERSION: {
     core: ((): string | null => {

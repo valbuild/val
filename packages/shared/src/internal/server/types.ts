@@ -1,4 +1,5 @@
 import {
+  ApiPutTreeErrorResponse,
   ApiPostValidationErrorResponse,
   ApiTreeResponse,
   Internal,
@@ -84,6 +85,7 @@ export type ValServerGenericResult =
   | ValServerJsonResult<Json>
   | ValServerError
   | { status: 400; json: ApiPostValidationErrorResponse } // TODO: ugly
+  | { status: 400; json: ApiPutTreeErrorResponse } // TODO: ugly
   | ValServerRedirectResult<ValCookiesNames>
   | ValServerResult<ValCookiesNames, string | ReadableStream<Uint8Array>>;
 

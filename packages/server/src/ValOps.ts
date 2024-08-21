@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
+  ApiPutTreeErrorResponse,
   FILE_REF_PROP,
   FileMetadata,
   FileSchema,
@@ -282,10 +283,7 @@ export abstract class ValOps {
   // #region getTree
   async getTree(analysis?: PatchAnalysis & Patches): Promise<{
     sources: Sources;
-    errors: Record<
-      ModuleFilePath,
-      { patchId?: PatchId; invalidPath?: boolean; error: PatchError }[]
-    >;
+    errors: ApiPutTreeErrorResponse["errors"];
   }> {
     if (!analysis) {
       const { sources } = await this.initTree();
@@ -294,26 +292,28 @@ export abstract class ValOps {
     const { sources } = await this.initTree();
 
     const patchedSources: Sources = {};
-    const errors: Record<
-      ModuleFilePath,
-      { patchId?: PatchId; invalidPath?: boolean; error: PatchError }[]
-    > = {};
+    const errors: ApiPutTreeErrorResponse["errors"] = {};
     for (const [pathS, patches] of Object.entries(analysis.patchesByModule)) {
       const path = pathS as ModuleFilePath;
       if (!sources[path]) {
         if (!errors[path]) {
           errors[path] = [];
         }
-        errors[path].push({
-          invalidPath: true,
-          error: new PatchError(`Module at path: '${path}' not found`),
-        });
+        errors[path].push(
+          ...patches.map(({ patchId }) => ({
+            patchId,
+            invalidPath: true,
+            skipped: true,
+            error: new PatchError(`Module at path: '${path}' not found`),
+          }))
+        );
       }
       patchedSources[path] = sources[path];
       for (const { patchId } of patches) {
         if (errors[path]) {
           errors[path].push({
             patchId: patchId,
+            skipped: true,
             error: new PatchError(`Cannot apply patch: previous errors exists`),
           });
         } else {
@@ -322,6 +322,7 @@ export abstract class ValOps {
             errors[path] = [
               {
                 patchId: patchId,
+                skipped: false,
                 error: new PatchError(`Patch not found`),
               },
             ];
@@ -359,6 +360,7 @@ export abstract class ValOps {
             }
             errors[path].push({
               patchId: patchId,
+              skipped: false,
               error: patchRes.error,
             });
           } else {
