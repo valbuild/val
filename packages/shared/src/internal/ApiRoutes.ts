@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { Json } from "@valbuild/core";
+import { Json, ModuleFilePath, PatchId } from "@valbuild/core";
+import { Patch } from "./Patch";
 
 export const Api = {
   "/session": {
@@ -20,12 +21,36 @@ export const Api = {
   },
   "/tree/~/*": {
     PUT: {
-      req: z.object({
+      req: {
         path: z.string(),
-        body: z.string(),
-        query: z.array(z.literal("a")),
-        cookies: z.array(z.literal("a")),
-      }),
+        body: z
+          .object({
+            patchIds: z
+              .array(
+                z.string().refine(
+                  (id): id is PatchId => true // TODO:
+                )
+              )
+              .optional(),
+            addPatch: z
+              .object({
+                path: z.string().refine(
+                  (path): path is ModuleFilePath => true // TODO:
+                ),
+                patch: Patch,
+              })
+              .optional(),
+          })
+          .optional(),
+        query: {
+          validate_all: z.boolean(),
+          validate_sources: z.boolean(),
+          validate_binary_files: z.boolean(),
+        },
+        cookies: {
+          val_session: true,
+        },
+      },
       res: z.union([
         z.object({
           status: z.literal(200),
@@ -40,29 +65,49 @@ export const Api = {
   },
 } satisfies ApiGuard;
 
+type DefinedKeys<T> = {
+  [K in keyof T]-?: T[K] extends undefined ? never : K;
+}[keyof T];
+type DefinedObject<T> = Pick<T, DefinedKeys<T>>;
+
 // Types and helper types:
 type ApiEndpoint = {
-  req: z.ZodSchema<{
-    path?: string;
-    body?: Json;
-    query?: string[];
-    cookies?: string[];
-  }>;
+  req: {
+    path?: z.ZodString;
+    body?: z.ZodA;
+    query?: Record<
+      string,
+      z.ZodSchema<boolean | number | number[] | string | string[]>
+    >;
+  } & {
+    cookies?: Record<string, true>;
+  };
   res: z.ZodSchema<{
     status: number;
     body: Json;
-    cookies?: string[];
-  }>;
+  }> & {
+    cookies?: Record<string, true>;
+  };
 };
 type ApiGuard = Record<
   `/${string}`,
   Partial<Record<"PUT" | "GET" | "POST", ApiEndpoint>>
 >;
+
+type TEST = {
+  a: string;
+  b: undefined;
+};
+
 export type ServerOf<Api extends ApiGuard> = {
   [Route in keyof Api]: {
     [Method in keyof Api[Route]]: Api[Route][Method] extends ApiEndpoint
       ? (
-          req: z.infer<Api[Route][Method]["req"]>
+          req: DefinedObject<{
+            body: Api[Route][Method]["req"]["body"] extends undefined
+              ? never
+              : z.infer<Api[Route][Method]["req"]["body"]>;
+          }>
         ) => Promise<z.infer<Api[Route][Method]["res"]>>
       : never;
   };
