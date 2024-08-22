@@ -53,7 +53,7 @@ export function DateField({
         return [
           {
             op: "replace",
-              path,
+            path,
             value: formattedDate,
           },
         ];
@@ -89,7 +89,7 @@ export function DateField({
           }
           toDate={schema.options?.to ? new Date(schema.options.to) : undefined}
           selected={date}
-          onSelect={handleDateSelect}  
+          onSelect={handleDateSelect}
         />
       </PopoverContent>
     </Popover>

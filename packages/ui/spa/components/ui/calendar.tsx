@@ -87,7 +87,7 @@ function Calendar({
                 </Select.Trigger>
                 <Select.Content className="p-1 bg-popover rounded-md text-popover-foreground z-50">
                   <Select.Viewport className="max-h-48 overflow-y-auto shadow-lg rounded-md">
-                    {React.Children.map(children, (child, _index) => {
+                    {React.Children.map(children, (child) => {
                       if (React.isValidElement(child)) {
                         const { value, children } = child.props;
                         return (
