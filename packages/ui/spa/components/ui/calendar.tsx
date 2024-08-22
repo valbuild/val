@@ -1,32 +1,40 @@
 import * as React from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { DayPicker } from "react-day-picker";
 
 import { cn } from "../../lib/utils";
-import { buttonVariants } from "./button";
+import { Button, buttonVariants } from "./button";
+import * as Select from "@radix-ui/react-select";
 
 export type CalendarProps = React.ComponentProps<typeof DayPicker>;
 
 function Calendar({
   className,
   classNames,
+  captionLayout,
   showOutsideDays = true,
   ...props
 }: CalendarProps) {
+  console.log("captionLayout", captionLayout);
+  const hasRange = props.fromDate && props.toDate;
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
-      captionLayout="dropdown"
+      captionLayout={captionLayout}
       className={cn("p-3", className)}
       classNames={{
         months: "flex flex-col sm:flex-row space-y-4 sm:space-x-4 sm:space-y-0",
         month: "space-y-4",
-        caption: "flex justify-center pt-1 relative items-center",
-        caption_label: "text-sm font-medium hidden",
+        caption: "flex flex-row justify-center pt-1 relative items-center",
+        caption_dropdowns: "flex flex-row space-x-2",
+        caption_label: `text-sm font-medium ${hasRange ? "hidden" : ""}`,
         nav: "space-x-1 flex items-center",
-        dropdown_month: "flex flex-row text-accent justify-between text-[10px]",
-        dropdown_year: "flex flex-row text-accent justify-between text-[10px]",
-        dropdown: "bg-transparent border-solid rounded-md border-2 border-secondary",
+        dropdown_month:
+          "flex flex-row text-accent justify-between text-[0.8rem]",
+        dropdown_year:
+          "flex flex-row text-accent justify-between text-[0.8rem]",
+        dropdown:
+          "bg-transparent border-solid rounded-md border-2 border-secondary",
         nav_button: cn(
           buttonVariants({ variant: "outline" }),
           "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100"
@@ -57,6 +65,49 @@ function Calendar({
       components={{
         IconLeft: () => <ChevronLeft className="w-4 h-4" />,
         IconRight: () => <ChevronRight className="w-4 h-4" />,
+        Dropdown: ({ caption, children, value, onChange }) => {
+          const handleValueChange = (newValue: string) => {
+            if (onChange) {
+              const event = { target: { value: newValue } };
+              onChange(event as React.ChangeEvent<HTMLSelectElement>);
+            }
+          };
+
+          return (
+            <div className="flex flex-row space-x-2">
+              <Select.Root
+                onValueChange={handleValueChange}
+                value={String(value)}
+              >
+                <Select.Trigger asChild>
+                  <Button variant="ghost" size="sm">
+                    {caption}
+                    <ChevronDown className="w-4 h-4" />
+                  </Button>
+                </Select.Trigger>
+                <Select.Content className="p-1 bg-popover rounded-md text-popover-foreground z-50">
+                  <Select.Viewport className="max-h-48 overflow-y-auto shadow-lg rounded-md">
+                    {React.Children.map(children, (child) => {
+                      if (React.isValidElement(child)) {
+                        const { value, children } = child.props;
+                        return (
+                          <Select.Item
+                            key={value}
+                            value={String(value)}
+                            className="cursor-pointer hover:bg-primary hover:text-primary-foreground p-2 rounded-md"
+                          >
+                            <Select.ItemText>{children}</Select.ItemText>
+                          </Select.Item>
+                        );
+                      }
+                      return null;
+                    })}
+                  </Select.Viewport>
+                </Select.Content>
+              </Select.Root>
+            </div>
+          );
+        },
       }}
       {...props}
     />

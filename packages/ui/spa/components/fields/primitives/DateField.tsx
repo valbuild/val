@@ -1,8 +1,4 @@
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@radix-ui/react-popover";
+import { Popover, PopoverTrigger, PopoverContent } from "../../ui/popover";
 import { SourcePath, SerializedDateSchema } from "@valbuild/core";
 import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
@@ -23,6 +19,7 @@ export function DateField({
   onSubmit?: OnSubmit;
 }) {
   const [date, setDate] = useState<Date>();
+
   useEffect(() => {
     try {
       if (defaultValue) {
@@ -35,6 +32,37 @@ export function DateField({
       console.error("Invalid date", defaultValue);
     }
   }, [defaultValue]);
+
+  const handleDateSelect = (selectedDate: Date | undefined) => {
+    if (!selectedDate) return;
+
+    setDate(selectedDate);
+
+    if (onSubmit) {
+      onSubmit(async (path) => {
+        if (!selectedDate) {
+          return [
+            {
+              op: "replace",
+              path,
+              value: null,
+            },
+          ];
+        }
+        const formattedDate = format(selectedDate, "yyyy-MM-dd");
+        return [
+          {
+            op: "replace",
+            path,
+            value: formattedDate,
+          },
+        ];
+      }).catch((err) => {
+        console.error("Could not save date", err);
+        setDate(undefined);
+      });
+    }
+  };
 
   return (
     <Popover>
@@ -55,37 +83,13 @@ export function DateField({
           mode="single"
           captionLayout="dropdown-buttons"
           defaultMonth={date}
+          weekStartsOn={1}
           fromDate={
             schema.options?.from ? new Date(schema.options.from) : undefined
           }
           toDate={schema.options?.to ? new Date(schema.options.to) : undefined}
           selected={date}
-          onSelect={(date) => {
-            if (onSubmit) {
-              setDate(date);
-              onSubmit(async (path) => {
-                if (!date) {
-                  return [
-                    {
-                      op: "replace",
-                      path,
-                      value: null,
-                    },
-                  ];
-                }
-                return [
-                  {
-                    op: "replace",
-                    path,
-                    value: format(date, "yyyy-MM-dd"),
-                  },
-                ];
-              }).catch((err) => {
-                console.error("Could not save date", err);
-                setDate(undefined);
-              });
-            }
-          }}
+          onSelect={handleDateSelect}
         />
       </PopoverContent>
     </Popover>
