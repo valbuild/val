@@ -4,7 +4,7 @@ export const schema = s.record(
   s.object({
     name: s.string(),
     birthdate: s.date().from("1900-01-01").to("2024-01-01"),
-  }),
+  })
 );
 
 export type Author = t.inferSchema<typeof schema>;

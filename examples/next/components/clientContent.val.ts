@@ -12,13 +12,13 @@ export const schema = s.object({
     s.object({
       type: s.literal("object-type-2"),
       value: s.string(),
-    }),
+    })
   ),
   arrays: s.array(s.string()).nullable(),
   stringEnum: s.union(
     s.literal("lit-0"),
     s.literal("lit-1"),
-    s.literal("lit-2"),
+    s.literal("lit-2")
   ),
 });
 export type ClientContent = t.inferSchema<typeof schema>;
