@@ -15,6 +15,8 @@ function Calendar({
   showOutsideDays = true,
   ...props
 }: CalendarProps) {
+  console.log("captionLayout", captionLayout);
+  const hasRange = props.fromDate && props.toDate;
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
@@ -25,7 +27,7 @@ function Calendar({
         month: "space-y-4",
         caption: "flex flex-row justify-center pt-1 relative items-center",
         caption_dropdowns: "flex flex-row space-x-2",
-        caption_label: "text-sm font-medium hidden",
+        caption_label: `text-sm font-medium ${hasRange ? "hidden" : ""}`,
         nav: "space-x-1 flex items-center",
         dropdown_month:
           "flex flex-row text-accent justify-between text-[0.8rem]",
@@ -63,33 +65,49 @@ function Calendar({
       components={{
         IconLeft: () => <ChevronLeft className="w-4 h-4" />,
         IconRight: () => <ChevronRight className="w-4 h-4" />,
-        Dropdown: ({
-          name,
-          caption,
-          children,
-          className,
-          style,
-          value,
-          onChange,
-        }) => (
-          <div className="flex flex-row space-x-2">
-            <Select.Root>
-              <Select.Trigger asChild>
-                <Button variant="ghost" size="sm">
-                  {caption}
-                  <ChevronDown className="w-4 h-4" />
-                </Button>
-              </Select.Trigger>
-              <Select.Content className="w-24 p-2 bg-popover rounded-md shadow-md text-popover-foreground z-50">
-                {React.Children.map(children, (child, index) => (
-                  <Select.Item key={index} value={child?.value}>
-                    {child}
-                  </Select.Item>
-                ))}
-              </Select.Content>
-            </Select.Root>
-          </div>
-        ),
+        Dropdown: ({ caption, children, value, onChange }) => {
+          const handleValueChange = (newValue: string) => {
+            if (onChange) {
+              const event = { target: { value: newValue } };
+              onChange(event as React.ChangeEvent<HTMLSelectElement>);
+            }
+          };
+
+          return (
+            <div className="flex flex-row space-x-2">
+              <Select.Root
+                onValueChange={handleValueChange}
+                value={String(value)}
+              >
+                <Select.Trigger asChild>
+                  <Button variant="ghost" size="sm">
+                    {caption}
+                    <ChevronDown className="w-4 h-4" />
+                  </Button>
+                </Select.Trigger>
+                <Select.Content className="p-1 bg-popover rounded-md text-popover-foreground z-50">
+                  <Select.Viewport className="max-h-48 overflow-y-auto shadow-lg rounded-md">
+                    {React.Children.map(children, (child, _index) => {
+                      if (React.isValidElement(child)) {
+                        const { value, children } = child.props;
+                        return (
+                          <Select.Item
+                            key={value}
+                            value={String(value)}
+                            className="cursor-pointer hover:bg-primary hover:text-primary-foreground p-2 rounded-md"
+                          >
+                            <Select.ItemText>{children}</Select.ItemText>
+                          </Select.Item>
+                        );
+                      }
+                      return null;
+                    })}
+                  </Select.Viewport>
+                </Select.Content>
+              </Select.Root>
+            </div>
+          );
+        },
       }}
       {...props}
     />
