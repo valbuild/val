@@ -149,6 +149,15 @@ describe("stega transform", () => {
     });
   });
 
+  test("skip stegaEncode on dates", () => {
+    const schema = s.date();
+    const transformed = stegaEncode(
+      c.define("/test1.val.ts", schema, "2024-08-21"),
+      {}
+    );
+    expect(transformed).toStrictEqual("2024-08-21");
+  });
+
   test("skip stegaEncode when using keyOf", () => {
     const schema1 = c.define("/test1.val.ts", s.record(s.string()), {
       test: "one",
