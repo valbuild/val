@@ -1,8 +1,4 @@
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@radix-ui/react-popover";
+import { Popover, PopoverTrigger, PopoverContent } from "../../ui/popover";
 import { SourcePath, SerializedDateSchema } from "@valbuild/core";
 import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
