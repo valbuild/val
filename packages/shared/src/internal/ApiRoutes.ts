@@ -33,7 +33,7 @@ const ValidationError = z.object({
   fixes: z.array(ValidationFixZ).optional(),
 });
 
-const unauthorizedResponse = z.object({
+const undResponse = z.object({
   status: z.literal(401),
   json: z.object({
     message: z.string(),
@@ -124,7 +124,7 @@ export const Api = {
       ]),
     },
   },
-  "/authorize": {
+  "/": {
     GET: {
       req: {
         query: {
@@ -269,7 +269,7 @@ export const Api = {
         },
       },
       res: z.union([
-        unauthorizedResponse,
+        undResponse,
         z.object({
           status: z.literal(500),
           json: z.object({
@@ -295,7 +295,7 @@ export const Api = {
         },
       },
       res: z.union([
-        unauthorizedResponse,
+        undResponse,
         z.object({
           status: z.literal(500),
           json: z.object({
@@ -337,7 +337,7 @@ export const Api = {
         },
       },
       res: z.union([
-        unauthorizedResponse,
+        undResponse,
         z.object({
           status: z.literal(500),
           json: z.object({
@@ -380,12 +380,12 @@ export const Api = {
         },
       },
       res: z.union([
-        unauthorizedResponse,
+        undResponse,
         z.object({
           status: z.literal(500),
           json: z.object({
             message: z.string(),
-            details: z.array(ModulesError),
+            details: z.union([z.array(ModulesError), GenericError]),
           }),
         }),
         z.object({
@@ -399,22 +399,26 @@ export const Api = {
           status: z.literal(200),
           json: z.object({
             schemaSha: z.string(),
-            modules: z.record(
-              ModuleFilePath,
-              z.object({
-                source: z.string(), // TODO: Json,
-                patches: z.object({
-                  applied: z.array(PatchId),
-                  skipped: z.array(PatchId),
-                  errors: z.record(
-                    PatchId,
-                    z.object({
-                      message: z.string(),
-                    })
-                  ),
-                }),
-              })
-            ),
+            modules: z
+              .record(
+                ModuleFilePath,
+                z.object({
+                  source: z.any(), // TODO: Json,
+                  patches: z.object({
+                    applied: z.array(PatchId).optional(),
+                    skipped: z.array(PatchId).optional(),
+                    errors: z
+                      .record(
+                        PatchId,
+                        z.object({
+                          message: z.string(),
+                        })
+                      )
+                      .optional(),
+                  }),
+                })
+              )
+              .optional(),
             validationErrors: z
               .record(PatchId, z.array(ValidationError))
               .optional(),
@@ -434,7 +438,7 @@ export const Api = {
         },
       },
       res: z.union([
-        unauthorizedResponse,
+        undResponse,
         z.object({
           status: z.literal(200),
           json: z.object({}), // TODO:
@@ -449,7 +453,7 @@ export const Api = {
                   ModuleFilePath,
                   z.array(GenericError)
                 ),
-                binaryFilePatchErrors: z.record(z.array(GenericError)),
+                binaryFilePatchErrors: z.record(GenericError),
               }),
               z.array(GenericError),
             ]),
@@ -675,7 +679,7 @@ const urlOf: UrlOf<typeof Api> = (...args) => {
   return route;
 };
 
-urlOf("/authorize", {
+urlOf("/", {
   redirect_to: "https://example.com",
 });
 
