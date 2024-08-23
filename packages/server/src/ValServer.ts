@@ -67,36 +67,35 @@ export type ValServerConfig = ValServerOptions &
       }
   );
 
-export type  ValServer = ServerOf<Api>;
+export type ValServer = ServerOf<Api>;
 export const ValServer = (
   valModules: ValModules,
   options: ValServerConfig,
   callbacks: ValServerCallbacks
 ): ServerOf<Api> => {
-
   let serverOps: ValOpsHttp | ValOpsFS;
-    if (options.mode === "fs") {
-      serverOps = new ValOpsFS(options.cwd, valModules, {
+  if (options.mode === "fs") {
+    serverOps = new ValOpsFS(options.cwd, valModules, {
+      formatter: options.formatter,
+    });
+  } else if (options.mode === "http") {
+    serverOps = new ValOpsHttp(
+      options.valContentUrl,
+      options.project,
+      options.commit,
+      options.branch,
+      options.apiKey,
+      valModules,
+      {
         formatter: options.formatter,
-      });
-    } else if (options.mode === "http") {
-      serverOps = new ValOpsHttp(
-        options.valContentUrl,
-        options.project,
-        options.commit,
-        options.branch,
-        options.apiKey,
-        valModules,
-        {
-          formatter: options.formatter,
-          root: options.root,
-        }
-      );
-    } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      throw new Error("Invalid mode: " + (options as any)?.mode);
-    }
-  const getAuthorizeUrl = (publicValApiRe: string, token: string): string  => {
+        root: options.root,
+      }
+    );
+  } else {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    throw new Error("Invalid mode: " + (options as any)?.mode);
+  }
+  const getAuthorizeUrl = (publicValApiRe: string, token: string): string => {
     if (!options.project) {
       throw new Error("Project is not set");
     }
@@ -113,9 +112,9 @@ export const ValServer = (
     );
     url.searchParams.set("state", token);
     return url.toString();
-  }
+  };
 
-  const getAppErrorUrl = (error: string): string  =>{
+  const getAppErrorUrl = (error: string): string => {
     if (!options.project) {
       throw new Error("Project is not set");
     }
@@ -128,9 +127,11 @@ export const ValServer = (
     );
     url.searchParams.set("error", encodeURIComponent(error));
     return url.toString();
-  }
-  
-  const consumeCode = async (code: string): Promise<{
+  };
+
+  const consumeCode = async (
+    code: string
+  ): Promise<{
     sub: string;
     exp: number;
     org: string;
@@ -175,7 +176,7 @@ export const ValServer = (
         console.debug("Failed to get user from code: ", err);
         return null;
       });
-  }
+  };
 
   const getAuth = (
     cookies: Partial<Record<"val_session", string>>
@@ -237,757 +238,775 @@ export const ValServer = (
         error: "Login required: cookie not found",
       };
     }
-  }
+  };
 
   return {
-  //#region auth
-  '/enable': {GET: async (req) =>  {
-    
-    const query = req.query;
-    const redirectToRes = getRedirectUrl(
-      query,
-      options.valEnableRedirectUrl
-    );
-    if (typeof redirectToRes !== "string") {
-      return redirectToRes;
-    }
-    await callbacks.onEnable(true);
-    return {
-      cookies: {
-        [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
+    //#region auth
+    "/enable": {
+      GET: async (req) => {
+        const query = req.query;
+        const redirectToRes = getRedirectUrl(
+          query,
+          options.valEnableRedirectUrl
+        );
+        if (typeof redirectToRes !== "string") {
+          return redirectToRes;
+        }
+        await callbacks.onEnable(true);
+        return {
+          cookies: {
+            [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
+          },
+          status: 302,
+          redirectTo: redirectToRes,
+        };
       },
-      status: 302,
-      redirectTo: redirectToRes,
-    };
-  }},
+    },
 
-  '/disable': { GET: async (req) => {
-    const query = req.query;
-    const redirectToRes = getRedirectUrl(
-      query,
-      options.valDisableRedirectUrl
-    );
-    if (typeof redirectToRes !== "string") {
-      return redirectToRes;
-    }
-    await callbacks.onDisable(true);
-    return {
-      cookies: {
-        [VAL_ENABLE_COOKIE_NAME]: {
-          value: "false",
-        },
+    "/disable": {
+      GET: async (req) => {
+        const query = req.query;
+        const redirectToRes = getRedirectUrl(
+          query,
+          options.valDisableRedirectUrl
+        );
+        if (typeof redirectToRes !== "string") {
+          return redirectToRes;
+        }
+        await callbacks.onDisable(true);
+        return {
+          cookies: {
+            [VAL_ENABLE_COOKIE_NAME]: {
+              value: "false",
+            },
+          },
+          status: 302,
+          redirectTo: redirectToRes,
+        };
       },
-      status: 302,
-      redirectTo: redirectToRes,
-    };
-  }},
+    },
 
-  "/authorize": { GET: async (req) => {
-    const query = req.query;
-    if (typeof query.redirect_to !== "string") {
-      return {
-        status: 400,
-        json: {
-          message: "Missing redirect_to query param",
-        },
-      };
-    }
-    const token = crypto.randomUUID();
-    const redirectUrl = new URL(query.redirect_to);
-    const appAuthorizeUrl = getAuthorizeUrl(
-      `${redirectUrl.origin}/${options.route}`,
-      token
-    );
-    await callbacks.onEnable(true);
-    return {
-      cookies: {
-        [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
-        [VAL_STATE_COOKIE]: {
-          value: createStateCookie({ redirect_to: query.redirect_to, token }),
-          options: {
-            httpOnly: true,
-            sameSite: "lax",
-            expires: new Date(Date.now() + 1000 * 60 * 60), // 1 hour
+    "/authorize": {
+      GET: async (req) => {
+        const query = req.query;
+        if (typeof query.redirect_to !== "string") {
+          return {
+            status: 400,
+            json: {
+              message: "Missing redirect_to query param",
+            },
+          };
+        }
+        const token = crypto.randomUUID();
+        const redirectUrl = new URL(query.redirect_to);
+        const appAuthorizeUrl = getAuthorizeUrl(
+          `${redirectUrl.origin}/${options.route}`,
+          token
+        );
+        await callbacks.onEnable(true);
+        return {
+          cookies: {
+            [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
+            [VAL_STATE_COOKIE]: {
+              value: createStateCookie({
+                redirect_to: query.redirect_to,
+                token,
+              }),
+              options: {
+                httpOnly: true,
+                sameSite: "lax",
+                expires: new Date(Date.now() + 1000 * 60 * 60), // 1 hour
+              },
+            },
           },
-        },
+          status: 302,
+          redirectTo: appAuthorizeUrl,
+        };
       },
-      status: 302,
-      redirectTo: appAuthorizeUrl,
-    };
-  }},
+    },
 
-  '/callback': { GET: async (req) => {
-    const cookies = req.cookies;
-    const query = req.query;
-    if (!options.project) {
-      return {
-        status: 302,
-        cookies: {
-          [VAL_STATE_COOKIE]: {
-            value: null,
-          },
-        },
-        redirectTo: getAppErrorUrl("Project is not set"),
-      };
-    }
-    if (!options.valSecret) {
-      return {
-        status: 302,
-        cookies: {
-          [VAL_STATE_COOKIE]: {
-            value: null,
-          },
-        },
-        redirectTo: getAppErrorUrl("Secret is not set"),
-      };
-    }
-    const { success: callbackReqSuccess, error: callbackReqError } =
-      verifyCallbackReq(cookies[VAL_STATE_COOKIE], query);
+    "/callback": {
+      GET: async (req) => {
+        const cookies = req.cookies;
+        const query = req.query;
+        if (!options.project) {
+          return {
+            status: 302,
+            cookies: {
+              [VAL_STATE_COOKIE]: {
+                value: null,
+              },
+            },
+            redirectTo: getAppErrorUrl("Project is not set"),
+          };
+        }
+        if (!options.valSecret) {
+          return {
+            status: 302,
+            cookies: {
+              [VAL_STATE_COOKIE]: {
+                value: null,
+              },
+            },
+            redirectTo: getAppErrorUrl("Secret is not set"),
+          };
+        }
+        const { success: callbackReqSuccess, error: callbackReqError } =
+          verifyCallbackReq(cookies[VAL_STATE_COOKIE], query);
 
-    if (callbackReqError !== null) {
-      return {
-        status: 302,
-        cookies: {
-          [VAL_STATE_COOKIE]: {
-            value: null,
-          },
-        },
-        redirectTo: getAppErrorUrl(
-          `Authorization callback failed. Details: ${callbackReqError}`
-        ),
-      };
-    }
+        if (callbackReqError !== null) {
+          return {
+            status: 302,
+            cookies: {
+              [VAL_STATE_COOKIE]: {
+                value: null,
+              },
+            },
+            redirectTo: getAppErrorUrl(
+              `Authorization callback failed. Details: ${callbackReqError}`
+            ),
+          };
+        }
 
-    const data = await consumeCode(callbackReqSuccess.code);
-    if (data === null) {
-      return {
-        status: 302,
-        cookies: {
-          [VAL_STATE_COOKIE]: {
-            value: null,
+        const data = await consumeCode(callbackReqSuccess.code);
+        if (data === null) {
+          return {
+            status: 302,
+            cookies: {
+              [VAL_STATE_COOKIE]: {
+                value: null,
+              },
+            },
+            redirectTo: getAppErrorUrl("Failed to exchange code for user"),
+          };
+        }
+        const exp = getExpire();
+        const valSecret = options.valSecret;
+        if (!valSecret) {
+          return {
+            status: 302,
+            cookies: {
+              [VAL_STATE_COOKIE]: {
+                value: null,
+              },
+            },
+            redirectTo: getAppErrorUrl(
+              "Setup is not correct: secret is missing"
+            ),
+          };
+        }
+        const cookie = encodeJwt(
+          {
+            ...data,
+            exp, // this is the client side exp
           },
-        },
-        redirectTo: getAppErrorUrl("Failed to exchange code for user"),
-      };
-    }
-    const exp = getExpire();
-    const valSecret = options.valSecret;
-    if (!valSecret) {
-      return {
-        status: 302,
-        cookies: {
-          [VAL_STATE_COOKIE]: {
-            value: null,
+          valSecret
+        );
+
+        return {
+          status: 302,
+          cookies: {
+            [VAL_STATE_COOKIE]: {
+              value: null,
+            },
+            [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
+            [VAL_SESSION_COOKIE]: {
+              value: cookie,
+              options: {
+                httpOnly: true,
+                sameSite: "strict",
+                path: "/",
+                secure: true,
+                expires: new Date(exp * 1000), // NOTE: this is not used for authorization, only for authentication
+              },
+            },
           },
-        },
-        redirectTo: getAppErrorUrl(
-          "Setup is not correct: secret is missing"
-        ),
-      };
-    }
-    const cookie = encodeJwt(
-      {
-        ...data,
-        exp, // this is the client side exp
+          redirectTo: callbackReqSuccess.redirect_uri || "/",
+        };
       },
-      valSecret
-    );
+    },
 
-    return {
-      status: 302,
-      cookies: {
-        [VAL_STATE_COOKIE]: {
-          value: null,
-        },
-        [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
-        [VAL_SESSION_COOKIE]: {
-          value: cookie,
-          options: {
-            httpOnly: true,
-            sameSite: "strict",
-            path: "/",
-            secure: true,
-            expires: new Date(exp * 1000), // NOTE: this is not used for authorization, only for authentication
-          },
-        },
-      },
-      redirectTo: callbackReqSuccess.redirect_uri || "/",
-    };
-  }},
-
-  '/session': { GET: async (req) => {
-    const cookies = req.cookies;
-    if (serverOps instanceof ValOpsFS) {
-      return {
-        status: 200,
-        json: {
-          mode: "local",
-          enabled: await callbacks.isEnabled(),
-        },
-      };
-    }
-    if (!options.project) {
-      return {
-        status: 500,
-        json: {
-          message: "Project is not set",
-        },
-      };
-    }
-    if (!options.valSecret) {
-      return {
-        status: 500,
-        json: {
-          message: "Secret is not set",
-        },
-      };
-    }
-    return withAuth(
-      options.valSecret,
-      cookies,
-      "session",
-      async (data) => {
-        if (!options.valBuildUrl) {
+    "/session": {
+      GET: async (req) => {
+        const cookies = req.cookies;
+        if (serverOps instanceof ValOpsFS) {
+          return {
+            status: 200,
+            json: {
+              mode: "local",
+              enabled: await callbacks.isEnabled(),
+            },
+          };
+        }
+        if (!options.project) {
           return {
             status: 500,
             json: {
-              message: "Val is not correctly setup. Build url is missing",
+              message: "Project is not set",
             },
           };
         }
-        const url = new URL(
-          `/api/val/${options.project}/auth/session`,
-          options.valBuildUrl
-        );
-        const fetchRes = await fetch(url, {
-          headers: getAuthHeaders(data.token, "application/json"),
+        if (!options.valSecret) {
+          return {
+            status: 500,
+            json: {
+              message: "Secret is not set",
+            },
+          };
+        }
+        return withAuth(options.valSecret, cookies, "session", async (data) => {
+          if (!options.valBuildUrl) {
+            return {
+              status: 500,
+              json: {
+                message: "Val is not correctly setup. Build url is missing",
+              },
+            };
+          }
+          const url = new URL(
+            `/api/val/${options.project}/auth/session`,
+            options.valBuildUrl
+          );
+          const fetchRes = await fetch(url, {
+            headers: getAuthHeaders(data.token, "application/json"),
+          });
+          if (fetchRes.status === 200) {
+            return {
+              status: fetchRes.status,
+              json: {
+                mode: "proxy",
+                enabled: await callbacks.isEnabled(),
+                ...(await fetchRes.json()),
+              },
+            };
+          } else {
+            return {
+              status: fetchRes.status as ValServerErrorStatus,
+              json: {
+                message: "Failed to authorize",
+                ...(await fetchRes.json()),
+              },
+            };
+          }
         });
-        if (fetchRes.status === 200) {
-          return {
-            status: fetchRes.status,
-            json: {
-              mode: "proxy",
-              enabled: await callbacks.isEnabled(),
-              ...(await fetchRes.json()),
+      },
+    },
+
+    "/logout": {
+      GET: async () => {
+        return {
+          status: 200,
+          cookies: {
+            [VAL_SESSION_COOKIE]: {
+              value: null,
             },
-          };
-        } else {
+            [VAL_STATE_COOKIE]: {
+              value: null,
+            },
+          },
+        };
+      },
+    },
+
+    //#region patches
+    "/patches/~": {
+      GET: async (req) => {
+        const query = req.query;
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
           return {
-            status: fetchRes.status as ValServerErrorStatus,
+            status: 401,
             json: {
-              message: "Failed to authorize",
-              ...(await fetchRes.json()),
+              message: auth.error,
             },
           };
         }
-      }
-    );
-  }},
-  
-
-  '/logout': { GET: async () => {
-    return {
-      status: 200,
-      cookies: {
-        [VAL_SESSION_COOKIE]: {
-          value: null,
-        },
-        [VAL_STATE_COOKIE]: {
-          value: null,
-        },
+        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+          return {
+            status: 401,
+            json: {
+              message: "Unauthorized",
+            },
+          };
+        }
+        const authors = query.author as AuthorId[] | undefined;
+        const patches = await serverOps.fetchPatches({
+          authors,
+          patchIds: query.patch_id as PatchId[] | undefined,
+          omitPatch: query.omit_patch === true,
+        });
+        if (patches.errors && Object.keys(patches.errors).length > 0) {
+          console.error("Val: Failed to get patches", patches.errors);
+          return {
+            status: 500,
+            json: {
+              message: "Failed to get patches",
+              details: patches.errors,
+            },
+          };
+        }
+        return {
+          status: 200,
+          json: patches,
+        };
       },
-    };
-  }},
 
-  //#region patches
-  '/patches/~': { GET: async (req) => {
-    const query = req.query;
-    const cookies = req.cookies;
-    const auth = getAuth(cookies);
-    if (auth.error) {
-      return {
-        status: 401,
-        json: {
-          message: auth.error,
-        },
-      };
-    }
-    if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
-      return {
-        status: 401,
-        json: {
-          message: "Unauthorized",
-        },
-      };
-    }
-    const authors = query.author as AuthorId[] | undefined;
-    const patches = await serverOps.fetchPatches({
-      authors,
-      patchIds: query.patch_id as PatchId[] | undefined,
-      omitPatch: query.omit_patch === true,
-    });
-    if (patches.errors && Object.keys(patches.errors).length > 0) {
-      console.error("Val: Failed to get patches", patches.errors);
-      return {
-        status: 500,
-        json: {
-          message: "Failed to get patches",
-          details: patches.errors,
-        },
-      };
-    }
-    return {
-      status: 200,
-      json: patches,
-    };
-  },
-
-  DELETE: async (req) => {
-    const query = req.query;
-    const cookies = req.cookies;
-    const auth = getAuth(cookies);
-    if (auth.error) {
-      return {
-        status: 401,
-        json: {
-          message: auth.error,
-        },
-      };
-    }
-    if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
-      return {
-        status: 401,
-        json: {
-          message: "Unauthorized",
-        },
-      };
-    }
-    const ids = query.id;
-    const deleteRes = await serverOps.deletePatches(ids);
-    if (deleteRes.errors && Object.keys(deleteRes.errors).length > 0) {
-      console.error("Val: Failed to delete patches", deleteRes.errors);
-      return {
-        status: 500,
-        json: {
-          message: "Failed to delete patches",
-          details: deleteRes.errors,
-        },
-      };
-    }
-    return {
-      status: 200,
-      json: ids,
-    };
-  }},
-
-  //#region tree ops
- '/schema': { GET: async (req) => {
-    const cookies = req.cookies;
-    const auth = getAuth(cookies);
-    if (auth.error) {
-      return {
-        status: 401,
-        json: {
-          message: auth.error,
-        },
-      };
-    }
-    if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
-      return {
-        status: 401,
-        json: {
-          message: "Unauthorized",
-        },
-      };
-    }
-    const moduleErrors = await serverOps.getModuleErrors();
-    if (moduleErrors?.length > 0) {
-      console.error("Val: Module errors", moduleErrors);
-      return {
-        status: 500,
-        json: {
-          message: "Val is not correctly setup. Check the val.modules file",
-          details: moduleErrors,
-        },
-      };
-    }
-    const schemaSha = await serverOps.getSchemaSha();
-    const schemas = await serverOps.getSchemas();
-    const serializedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
-    for (const [moduleFilePathS, schema] of Object.entries(schemas)) {
-      const moduleFilePath = moduleFilePathS as ModuleFilePath;
-      serializedSchemas[moduleFilePath] = schema.serialize();
-    }
-
-    return {
-      status: 200,
-      json: {
-        schemaSha,
-        schemas: serializedSchemas,
+      DELETE: async (req) => {
+        const query = req.query;
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
+        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+          return {
+            status: 401,
+            json: {
+              message: "Unauthorized",
+            },
+          };
+        }
+        const ids = query.id;
+        const deleteRes = await serverOps.deletePatches(ids);
+        if (deleteRes.errors && Object.keys(deleteRes.errors).length > 0) {
+          console.error("Val: Failed to delete patches", deleteRes.errors);
+          return {
+            status: 500,
+            json: {
+              message: "Failed to delete patches",
+              details: deleteRes.errors,
+            },
+          };
+        }
+        return {
+          status: 200,
+          json: ids,
+        };
       },
-    };
-  }},
+    },
 
-  '/tree/~/*': { PUT: async (req) => {
-    const query = req.query;
-    const cookies = req.cookies;
-    const body = req.body;
-    const treePath = req.path;
-    const auth = getAuth(cookies);
-    if (auth.error) {
-      return {
-        status: 401,
-        json: {
-          message: auth.error,
-        },
-      };
-    }
-    if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
-      return {
-        status: 401,
-        json: {
-          message: "Unauthorized",
-        },
-      };
-    }
-    // TODO: move
-    const PutTreeBody = z
-      .object({
-        patchIds: z
-          .array(
+    //#region tree ops
+    "/schema": {
+      GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
+        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+          return {
+            status: 401,
+            json: {
+              message: "Unauthorized",
+            },
+          };
+        }
+        const moduleErrors = await serverOps.getModuleErrors();
+        if (moduleErrors?.length > 0) {
+          console.error("Val: Module errors", moduleErrors);
+          return {
+            status: 500,
+            json: {
+              message: "Val is not correctly setup. Check the val.modules file",
+              details: moduleErrors,
+            },
+          };
+        }
+        const schemaSha = await serverOps.getSchemaSha();
+        const schemas = await serverOps.getSchemas();
+        const serializedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
+        for (const [moduleFilePathS, schema] of Object.entries(schemas)) {
+          const moduleFilePath = moduleFilePathS as ModuleFilePath;
+          serializedSchemas[moduleFilePath] = schema.serialize();
+        }
+
+        return {
+          status: 200,
+          json: {
+            schemaSha,
+            schemas: serializedSchemas,
+          },
+        };
+      },
+    },
+
+    "/tree/~/*": {
+      PUT: async (req) => {
+        const query = req.query;
+        const cookies = req.cookies;
+        const body = req.body;
+        const treePath = req.path;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
+        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+          return {
+            status: 401,
+            json: {
+              message: "Unauthorized",
+            },
+          };
+        }
+        // TODO: move
+        const PutTreeBody = z
+          .object({
+            patchIds: z
+              .array(
+                z.string().refine(
+                  (id): id is PatchId => true // TODO:
+                )
+              )
+              .optional(),
+            addPatch: z
+              .object({
+                path: z.string().refine(
+                  (path): path is ModuleFilePath => true // TODO:
+                ),
+                patch: Patch,
+              })
+              .optional(),
+          })
+          .optional();
+        const moduleErrors = await serverOps.getModuleErrors();
+        if (moduleErrors?.length > 0) {
+          console.error("Val: Module errors", moduleErrors);
+          return {
+            status: 500,
+            json: {
+              message: "Val is not correctly setup. Check the val.modules file",
+              details: moduleErrors,
+            },
+          };
+        }
+        const bodyRes = PutTreeBody.safeParse(body);
+        if (!bodyRes.success) {
+          return {
+            status: 400,
+            json: {
+              message: "Invalid body: " + fromError(bodyRes.error).toString(),
+              details: bodyRes.error.errors,
+            },
+          };
+        }
+        let tree: {
+          sources: Sources;
+          errors: ApiPutTreeErrorResponse["errors"];
+        };
+        let patchAnalysis: PatchAnalysis | null = null;
+        let newPatchId: PatchId | undefined = undefined;
+        if (
+          (bodyRes.data?.patchIds && bodyRes.data?.patchIds?.length > 0) ||
+          bodyRes.data?.addPatch
+        ) {
+          // TODO: validate patches_sha
+          const patchIds = bodyRes.data?.patchIds;
+          const patchOps =
+            patchIds && patchIds.length > 0
+              ? await serverOps.fetchPatches({ patchIds, omitPatch: false })
+              : { patches: {} };
+          let patchErrors: Record<PatchId, { message: string }> | undefined =
+            undefined;
+          for (const [patchIdS, error] of Object.entries(
+            patchOps.errors || {}
+          )) {
+            const patchId = patchIdS as PatchId;
+            if (!patchErrors) {
+              patchErrors = {};
+            }
+            patchErrors[patchId] = {
+              message: error.message,
+            };
+          }
+          if (bodyRes.data?.addPatch) {
+            const newPatchModuleFilePath = bodyRes.data.addPatch.path;
+            const newPatchOps = bodyRes.data.addPatch.patch;
+            const authorId = "id" in auth ? (auth.id as AuthorId) : null;
+            const createPatchRes = await serverOps.createPatch(
+              newPatchModuleFilePath,
+              newPatchOps,
+              authorId
+            );
+            if (createPatchRes.error) {
+              return {
+                status: 500,
+                json: {
+                  message:
+                    "Failed to create patch: " + createPatchRes.error.message,
+                  details: createPatchRes.error,
+                },
+              };
+            }
+            // TODO: evaluate if we need this: seems wrong to delete patches that are not applied
+            // for (const fileRes of createPatchRes.files) {
+            //   if (fileRes.error) {
+            //     // clean up broken patch:
+            //     await this.serverOps.deletePatches([createPatchRes.patchId]);
+            //     return {
+            //       status: 500,
+            //       json: {
+            //         message: "Failed to create patch",
+            //         details: fileRes.error,
+            //       },
+            //     };
+            //   }
+            // }
+            newPatchId = createPatchRes.patchId;
+            patchOps.patches[createPatchRes.patchId] = {
+              path: newPatchModuleFilePath,
+              patch: newPatchOps,
+              authorId,
+              createdAt: createPatchRes.createdAt,
+              appliedAt: null,
+            };
+          }
+          // TODO: errors
+          patchAnalysis = serverOps.analyzePatches(patchOps.patches);
+          tree = {
+            ...(await serverOps.getTree({
+              ...patchAnalysis,
+              ...patchOps,
+            })),
+          };
+          if (query.validate_all) {
+            const allTree = await serverOps.getTree();
+            tree = {
+              sources: {
+                ...allTree.sources,
+                ...tree.sources,
+              },
+              errors: {
+                ...allTree.errors,
+                ...tree.errors,
+              },
+            };
+          }
+        } else {
+          tree = await serverOps.getTree();
+        }
+        if (tree.errors && Object.keys(tree.errors).length > 0) {
+          console.error("Val: Failed to get tree", JSON.stringify(tree.errors));
+          return {
+            status: 400,
+            json: {
+              type: "patch-error",
+              errors: Object.fromEntries(
+                Object.entries(tree.errors).map(([key, value]) => [
+                  key,
+                  value.map((error) => ({
+                    patchId: error.patchId,
+                    skipped: error.skipped,
+                    error: {
+                      message: error.error.message,
+                    },
+                  })),
+                ])
+              ),
+              message: "One or more patches failed to be applied",
+            },
+          };
+        }
+
+        if (query.validate_sources || query.validate_binary_files) {
+          const schemas = await serverOps.getSchemas();
+          const sourcesValidation = await serverOps.validateSources(
+            schemas,
+            tree.sources
+          );
+
+          // TODO: send validation errors
+          if (query.validate_binary_files) {
+            const binaryFilesValidation = await serverOps.validateFiles(
+              schemas,
+              tree.sources,
+              sourcesValidation.files
+            );
+          }
+        }
+
+        const schemaSha = await serverOps.getSchemaSha();
+        const modules: Record<
+          ModuleFilePath,
+          {
+            source: Json;
+            patches?: {
+              applied: PatchId[];
+              skipped?: PatchId[];
+              errors?: Record<PatchId, { message: string }>;
+            };
+            validationErrors?: Record<SourcePath, ValidationError[]>;
+          }
+        > = {};
+        for (const [moduleFilePathS, module] of Object.entries(tree.sources)) {
+          const moduleFilePath = moduleFilePathS as ModuleFilePath;
+          if (moduleFilePath.startsWith(treePath)) {
+            modules[moduleFilePath] = {
+              source: module,
+              patches: patchAnalysis
+                ? {
+                    applied: patchAnalysis.patchesByModule[moduleFilePath].map(
+                      (p) => p.patchId
+                    ),
+                  }
+                : undefined,
+            };
+          }
+        }
+        return {
+          status: 200,
+          json: {
+            schemaSha,
+            modules,
+            newPatchId,
+          },
+        };
+      },
+    },
+
+    "/save": {
+      POST: async (req) => {
+        const cookies = req.cookies;
+        const body = req.body;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
+        const PostSaveBody = z.object({
+          patchIds: z.array(
             z.string().refine(
               (id): id is PatchId => true // TODO:
             )
-          )
-          .optional(),
-        addPatch: z
-          .object({
-            path: z.string().refine(
-              (path): path is ModuleFilePath => true // TODO:
-            ),
-            patch: Patch,
-          })
-          .optional(),
-      })
-      .optional();
-    const moduleErrors = await serverOps.getModuleErrors();
-    if (moduleErrors?.length > 0) {
-      console.error("Val: Module errors", moduleErrors);
-      return {
-        status: 500,
-        json: {
-          message: "Val is not correctly setup. Check the val.modules file",
-          details: moduleErrors,
-        },
-      };
-    }
-    const bodyRes = PutTreeBody.safeParse(body);
-    if (!bodyRes.success) {
-      return {
-        status: 400,
-        json: {
-          message: "Invalid body: " + fromError(bodyRes.error).toString(),
-          details: bodyRes.error.errors,
-        },
-      };
-    }
-    let tree: {
-      sources: Sources;
-      errors: ApiPutTreeErrorResponse["errors"];
-    };
-    let patchAnalysis: PatchAnalysis | null = null;
-    let newPatchId: PatchId | undefined = undefined;
-    if (
-      (bodyRes.data?.patchIds && bodyRes.data?.patchIds?.length > 0) ||
-      bodyRes.data?.addPatch
-    ) {
-      // TODO: validate patches_sha
-      const patchIds = bodyRes.data?.patchIds;
-      const patchOps =
-        patchIds && patchIds.length > 0
-          ? await serverOps.fetchPatches({ patchIds, omitPatch: false })
-          : { patches: {} };
-      let patchErrors: Record<PatchId, { message: string }> | undefined =
-        undefined;
-      for (const [patchIdS, error] of Object.entries(patchOps.errors || {})) {
-        const patchId = patchIdS as PatchId;
-        if (!patchErrors) {
-          patchErrors = {};
-        }
-        patchErrors[patchId] = {
-          message: error.message,
-        };
-      }
-      if (bodyRes.data?.addPatch) {
-        const newPatchModuleFilePath = bodyRes.data.addPatch.path;
-        const newPatchOps = bodyRes.data.addPatch.patch;
-        const authorId = "id" in auth ? (auth.id as AuthorId) : null;
-        const createPatchRes = await serverOps.createPatch(
-          newPatchModuleFilePath,
-          newPatchOps,
-          authorId
-        );
-        if (createPatchRes.error) {
+          ),
+        });
+        const bodyRes = PostSaveBody.safeParse(body);
+        if (!bodyRes.success) {
           return {
-            status: 500,
+            status: 400,
             json: {
-              message:
-                "Failed to create patch: " + createPatchRes.error.message,
-              details: createPatchRes.error,
+              message: "Invalid body: " + fromError(bodyRes.error).toString(),
+              details: bodyRes.error.errors,
             },
           };
         }
-        // TODO: evaluate if we need this: seems wrong to delete patches that are not applied
-        // for (const fileRes of createPatchRes.files) {
-        //   if (fileRes.error) {
-        //     // clean up broken patch:
-        //     await this.serverOps.deletePatches([createPatchRes.patchId]);
-        //     return {
-        //       status: 500,
-        //       json: {
-        //         message: "Failed to create patch",
-        //         details: fileRes.error,
-        //       },
-        //     };
-        //   }
-        // }
-        newPatchId = createPatchRes.patchId;
-        patchOps.patches[createPatchRes.patchId] = {
-          path: newPatchModuleFilePath,
-          patch: newPatchOps,
-          authorId,
-          createdAt: createPatchRes.createdAt,
-          appliedAt: null,
-        };
-      }
-      // TODO: errors
-      patchAnalysis = serverOps.analyzePatches(patchOps.patches);
-      tree = {
-        ...(await serverOps.getTree({
-          ...patchAnalysis,
-          ...patchOps,
-        })),
-      };
-      if (query.validate_all) {
-        const allTree = await serverOps.getTree();
-        tree = {
-          sources: {
-            ...allTree.sources,
-            ...tree.sources,
-          },
-          errors: {
-            ...allTree.errors,
-            ...tree.errors,
-          },
-        };
-      }
-    } else {
-      tree = await serverOps.getTree();
-    }
-    if (tree.errors && Object.keys(tree.errors).length > 0) {
-      console.error("Val: Failed to get tree", JSON.stringify(tree.errors));
-      return {
-        status: 400,
-        json: {
-          type: "patch-error",
-          errors: Object.fromEntries(
-            Object.entries(tree.errors).map(([key, value]) => [
-              key,
-              value.map((error) => ({
-                patchId: error.patchId,
-                skipped: error.skipped,
-                error: {
-                  message: error.error.message,
-                },
-              })),
-            ])
-          ),
-          message: "One or more patches failed to be applied",
-        },
-      };
-    }
-
-    if (
-      query.validate_sources ||
-      query.validate_binary_files
-    ) {
-      const schemas = await serverOps.getSchemas();
-      const sourcesValidation = await serverOps.validateSources(
-        schemas,
-        tree.sources
-      );
-
-      // TODO: send validation errors
-      if (query.validate_binary_files) {
-        const binaryFilesValidation = await serverOps.validateFiles(
-          schemas,
-          tree.sources,
-          sourcesValidation.files
-        );
-      }
-    }
-
-    const schemaSha = await serverOps.getSchemaSha();
-    const modules: Record<
-      ModuleFilePath,
-      {
-        source: Json;
-        patches?: {
-          applied: PatchId[];
-          skipped?: PatchId[];
-          errors?: Record<PatchId, { message: string }>;
-        };
-        validationErrors?: Record<SourcePath, ValidationError[]>;
-      }
-    > = {};
-    for (const [moduleFilePathS, module] of Object.entries(tree.sources)) {
-      const moduleFilePath = moduleFilePathS as ModuleFilePath;
-      if (moduleFilePath.startsWith(treePath)) {
-        modules[moduleFilePath] = {
-          source: module,
-          patches: patchAnalysis
-            ? {
-                applied: patchAnalysis.patchesByModule[moduleFilePath].map(
-                  (p) => p.patchId
-                ),
-              }
-            : undefined,
-        };
-      }
-    }
-    return {
-      status: 200,
-      json: {
-        schemaSha,
-        modules,
-        newPatchId,
-      },
-    };
-  }},
-
-  '/save': { POST: async (req) => {
-    const cookies = req.cookies;
-    const body = req.body;
-    const auth = getAuth(cookies);
-    if (auth.error) {
-      return {
-        status: 401,
-        json: {
-          message: auth.error,
-        },
-      };
-    }
-    const PostSaveBody = z.object({
-      patchIds: z.array(
-        z.string().refine(
-          (id): id is PatchId => true // TODO:
-        )
-      ),
-    });
-    const bodyRes = PostSaveBody.safeParse(body);
-    if (!bodyRes.success) {
-      return {
-        status: 400,
-        json: {
-          message: "Invalid body: " + fromError(bodyRes.error).toString(),
-          details: bodyRes.error.errors,
-        },
-      };
-    }
-    const { patchIds } = bodyRes.data;
-    const patches = await serverOps.fetchPatches({
-      patchIds,
-      omitPatch: false,
-    });
-    const analysis = serverOps.analyzePatches(patches.patches);
-    const preparedCommit = await serverOps.prepare({
-      ...analysis,
-      ...patches,
-    });
-    if (preparedCommit.hasErrors) {
-      console.error("Failed to create commit", {
-        sourceFilePatchErrors: preparedCommit.sourceFilePatchErrors,
-        binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
-      });
-      return {
-        status: 400,
-        json: {
-          message: "Failed to create commit",
-          details: {
+        const { patchIds } = bodyRes.data;
+        const patches = await serverOps.fetchPatches({
+          patchIds,
+          omitPatch: false,
+        });
+        const analysis = serverOps.analyzePatches(patches.patches);
+        const preparedCommit = await serverOps.prepare({
+          ...analysis,
+          ...patches,
+        });
+        if (preparedCommit.hasErrors) {
+          console.error("Failed to create commit", {
             sourceFilePatchErrors: preparedCommit.sourceFilePatchErrors,
             binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
-          },
-        },
-      };
-    }
-    if (serverOps instanceof ValOpsFS) {
-      await serverOps.saveFiles(preparedCommit);
-      return {
-        status: 200,
-        json: {}, // TODO:
-      };
-    } else if (serverOps instanceof ValOpsHttp) {
-      if (auth.error === undefined && auth.id) {
-        await serverOps.commit(
-          preparedCommit,
-          "Update content: " +
-            Object.keys(analysis.patchesByModule) +
-            " modules changed",
-          auth.id as AuthorId
-        );
-        return {
-          status: 200,
-          json: {}, // TODO:
-        };
-      }
-      return {
-        status: 401,
-        json: {
-          message: "Unauthorized",
-        },
-      };
-    } else {
-      throw new Error("Invalid server ops");
-    }
-  }},
+          });
+          return {
+            status: 400,
+            json: {
+              message: "Failed to create commit",
+              details: {
+                sourceFilePatchErrors: preparedCommit.sourceFilePatchErrors,
+                binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
+              },
+            },
+          };
+        }
+        if (serverOps instanceof ValOpsFS) {
+          await serverOps.saveFiles(preparedCommit);
+          return {
+            status: 200,
+            json: {}, // TODO:
+          };
+        } else if (serverOps instanceof ValOpsHttp) {
+          if (auth.error === undefined && auth.id) {
+            await serverOps.commit(
+              preparedCommit,
+              "Update content: " +
+                Object.keys(analysis.patchesByModule) +
+                " modules changed",
+              auth.id as AuthorId
+            );
+            return {
+              status: 200,
+              json: {}, // TODO:
+            };
+          }
+          return {
+            status: 401,
+            json: {
+              message: "Unauthorized",
+            },
+          };
+        } else {
+          throw new Error("Invalid server ops");
+        }
+      },
+    },
 
-  //#region files
-  '/files/*': { GET: async (req) => {
-    const query = req.query;
-    const filePath = req.path;
-    // NOTE: no auth here since you would need the patch_id to get something that is not published.
-    // For everything that is published, well they are already public so no auth required there...
-    // We could imagine adding auth just to be a 200% certain,
-    // However that won't work since images are requested by the nextjs backend as a part of image optimization (again: as an example) which is a backend-to-backend op (no cookies, ...).
-    // So: 1) patch ids are not possible to guess (but possible to brute force)
-    //     2) the process of shimming a patch into the frontend would be quite challenging (so just trying out this attack would require a lot of effort)
-    //     3) the benefit an attacker would get is an image that is not yet published (i.e. most cases: not very interesting)
-    // Thus: attack surface + ease of attack + benefit = low probability of attack
-    // If we couldn't argue that patch ids are secret enough, then this would be a problem.
-    let fileBuffer;
-    if (query.patch_id) {
-      fileBuffer = await serverOps.getBase64EncodedBinaryFileFromPatch(
-        filePath,
-        query.patch_id as PatchId
-      );
-    } else {
-      fileBuffer = await serverOps.getBinaryFile(filePath);
-    }
-    if (fileBuffer) {
-      return {
-        status: 200,
-        body: bufferToReadableStream(fileBuffer),
-      };
-    } else {
-      return {
-        status: 404,
-        json: {
-          message: "File not found",
-        },
-      };
-    }
-  }}
-}}
+    //#region files
+    "/files/*": {
+      GET: async (req) => {
+        const query = req.query;
+        const filePath = req.path;
+        // NOTE: no auth here since you would need the patch_id to get something that is not published.
+        // For everything that is published, well they are already public so no auth required there...
+        // We could imagine adding auth just to be a 200% certain,
+        // However that won't work since images are requested by the nextjs backend as a part of image optimization (again: as an example) which is a backend-to-backend op (no cookies, ...).
+        // So: 1) patch ids are not possible to guess (but possible to brute force)
+        //     2) the process of shimming a patch into the frontend would be quite challenging (so just trying out this attack would require a lot of effort)
+        //     3) the benefit an attacker would get is an image that is not yet published (i.e. most cases: not very interesting)
+        // Thus: attack surface + ease of attack + benefit = low probability of attack
+        // If we couldn't argue that patch ids are secret enough, then this would be a problem.
+        let fileBuffer;
+        if (query.patch_id) {
+          fileBuffer = await serverOps.getBase64EncodedBinaryFileFromPatch(
+            filePath,
+            query.patch_id as PatchId
+          );
+        } else {
+          fileBuffer = await serverOps.getBinaryFile(filePath);
+        }
+        if (fileBuffer) {
+          return {
+            status: 200,
+            body: bufferToReadableStream(fileBuffer),
+          };
+        } else {
+          return {
+            status: 404,
+            json: {
+              message: "File not found",
+            },
+          };
+        }
+      },
+    },
+  };
+};
 
 export type ValServerCallbacks = {
   isEnabled: () => Promise<boolean>;
