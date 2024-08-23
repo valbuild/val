@@ -26,6 +26,14 @@ const ValidationError = z.object({
   fatal: z.boolean().optional(),
   fixes: z.array(ValidationFixZ).optional(),
 });
+
+const unauthorizedResponse = z.object({
+  status: z.literal(401),
+  json: z.object({
+    message: z.string(),
+  }),
+});
+
 export const Api = {
   "/session": {
     POST: {
@@ -93,16 +101,13 @@ export const Api = {
               .optional(),
           }),
         }),
-        z.object({
-          status: z.literal(500),
-          body: z.object({
-            message: z.string(),
-          }),
-        }),
+        unauthorizedResponse,
       ]),
     },
   },
 } satisfies ApiGuard;
+
+type Cookies = "val_session" | "val_enable" | "val_state";
 
 // Types and helper types:
 
@@ -134,11 +139,19 @@ type ApiEndpoint = {
   } & {
     cookies?: Record<string, z.ZodString>;
   };
-  res: z.ZodSchema<{
-    status: number;
-    body: unknown;
-    cookies?: Record<string, true>;
-  }>;
+  res: z.ZodSchema<
+    | {
+        status: number;
+        body: unknown;
+        contentType?: string;
+        cookies?: Record<Cookies, true>;
+      }
+    | {
+        status: number;
+        json: unknown;
+        cookies?: Record<Cookies, true>;
+      }
+  >;
 };
 type ApiGuard = Record<
   `/${string}`,
