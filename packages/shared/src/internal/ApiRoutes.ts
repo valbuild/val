@@ -480,20 +480,6 @@ export const Api = {
       ]),
     },
   },
-  "/test-url-of": {
-    GET: {
-      req: {
-        query: {
-          str_param: z.string(),
-          number_param: z.number(),
-        },
-      },
-      res: z.object({
-        status: z.literal(200),
-        body: z.object({}),
-      }),
-    },
-  },
 } satisfies ApiGuard;
 
 // Types and helper types:
@@ -623,6 +609,13 @@ export type ClientOf<Api extends ApiGuard> = <
 ) => Promise<
   | z.infer<Endpoint["res"]>
   | {
+      status: 404;
+      body: {
+        method: string;
+        path: string;
+      };
+    }
+  | {
       status: 500;
       body: {
         message: string;
@@ -630,11 +623,18 @@ export type ClientOf<Api extends ApiGuard> = <
     }
   | {
       status: null;
-      body: { message: "NETWORK_ERROR" };
+      body: {
+        type: "network_error" | "timeout";
+        message: string;
+        details: string;
+      };
+    }
+  | {
+      status: null;
+      body: { type: "incompatible_types"; details: string };
     }
 >;
 
-Api["/test-url-of"]["GET"]["req"]["query"];
 export type UrlOf<Api extends ApiGuard> = <
   Route extends keyof Api,
   Method extends keyof Api[Route] & "GET",
@@ -644,7 +644,7 @@ export type UrlOf<Api extends ApiGuard> = <
 >(
   ...args: Endpoint["req"]["query"] extends Record<
     string,
-    z.ZodSchema<boolean | number | number[] | string | string[]>
+    z.ZodSchema<boolean | number | number[] | string | string[] | undefined>
   >
     ? [
         route: Route,
@@ -675,9 +675,8 @@ const urlOf: UrlOf<typeof Api> = (...args) => {
   return route;
 };
 
-urlOf("/test-url-of", {
-  number_param: 1,
-  str_param: "string",
+urlOf("/authorize", {
+  redirect_to: "https://example.com",
 });
 
 export type Api = {
@@ -761,17 +760,6 @@ const a: ServerOf<typeof Api> = {
       };
     },
   },
-  "/session": {
-    POST: async (req) => {
-      req.body.username;
-      return {
-        status: 200,
-        body: {
-          token: "",
-        },
-      };
-    },
-  },
 };
 console.log(a);
 a["/tree/~/*"].PUT({
@@ -815,12 +803,10 @@ async function test() {
     b.status;
     b.json.modules;
   }
-  client("/session", "POST", {
-    body: {
-      username: "user",
-      password: "password",
-    },
-  });
+  const c = await client("/schema", "GET", {});
+  if (c.status === 200) {
+    c.json.schemas;
+  }
 }
 
 test();
