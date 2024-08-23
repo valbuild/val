@@ -6,6 +6,11 @@ import {
   type PatchId,
 } from "@valbuild/core";
 import { Patch } from "./Patch";
+import {
+  VAL_ENABLE_COOKIE_NAME,
+  VAL_SESSION_COOKIE,
+  VAL_STATE_COOKIE,
+} from "./server/types";
 
 const PatchId = z.string().refine(
   (_id): _id is PatchId => true // TODO:
@@ -34,19 +39,208 @@ const unauthorizedResponse = z.object({
   }),
 });
 
+const cookies = z.union([
+  z.literal("val_session"),
+  z.literal("val_enable"),
+  z.literal("val_state"),
+]);
+type Cookies = z.infer<typeof cookies>;
+
+const enableCookieValue = z.object({
+  value: z.literal("true"),
+  options: z.object({
+    httpOnly: z.literal(false),
+    sameSite: z.literal("lax"),
+  }),
+});
+
+type EnableCookieValue = z.infer<typeof enableCookieValue>;
+type CookieValue =
+  | EnableCookieValue
+  | {
+      value: "false" | string | null;
+      options?: {
+        httpOnly: boolean;
+        sameSite: "lax" | "strict";
+        expires: Date;
+      };
+    };
+
 export const Api = {
-  "/session": {
-    POST: {
+  "/enable": {
+    GET: {
       req: {
-        body: z.object({
-          username: z.string(),
-          password: z.string(),
-        }),
+        query: {
+          redirectTo: z.string().optional(), // TODO fix req types
+        },
       },
+      res: z.union([
+        z.object({
+          status: z.literal(302),
+          redirectTo: z.string(),
+          cookies: z.object({
+            [VAL_ENABLE_COOKIE_NAME]: enableCookieValue,
+          }),
+        }),
+        z.object({
+          status: z.literal(400),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
+  "/disable": {
+    GET: {
+      req: {
+        query: {
+          redirectTo: z.string().optional(), // TODO fix req types
+        },
+      },
+      res: z.union([
+        z.object({
+          status: z.literal(302),
+          redirectTo: z.string(),
+          cookies: z.object({
+            [VAL_ENABLE_COOKIE_NAME]: z.object({
+              value: z.literal("false"),
+            }),
+          }),
+        }),
+        z.object({
+          status: z.literal(400),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
+  "/authorize": {
+    GET: {
+      req: {
+        query: {
+          redirectTo: z.string().optional(), // TODO fix req types
+        },
+      },
+      res: z.union([
+        z.object({
+          status: z.literal(302),
+          redirectTo: z.string(),
+          cookies: z.object({
+            [VAL_ENABLE_COOKIE_NAME]: enableCookieValue,
+            [VAL_STATE_COOKIE]: z.object({
+              value: z.string(),
+              options: z.object({
+                httpOnly: z.literal(true),
+                sameSite: z.literal("lax"),
+                expires: z.instanceof(Date),
+              }),
+            }),
+          }),
+        }),
+        z.object({
+          status: z.literal(400),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
+  "/callback": {
+    GET: {
+      req: {}, // TODO fix req types
+      res: z.object({
+        status: z.literal(302),
+        redirectTo: z.string(),
+        cookies: z.object({
+          [VAL_STATE_COOKIE]: z.object({
+            value: z.literal(null),
+          }),
+          [VAL_ENABLE_COOKIE_NAME]: enableCookieValue.optional(),
+          [VAL_SESSION_COOKIE]: z
+            .object({
+              value: z.string(),
+              options: z
+                .object({
+                  httpOnly: z.literal(true),
+                  sameSite: z.literal("strict"),
+                  path: z.string(),
+                  secure: z.literal(true),
+                  expires: z.instanceof(Date),
+                })
+                .optional(),
+            })
+            .optional(),
+        }),
+      }),
+    },
+  },
+  "/session": {
+    GET: {
+      req: {
+        cookies: {}, // TODO fix req types
+      },
+      res: z.union([
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            mode: z.literal("local"),
+            enabled: z.boolean(),
+          }),
+        }),
+        z.object({
+          status: z.union([
+            // TODO: Remove the ones we don't need.
+            z.literal(400),
+            z.literal(401),
+            z.literal(403),
+            z.literal(404),
+            z.literal(500),
+            z.literal(501),
+          ]),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+        z.object({
+          status: z.literal(401),
+          json: z.object({
+            message: z.string(),
+            details: z.union([
+              z.string(),
+              z.object({
+                reason: z.string(),
+              }),
+              z.object({
+                sub: z.string(),
+                exp: z.number(),
+                token: z.string(),
+                org: z.string(),
+                project: z.string(),
+              }),
+            ]),
+          }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
+  "/logout": {
+    GET: {
+      req: {}, // TODO fix req types
       res: z.object({
         status: z.literal(200),
-        body: z.object({
-          token: z.string(),
+        cookies: z.object({
+          [VAL_SESSION_COOKIE]: z.object({ value: z.literal(null) }),
+          [VAL_STATE_COOKIE]: z.object({ value: z.literal(null) }),
         }),
       }),
     },
@@ -107,8 +301,6 @@ export const Api = {
   },
 } satisfies ApiGuard;
 
-type Cookies = "val_session" | "val_enable" | "val_state";
-
 // Types and helper types:
 
 /**
@@ -134,7 +326,7 @@ type ApiEndpoint = {
     body?: z.ZodTypeAny;
     query?: Record<
       string,
-      z.ZodSchema<boolean | number | number[] | string | string[]>
+      z.ZodSchema<boolean | number | number[] | string | string[] | undefined>
     >;
   } & {
     cookies?: Record<string, z.ZodString>;
@@ -144,12 +336,17 @@ type ApiEndpoint = {
         status: number;
         body: unknown;
         contentType?: string;
-        cookies?: Record<Cookies, true>;
+        cookies?: Partial<Record<Cookies, CookieValue>>;
       }
     | {
         status: number;
-        json: unknown;
-        cookies?: Record<Cookies, true>;
+        json?: unknown;
+        cookies?: Partial<Record<Cookies, CookieValue>>;
+      }
+    | {
+        cookies: Partial<Record<Cookies, CookieValue>>;
+        status: 302;
+        redirectTo: string;
       }
   >;
 };

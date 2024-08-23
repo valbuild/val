@@ -16,6 +16,8 @@ import {
   ApiPutTreeErrorResponse,
 } from "@valbuild/core";
 import {
+  Api,
+  ServerOf,
   VAL_ENABLE_COOKIE_NAME,
   VAL_SESSION_COOKIE,
   VAL_STATE_COOKIE,
@@ -98,7 +100,7 @@ export class ValServer {
   //#region auth
   async enable(query: {
     redirect_to?: string;
-  }): Promise<ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>> {
+  }): Promise<Awaited<ReturnType<ServerOf<Api>["/enable"]["GET"]>>> {
     const redirectToRes = getRedirectUrl(
       query,
       this.options.valEnableRedirectUrl
@@ -118,7 +120,7 @@ export class ValServer {
 
   async disable(query: {
     redirect_to?: string;
-  }): Promise<ValServerRedirectResult<VAL_ENABLE_COOKIE_NAME>> {
+  }): Promise<Awaited<ReturnType<ServerOf<Api>["/disable"]["GET"]>>> {
     const redirectToRes = getRedirectUrl(
       query,
       this.options.valDisableRedirectUrl
@@ -140,9 +142,7 @@ export class ValServer {
 
   async authorize(query: {
     redirect_to?: string;
-  }): Promise<
-    ValServerRedirectResult<VAL_STATE_COOKIE | VAL_ENABLE_COOKIE_NAME>
-  > {
+  }): Promise<Awaited<ReturnType<ServerOf<Api>["/authorize"]["GET"]>>> {
     if (typeof query.redirect_to !== "string") {
       return {
         status: 400,
@@ -178,9 +178,7 @@ export class ValServer {
   async callback(
     query: { code?: string; state?: string },
     cookies: ValCookies<"val_state">
-  ): Promise<
-    ValServerRedirectResult<"val_state" | "val_session" | "val_enable">
-  > {
+  ): Promise<Awaited<ReturnType<ServerOf<Api>["/callback"]["GET"]>>> {
     if (!this.options.project) {
       return {
         status: 302,
@@ -279,7 +277,7 @@ export class ValServer {
 
   async session(
     cookies: ValCookies<VAL_SESSION_COOKIE>
-  ): Promise<ValServerJsonResult<ValSession>> {
+  ): Promise<Awaited<ReturnType<ServerOf<Api>["/session"]["GET"]>>> {
     if (this.serverOps instanceof ValOpsFS) {
       return {
         status: 200,
@@ -491,7 +489,7 @@ export class ValServer {
   }
 
   async logout(): Promise<
-    ValServerResult<VAL_SESSION_COOKIE | VAL_STATE_COOKIE>
+    Awaited<ReturnType<ServerOf<Api>["/logout"]["GET"]>>
   > {
     return {
       status: 200,
@@ -1172,7 +1170,7 @@ async function withAuth<T>(
   cookies: ValCookies<VAL_SESSION_COOKIE>,
   errorMessageType: string,
   handler: (data: IntegratedServerJwtPayload) => Promise<T>
-): Promise<T | ValServerError> {
+): Promise<ReturnType<ServerOf<Api>["/session"]["GET"]> | T> {
   const cookie = cookies[VAL_SESSION_COOKIE];
   if (typeof cookie === "string") {
     const decodedToken = decodeJwt(cookie, secret);
@@ -1192,7 +1190,7 @@ async function withAuth<T>(
         json: {
           message:
             "Session invalid or, most likely, expired. You will need to login again.",
-          details: verification.error,
+          details: fromError(verification.error).toString(),
         },
       };
     }
@@ -1261,7 +1259,7 @@ export function bufferToReadableStream(buffer: Buffer) {
 export function getRedirectUrl(
   query: { redirect_to?: string | undefined },
   overrideHost: string | undefined
-): string | ValServerError {
+): string | { status: 400; json: { message: string } } {
   if (typeof query.redirect_to !== "string") {
     return {
       status: 400,
