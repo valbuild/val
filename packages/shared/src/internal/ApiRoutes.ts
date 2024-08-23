@@ -76,8 +76,9 @@ export const Api = {
   "/enable": {
     GET: {
       req: {
+        body: z.string(),
         query: {
-          redirectTo: z.string().optional(), // TODO fix req types
+          redirect_to: z.string().optional(),
         },
       },
       res: z.union([
@@ -101,7 +102,7 @@ export const Api = {
     GET: {
       req: {
         query: {
-          redirectTo: z.string().optional(), // TODO fix req types
+          redirect_to: z.string().optional(),
         },
       },
       res: z.union([
@@ -127,7 +128,7 @@ export const Api = {
     GET: {
       req: {
         query: {
-          redirectTo: z.string().optional(), // TODO fix req types
+          redirect_to: z.string().optional(),
         },
       },
       res: z.union([
@@ -157,7 +158,13 @@ export const Api = {
   },
   "/callback": {
     GET: {
-      req: {}, // TODO fix req types
+      req: {
+        query: {
+          code: z.string(),
+          state: z.string(),
+        },
+        cookies: { [VAL_STATE_COOKIE]: z.string() },
+      },
       res: z.object({
         status: z.literal(302),
         redirectTo: z.string(),
@@ -255,7 +262,7 @@ export const Api = {
     DELETE: {
       req: {
         query: {
-          patch_id: z.array(PatchId),
+          id: z.array(PatchId),
         },
         cookies: {
           val_session: z.string(),
@@ -382,6 +389,13 @@ export const Api = {
           }),
         }),
         z.object({
+          status: z.literal(400),
+          json: z.object({
+            message: z.string(),
+            details: z.array(ModulesError),
+          }),
+        }),
+        z.object({
           status: z.literal(200),
           json: z.object({
             schemaSha: z.string(),
@@ -449,7 +463,7 @@ export const Api = {
       req: {
         path: z.string(),
         query: {
-          patch_id: z.boolean().optional(),
+          patch_id: PatchId.optional(),
         },
       },
       res: z.union([
@@ -458,7 +472,7 @@ export const Api = {
           body: z.instanceof(ReadableStream),
         }),
         z.object({
-          status: z.literal(494),
+          status: z.literal(404),
           json: z.object({
             message: z.string(),
           }),
@@ -552,7 +566,9 @@ export type ServerOf<Api extends ApiGuard> = {
               : string;
             query: Api[Route][Method]["req"]["query"] extends Record<
               string,
-              z.ZodSchema<boolean | number | number[] | string | string[]>
+              z.ZodSchema<
+                boolean | number | number[] | string | string[] | undefined
+              >
             >
               ? {
                   [key in keyof Api[Route][Method]["req"]["query"]]: z.infer<
@@ -683,9 +699,28 @@ const a: ServerOf<typeof Api> = {
       };
     },
   },
+  "/enable": {
+    GET: async (req) => {
+      req.body;
+      req.query.redirect_to;
+      return {
+        status: 302,
+        redirectTo: "",
+        cookies: {
+          val_enable: {
+            value: "true",
+            options: {
+              httpOnly: false,
+              sameSite: "lax",
+            },
+          },
+        },
+      };
+    },
+  },
   "/patches/~": {
     DELETE: async (req) => {
-      req.query.patch_id;
+      req.query.id;
       return {
         status: 200,
         json: [],

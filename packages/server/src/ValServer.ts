@@ -67,19 +67,20 @@ export type ValServerConfig = ValServerOptions &
       }
   );
 
-export class ValServer {
-  private serverOps: ValOpsFS | ValOpsHttp;
-  constructor(
-    readonly valModules: ValModules,
-    private readonly options: ValServerConfig,
-    readonly callbacks: ValServerCallbacks
-  ) {
+export type  ValServer = ServerOf<Api>;
+export const ValServer = (
+  valModules: ValModules,
+  options: ValServerConfig,
+  callbacks: ValServerCallbacks
+): ServerOf<Api> => {
+
+  let serverOps: ValOpsHttp | ValOpsFS;
     if (options.mode === "fs") {
-      this.serverOps = new ValOpsFS(options.cwd, valModules, {
+      serverOps = new ValOpsFS(options.cwd, valModules, {
         formatter: options.formatter,
       });
     } else if (options.mode === "http") {
-      this.serverOps = new ValOpsHttp(
+      serverOps = new ValOpsHttp(
         options.valContentUrl,
         options.project,
         options.commit,
@@ -95,20 +96,162 @@ export class ValServer {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       throw new Error("Invalid mode: " + (options as any)?.mode);
     }
+  const getAuthorizeUrl = (publicValApiRe: string, token: string): string  => {
+    if (!options.project) {
+      throw new Error("Project is not set");
+    }
+    if (!options.valBuildUrl) {
+      throw new Error("Val build url is not set");
+    }
+    const url = new URL(
+      `/auth/${options.project}/authorize`,
+      options.valBuildUrl
+    );
+    url.searchParams.set(
+      "redirect_uri",
+      encodeURIComponent(`${publicValApiRe}/callback`)
+    );
+    url.searchParams.set("state", token);
+    return url.toString();
   }
 
+  const getAppErrorUrl = (error: string): string  =>{
+    if (!options.project) {
+      throw new Error("Project is not set");
+    }
+    if (!options.valBuildUrl) {
+      throw new Error("Val build url is not set");
+    }
+    const url = new URL(
+      `/auth/${options.project}/authorize`,
+      options.valBuildUrl
+    );
+    url.searchParams.set("error", encodeURIComponent(error));
+    return url.toString();
+  }
+  
+  const consumeCode = async (code: string): Promise<{
+    sub: string;
+    exp: number;
+    org: string;
+    project: string;
+    token: string;
+  } | null> => {
+    if (!options.project) {
+      throw new Error("Project is not set");
+    }
+    if (!options.valBuildUrl) {
+      throw new Error("Val build url is not set");
+    }
+    const url = new URL(
+      `/api/val/${options.project}/auth/token`,
+      options.valBuildUrl
+    );
+    url.searchParams.set("code", encodeURIComponent(code));
+    if (!options.apiKey) {
+      return null;
+    }
+    return fetch(url, {
+      method: "POST",
+      headers: getAuthHeaders(options.apiKey, "application/json"), // NOTE: we use apiKey as auth on this endpoint (we do not have a token yet)
+    })
+      .then(async (res) => {
+        if (res.status === 200) {
+          const token = await res.text();
+          const verification = ValAppJwtPayload.safeParse(decodeJwt(token));
+          if (!verification.success) {
+            return null;
+          }
+          return {
+            ...verification.data,
+            token,
+          };
+        } else {
+          console.debug("Failed to get data from code: ", res.status);
+          return null;
+        }
+      })
+      .catch((err) => {
+        console.debug("Failed to get user from code: ", err);
+        return null;
+      });
+  }
+
+  const getAuth = (
+    cookies: Partial<Record<"val_session", string>>
+  ):
+    | { error: string }
+    | { id: string; error?: undefined }
+    | { error: null; id: null } => {
+    const cookie = cookies[VAL_SESSION_COOKIE];
+    if (!options.valSecret) {
+      if (serverOps instanceof ValOpsFS) {
+        return {
+          error: null,
+          id: null,
+        };
+      } else {
+        return {
+          error: "Setup is not correct: secret is missing",
+        };
+      }
+    }
+    if (typeof cookie === "string") {
+      const decodedToken = decodeJwt(cookie, options.valSecret);
+      if (!decodedToken) {
+        if (serverOps instanceof ValOpsFS) {
+          return {
+            error: null,
+            id: null,
+          };
+        }
+        return {
+          error:
+            "Could not verify session (invalid token). You will need to login again.",
+        };
+      }
+      const verification = IntegratedServerJwtPayload.safeParse(decodedToken);
+      if (!verification.success) {
+        if (serverOps instanceof ValOpsFS) {
+          return {
+            error: null,
+            id: null,
+          };
+        }
+        return {
+          error:
+            "Session invalid or, most likely, expired. You will need to login again.",
+        };
+      }
+      return {
+        id: verification.data.sub,
+      };
+    } else {
+      if (serverOps instanceof ValOpsFS) {
+        return {
+          error: null,
+          id: null,
+        };
+      }
+      return {
+        error: "Login required: cookie not found",
+      };
+    }
+  }
+
+  return {
   //#region auth
-  async enable(query: {
-    redirect_to?: string;
-  }): Promise<Awaited<ReturnType<ServerOf<Api>["/enable"]["GET"]>>> {
+  '/enable': {GET: async (req) =>  {
+    
+    const query = req.query;
     const redirectToRes = getRedirectUrl(
       query,
-      this.options.valEnableRedirectUrl
+      options.valEnableRedirectUrl
     );
     if (typeof redirectToRes !== "string") {
       return redirectToRes;
     }
-    await this.callbacks.onEnable(true);
+    await callbacks.onEnable(true);
     return {
       cookies: {
         [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
@@ -116,19 +259,18 @@ export class ValServer {
       status: 302,
       redirectTo: redirectToRes,
     };
-  }
+  }},
 
-  async disable(query: {
-    redirect_to?: string;
-  }): Promise<Awaited<ReturnType<ServerOf<Api>["/disable"]["GET"]>>> {
+  '/disable': { GET: async (req) => {
+    const query = req.query;
     const redirectToRes = getRedirectUrl(
       query,
-      this.options.valDisableRedirectUrl
+      options.valDisableRedirectUrl
     );
     if (typeof redirectToRes !== "string") {
       return redirectToRes;
     }
-    await this.callbacks.onDisable(true);
+    await callbacks.onDisable(true);
     return {
       cookies: {
         [VAL_ENABLE_COOKIE_NAME]: {
@@ -138,11 +280,10 @@ export class ValServer {
       status: 302,
       redirectTo: redirectToRes,
     };
-  }
+  }},
 
-  async authorize(query: {
-    redirect_to?: string;
-  }): Promise<Awaited<ReturnType<ServerOf<Api>["/authorize"]["GET"]>>> {
+  "/authorize": { GET: async (req) => {
+    const query = req.query;
     if (typeof query.redirect_to !== "string") {
       return {
         status: 400,
@@ -153,11 +294,11 @@ export class ValServer {
     }
     const token = crypto.randomUUID();
     const redirectUrl = new URL(query.redirect_to);
-    const appAuthorizeUrl = this.getAuthorizeUrl(
-      `${redirectUrl.origin}/${this.options.route}`,
+    const appAuthorizeUrl = getAuthorizeUrl(
+      `${redirectUrl.origin}/${options.route}`,
       token
     );
-    await this.callbacks.onEnable(true);
+    await callbacks.onEnable(true);
     return {
       cookies: {
         [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
@@ -173,13 +314,12 @@ export class ValServer {
       status: 302,
       redirectTo: appAuthorizeUrl,
     };
-  }
+  }},
 
-  async callback(
-    query: { code?: string; state?: string },
-    cookies: ValCookies<"val_state">
-  ): Promise<Awaited<ReturnType<ServerOf<Api>["/callback"]["GET"]>>> {
-    if (!this.options.project) {
+  '/callback': { GET: async (req) => {
+    const cookies = req.cookies;
+    const query = req.query;
+    if (!options.project) {
       return {
         status: 302,
         cookies: {
@@ -187,10 +327,10 @@ export class ValServer {
             value: null,
           },
         },
-        redirectTo: this.getAppErrorUrl("Project is not set"),
+        redirectTo: getAppErrorUrl("Project is not set"),
       };
     }
-    if (!this.options.valSecret) {
+    if (!options.valSecret) {
       return {
         status: 302,
         cookies: {
@@ -198,7 +338,7 @@ export class ValServer {
             value: null,
           },
         },
-        redirectTo: this.getAppErrorUrl("Secret is not set"),
+        redirectTo: getAppErrorUrl("Secret is not set"),
       };
     }
     const { success: callbackReqSuccess, error: callbackReqError } =
@@ -212,13 +352,13 @@ export class ValServer {
             value: null,
           },
         },
-        redirectTo: this.getAppErrorUrl(
+        redirectTo: getAppErrorUrl(
           `Authorization callback failed. Details: ${callbackReqError}`
         ),
       };
     }
 
-    const data = await this.consumeCode(callbackReqSuccess.code);
+    const data = await consumeCode(callbackReqSuccess.code);
     if (data === null) {
       return {
         status: 302,
@@ -227,11 +367,11 @@ export class ValServer {
             value: null,
           },
         },
-        redirectTo: this.getAppErrorUrl("Failed to exchange code for user"),
+        redirectTo: getAppErrorUrl("Failed to exchange code for user"),
       };
     }
     const exp = getExpire();
-    const valSecret = this.options.valSecret;
+    const valSecret = options.valSecret;
     if (!valSecret) {
       return {
         status: 302,
@@ -240,7 +380,7 @@ export class ValServer {
             value: null,
           },
         },
-        redirectTo: this.getAppErrorUrl(
+        redirectTo: getAppErrorUrl(
           "Setup is not correct: secret is missing"
         ),
       };
@@ -273,21 +413,20 @@ export class ValServer {
       },
       redirectTo: callbackReqSuccess.redirect_uri || "/",
     };
-  }
+  }},
 
-  async session(
-    cookies: ValCookies<VAL_SESSION_COOKIE>
-  ): Promise<Awaited<ReturnType<ServerOf<Api>["/session"]["GET"]>>> {
-    if (this.serverOps instanceof ValOpsFS) {
+  '/session': { GET: async (req) => {
+    const cookies = req.cookies;
+    if (serverOps instanceof ValOpsFS) {
       return {
         status: 200,
         json: {
           mode: "local",
-          enabled: await this.callbacks.isEnabled(),
+          enabled: await callbacks.isEnabled(),
         },
       };
     }
-    if (!this.options.project) {
+    if (!options.project) {
       return {
         status: 500,
         json: {
@@ -295,7 +434,7 @@ export class ValServer {
         },
       };
     }
-    if (!this.options.valSecret) {
+    if (!options.valSecret) {
       return {
         status: 500,
         json: {
@@ -304,11 +443,11 @@ export class ValServer {
       };
     }
     return withAuth(
-      this.options.valSecret,
+      options.valSecret,
       cookies,
       "session",
       async (data) => {
-        if (!this.options.valBuildUrl) {
+        if (!options.valBuildUrl) {
           return {
             status: 500,
             json: {
@@ -317,8 +456,8 @@ export class ValServer {
           };
         }
         const url = new URL(
-          `/api/val/${this.options.project}/auth/session`,
-          this.options.valBuildUrl
+          `/api/val/${options.project}/auth/session`,
+          options.valBuildUrl
         );
         const fetchRes = await fetch(url, {
           headers: getAuthHeaders(data.token, "application/json"),
@@ -328,7 +467,7 @@ export class ValServer {
             status: fetchRes.status,
             json: {
               mode: "proxy",
-              enabled: await this.callbacks.isEnabled(),
+              enabled: await callbacks.isEnabled(),
               ...(await fetchRes.json()),
             },
           };
@@ -343,154 +482,10 @@ export class ValServer {
         }
       }
     );
-  }
+  }},
+  
 
-  private async consumeCode(code: string): Promise<{
-    sub: string;
-    exp: number;
-    org: string;
-    project: string;
-    token: string;
-  } | null> {
-    if (!this.options.project) {
-      throw new Error("Project is not set");
-    }
-    if (!this.options.valBuildUrl) {
-      throw new Error("Val build url is not set");
-    }
-    const url = new URL(
-      `/api/val/${this.options.project}/auth/token`,
-      this.options.valBuildUrl
-    );
-    url.searchParams.set("code", encodeURIComponent(code));
-    if (!this.options.apiKey) {
-      return null;
-    }
-    return fetch(url, {
-      method: "POST",
-      headers: getAuthHeaders(this.options.apiKey, "application/json"), // NOTE: we use apiKey as auth on this endpoint (we do not have a token yet)
-    })
-      .then(async (res) => {
-        if (res.status === 200) {
-          const token = await res.text();
-          const verification = ValAppJwtPayload.safeParse(decodeJwt(token));
-          if (!verification.success) {
-            return null;
-          }
-          return {
-            ...verification.data,
-            token,
-          };
-        } else {
-          console.debug("Failed to get data from code: ", res.status);
-          return null;
-        }
-      })
-      .catch((err) => {
-        console.debug("Failed to get user from code: ", err);
-        return null;
-      });
-  }
-
-  private getAuthorizeUrl(publicValApiRe: string, token: string): string {
-    if (!this.options.project) {
-      throw new Error("Project is not set");
-    }
-    if (!this.options.valBuildUrl) {
-      throw new Error("Val build url is not set");
-    }
-    const url = new URL(
-      `/auth/${this.options.project}/authorize`,
-      this.options.valBuildUrl
-    );
-    url.searchParams.set(
-      "redirect_uri",
-      encodeURIComponent(`${publicValApiRe}/callback`)
-    );
-    url.searchParams.set("state", token);
-    return url.toString();
-  }
-
-  private getAppErrorUrl(error: string): string {
-    if (!this.options.project) {
-      throw new Error("Project is not set");
-    }
-    if (!this.options.valBuildUrl) {
-      throw new Error("Val build url is not set");
-    }
-    const url = new URL(
-      `/auth/${this.options.project}/authorize`,
-      this.options.valBuildUrl
-    );
-    url.searchParams.set("error", encodeURIComponent(error));
-    return url.toString();
-  }
-
-  getAuth(
-    cookies: Partial<Record<"val_session", string>>
-  ):
-    | { error: string }
-    | { id: string; error?: undefined }
-    | { error: null; id: null } {
-    const cookie = cookies[VAL_SESSION_COOKIE];
-    if (!this.options.valSecret) {
-      if (this.serverOps instanceof ValOpsFS) {
-        return {
-          error: null,
-          id: null,
-        };
-      } else {
-        return {
-          error: "Setup is not correct: secret is missing",
-        };
-      }
-    }
-    if (typeof cookie === "string") {
-      const decodedToken = decodeJwt(cookie, this.options.valSecret);
-      if (!decodedToken) {
-        if (this.serverOps instanceof ValOpsFS) {
-          return {
-            error: null,
-            id: null,
-          };
-        }
-        return {
-          error:
-            "Could not verify session (invalid token). You will need to login again.",
-        };
-      }
-      const verification = IntegratedServerJwtPayload.safeParse(decodedToken);
-      if (!verification.success) {
-        if (this.serverOps instanceof ValOpsFS) {
-          return {
-            error: null,
-            id: null,
-          };
-        }
-        return {
-          error:
-            "Session invalid or, most likely, expired. You will need to login again.",
-        };
-      }
-      return {
-        id: verification.data.sub,
-      };
-    } else {
-      if (this.serverOps instanceof ValOpsFS) {
-        return {
-          error: null,
-          id: null,
-        };
-      }
-      return {
-        error: "Login required: cookie not found",
-      };
-    }
-  }
-
-  async logout(): Promise<
-    Awaited<ReturnType<ServerOf<Api>["/logout"]["GET"]>>
-  > {
+  '/logout': { GET: async () => {
     return {
       status: 200,
       cookies: {
@@ -502,14 +497,13 @@ export class ValServer {
         },
       },
     };
-  }
+  }},
 
   //#region patches
-  async getPatches(
-    query: { authors?: string[]; patchIds?: string[]; omitPatch?: string },
-    cookies: Partial<Record<"val_session", string>>
-  ): Promise<ValServerJsonResult<ApiGetPatchResponse>> {
-    const auth = this.getAuth(cookies);
+  '/patches/~': { GET: async (req) => {
+    const query = req.query;
+    const cookies = req.cookies;
+    const auth = getAuth(cookies);
     if (auth.error) {
       return {
         status: 401,
@@ -518,7 +512,7 @@ export class ValServer {
         },
       };
     }
-    if (this.serverOps instanceof ValOpsHttp && !("id" in auth)) {
+    if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
       return {
         status: 401,
         json: {
@@ -526,11 +520,11 @@ export class ValServer {
         },
       };
     }
-    const authors = query.authors as AuthorId[] | undefined;
-    const patches = await this.serverOps.fetchPatches({
+    const authors = query.author as AuthorId[] | undefined;
+    const patches = await serverOps.fetchPatches({
       authors,
-      patchIds: query.patchIds as PatchId[] | undefined,
-      omitPatch: query.omitPatch === "true",
+      patchIds: query.patch_id as PatchId[] | undefined,
+      omitPatch: query.omit_patch === true,
     });
     if (patches.errors && Object.keys(patches.errors).length > 0) {
       console.error("Val: Failed to get patches", patches.errors);
@@ -546,13 +540,12 @@ export class ValServer {
       status: 200,
       json: patches,
     };
-  }
+  },
 
-  async deletePatches(
-    query: { id?: string[] },
-    cookies: Partial<Record<"val_session", string>>
-  ): Promise<ValServerJsonResult<ApiDeletePatchResponse>> {
-    const auth = this.getAuth(cookies);
+  DELETE: async (req) => {
+    const query = req.query;
+    const cookies = req.cookies;
+    const auth = getAuth(cookies);
     if (auth.error) {
       return {
         status: 401,
@@ -561,7 +554,7 @@ export class ValServer {
         },
       };
     }
-    if (this.serverOps instanceof ValOpsHttp && !("id" in auth)) {
+    if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
       return {
         status: 401,
         json: {
@@ -569,8 +562,8 @@ export class ValServer {
         },
       };
     }
-    const ids = query.id as PatchId[];
-    const deleteRes = await this.serverOps.deletePatches(ids);
+    const ids = query.id;
+    const deleteRes = await serverOps.deletePatches(ids);
     if (deleteRes.errors && Object.keys(deleteRes.errors).length > 0) {
       console.error("Val: Failed to delete patches", deleteRes.errors);
       return {
@@ -585,13 +578,12 @@ export class ValServer {
       status: 200,
       json: ids,
     };
-  }
+  }},
 
   //#region tree ops
-  async getSchema(
-    cookies: Partial<Record<"val_session", string>>
-  ): Promise<ValServerJsonResult<ApiSchemaResponse>> {
-    const auth = this.getAuth(cookies);
+ '/schema': { GET: async (req) => {
+    const cookies = req.cookies;
+    const auth = getAuth(cookies);
     if (auth.error) {
       return {
         status: 401,
@@ -600,7 +592,7 @@ export class ValServer {
         },
       };
     }
-    if (this.serverOps instanceof ValOpsHttp && !("id" in auth)) {
+    if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
       return {
         status: 401,
         json: {
@@ -608,7 +600,7 @@ export class ValServer {
         },
       };
     }
-    const moduleErrors = await this.serverOps.getModuleErrors();
+    const moduleErrors = await serverOps.getModuleErrors();
     if (moduleErrors?.length > 0) {
       console.error("Val: Module errors", moduleErrors);
       return {
@@ -619,8 +611,8 @@ export class ValServer {
         },
       };
     }
-    const schemaSha = await this.serverOps.getSchemaSha();
-    const schemas = await this.serverOps.getSchemas();
+    const schemaSha = await serverOps.getSchemaSha();
+    const schemas = await serverOps.getSchemas();
     const serializedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
     for (const [moduleFilePathS, schema] of Object.entries(schemas)) {
       const moduleFilePath = moduleFilePathS as ModuleFilePath;
@@ -634,20 +626,14 @@ export class ValServer {
         schemas: serializedSchemas,
       },
     };
-  }
+  }},
 
-  async putTree(
-    body: unknown,
-    treePath: string,
-    query: {
-      patches_sha?: string;
-      validate_all?: string;
-      validate_sources?: string;
-      validate_binary_files?: string;
-    },
-    cookies: Partial<Record<"val_session", string>>
-  ): Promise<ValServerJsonResult<ApiTreeResponse, ApiPutTreeErrorResponse>> {
-    const auth = this.getAuth(cookies);
+  '/tree/~/*': { PUT: async (req) => {
+    const query = req.query;
+    const cookies = req.cookies;
+    const body = req.body;
+    const treePath = req.path;
+    const auth = getAuth(cookies);
     if (auth.error) {
       return {
         status: 401,
@@ -656,7 +642,7 @@ export class ValServer {
         },
       };
     }
-    if (this.serverOps instanceof ValOpsHttp && !("id" in auth)) {
+    if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
       return {
         status: 401,
         json: {
@@ -684,7 +670,7 @@ export class ValServer {
           .optional(),
       })
       .optional();
-    const moduleErrors = await this.serverOps.getModuleErrors();
+    const moduleErrors = await serverOps.getModuleErrors();
     if (moduleErrors?.length > 0) {
       console.error("Val: Module errors", moduleErrors);
       return {
@@ -719,7 +705,7 @@ export class ValServer {
       const patchIds = bodyRes.data?.patchIds;
       const patchOps =
         patchIds && patchIds.length > 0
-          ? await this.serverOps.fetchPatches({ patchIds, omitPatch: false })
+          ? await serverOps.fetchPatches({ patchIds, omitPatch: false })
           : { patches: {} };
       let patchErrors: Record<PatchId, { message: string }> | undefined =
         undefined;
@@ -736,7 +722,7 @@ export class ValServer {
         const newPatchModuleFilePath = bodyRes.data.addPatch.path;
         const newPatchOps = bodyRes.data.addPatch.patch;
         const authorId = "id" in auth ? (auth.id as AuthorId) : null;
-        const createPatchRes = await this.serverOps.createPatch(
+        const createPatchRes = await serverOps.createPatch(
           newPatchModuleFilePath,
           newPatchOps,
           authorId
@@ -775,15 +761,15 @@ export class ValServer {
         };
       }
       // TODO: errors
-      patchAnalysis = this.serverOps.analyzePatches(patchOps.patches);
+      patchAnalysis = serverOps.analyzePatches(patchOps.patches);
       tree = {
-        ...(await this.serverOps.getTree({
+        ...(await serverOps.getTree({
           ...patchAnalysis,
           ...patchOps,
         })),
       };
-      if (query.validate_all === "true") {
-        const allTree = await this.serverOps.getTree();
+      if (query.validate_all) {
+        const allTree = await serverOps.getTree();
         tree = {
           sources: {
             ...allTree.sources,
@@ -796,7 +782,7 @@ export class ValServer {
         };
       }
     } else {
-      tree = await this.serverOps.getTree();
+      tree = await serverOps.getTree();
     }
     if (tree.errors && Object.keys(tree.errors).length > 0) {
       console.error("Val: Failed to get tree", JSON.stringify(tree.errors));
@@ -822,18 +808,18 @@ export class ValServer {
     }
 
     if (
-      query.validate_sources === "true" ||
-      query.validate_binary_files === "true"
+      query.validate_sources ||
+      query.validate_binary_files
     ) {
-      const schemas = await this.serverOps.getSchemas();
-      const sourcesValidation = await this.serverOps.validateSources(
+      const schemas = await serverOps.getSchemas();
+      const sourcesValidation = await serverOps.validateSources(
         schemas,
         tree.sources
       );
 
       // TODO: send validation errors
-      if (query.validate_binary_files === "true") {
-        const binaryFilesValidation = await this.serverOps.validateFiles(
+      if (query.validate_binary_files) {
+        const binaryFilesValidation = await serverOps.validateFiles(
           schemas,
           tree.sources,
           sourcesValidation.files
@@ -841,7 +827,7 @@ export class ValServer {
       }
     }
 
-    const schemaSha = await this.serverOps.getSchemaSha();
+    const schemaSha = await serverOps.getSchemaSha();
     const modules: Record<
       ModuleFilePath,
       {
@@ -877,15 +863,12 @@ export class ValServer {
         newPatchId,
       },
     };
-  }
+  }},
 
-  async postSave(
-    body: unknown,
-    cookies: Partial<Record<"val_session", string>>
-  ): Promise<
-    ValServerJsonResult<ApiCommitResponse, ApiPostValidationErrorResponse>
-  > {
-    const auth = this.getAuth(cookies);
+  '/save': { POST: async (req) => {
+    const cookies = req.cookies;
+    const body = req.body;
+    const auth = getAuth(cookies);
     if (auth.error) {
       return {
         status: 401,
@@ -912,12 +895,12 @@ export class ValServer {
       };
     }
     const { patchIds } = bodyRes.data;
-    const patches = await this.serverOps.fetchPatches({
+    const patches = await serverOps.fetchPatches({
       patchIds,
       omitPatch: false,
     });
-    const analysis = this.serverOps.analyzePatches(patches.patches);
-    const preparedCommit = await this.serverOps.prepare({
+    const analysis = serverOps.analyzePatches(patches.patches);
+    const preparedCommit = await serverOps.prepare({
       ...analysis,
       ...patches,
     });
@@ -937,15 +920,15 @@ export class ValServer {
         },
       };
     }
-    if (this.serverOps instanceof ValOpsFS) {
-      await this.serverOps.saveFiles(preparedCommit);
+    if (serverOps instanceof ValOpsFS) {
+      await serverOps.saveFiles(preparedCommit);
       return {
         status: 200,
         json: {}, // TODO:
       };
-    } else if (this.serverOps instanceof ValOpsHttp) {
+    } else if (serverOps instanceof ValOpsHttp) {
       if (auth.error === undefined && auth.id) {
-        await this.serverOps.commit(
+        await serverOps.commit(
           preparedCommit,
           "Update content: " +
             Object.keys(analysis.patchesByModule) +
@@ -966,21 +949,12 @@ export class ValServer {
     } else {
       throw new Error("Invalid server ops");
     }
-  }
+  }},
 
   //#region files
-  async getFiles(
-    filePath: string,
-    query: { patch_id?: string }
-  ): Promise<
-    | ValServerError
-    | {
-        status: 200 | 201;
-        headers?: Record<string, string>;
-        cookies?: ValServerResultCookies<never>;
-        body?: ReadableStream<Uint8Array>;
-      }
-  > {
+  '/files/*': { GET: async (req) => {
+    const query = req.query;
+    const filePath = req.path;
     // NOTE: no auth here since you would need the patch_id to get something that is not published.
     // For everything that is published, well they are already public so no auth required there...
     // We could imagine adding auth just to be a 200% certain,
@@ -992,12 +966,12 @@ export class ValServer {
     // If we couldn't argue that patch ids are secret enough, then this would be a problem.
     let fileBuffer;
     if (query.patch_id) {
-      fileBuffer = await this.serverOps.getBase64EncodedBinaryFileFromPatch(
+      fileBuffer = await serverOps.getBase64EncodedBinaryFileFromPatch(
         filePath,
         query.patch_id as PatchId
       );
     } else {
-      fileBuffer = await this.serverOps.getBinaryFile(filePath);
+      fileBuffer = await serverOps.getBinaryFile(filePath);
     }
     if (fileBuffer) {
       return {
@@ -1012,8 +986,8 @@ export class ValServer {
         },
       };
     }
-  }
-}
+  }}
+}}
 
 export type ValServerCallbacks = {
   isEnabled: () => Promise<boolean>;
