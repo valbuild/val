@@ -33,7 +33,7 @@ import {
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { z } from "zod";
 import { ValOpsFS } from "./ValOpsFS";
-import { AuthorId, PatchAnalysis, Sources } from "./ValOps";
+import { AuthorId, PatchAnalysis, PatchSourceError, Sources } from "./ValOps";
 import { fromError } from "zod-validation-error";
 import { Patch } from "./patch/validation";
 import { PatchError } from "@valbuild/core/patch";
@@ -664,26 +664,6 @@ export const ValServer = (
             },
           };
         }
-        // TODO: move
-        const PutTreeBody = z
-          .object({
-            patchIds: z
-              .array(
-                z.string().refine(
-                  (id): id is PatchId => true // TODO:
-                )
-              )
-              .optional(),
-            addPatch: z
-              .object({
-                path: z.string().refine(
-                  (path): path is ModuleFilePath => true // TODO:
-                ),
-                patch: Patch,
-              })
-              .optional(),
-          })
-          .optional();
         const moduleErrors = await serverOps.getModuleErrors();
         if (moduleErrors?.length > 0) {
           console.error("Val: Module errors", moduleErrors);
@@ -695,28 +675,15 @@ export const ValServer = (
             },
           };
         }
-        const bodyRes = PutTreeBody.safeParse(body);
-        if (!bodyRes.success) {
-          return {
-            status: 400,
-            json: {
-              message: "Invalid body: " + fromError(bodyRes.error).toString(),
-              details: bodyRes.error.errors,
-            },
-          };
-        }
         let tree: {
           sources: Sources;
           errors: ApiPutTreeErrorResponse["errors"];
         };
         let patchAnalysis: PatchAnalysis | null = null;
         let newPatchId: PatchId | undefined = undefined;
-        if (
-          (bodyRes.data?.patchIds && bodyRes.data?.patchIds?.length > 0) ||
-          bodyRes.data?.addPatch
-        ) {
+        if ((body?.patchIds && body?.patchIds?.length > 0) || body?.addPatch) {
           // TODO: validate patches_sha
-          const patchIds = bodyRes.data?.patchIds;
+          const patchIds = body?.patchIds;
           const patchOps =
             patchIds && patchIds.length > 0
               ? await serverOps.fetchPatches({ patchIds, omitPatch: false })
@@ -734,9 +701,9 @@ export const ValServer = (
               message: error.message,
             };
           }
-          if (bodyRes.data?.addPatch) {
-            const newPatchModuleFilePath = bodyRes.data.addPatch.path;
-            const newPatchOps = bodyRes.data.addPatch.patch;
+          if (body?.addPatch) {
+            const newPatchModuleFilePath = body.addPatch.path;
+            const newPatchOps = body.addPatch.patch;
             const authorId = "id" in auth ? (auth.id as AuthorId) : null;
             const createPatchRes = await serverOps.createPatch(
               newPatchModuleFilePath,
@@ -929,7 +896,16 @@ export const ValServer = (
             json: {
               message: "Failed to create commit",
               details: {
-                sourceFilePatchErrors: preparedCommit.sourceFilePatchErrors,
+                sourceFilePatchErrors: Object.fromEntries(
+                  Object.entries(preparedCommit.sourceFilePatchErrors).map(
+                    ([key, errors]) => [
+                      key,
+                      errors.map((e) => ({
+                        message: formatPatchSourceError(e),
+                      })),
+                    ]
+                  )
+                ),
                 binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
               },
             },
@@ -1007,6 +983,10 @@ export const ValServer = (
     },
   };
 };
+
+function formatPatchSourceError(error: PatchSourceError): string {
+  return error.message;
+}
 
 export type ValServerCallbacks = {
   isEnabled: () => Promise<boolean>;
