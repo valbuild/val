@@ -1,16 +1,16 @@
 import { z } from "zod";
 import {
-  type Json,
   type ValidationFix,
   type ModuleFilePath,
   type PatchId,
 } from "@valbuild/core";
-import { Patch } from "./Patch";
 import {
   VAL_ENABLE_COOKIE_NAME,
   VAL_SESSION_COOKIE,
   VAL_STATE_COOKIE,
 } from "./server/types";
+import { Patch } from "./zod/Patch";
+import { SerializedSchema } from "./zod/SerializedSchema";
 
 const PatchId = z.string().refine(
   (_id): _id is PatchId => true // TODO:
@@ -18,6 +18,7 @@ const PatchId = z.string().refine(
 const ModuleFilePath = z.string().refine(
   (_path): _path is ModuleFilePath => true // TODO:
 );
+
 const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("image:add-metadata"),
   z.literal("image:replace-metadata"), // TODO: rename to image:check-metadata
@@ -37,6 +38,11 @@ const unauthorizedResponse = z.object({
   json: z.object({
     message: z.string(),
   }),
+});
+const GenericError = z.object({ message: z.string() });
+const ModulesError = z.object({
+  message: z.string(),
+  path: ModuleFilePath.optional(),
 });
 
 const cookies = z.union([
@@ -245,6 +251,103 @@ export const Api = {
       }),
     },
   },
+  "/patches/~": {
+    DELETE: {
+      req: {
+        query: {
+          patch_id: z.array(PatchId),
+        },
+        cookies: {
+          val_session: z.string(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(500),
+          json: z.object({
+            message: z.string(),
+            details: z.record(PatchId, GenericError),
+          }),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.array(PatchId),
+        }),
+      ]),
+    },
+    GET: {
+      req: {
+        query: {
+          author: z.array(z.string()).optional(),
+          patch_id: z.array(PatchId).optional(),
+          omit_patch: z.boolean().optional(), // TODO: rename! we mean that we are not including the actual patch / operations in the response
+        },
+        cookies: {
+          val_session: z.string(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(500),
+          json: z.object({
+            message: z.string(),
+            details: z.record(PatchId, GenericError),
+          }),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            patches: z.record(
+              PatchId,
+              z.object({
+                path: ModuleFilePath,
+                patch: Patch.optional(),
+                createdAt: z.string(),
+                authorId: z.string().nullable(),
+                appliedAt: z
+                  .object({
+                    baseSha: z.string(),
+                    git: z.object({ commitSha: z.string() }).optional(),
+                    timestamp: z.string(),
+                  })
+                  .nullable(),
+              })
+            ),
+            error: GenericError.optional(),
+            errors: z.record(PatchId, GenericError).optional(),
+          }),
+        }),
+      ]),
+    },
+  },
+  "/schema": {
+    GET: {
+      req: {
+        cookies: {
+          val_session: z.string(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(500),
+          json: z.object({
+            message: z.string(),
+            details: z.array(ModulesError),
+          }),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            schemaSha: z.string(),
+            schemas: z.record(ModuleFilePath, SerializedSchema),
+          }),
+        }),
+      ]),
+    },
+  },
   "/tree/~/*": {
     PUT: {
       req: {
@@ -270,9 +373,17 @@ export const Api = {
         },
       },
       res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(500),
+          json: z.object({
+            message: z.string(),
+            details: z.array(ModulesError),
+          }),
+        }),
         z.object({
           status: z.literal(200),
-          body: z.object({
+          json: z.object({
             schemaSha: z.string(),
             modules: z.record(
               ModuleFilePath,
@@ -295,8 +406,78 @@ export const Api = {
               .optional(),
           }),
         }),
-        unauthorizedResponse,
       ]),
+    },
+  },
+  "/save": {
+    POST: {
+      req: {
+        body: z.object({
+          patchIds: z.array(PatchId),
+        }),
+        cookies: {
+          val_session: z.string(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(200),
+          json: z.object({}), // TODO:
+        }),
+        z.object({
+          status: z.literal(400),
+          json: z.object({
+            message: z.string(),
+            details: z.union([
+              z.object({
+                sourceFilePatchErrors: z.record(
+                  ModuleFilePath,
+                  z.array(GenericError)
+                ),
+                binaryFilePatchErrors: z.record(z.array(GenericError)),
+              }),
+              z.array(GenericError),
+            ]),
+          }),
+        }),
+      ]),
+    },
+  },
+  "/files/*": {
+    GET: {
+      req: {
+        path: z.string(),
+        query: {
+          patch_id: z.boolean().optional(),
+        },
+      },
+      res: z.union([
+        z.object({
+          status: z.literal(200),
+          body: z.instanceof(ReadableStream),
+        }),
+        z.object({
+          status: z.literal(494),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
+  "/test-url-of": {
+    GET: {
+      req: {
+        query: {
+          str_param: z.string(),
+          number_param: z.number(),
+        },
+      },
+      res: z.object({
+        status: z.literal(200),
+        body: z.object({}),
+      }),
     },
   },
 } satisfies ApiGuard;
@@ -352,7 +533,7 @@ type ApiEndpoint = {
 };
 type ApiGuard = Record<
   `/${string}`,
-  Partial<Record<"PUT" | "GET" | "POST", ApiEndpoint>>
+  Partial<Record<"PUT" | "GET" | "POST" | "DELETE", ApiEndpoint>>
 >;
 
 export type ServerOf<Api extends ApiGuard> = {
@@ -437,6 +618,52 @@ export type ClientOf<Api extends ApiGuard> = <
     }
 >;
 
+Api["/test-url-of"]["GET"]["req"]["query"];
+export type UrlOf<Api extends ApiGuard> = <
+  Route extends keyof Api,
+  Method extends keyof Api[Route] & "GET",
+  Endpoint extends Api[Route][Method] extends ApiEndpoint
+    ? Api[Route][Method]
+    : never
+>(
+  ...args: Endpoint["req"]["query"] extends Record<
+    string,
+    z.ZodSchema<boolean | number | number[] | string | string[]>
+  >
+    ? [
+        route: Route,
+        query: {
+          [key in keyof Endpoint["req"]["query"]]: z.infer<
+            Endpoint["req"]["query"][key]
+          >;
+        }
+      ]
+    : [route: Route]
+) => string;
+
+const urlOf: UrlOf<typeof Api> = (...args) => {
+  const route = args[0];
+  const query = args[1];
+  if (query) {
+    const params: [string, string][] = Object.entries(query).flatMap(
+      ([key, value]) => {
+        if (!value) {
+          return [];
+        }
+        return [[key, value.toString()]];
+      }
+    );
+    const searchParams = new URLSearchParams(params);
+    return route + "?" + searchParams.toString();
+  }
+  return route;
+};
+
+urlOf("/test-url-of", {
+  number_param: 1,
+  str_param: "string",
+});
+
 export type Api = {
   [Route in keyof typeof Api]: {
     [Method in keyof (typeof Api)[Route]]: (typeof Api)[Route][Method] extends ApiEndpoint
@@ -447,12 +674,55 @@ export type Api = {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const a: ServerOf<typeof Api> = {
+  "/files/*": {
+    GET: async (req) => {
+      req.path;
+      return {
+        status: 200,
+        body: new ReadableStream(),
+      };
+    },
+  },
+  "/patches/~": {
+    DELETE: async (req) => {
+      req.query.patch_id;
+      return {
+        status: 200,
+        json: [],
+      };
+    },
+    GET: async (req) => {
+      req.cookies.val_session;
+      return {
+        status: 200,
+        json: { patches: {} },
+      };
+    },
+  },
+  "/schema": {
+    GET: async (req) => {
+      req.cookies.val_session;
+      return {
+        status: 200,
+        json: { schemas: {}, schemaSha: "" },
+      };
+    },
+  },
+  "/save": {
+    POST: async (req) => {
+      req.body?.patchIds;
+      return {
+        status: 200,
+        json: {},
+      };
+    },
+  },
   "/tree/~/*": {
     PUT: async (req) => {
       req.body?.addPatch;
       return {
         status: 200,
-        body: { modules: {}, schemaSha: "" },
+        json: { modules: {}, schemaSha: "" },
       };
     },
   },
@@ -468,6 +738,7 @@ const a: ServerOf<typeof Api> = {
     },
   },
 };
+console.log(a);
 a["/tree/~/*"].PUT({
   path: "",
   body: {
@@ -507,7 +778,7 @@ async function test() {
   });
   if (b.status === 200) {
     b.status;
-    b.body.modules;
+    b.json.modules;
   }
   client("/session", "POST", {
     body: {

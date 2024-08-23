@@ -97,6 +97,7 @@ export { type SerializedBooleanSchema, BooleanSchema } from "./schema/boolean";
 export { type SerializedImageSchema, ImageSchema } from "./schema/image";
 export { type SerializedFileSchema, FileSchema } from "./schema/file";
 export { type SerializedDateSchema, DateSchema } from "./schema/date";
+export { type SerializedKeyOfSchema, KeyOfSchema } from "./schema/keyOf";
 export {
   type SerializedRichTextSchema,
   RichTextSchema,
