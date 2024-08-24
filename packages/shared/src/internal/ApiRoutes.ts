@@ -264,7 +264,7 @@ export const Api = {
           id: z.array(PatchId),
         },
         cookies: {
-          val_session: z.string(),
+          val_session: z.string().optional(),
         },
       },
       res: z.union([
@@ -290,7 +290,7 @@ export const Api = {
           omit_patch: z.boolean().optional(), // TODO: rename! we mean that we are not including the actual patch / operations in the response
         },
         cookies: {
-          val_session: z.string(),
+          val_session: z.string().optional(),
         },
       },
       res: z.union([
@@ -332,7 +332,7 @@ export const Api = {
     GET: {
       req: {
         cookies: {
-          val_session: z.string(),
+          val_session: z.string().optional(),
         },
       },
       res: z.union([
@@ -375,7 +375,7 @@ export const Api = {
           validate_binary_files: z.boolean().optional(),
         },
         cookies: {
-          val_session: z.string(),
+          val_session: z.string().optional(),
         },
       },
       res: z.union([
@@ -433,7 +433,7 @@ export const Api = {
           patchIds: z.array(PatchId),
         }),
         cookies: {
-          val_session: z.string(),
+          val_session: z.string().optional(),
         },
       },
       res: z.union([
