@@ -21,7 +21,7 @@ const ModuleFilePath = z.string().refine(
 
 const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("image:add-metadata"),
-  z.literal("image:replace-metadata"), // TODO: rename to image:check-metadata
+  z.literal("image:replace-metadata"),
   z.literal("file:add-metadata"),
   z.literal("file:check-metadata"),
   z.literal("fix:deprecated-richtext"),
@@ -33,7 +33,7 @@ const ValidationError = z.object({
   fixes: z.array(ValidationFixZ).optional(),
 });
 
-const undResponse = z.object({
+const notFoundResponse = z.object({
   status: z.literal(401),
   json: z.object({
     message: z.string(),
@@ -76,7 +76,6 @@ export const Api = {
   "/enable": {
     GET: {
       req: {
-        body: z.string(),
         query: {
           redirect_to: z.string().optional(),
         },
@@ -124,7 +123,7 @@ export const Api = {
       ]),
     },
   },
-  "/": {
+  "/authorize": {
     GET: {
       req: {
         query: {
@@ -160,8 +159,8 @@ export const Api = {
     GET: {
       req: {
         query: {
-          code: z.string(),
-          state: z.string(),
+          code: z.string().optional(),
+          state: z.string().optional(),
         },
         cookies: { [VAL_STATE_COOKIE]: z.string() },
       },
@@ -194,7 +193,7 @@ export const Api = {
   "/session": {
     GET: {
       req: {
-        cookies: {}, // TODO fix req types
+        cookies: { val_session: z.string().optional() },
       },
       res: z.union([
         z.object({
@@ -269,7 +268,7 @@ export const Api = {
         },
       },
       res: z.union([
-        undResponse,
+        notFoundResponse,
         z.object({
           status: z.literal(500),
           json: z.object({
@@ -295,7 +294,7 @@ export const Api = {
         },
       },
       res: z.union([
-        undResponse,
+        notFoundResponse,
         z.object({
           status: z.literal(500),
           json: z.object({
@@ -337,7 +336,7 @@ export const Api = {
         },
       },
       res: z.union([
-        undResponse,
+        notFoundResponse,
         z.object({
           status: z.literal(500),
           json: z.object({
@@ -355,10 +354,10 @@ export const Api = {
       ]),
     },
   },
-  "/tree/~/*": {
+  "/tree/~": {
     PUT: {
       req: {
-        path: z.string(),
+        path: z.string().optional(),
         body: z
           .object({
             patchIds: z.array(PatchId).optional(),
@@ -371,16 +370,16 @@ export const Api = {
           })
           .optional(),
         query: {
-          validate_all: z.boolean(),
-          validate_sources: z.boolean(),
-          validate_binary_files: z.boolean(),
+          validate_all: z.boolean().optional(),
+          validate_sources: z.boolean().optional(),
+          validate_binary_files: z.boolean().optional(),
         },
         cookies: {
           val_session: z.string(),
         },
       },
       res: z.union([
-        undResponse,
+        notFoundResponse,
         z.object({
           status: z.literal(500),
           json: z.object({
@@ -438,7 +437,7 @@ export const Api = {
         },
       },
       res: z.union([
-        undResponse,
+        notFoundResponse,
         z.object({
           status: z.literal(200),
           json: z.object({}), // TODO:
@@ -462,7 +461,7 @@ export const Api = {
       ]),
     },
   },
-  "/files/*": {
+  "/files": {
     GET: {
       req: {
         path: z.string(),
@@ -505,16 +504,23 @@ type DefinedKeys<T> = {
  */
 type DefinedObject<T> = Pick<T, DefinedKeys<T>>;
 
-type ApiEndpoint = {
+/**
+ * This schema supports:
+ * 1. multiple query params with the same name
+ * 2. simple API route definitions where:
+ *  2.1. z.array means at least one query params this name is required
+ *  2.2. z.optional means no query param of this name is accepted
+ *  2.3. z.array(...).optional() means zero or more query params of this name is accepted
+ *
+ * Do not change this without updating the ValRouter query parsing logic
+ * */
+export type ValidQueryParamTypes = boolean | string | string[] | undefined;
+export type ApiEndpoint = {
   req: {
-    path?: z.ZodString;
+    path?: z.ZodString | z.ZodOptional<z.ZodString>;
     body?: z.ZodTypeAny;
-    query?: Record<
-      string,
-      z.ZodSchema<boolean | number | number[] | string | string[] | undefined>
-    >;
-  } & {
-    cookies?: Record<string, z.ZodString>;
+    query?: Record<string, z.ZodSchema<ValidQueryParamTypes>>;
+    cookies?: Record<string, z.ZodSchema<string | undefined>>;
   };
   res: z.ZodSchema<
     | {
@@ -551,14 +557,14 @@ export type ServerOf<Api extends ApiGuard> = {
             body: Api[Route][Method]["req"]["body"] extends z.ZodTypeAny
               ? z.infer<Api[Route][Method]["req"]["body"]>
               : undefined;
-            path: Api[Route][Method]["req"]["path"] extends undefined
-              ? undefined
-              : string;
+            path: Api[Route][Method]["req"]["path"] extends z.ZodSchema<
+              string | undefined
+            >
+              ? string
+              : undefined;
             query: Api[Route][Method]["req"]["query"] extends Record<
               string,
-              z.ZodSchema<
-                boolean | number | number[] | string | string[] | undefined
-              >
+              z.ZodSchema<ValidQueryParamTypes>
             >
               ? {
                   [key in keyof Api[Route][Method]["req"]["query"]]: z.infer<
@@ -568,7 +574,7 @@ export type ServerOf<Api extends ApiGuard> = {
               : undefined;
             cookies: Api[Route][Method]["req"]["cookies"] extends Record<
               string,
-              z.ZodSchema<string>
+              z.ZodSchema<string | undefined>
             >
               ? {
                   [key in keyof Api[Route][Method]["req"]["cookies"]]: z.infer<
@@ -596,12 +602,12 @@ export type ClientOf<Api extends ApiGuard> = <
     body: Endpoint["req"]["body"] extends z.ZodTypeAny
       ? z.infer<Endpoint["req"]["body"]>
       : undefined;
-    path: Endpoint["req"]["path"] extends z.ZodSchema<string>
+    path: Endpoint["req"]["path"] extends z.ZodSchema<string | undefined>
       ? z.infer<Endpoint["req"]["path"]>
       : undefined;
     query: Endpoint["req"]["query"] extends Record<
       string,
-      z.ZodSchema<boolean | number | number[] | string | string[]>
+      z.ZodSchema<ValidQueryParamTypes>
     >
       ? {
           [key in keyof Endpoint["req"]["query"]]: z.infer<
@@ -648,7 +654,7 @@ export type UrlOf<Api extends ApiGuard> = <
 >(
   ...args: Endpoint["req"]["query"] extends Record<
     string,
-    z.ZodSchema<boolean | number | number[] | string | string[] | undefined>
+    z.ZodSchema<ValidQueryParamTypes>
   >
     ? [
         route: Route,
@@ -661,7 +667,7 @@ export type UrlOf<Api extends ApiGuard> = <
     : [route: Route]
 ) => string;
 
-const urlOf: UrlOf<typeof Api> = (...args) => {
+export const urlOf: UrlOf<typeof Api> = (...args) => {
   const route = args[0];
   const query = args[1];
   if (query) {
@@ -679,10 +685,6 @@ const urlOf: UrlOf<typeof Api> = (...args) => {
   return route;
 };
 
-urlOf("/", {
-  redirect_to: "https://example.com",
-});
-
 export type Api = {
   [Route in keyof typeof Api]: {
     [Method in keyof (typeof Api)[Route]]: (typeof Api)[Route][Method] extends ApiEndpoint
@@ -690,127 +692,3 @@ export type Api = {
       : never;
   };
 };
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const a: ServerOf<typeof Api> = {
-  "/files/*": {
-    GET: async (req) => {
-      req.path;
-      return {
-        status: 200,
-        body: new ReadableStream(),
-      };
-    },
-  },
-  "/enable": {
-    GET: async (req) => {
-      req.body;
-      req.query.redirect_to;
-      return {
-        status: 302,
-        redirectTo: "",
-        cookies: {
-          val_enable: {
-            value: "true",
-            options: {
-              httpOnly: false,
-              sameSite: "lax",
-            },
-          },
-        },
-      };
-    },
-  },
-  "/patches/~": {
-    DELETE: async (req) => {
-      req.query.id;
-      return {
-        status: 200,
-        json: [],
-      };
-    },
-    GET: async (req) => {
-      req.cookies.val_session;
-      return {
-        status: 200,
-        json: { patches: {} },
-      };
-    },
-  },
-  "/schema": {
-    GET: async (req) => {
-      req.cookies.val_session;
-      return {
-        status: 200,
-        json: { schemas: {}, schemaSha: "" },
-      };
-    },
-  },
-  "/save": {
-    POST: async (req) => {
-      req.body?.patchIds;
-      return {
-        status: 200,
-        json: {},
-      };
-    },
-  },
-  "/tree/~/*": {
-    PUT: async (req) => {
-      req.body?.addPatch;
-      return {
-        status: 200,
-        json: { modules: {}, schemaSha: "" },
-      };
-    },
-  },
-};
-console.log(a);
-a["/tree/~/*"].PUT({
-  path: "",
-  body: {
-    addPatch: {
-      patch: [],
-      path: "" as ModuleFilePath,
-    },
-    patchIds: [],
-  },
-
-  query: {
-    validate_all: true,
-    validate_sources: true,
-    validate_binary_files: true,
-  },
-  cookies: {
-    val_session: "",
-  },
-});
-
-async function test() {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const client: ClientOf<typeof Api> = (() => {}) as any;
-  const b = await client("/tree/~/*", "PUT", {
-    path: "/",
-    body: {
-      addPatch: {
-        patch: [],
-        path: "" as ModuleFilePath,
-      },
-    },
-    query: {
-      validate_all: true,
-      validate_sources: true,
-      validate_binary_files: true,
-    },
-  });
-  if (b.status === 200) {
-    b.status;
-    b.json.modules;
-  }
-  const c = await client("/schema", "GET", {});
-  if (c.status === 200) {
-    c.json.schemas;
-  }
-}
-
-test();
