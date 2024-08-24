@@ -350,7 +350,7 @@ export function createValApiRouter<Res>(
         }
         if (reqApiRoutePath.startsWith(routeDef)) {
           const reqDefinition = (anyApi?.[routeDef]?.[method] as ApiEndpoint)
-            .req;
+            ?.req;
           if (reqDefinition) {
             route = routeDef;
             if (reqDefinition.path) {
@@ -384,7 +384,7 @@ export function createValApiRouter<Res>(
       }
 
       const apiEndpoint = anyApi?.[route]?.[method] as ApiEndpoint;
-      const reqDefinition = apiEndpoint.req;
+      const reqDefinition = apiEndpoint?.req;
       if (!reqDefinition) {
         return {
           status: 404,
@@ -480,7 +480,7 @@ export function createValApiRouter<Res>(
           }
           if (!isArray) {
             arrayCompatibleRule = arrayCompatibleRule.transform(
-              (arg) => arg[0]
+              (arg) => arg && arg[0]
             );
           }
           queryRules[key] = arrayCompatibleRule;
@@ -525,6 +525,7 @@ export function createValApiRouter<Res>(
         await uiRequestHandler(path.slice("/static".length), url.href)
       );
     } else {
+      console.log(path);
       return convert(await getValServerResponse(path, req));
     }
   };
@@ -564,7 +565,7 @@ function getCookies<
   }
 > {
   const input: Record<string, string> = {};
-  const cookieParts = req.headers.get("Cookie")?.split("; ");
+  const cookieParts = req.headers?.get("Cookie")?.split("; ");
   for (const name of Object.keys(cookiesDef)) {
     const cookie = cookieParts?.find((cookie) => cookie.startsWith(`${name}=`));
     const value = cookie
