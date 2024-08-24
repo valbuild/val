@@ -456,12 +456,14 @@ export function createValApiRouter<Res>(
         for (const [key, zodRule] of Object.entries(reqDefinition.query)) {
           let innerType: z.ZodTypeAny = zodRule;
           let isOptional = false;
+          let isArray = false;
           // extract inner types:
           if (innerType instanceof z.ZodOptional) {
             isOptional = true;
             innerType = innerType.unwrap();
           }
           if (innerType instanceof z.ZodArray) {
+            isArray = true;
             innerType = innerType.element;
           }
           // convert boolean to union of literals true and false so we can parse it as a string
@@ -475,6 +477,11 @@ export function createValApiRouter<Res>(
           arrayCompatibleRule = z.array(innerType); // we always want to parse an array because we group the query params by into an array
           if (isOptional) {
             arrayCompatibleRule = arrayCompatibleRule.optional();
+          }
+          if (!isArray) {
+            arrayCompatibleRule = arrayCompatibleRule.transform(
+              (arg) => arg[0]
+            );
           }
           queryRules[key] = arrayCompatibleRule;
         }
