@@ -641,7 +641,7 @@ export const ValServer = (
       },
     },
 
-    "/tree/~/*": {
+    "/tree/~": {
       PUT: async (req) => {
         const query = req.query;
         const cookies = req.cookies;
@@ -944,7 +944,7 @@ export const ValServer = (
     },
 
     //#region files
-    "/files/*": {
+    "/files": {
       GET: async (req) => {
         const query = req.query;
         const filePath = req.path;
