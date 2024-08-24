@@ -1,10 +1,6 @@
 export type { ServiceOptions } from "./Service";
 export { createService, Service } from "./Service";
-export {
-  createValApiRouter,
-  createValServer,
-  safeReadGit,
-} from "./createValApiRouter";
+export { createValApiRouter, createValServer, safeReadGit } from "./ValRouter";
 export { ValModuleLoader } from "./ValModuleLoader";
 export { getCompilerOptions } from "./getCompilerOptions";
 export { ValSourceFileHandler } from "./ValSourceFileHandler";
