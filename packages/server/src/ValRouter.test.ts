@@ -21,7 +21,7 @@ describe("ValRouter", () => {
     (res) => res
   );
 
-  test("smoke test valid route", async () => {
+  test("smoke test valid route: /tree/~", async () => {
     const serverRes = await onRoute(
       fakeRequest({
         method: "PUT",
@@ -30,10 +30,23 @@ describe("ValRouter", () => {
         ),
         json: {},
         headers: new Headers({
-          Cookie: `val_session=${encodeJwt({}, "")}`,
+          Cookie: `ValidQueryParamTypes=${encodeJwt({}, "")}`,
         }),
       })
     );
+    expect(serverRes).toBeDefined();
+    expect(serverRes.status).toBe(200);
+    expect("json" in serverRes && serverRes.json).toBeTruthy();
+  });
+
+  test("smoke test valid route: /patches/~", async () => {
+    const serverRes = await onRoute(
+      fakeRequest({
+        method: "GET",
+        url: new URL("http://localhost:3000/api/val/patches/~"),
+      })
+    );
+    console.log(serverRes);
     expect(serverRes).toBeDefined();
     expect(serverRes.status).toBe(200);
     expect("json" in serverRes && serverRes.json).toBeTruthy();
@@ -48,7 +61,7 @@ describe("ValRouter", () => {
         ),
         json: {},
         headers: new Headers({
-          Cookie: `val_session=${encodeJwt({}, "")}`,
+          Cookie: `ValidQueryParamTypes=${encodeJwt({}, "")}`,
         }),
       })
     );
@@ -66,7 +79,7 @@ function fakeRequest({
 }: {
   method: string;
   url: URL;
-  headers: Headers;
+  headers?: Headers;
   json?: unknown;
 }): Request {
   return {
