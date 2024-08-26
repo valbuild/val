@@ -646,7 +646,7 @@ export const ValServer = (
         const query = req.query;
         const cookies = req.cookies;
         const body = req.body;
-        const treePath = req.path;
+        const treePath = req.path || "";
         const auth = getAuth(cookies);
         if (auth.error) {
           return {
@@ -769,7 +769,7 @@ export const ValServer = (
         }
         if (tree.errors && Object.keys(tree.errors).length > 0) {
           console.error("Val: Failed to get tree", JSON.stringify(tree.errors));
-          return {
+          const res: z.infer<Api["/tree/~"]["PUT"]["res"]> = {
             status: 400,
             json: {
               type: "patch-error",
@@ -784,10 +784,18 @@ export const ValServer = (
                     },
                   })),
                 ])
-              ),
+              ) as Record<
+                ModuleFilePath,
+                {
+                  patchId: PatchId;
+                  skipped: boolean;
+                  error: { message: string };
+                }[]
+              >,
               message: "One or more patches failed to be applied",
             },
           };
+          return res;
         }
 
         if (query.validate_sources || query.validate_binary_files) {
@@ -815,7 +823,7 @@ export const ValServer = (
             patches?: {
               applied: PatchId[];
               skipped?: PatchId[];
-              errors?: Record<PatchId, { message: string }>;
+              errors?: Partial<Record<PatchId, { message: string }>>;
             };
             validationErrors?: Record<SourcePath, ValidationError[]>;
           }
@@ -835,7 +843,8 @@ export const ValServer = (
             };
           }
         }
-        return {
+
+        const res: z.infer<Api["/tree/~"]["PUT"]["res"]> = {
           status: 200,
           json: {
             schemaSha,
@@ -843,6 +852,7 @@ export const ValServer = (
             newPatchId,
           },
         };
+        return res;
       },
     },
 
@@ -985,7 +995,14 @@ export const ValServer = (
 };
 
 function formatPatchSourceError(error: PatchSourceError): string {
-  return error.message;
+  if ("message" in error) {
+    return error.message;
+  } else if (Array.isArray(error)) {
+    return error.map(formatPatchSourceError).join("\n");
+  } else {
+    const _exhaustiveCheck: never = error;
+    return "Unknown patch source error: " + JSON.stringify(_exhaustiveCheck);
+  }
 }
 
 export type ValServerCallbacks = {
