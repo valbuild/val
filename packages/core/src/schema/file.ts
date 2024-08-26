@@ -107,6 +107,16 @@ export class FileSchema<
     }
 
     const fileMimeType = filenameToMimeType(src[FILE_REF_PROP]);
+    if (!fileMimeType) {
+      return {
+        [path]: [
+          {
+            message: `Could not determine mime type from file extension. Got: ${src[FILE_REF_PROP]}`,
+            value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
 
     if (fileMimeType !== mimeType) {
       return {
