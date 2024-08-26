@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
+import { filenameToMimeType } from "../../../shared/src/internal/mimeType/convertMimeType";
 import { VAL_EXTENSION } from "../source";
 import { FileSource, FILE_REF_PROP } from "../source/file";
 import { ImageSource } from "../source/image";
@@ -10,6 +11,7 @@ export type ImageOptions = {
   ext?: ["jpg"] | ["webp"];
   directory?: string;
   prefix?: string;
+  accept?: string;
 };
 
 export type SerializedImageSchema = {
@@ -74,6 +76,70 @@ export class ImageSchema<
         ],
       } as ValidationErrors;
     }
+
+    const { accept } = this.options || {};
+    const { mimeType } = src.metadata || {};
+
+    if (accept && mimeType && !mimeType.includes("/")) {
+      return {
+        [path]: [
+          {
+            message: `Invalid mime type format. Got: '${mimeType}'`,
+            value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
+
+    if (accept && mimeType && mimeType.includes("/")) {
+      const acceptedTypes = accept.split(",").map((type) => type.trim());
+
+      const isValidMimeType = acceptedTypes.some((acceptedType) => {
+        if (acceptedType === "*/*") {
+          return true;
+        }
+        if (acceptedType.endsWith("/*")) {
+          const baseType = acceptedType.slice(0, -2);
+          return mimeType.startsWith(baseType);
+        }
+        return acceptedType === mimeType;
+      });
+
+      if (!isValidMimeType) {
+        return {
+          [path]: [
+            {
+              message: `Mime type mismatch. Found '${mimeType}' but schema accepts '${accept}'`,
+              value: src,
+            },
+          ],
+        } as ValidationErrors;
+      }
+    }
+
+    const fileMimeType = filenameToMimeType(src[FILE_REF_PROP]);
+    if (!fileMimeType) {
+      return {
+        [path]: [
+          {
+            message: `Could not determine mime type from file extension. Got: ${src[FILE_REF_PROP]}`,
+            value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
+
+    if (fileMimeType && mimeType && fileMimeType !== mimeType) {
+      return {
+        [path]: [
+          {
+            message: `Mime type and file extension not matching. Mime type is '${mimeType}' but file extension is '${fileMimeType}'`,
+            value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
+
     if (src.metadata) {
       return {
         [path]: [
