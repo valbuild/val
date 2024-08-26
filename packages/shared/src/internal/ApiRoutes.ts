@@ -288,7 +288,8 @@ export const Api = {
         query: {
           author: z.array(z.string()).optional(),
           patch_id: z.array(PatchId).optional(),
-          omit_patch: z.boolean().optional(), // TODO: rename! we mean that we are not including the actual patch / operations in the response
+          module_file_path: z.array(ModuleFilePath).optional(),
+          omit_patch: z.boolean(), // TODO: rename! we mean that we are not including the actual patch / operations in the response
         },
         cookies: {
           val_session: z.string().optional(),
@@ -636,70 +637,63 @@ export type ClientOf<Api extends ApiGuard> = <
   | z.infer<Endpoint["res"]>
   | {
       status: 404;
-      body: {
+      json: {
+        message: string;
         method: string;
         path: string;
       };
     }
   | {
       status: 500;
-      body: {
+      json: {
+        message: string;
+      };
+    }
+  | {
+      status: 504; // timeout
+      json: {
         message: string;
       };
     }
   | {
       status: null;
-      body: {
-        type: "network_error" | "timeout";
+      json: {
+        type: "network_error";
         message: string;
         details: string;
       };
     }
   | {
       status: null;
-      body: { type: "incompatible_types"; details: string };
+      json: { type: "incompatible_types"; message: string; details: string };
     }
 >;
 
 export type UrlOf<Api extends ApiGuard> = <
-  Route extends keyof Api,
+  Route extends keyof Api | "/val",
   Method extends keyof Api[Route] & "GET",
   Endpoint extends Api[Route][Method] extends ApiEndpoint
     ? Api[Route][Method]
     : never
 >(
-  ...args: Endpoint["req"]["query"] extends Record<
-    string,
-    z.ZodSchema<ValidQueryParamTypes>
-  >
+  // We prefix with host to be able to differentiate api calls and the /val route.
+  // At some point we will want to change /api/val and /val to be customizable and then this won't work
+  ...args: Route extends "/val"
+    ? [route: Route]
+    : Endpoint["req"]["query"] extends Record<
+        string,
+        z.ZodSchema<ValidQueryParamTypes>
+      >
     ? [
-        route: Route,
+        route: `/api/val${Route & string}`,
         query: {
           [key in keyof Endpoint["req"]["query"]]: z.infer<
             Endpoint["req"]["query"][key]
           >;
         }
       ]
-    : [route: Route]
+    : [route: `/api/val${Route & string}`]
 ) => string;
-
-export const urlOf: UrlOf<typeof Api> = (...args) => {
-  const route = args[0];
-  const query = args[1];
-  if (query) {
-    const params: [string, string][] = Object.entries(query).flatMap(
-      ([key, value]) => {
-        if (!value) {
-          return [];
-        }
-        return [[key, value.toString()]];
-      }
-    );
-    const searchParams = new URLSearchParams(params);
-    return route + "?" + searchParams.toString();
-  }
-  return route;
-};
 
 export type Api = {
   [Route in keyof typeof Api]: {

@@ -1,24 +1,23 @@
-import { ValApi } from "@valbuild/core";
-import { result } from "@valbuild/core/fp";
 import { useState, useEffect } from "react";
 import { Session } from "../dto/Session";
 import { Remote } from "../utils/Remote";
+import { ValClient } from "@valbuild/shared/src/internal/ValClient";
 
-export function useSession(api: ValApi) {
+export function useSession(client: ValClient) {
   const [session, setSession] = useState<Remote<Session>>({
     status: "not-asked",
   });
   const [sessionResetId, setSessionResetId] = useState(0);
   useEffect(() => {
     setSession({ status: "loading" });
-    api.getSession().then(async (res) => {
+    client("/session", "GET", {}).then(async (res) => {
       try {
-        if (result.isOk(res)) {
-          const session = res.value;
+        if (res.status === 200) {
+          const session = res.json;
           setSession({ status: "success", data: Session.parse(session) });
         } else {
-          if (res.error.statusCode === 401) {
-            console.error("Unauthorized", res.error);
+          if (res.status === 401) {
+            console.error("Unauthorized", res.json);
             setSession({
               status: "success",
               data: {
