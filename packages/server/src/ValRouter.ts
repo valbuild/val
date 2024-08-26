@@ -1,6 +1,6 @@
 import { promises as fs } from "fs";
 import * as path from "path";
-import { Internal, ValConfig, ValModules } from "@valbuild/core";
+import { ValConfig, ValModules } from "@valbuild/core";
 import {
   Api,
   ApiEndpoint,
@@ -8,7 +8,7 @@ import {
 } from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
 import { ValServer, ValServerCallbacks, ValServerConfig } from "./ValServer";
-import { fromError, fromZodError } from "zod-validation-error";
+import { fromZodError } from "zod-validation-error";
 import { z } from "zod";
 
 type Versions = {
@@ -503,15 +503,16 @@ export function createValApiRouter<Res>(
       });
       const resDef = apiEndpoint.res;
       if (resDef) {
-        const resRes = resDef.safeParse(res);
-        if (!resRes.success) {
+        const responseResult = resDef.safeParse(res);
+        if (!responseResult.success) {
           return {
             status: 500,
             json: {
               message:
-                "Could not validate response. This is likely a bug in the server implementation.",
+                "Could not validate response. This is likely a bug in Val server.",
               details: {
-                errors: fromZodError(resRes.error).toString(),
+                response: res,
+                errors: formatZodErrorString(responseResult.error),
               },
             },
           };
@@ -525,10 +526,14 @@ export function createValApiRouter<Res>(
         await uiRequestHandler(path.slice("/static".length), url.href)
       );
     } else {
-      console.log(path);
       return convert(await getValServerResponse(path, req));
     }
   };
+}
+
+function formatZodErrorString(error: z.ZodError): string {
+  const errors = fromZodError(error).toString();
+  return errors.length > 640 ? `${errors.slice(0, 640)}...` : errors;
 }
 
 function zodErrorResult(
@@ -540,7 +545,7 @@ function zodErrorResult(
     json: {
       message: "Bad Request: " + message,
       details: {
-        errors: fromZodError(error).toString(),
+        errors: formatZodErrorString(error),
       },
     },
   };

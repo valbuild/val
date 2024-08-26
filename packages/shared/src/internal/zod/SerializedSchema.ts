@@ -116,25 +116,31 @@ export const RichTextOptions: z.ZodType<
   z.ZodTypeDef,
   unknown
 > = z.object({
-  style: z.object({
-    bold: z.boolean(),
-    italic: z.boolean(),
-    lineThrough: z.boolean(),
-  }),
-  block: z.object({
-    h1: z.boolean(),
-    h2: z.boolean(),
-    h3: z.boolean(),
-    h4: z.boolean(),
-    h5: z.boolean(),
-    h6: z.boolean(),
-    ul: z.boolean(),
-    ol: z.boolean(),
-  }),
-  inline: z.object({
-    a: z.boolean(),
-    img: z.boolean(),
-  }),
+  style: z
+    .object({
+      bold: z.boolean().optional(),
+      italic: z.boolean().optional(),
+      lineThrough: z.boolean().optional(),
+    })
+    .optional(),
+  block: z
+    .object({
+      h1: z.boolean().optional(),
+      h2: z.boolean().optional(),
+      h3: z.boolean().optional(),
+      h4: z.boolean().optional(),
+      h5: z.boolean().optional(),
+      h6: z.boolean().optional(),
+      ul: z.boolean().optional(),
+      ol: z.boolean().optional(),
+    })
+    .optional(),
+  inline: z
+    .object({
+      a: z.boolean().optional(),
+      img: z.boolean().optional(),
+    })
+    .optional(),
 });
 export const SerializedRichTextSchema: z.ZodType<
   SerializedRichTextSchemaT,
@@ -142,7 +148,7 @@ export const SerializedRichTextSchema: z.ZodType<
   unknown
 > = z.object({
   type: z.literal("richtext"),
-  options: RichTextOptions,
+  options: RichTextOptions.optional(),
   opt: z.boolean(),
 });
 
@@ -197,7 +203,9 @@ export const SerializedDateSchema: z.ZodType<
 });
 
 export const ImageOptions = z.object({
-  ext: z.union([z.tuple([z.literal("jpg")]), z.tuple([z.literal("webp")])]),
+  ext: z
+    .union([z.tuple([z.literal("jpg")]), z.tuple([z.literal("webp")])])
+    .optional(),
   directory: z.string().optional(),
   prefix: z.string().optional(),
 });

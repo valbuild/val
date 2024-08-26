@@ -11,6 +11,7 @@ import {
 } from "./server/types";
 import { Patch } from "./zod/Patch";
 import { SerializedSchema } from "./zod/SerializedSchema";
+import { SourcePath } from "./zod/SourcePath";
 
 const PatchId = z.string().refine(
   (_id): _id is PatchId => true // TODO:
@@ -381,6 +382,10 @@ export const Api = {
       res: z.union([
         notFoundResponse,
         z.object({
+          status: z.literal(401),
+          json: GenericError,
+        }),
+        z.object({
           status: z.literal(500),
           json: z.object({
             message: z.string(),
@@ -395,32 +400,43 @@ export const Api = {
           }),
         }),
         z.object({
+          status: z.literal(400),
+          json: z.object({
+            type: z.literal("patch-error"),
+            message: z.string(),
+            errors: z.record(
+              ModuleFilePath,
+              z.array(
+                z.object({
+                  patchId: PatchId,
+                  skipped: z.boolean(),
+                  error: GenericError,
+                })
+              )
+            ),
+          }),
+        }),
+        z.object({
           status: z.literal(200),
           json: z.object({
             schemaSha: z.string(),
-            modules: z
-              .record(
-                ModuleFilePath,
-                z.object({
-                  source: z.any(), // TODO: Json,
-                  patches: z.object({
-                    applied: z.array(PatchId).optional(),
+            modules: z.record(
+              ModuleFilePath,
+              z.object({
+                source: z.any(), //.optional(), // TODO: Json zod type
+                patches: z
+                  .object({
+                    applied: z.array(PatchId),
                     skipped: z.array(PatchId).optional(),
-                    errors: z
-                      .record(
-                        PatchId,
-                        z.object({
-                          message: z.string(),
-                        })
-                      )
-                      .optional(),
-                  }),
-                })
-              )
-              .optional(),
-            validationErrors: z
-              .record(PatchId, z.array(ValidationError))
-              .optional(),
+                    errors: z.record(PatchId, GenericError).optional(),
+                  })
+                  .optional(),
+                validationErrors: z
+                  .record(SourcePath, z.array(ValidationError))
+                  .optional(),
+              })
+            ),
+            newPatchId: PatchId.optional(),
           }),
         }),
       ]),

@@ -1,15 +1,44 @@
-import { modules } from "@valbuild/core";
+import { initVal, modules } from "@valbuild/core";
 import { createValApiRouter, createValServer } from "./ValRouter";
 import { encodeJwt } from "./jwt";
 
 describe("ValRouter", () => {
   const route = "/api/val";
+  const { c, s, config } = initVal();
   const onRoute = createValApiRouter(
     route,
     createValServer(
-      modules({}, []),
+      modules(config, [
+        {
+          def: () =>
+            Promise.resolve({
+              default: c.define(
+                "/content/authors.val.ts",
+                s.record(
+                  s.object({
+                    name: s.string(),
+                    birthdate: s.date().from("1900-01-01").to("2024-01-01"),
+                  })
+                ),
+                {
+                  teddy: {
+                    name: "Theodor René Carlsen",
+                    birthdate: "1970-01-01",
+                  },
+                  freekh: { name: "Fredrik Ekholdt", birthdate: "1970-01-01" },
+                  erlamd: { name: "Erlend Åmdal", birthdate: "1970-01-01" },
+                  thoram: { name: "Thomas Ramirez", birthdate: "1970-01-01" },
+                  isabjo: { name: "Isak Bjørnstad", birthdate: "1970-01-01" },
+                  kimmid: { name: "Kim Midtlid", birthdate: "1970-01-01" },
+                }
+              ),
+            }),
+        },
+      ]),
       route,
-      {},
+      {
+        disableCache: true,
+      },
       {
         async isEnabled() {
           return true;
@@ -25,12 +54,28 @@ describe("ValRouter", () => {
     const serverRes = await onRoute(
       fakeRequest({
         method: "PUT",
-        url: new URL(
-          "http://localhost:3000/api/val/tree/~?validate_all=true&validate_sources=true"
-        ),
+        url: new URL("http://localhost:3000/api/val/tree/~"),
         json: {},
         headers: new Headers({
-          Cookie: `ValidQueryParamTypes=${encodeJwt({}, "")}`,
+          Cookie: `val_session=${encodeJwt({}, "")}`,
+        }),
+      })
+    );
+    console.log(serverRes);
+
+    expect(serverRes).toBeDefined();
+    expect(serverRes.status).toBe(200);
+    expect("json" in serverRes && serverRes.json).toBeTruthy();
+  });
+
+  test("smoke test valid route: /schema", async () => {
+    const serverRes = await onRoute(
+      fakeRequest({
+        method: "GET",
+        url: new URL("http://localhost:3000/api/val/schema"),
+        json: {},
+        headers: new Headers({
+          Cookie: `val_session=${encodeJwt({}, "")}`,
         }),
       })
     );
@@ -46,7 +91,6 @@ describe("ValRouter", () => {
         url: new URL("http://localhost:3000/api/val/patches/~"),
       })
     );
-    console.log(serverRes);
     expect(serverRes).toBeDefined();
     expect(serverRes.status).toBe(200);
     expect("json" in serverRes && serverRes.json).toBeTruthy();
@@ -61,7 +105,7 @@ describe("ValRouter", () => {
         ),
         json: {},
         headers: new Headers({
-          Cookie: `ValidQueryParamTypes=${encodeJwt({}, "")}`,
+          Cookie: `val_session=${encodeJwt({}, "")}`,
         }),
       })
     );
