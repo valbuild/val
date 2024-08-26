@@ -16,33 +16,32 @@ import {
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
-import { ValApi } from "@valbuild/core";
 import { useTheme } from "../useTheme";
 import { useSession } from "../useSession";
 import { AnyVal } from "../fields/ValCompositeFields";
 import { InitOnSubmit } from "../fields/ValFormField";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Popover } from "../ui/popover";
-import { ValStore } from "@valbuild/shared/internal";
+import { ValClient, ValStore } from "@valbuild/shared/internal";
 import { ValStoreProvider } from "../ValStoreContext";
 import { ValMenu } from "./ValMenu";
 import { ValWindow } from "./ValWindow";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
-  api: ValApi;
+  client: ValClient;
   store: ValStore;
   onSubmit: (refreshRequired: boolean) => void;
 };
 
 export function ValOverlay({
   defaultTheme,
-  api,
+  client,
   store,
   onSubmit: reloadPage,
 }: ValOverlayProps) {
   const [theme, setTheme] = useTheme(defaultTheme);
-  const session = useSession(api);
+  const session = useSession(client);
 
   const [editMode, setEditMode] = useInitEditMode();
   const [hoverTarget, setHoverTarget] = useHoverTarget(editMode);
@@ -140,14 +139,20 @@ export function ValOverlay({
   }, [patches]);
 
   useEffect(() => {
-    api
-      .getPatches({ omitPatches: true })
+    client("/patches/~", "GET", {
+      query: {
+        omit_patch: true,
+        author: [],
+        patch_id: [],
+        module_file_path: [],
+      },
+    })
       .then((res) => {
-        if (result.isErr(res)) {
-          console.error("Val: could not parse patches", res.error);
+        if (res.status !== 200) {
+          console.error("Val: could not parse patches", res.json);
           return;
         }
-        setPatches(Object.keys(res.value.patches) as PatchId[]);
+        setPatches(Object.keys(res.json.patches) as PatchId[]);
       })
       .catch((err) => {
         console.warn("Val: could not fetch patches", err);
@@ -200,22 +205,27 @@ export function ValOverlay({
             <div className="fixed -translate-y-1/2 right-4 top-1/2 z-overlay">
               <ValMenu
                 direction="vertical"
-                api={api}
                 patches={patches}
                 onClickPatches={() => {
-                  api.postSave({ patchIds: patches }).then(async (res) => {
-                    if (result.isOk(res)) {
-                      const res = await api.deletePatches(patches);
-                      if (result.isOk(res)) {
-                        setPatches([]);
-                        await store.reset();
+                  client("/save", "POST", { body: { patchIds: patches } }).then(
+                    async (saveRes) => {
+                      if (saveRes.status === 200) {
+                        const res = await client("/patches/~", "DELETE", {
+                          query: {
+                            id: patches,
+                          },
+                        });
+                        if (res.status === 200) {
+                          setPatches([]);
+                          await store.reset();
+                        } else {
+                          alert("Could not clean up");
+                        }
                       } else {
-                        alert("Could not clean up");
+                        alert("Could not publish");
                       }
-                    } else {
-                      alert("Could not publish");
                     }
-                  });
+                  );
                 }}
               />
             </div>

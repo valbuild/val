@@ -9,11 +9,10 @@ import {
   GenericSelector,
   ModuleFilePath,
   PatchId,
+  ValConfig,
 } from "@valbuild/core";
-import { ValApi } from "@valbuild/core";
-import { result } from "@valbuild/core/fp";
-import { ValConfig } from "@valbuild/core";
 import { cookies, draftMode, headers } from "next/headers";
+import { createValClient } from "@valbuild/shared/internal";
 
 const initFetchValStega =
   (
@@ -35,7 +34,7 @@ const initFetchValStega =
       enabled = isEnabled();
     } catch (err) {
       console.error(
-        "Val: could not check if Val is enabled! This might be due to an error to check draftMode. fetchVal can only be used server-side. Use useVal on clients.",
+        "Val: could not check if  is enabled! This might be due to an error to check draftMode. fetch can only be used server-side. Use use on clients.",
         err
       );
     }
@@ -47,12 +46,12 @@ const initFetchValStega =
         headers = getHeaders();
         if (!(headers instanceof Headers)) {
           throw new Error(
-            "Expected an instance of Headers. Check Val rsc config."
+            "Expected an instance of Headers. Check  rsc config."
           );
         }
       } catch (err) {
         console.error(
-          "Val: could not read headers! fetchVal can only be used server-side. Use useVal on clients.",
+          "Val: could not read headers! fetch can only be used server-side. Use use on clients.",
           err
         );
         headers = null;
@@ -63,7 +62,7 @@ const initFetchValStega =
         cookies = getCookies();
       } catch (err) {
         console.error(
-          "Val: could not read cookies! fetchVal can only be used server-side. Use useVal on clients.",
+          "Val: could not read cookies! fetch can only be used server-side. Use use on clients.",
           err
         );
         cookies = null;
@@ -71,45 +70,53 @@ const initFetchValStega =
 
       const host: string | null = headers && getHost(headers);
       if (host && cookies) {
-        const api = new ValApi(`${host}${valApiEndpoints}`);
-        return api
-          .getPatches()
+        const client = createValClient(`${host}${valApiEndpoints}`);
+        // TODO: use Server directly
+        return client("/patches/~", "GET", {
+          query: {
+            omit_patch: true,
+            author: [],
+            patch_id: [],
+            module_file_path: [],
+          },
+        })
           .then(async (patchesRes) => {
-            if (result.isErr(patchesRes)) {
-              console.error("Val: could not fetch patches", patchesRes.error);
-              throw Error(JSON.stringify(patchesRes.error, null, 2));
+            if (patchesRes.status !== 200) {
+              console.error("Val: could not fetch patches", patchesRes.json);
+              throw Error(JSON.stringify(patchesRes.json, null, 2));
             }
             const allPatches = Object.keys(
-              patchesRes.value.patches
+              patchesRes.json.patches
             ) as PatchId[];
-            return api
-              .putTree({
-                patchIds: allPatches,
-              })
-              .then((res) => {
-                if (result.isOk(res)) {
-                  const { modules } = res.value;
-                  return stegaEncode(selector, {
-                    disabled: !enabled,
-                    getModule: (path) => {
-                      const module = modules[path as ModuleFilePath];
-                      if (module) {
-                        return module.source;
-                      }
-                    },
-                  });
+            return client("/tree/~", "PUT", {
+              path: undefined,
+              query: {
+                validate_sources: true,
+                validate_all: false,
+                validate_binary_files: false,
+              },
+              body: { patchIds: allPatches },
+            }).then((res) => {
+              if (res.status === 200) {
+                const { modules } = res.json;
+                return stegaEncode(selector, {
+                  disabled: !enabled,
+                  getModule: (path) => {
+                    const module = modules[path as ModuleFilePath];
+                    if (module) {
+                      return module.source;
+                    }
+                  },
+                });
+              } else {
+                if (res.status === 401) {
+                  console.warn("Val: authentication error: ", res.json.message);
                 } else {
-                  if (res.error.statusCode === 401) {
-                    console.warn(
-                      "Val: authentication error: ",
-                      res.error.message
-                    );
-                  } else {
-                    console.error("Val: could not fetch modules", res.error);
-                    throw Error(JSON.stringify(res.error, null, 2));
-                  }
+                  console.error("Val: could not fetch modules", res.json);
+                  throw Error(JSON.stringify(res.json, null, 2));
                 }
-              });
+              }
+            });
           })
           .catch((err) => {
             console.error("Val: failed while fetching modules", err);
@@ -147,7 +154,7 @@ function getHost(headers: Headers) {
 }
 
 // TODO: remove
-// function getValAuthHeaders(cookies: {
+// function getAuthHeaders(cookies: {
 //   get(name: string): { name: string; value: string } | undefined;
 // }): Record<string, string> {
 //   try {
