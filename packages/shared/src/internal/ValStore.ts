@@ -37,7 +37,7 @@ export class ValStore {
     });
     if (patchesResponse.status !== 200) {
       console.error(
-        ": failed to get patches",
+        "Val: failed to get patches",
         patchesResponse.json.message,
         patchesResponse.json
       );
@@ -52,7 +52,7 @@ export class ValStore {
         validate_all: false,
         validate_binary_files: false,
       },
-      path: undefined,
+      path: undefined, // TODO: reload only the paths the requested paths
       body: {
         patchIds: filteredPatches,
       },
@@ -77,7 +77,7 @@ export class ValStore {
         }
       }
     } else {
-      console.error(": failed to reload paths", paths, treeRes.json);
+      console.error("Val: failed to reload paths", paths, treeRes.json);
     }
   }
 
@@ -91,7 +91,7 @@ export class ValStore {
       },
     });
     if (patchesRes.status !== 200) {
-      console.error(": failed to get patches", patchesRes.json);
+      console.error("Val: failed to get patches", patchesRes.json);
       return;
     }
     const allPatches = Object.keys(patchesRes.json.patches) as PatchId[];
@@ -126,7 +126,7 @@ export class ValStore {
         }
       }
     } else {
-      console.error(": failed to reset", treeRes.json);
+      console.error("Val: failed to reset", treeRes.json);
     }
   }
 
@@ -149,7 +149,7 @@ export class ValStore {
 
     if (treeRes.status === 200) {
       if (!treeRes.json?.modules?.[path]) {
-        console.error(": could not find the module", {
+        console.error("Val: could not find the module", {
           moduleIds: Object.keys(treeRes.json.modules),
           moduleId: path,
           data: treeRes,
@@ -178,19 +178,19 @@ export class ValStore {
           schema,
         });
       } else {
-        console.error(": could not find the module source");
+        console.error("Val: could not find the module source");
         return result.err({
           message: "Could not fetch data. Verify that the module exists.",
         });
       }
     } else {
       if (treeRes.status === 504) {
-        console.error(": timeout", treeRes.json);
+        console.error("Val: timeout", treeRes.json);
         return result.err({
           message: "Timed out while fetching data. Try again later.",
         });
       } else {
-        console.error(": failed to get module", treeRes.json);
+        console.error("Val: failed to get module", treeRes.json);
         return result.err({
           message:
             "Could not fetch data. Verify that  is correctly configured.",
@@ -235,9 +235,9 @@ export class ValStore {
     if (treeRes.status === 200) {
       const newPatchId = treeRes.json.newPatchId;
       if (!newPatchId) {
-        console.error(": could create patch", treeRes);
+        console.error("Val: could create patch", treeRes);
         return result.err({
-          message: ": could not create patch.",
+          message: "Val: could not create patch.",
         });
       }
       const fetchedSource = treeRes.json?.modules?.[path]?.source;
@@ -264,16 +264,16 @@ export class ValStore {
           },
         });
       } else {
-        console.error(": could not patch");
+        console.error("Val: could not patch");
         return result.err({
-          message: ": could not fetch data. Verify that the module exists.",
+          message: "Val: could not fetch data. Verify that the module exists.",
         });
       }
     } else {
-      console.error(": failed to get module", treeRes.json);
+      console.error("Val: failed to get module", treeRes.json);
       return result.err({
         message:
-          ": could not fetch data. Verify that  is correctly configured.",
+          "Val: could not fetch data. Verify that  is correctly configured.",
       });
     }
   }
