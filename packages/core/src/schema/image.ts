@@ -1,11 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SerializedSchema } from ".";
-import { filenameToMimeType } from "../../../shared/src/internal/mimeType/convertMimeType";
 import { VAL_EXTENSION } from "../source";
 import { FileSource, FILE_REF_PROP } from "../source/file";
 import { ImageSource } from "../source/image";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
+import { Internal } from "..";
 
 export type ImageOptions = {
   ext?: ["jpg"] | ["webp"];
@@ -117,7 +117,7 @@ export class ImageSchema<
       }
     }
 
-    const fileMimeType = filenameToMimeType(src[FILE_REF_PROP]);
+    const fileMimeType = Internal.filenameToMimeType(src[FILE_REF_PROP]);
     if (!fileMimeType) {
       return {
         [path]: [
