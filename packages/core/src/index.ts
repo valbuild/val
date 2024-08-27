@@ -75,6 +75,13 @@ import { getVal } from "./future/fetchVal";
 import { getSHA256Hash } from "./getSha256";
 import { Operation } from "./patch";
 import { initSchema } from "./initSchema";
+import {
+  getMimeType,
+  mimeTypeToFileExt,
+  filenameToMimeType,
+  EXT_TO_MIME_TYPES,
+  MIME_TYPES_TO_EXT,
+} from "./mimeType";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
@@ -124,6 +131,11 @@ const Internal = {
   createValPathOfItem,
   getSHA256Hash,
   initSchema,
+  getMimeType,
+  mimeTypeToFileExt,
+  filenameToMimeType,
+  EXT_TO_MIME_TYPES,
+  MIME_TYPES_TO_EXT,
   ModuleFilePathSep,
   notFileOp: (op: Operation) => op.op !== "file",
   isFileOp: (

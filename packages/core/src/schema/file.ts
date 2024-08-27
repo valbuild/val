@@ -5,7 +5,7 @@ import { Schema, SerializedSchema } from ".";
 import { VAL_EXTENSION } from "../source";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
-import { filenameToMimeType } from "../../../shared/src/internal/mimeType/convertMimeType";
+import { Internal } from "..";
 
 export type FileOptions = {
   accept?: string;
@@ -106,7 +106,7 @@ export class FileSchema<
       }
     }
 
-    const fileMimeType = filenameToMimeType(src[FILE_REF_PROP]);
+    const fileMimeType = Internal.filenameToMimeType(src[FILE_REF_PROP]);
     if (!fileMimeType) {
       return {
         [path]: [
