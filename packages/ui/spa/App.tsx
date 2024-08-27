@@ -5,7 +5,7 @@ import { ValStore } from "@valbuild/shared/internal";
 import { fallbackRender } from "./fallbackRender";
 import { useMemo } from "react";
 import { ValRouter } from "./components/ValRouter";
-import { createValClient } from "@valbuild/shared/src/internal/ValClient";
+import { createValClient } from "@valbuild/shared/internal";
 
 function App() {
   const { client, store } = useMemo(() => {
