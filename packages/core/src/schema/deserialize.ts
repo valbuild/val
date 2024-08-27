@@ -61,7 +61,7 @@ export function deserializeSchema(
         serialized.opt
       );
     case "richtext":
-      return new RichTextSchema(serialized.options, serialized.opt);
+      return new RichTextSchema(serialized.options || {}, serialized.opt);
     case "record":
       return new RecordSchema(
         deserializeSchema(serialized.item),

@@ -1,7 +1,6 @@
 "use client";
-import { ValApi } from "@valbuild/core";
 import { ErrorBoundary } from "react-error-boundary";
-import { ValStore } from "@valbuild/shared/internal";
+import { createValClient, ValStore } from "@valbuild/shared/internal";
 import { ShadowRoot } from "./components/ShadowRoot";
 import { VAL_CSS_PATH } from "../src/constants";
 import { fallbackRender } from "./fallbackRender";
@@ -10,8 +9,8 @@ import { ValRouter } from "./components/ValRouter";
 
 function Overlay() {
   const host = "/api/val";
-  const api = new ValApi(host);
-  const store = new ValStore(api); // TODO: replace this
+  const client = createValClient(host);
+  const store = new ValStore(client); // TODO: replace this
 
   return (
     <ShadowRoot>
@@ -42,7 +41,7 @@ function Overlay() {
       <ErrorBoundary fallbackRender={fallbackRender}>
         <ValRouter overlay>
           <ValOverlay
-            api={api}
+            client={client}
             store={store}
             onSubmit={() => {
               const event = new CustomEvent("val-event", {

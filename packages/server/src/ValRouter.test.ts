@@ -61,8 +61,6 @@ describe("ValRouter", () => {
         }),
       })
     );
-    console.log(serverRes);
-
     expect(serverRes).toBeDefined();
     expect(serverRes.status).toBe(200);
     expect("json" in serverRes && serverRes.json).toBeTruthy();
