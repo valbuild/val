@@ -10,15 +10,18 @@ import { OnSubmit, SubmitStatus } from "../SubmitStatus";
 import { createFilePatch } from "./FileField";
 import { Patch } from "@valbuild/core/patch";
 import { FieldContainer } from "../FieldContainer";
+import { ImageOptions } from "@valbuild/core/src/schema/image";
 
 export function ImageField({
   path,
   defaultValue,
   onSubmit,
+  schemaOptions,
 }: {
   path: string;
   onSubmit?: OnSubmit;
   defaultValue?: ImageSource;
+  schemaOptions?: ImageOptions;
 }) {
   const [data, setData] = useState<string>();
   const [metadata, setMetadata] = useState<ImageMetadata>();
@@ -127,7 +130,7 @@ export function ImageField({
             disabled={loading}
             id={`img_input:${path}`}
             type="file"
-            accept="image/*"
+            accept={schemaOptions?.accept || "image/*"}
             onChange={(ev) => {
               if (onSubmit) {
                 readImage(ev)
