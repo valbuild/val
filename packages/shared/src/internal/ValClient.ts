@@ -5,8 +5,12 @@ export const createValClient = (host: string): ValClient => {
   return async (path, method, req) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const anyReq = req as any;
-    const params: [string, string][] = [];
+    let fullPath: string = path;
+    if (anyReq?.path && anyReq.path.length > 0) {
+      fullPath += anyReq.path;
+    }
     if (anyReq.query) {
+      const params: [string, string][] = [];
       for (const key of Object.keys(anyReq.query)) {
         if (Array.isArray(anyReq.query?.[key])) {
           for (const value of anyReq.query?.[key] || []) {
@@ -16,15 +20,10 @@ export const createValClient = (host: string): ValClient => {
           params.push([key, anyReq?.query?.[key]]);
         }
       }
+      if (anyReq?.query && params.length > 0) {
+        fullPath += `?${new URLSearchParams(params).toString()}`;
+      }
     }
-    let fullPath: string = path;
-    if (anyReq?.params && params.length > 0) {
-      fullPath = `${path}?${new URLSearchParams(params).toString()}`;
-    }
-    if (anyReq?.path && anyReq.path.length > 0) {
-      fullPath = `${path}${anyReq.path}`;
-    }
-
     // TODO: validate body
     return fetch(`${host}${fullPath}`, {
       method: method as string,
@@ -32,11 +31,12 @@ export const createValClient = (host: string): ValClient => {
         "Content-Type": "application/json",
       },
       body: anyReq.body ? JSON.stringify(anyReq.body) : undefined,
-    }).then((res) => {
+    }).then(async (res) => {
       // TODO: validate and return errors
+      const json = await res.json();
       return {
         status: res.status,
-        json: res.json(),
+        json,
       };
     });
   };
