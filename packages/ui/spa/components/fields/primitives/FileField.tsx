@@ -13,6 +13,7 @@ import { ChangeEvent, useState, useEffect } from "react";
 import { createFilename } from "../../../utils/readImage";
 import { OnSubmit, SubmitStatus } from "../SubmitStatus";
 import { FieldContainer } from "../FieldContainer";
+import { FileOptions } from "@valbuild/core/src/schema/file";
 
 export function createFilePatch(
   path: string[],
@@ -83,10 +84,12 @@ export function FileField({
   path,
   defaultValue,
   onSubmit,
+  schemaOptions,
 }: {
   path: string;
   onSubmit?: OnSubmit;
   defaultValue?: ImageSource;
+  schemaOptions?: FileOptions;
 }) {
   const [data, setData] = useState<{ filename?: string; src: string } | null>(
     null
@@ -129,6 +132,7 @@ export function FileField({
             hidden
             disabled={loading}
             id={`img_input:${path}`}
+            accept={schemaOptions?.accept || "*"}
             type="file"
             onChange={(ev) => {
               if (onSubmit) {
