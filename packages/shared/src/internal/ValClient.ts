@@ -64,55 +64,67 @@ export const createValClient = (host: string): ValClient => {
         },
       } satisfies ClientFetchErrors;
     }
-    return fetch(`${host}${fullPath}`, {
-      method: method as string,
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: anyReq.body ? JSON.stringify(anyReq.body) : undefined,
-    }).then(async (res) => {
-      const contentTypeHeaders = res.headers.get("content-type");
-      if (!contentTypeHeaders?.includes("application/json")) {
-        return {
-          status: null,
-          json: {
-            type: "client_side_validation_error",
-            message:
-              "Invalid content type. This could be a result of mismatched Val versions.",
-            details: {
-              validationError: "Invalid content type",
-              data: {
-                status: res.status,
-                contentType: contentTypeHeaders,
+    try {
+      const res = await fetch(`${host}${fullPath}`, {
+        method: method as string,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: anyReq.body ? JSON.stringify(anyReq.body) : undefined,
+      }).then(async (res) => {
+        const contentTypeHeaders = res.headers.get("content-type");
+        if (!contentTypeHeaders?.includes("application/json")) {
+          return {
+            status: null,
+            json: {
+              type: "client_side_validation_error",
+              message:
+                "Invalid content type. This could be a result of mismatched Val versions.",
+              details: {
+                validationError: "Invalid content type",
+                data: {
+                  status: res.status,
+                  contentType: contentTypeHeaders,
+                },
               },
             },
-          },
-        } satisfies ClientFetchErrors;
-      }
-      const json = await res.json();
-      const valClientResult = {
-        status: res.status,
-        json,
-      };
-      const responseResult = apiEndpoint.res?.safeParse(valClientResult);
-      if (responseResult && !responseResult.success) {
-        return {
-          status: null,
-          json: {
-            message:
-              "Response could not be validated. This could be a result of mismatched Val versions.",
-            type: "client_side_validation_error",
-            details: {
-              validationError: fromZodError(responseResult.error).toString(),
-              data: valClientResult,
+          } satisfies ClientFetchErrors;
+        }
+        const json = await res.json();
+        const valClientResult = {
+          status: res.status,
+          json,
+        };
+        const responseResult = apiEndpoint.res?.safeParse(valClientResult);
+        if (responseResult && !responseResult.success) {
+          return {
+            status: null,
+            json: {
+              message:
+                "Response could not be validated. This could be a result of mismatched Val versions.",
+              type: "client_side_validation_error",
+              details: {
+                validationError: fromZodError(responseResult.error).toString(),
+                data: valClientResult,
+              },
             },
-          },
-        } satisfies ClientFetchErrors;
-      }
+          } satisfies ClientFetchErrors;
+        }
+        return {
+          status: res.status,
+          json,
+        };
+      });
+      return res;
+    } catch (e) {
       return {
-        status: res.status,
-        json,
-      };
-    });
+        status: null,
+        json: {
+          message: "Failed to fetch data. This is likely a network error.",
+          type: "network_error",
+          details: e instanceof Error ? e.message : JSON.stringify(e),
+        },
+      } satisfies ClientFetchErrors;
+    }
   };
 };
