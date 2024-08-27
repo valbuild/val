@@ -7,11 +7,6 @@ import {
   Styles,
 } from "@valbuild/core";
 import {
-  filenameToMimeType,
-  getMimeType,
-  mimeTypeToFileExt,
-} from "../../mimeType";
-import {
   RemirrorBr,
   RemirrorBulletList,
   RemirrorImage,
@@ -294,13 +289,13 @@ function convertImageNode(
 ): ImageNode<AllRichTextOptions> {
   if (node.attrs && node.attrs.src.startsWith("data:")) {
     const sha256 = Internal.getSHA256Hash(textEncoder.encode(node.attrs.src));
-    const mimeType = getMimeType(node.attrs.src);
+    const mimeType = Internal.getMimeType(node.attrs.src);
     if (mimeType === undefined) {
       throw new Error(
         `Could not detect Mime Type for image: ${node.attrs.src}`
       );
     }
-    const fileExt = mimeTypeToFileExt(mimeType);
+    const fileExt = Internal.mimeTypeToFileExt(mimeType);
     const fileName = node.attrs.fileName || `${sha256}.${fileExt}`;
     const filePath = `/public/${fileName}`;
     const existingFilesEntry = files[filePath];
@@ -344,7 +339,8 @@ function convertImageNode(
           width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
           height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
           sha256: sha256 || "",
-          mimeType: (noParamsSrc && filenameToMimeType(noParamsSrc)) || "",
+          mimeType:
+            (noParamsSrc && Internal.filenameToMimeType(noParamsSrc)) || "",
         },
         ...(patchId ? { patch_id: patchId } : {}),
       },

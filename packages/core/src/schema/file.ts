@@ -5,8 +5,11 @@ import { Schema, SerializedSchema } from ".";
 import { VAL_EXTENSION } from "../source";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
+import { Internal } from "..";
 
-export type FileOptions = Record<string, never>;
+export type FileOptions = {
+  accept?: string;
+};
 
 export type SerializedFileSchema = {
   type: "file";
@@ -62,6 +65,70 @@ export class FileSchema<
         ],
       } as ValidationErrors;
     }
+
+    const { accept } = this.options || {};
+    const { mimeType } = src.metadata || {};
+
+    if (accept && mimeType && !mimeType.includes("/")) {
+      return {
+        [path]: [
+          {
+            message: `Invalid mime type format. Got: ${mimeType}`,
+            value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
+
+    if (accept && mimeType && mimeType.includes("/")) {
+      const acceptedTypes = accept.split(",").map((type) => type.trim());
+
+      const isValidMimeType = acceptedTypes.some((acceptedType) => {
+        if (acceptedType === "*/*") {
+          return true;
+        }
+        if (acceptedType.endsWith("/*")) {
+          const baseType = acceptedType.slice(0, -2);
+          return mimeType.startsWith(baseType);
+        }
+        return acceptedType === mimeType;
+      });
+
+      if (!isValidMimeType) {
+        return {
+          [path]: [
+            {
+              message: `Mime type mismatch. Found '${mimeType}' but schema accepts '${accept}'`,
+              value: src,
+            },
+          ],
+        } as ValidationErrors;
+      }
+    }
+
+    const fileMimeType = Internal.filenameToMimeType(src[FILE_REF_PROP]);
+    if (!fileMimeType) {
+      return {
+        [path]: [
+          {
+            message: `Could not determine mime type from file extension. Got: ${src[FILE_REF_PROP]}`,
+            value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
+
+    if (fileMimeType !== mimeType) {
+      return {
+        [path]: [
+          {
+            message: `Mime type and file extension not matching. Mime type is '${mimeType}' but file extension is '${fileMimeType}'`,
+            value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
+
     if (src.metadata) {
       return {
         [path]: [

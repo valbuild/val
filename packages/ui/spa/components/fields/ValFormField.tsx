@@ -119,6 +119,7 @@ export function ValFormField({
         path={path}
         onSubmit={onSubmit}
         defaultValue={source as ImageSource}
+        schemaOptions={schema.options}
       />
     );
   }
@@ -132,6 +133,7 @@ export function ValFormField({
         path={path}
         onSubmit={onSubmit}
         defaultValue={source as ImageSource}
+        schemaOptions={schema.options}
       />
     );
   }

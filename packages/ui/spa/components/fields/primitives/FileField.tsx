@@ -7,12 +7,12 @@ import {
   ImageSource,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
-import { getMimeType, mimeTypeToFileExt } from "@valbuild/shared/internal";
 import { File } from "lucide-react";
 import { ChangeEvent, useState, useEffect } from "react";
 import { createFilename } from "../../../utils/readImage";
 import { OnSubmit, SubmitStatus } from "../SubmitStatus";
 import { FieldContainer } from "../FieldContainer";
+import { FileOptions } from "@valbuild/core/src/schema/file";
 
 export function createFilePatch(
   path: string[],
@@ -59,13 +59,13 @@ export function readFile(ev: ChangeEvent<HTMLInputElement>) {
       const result = reader.result;
       if (typeof result === "string") {
         const sha256 = Internal.getSHA256Hash(textEncoder.encode(result));
-        const mimeType = getMimeType(result);
+        const mimeType = Internal.getMimeType(result);
         resolve({
           src: result,
           filename: file?.name,
           sha256,
           mimeType,
-          fileExt: mimeType && mimeTypeToFileExt(mimeType),
+          fileExt: mimeType && Internal.mimeTypeToFileExt(mimeType),
         });
       } else if (!result) {
         reject({ message: "Empty result" });
@@ -83,10 +83,12 @@ export function FileField({
   path,
   defaultValue,
   onSubmit,
+  schemaOptions,
 }: {
   path: string;
   onSubmit?: OnSubmit;
   defaultValue?: ImageSource;
+  schemaOptions?: FileOptions;
 }) {
   const [data, setData] = useState<{ filename?: string; src: string } | null>(
     null
@@ -129,6 +131,7 @@ export function FileField({
             hidden
             disabled={loading}
             id={`img_input:${path}`}
+            accept={schemaOptions?.accept || "*"}
             type="file"
             onChange={(ev) => {
               if (onSubmit) {
