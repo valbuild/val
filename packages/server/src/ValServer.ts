@@ -1,19 +1,12 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
-  ApiCommitResponse,
-  ApiGetPatchResponse,
-  ApiPostValidationErrorResponse,
-  ApiTreeResponse,
-  ApiDeletePatchResponse,
   ValModules,
   PatchId,
   ModuleFilePath,
-  ApiSchemaResponse,
   Json,
   SourcePath,
   ValidationError,
   SerializedSchema,
-  ApiPutTreeErrorResponse,
 } from "@valbuild/core";
 import {
   Api,
@@ -24,19 +17,18 @@ import {
   ValCookies,
   ValServerError,
   ValServerErrorStatus,
-  ValServerJsonResult,
-  ValServerRedirectResult,
-  ValServerResult,
-  ValServerResultCookies,
-  ValSession,
 } from "@valbuild/shared/internal";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
 import { z } from "zod";
 import { ValOpsFS } from "./ValOpsFS";
-import { AuthorId, PatchAnalysis, PatchSourceError, Sources } from "./ValOps";
+import {
+  AuthorId,
+  GenericErrorMessage,
+  PatchAnalysis,
+  PatchSourceError,
+  Sources,
+} from "./ValOps";
 import { fromError } from "zod-validation-error";
-import { Patch } from "./patch/validation";
-import { PatchError } from "@valbuild/core/patch";
 import { ValOpsHttp } from "./ValOpsHttp";
 
 export type ValServerOptions = {
@@ -535,6 +527,9 @@ export const ValServer = (
           authors,
           patchIds: query.patch_id as PatchId[] | undefined,
           omitPatch: query.omit_patch === true,
+          moduleFilePaths: query.module_file_path as
+            | ModuleFilePath[]
+            | undefined,
         });
         if (patches.errors && Object.keys(patches.errors).length > 0) {
           console.error("Val: Failed to get patches", patches.errors);
@@ -677,7 +672,14 @@ export const ValServer = (
         }
         let tree: {
           sources: Sources;
-          errors: ApiPutTreeErrorResponse["errors"];
+          errors: Record<
+            ModuleFilePath,
+            {
+              patchId: PatchId;
+              skipped: boolean;
+              error: GenericErrorMessage;
+            }[]
+          >;
         };
         let patchAnalysis: PatchAnalysis | null = null;
         let newPatchId: PatchId | undefined = undefined;
@@ -833,13 +835,14 @@ export const ValServer = (
           if (moduleFilePath.startsWith(treePath)) {
             modules[moduleFilePath] = {
               source: module,
-              patches: patchAnalysis
-                ? {
-                    applied: patchAnalysis.patchesByModule[moduleFilePath].map(
-                      (p) => p.patchId
-                    ),
-                  }
-                : undefined,
+              patches:
+                patchAnalysis && patchAnalysis.patchesByModule[moduleFilePath]
+                  ? {
+                      applied: patchAnalysis.patchesByModule[
+                        moduleFilePath
+                      ].map((p) => p.patchId),
+                    }
+                  : undefined,
             };
           }
         }

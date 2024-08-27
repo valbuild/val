@@ -6,7 +6,6 @@ import {
   SourcePath,
 } from "@valbuild/core";
 import { Json } from "@valbuild/core";
-import { ValApi } from "@valbuild/core";
 import { FC, useCallback, useEffect, useRef, useState } from "react";
 import { Grid } from "./Grid";
 import React from "react";
@@ -19,7 +18,7 @@ import { useSession } from "../useSession";
 import { Path } from "./Path";
 import { AnyVal } from "../fields/ValCompositeFields";
 import { InitOnSubmit } from "../fields/ValFormField";
-import { ValSession, ValStore } from "@valbuild/shared/internal";
+import { urlOf, ValSession, ValStore } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 import { useParams } from "../ValRouter";
 import { Button } from "../ui/button";
@@ -28,13 +27,14 @@ import { Dialog, DialogContent } from "../ui/dialog";
 import { Remote } from "../../utils/Remote";
 import { PathTree } from "../fields/PathTree";
 import { ValImagePreviewContext } from "../fields/PreviewImage";
+import { ValClient } from "@valbuild/shared/src/internal/ValClient";
 
 interface ValFullscreenProps {
-  api: ValApi;
+  client: ValClient;
   store: ValStore;
 }
 
-export const ValStudio: FC<ValFullscreenProps> = ({ api, store }) => {
+export const ValStudio: FC<ValFullscreenProps> = ({ client, store }) => {
   const [error, setError] = useState<string | null>(null);
 
   const params = useParams();
@@ -58,7 +58,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({ api, store }) => {
       });
     }
   }, [initializationState]);
-  const session = useSession(api);
+  const session = useSession(client);
 
   const [theme, setTheme] = useTheme();
   const hoverElemRef = React.useRef<HTMLDivElement | null>(null);
@@ -128,17 +128,26 @@ export const ValStudio: FC<ValFullscreenProps> = ({ api, store }) => {
   }, [moduleFilePath, selectedPath, session, patches]);
 
   useEffect(() => {
-    api.getPatches({ omitPatches: true }).then((res) => {
-      if (result.isOk(res)) {
+    client("/patches/~", "GET", {
+      query: {
+        author: [],
+        module_file_path: [],
+        omit_patch: true,
+        patch_id: [],
+      },
+    }).then((patchesRes) => {
+      if (patchesRes.status === 200) {
         const patches: PatchId[] = [];
-        for (const [patchId, patchData] of Object.entries(res.value.patches)) {
-          if (!patchData.appliedAt) {
+        for (const [patchId, patchData] of Object.entries(
+          patchesRes.json.patches
+        )) {
+          if (!patchData?.appliedAt) {
             patches.push(patchId as PatchId);
           }
         }
         setPatches(patches);
       } else {
-        console.error("Could not get patches", res.error);
+        console.error("Could not get patches", patchesRes.json);
       }
     });
   }, []);
@@ -218,21 +227,27 @@ export const ValStudio: FC<ValFullscreenProps> = ({ api, store }) => {
                         !(session.status === "success") || patches.length === 0
                       }
                       onClick={() => {
-                        api
-                          .postSave({ patchIds: patches })
-                          .then(async (res) => {
-                            if (result.isOk(res)) {
-                              const res = await api.deletePatches(patches);
-                              if (result.isOk(res)) {
-                                setPatches([]);
-                                alert("Success");
-                              } else {
-                                setError("Could not clean up");
+                        client("/save", "POST", {
+                          body: { patchIds: patches },
+                        }).then(async (saveRes) => {
+                          if (saveRes.status === 200) {
+                            const deleteRes = await client(
+                              "/patches/~",
+                              "DELETE",
+                              {
+                                query: { id: patches },
                               }
+                            );
+                            if (deleteRes.status === 200) {
+                              setPatches([]);
+                              alert("Success");
                             } else {
-                              setError("Could not publish");
+                              setError("Could not clean up");
                             }
-                          });
+                          } else {
+                            setError("Could not publish");
+                          }
+                        });
                       }}
                     >
                       Publish {patches.length > 0 && `(${patches.length})`}
@@ -241,11 +256,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({ api, store }) => {
                 </div>
                 <div className="flex justify-center">
                   <div className="max-w-5xl p-4">
-                    <LoginModal
-                      session={session}
-                      portal={portal.current}
-                      api={api}
-                    />
+                    <LoginModal session={session} portal={portal.current} />
                     {moduleError && (
                       <div className="p-4 text-lg bg-destructive text-destructive-foreground">
                         ERROR: {moduleError}
@@ -276,11 +287,9 @@ export const ValStudio: FC<ValFullscreenProps> = ({ api, store }) => {
 };
 
 function LoginModal({
-  api,
   session,
   portal,
 }: {
-  api: ValApi;
   session: Remote<ValSession>;
   portal: HTMLDivElement | null;
 }) {
@@ -299,7 +308,11 @@ function LoginModal({
           </h1>
           <p>You need to login to continue</p>
           <Button asChild>
-            <a href={api.getLoginUrl(window?.location?.href || "/val")}>
+            <a
+              href={urlOf("/api/val/authorize", {
+                redirect_to: window?.location?.href || "/val",
+              })}
+            >
               Login
             </a>
           </Button>

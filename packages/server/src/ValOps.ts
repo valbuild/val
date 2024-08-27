@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
-  ApiPutTreeErrorResponse,
   FILE_REF_PROP,
   FileMetadata,
   FileSchema,
@@ -283,7 +282,14 @@ export abstract class ValOps {
   // #region getTree
   async getTree(analysis?: PatchAnalysis & Patches): Promise<{
     sources: Sources;
-    errors: ApiPutTreeErrorResponse["errors"];
+    errors: Record<
+      ModuleFilePath,
+      {
+        patchId: PatchId;
+        skipped: boolean;
+        error: GenericErrorMessage;
+      }[]
+    >;
   }> {
     if (!analysis) {
       const { sources } = await this.initTree();
@@ -292,7 +298,14 @@ export abstract class ValOps {
     const { sources } = await this.initTree();
 
     const patchedSources: Sources = {};
-    const errors: ApiPutTreeErrorResponse["errors"] = {};
+    const errors: Record<
+      ModuleFilePath,
+      {
+        patchId: PatchId;
+        skipped: boolean;
+        error: GenericErrorMessage;
+      }[]
+    > = {};
     for (const [pathS, patches] of Object.entries(analysis.patchesByModule)) {
       const path = pathS as ModuleFilePath;
       if (!sources[path]) {

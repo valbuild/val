@@ -62,7 +62,7 @@ export function isVal<T extends Json>(val: unknown): val is Val<T> {
   );
 }
 
-declare const brand: unique symbol;
+declare const brand = "VAL_DATA_TYPE";
 /**
  * The path of the source value.
  *
