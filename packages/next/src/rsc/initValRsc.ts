@@ -34,7 +34,7 @@ const initFetchValStega =
       enabled = isEnabled();
     } catch (err) {
       console.error(
-        "Val: could not check if  is enabled! This might be due to an error to check draftMode. fetch can only be used server-side. Use use on clients.",
+        "Val: could not check if Val is enabled! This might be due to an error to check draftMode. fetchVal can only be used server-side. Use useVal on clients.",
         err
       );
     }
@@ -46,12 +46,12 @@ const initFetchValStega =
         headers = getHeaders();
         if (!(headers instanceof Headers)) {
           throw new Error(
-            "Expected an instance of Headers. Check  rsc config."
+            "Expected an instance of Headers. Check Val rsc config."
           );
         }
       } catch (err) {
         console.error(
-          "Val: could not read headers! fetch can only be used server-side. Use use on clients.",
+          "Val: could not read headers! fetchVal can only be used server-side. Use useVal on clients.",
           err
         );
         headers = null;
@@ -62,7 +62,7 @@ const initFetchValStega =
         cookies = getCookies();
       } catch (err) {
         console.error(
-          "Val: could not read cookies! fetch can only be used server-side. Use use on clients.",
+          "Val: could not read cookies! fetchVal can only be used server-side. Use useVal on clients.",
           err
         );
         cookies = null;
@@ -154,7 +154,7 @@ function getHost(headers: Headers) {
 }
 
 // TODO: remove
-// function getAuthHeaders(cookies: {
+// function getValAuthHeaders(cookies: {
 //   get(name: string): { name: string; value: string } | undefined;
 // }): Record<string, string> {
 //   try {
