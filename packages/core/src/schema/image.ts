@@ -7,7 +7,7 @@ import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 
 export type ImageOptions = {
-  ext: ["jpg"] | ["webp"];
+  ext?: ["jpg"] | ["webp"];
   directory?: string;
   prefix?: string;
 };

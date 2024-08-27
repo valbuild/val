@@ -1,9 +1,15 @@
 import { promises as fs } from "fs";
 import * as path from "path";
-import { Internal, ValConfig, ValModules } from "@valbuild/core";
-import { ValServerGenericResult } from "@valbuild/shared/internal";
+import { ValConfig, ValModules } from "@valbuild/core";
+import {
+  Api,
+  ApiEndpoint,
+  ValServerGenericResult,
+} from "@valbuild/shared/internal";
 import { createUIRequestHandler } from "@valbuild/ui/server";
 import { ValServer, ValServerCallbacks, ValServerConfig } from "./ValServer";
+import { fromZodError } from "zod-validation-error";
+import { z } from "zod";
 
 type Versions = {
   versions?: {
@@ -128,7 +134,7 @@ export async function createValServer(
   formatter?: (code: string, filePath: string) => string | Promise<string>
 ): Promise<ValServer> {
   const valServerConfig = await initHandlerOptions(route, opts);
-  return new ValServer(
+  return ValServer(
     valModules,
     {
       formatter,
@@ -294,12 +300,6 @@ async function readCommit(
   }
 }
 
-const { VAL_SESSION_COOKIE, VAL_STATE_COOKIE } = Internal;
-
-const TREE_PATH_PREFIX = "/tree/~";
-const PATCHES_PATH_PREFIX = "/patches/~";
-const FILES_PATH_PREFIX = "/files";
-
 export function createValApiRouter<Res>(
   route: string,
   valServerPromise: Promise<ValServer>,
@@ -320,178 +320,272 @@ export function createValApiRouter<Res>(
         json: error,
       });
     }
-    const method = req.method?.toUpperCase();
-
-    function withTreePath(
-      path: string,
-      prefix: string
-    ): (useTreePath: (treePath: string) => Promise<Res>) => Promise<Res> {
-      return async (useTreePath) => {
-        const pathIndex = path.indexOf("~");
-        if (path.startsWith(prefix) && pathIndex !== -1) {
-          return useTreePath(path.slice(pathIndex + 1));
-        } else {
-          if (prefix.indexOf("/~") === -1) {
-            return convert({
-              status: 500,
-              json: {
-                message: `Route is incorrectly formed: ${prefix}!`,
-              },
-            });
-          }
-          return convert({
-            status: 404,
-            json: {
-              message: `Malformed ${prefix} path! Expected: '${prefix}'`,
-            },
-          });
-        }
-      };
-    }
 
     const path = url.pathname.slice(route.length);
+    const groupQueryParams = (arr: [string, string][]) => {
+      const map: Record<string, string[]> = {};
+      for (const [key, value] of arr) {
+        const list = map[key] || [];
+        list.push(value);
+        map[key] = list;
+      }
+      return map;
+    };
+    async function getValServerResponse(
+      reqApiRoutePath: string,
+      req: Request
+    ): Promise<ValServerGenericResult> {
+      const anyApi =
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        Api as any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const anyValServer = valServer as any;
+      const method = req.method?.toUpperCase();
+      let route = null;
+      let path: string | undefined = undefined;
+      for (const routeDef of Object.keys(Api)) {
+        if (routeDef === reqApiRoutePath) {
+          route = routeDef;
+          break;
+        }
+        if (reqApiRoutePath.startsWith(routeDef)) {
+          const reqDefinition = (anyApi?.[routeDef]?.[method] as ApiEndpoint)
+            ?.req;
+          if (reqDefinition) {
+            route = routeDef;
+            if (reqDefinition.path) {
+              const subPath = reqApiRoutePath.slice(routeDef.length);
+              const pathRes = reqDefinition.path.safeParse(subPath);
+              if (!pathRes.success) {
+                return zodErrorResult(
+                  pathRes.error,
+                  `invalid path: '${subPath}' endpoint: '${routeDef}'`
+                );
+              } else {
+                path = pathRes.data;
+              }
+            }
+            break;
+          }
+        }
+      }
+
+      if (!route) {
+        return {
+          status: 404,
+          json: {
+            message: "Route not found. Valid routes are: " + Object.keys(Api),
+            details: {
+              route,
+              method,
+            },
+          },
+        };
+      }
+
+      const apiEndpoint = anyApi?.[route]?.[method] as ApiEndpoint;
+      const reqDefinition = apiEndpoint?.req;
+      if (!reqDefinition) {
+        return {
+          status: 404,
+          json: {
+            message: `Requested method ${method} on route ${route} is not valid. Valid methods are: ${Object.keys(
+              anyApi[route]
+            ).join(", ")}`,
+            details: {
+              route,
+              method,
+            },
+          },
+        };
+      }
+      const endpointImpl = anyValServer?.[route]?.[method] as (
+        reqData: Record<string, unknown>
+      ) => Promise<ValServerGenericResult>;
+      if (!endpointImpl) {
+        return {
+          status: 500,
+          json: {
+            message:
+              "Missing server implementation of route with method. This might be caused by a mismatch between Val package versions.",
+            details: {
+              valid: {
+                route: {
+                  server: Object.keys(anyValServer || {}),
+                  api: Object.keys(anyApi || {}),
+                },
+                method: {
+                  server: Object.keys(anyValServer?.[route] || {}),
+                  api: Object.keys(anyApi?.[route] || {}),
+                },
+              },
+              route,
+              method,
+            },
+          },
+        };
+      }
+      const bodyRes = reqDefinition.body
+        ? reqDefinition.body.safeParse(await req.json())
+        : ({ success: true, data: {} } as z.SafeParseReturnType<
+            unknown,
+            unknown
+          >);
+      if (!bodyRes.success) {
+        return zodErrorResult(bodyRes.error, "invalid body data");
+      }
+
+      const cookiesRes = reqDefinition.cookies
+        ? getCookies(req, reqDefinition.cookies)
+        : ({ success: true, data: {} } as z.SafeParseReturnType<
+            Record<string, string>,
+            Record<string, string>
+          >);
+      if (!cookiesRes.success) {
+        return zodErrorResult(cookiesRes.error, "invalid cookies");
+      }
+      const actualQueryParams = groupQueryParams(
+        Array.from(url.searchParams.entries())
+      );
+      let query = {};
+      if (reqDefinition.query) {
+        // This is code is particularly heavy, however
+        // @see ValidQueryParamTypes in ApiRouter.ts where we explain what we want to support
+        // We prioritized a declarative ApiRouter, so this code is what we ended up with for better of worse
+        const queryRules: Record<string, z.ZodTypeAny> = {};
+        for (const [key, zodRule] of Object.entries(reqDefinition.query)) {
+          let innerType: z.ZodTypeAny = zodRule;
+          let isOptional = false;
+          let isArray = false;
+          // extract inner types:
+          if (innerType instanceof z.ZodOptional) {
+            isOptional = true;
+            innerType = innerType.unwrap();
+          }
+          if (innerType instanceof z.ZodArray) {
+            isArray = true;
+            innerType = innerType.element;
+          }
+          // convert boolean to union of literals true and false so we can parse it as a string
+          if (innerType instanceof z.ZodBoolean) {
+            innerType = z
+              .union([z.literal("true"), z.literal("false")])
+              .transform((arg) => Boolean(arg));
+          }
+          // re-build rules:
+          let arrayCompatibleRule = innerType;
+          arrayCompatibleRule = z.array(innerType); // we always want to parse an array because we group the query params by into an array
+          if (isOptional) {
+            arrayCompatibleRule = arrayCompatibleRule.optional();
+          }
+          if (!isArray) {
+            arrayCompatibleRule = arrayCompatibleRule.transform(
+              (arg) => arg && arg[0]
+            );
+          }
+          queryRules[key] = arrayCompatibleRule;
+        }
+        const queryRes = z.object(queryRules).safeParse(actualQueryParams);
+        if (!queryRes.success) {
+          return zodErrorResult(
+            queryRes.error,
+            `invalid query params: (${JSON.stringify(actualQueryParams)})`
+          );
+        }
+        query = queryRes.data;
+      }
+
+      const res = await endpointImpl({
+        body: bodyRes.data,
+        cookies: cookiesRes.data,
+        query,
+        path,
+      });
+      const resDef = apiEndpoint.res;
+      if (resDef) {
+        const responseResult = resDef.safeParse(res);
+        if (!responseResult.success) {
+          return {
+            status: 500,
+            json: {
+              message:
+                "Could not validate response. This is likely a bug in Val server.",
+              details: {
+                response: res,
+                errors: formatZodErrorString(responseResult.error),
+              },
+            },
+          };
+        }
+      }
+      return res;
+    }
+
     if (path.startsWith("/static")) {
       return convert(
         await uiRequestHandler(path.slice("/static".length), url.href)
       );
-    } else if (path === "/session") {
-      return convert(
-        await valServer.session(getCookies(req, [VAL_SESSION_COOKIE]))
-      );
-    } else if (path === "/authorize") {
-      return convert(
-        await valServer.authorize({
-          redirect_to: url.searchParams.get("redirect_to") || undefined,
-        })
-      );
-    } else if (path === "/callback") {
-      return convert(
-        await valServer.callback(
-          {
-            code: url.searchParams.get("code") || undefined,
-            state: url.searchParams.get("state") || undefined,
-          },
-          getCookies(req, [VAL_STATE_COOKIE])
-        )
-      );
-    } else if (path === "/logout") {
-      return convert(await valServer.logout());
-    } else if (path === "/enable") {
-      return convert(
-        await valServer.enable({
-          redirect_to: url.searchParams.get("redirect_to") || undefined,
-        })
-      );
-    } else if (path === "/disable") {
-      return convert(
-        await valServer.disable({
-          redirect_to: url.searchParams.get("redirect_to") || undefined,
-        })
-      );
-    } else if (method === "POST" && path === "/save") {
-      const body = (await req.json()) as unknown;
-      return convert(
-        await valServer.postSave(body, getCookies(req, [VAL_SESSION_COOKIE]))
-      );
-      // } else if (method === "POST" && path === "/validate") {
-      //   const body = (await req.json()) as unknown;
-      //   return convert(
-      //     await valServer.postValidate(
-      //       body,
-      //       getCookies(req, [VAL_SESSION_COOKIE]),
-      //       requestHeaders
-      //     )
-      //   );
-    } else if (method === "GET" && path === "/schema") {
-      return convert(
-        await valServer.getSchema(getCookies(req, [VAL_SESSION_COOKIE]))
-      );
-    } else if (method === "PUT" && path.startsWith(TREE_PATH_PREFIX)) {
-      return withTreePath(
-        path,
-        TREE_PATH_PREFIX
-      )(async (treePath) =>
-        convert(
-          await valServer.putTree(
-            (await req.json()) as unknown,
-            treePath,
-            {
-              patches_sha: url.searchParams.get("patches_sha") || undefined,
-              validate_all: url.searchParams.get("validate_all") || undefined,
-              validate_binary_files:
-                url.searchParams.get("validate_binary_files") || undefined,
-              validate_sources:
-                url.searchParams.get("validate_sources") || undefined,
-            },
-            getCookies(req, [VAL_SESSION_COOKIE])
-          )
-        )
-      );
-    } else if (method === "GET" && path.startsWith(PATCHES_PATH_PREFIX)) {
-      return withTreePath(
-        path,
-        PATCHES_PATH_PREFIX
-      )(async () =>
-        convert(
-          await valServer.getPatches(
-            {
-              authors: url.searchParams.getAll("author"),
-              patchIds: url.searchParams.getAll("patch_id"),
-              omitPatch: url.searchParams.get("omit_patch") || undefined,
-            },
-            getCookies(req, [VAL_SESSION_COOKIE])
-          )
-        )
-      );
-    } else if (method === "DELETE" && path.startsWith(PATCHES_PATH_PREFIX)) {
-      return withTreePath(
-        path,
-        PATCHES_PATH_PREFIX
-      )(async () =>
-        convert(
-          await valServer.deletePatches(
-            {
-              id: url.searchParams.getAll("id"),
-            },
-            getCookies(req, [VAL_SESSION_COOKIE])
-          )
-        )
-      );
-    } else if (method === "GET" && path.startsWith(FILES_PATH_PREFIX)) {
-      const treePath = path.slice(FILES_PATH_PREFIX.length);
-
-      return convert(
-        await valServer.getFiles(treePath, {
-          patch_id: url.searchParams.get("patch_id") || undefined,
-        })
-      );
     } else {
-      return convert({
-        status: 404,
-        json: {
-          message: "Not Found",
-          details: {
-            method,
-            path,
-          },
-        },
-      });
+      return convert(await getValServerResponse(path, req));
     }
   };
 }
 
+function formatZodErrorString(error: z.ZodError): string {
+  const errors = fromZodError(error).toString();
+  return errors.length > 640 ? `${errors.slice(0, 640)}...` : errors;
+}
+
+function zodErrorResult(
+  error: z.ZodError,
+  message: string
+): ValServerGenericResult {
+  return {
+    status: 400,
+    json: {
+      message: "Bad Request: " + message,
+      details: {
+        errors: formatZodErrorString(error),
+      },
+    },
+  };
+}
+
 // TODO: is this naive implementation is too naive?
-function getCookies<Names extends string>(req: Request, names: Names[]) {
-  return (
-    req.headers
-      .get("Cookie")
-      ?.split("; ")
-      .reduce((acc, cookie) => {
-        const [name, value] = cookie.split("=");
-        if ((names as string[]).includes(name.trim())) {
-          acc[name.trim() as Names] = decodeURIComponent(value.trim());
-        }
-        return acc;
-      }, {} as { [K in Names]: string }) || ({} as { [K in Names]?: string })
-  );
+function getCookies<
+  Cookies extends {
+    val_session?: z.ZodString | z.ZodOptional<z.ZodString>;
+    val_state?: z.ZodString | z.ZodOptional<z.ZodString>;
+    val_enable?: z.ZodString | z.ZodOptional<z.ZodString>;
+  }
+>(
+  req: Request,
+  cookiesDef: Cookies
+): z.SafeParseReturnType<
+  Record<string, string>,
+  {
+    [K in keyof Cookies]: Cookies[K] extends z.ZodType
+      ? z.infer<Cookies[K]>
+      : never;
+  }
+> {
+  const input: Record<string, string> = {};
+  const cookieParts = req.headers?.get("Cookie")?.split("; ");
+  for (const name of Object.keys(cookiesDef)) {
+    const cookie = cookieParts?.find((cookie) => cookie.startsWith(`${name}=`));
+    const value = cookie
+      ? decodeURIComponent(cookie?.split("=")[1])
+      : undefined;
+    if (value) {
+      input[name.trim()] = value;
+    }
+  }
+  return z.object(cookiesDef).safeParse(input) as z.SafeParseReturnType<
+    Record<string, string>,
+    {
+      [K in keyof Cookies]: Cookies[K] extends z.ZodType
+        ? z.infer<Cookies[K]>
+        : never;
+    }
+  >;
 }

@@ -1,4 +1,4 @@
-import { PatchId, ValApi } from "@valbuild/core";
+import { PatchId } from "@valbuild/core";
 import classNames from "classnames";
 import {
   ExternalLink,
@@ -17,6 +17,7 @@ import * as SwitchPrimitives from "@radix-ui/react-switch";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { PopoverTrigger } from "../ui/popover";
 import { useValUIContext } from "../ValUIContext";
+import { urlOf } from "@valbuild/shared/internal";
 
 const className = "p-1 border rounded-full shadow border-accent";
 const PREV_URL_KEY = "valbuild:urlBeforeNavigation";
@@ -24,12 +25,10 @@ const PREV_URL_KEY = "valbuild:urlBeforeNavigation";
 type MenuDirection = "vertical" | "horizontal";
 
 export function ValMenu({
-  api,
   patches,
   direction,
   onClickPatches,
 }: {
-  api: ValApi;
   direction: MenuDirection;
   patches: PatchId[];
   onClickPatches: () => void;
@@ -39,7 +38,9 @@ export function ValMenu({
     return (
       <SingleItemMenu
         direction={direction}
-        href={api.getLoginUrl(window.location.href)}
+        href={urlOf("/api/val/authorize", {
+          redirect_to: window.location.href,
+        })}
       >
         <span>Login</span>
         <LogIn size={18} />
@@ -50,7 +51,7 @@ export function ValMenu({
     return (
       <SingleItemMenu
         direction={direction}
-        href={api.getEnableUrl(window.location.href)}
+        href={urlOf("/api/val/enable", { redirect_to: window.location.href })}
       >
         <span>Enable</span>
         <LogIn size={18} />
@@ -85,7 +86,7 @@ export function ValMenu({
           // Save the current url so we can go back to it when returning from fullscreen mode
           if (editMode !== "full") {
             localStorage.setItem(PREV_URL_KEY, window.location.href);
-            window.location.href = api.getEditUrl();
+            window.location.href = urlOf("/val");
           } else if (editMode === "full") {
             const prevUrl = localStorage.getItem(PREV_URL_KEY);
             window.location.href = prevUrl || "/";
@@ -158,7 +159,9 @@ export function ValMenu({
           <div>
             <a
               className="flex items-center justify-center font-bold h-[34px] gap-x-1"
-              href={api.getDisableUrl(window.location.href)}
+              href={urlOf("/api/val/disable", {
+                redirect_to: window.location.href,
+              })}
             >
               <span>Disable</span>
               <ExternalLink size={18} />

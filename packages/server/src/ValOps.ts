@@ -284,7 +284,11 @@ export abstract class ValOps {
     sources: Sources;
     errors: Record<
       ModuleFilePath,
-      { patchId?: PatchId; invalidPath?: boolean; error: PatchError }[]
+      {
+        patchId: PatchId;
+        skipped: boolean;
+        error: GenericErrorMessage;
+      }[]
     >;
   }> {
     if (!analysis) {
@@ -296,7 +300,11 @@ export abstract class ValOps {
     const patchedSources: Sources = {};
     const errors: Record<
       ModuleFilePath,
-      { patchId?: PatchId; invalidPath?: boolean; error: PatchError }[]
+      {
+        patchId: PatchId;
+        skipped: boolean;
+        error: GenericErrorMessage;
+      }[]
     > = {};
     for (const [pathS, patches] of Object.entries(analysis.patchesByModule)) {
       const path = pathS as ModuleFilePath;
@@ -304,16 +312,21 @@ export abstract class ValOps {
         if (!errors[path]) {
           errors[path] = [];
         }
-        errors[path].push({
-          invalidPath: true,
-          error: new PatchError(`Module at path: '${path}' not found`),
-        });
+        errors[path].push(
+          ...patches.map(({ patchId }) => ({
+            patchId,
+            invalidPath: true,
+            skipped: true,
+            error: new PatchError(`Module at path: '${path}' not found`),
+          }))
+        );
       }
       patchedSources[path] = sources[path];
       for (const { patchId } of patches) {
         if (errors[path]) {
           errors[path].push({
             patchId: patchId,
+            skipped: true,
             error: new PatchError(`Cannot apply patch: previous errors exists`),
           });
         } else {
@@ -322,6 +335,7 @@ export abstract class ValOps {
             errors[path] = [
               {
                 patchId: patchId,
+                skipped: false,
                 error: new PatchError(`Patch not found`),
               },
             ];
@@ -359,6 +373,7 @@ export abstract class ValOps {
             }
             errors[path].push({
               patchId: patchId,
+              skipped: false,
               error: patchRes.error,
             });
           } else {

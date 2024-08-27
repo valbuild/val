@@ -2,8 +2,6 @@
 import { ModuleFilePath, PatchId, initVal } from "@valbuild/core";
 import { Script } from "node:vm";
 import { transform } from "sucrase";
-import fs from "fs";
-import path from "node:path";
 import prettier from "prettier";
 import { ValOpsHttp } from "./ValOpsHttp";
 import { AuthorId, CommitSha } from "./ValOps";

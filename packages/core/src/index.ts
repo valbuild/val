@@ -50,10 +50,6 @@ export type {
   ValidationError,
   ValidationErrors,
 } from "./schema/validation/ValidationError";
-import type {
-  ValidationError,
-  ValidationErrors,
-} from "./schema/validation/ValidationError";
 export type { ValidationFix } from "./schema/validation/ValidationFix";
 export * as expr from "./expr/";
 export { FILE_REF_PROP, FILE_REF_SUBTYPE_TAG } from "./source/file";
@@ -72,22 +68,13 @@ import {
   ModuleFilePathSep,
 } from "./module";
 import { getSchema } from "./selector";
-import {
-  ModuleFilePath,
-  ModulePath,
-  PatchId,
-  SourcePath,
-  getValPath,
-  isVal,
-} from "./val";
+import { ModulePath, getValPath, isVal } from "./val";
 import { convertFileSource } from "./schema/file";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
-import type { Json } from "./Json";
 import { getSHA256Hash } from "./getSha256";
-import { Operation, Patch } from "./patch";
+import { Operation } from "./patch";
 import { initSchema } from "./initSchema";
-import { SerializedSchema } from "./schema";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
@@ -97,6 +84,7 @@ export { type SerializedBooleanSchema, BooleanSchema } from "./schema/boolean";
 export { type SerializedImageSchema, ImageSchema } from "./schema/image";
 export { type SerializedFileSchema, FileSchema } from "./schema/file";
 export { type SerializedDateSchema, DateSchema } from "./schema/date";
+export { type SerializedKeyOfSchema, KeyOfSchema } from "./schema/keyOf";
 export {
   type SerializedRichTextSchema,
   RichTextSchema,
@@ -105,90 +93,6 @@ export { type SerializedUnionSchema, UnionSchema } from "./schema/union";
 export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
 export { deserializeSchema } from "./schema/deserialize";
 
-// Move to internal
-export { ValApi } from "./ValApi";
-
-// eslint-disable-next-line @typescript-eslint/ban-types
-export type ApiCommitResponse = {};
-
-export type ApiSchemaResponse = {
-  schemaSha: string;
-  schemas: Record<ModuleFilePath, SerializedSchema>;
-};
-
-export type ApiTreeResponse = {
-  schemaSha: string;
-  fatalErrors?: (
-    | {
-        message: string;
-        type: "invalid-module-file-path";
-        actualModuleFilePath: string;
-        expectedModuleFilePath: string;
-      }
-    | {
-        message: string;
-        stack?: string;
-        type?: undefined;
-      }
-  )[];
-  newPatchId?: PatchId;
-  modules: Record<
-    ModuleFilePath,
-    {
-      source: Json;
-      patches?: {
-        applied: PatchId[];
-        skipped?: PatchId[];
-        errors?: Record<PatchId, { message: string }>;
-      };
-      validationErrors?: Record<SourcePath, ValidationError[]>;
-    }
-  >;
-};
-
-export type ApiGetPatchResponse = {
-  patches: Record<
-    PatchId,
-    {
-      path: ModuleFilePath;
-      patch?: Patch;
-      createdAt: string;
-      authorId: string | null;
-      appliedAt: {
-        baseSha: string;
-        git?: { commitSha: string };
-        timestamp: string;
-      } | null;
-    }
-  >;
-  error?: {
-    message: string;
-  };
-  errors?: Record<
-    PatchId,
-    {
-      message: string;
-    }
-  >;
-};
-export type ApiDeletePatchResponse = PatchId[];
-export type ApiPostPatchResponse = Record<
-  ModuleFilePath,
-  {
-    patch_id: PatchId;
-  }
->;
-export type ApiPostValidationResponse = {
-  validationErrors: false;
-  modules: Record<
-    ModuleFilePath,
-    {
-      patches: {
-        applied: PatchId[];
-      };
-    }
-  >;
-};
 export const FATAL_ERROR_TYPES = [
   "no-schema",
   "no-source",
@@ -197,32 +101,6 @@ export const FATAL_ERROR_TYPES = [
   "invalid-patch",
 ] as const;
 export type FatalErrorType = (typeof FATAL_ERROR_TYPES)[number];
-export type ApiPostValidationErrorResponse = {
-  modules: Record<
-    ModuleFilePath,
-    {
-      patches: {
-        applied: PatchId[];
-        failed?: PatchId[];
-      };
-    }
-  >;
-  validationErrors: Record<
-    ModuleFilePath,
-    {
-      source?: Json;
-      errors: {
-        invalidModulePath?: ModuleFilePath;
-        validation?: ValidationErrors;
-        fatal?: {
-          message: string;
-          stack?: string;
-          type?: FatalErrorType;
-        }[];
-      };
-    }
-  >;
-};
 
 const Internal = {
   VERSION: {
