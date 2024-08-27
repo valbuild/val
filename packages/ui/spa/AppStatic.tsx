@@ -1,8 +1,7 @@
 "use client";
-import { ValApi } from "@valbuild/core";
 import { ValStudio } from "./components/studio/ValStudio";
 import { ErrorBoundary } from "react-error-boundary";
-import { ValStore } from "@valbuild/shared/internal";
+import { createValClient, ValStore } from "@valbuild/shared/internal";
 import { fallbackRender } from "./fallbackRender";
 import { ValRouter } from "./components/ValRouter";
 
@@ -10,13 +9,13 @@ import { ValRouter } from "./components/ValRouter";
  * This is used to render statically on the API. We added this while investigating navigation issues in NextJS so we could test things out. It might be useful for other stuff though.
  */
 function AppStatic() {
-  const api = new ValApi("/api/val");
-  const store = new ValStore(api);
+  const client = createValClient("/api/val");
+  const store = new ValStore(client);
 
   return (
     <ErrorBoundary fallbackRender={fallbackRender}>
       <ValRouter>
-        <ValStudio api={api} store={store} />
+        <ValStudio client={client} store={store} />
       </ValRouter>
     </ErrorBoundary>
   );

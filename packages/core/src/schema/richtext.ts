@@ -7,7 +7,7 @@ import { ValidationErrors } from "./validation/ValidationError";
 export type SerializedRichTextSchema = {
   type: "richtext";
   opt: boolean;
-  options: RichTextOptions;
+  options?: RichTextOptions;
 };
 
 export class RichTextSchema<

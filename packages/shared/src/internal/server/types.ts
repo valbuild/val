@@ -1,9 +1,4 @@
-import {
-  ApiPostValidationErrorResponse,
-  ApiTreeResponse,
-  Internal,
-  Json,
-} from "@valbuild/core";
+import { Internal, Json } from "@valbuild/core";
 
 export const VAL_SESSION_COOKIE = Internal.VAL_SESSION_COOKIE;
 export const VAL_STATE_COOKIE = Internal.VAL_STATE_COOKIE;
@@ -61,29 +56,19 @@ export type ValServerResult<
   | ValServerError;
 
 export type ValServerJsonResult<
-  Body extends
-    | Json
-    | ApiPostValidationErrorResponse // TODO: should not be necessary - JSON is enough, but readonly / non-readonly arrays fail
-    | ApiTreeResponse // TODO: should not be necessary - JSON is enough, but readonly / non-readonly arrays fail
-    | never = never,
-  Error extends
-    | Json
-    | ApiPostValidationErrorResponse // TODO: should not be necessary - JSON is enough, but readonly / non-readonly arrays fail
-    | never = never
+  Body extends Json | never = never,
+  Error extends Json | never = never
 > =
   | {
       status: 200 | 201;
       json: Body;
     }
   | ValServerError
-  | (Error extends Json | ApiPostValidationErrorResponse
-      ? { status: 400; json: Error }
-      : never);
+  | (Error extends Json ? { status: 400; json: Error } : never);
 
 export type ValServerGenericResult =
   | ValServerJsonResult<Json>
   | ValServerError
-  | { status: 400; json: ApiPostValidationErrorResponse } // TODO: ugly
   | ValServerRedirectResult<ValCookiesNames>
   | ValServerResult<ValCookiesNames, string | ReadableStream<Uint8Array>>;
 
