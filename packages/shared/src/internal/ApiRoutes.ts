@@ -289,7 +289,7 @@ export const Api = {
           author: z.array(z.string()).optional(),
           patch_id: z.array(PatchId).optional(),
           module_file_path: z.array(ModuleFilePath).optional(),
-          omit_patch: z.boolean(), // TODO: rename! we mean that we are not including the actual patch / operations in the response
+          omit_patch: z.boolean().optional(), // TODO: rename! we mean that we are not including the actual patch / operations in the response
         },
         cookies: {
           val_session: z.string().optional(),
