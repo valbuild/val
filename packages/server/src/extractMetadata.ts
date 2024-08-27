@@ -1,9 +1,5 @@
 import { FileMetadata, ImageMetadata, Internal } from "@valbuild/core";
 import sizeOf from "image-size";
-import {
-  filenameToMimeType,
-  MIME_TYPES_TO_EXT,
-} from "@valbuild/shared/internal";
 
 const textEncoder = new TextEncoder();
 export async function extractImageMetadata(
@@ -14,10 +10,10 @@ export async function extractImageMetadata(
   let mimeType: string | null = null;
   if (imageSize.type) {
     const possibleMimeType = `image/${imageSize.type}`;
-    if (MIME_TYPES_TO_EXT[possibleMimeType]) {
+    if (Internal.MIME_TYPES_TO_EXT[possibleMimeType]) {
       mimeType = possibleMimeType;
     }
-    const filenameBasedLookup = filenameToMimeType(filename);
+    const filenameBasedLookup = Internal.filenameToMimeType(filename);
     if (filenameBasedLookup) {
       mimeType = filenameBasedLookup;
     }
@@ -53,7 +49,7 @@ export async function extractFileMetadata(
   filename: string,
   input: Buffer
 ): Promise<FileMetadata> {
-  let mimeType = filenameToMimeType(filename);
+  let mimeType = Internal.filenameToMimeType(filename);
   if (!mimeType) {
     mimeType = "application/octet-stream";
   }

@@ -1,6 +1,5 @@
 import { FileMetadata, ImageMetadata, Internal } from "@valbuild/core";
 import { ChangeEvent } from "react";
-import { getMimeType, mimeTypeToFileExt } from "@valbuild/shared/internal";
 
 const textEncoder = new TextEncoder();
 
@@ -23,7 +22,7 @@ export function readImage(ev: ChangeEvent<HTMLInputElement>) {
         image.addEventListener("load", () => {
           const sha256 = Internal.getSHA256Hash(textEncoder.encode(result));
           if (image.naturalWidth && image.naturalHeight) {
-            const mimeType = getMimeType(result);
+            const mimeType = Internal.getMimeType(result);
             resolve({
               src: result,
               width: image.naturalWidth,
@@ -31,7 +30,7 @@ export function readImage(ev: ChangeEvent<HTMLInputElement>) {
               filename: imageFile?.name,
               sha256,
               mimeType,
-              fileExt: mimeType && mimeTypeToFileExt(mimeType),
+              fileExt: mimeType && Internal.mimeTypeToFileExt(mimeType),
             });
           } else {
             resolve({
@@ -66,8 +65,8 @@ export function createFilename(
     return filename;
   }
   const shaSuffix = metadata.sha256.slice(0, 5);
-  const mimeType = getMimeType(data) ?? "unknown";
-  const newExt = mimeTypeToFileExt(mimeType) ?? "unknown"; // Don't trust the file extension
+  const mimeType = Internal.getMimeType(data) ?? "unknown";
+  const newExt = Internal.mimeTypeToFileExt(mimeType) ?? "unknown"; // Don't trust the file extension
   if (filename) {
     let cleanFilename = filename.split(".").slice(0, -1).join(".") || filename; // remove extension if it exists
     const maybeShaSuffixPos = cleanFilename.lastIndexOf("_");
