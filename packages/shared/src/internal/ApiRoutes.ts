@@ -552,7 +552,7 @@ export type ApiEndpoint = {
         cookies?: Partial<Record<Cookies, CookieValue>>;
       }
     | {
-        cookies: Partial<Record<Cookies, CookieValue>>;
+        cookies?: Partial<Record<Cookies, CookieValue>>;
         status: 302;
         redirectTo: string;
       }
@@ -633,8 +633,9 @@ export type ClientOf<Api extends ApiGuard> = <
         }
       : undefined;
   }>
-) => Promise<
-  | z.infer<Endpoint["res"]>
+) => Promise<z.infer<Endpoint["res"]> | ClientFetchErrors>;
+
+export type ClientFetchErrors =
   | {
       status: 404;
       json: {
@@ -647,6 +648,7 @@ export type ClientOf<Api extends ApiGuard> = <
       status: 500;
       json: {
         message: string;
+        type: "unknown";
       };
     }
   | {
@@ -657,17 +659,21 @@ export type ClientOf<Api extends ApiGuard> = <
     }
   | {
       status: null;
-      json: {
-        type: "network_error";
-        message: string;
-        details: string;
-      };
-    }
-  | {
-      status: null;
-      json: { type: "incompatible_types"; message: string; details: string };
-    }
->;
+      json:
+        | {
+            type: "network_error";
+            message: string;
+            details: string;
+          }
+        | {
+            message: string;
+            type: "client_side_validation_error";
+            details: {
+              validationError: string;
+              data: unknown;
+            };
+          };
+    };
 
 export type UrlOf<Api extends ApiGuard> = <
   Route extends keyof Api | "/val",
