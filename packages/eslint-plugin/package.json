@@ -33,6 +33,7 @@
     "minimatch": "^3.0.4"
   },
   "scripts": {
+    "test": "jest",
     "typecheck": "tsc -p jsconfig.json"
   }
 }
