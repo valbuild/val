@@ -835,13 +835,14 @@ export const ValServer = (
           if (moduleFilePath.startsWith(treePath)) {
             modules[moduleFilePath] = {
               source: module,
-              patches: patchAnalysis
-                ? {
-                    applied: patchAnalysis.patchesByModule[moduleFilePath].map(
-                      (p) => p.patchId
-                    ),
-                  }
-                : undefined,
+              patches:
+                patchAnalysis && patchAnalysis.patchesByModule[moduleFilePath]
+                  ? {
+                      applied: patchAnalysis.patchesByModule[
+                        moduleFilePath
+                      ].map((p) => p.patchId),
+                    }
+                  : undefined,
             };
           }
         }
