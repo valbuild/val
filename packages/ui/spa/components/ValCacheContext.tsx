@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useState } from "react";
-import { ValStore } from "@valbuild/shared/internal";
+import { ValCache } from "@valbuild/shared/internal";
 import {
   Internal,
   Json,
@@ -17,12 +17,12 @@ export type WindowSize = {
   innerHeight: number;
 };
 
-export const ValStoreContext = React.createContext<{
-  store: ValStore;
+export const ValCacheContext = React.createContext<{
+  cache: ValCache;
 }>({
-  get store(): never {
+  get cache(): never {
     throw Error(
-      "ValStoreContext not found. Ensure components are wrapped by ValStoreContext!"
+      "ValCacheContext not found. Ensure components are wrapped by ValCacheContext!"
     );
   },
 });
@@ -50,10 +50,10 @@ export function useValFromPath(
 ): ValFromPath {
   const [current, setCurrent] = useState<ValFromPath>({ status: "idle" });
 
-  const { store } = useContext(ValStoreContext);
+  const { cache } = useContext(ValCacheContext);
   useEffect(() => {
     setCurrent({ status: "loading" });
-    store.getModule(moduleFilePath).then(async (moduleRes) => {
+    cache.getModule(moduleFilePath).then(async (moduleRes) => {
       if (result.isOk(moduleRes)) {
         const module = moduleRes.value;
         const valAtPath = Internal.resolvePath(
@@ -81,20 +81,20 @@ export function useValFromPath(
 }
 
 export function useStore() {
-  const { store } = useContext(ValStoreContext);
-  return store;
+  const { cache } = useContext(ValCacheContext);
+  return cache;
 }
 
-export function ValStoreProvider({
-  store,
+export function ValCacheProvider({
+  cache: store,
   children,
 }: {
-  store: ValStore;
+  cache: ValCache;
   children: React.ReactNode;
 }) {
   return (
-    <ValStoreContext.Provider value={{ store }}>
+    <ValCacheContext.Provider value={{ cache: store }}>
       {children}
-    </ValStoreContext.Provider>
+    </ValCacheContext.Provider>
   );
 }

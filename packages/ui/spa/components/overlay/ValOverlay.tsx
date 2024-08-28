@@ -22,22 +22,22 @@ import { AnyVal } from "../fields/ValCompositeFields";
 import { InitOnSubmit } from "../fields/ValFormField";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { Popover } from "../ui/popover";
-import { ValClient, ValStore } from "@valbuild/shared/internal";
-import { ValStoreProvider } from "../ValStoreContext";
+import { ValClient, ValCache } from "@valbuild/shared/internal";
+import { ValCacheProvider } from "../ValCacheContext";
 import { ValMenu } from "./ValMenu";
 import { ValWindow } from "./ValWindow";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
   client: ValClient;
-  store: ValStore;
+  cache: ValCache;
   onSubmit: (refreshRequired: boolean) => void;
 };
 
 export function ValOverlay({
   defaultTheme,
   client,
-  store,
+  cache,
   onSubmit: reloadPage,
 }: ValOverlayProps) {
   const [theme, setTheme] = useTheme(defaultTheme);
@@ -51,7 +51,7 @@ export function ValOverlay({
   const lastResetPatchesId = useRef("");
   const currentPatchesId = useRef("");
   useEffect(() => {
-    store.reset();
+    cache.reset();
     const valStoreListener = (event: Event) => {
       if (event instanceof CustomEvent) {
         if (event.detail.type === "reload-paths") {
@@ -59,7 +59,7 @@ export function ValOverlay({
           // This would lead to an infinite loop
           if (lastResetPatchesId.current !== currentPatchesId.current) {
             lastResetPatchesId.current = currentPatchesId.current;
-            store.reloadPaths(event.detail.paths);
+            cache.reloadPaths(event.detail.paths);
           }
         } else {
           console.error("Val: invalid store event", event);
@@ -70,7 +70,7 @@ export function ValOverlay({
     return () => {
       window.removeEventListener("val-store", valStoreListener);
     };
-  }, [store]);
+  }, [cache]);
 
   const [formData, setFormData] = useState<ValData>(
     Object.fromEntries(
@@ -88,7 +88,7 @@ export function ValOverlay({
         paths.map(async (path) => {
           const [moduleFilePath, modulePath] =
             Internal.splitModuleFilePathAndModulePath(path as SourcePath);
-          const res = await store.getModule(moduleFilePath, false);
+          const res = await cache.getModule(moduleFilePath, false);
           if (result.isErr(res)) {
             return [
               moduleFilePath,
@@ -164,7 +164,7 @@ export function ValOverlay({
       const [moduleFilePath, modulePath] =
         Internal.splitModuleFilePathAndModulePath(path);
       const patch = await callback(Internal.createPatchPath(modulePath));
-      const applyRes = await store.applyPatch(moduleFilePath, patches, patch);
+      const applyRes = await cache.applyPatch(moduleFilePath, patches, patch);
       if (result.isOk(applyRes)) {
         const allAppliedPatches = patches
           .slice()
@@ -177,7 +177,7 @@ export function ValOverlay({
   );
 
   return (
-    <ValStoreProvider store={store}>
+    <ValCacheProvider cache={cache}>
       <ValUIContext.Provider
         value={{
           theme,
@@ -217,7 +217,7 @@ export function ValOverlay({
                         });
                         if (res.status === 200) {
                           setPatches([]);
-                          await store.reset();
+                          await cache.reset();
                         } else {
                           alert("Could not clean up");
                         }
@@ -296,7 +296,7 @@ export function ValOverlay({
           )}
         </div>
       </ValUIContext.Provider>
-    </ValStoreProvider>
+    </ValCacheProvider>
   );
 }
 

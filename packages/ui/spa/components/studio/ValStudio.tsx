@@ -18,11 +18,11 @@ import { useSession } from "../useSession";
 import { Path } from "./Path";
 import { AnyVal } from "../fields/ValCompositeFields";
 import { InitOnSubmit } from "../fields/ValFormField";
-import { urlOf, ValSession, ValStore } from "@valbuild/shared/internal";
+import { urlOf, ValSession, ValCache } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 import { useParams } from "../ValRouter";
 import { Button } from "../ui/button";
-import { ValStoreProvider } from "../ValStoreContext";
+import { ValCacheProvider } from "../ValCacheContext";
 import { Dialog, DialogContent } from "../ui/dialog";
 import { Remote } from "../../utils/Remote";
 import { PathTree } from "../fields/PathTree";
@@ -31,10 +31,10 @@ import { ValClient } from "@valbuild/shared/src/internal/ValClient";
 
 interface ValFullscreenProps {
   client: ValClient;
-  store: ValStore;
+  cache: ValCache;
 }
 
-export const ValStudio: FC<ValFullscreenProps> = ({ client, store }) => {
+export const ValStudio: FC<ValFullscreenProps> = ({ client, cache }) => {
   const [error, setError] = useState<string | null>(null);
 
   const params = useParams();
@@ -47,7 +47,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, store }) => {
   useEffect(() => {
     if (initializationState === "not-asked") {
       setInitializationState("running");
-      store.initialize().then((res) => {
+      cache.initialize().then((res) => {
         if (result.isOk(res)) {
           setModuleFilePaths(res.value);
           setInitializationState("complete");
@@ -69,7 +69,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, store }) => {
       const [moduleFilePath, modulePath] =
         Internal.splitModuleFilePathAndModulePath(path);
       const patch = await callback(Internal.createPatchPath(modulePath));
-      const applyRes = await store.applyPatch(moduleFilePath, patches, patch);
+      const applyRes = await cache.applyPatch(moduleFilePath, patches, patch);
       if (result.isOk(applyRes)) {
         const allAppliedPatches = patches
           .slice()
@@ -100,10 +100,10 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, store }) => {
   useEffect(() => {
     let ignore = false;
     if (moduleFilePath) {
-      store
+      cache
         .reset()
         .then(async () => {
-          const res = await store.getModule(moduleFilePath);
+          const res = await cache.getModule(moduleFilePath);
           if (!ignore) {
             if (session.status === "success") {
               if (result.isOk(res)) {
@@ -154,7 +154,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, store }) => {
   const portal = useRef<HTMLDivElement>(null);
 
   return (
-    <ValStoreProvider store={store}>
+    <ValCacheProvider cache={cache}>
       <ValUIContext.Provider
         value={{
           theme,
@@ -282,7 +282,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, store }) => {
           </ValImagePreviewContext.Provider>
         </div>
       </ValUIContext.Provider>
-    </ValStoreProvider>
+    </ValCacheProvider>
   );
 };
 

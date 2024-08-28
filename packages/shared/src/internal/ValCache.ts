@@ -8,20 +8,11 @@ import { result } from "@valbuild/core/fp";
 import { Patch, PatchError } from "@valbuild/core/patch";
 import { ValClient } from "./ValClient";
 
-type SubscriberId = string & {
-  readonly _tag: unique symbol;
-};
-
-export class ValStore {
-  private readonly subscribers: Map<SubscriberId, Record<ModuleFilePath, Json>>; // uncertain whether this is the optimal way of returning
-  private readonly listeners: Record<SubscriberId, (() => void)[]>;
-
+export class ValCache {
   private readonly drafts: Record<ModuleFilePath, Json>;
   private readonly schema: Record<ModuleFilePath, SerializedSchema>;
 
   constructor(private readonly client: ValClient) {
-    this.subscribers = new Map();
-    this.listeners = {};
     this.drafts = {};
     this.schema = {};
   }
@@ -64,17 +55,6 @@ export class ValStore {
         const path = pathS as ModuleFilePath;
         this.drafts[path] = data?.modules?.[path]?.source;
         this.emitEvent(path, this.drafts[path]);
-        for (const [subscriberId, subscriberModules] of Array.from(
-          this.subscribers.entries()
-        )) {
-          if (subscriberModules[path]) {
-            this.subscribers.set(subscriberId, {
-              ...subscriberModules,
-              [path]: this.drafts[path],
-            });
-            this.emitChange(subscriberId);
-          }
-        }
       }
     } else {
       console.error("Val: failed to reload paths", paths, treeRes.json);
@@ -113,17 +93,6 @@ export class ValStore {
         const path = pathS as ModuleFilePath;
         this.drafts[path] = treeRes.json?.modules?.[path]?.source;
         this.emitEvent(path, this.drafts[path]);
-        for (const [subscriberId, subscriberModules] of Array.from(
-          this.subscribers.entries()
-        )) {
-          if (subscriberModules[path]) {
-            this.subscribers.set(subscriberId, {
-              ...subscriberModules,
-              [path]: this.drafts[path],
-            });
-            this.emitChange(subscriberId);
-          }
-        }
       }
     } else {
       console.error("Val: failed to reset", treeRes.json);
@@ -244,17 +213,6 @@ export class ValStore {
       if (fetchedSource !== undefined) {
         this.drafts[path] = fetchedSource;
         this.emitEvent(path, fetchedSource);
-        for (const [subscriberId, subscriberModules] of Array.from(
-          this.subscribers.entries()
-        )) {
-          if (subscriberModules[path]) {
-            this.subscribers.set(subscriberId, {
-              ...subscriberModules,
-              [path]: this.drafts[path],
-            });
-            this.emitChange(subscriberId);
-          }
-        }
         return result.ok({
           newPatchId,
           modules: {
@@ -331,43 +289,4 @@ export class ValStore {
       });
     }
   }
-
-  subscribe = (paths: ModuleFilePath[]) => (listener: () => void) => {
-    const subscriberId = createSubscriberId(paths);
-    if (!this.listeners[subscriberId]) {
-      this.listeners[subscriberId] = [];
-      this.subscribers.set(subscriberId, {});
-    }
-    this.listeners[subscriberId].push(listener);
-
-    return () => {
-      this.listeners[subscriberId].splice(
-        this.listeners[subscriberId].indexOf(listener),
-        1
-      );
-    };
-  };
-
-  private emitChange(subscriberId: SubscriberId) {
-    for (const listener of this.listeners[subscriberId]) {
-      listener();
-    }
-  }
-
-  getSnapshot = (paths: ModuleFilePath[]) => () => {
-    return this.get(paths);
-  };
-
-  getServerSnapshot = (paths: ModuleFilePath[]) => () => {
-    return this.get(paths);
-  };
-
-  get = (paths: ModuleFilePath[]): Record<ModuleFilePath, Json> | undefined => {
-    const subscriberId = createSubscriberId(paths);
-    return this.subscribers.get(subscriberId);
-  };
-}
-
-function createSubscriberId(paths: ModuleFilePath[]): SubscriberId {
-  return paths.slice().sort().join("&") as SubscriberId;
 }
