@@ -1,7 +1,7 @@
 "use client";
 import { ValStudio } from "./components/studio/ValStudio";
 import { ErrorBoundary } from "react-error-boundary";
-import { createValClient, ValStore } from "@valbuild/shared/internal";
+import { createValClient, ValCache } from "@valbuild/shared/internal";
 import { fallbackRender } from "./fallbackRender";
 import { ValRouter } from "./components/ValRouter";
 
@@ -10,12 +10,12 @@ import { ValRouter } from "./components/ValRouter";
  */
 function AppStatic() {
   const client = createValClient("/api/val");
-  const store = new ValStore(client);
+  const cache = new ValCache(client);
 
   return (
     <ErrorBoundary fallbackRender={fallbackRender}>
       <ValRouter>
-        <ValStudio client={client} store={store} />
+        <ValStudio client={client} cache={cache} />
       </ValRouter>
     </ErrorBoundary>
   );
