@@ -63,6 +63,12 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, cache }) => {
   const [theme, setTheme] = useTheme();
   const hoverElemRef = React.useRef<HTMLDivElement | null>(null);
   const [patches, setPatches] = useState<PatchId[]>([]);
+  const [errorMessages, setErrorMessages] = useState<
+    { message: string; brokenPatchId?: PatchId }[]
+  >([]);
+  const brokenPatches = errorMessages
+    .map(({ brokenPatchId }) => brokenPatchId)
+    .filter((patchId): patchId is PatchId => !!patchId);
 
   const initOnSubmit: InitOnSubmit = useCallback(
     (path) => async (callback) => {
@@ -75,8 +81,16 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, cache }) => {
           .slice()
           .concat(applyRes.value.newPatchId);
         setPatches(allAppliedPatches);
+      } else {
+        if (applyRes.error.errorType === "patch-error") {
+          setErrorMessages(
+            applyRes.error.errors.map(({ patchError, patchId }) => ({
+              message: "Error: " + patchError,
+              brokenPatchId: patchId,
+            }))
+          );
+        }
       }
-      // TODO: applyRes error
     },
     [patches]
   );
@@ -102,7 +116,24 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, cache }) => {
     if (moduleFilePath) {
       cache
         .reset()
-        .then(async () => {
+        .then(async (resetRes) => {
+          if (result.isErr(resetRes)) {
+            if (resetRes.error.errorType === "patch-error") {
+              setErrorMessages(
+                resetRes.error.errors.map(({ patchError, patchId }) => ({
+                  message: "Error: " + patchError,
+                  brokenPatchId: patchId,
+                }))
+              );
+            } else {
+              setErrorMessages([
+                {
+                  message: "Error: " + resetRes.error.message,
+                },
+              ]);
+            }
+            return;
+          }
           const res = await cache.getModule(moduleFilePath);
           if (!ignore) {
             if (session.status === "success") {
@@ -280,6 +311,35 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, cache }) => {
               </Grid>
             </div>
           </ValImagePreviewContext.Provider>
+          {errorMessages.length > 0 && (
+            <div className="absolute right-4 top-16 bottom-4 w-80 flex flex-col gap-1">
+              {errorMessages.map((errorMessage) => (
+                <div className="w-full rounded-sm p-4 bg-accent text-primary-foreground">
+                  {errorMessage.message}
+                  <Button
+                    onClick={() => {
+                      cache.deletePatches(brokenPatches).then((res) => {
+                        if (result.isOk(res)) {
+                          setErrorMessages([]);
+                        } else {
+                          setErrorMessages((prevMessages) => [
+                            {
+                              message:
+                                "Failed to delete patches: " +
+                                res.error.message,
+                            },
+                            ...prevMessages,
+                          ]);
+                        }
+                      });
+                    }}
+                  >
+                    Delete broken patches ({brokenPatches.length})
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </ValUIContext.Provider>
     </ValCacheProvider>
