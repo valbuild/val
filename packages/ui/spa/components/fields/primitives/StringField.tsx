@@ -2,9 +2,11 @@ import {
   SourcePath,
   SerializedStringSchema,
   StringSchema,
+  Json,
 } from "@valbuild/core";
 import { OnSubmit } from "../SubmitStatus";
 import { BasicInputField } from "../BasicInputField";
+import { UnexpectedSourceType } from "../UnexpectedSourceType";
 
 export function StringField({
   path,
@@ -13,10 +15,13 @@ export function StringField({
   onSubmit,
 }: {
   path: SourcePath;
-  source: string | null;
+  source: Json;
   schema: SerializedStringSchema;
   onSubmit?: OnSubmit;
 }) {
+  if (typeof source !== "string") {
+    return <UnexpectedSourceType source={source} schema={schema} />;
+  }
   return (
     <BasicInputField
       path={path}
