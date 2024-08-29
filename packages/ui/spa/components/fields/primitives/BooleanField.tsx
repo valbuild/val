@@ -1,20 +1,25 @@
-import { SourcePath, SerializedBooleanSchema } from "@valbuild/core";
+import { SourcePath, SerializedBooleanSchema, Json } from "@valbuild/core";
 import { useState } from "react";
 import { OnSubmit, SubmitStatus } from "../SubmitStatus";
 import { Checkbox } from "../../ui/checkbox";
 import { FieldContainer } from "../FieldContainer";
+import { UnexpectedSourceType } from "../UnexpectedSourceType";
 
 export function BooleanField({
-  defaultValue,
+  source,
+  schema,
   onSubmit,
 }: {
   path: SourcePath;
-  defaultValue?: boolean | null;
+  source?: Json;
   schema: SerializedBooleanSchema;
   onSubmit?: OnSubmit;
 }) {
-  const [value, setValue] = useState<boolean | null>(defaultValue ?? null);
+  const [value, setValue] = useState<Json>(source ?? null);
   const [loading, setLoading] = useState(false);
+  if (typeof value !== "boolean") {
+    return <UnexpectedSourceType source={value} schema={schema} />;
+  }
   return (
     <FieldContainer>
       <div className="flex items-center justify-between">

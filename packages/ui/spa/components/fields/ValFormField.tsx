@@ -64,7 +64,7 @@ export function ValFormField({
     return (
       <BooleanField
         path={path}
-        defaultValue={source}
+        source={source}
         schema={schema}
         onSubmit={onSubmit}
       />
