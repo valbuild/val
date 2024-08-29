@@ -5,8 +5,21 @@ import {
   SerializedSchema,
 } from "@valbuild/core";
 import { result } from "@valbuild/core/fp";
-import { Patch, PatchError } from "@valbuild/core/patch";
+import { Patch } from "@valbuild/core/patch";
 import { ValClient } from "./ValClient";
+import { Result } from "@valbuild/core/src/fp/result";
+
+export type ValCacheError =
+  | {
+      errorType: "patch-error";
+      errors: {
+        moduleFilePath: string;
+        patchId: PatchId;
+        skipped: boolean;
+        patchError: string;
+      }[];
+    }
+  | { errorType: "other"; message: string };
 
 export class ValCache {
   private readonly drafts: Record<ModuleFilePath, Json>;
@@ -61,7 +74,7 @@ export class ValCache {
     }
   }
 
-  async reset() {
+  async reset(): Promise<Result<undefined, ValCacheError>> {
     const patchesRes = await this.client("/patches/~", "GET", {
       query: {
         omit_patch: true,
@@ -72,7 +85,11 @@ export class ValCache {
     });
     if (patchesRes.status !== 200) {
       console.error("Val: failed to get patches", patchesRes.json);
-      return;
+
+      return result.err({
+        errorType: "other",
+        message: "Failed to get patches",
+      });
     }
     const allPatches = Object.keys(patchesRes.json.patches) as PatchId[];
 
@@ -87,15 +104,41 @@ export class ValCache {
         patchIds: allPatches,
       },
     });
-    await this.initialize();
+    const initRes = await this.initialize();
+
+    if (result.isErr(initRes)) {
+      console.error("Failed to initialize inside reset", initRes.error);
+      return result.err({
+        errorType: "other",
+        message: initRes.error.message,
+      });
+    }
     if (treeRes.status === 200) {
       for (const pathS of Object.keys(treeRes.json.modules)) {
         const path = pathS as ModuleFilePath;
         this.drafts[path] = treeRes.json?.modules?.[path]?.source;
         this.emitEvent(path, this.drafts[path]);
       }
+      return result.ok(undefined);
+    } else if (treeRes.status === 400 && "type" in treeRes.json) {
+      return result.err({
+        errorType: "patch-error",
+        errors: Object.entries(treeRes.json.errors).flatMap(
+          ([moduleFilePath, value]) =>
+            (value ?? []).map((item) => ({
+              moduleFilePath,
+              patchError: item.error.message,
+              patchId: item.patchId,
+              skipped: item.skipped,
+            }))
+        ),
+      });
     } else {
       console.error("Val: failed to reset", treeRes.json);
+      return result.err({
+        errorType: "other",
+        message: "Failed to reset " + JSON.stringify(treeRes.json),
+      });
     }
   }
 
@@ -168,6 +211,22 @@ export class ValCache {
     }
   }
 
+  async deletePatches(
+    patchIds: PatchId[]
+  ): Promise<result.Result<PatchId[], { message: string }>> {
+    const patchesRes = await this.client("/patches/~", "DELETE", {
+      query: {
+        id: patchIds,
+      },
+    });
+    if (patchesRes.status === 200) {
+      return result.ok(patchesRes.json);
+    } else {
+      console.error("Val: failed to delete patches", patchesRes.json);
+      return result.err({ message: patchesRes.json.message });
+    }
+  }
+
   async applyPatch(
     path: ModuleFilePath,
     patchIds: PatchId[],
@@ -183,7 +242,7 @@ export class ValCache {
         >;
         newPatchId: PatchId;
       },
-      PatchError | { message: string }
+      ValCacheError
     >
   > {
     const treeRes = await this.client("/tree/~", "PUT", {
@@ -206,7 +265,8 @@ export class ValCache {
       if (!newPatchId) {
         console.error("Val: could create patch", treeRes);
         return result.err({
-          message: "Val: could not create patch.",
+          errorType: "other",
+          message: "Val: could not create patch",
         });
       }
       const fetchedSource = treeRes.json?.modules?.[path]?.source;
@@ -224,12 +284,27 @@ export class ValCache {
       } else {
         console.error("Val: could not patch");
         return result.err({
+          errorType: "other",
           message: "Val: could not fetch data. Verify that the module exists.",
         });
       }
+    } else if (treeRes.status === 400 && "type" in treeRes.json) {
+      return result.err({
+        errorType: "patch-error",
+        errors: Object.entries(treeRes.json.errors).flatMap(
+          ([moduleFilePath, value]) =>
+            (value ?? []).map((item) => ({
+              moduleFilePath,
+              patchError: item.error.message,
+              patchId: item.patchId,
+              skipped: item.skipped,
+            }))
+        ),
+      });
     } else {
       console.error("Val: failed to get module", treeRes.json);
       return result.err({
+        errorType: "other",
         message:
           "Val: could not fetch data. Verify that  is correctly configured.",
       });
