@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from "../schema";
+import { Schema, SchemaAssertResult, SerializedSchema } from "../schema";
 import { ValModuleBrand } from "../module";
 import { GenericSelector, GetSchema, Path } from "../selector";
 import { Source, SourceArray, SourceObject } from "../source";
@@ -106,9 +106,15 @@ export class KeyOfSchema<
     return false;
   }
 
-  assert(src: KeyOfSelector<Sel>): boolean {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+  assert(
+    path: SourcePath,
+    src: KeyOfSelector<Sel>
+  ): SchemaAssertResult<KeyOfSelector<Sel>> {
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      };
     }
     const schema = this.schema;
     if (!schema) {

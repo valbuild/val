@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from ".";
+import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 
@@ -35,7 +35,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     return false;
   }
 
-  assert(src: Src): boolean {
+  assert(path: SourcePath, src: Src): SchemaAssertResult<Src> {
     if (this.opt && (src === null || src === undefined)) {
       return true;
     }

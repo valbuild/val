@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from ".";
+import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { SourcePath } from "../val";
 import { RawString } from "./string";
 import { ValidationErrors } from "./validation/ValidationError";
@@ -101,11 +101,36 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     return false;
   }
 
-  assert(src: Src): boolean {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+  assert(path: SourcePath, src: Src): SchemaAssertResult<Src> {
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      };
     }
-    return typeof src === "string";
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [{ message: "Expected 'string', got 'null'", value: src }],
+        },
+      };
+    }
+    if (typeof src !== "string") {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            { message: `Expected 'string', got '${typeof src}'`, value: src },
+          ],
+        },
+      };
+    }
+
+    return {
+      success: true,
+      data: src,
+    };
   }
 
   from(from: string): DateSchema<Src> {

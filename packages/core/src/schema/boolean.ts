@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from ".";
+import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 
@@ -26,11 +26,35 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     return false;
   }
 
-  assert(src: Src): boolean {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+  assert(path: SourcePath, src: Src): SchemaAssertResult<Src> {
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      };
     }
-    return typeof src === "boolean";
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [{ message: "Expected 'boolean', got 'null'", value: src }],
+        },
+      };
+    }
+    if (typeof src !== "boolean") {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            { message: `Expected 'boolean', got '${typeof src}'`, value: src },
+          ],
+        },
+      };
+    }
+    return {
+      success: true,
+      data: src,
+    };
   }
 
   nullable(): Schema<Src | null> {

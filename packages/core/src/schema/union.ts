@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from ".";
+import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { createValPathOfItem } from "../selector/SelectorProxy";
 import { SelectorSource } from "../selector/index";
 import { SourceObject } from "../source";
@@ -244,12 +244,18 @@ export class UnionSchema<
     }
     return errors;
   }
-  assert(src: SourceOf<Key, T>): boolean {
+
+  assert(
+    path: SourcePath,
+    src: SourceOf<Key, T>
+  ): SchemaAssertResult<SourceOf<Key, T>> {
     return true;
   }
+
   nullable(): Schema<SourceOf<Key, T> | null> {
     return new UnionSchema(this.key, this.items, true);
   }
+
   serialize(): SerializedSchema {
     if (typeof this.key === "string") {
       return {

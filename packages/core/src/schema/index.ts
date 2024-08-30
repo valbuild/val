@@ -35,9 +35,21 @@ export type SerializedSchema =
   | SerializedDateSchema
   | SerializedImageSchema;
 
+export type SchemaAssertResult<T> =
+  | { data: T; success: true }
+  | { success: false; errors: ValidationErrors };
 export abstract class Schema<Src extends SelectorSource> {
+  /** Validate the source  */
   abstract validate(path: SourcePath, src: Src): ValidationErrors;
-  abstract assert(src: Src): boolean; // TODO: false | Record<SourcePath, string[]>;
+  /**
+   * Check if the type of source is correct
+   * NOTE: the difference between validate and assert is that assert
+   *       verifies that the type of the source is correct, while validate
+   *       checks the value of the source.
+   *      For example assert fails for a StringSchema if the source is not a string,
+   *       while validate will check the length, ...
+   */
+  abstract assert(path: SourcePath, src: Src): SchemaAssertResult<Src>;
   abstract nullable(): Schema<Src | null>;
   abstract serialize(): SerializedSchema;
   // remote(): Src extends RemoteCompatibleSource

@@ -1,7 +1,7 @@
 import { Json } from "../Json";
 import { FILE_REF_PROP, FileSource } from "../source/file";
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from ".";
+import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { VAL_EXTENSION } from "../source";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
@@ -155,11 +155,57 @@ export class FileSchema<
     } as ValidationErrors;
   }
 
-  assert(src: Src): boolean {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+  assert(path: SourcePath, src: Src): SchemaAssertResult<Src> {
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      };
     }
-    return src?.[FILE_REF_PROP] === "file" && src?.[VAL_EXTENSION] === "file";
+    if (typeof src !== "object") {
+      return {
+        success: false,
+        errors: {
+          [path]: [{ message: `Expected object, got '${typeof src}'` }],
+        },
+      };
+    }
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [{ message: `Expected object with file reference` }],
+        },
+      };
+    }
+    if (src[FILE_REF_PROP] !== "file") {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Expected object with file reference 'file'. Got: ${src[FILE_REF_PROP]}`,
+            },
+          ],
+        },
+      };
+    }
+    if (src?.[VAL_EXTENSION] !== "file") {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Expected object with file extension 'file'. Got: ${src[VAL_EXTENSION]}`,
+            },
+          ],
+        },
+      };
+    }
+    return {
+      success: true,
+      data: src,
+    };
   }
 
   nullable(): Schema<Src | null> {

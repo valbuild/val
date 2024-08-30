@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from "..";
+import { Schema, SchemaAssertResult, SerializedSchema } from "..";
 import { ValModuleBrand } from "../../module";
 import { GenericSelector } from "../../selector/future";
 import { RichTextSelector } from "../../selector/richtext";
@@ -37,7 +37,10 @@ export class OneOfSchema<
   validate(path: SourcePath, src: OneOfSelector<Sel>): ValidationErrors {
     throw new Error("Method not implemented.");
   }
-  assert(src: OneOfSelector<Sel>): boolean {
+  assert(
+    path: SourcePath,
+    src: OneOfSelector<Sel>
+  ): SchemaAssertResult<OneOfSelector<Sel>> {
     throw new Error("Method not implemented.");
   }
   nullable(): Schema<OneOfSelector<Sel> | null> {

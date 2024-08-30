@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from ".";
+import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { RichTextSource, RichTextOptions } from "../source/richtext";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
@@ -37,8 +37,11 @@ export class RichTextSchema<
     return false; //TODO
   }
 
-  assert(src: Src): boolean {
-    return true; // TODO
+  assert(path: SourcePath, src: Src): SchemaAssertResult<Src> {
+    return {
+      success: true,
+      data: src,
+    };
   }
 
   nullable(): Schema<RichTextSource<O> | null> {

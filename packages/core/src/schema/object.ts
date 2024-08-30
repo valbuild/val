@@ -1,5 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SelectorOfSchema, SerializedSchema } from ".";
+import {
+  Schema,
+  SchemaAssertResult,
+  SelectorOfSchema,
+  SerializedSchema,
+} from ".";
 import { SelectorSource } from "../selector";
 import { createValPathOfItem } from "../selector/SelectorProxy";
 import { SourcePath } from "../val";
@@ -87,7 +92,10 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
     return error;
   }
 
-  assert(src: ObjectSchemaSrcOf<Props>): boolean {
+  assert(
+    path: SourcePath,
+    src: ObjectSchemaSrcOf<Props>
+  ): SchemaAssertResult<ObjectSchemaSrcOf<Props>> {
     if (this.opt && (src === null || src === undefined)) {
       return true;
     }
