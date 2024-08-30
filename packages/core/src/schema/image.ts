@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from ".";
+import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { VAL_EXTENSION } from "../source";
 import { FileSource, FILE_REF_PROP } from "../source/file";
 import { ImageSource } from "../source/image";
@@ -166,11 +166,57 @@ export class ImageSchema<
     } as ValidationErrors;
   }
 
-  assert(src: Src): boolean {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+  assert(path: SourcePath, src: Src): SchemaAssertResult<Src> {
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      };
     }
-    return src?.[FILE_REF_PROP] === "image" && src?.[VAL_EXTENSION] === "file";
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [{ message: "Expected 'image', got 'null'", value: src }],
+        },
+      };
+    }
+    if (typeof src !== "object") {
+      return {
+        success: false,
+        errors: {
+          [path]: [{ message: `Expected 'object', got '${typeof src}'` }],
+        },
+      };
+    }
+    if (src?.[FILE_REF_PROP] !== "image") {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Expected object with file reference 'image'. Got: ${src?.[FILE_REF_PROP]}`,
+            },
+          ],
+        },
+      };
+    }
+    if (src?.[VAL_EXTENSION] !== "file") {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Expected object with file extension 'file'. Got: ${src?.[VAL_EXTENSION]}`,
+            },
+          ],
+        },
+      };
+    }
+    return {
+      success: true,
+      data: src,
+    };
   }
 
   nullable(): Schema<Src | null> {

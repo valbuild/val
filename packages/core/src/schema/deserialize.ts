@@ -56,8 +56,10 @@ export function deserializeSchema(
       return new UnionSchema(
         typeof serialized.key === "string"
           ? serialized.key
-          : deserializeSchema(serialized.key),
-        serialized.items.map(deserializeSchema),
+          : // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (deserializeSchema(serialized.key) as any), // TODO: we do not really need any here - right?
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        serialized.items.map(deserializeSchema) as any, // TODO: we do not really need any here - right?
         serialized.opt,
       );
     case "richtext":

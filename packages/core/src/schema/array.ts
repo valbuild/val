@@ -1,5 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SelectorOfSchema, SerializedSchema } from ".";
+import {
+  Schema,
+  SchemaAssertResult,
+  SelectorOfSchema,
+  SerializedSchema,
+} from ".";
 import { SelectorSource } from "../selector";
 import { createValPathOfItem } from "../selector/SelectorProxy";
 import { SourcePath } from "../val";
@@ -60,20 +65,68 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
     return error;
   }
 
-  assert(src: SelectorOfSchema<T>[]): boolean {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+  assert(
+    path: SourcePath,
+    src: SelectorOfSchema<T>[]
+  ): SchemaAssertResult<SelectorOfSchema<T>[]> {
+    if (src === null && this.opt) {
+      return {
+        success: true,
+        data: src,
+      };
     }
-    if (!src) {
-      return false;
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [{ message: "Expected 'array', got 'null'" }],
+        },
+      };
     }
-
-    for (const item of src) {
-      if (!this.item.assert(item)) {
-        return false;
+    if (typeof src !== "object") {
+      return {
+        success: false,
+        errors: {
+          [path]: [{ message: `Expected 'object', got '${typeof src}'` }],
+        },
+      };
+    } else if (!Array.isArray(src)) {
+      return {
+        success: false,
+        errors: {
+          [path]: [{ message: `Expected object of type 'array'` }],
+        },
+      };
+    }
+    let error: ValidationErrors = false;
+    for (const idx in src) {
+      const subPath = createValPathOfItem(path, idx);
+      if (!subPath) {
+        error = this.appendValidationError(
+          error,
+          path,
+          `Internal error: could not create path at ${
+            !path && typeof path === "string" ? "<empty string>" : path
+          } at index ${idx}`, // Should! never happen
+          src
+        );
+      } else {
+        const subAssertRes = this.item.assert(subPath, src[idx]);
+        if (!subAssertRes.success) {
+          error = subAssertRes.errors;
+        }
       }
     }
-    return typeof src === "object" && Array.isArray(src);
+    if (error) {
+      return {
+        success: false,
+        errors: error,
+      };
+    }
+    return {
+      success: true,
+      data: src,
+    };
   }
 
   nullable(): Schema<SelectorOfSchema<T>[] | null> {
