@@ -316,26 +316,28 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, cache }) => {
               {errorMessages.map((errorMessage) => (
                 <div className="w-full rounded-sm p-4 bg-accent text-primary-foreground">
                   {errorMessage.message}
-                  <Button
-                    onClick={() => {
-                      cache.deletePatches(brokenPatches).then((res) => {
-                        if (result.isOk(res)) {
-                          setErrorMessages([]);
-                        } else {
-                          setErrorMessages((prevMessages) => [
-                            {
-                              message:
-                                "Failed to delete patches: " +
-                                res.error.message,
-                            },
-                            ...prevMessages,
-                          ]);
-                        }
-                      });
-                    }}
-                  >
-                    Delete broken patches ({brokenPatches.length})
-                  </Button>
+                  {errorMessage.brokenPatchId && (
+                    <Button
+                      onClick={() => {
+                        cache.deletePatches(brokenPatches).then((res) => {
+                          if (result.isOk(res)) {
+                            setErrorMessages([]);
+                          } else {
+                            setErrorMessages((prevMessages) => [
+                              {
+                                message:
+                                  "Failed to delete patches: " +
+                                  res.error.message,
+                              },
+                              ...prevMessages,
+                            ]);
+                          }
+                        });
+                      }}
+                    >
+                      Delete broken patches ({brokenPatches.length})
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>

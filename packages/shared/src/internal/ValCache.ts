@@ -7,7 +7,6 @@ import {
 import { result } from "@valbuild/core/fp";
 import { Patch } from "@valbuild/core/patch";
 import { ValClient } from "./ValClient";
-import { Result } from "@valbuild/core/src/fp/result";
 
 export type ValCacheError =
   | {
@@ -74,7 +73,7 @@ export class ValCache {
     }
   }
 
-  async reset(): Promise<Result<undefined, ValCacheError>> {
+  async reset(): Promise<result.Result<undefined, ValCacheError>> {
     const patchesRes = await this.client("/patches/~", "GET", {
       query: {
         omit_patch: true,
