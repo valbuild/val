@@ -35,7 +35,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     return false;
   }
 
-  assert(path: SourcePath, src: Src): SchemaAssertResult<Src> {
+  assert(path: SourcePath, src: unknown) {
     if (this.opt && src === null) {
       return {
         success: true,
@@ -58,9 +58,10 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     };
   }
 
-  nullable(): Schema<Src | null> {
+  nullable(): Schema<number | null> {
     return new NumberSchema<Src | null>(this.options, true);
   }
+
   serialize(): SerializedSchema {
     return {
       type: "number",

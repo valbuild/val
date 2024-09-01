@@ -4,7 +4,11 @@ import { number } from "./number";
 
 describe("NumberSchema", () => {
   test("assert: should return true if src is a number", () => {
-    const schema = number();
+    const schema = number().nullable();
+    const test = schema.assert("foo" as SourcePath, 1);
+    if (test.success) {
+      test.data;
+    }
     expect(schema.assert("foo" as SourcePath, 1)).toEqual({
       success: true,
       data: 1,
