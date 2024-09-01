@@ -39,15 +39,22 @@ export type SchemaAssertResult<T> =
   | { data: T; success: true }
   | { success: false; errors: ValidationErrors };
 export abstract class Schema<Src extends SelectorSource> {
-  /** Validate the source  */
+  /** Validate the value of source content */
   abstract validate(path: SourcePath, src: Src): ValidationErrors;
   /**
-   * Check if the type of source is correct
-   * NOTE: the difference between validate and assert is that assert
-   *       verifies that the type of the source is correct, while validate
-   *       checks the value of the source.
-   *      For example assert fails for a StringSchema if the source is not a string,
-   *       while validate will check the length, ...
+   * Check if the **root** **type** of source is correct.
+   *
+   * The difference between assert and validate is:
+   * - assert verifies that the root **type** of the source is correct (it does not recurse down). Therefore, assert can be used as a runtime type check.
+   * - validate checks the **value** of the source in addition to the type. It recurses down the source.
+   *
+   * For example assert fails for a StringSchema if the source is not a string,
+   * it will not fail if the length is not correct.
+   * Validate will check the length and all other constraints.
+   *
+   * Assert is useful if you have a generic schema and need to make sure the root type is valid.
+   * When using assert, you must assert recursively if you want to verify the entire source.
+   * For example, if you have an object schema, you must assert each key / value pair manually.
    */
   abstract assert(path: SourcePath, src: Src): SchemaAssertResult<Src>;
   abstract nullable(): Schema<Src | null>;

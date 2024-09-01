@@ -98,31 +98,6 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
         },
       };
     }
-    let error: ValidationErrors = false;
-    for (const idx in src) {
-      const subPath = createValPathOfItem(path, idx);
-      if (!subPath) {
-        error = this.appendValidationError(
-          error,
-          path,
-          `Internal error: could not create path at ${
-            !path && typeof path === "string" ? "<empty string>" : path
-          } at index ${idx}`, // Should! never happen
-          src
-        );
-      } else {
-        const subAssertRes = this.item.assert(subPath, src[idx]);
-        if (!subAssertRes.success) {
-          error = subAssertRes.errors;
-        }
-      }
-    }
-    if (error) {
-      return {
-        success: false,
-        errors: error,
-      };
-    }
     return {
       success: true,
       data: src,

@@ -38,13 +38,33 @@ export class RichTextSchema<
   }
 
   assert(path: SourcePath, src: Src): SchemaAssertResult<Src> {
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      };
+    }
+    if (!Array.isArray(src)) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Expected 'array', got '${typeof src}'`,
+              value: src,
+            },
+          ],
+        },
+      };
+    }
+
     return {
       success: true,
       data: src,
     };
   }
 
-  nullable(): Schema<RichTextSource<O> | null> {
+  nullable(): Schema<Src | null> {
     return new RichTextSchema(this.options, true);
   }
 

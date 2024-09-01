@@ -6,7 +6,10 @@ import { SourceObject } from "../source";
 import { SourcePath } from "../val";
 import { LiteralSchema } from "./literal";
 import { ObjectSchema, SerializedObjectSchema } from "./object";
-import { ValidationErrors } from "./validation/ValidationError";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
 
 export type SerializedUnionSchema = {
   type: "union";
@@ -249,7 +252,122 @@ export class UnionSchema<
     path: SourcePath,
     src: SourceOf<Key, T>
   ): SchemaAssertResult<SourceOf<Key, T>> {
-    return true;
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      };
+    }
+    if (!src) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Expected an object`,
+            },
+          ],
+        },
+      };
+    }
+    if (!this.key) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Missing required first argument in union`,
+            },
+          ],
+        },
+      };
+    }
+    if (!Array.isArray(this.items)) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `The schema of this value is wrong. Schema is neither a union of literals nor a tagged union (of objects)`,
+            },
+          ],
+        },
+      };
+    }
+    if (this.key instanceof LiteralSchema) {
+      let success = false;
+      let errors: ValidationErrors = false;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const schema of [this.key].concat(...(this.items as any))) {
+        if (!(schema instanceof LiteralSchema)) {
+          return {
+            success: false,
+            errors: {
+              [path]: [
+                {
+                  message: `Schema of value is a union of string, so all schema items must be literals`,
+                },
+              ],
+            },
+          };
+        }
+        const res = schema.assert(path, src);
+        if (res.success) {
+          success = true;
+          break;
+        } else if (res.errors) {
+          if (!errors) {
+            errors = {};
+          }
+          if (res.errors[path]) {
+            errors = {
+              [path]: errors[path].concat(...res.errors[path]),
+            };
+          } else {
+            errors = {
+              ...res.errors,
+              ...errors,
+            };
+          }
+        }
+      }
+
+      if (!success) {
+        return {
+          success: false,
+          errors,
+        };
+      }
+
+      return {
+        success: true,
+        data: src,
+      };
+    } else if (typeof this.key === "string") {
+      for (const schema of this.items) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const res = schema.assert(path, src as any);
+        if (!res.success) {
+          return res;
+        }
+      }
+
+      return {
+        success: true,
+        data: src,
+      };
+    } else {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `The schema of this value is wrong. Schema is neither a union of literals nor a tagged union (of objects)`,
+            },
+          ],
+        },
+      };
+    }
   }
 
   nullable(): Schema<SourceOf<Key, T> | null> {

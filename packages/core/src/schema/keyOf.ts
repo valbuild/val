@@ -118,7 +118,16 @@ export class KeyOfSchema<
     }
     const schema = this.schema;
     if (!schema) {
-      return false;
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Neither key nor schema was found. keyOf is missing an argument.`,
+            },
+          ],
+        },
+      };
     }
     const serializedSchema = schema;
 
@@ -129,24 +138,65 @@ export class KeyOfSchema<
         serializedSchema.type === "record"
       )
     ) {
-      return false;
-    }
-    if (serializedSchema.opt && (src === null || src === undefined)) {
-      return true;
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Schema of first argument must be either: 'array', 'object' or 'record'. Found '${serializedSchema.type}'`,
+            },
+          ],
+        },
+      };
     }
     if (serializedSchema.type === "array" && typeof src !== "number") {
-      return false;
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Value of keyOf (array) must be 'number', got '${typeof src}'`,
+              value: src,
+            },
+          ],
+        },
+      };
     }
     if (serializedSchema.type === "record" && typeof src !== "string") {
-      return false;
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Value of keyOf (record) must be 'string', got '${typeof src}'`,
+              value: src,
+            },
+          ],
+        },
+      };
     }
     if (serializedSchema.type === "object") {
       const keys = Object.keys(serializedSchema.items);
       if (!keys.includes(src as string)) {
-        return false;
+        return {
+          success: false,
+          errors: {
+            [path]: [
+              {
+                message: `Value of keyOf (object) must be: ${keys.join(
+                  ", "
+                )}. Found: ${src}`,
+                value: src,
+              },
+            ],
+          },
+        };
       }
     }
-    return true;
+    return {
+      success: true,
+      data: src,
+    };
   }
 
   nullable(): Schema<KeyOfSelector<Sel> | null> {

@@ -79,19 +79,32 @@ export class RecordSchema<T extends Schema<SelectorSource>> extends Schema<
     path: SourcePath,
     src: Record<string, SelectorOfSchema<T>>
   ): SchemaAssertResult<Record<string, SelectorOfSchema<T>>> {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      };
     }
-    if (!src) {
-      return false;
+    if (typeof src !== "object") {
+      return {
+        success: false,
+        errors: {
+          [path]: [{ message: `Expected 'object', got '${typeof src}'` }],
+        },
+      };
     }
-
-    for (const [, item] of Object.entries(src)) {
-      if (!this.item.assert(item)) {
-        return false;
-      }
+    if (Array.isArray(src)) {
+      return {
+        success: false,
+        errors: {
+          [path]: [{ message: `Expected 'object', got 'array'` }],
+        },
+      };
     }
-    return typeof src === "object" && !Array.isArray(src);
+    return {
+      success: true,
+      data: src,
+    };
   }
 
   nullable(): Schema<Record<string, SelectorOfSchema<T>> | null> {

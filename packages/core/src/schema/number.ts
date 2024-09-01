@@ -36,10 +36,26 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
   }
 
   assert(path: SourcePath, src: Src): SchemaAssertResult<Src> {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      };
     }
-    return typeof src === "number";
+    if (typeof src === "number") {
+      return {
+        success: true,
+        data: src,
+      };
+    }
+    return {
+      success: false,
+      errors: {
+        [path]: [
+          { message: `Expected 'number', got '${typeof src}'`, value: src },
+        ],
+      },
+    };
   }
 
   nullable(): Schema<Src | null> {
