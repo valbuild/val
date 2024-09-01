@@ -16,21 +16,24 @@ export type SerializedArraySchema = {
   opt: boolean;
 };
 
-export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
-  SelectorOfSchema<T>[]
-> {
-  constructor(
-    readonly item: T,
-    readonly opt: boolean = false,
-  ) {
+export class ArraySchema<
+  T extends Schema<SelectorSource>,
+  Src extends SelectorOfSchema<T>[] | null
+> extends Schema<Src> {
+  constructor(readonly item: T, readonly opt: boolean = false) {
     super();
   }
 
-  validate(path: SourcePath, src: SelectorOfSchema<T>[]): ValidationErrors {
+  validate(path: SourcePath, src: Src): ValidationErrors {
     let error: ValidationErrors = false;
 
-    if (this.opt && (src === null || src === undefined)) {
+    if (this.opt && src === null) {
       return false;
+    }
+    if (src === null) {
+      return {
+        [path]: [{ message: `Expected 'array', got 'null'` }],
+      } as ValidationErrors;
     }
 
     if (typeof src !== "object" || !Array.isArray(src)) {
@@ -47,7 +50,7 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
           `Internal error: could not create path at ${
             !path && typeof path === "string" ? "<empty string>" : path
           } at index ${idx}`, // Should! never happen
-          src,
+          src
         );
       } else {
         const subError = this.item.validate(subPath, i);
@@ -67,13 +70,13 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
 
   assert(
     path: SourcePath,
-    src: SelectorOfSchema<T>[]
-  ): SchemaAssertResult<SelectorOfSchema<T>[]> {
+    src: unknown
+  ): SchemaAssertResult<Src, SelectorSource[]> {
     if (src === null && this.opt) {
       return {
         success: true,
         data: src,
-      };
+      } as SchemaAssertResult<Src, SelectorSource[]>;
     }
     if (src === null) {
       return {
@@ -104,7 +107,7 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
     };
   }
 
-  nullable(): Schema<SelectorOfSchema<T>[] | null> {
+  nullable(): Schema<Src | null> {
     return new ArraySchema(this.item, true);
   }
 
@@ -118,7 +121,7 @@ export class ArraySchema<T extends Schema<SelectorSource>> extends Schema<
 }
 
 export const array = <S extends Schema<SelectorSource>>(
-  schema: S,
+  schema: S
 ): Schema<SelectorOfSchema<S>[]> => {
   return new ArraySchema(schema);
 };

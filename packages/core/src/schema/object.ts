@@ -37,9 +37,10 @@ type ObjectSchemaSrcOf<Props extends ObjectSchemaProps> = {
   [key in keyof Props]: SelectorOfSchema<Props[key]>;
 };
 
-export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
-  ObjectSchemaSrcOf<Props>
-> {
+export class ObjectSchema<
+  Props extends ObjectSchemaProps,
+  Src extends ObjectSchemaSrcOf<Props> | null,
+> extends Schema<Src> {
   constructor(
     readonly items: Props,
     readonly opt: boolean = false,
@@ -47,12 +48,17 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
     super();
   }
 
-  validate(path: SourcePath, src: ObjectSchemaSrcOf<Props>): ValidationErrors {
+  validate(path: SourcePath, src: Src): ValidationErrors {
     let error: ValidationErrors = false;
 
     // TODO: src should never be undefined
     if (this.opt && (src === null || src === undefined)) {
       return false;
+    }
+    if (src === null) {
+      return {
+        [path]: [{ message: `Expected 'object', got 'null'` }],
+      } as ValidationErrors;
     }
 
     if (typeof src !== "object") {
@@ -92,10 +98,8 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
     return error;
   }
 
-  assert(
-    path: SourcePath,
-    src: ObjectSchemaSrcOf<Props>
-  ): SchemaAssertResult<ObjectSchemaSrcOf<Props>> {
+  assert(path: SourcePath, src: unknown) {
+    throw new Error("Method not implemented.");
     if (this.opt && src === null) {
       return {
         success: true,
@@ -129,14 +133,14 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
           `Internal error: could not create path at ${
             !path && typeof path === "string" ? "<empty string>" : path
           } at key ${key}`, // Should! never happen
-          src
+          src,
         );
       } else if (!src?.[key]) {
         error = this.appendValidationError(
           error,
           subPath,
           `Expected key '${key}' not found in object`,
-          src
+          src,
         );
       }
     }
@@ -152,8 +156,8 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
     };
   }
 
-  nullable(): Schema<ObjectSchemaSrcOf<Props> | null> {
-    return new ObjectSchema(this.items, true);
+  nullable(): Schema<Src | null> {
+    return new ObjectSchema(this.items, true) as Schema<Src | null>;
   }
 
   serialize(): SerializedSchema {

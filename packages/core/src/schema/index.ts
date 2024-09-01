@@ -15,6 +15,8 @@ import { SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
 import { SerializedDateSchema } from "./date";
 import { ValidationErrors } from "./validation/ValidationError";
+import { FileSource } from "../source/file";
+import { ImageSource } from "../source/image";
 // import { SerializedI18nSchema } from "./future/i18n";
 // import { SerializedOneOfSchema } from "./future/oneOf";
 
@@ -35,8 +37,19 @@ export type SerializedSchema =
   | SerializedDateSchema
   | SerializedImageSchema;
 
-export type SchemaAssertResult<T> =
-  | { data: T; success: true }
+type Primitives = number | string | boolean | null | FileSource;
+export type SchemaAssertResult<Src extends SelectorSource> =
+  | {
+      // It would be more elegant if we derived this in the individual schema classes, however we must support the case when the abstract class is the only thing available (Schema<string[]> does not dispatch on type-level to ArraySchema)
+      data: Src extends Primitives
+        ? Src
+        : Src extends Array<SelectorSource>
+        ? SelectorSource[]
+        : Src extends Record<string, SelectorSource>
+        ? Record<string, SelectorSource | undefined>
+        : never;
+      success: true;
+    }
   | { success: false; errors: ValidationErrors };
 export abstract class Schema<Src extends SelectorSource> {
   /** Validate the value of source content */
@@ -56,7 +69,7 @@ export abstract class Schema<Src extends SelectorSource> {
    * When using assert, you must assert recursively if you want to verify the entire source.
    * For example, if you have an object schema, you must assert each key / value pair manually.
    */
-  abstract assert(path: SourcePath, src: Src): SchemaAssertResult<Src>;
+  abstract assert(path: SourcePath, src: unknown): SchemaAssertResult<Src>;
   abstract nullable(): Schema<Src | null>;
   abstract serialize(): SerializedSchema;
   // remote(): Src extends RemoteCompatibleSource
