@@ -42,10 +42,29 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
   }
 
   assert(path: SourcePath, src: Src): SchemaAssertResult<Src> {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      };
     }
-    return typeof src === "string";
+    if (typeof src === "string" && src === this.value) {
+      return {
+        success: true,
+        data: src,
+      };
+    }
+    return {
+      success: false,
+      errors: {
+        [path]: [
+          {
+            message: `Expected literal '${this.value}', got '${src}'`,
+            value: src,
+          },
+        ],
+      },
+    };
   }
 
   nullable(): Schema<Src | null> {
@@ -61,6 +80,6 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
   }
 }
 
-export const literal = <T extends string>(value: T): Schema<T> => {
+export const literal = <T extends string>(value: T): LiteralSchema<T> => {
   return new LiteralSchema(value);
 };

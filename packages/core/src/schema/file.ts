@@ -184,7 +184,7 @@ export class FileSchema<
         errors: {
           [path]: [
             {
-              message: `Expected object with file reference 'file'. Got: ${src[FILE_REF_PROP]}`,
+              message: `Value of this schema must use: 'c.file' (error type: missing_ref_prop)`,
             },
           ],
         },
@@ -196,7 +196,7 @@ export class FileSchema<
         errors: {
           [path]: [
             {
-              message: `Expected object with file extension 'file'. Got: ${src[VAL_EXTENSION]}`,
+              message: `Value of this schema must use: 'c.file' (error type: missing_file_extension)`,
             },
           ],
         },

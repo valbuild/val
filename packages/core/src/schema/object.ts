@@ -96,19 +96,60 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
     path: SourcePath,
     src: ObjectSchemaSrcOf<Props>
   ): SchemaAssertResult<ObjectSchemaSrcOf<Props>> {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
-    }
-    if (!src) {
-      return false;
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      };
     }
 
-    for (const [key, schema] of Object.entries(this.items)) {
-      if (!schema.assert(src[key])) {
-        return false;
+    if (typeof src !== "object") {
+      return {
+        success: false,
+        errors: {
+          [path]: [{ message: `Expected 'object', got '${typeof src}'` }],
+        },
+      };
+    } else if (Array.isArray(src)) {
+      return {
+        success: false,
+        errors: {
+          [path]: [{ message: `Expected 'object', got 'array'` }],
+        },
+      };
+    }
+
+    let error: ValidationErrors = false;
+    for (const key of Object.keys(this.items)) {
+      const subPath = createValPathOfItem(path, key);
+      if (!subPath) {
+        error = this.appendValidationError(
+          error,
+          path,
+          `Internal error: could not create path at ${
+            !path && typeof path === "string" ? "<empty string>" : path
+          } at key ${key}`, // Should! never happen
+          src
+        );
+      } else if (!src?.[key]) {
+        error = this.appendValidationError(
+          error,
+          subPath,
+          `Expected key '${key}' not found in object`,
+          src
+        );
       }
     }
-    return typeof src === "object" && !Array.isArray(src);
+    if (error) {
+      return {
+        success: false,
+        errors: error,
+      };
+    }
+    return {
+      success: true,
+      data: src,
+    };
   }
 
   nullable(): Schema<ObjectSchemaSrcOf<Props> | null> {
