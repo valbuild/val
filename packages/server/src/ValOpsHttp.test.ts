@@ -35,7 +35,7 @@ describe("ValOpsFS", () => {
 
     // #region test modules
     const sourceFiles: Record<string, string> = {
-      "/components/clientContent.val.ts": prettier.format(
+      "/components/clientContent.val.ts": await prettier.format(
         `
         import { s, c, type t } from "../val.config";
 
