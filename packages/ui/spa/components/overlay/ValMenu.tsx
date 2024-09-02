@@ -68,7 +68,7 @@ export function ValMenu({
         active={editMode === "hover" || editMode === "window"}
         onClick={() => {
           setEditMode((prev) =>
-            prev === "hover" || editMode === "window" ? "off" : "hover"
+            prev === "hover" || editMode === "window" ? "off" : "hover",
           );
         }}
       >
@@ -212,7 +212,7 @@ function MenuContainer({
         },
         {
           border: border,
-        }
+        },
       )}
     >
       {children}

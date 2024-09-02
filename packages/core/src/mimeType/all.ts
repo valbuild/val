@@ -691,5 +691,5 @@ export const EXT_TO_MIME_TYPES: Record<string, string> = {
 
 // TODO: write this out to avoid compute
 export const MIME_TYPES_TO_EXT = Object.fromEntries(
-  Object.entries(EXT_TO_MIME_TYPES).map(([k, v]) => [v, k])
+  Object.entries(EXT_TO_MIME_TYPES).map(([k, v]) => [v, k]),
 );

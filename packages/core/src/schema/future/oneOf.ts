@@ -19,16 +19,19 @@ type OneOfSelector<Sel extends GenericSelector<SourceArray>> =
     ? S extends RichTextSource<infer O>
       ? RichTextSelector<O>
       : S extends (infer IS)[]
-      ? IS extends Source
-        ? GenericSelector<IS>
+        ? IS extends Source
+          ? GenericSelector<IS>
+          : never
         : never
-      : never
     : never;
 
 export class OneOfSchema<
-  Sel extends GenericSelector<SourceArray>
+  Sel extends GenericSelector<SourceArray>,
 > extends Schema<OneOfSelector<Sel>> {
-  constructor(readonly selector: Sel, readonly opt: boolean = false) {
+  constructor(
+    readonly selector: Sel,
+    readonly opt: boolean = false,
+  ) {
     super();
   }
   validate(path: SourcePath, src: OneOfSelector<Sel>): ValidationErrors {
@@ -59,9 +62,9 @@ export class OneOfSchema<
 }
 
 export const oneOf = <
-  Src extends GenericSelector<SourceArray> & ValModuleBrand // ValModuleBrand enforces call site to pass in a val module - selectors are not allowed. The reason is that this should make it easier to patch. We might be able to relax this constraint in the future
+  Src extends GenericSelector<SourceArray> & ValModuleBrand, // ValModuleBrand enforces call site to pass in a val module - selectors are not allowed. The reason is that this should make it easier to patch. We might be able to relax this constraint in the future
 >(
-  valModule: Src
+  valModule: Src,
 ): Schema<OneOfSelector<Src>> => {
   return new OneOfSchema(valModule);
 };

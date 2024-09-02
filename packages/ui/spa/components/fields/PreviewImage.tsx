@@ -54,7 +54,7 @@ export function ValImagePreview({ source }: { source: JsonObject }) {
             }}
             src={url}
           ></img>,
-          hoverElem
+          hoverElem,
         )}
     </span>
   );

@@ -14,7 +14,7 @@ export class ValSourceFileHandler {
         fs.writeFileSync(fileName, data, encoding);
       },
       rmFile: fs.rmSync,
-    }
+    },
   ) {}
 
   getSourceFile(filePath: string): ts.SourceFile | undefined {
@@ -30,7 +30,7 @@ export class ValSourceFileHandler {
       sourceFile.fileName,
       // https://github.com/microsoft/TypeScript/issues/36174
       unescape(sourceFile.text.replace(/\\u/g, "%u")),
-      "utf8"
+      "utf8",
     );
   }
 
@@ -40,7 +40,7 @@ export class ValSourceFileHandler {
 
   resolveSourceModulePath(
     containingFilePath: string,
-    requestedModuleName: string
+    requestedModuleName: string,
   ): string {
     const resolutionRes = ts.resolveModuleName(
       requestedModuleName,
@@ -51,14 +51,14 @@ export class ValSourceFileHandler {
       this.host,
       undefined,
       undefined,
-      ts.ModuleKind.ESNext
+      ts.ModuleKind.ESNext,
     );
     const resolvedModule = resolutionRes.resolvedModule;
     if (!resolvedModule) {
       throw Error(
         `Could not resolve module "${requestedModuleName}", base: "${containingFilePath}": No resolved modules returned: ${JSON.stringify(
-          resolutionRes
-        )}`
+          resolutionRes,
+        )}`,
       );
     }
     return resolvedModule.resolvedFileName;

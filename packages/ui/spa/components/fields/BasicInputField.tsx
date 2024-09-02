@@ -51,7 +51,7 @@ export function BasicInputField({
         value: type === "number" ? Number(value) : value,
       },
     ],
-    ref.current?.value ?? null
+    ref.current?.value ?? null,
   );
   return (
     <FieldContainer>

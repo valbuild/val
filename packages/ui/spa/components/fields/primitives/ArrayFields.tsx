@@ -44,7 +44,7 @@ export function ArrayFields({
           })
             .then(async () => {
               setCurrentSource((source) =>
-                [emptyOf(schema.item)].concat(...source)
+                [emptyOf(schema.item)].concat(...source),
               );
             })
             .finally(() => {
@@ -67,7 +67,7 @@ export function ArrayFields({
                 {
                   op: "remove",
                   path: path.concat(
-                    item.toString()
+                    item.toString(),
                   ) as array.NonEmptyArray<string>,
                 },
               ];
@@ -121,7 +121,7 @@ export function ArrayFields({
             })
               .then(() => {
                 setCurrentSource((source) =>
-                  source.concat(emptyOf(schema.item))
+                  source.concat(emptyOf(schema.item)),
                 );
               })
               .finally(() => {

@@ -10,7 +10,10 @@ export type SerializedLiteralSchema = {
 };
 
 export class LiteralSchema<Src extends string | null> extends Schema<Src> {
-  constructor(readonly value: string, readonly opt: boolean = false) {
+  constructor(
+    readonly value: string,
+    readonly opt: boolean = false,
+  ) {
     super();
   }
 

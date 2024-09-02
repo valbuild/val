@@ -22,9 +22,12 @@ export type FileMetadata = {
   mimeType?: string;
 };
 export class FileSchema<
-  Src extends FileSource<FileMetadata | undefined> | null
+  Src extends FileSource<FileMetadata | undefined> | null,
 > extends Schema<Src> {
-  constructor(readonly options?: FileOptions, readonly opt: boolean = false) {
+  constructor(
+    readonly options?: FileOptions,
+    readonly opt: boolean = false,
+  ) {
     super();
   }
 
@@ -173,7 +176,7 @@ export class FileSchema<
 }
 
 export const file = (
-  options?: FileOptions
+  options?: FileOptions,
 ): Schema<FileSource<FileMetadata>> => {
   return new FileSchema(options);
 };
@@ -181,7 +184,7 @@ export const file = (
 export function convertFileSource<
   Metadata extends { readonly [key: string]: Json } | undefined =
     | { readonly [key: string]: Json }
-    | undefined
+    | undefined,
 >(src: FileSource<Metadata>): { url: string; metadata?: Metadata } {
   // TODO: /public should be configurable
   if (!src[FILE_REF_PROP].startsWith("/public")) {

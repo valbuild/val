@@ -13,7 +13,7 @@ const { valNextAppRouter } = initValServer(
     formatter: (code, filePath) => {
       return prettier.format(code, { filepath: filePath });
     },
-  }
+  },
 );
 
 export { valNextAppRouter };

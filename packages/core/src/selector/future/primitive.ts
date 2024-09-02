@@ -10,7 +10,7 @@ import { Selector as BooleanSelector } from "./boolean";
 export type Selector<T extends SourcePrimitive> = GenericSelector<T> & {
   eq(other: Source): BooleanSelector<boolean>;
   andThen<U extends SelectorSource>(
-    f: (v: UnknownSelector<NonNullable<T>>) => U
+    f: (v: UnknownSelector<NonNullable<T>>) => U,
   ): SelectorOf<U | NullableOf<T>>;
 };
 

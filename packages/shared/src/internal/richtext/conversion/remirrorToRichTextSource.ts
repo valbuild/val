@@ -46,7 +46,7 @@ export function remirrorToRichTextSource(node: RemirrorJSON): {
 function convertBlock(
   path: string[],
   node: RemirrorJSON["content"][number],
-  files: Record<string, { value: string; patchPaths: string[][] }>
+  files: Record<string, { value: string; patchPaths: string[][] }>,
 ): BlockNode<AllRichTextOptions> {
   if (node.type === "heading") {
     const depth = node.attrs?.level || 1;
@@ -60,8 +60,8 @@ function convertBlock(
           convertHeadingChild(
             path.concat("children", i.toString()),
             child,
-            files
-          )
+            files,
+          ),
         ) || [],
     };
   } else if (node.type === "paragraph") {
@@ -75,7 +75,7 @@ function convertBlock(
     throw new Error(
       `Unhandled node type: ${
         "type" in exhaustiveCheck ? "exhaustiveCheck.type" : "unknown"
-      }`
+      }`,
     );
   }
 }
@@ -83,7 +83,7 @@ function convertBlock(
 function convertHeadingChild(
   path: string[],
   node: RemirrorText | RemirrorBr | RemirrorImage,
-  files: Record<string, { value: string; patchPaths: string[][] }>
+  files: Record<string, { value: string; patchPaths: string[][] }>,
 ): HeadingNode<AllRichTextOptions>["children"][number] {
   if (node.type === "text") {
     return convertTextNode(node);
@@ -99,8 +99,8 @@ function convertHeadingChild(
       `Unexpected heading child type: ${JSON.stringify(
         exhaustiveCheck,
         null,
-        2
-      )}`
+        2,
+      )}`,
     );
   }
 }
@@ -108,7 +108,7 @@ function convertHeadingChild(
 function convertParagraph(
   path: string[],
   child: RemirrorParagraph,
-  files: Record<string, { value: string; patchPaths: string[][] }>
+  files: Record<string, { value: string; patchPaths: string[][] }>,
 ): ParagraphNode<AllRichTextOptions> {
   return {
     tag: "p",
@@ -124,7 +124,7 @@ function convertParagraph(
           return convertImageNode(
             path.concat("children", i.toString()),
             child,
-            files
+            files,
           );
         }
         const exhaustiveCheck: never = child;
@@ -132,15 +132,15 @@ function convertParagraph(
           `Unexpected paragraph child type: ${JSON.stringify(
             exhaustiveCheck,
             null,
-            2
-          )}`
+            2,
+          )}`,
         );
       }) || [],
   };
 }
 
 function convertTextNode(
-  node: RemirrorText
+  node: RemirrorText,
 ): string | SpanNode<AllRichTextOptions> | LinkNode<AllRichTextOptions> {
   if (node.type === "text") {
     const styles: Styles<AllRichTextOptions>[] =
@@ -160,7 +160,7 @@ function convertTextNode(
           tag: "a",
           href:
             node.marks.find(
-              (mark): mark is RemirrorLinkMark => mark.type === "link"
+              (mark): mark is RemirrorLinkMark => mark.type === "link",
             )?.attrs.href || "",
           children: [
             {
@@ -175,7 +175,7 @@ function convertTextNode(
         tag: "a",
         href:
           node.marks.find(
-            (mark): mark is RemirrorLinkMark => mark.type === "link"
+            (mark): mark is RemirrorLinkMark => mark.type === "link",
           )?.attrs.href || "",
         children: [node.text],
       };
@@ -197,7 +197,7 @@ function convertTextNode(
 function convertListItem(
   path: string[],
   child: RemirrorListItem,
-  files: Record<string, { value: string; patchPaths: string[][] }>
+  files: Record<string, { value: string; patchPaths: string[][] }>,
 ): ListItemNode<AllRichTextOptions> {
   return {
     tag: "li",
@@ -208,25 +208,25 @@ function convertListItem(
             return convertParagraph(
               path.concat("children", i.toString()),
               child,
-              files
+              files,
             );
           } else if (child.type === "bulletList") {
             return convertBulletList(
               path.concat("children", i.toString()),
               child,
-              files
+              files,
             );
           } else if (child.type === "orderedList") {
             return convertOrderedList(
               path.concat("children", i.toString()),
               child,
-              files
+              files,
             );
           } else {
             const exhaustiveCheck: never = child;
             throw new Error(`Unexpected list child type: ${exhaustiveCheck}`);
           }
-        }
+        },
       ) || [],
   };
 }
@@ -234,7 +234,7 @@ function convertListItem(
 function convertBulletList(
   path: string[],
   node: RemirrorBulletList,
-  files: Record<string, { value: string; patchPaths: string[][] }>
+  files: Record<string, { value: string; patchPaths: string[][] }>,
 ): UnorderedListNode<AllRichTextOptions> {
   return {
     tag: "ul",
@@ -244,12 +244,12 @@ function convertBulletList(
           return convertListItem(
             path.concat("children", i.toString()),
             child,
-            files
+            files,
           );
         } else {
           const exhaustiveCheck: never = child.type;
           throw new Error(
-            `Unexpected bullet list child type: ${exhaustiveCheck}`
+            `Unexpected bullet list child type: ${exhaustiveCheck}`,
           );
         }
       }) || [],
@@ -259,7 +259,7 @@ function convertBulletList(
 function convertOrderedList(
   path: string[],
   node: RemirrorOrderedList,
-  files: Record<string, { value: string; patchPaths: string[][] }>
+  files: Record<string, { value: string; patchPaths: string[][] }>,
 ): OrderedListNode<AllRichTextOptions> {
   return {
     tag: "ol",
@@ -269,12 +269,12 @@ function convertOrderedList(
           return convertListItem(
             path.concat("children", i.toString()),
             child,
-            files
+            files,
           );
         } else {
           const exhaustiveCheck: never = child.type;
           throw new Error(
-            `Unexpected ordered list child type: ${exhaustiveCheck}`
+            `Unexpected ordered list child type: ${exhaustiveCheck}`,
           );
         }
       }) || [],
@@ -285,14 +285,14 @@ const textEncoder = new TextEncoder();
 function convertImageNode(
   path: string[],
   node: RemirrorImage,
-  files: Record<string, { value: string; patchPaths: string[][] }>
+  files: Record<string, { value: string; patchPaths: string[][] }>,
 ): ImageNode<AllRichTextOptions> {
   if (node.attrs && node.attrs.src.startsWith("data:")) {
     const sha256 = Internal.getSHA256Hash(textEncoder.encode(node.attrs.src));
     const mimeType = Internal.getMimeType(node.attrs.src);
     if (mimeType === undefined) {
       throw new Error(
-        `Could not detect Mime Type for image: ${node.attrs.src}`
+        `Could not detect Mime Type for image: ${node.attrs.src}`,
       );
     }
     const fileExt = Internal.mimeTypeToFileExt(mimeType);

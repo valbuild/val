@@ -7,5 +7,5 @@ export default c.define(
   }),
   {
     homepage: "https://val.build",
-  }
+  },
 );

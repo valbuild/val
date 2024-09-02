@@ -56,7 +56,7 @@ export function readImage(ev: ChangeEvent<HTMLInputElement>) {
 export function createFilename(
   data: string | null,
   filename: string | null,
-  metadata: FileMetadata | ImageMetadata | undefined
+  metadata: FileMetadata | ImageMetadata | undefined,
 ) {
   if (!metadata) {
     return filename;
@@ -72,7 +72,7 @@ export function createFilename(
     const maybeShaSuffixPos = cleanFilename.lastIndexOf("_");
     const currentShaSuffix = cleanFilename.slice(
       maybeShaSuffixPos + 1,
-      cleanFilename.length
+      cleanFilename.length,
     );
     if (currentShaSuffix === shaSuffix) {
       cleanFilename = cleanFilename.slice(0, maybeShaSuffixPos);

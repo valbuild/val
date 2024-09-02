@@ -9,7 +9,7 @@ export type ValModuleAnalysis = {
 
 function isPath(
   node: ts.Expression,
-  path: readonly [string, ...string[]]
+  path: readonly [string, ...string[]],
 ): boolean {
   let currentNode = node;
   for (let i = path.length - 1; i > 0; --i) {
@@ -28,14 +28,14 @@ function isPath(
 function validateArguments(
   node: ts.CallExpression,
   validators: readonly ((
-    node: ts.Expression
-  ) => result.Result<void, ValSyntaxError>)[]
+    node: ts.Expression,
+  ) => result.Result<void, ValSyntaxError>)[],
 ): result.Result<void, ValSyntaxErrorTree> {
   return result.allV<ValSyntaxError>([
     node.arguments.length === validators.length
       ? result.voidOk
       : result.err(
-          new ValSyntaxError(`Expected ${validators.length} arguments`, node)
+          new ValSyntaxError(`Expected ${validators.length} arguments`, node),
         ),
     ...node.arguments
       .slice(0, validators.length)
@@ -44,15 +44,15 @@ function validateArguments(
 }
 
 function analyzeDefaultExport(
-  node: ts.ExportAssignment
+  node: ts.ExportAssignment,
 ): result.Result<ValModuleAnalysis, ValSyntaxErrorTree> {
   const cDefine = node.expression;
   if (!ts.isCallExpression(cDefine)) {
     return result.err(
       new ValSyntaxError(
         "Expected default expression to be a call expression",
-        cDefine
-      )
+        cDefine,
+      ),
     );
   }
 
@@ -60,8 +60,8 @@ function analyzeDefaultExport(
     return result.err(
       new ValSyntaxError(
         "Expected default expression to be calling c.define",
-        cDefine.expression
-      )
+        cDefine.expression,
+      ),
     );
   }
 
@@ -73,8 +73,8 @@ function analyzeDefaultExport(
           return result.err(
             new ValSyntaxError(
               "Expected first argument to c.define to be a string literal",
-              id
-            )
+              id,
+            ),
           );
         }
         return result.voidOk;
@@ -89,12 +89,12 @@ function analyzeDefaultExport(
     result.map(() => {
       const [, schema, source] = cDefine.arguments;
       return { schema, source };
-    })
+    }),
   );
 }
 
 export function analyzeValModule(
-  sourceFile: ts.SourceFile
+  sourceFile: ts.SourceFile,
 ): result.Result<ValModuleAnalysis, ValSyntaxErrorTree> {
   const analysis = sourceFile.forEachChild((node) => {
     if (ts.isExportAssignment(node)) {

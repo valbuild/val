@@ -52,7 +52,7 @@ export abstract class Schema<Src extends SelectorSource> {
     current: ValidationErrors,
     path: SourcePath,
     message: string,
-    value?: unknown
+    value?: unknown,
   ): ValidationErrors {
     if (current) {
       if (current[path]) {

@@ -33,7 +33,7 @@ export function BooleanField({
                     path,
                     value,
                   },
-                ])
+                ]),
               ).finally(() => {
                 setLoading(false);
               });

@@ -22,7 +22,7 @@ function parseJSONPointerReferenceToken(value: string): string | undefined {
 }
 
 export function parseJSONPointer(
-  pointer: string
+  pointer: string,
 ): result.Result<string[], string> {
   if (pointer === "/") return result.ok([]);
   if (!pointer.startsWith("/"))
@@ -34,7 +34,7 @@ export function parseJSONPointer(
     .map(parseJSONPointerReferenceToken);
   if (
     tokens.every(
-      (token: string | undefined): token is string => token !== undefined
+      (token: string | undefined): token is string => token !== undefined,
     )
   ) {
     return result.ok(tokens);
@@ -64,7 +64,7 @@ export type StaticPatchIssue = {
 
 export function prefixIssuePath(
   prefix: string,
-  { path, message }: StaticPatchIssue
+  { path, message }: StaticPatchIssue,
 ): StaticPatchIssue {
   return { path: [prefix, ...path], message };
 }
@@ -90,7 +90,7 @@ function isProperPathPrefix(prefix: string[], path: string[]): boolean {
 }
 
 export function parseOperation(
-  operation: OperationJSON
+  operation: OperationJSON,
 ): result.Result<Operation, array.NonEmptyArray<StaticPatchIssue>> {
   const path = parseJSONPointer(operation.path);
 
@@ -103,13 +103,13 @@ export function parseOperation(
         result.mapErr(
           (error: string): array.NonEmptyArray<StaticPatchIssue> => [
             createIssueAtPath(["path"])(error),
-          ]
+          ],
         ),
         result.map((path: string[]) => ({
           op: operation.op,
           path,
           value: operation.value,
-        }))
+        })),
       );
     case "file":
       return pipe(
@@ -117,14 +117,14 @@ export function parseOperation(
         result.mapErr(
           (error: string): array.NonEmptyArray<StaticPatchIssue> => [
             createIssueAtPath(["path"])(error),
-          ]
+          ],
         ),
         result.map((path: string[]) => ({
           op: operation.op,
           path,
           filePath: operation.filePath,
           value: operation.value,
-        }))
+        })),
       );
     case "remove":
       return pipe(
@@ -133,12 +133,12 @@ export function parseOperation(
         result.mapErr(
           (error: string): array.NonEmptyArray<StaticPatchIssue> => [
             createIssueAtPath(["path"])(error),
-          ]
+          ],
         ),
         result.map((path: array.NonEmptyArray<string>) => ({
           op: operation.op,
           path,
-        }))
+        })),
       );
     case "move":
       return pipe(
@@ -149,7 +149,7 @@ export function parseOperation(
           pipe(
             parseJSONPointer(operation.from),
             result.filterOrElse(array.isNonEmpty, () => "Cannot move root"),
-            result.mapErr(createIssueAtPath(["from"]))
+            result.mapErr(createIssueAtPath(["from"])),
           ),
           pipe(path, result.mapErr(createIssueAtPath(["path"]))),
         ]),
@@ -157,20 +157,20 @@ export function parseOperation(
           ([from, path]) => !isProperPathPrefix(from, path),
           (): array.NonEmptyArray<StaticPatchIssue> => [
             createIssueAtPath(["from"])("Cannot be a proper prefix of path"),
-          ]
+          ],
         ),
         result.map(([from, path]) => ({
           op: operation.op,
           from,
           path,
-        }))
+        })),
       );
     case "copy":
       return pipe(
         result.allT<[from: string[], path: string[]], StaticPatchIssue>([
           pipe(
             parseJSONPointer(operation.from),
-            result.mapErr(createIssueAtPath(["from"]))
+            result.mapErr(createIssueAtPath(["from"])),
           ),
           pipe(path, result.mapErr(createIssueAtPath(["path"]))),
         ]),
@@ -178,13 +178,13 @@ export function parseOperation(
           op: operation.op,
           from,
           path,
-        }))
+        })),
       );
   }
 }
 
 export function parsePatch(
-  patch: PatchJSON
+  patch: PatchJSON,
 ): result.Result<Patch, array.NonEmptyArray<StaticPatchIssue>> {
   return pipe(
     patch
@@ -192,11 +192,11 @@ export function parsePatch(
       .map(
         result.mapErr(
           array.map((error: StaticPatchIssue, index: number) =>
-            prefixIssuePath(index.toString(), error)
-          )
-        )
+            prefixIssuePath(index.toString(), error),
+          ),
+        ),
       ),
     result.all,
-    result.mapErr(array.flatten<StaticPatchIssue>)
+    result.mapErr(array.flatten<StaticPatchIssue>),
   );
 }

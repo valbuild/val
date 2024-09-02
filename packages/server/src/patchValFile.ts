@@ -16,7 +16,7 @@ import { getSyntheticContainingPath } from "./getSyntheticContainingPath";
 const ops = new TSOps((document) => {
   return pipe(
     analyzeValModule(document),
-    result.map(({ source }) => source)
+    result.map(({ source }) => source),
   );
 });
 
@@ -27,7 +27,7 @@ export const patchValFile = async (
   patch: Patch,
   sourceFileHandler: ValSourceFileHandler,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  runtime: QuickJSRuntime
+  runtime: QuickJSRuntime,
 ): Promise<void> => {
   // const timeId = randomUUID();
   // console.time("patchValFile" + timeId);
@@ -37,7 +37,7 @@ export const patchValFile = async (
       .replace(".val.ts", ".val")
       .replace(".val.js", ".val")
       .replace(".val.jsx", ".val")
-      .replace(".val.tsx", ".val")}`
+      .replace(".val.tsx", ".val")}`,
   );
 
   const sourceFile = sourceFileHandler.getSourceFile(filePath);
@@ -59,13 +59,13 @@ export const patchValFile = async (
     } else {
       throw new Error(
         `${filePath}\n${flatMapErrors(newSourceFile.error, (error) =>
-          formatSyntaxError(error, sourceFile)
-        ).join("\n")}`
+          formatSyntaxError(error, sourceFile),
+        ).join("\n")}`,
       );
     }
   }
   for (const [filePath, content] of Object.entries(
-    derefRes.value.fileUpdates
+    derefRes.value.fileUpdates,
   )) {
     // Evaluate if we want to make these writes (more) atomic with a temp file and a move.
     // This can potentially fill mid-way if there is not enough space on disk for example...
@@ -80,13 +80,13 @@ export const patchValFile = async (
       sourceFileHandler.writeFile(
         "." + filePath,
         convertDataUrlToBase64(content).toString("utf8"),
-        "utf8"
+        "utf8",
       );
     } else {
       sourceFileHandler.writeFile(
         "." + filePath,
         convertDataUrlToBase64(content).toString("binary"),
-        "binary"
+        "binary",
       );
     }
   }
@@ -102,13 +102,13 @@ function convertDataUrlToBase64(dataUrl: string): Buffer {
 
 export const patchSourceFile = (
   sourceFile: ts.SourceFile | string,
-  patch: Patch
+  patch: Patch,
 ): result.Result<ts.SourceFile, ValSyntaxErrorTree | PatchError> => {
   if (typeof sourceFile === "string") {
     return applyPatch(
       ts.createSourceFile("<val>", sourceFile, ts.ScriptTarget.ES2015),
       ops,
-      patch
+      patch,
     );
   }
   return applyPatch(sourceFile, ops, patch);

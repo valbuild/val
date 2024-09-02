@@ -13,7 +13,7 @@ export type FileMetadata = { readonly [key: string]: Json };
  *
  */
 export type FileSource<
-  Metadata extends FileMetadata | undefined = FileMetadata | undefined
+  Metadata extends FileMetadata | undefined = FileMetadata | undefined,
 > = {
   readonly [FILE_REF_PROP]: string;
   readonly [VAL_EXTENSION]: "file";
@@ -24,14 +24,14 @@ export type FileSource<
 
 export function file<Metadata extends { readonly [key: string]: Json }>(
   ref: `/public/${string}`,
-  metadata: Metadata
+  metadata: Metadata,
 ): FileSource<Metadata>;
 export function file(
   ref: `/public/${string}`,
-  metadata?: undefined
+  metadata?: undefined,
 ): FileSource<undefined>;
 export function file<
-  Metadata extends { readonly [key: string]: Json } | undefined
+  Metadata extends { readonly [key: string]: Json } | undefined,
 >(ref: `/public/${string}`, metadata?: Metadata): FileSource<Metadata> {
   return {
     [FILE_REF_PROP]: ref,

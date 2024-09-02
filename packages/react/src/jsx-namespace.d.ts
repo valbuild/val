@@ -18,10 +18,10 @@ type WithVal<T extends object> = {
   [K in keyof T]: K extends "key" | "ref" | "className"
     ? T[K]
     : K extends "style"
-    ? WithVal<React.CSSProperties>
-    : T[K] extends object
-    ? T[K]
-    : MaybeVal<T[K]>;
+      ? WithVal<React.CSSProperties>
+      : T[K] extends object
+        ? T[K]
+        : MaybeVal<T[K]>;
 };
 
 export namespace ValJSX {

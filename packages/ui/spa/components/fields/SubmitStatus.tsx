@@ -20,7 +20,7 @@ export function useBounceSubmit<V>(
   value: V,
   onSubmit: OnSubmit | undefined,
   applyPatch: (value: V, patchPath: string[]) => Promise<Patch>,
-  latestValueRef?: V | null
+  latestValueRef?: V | null,
 ): SubmitStatus {
   const [loading, setLoading] = useState(false);
   const [waiting, setWaiting] = useState(false);
@@ -35,7 +35,7 @@ export function useBounceSubmit<V>(
           if (latestValueRef) {
             setLastSubmit(latestValueRef);
             onSubmit((patchPath) =>
-              applyPatch(latestValueRef, patchPath)
+              applyPatch(latestValueRef, patchPath),
             ).finally(() => {
               setLoading(false);
               setWaiting(false);
@@ -52,7 +52,7 @@ export function useBounceSubmit<V>(
                 setTimeout(() => {
                   setLastSubmit(null);
                 }, 1000);
-              }
+              },
             );
           }
         }

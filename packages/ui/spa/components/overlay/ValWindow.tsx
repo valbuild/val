@@ -159,7 +159,7 @@ export function ValWindow({
           "opacity-0": !isInitialized,
           "opacity-100": isInitialized,
           "rounded-lg": !isDrawer,
-        }
+        },
       )}
     >
       <div

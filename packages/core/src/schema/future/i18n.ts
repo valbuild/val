@@ -17,20 +17,20 @@ export class I18nSchema<Locales extends readonly string[]> extends Schema<
   constructor(
     readonly locales: Locales,
     readonly item: Schema<SelectorOfSchema<Schema<I18nCompatibleSource>>>,
-    readonly opt: boolean = false
+    readonly opt: boolean = false,
   ) {
     super();
   }
 
   validate(
     path: SourcePath,
-    src: I18nSource<Locales, SelectorOfSchema<Schema<I18nCompatibleSource>>>
+    src: I18nSource<Locales, SelectorOfSchema<Schema<I18nCompatibleSource>>>,
   ): ValidationErrors {
     throw new Error("Method not implemented.");
   }
 
   assert(
-    src: I18nSource<Locales, SelectorOfSchema<Schema<I18nCompatibleSource>>>
+    src: I18nSource<Locales, SelectorOfSchema<Schema<I18nCompatibleSource>>>,
   ): boolean {
     throw new Error("Method not implemented.");
   }
@@ -55,15 +55,15 @@ export class I18nSchema<Locales extends readonly string[]> extends Schema<
 }
 
 export type I18n<Locales extends readonly string[]> = <
-  S extends Schema<I18nCompatibleSource>
+  S extends Schema<I18nCompatibleSource>,
 >(
-  schema: S
+  schema: S,
 ) => Schema<I18nSource<Locales, SelectorOfSchema<S>>>;
 
 export const i18n =
   <Locales extends readonly string[]>(locales: Locales) =>
   <S extends Schema<I18nCompatibleSource>>(
-    schema: S
+    schema: S,
   ): Schema<I18nSource<Locales, SelectorOfSchema<S>>> => {
     return new I18nSchema(locales, schema);
   };

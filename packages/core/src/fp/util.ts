@@ -5,14 +5,14 @@ export function pipe<A, B, C, D>(
   a: A,
   ab: (a: A) => B,
   bc: (b: B) => C,
-  cd: (c: C) => D
+  cd: (c: C) => D,
 ): D;
 export function pipe<A, B, C, D, E>(
   a: A,
   ab: (a: A) => B,
   bc: (b: B) => C,
   cd: (c: C) => D,
-  de: (d: D) => E
+  de: (d: D) => E,
 ): E;
 export function pipe<A, B, C, D, E, F>(
   a: A,
@@ -20,7 +20,7 @@ export function pipe<A, B, C, D, E, F>(
   bc: (b: B) => C,
   cd: (c: C) => D,
   de: (d: D) => E,
-  ef: (e: E) => F
+  ef: (e: E) => F,
 ): F;
 // "Ought to be enough for everybody" -- attributed to E. Åmdal
 export function pipe<A, B, C, D, E, F, G>(
@@ -30,7 +30,7 @@ export function pipe<A, B, C, D, E, F, G>(
   cd: (c: C) => D,
   de: (d: D) => E,
   ef: (e: E) => F,
-  fg: (f: F) => G
+  fg: (f: F) => G,
 ): G;
 export function pipe(a: unknown, ...fns: ((u: unknown) => unknown)[]): unknown {
   let current = a;

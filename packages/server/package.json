@@ -19,6 +19,7 @@
     "test:watch": "jest --watch"
   },
   "devDependencies": {
+    "@prettier/sync": "^0.5.2",
     "@types/jest": "^29.2.5"
   },
   "dependencies": {

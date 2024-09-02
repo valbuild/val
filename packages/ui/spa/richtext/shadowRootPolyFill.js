@@ -83,7 +83,7 @@ if (!IS_FIREFOX && !SUPPORTS_SHADOW_SELECTION && SUPPORTS_BEFORE_INPUT) {
         processing = false;
       }
     },
-    true
+    true,
   );
 
   window.addEventListener(
@@ -105,7 +105,7 @@ if (!IS_FIREFOX && !SUPPORTS_SHADOW_SELECTION && SUPPORTS_BEFORE_INPUT) {
         event.stopImmediatePropagation();
       }
     },
-    true
+    true,
   );
 
   window.addEventListener(
@@ -113,6 +113,6 @@ if (!IS_FIREFOX && !SUPPORTS_SHADOW_SELECTION && SUPPORTS_BEFORE_INPUT) {
     () => {
       selection.removeAllRanges();
     },
-    true
+    true,
   );
 }

@@ -31,7 +31,7 @@ export function RichTextField({
     setContent(undefined);
   }, [defaultValue]);
   const { state, manager } = useRichTextEditor(
-    defaultValue && richTextToRemirror(defaultValue)
+    defaultValue && richTextToRemirror(defaultValue),
   );
 
   const submitStatus = useBounceSubmit<RemirrorJSON | undefined>(
@@ -48,7 +48,7 @@ export function RichTextField({
       } else {
         return [];
       }
-    }
+    },
   );
 
   return (
@@ -69,7 +69,7 @@ export function RichTextField({
 
 function createRichTextPatch(
   path: string[],
-  content?: ValidRemirrorJSON
+  content?: ValidRemirrorJSON,
 ): Patch {
   console.log("content", content);
   const { blocks, files } = content
@@ -93,7 +93,7 @@ function createRichTextPatch(
           filePath,
           value,
           nestedFilePath: patchPath,
-        })
+        }),
       );
     }),
   ];

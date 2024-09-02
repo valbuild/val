@@ -36,7 +36,7 @@ export function ImageField({
   useEffect(() => {
     setUrl(
       defaultValue &&
-        "/api/val/files/public" + Internal.convertFileSource(defaultValue).url
+        "/api/val/files/public" + Internal.convertFileSource(defaultValue).url,
     );
     setHotspot(defaultValue?.metadata?.hotspot);
   }, [defaultValue]);
@@ -155,9 +155,9 @@ export function ImageField({
                           path,
                           data.src,
                           data.filename ?? null,
-                          metadata
-                        )
-                      )
+                          metadata,
+                        ),
+                      ),
                     ).finally(() => {
                       setLoading(false);
                     });
@@ -176,7 +176,7 @@ export function ImageField({
 
 function createFileMetadataPatch(
   path: string[],
-  metadata: Partial<ImageMetadata | FileMetadata>
+  metadata: Partial<ImageMetadata | FileMetadata>,
 ): Patch {
   const metadataPath = path.concat("metadata");
   return [

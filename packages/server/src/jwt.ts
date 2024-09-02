@@ -10,21 +10,21 @@ export type JwtPayload = {
 
 export function decodeJwt(
   token: string,
-  secretKey?: string
+  secretKey?: string,
 ): JwtPayload | null {
   const [headerBase64, payloadBase64, signatureBase64, ...rest] =
     token.split(".");
   if (!headerBase64 || !payloadBase64 || !signatureBase64 || rest.length > 0) {
     console.debug(
       "Invalid JWT: format is not exactly {header}.{payload}.{signature}",
-      token
+      token,
     );
     return null;
   }
 
   try {
     const parsedHeader = JSON.parse(
-      Buffer.from(headerBase64, "base64").toString("utf8")
+      Buffer.from(headerBase64, "base64").toString("utf8"),
     ) as unknown;
     const headerVerification = JwtHeaderSchema.safeParse(parsedHeader);
     if (!headerVerification.success) {
@@ -56,7 +56,7 @@ export function decodeJwt(
   }
   try {
     const parsedPayload = JSON.parse(
-      Buffer.from(payloadBase64, "base64").toString("utf8")
+      Buffer.from(payloadBase64, "base64").toString("utf8"),
     ) as JwtPayload;
     return parsedPayload;
   } catch (err) {
@@ -80,7 +80,7 @@ const jwtHeader: JwtHeader = {
 };
 
 const jwtHeaderBase64 = Buffer.from(JSON.stringify(jwtHeader)).toString(
-  "base64"
+  "base64",
 );
 
 export function encodeJwt(payload: object, sessionKey: string): string {

@@ -8,7 +8,7 @@ Example:
 // file: ./blogs.val.ts
 
 export const schema = s.array(
-  s.i18n(s.object({ title: s.string(), text: s.richtext() }))
+  s.i18n(s.object({ title: s.string(), text: s.richtext() })),
 );
 
 export default c.define("/blogs", schema, [
@@ -55,7 +55,7 @@ export const schema = s
 export default c.define(
   "/blogs",
   schema,
-  c.remote("4ba7c33b32a60be06b1b26dff8cc5d8d967660ab") // a change in content, will result in a new reference
+  c.remote("4ba7c33b32a60be06b1b26dff8cc5d8d967660ab"), // a change in content, will result in a new reference
 );
 
 // file: ./components/ServerComponent.ts
@@ -64,7 +64,7 @@ import blogsVal from "./blogs.val";
 
 export async function ServerComponent({ index }: { index: number }) {
   const blog = await fetchVal(
-    blogVal[index] // only fetch the blog at index
+    blogVal[index], // only fetch the blog at index
   );
   const title = blog.title;
   return <div>{title}</div>;

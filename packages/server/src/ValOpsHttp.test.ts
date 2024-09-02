@@ -2,7 +2,7 @@
 import { ModuleFilePath, PatchId, initVal } from "@valbuild/core";
 import { Script } from "node:vm";
 import { transform } from "sucrase";
-import prettier from "prettier";
+import synchronizedPrettier from "@prettier/sync";
 import { ValOpsHttp } from "./ValOpsHttp";
 import { AuthorId, CommitSha } from "./ValOps";
 
@@ -18,7 +18,7 @@ describe("ValOpsFS", () => {
       const res = new Script(
         transform(code, {
           transforms: ["imports", "typescript"],
-        }).code
+        }).code,
       ).runInNewContext({
         exports: {},
         require: (path: string) => {
@@ -35,7 +35,7 @@ describe("ValOpsFS", () => {
 
     // #region test modules
     const sourceFiles: Record<string, string> = {
-      "/components/clientContent.val.ts": prettier.format(
+      "/components/clientContent.val.ts": synchronizedPrettier.format(
         `
         import { s, c, type t } from "../val.config";
 
@@ -72,7 +72,7 @@ describe("ValOpsFS", () => {
         });
         
       `,
-        { parser: "typescript" }
+        { parser: "typescript" },
       ),
     };
 
@@ -94,7 +94,7 @@ describe("ValOpsFS", () => {
     const authorId = process.env.TEST_VAL_AUTHOR_ID as AuthorId;
     if (!hostUrl || !project || !commitSha || !branch || !apiKey || !authorId) {
       console.log(
-        "Test is skipped! Set:\n\tTEST_VAL_BUILD_URL\n\tTEST_VAL_PROJECT\n\tTEST_VAL_COMMIT\n\tTEST_VAL_BRANCH\n\tTEST_VAL_API_KEY\n\tTEST_VAL_AUTHOR_ID\nto run test (note .env files are not setup)"
+        "Test is skipped! Set:\n\tTEST_VAL_BUILD_URL\n\tTEST_VAL_PROJECT\n\tTEST_VAL_COMMIT\n\tTEST_VAL_BRANCH\n\tTEST_VAL_API_KEY\n\tTEST_VAL_AUTHOR_ID\nto run test (note .env files are not setup)",
       );
       return;
     }
@@ -112,15 +112,15 @@ describe("ValOpsFS", () => {
       {
         root: "/examples/next",
         formatter: (code, filePath) =>
-          prettier.format(code, { filepath: filePath }),
-      }
+          synchronizedPrettier.format(code, { filepath: filePath }),
+      },
     );
 
     // #region test
 
     const allPatchesOnBranch = await ops.fetchPatches({ omitPatch: false });
     const cleanupPatches = await ops.deletePatches(
-      Object.keys(allPatchesOnBranch.patches) as PatchId[]
+      Object.keys(allPatchesOnBranch.patches) as PatchId[],
     );
     console.log("cleanupPatches", cleanupPatches);
 
@@ -134,7 +134,7 @@ describe("ValOpsFS", () => {
           value: "Http works",
         },
       ],
-      authorId
+      authorId,
     );
     if (patchRes1.error) {
       console.log("patch error", patchRes1.error);
@@ -163,14 +163,14 @@ describe("ValOpsFS", () => {
     const v1 = await ops.validateSources(
       schemas,
       t1.sources,
-      patchAnalysis.patchesByModule
+      patchAnalysis.patchesByModule,
     );
     console.log("source validation", JSON.stringify(v1, null, 2));
     const fv1 = await ops.validateFiles(
       schemas,
       t1.sources,
       v1.files,
-      patchAnalysis.fileLastUpdatedByPatchId
+      patchAnalysis.fileLastUpdatedByPatchId,
     );
     console.log("files validation", JSON.stringify(fv1, null, 2));
     const pc1 = await ops.prepare({
@@ -182,7 +182,7 @@ describe("ValOpsFS", () => {
     console.log("commit", JSON.stringify(c1, null, 2));
     console.log(
       "found patches",
-      JSON.stringify(await ops.fetchPatches({ omitPatch: false }), null, 2)
+      JSON.stringify(await ops.fetchPatches({ omitPatch: false }), null, 2),
     );
   });
 });

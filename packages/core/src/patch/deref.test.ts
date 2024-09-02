@@ -38,7 +38,7 @@ describe("deref", () => {
           image2: file("/public/val/Some\\ Other\\ image.jpg", {}),
         },
       },
-      ops
+      ops,
     );
     const expected: DerefPatchResult = {
       dereferencedPatch: [
@@ -81,7 +81,7 @@ describe("deref", () => {
           image1: file("/public/val/File\\ Name.jpg", {}),
         },
       },
-      ops
+      ops,
     );
     expect(actual).toStrictEqual(result.err(expect.any(PatchError)));
   });
@@ -117,7 +117,7 @@ describe("deref", () => {
           image2: file("/public/val/File\\ Name.jpg", {}),
         },
       },
-      ops
+      ops,
     );
     const expected: DerefPatchResult = {
       dereferencedPatch: [
@@ -291,7 +291,7 @@ describe("deref", () => {
           re2: remote("96536d44"),
         },
       },
-      ops
+      ops,
     );
     expect(actual).toStrictEqual(result.err(expect.any(PatchError)));
   });
