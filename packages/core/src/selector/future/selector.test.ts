@@ -258,7 +258,7 @@ const RemoteAndLocaleSelectorModuleTestCases = SelectorModuleTestCases.flatMap(
       expected: testCase.expected,
       remote: true,
     },
-  ]
+  ],
 );
 
 describe("selector", () => {
@@ -277,17 +277,17 @@ describe("selector", () => {
           // @ts-expect-error TODO: fix this
           input()[SourceOrExpr],
           (path) => modules[path as keyof typeof modules],
-          []
+          [],
         );
         if (result.isErr(res)) {
           throw res.error;
         }
         expect(selectorToVal(res.value)).toStrictEqual(
           // NOTE: all expected values for REMOTE should be changed to return Vals
-          expected
+          expected,
         );
       }
-    }
+    },
   );
 });
 
@@ -297,12 +297,12 @@ type Expected = any; // TODO: should be Val | Expr
 
 function testModule<P extends keyof TestModules>(
   sourcePath: P,
-  remote: boolean
+  remote: boolean,
 ): Selector<TestModules[P]> {
   try {
     if (remote) {
       return newExprSelectorProxy(
-        root(sourcePath as SourcePath)
+        root(sourcePath as SourcePath),
       ) as unknown as Selector<TestModules[P]>;
     }
     return newSelectorProxy(modules[sourcePath], sourcePath as SourcePath);
@@ -327,7 +327,7 @@ function BFS() {
                   more: string(),
                 }),
               }),
-            })
+            }),
           ),
         }),
       }),
@@ -361,7 +361,7 @@ function BFS() {
                     }),
                   }),
                 }),
-              })
+              }),
             ),
           }),
         }),
@@ -372,7 +372,7 @@ function BFS() {
       works: string(),
       as: string(),
       expected: string(),
-    })
+    }),
   );
 }
 

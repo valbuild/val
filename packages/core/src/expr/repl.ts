@@ -21,7 +21,7 @@ repl
       _context,
       _filename,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      callback: (arg0: any, arg1: any) => void
+      callback: (arg0: any, arg1: any) => void,
     ) => {
       const res = parse(cmd);
       if (result.isErr(res)) {
@@ -58,7 +58,7 @@ repl
             res.value,
             (path) => sources[path as keyof typeof sources],
 
-            []
+            [],
           ),
           result.map((v) => {
             try {
@@ -68,13 +68,13 @@ repl
               callback(
                 null,
                 `\x1b[31mInvalid function! Expected selector, but got:\x1b[0m:\n${JSON.stringify(
-                  v
+                  v,
                 )}\n\nDetails: ${
                   e instanceof Error ? e.message : JSON.stringify(e)
-                }`
+                }`,
               );
             }
-          })
+          }),
         );
       }
     },

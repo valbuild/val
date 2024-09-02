@@ -52,7 +52,7 @@ export function deepClone<T extends ReadonlyJSONValue>(value: T): ToMutable<T> {
     return value.map(deepClone) as ToMutable<T>;
   } else if (typeof value === "object" && value !== null) {
     return Object.fromEntries(
-      Object.entries(value).map(([key, value]) => [key, deepClone(value)])
+      Object.entries(value).map(([key, value]) => [key, deepClone(value)]),
     ) as ToMutable<T>;
   } else {
     return value as ToMutable<T>;
@@ -60,7 +60,7 @@ export function deepClone<T extends ReadonlyJSONValue>(value: T): ToMutable<T> {
 }
 
 export function parseAndValidateArrayIndex(
-  value: string
+  value: string,
 ): result.Result<number, PatchError> {
   if (!/^(0|[1-9][0-9]*)$/g.test(value)) {
     return result.err(new PatchError(`Invalid array index "${value}"`));

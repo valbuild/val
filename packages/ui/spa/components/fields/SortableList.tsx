@@ -82,7 +82,7 @@ export function SortableList({
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
-    })
+    }),
   );
 
   return (
@@ -107,7 +107,7 @@ export function SortableList({
                   setDisabled(true);
                   onDelete(
                     id -
-                      1 /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
+                      1 /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */,
                   )
                     .then(() => {
                       setItems((items) => {
@@ -132,7 +132,7 @@ export function SortableList({
     if (active?.id !== over?.id) {
       setDisabled(true);
       const oldIndex = items.findIndex(
-        (item) => item.id === Number(active?.id)
+        (item) => item.id === Number(active?.id),
       );
       const newIndex = items.findIndex((item) => item.id === Number(over?.id));
       const prevItems = items.slice();
@@ -149,7 +149,7 @@ export function SortableList({
               const itemPath = Internal.createValPathOfItem(path, i);
               if (!itemPath) {
                 throw Error(
-                  "Val: could not determine path of item: " + path + " i:" + i
+                  "Val: could not determine path of item: " + path + " i:" + i,
                 );
               }
 

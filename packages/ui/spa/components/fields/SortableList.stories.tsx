@@ -19,7 +19,7 @@ const { s, c } = initVal();
 type SourceOfSchema<S> = S extends Schema<infer Src> ? Src : S;
 function getArgs<S extends Schema<Array<SelectorSource>>>(
   schema: S,
-  source: SourceOfSchema<S>
+  source: SourceOfSchema<S>,
 ) {
   return {
     path: "/fake" as SourcePath,
@@ -44,10 +44,10 @@ export const Default: Story = {
         unionObjects: s
           .union(
             "type",
-            s.object({ type: s.literal("type1"), name: s.string() })
+            s.object({ type: s.literal("type1"), name: s.string() }),
           )
           .nullable(),
-      })
+      }),
     ),
     [
       {
@@ -87,7 +87,7 @@ ${c.rt.image("/public/test.png")}
         unionStrings: "test",
         unionObjects: null,
       },
-    ]
+    ],
   ),
 };
 

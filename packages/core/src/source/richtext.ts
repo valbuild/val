@@ -124,12 +124,13 @@ type ListItemTagNode<O extends RichTextOptions> = {
   tag: "li";
   children: (ParagraphNode<O> | UnorderedListNode<O> | OrderedListNode<O>)[];
 };
-export type ListItemNode<O extends RichTextOptions> =
-  | NonNullable<O["block"]>["ul"] extends true
+export type ListItemNode<O extends RichTextOptions> = NonNullable<
+  O["block"]
+>["ul"] extends true
   ? ListItemTagNode<O>
   : never | NonNullable<O["block"]>["ol"] extends true
-  ? ListItemTagNode<O>
-  : never;
+    ? ListItemTagNode<O>
+    : never;
 
 export type UnorderedListNode<O extends RichTextOptions> = NonNullable<
   O["block"]
@@ -154,7 +155,7 @@ export type OrderedListNode<O extends RichTextOptions> = NonNullable<
 //#region Heading
 export type HeadingTagOf<
   S extends keyof NonNullable<NonNullable<O["block"]>>,
-  O extends RichTextOptions
+  O extends RichTextOptions,
 > = NonNullable<NonNullable<O["block"]>>[S] extends true
   ? {
       tag: S;
@@ -235,7 +236,7 @@ export const RT_IMAGE_TAG = "rt_image";
 export type RTImageMetadata = ImageMetadata;
 export function image(
   ref: `/public/${string}`,
-  metadata?: RTImageMetadata
+  metadata?: RTImageMetadata,
 ): FileSource<RTImageMetadata> {
   return {
     [FILE_REF_PROP]: ref,

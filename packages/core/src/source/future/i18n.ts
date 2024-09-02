@@ -21,7 +21,7 @@ export type I18nArray = readonly I18nCompatibleSource[];
  */
 export type I18nSource<
   Locales extends readonly string[],
-  T extends I18nCompatibleSource
+  T extends I18nCompatibleSource,
 > = {
   readonly [locale in Locales[number]]: T;
 } & {
@@ -29,13 +29,13 @@ export type I18nSource<
 };
 
 export type I18n<Locales extends readonly string[]> = <
-  Src extends I18nCompatibleSource
+  Src extends I18nCompatibleSource,
 >(source: {
   [locale in Locales[number]]: Src;
 }) => I18nSource<Locales, Src>;
 export function i18n<Locales extends readonly string[]>(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  locales: F.Narrow<Locales>
+  locales: F.Narrow<Locales>,
 ): <Src extends I18nCompatibleSource>(source: {
   [locale in Locales[number]]: Src;
 }) => I18nSource<Locales, Src> {
@@ -49,7 +49,7 @@ export function i18n<Locales extends readonly string[]>(
 }
 
 export function isI18n(
-  obj: unknown
+  obj: unknown,
 ): obj is I18nSource<string[], I18nCompatibleSource> {
   return (
     typeof obj === "object" &&

@@ -257,7 +257,7 @@ const ValidationTestCases: {
       define("/keyof-module", object({ test1: string(), test2: string() }), {
         test1: "",
         test2: "",
-      })
+      }),
     ),
     expected: false,
   },
@@ -268,7 +268,7 @@ const ValidationTestCases: {
       define("/keyof-module", object({ test1: string(), test2: string() }), {
         test1: "",
         test2: "",
-      })
+      }),
     ),
     expected: [testPath],
   },
@@ -350,7 +350,7 @@ const ValidationTestCases: {
       object({
         type: literal("multiItem"),
         items: array(object({ type: literal("singleItem"), text: string() })),
-      })
+      }),
     ),
     expected: false,
   },
@@ -366,7 +366,7 @@ const ValidationTestCases: {
       object({
         type: literal("multiItem"),
         items: array(string()),
-      })
+      }),
     ),
     expected: [pathOf("items")],
   },
@@ -384,9 +384,9 @@ const ValidationTestCases: {
         items: union(
           "test",
           object({ test: literal("subItem1"), text1: string() }),
-          object({ test: literal("subItem2"), text2: string().min(2) })
+          object({ test: literal("subItem2"), text2: string().min(2) }),
         ),
-      })
+      }),
     ),
     expected: [createValPathOfItem(pathOf("items"), "text2")],
   },
@@ -402,7 +402,7 @@ const ValidationTestCases: {
       object({
         type: literal("duplicateItem"),
         text2: string(),
-      })
+      }),
     ),
     expected: [testPath],
   },
@@ -418,7 +418,7 @@ const ValidationTestCases: {
       object({
         type: literal("test2"),
         text2: string(),
-      })
+      }),
     ),
     expected: [pathOf("type")],
   },
@@ -435,7 +435,7 @@ const ValidationTestCases: {
       object({
         type: literal("test2"),
         image: image(),
-      })
+      }),
     ),
     expected: [pathOf("image")],
     fixes: {
@@ -497,14 +497,14 @@ describe("validation", () => {
                 ([path, errors]) => [
                   path,
                   errors.flatMap((error: ValidationError) => error.fixes),
-                ]
-              )
-            )
+                ],
+              ),
+            ),
           ).toStrictEqual(fixes);
         }
       } else {
         expect(result).toStrictEqual(expected);
       }
-    }
+    },
   );
 });

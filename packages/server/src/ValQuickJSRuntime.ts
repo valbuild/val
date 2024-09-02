@@ -11,7 +11,7 @@ export async function newValQuickJSRuntime(
   }: {
     maxStackSize?: number;
     memoryLimit?: number;
-  } = {}
+  } = {},
 ) {
   const runtime = quickJSModule.newRuntime();
 
@@ -165,17 +165,17 @@ export default new Proxy({}, {
         }
         const modulePath = moduleLoader.resolveModulePath(
           baseModuleName,
-          requestedName
+          requestedName,
         );
         return { value: modulePath };
       } catch (e) {
         console.debug(
           `Could not resolve ${requestedName} in ${baseModuleName}`,
-          e
+          e,
         );
         return { value: requestedName };
       }
-    }
+    },
   );
   return runtime;
 }

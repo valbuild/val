@@ -6,7 +6,7 @@ export function error(message: string) {
 
 export function info(
   message: string,
-  opts: { isCodeSnippet?: true; isGood?: true } = {}
+  opts: { isCodeSnippet?: true; isGood?: true } = {},
 ) {
   if (opts.isCodeSnippet) {
     console.log(chalk.cyanBright("$ > ") + chalk.cyan(message));
@@ -29,6 +29,6 @@ export function debugPrint(str: string) {
 
 export function printDebuggingHelp() {
   info(
-    `If you're having trouble, please follow the debugging steps\n🌐: https://val.build/docs/troubleshooting`
+    `If you're having trouble, please follow the debugging steps\n🌐: https://val.build/docs/troubleshooting`,
   );
 }

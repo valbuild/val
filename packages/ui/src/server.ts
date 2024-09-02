@@ -27,7 +27,7 @@ export function createUIRequestHandler(): ValUIRequestHandler {
         : {},
     }).catch((err) => {
       console.error(
-        "Could not fetch from dev server. Make sure you are running npm run dev in the package/ui directory."
+        "Could not fetch from dev server. Make sure you are running npm run dev in the package/ui directory.",
       );
       throw err;
     });

@@ -53,7 +53,7 @@ const jsonOps = new JSONOps();
 const tsOps = new TSOps((document) => {
   return pipe(
     analyzeValModule(document),
-    result.map(({ source }) => source)
+    result.map(({ source }) => source),
   );
 });
 
@@ -74,7 +74,7 @@ export abstract class ValOps {
 
   constructor(
     private readonly valModules: ValModules,
-    private readonly options?: ValOpsOptions
+    private readonly options?: ValOpsOptions,
   ) {
     this.sources = null;
     this.baseSha = null;
@@ -112,7 +112,7 @@ export abstract class ValOps {
       const addModuleError = (
         message: string,
         index: number,
-        path?: SourcePath
+        path?: SourcePath,
       ) => {
         currentModulesErrors[index] = {
           message,
@@ -136,7 +136,7 @@ export abstract class ValOps {
         if (typeof module.def !== "function") {
           addModuleError(
             "val.modules 'def' property is not a function",
-            moduleIdx
+            moduleIdx,
           );
           continue;
         }
@@ -144,14 +144,14 @@ export abstract class ValOps {
           if (!value) {
             addModuleError(
               `val.modules 'def' did not return a value`,
-              moduleIdx
+              moduleIdx,
             );
             return;
           }
           if (!value.default) {
             addModuleError(
               `val.modules 'def' did not return a default export`,
-              moduleIdx
+              moduleIdx,
             );
             return;
           }
@@ -166,7 +166,7 @@ export abstract class ValOps {
             addModuleError(
               `schema in path '${path}' is undefined`,
               moduleIdx,
-              path
+              path,
             );
             return;
           }
@@ -174,7 +174,7 @@ export abstract class ValOps {
             addModuleError(
               `schema in path '${path}' is not an instance of Schema`,
               moduleIdx,
-              path
+              path,
             );
             return;
           }
@@ -182,7 +182,7 @@ export abstract class ValOps {
             addModuleError(
               `schema.serialize in path '${path}' is not a function`,
               moduleIdx,
-              path
+              path,
             );
             return;
           }
@@ -269,7 +269,7 @@ export abstract class ValOps {
     }
     for (const path in patchesByModule) {
       patchesByModule[path as ModuleFilePath].sort((a, b) =>
-        a.createdAt.localeCompare(b.createdAt)
+        a.createdAt.localeCompare(b.createdAt),
       );
     }
 
@@ -318,7 +318,7 @@ export abstract class ValOps {
             invalidPath: true,
             skipped: true,
             error: new PatchError(`Module at path: '${path}' not found`),
-          }))
+          })),
         );
       }
       patchedSources[path] = sources[path];
@@ -365,7 +365,7 @@ export abstract class ValOps {
           const patchRes = applyPatch(
             deepClone(patchedSources[path]), // applyPatch mutates the source. On add operations it will add multiple items? There is something strange going on. DeepClone seems to fix, but is that the right?
             jsonOps,
-            applicableOps.concat(...Object.values(fileFixOps))
+            applicableOps.concat(...Object.values(fileFixOps)),
           );
           if (result.isErr(patchRes)) {
             if (!errors[path]) {
@@ -389,7 +389,7 @@ export abstract class ValOps {
   async validateSources(
     schemas: Schemas,
     sources: Sources,
-    patchesByModule?: PatchAnalysis["patchesByModule"]
+    patchesByModule?: PatchAnalysis["patchesByModule"],
   ): Promise<{
     errors: Record<
       ModuleFilePath,
@@ -442,7 +442,7 @@ export abstract class ValOps {
                 "Cannot have multiple files with same path. Path: " +
                   sourcePath +
                   "; Module: " +
-                  path
+                  path,
               );
             }
             const value = validationError.value;
@@ -469,11 +469,11 @@ export abstract class ValOps {
     schemas: Schemas,
     sources: Sources,
     files: Record<SourcePath, FileSource>,
-    fileLastUpdatedByPatchId?: PatchAnalysis["fileLastUpdatedByPatchId"]
+    fileLastUpdatedByPatchId?: PatchAnalysis["fileLastUpdatedByPatchId"],
   ): Promise<Record<SourcePath, ValidationError[]>> {
     const validateFileAtSourcePath = async (
       sourcePath: SourcePath,
-      value: FileSource
+      value: FileSource,
     ): Promise<ValidationErrors> => {
       const [fullModulePath, modulePath] =
         Internal.splitModuleFilePathAndModulePath(sourcePath);
@@ -506,7 +506,7 @@ export abstract class ValOps {
         const { schema: resolvedSchema } = Internal.resolvePath(
           modulePath,
           sources[fullModulePath],
-          schemas[fullModulePath]
+          schemas[fullModulePath],
         );
         schemaAtPath = resolvedSchema;
       } catch (e) {
@@ -542,7 +542,7 @@ export abstract class ValOps {
           await this.getBase64EncodedBinaryFileMetadataFromPatch(
             filePath,
             type,
-            patchId
+            patchId,
           );
         if (patchFileMetadata.errors) {
           metadataErrors = patchFileMetadata.errors;
@@ -552,7 +552,7 @@ export abstract class ValOps {
       } else {
         const patchFileMetadata = await this.getBinaryFileMetadata(
           filePath,
-          type
+          type,
         );
         if (patchFileMetadata.errors) {
           metadataErrors = patchFileMetadata.errors;
@@ -580,7 +580,7 @@ export abstract class ValOps {
       }
       const metadataSourcePath = Internal.createValPathOfItem(
         sourcePath,
-        "metadata"
+        "metadata",
       );
       if (!metadataSourcePath) {
         throw new Error("Could not create metadata path");
@@ -602,7 +602,7 @@ export abstract class ValOps {
         const fieldMetadata = metadata[field];
         const fieldSourcePath = Internal.createValPathOfItem(
           metadataSourcePath,
-          field
+          field,
         );
         if (!fieldSourcePath) {
           throw new Error("Could not create field path");
@@ -621,9 +621,9 @@ export abstract class ValOps {
           fieldErrors[fieldSourcePath] = [
             {
               message: `Metadata field '${field}' of value: ${JSON.stringify(
-                currentValueMetadata[field]
+                currentValueMetadata[field],
               )} does not match expected value: ${JSON.stringify(
-                fieldMetadata
+                fieldMetadata,
               )}`,
               value: {
                 actual: currentValueMetadata[field],
@@ -647,9 +647,9 @@ export abstract class ValOps {
               } else {
                 return [];
               }
-            }
-          )
-        )
+            },
+          ),
+        ),
       )
     ).flat();
     return Object.fromEntries(allErrors);
@@ -657,12 +657,12 @@ export abstract class ValOps {
 
   // #region prepareCommit
   async prepare(
-    patchAnalysis: PatchAnalysis & Patches
+    patchAnalysis: PatchAnalysis & Patches,
   ): Promise<PreparedCommit> {
     const { patchesByModule, fileLastUpdatedByPatchId } = patchAnalysis;
     const applySourceFilePatches = async (
       path: ModuleFilePath,
-      patches: { patchId: PatchId }[]
+      patches: { patchId: PatchId }[],
     ): Promise<
       | {
           path: ModuleFilePath;
@@ -696,7 +696,7 @@ export abstract class ValOps {
       let tsSourceFile = ts.createSourceFile(
         "<val>",
         sourceFile,
-        ts.ScriptTarget.ES2015
+        ts.ScriptTarget.ES2015,
       );
       const appliedPatches: PatchId[] = [];
       const triedPatches: PatchId[] = [];
@@ -725,7 +725,7 @@ export abstract class ValOps {
       if (errors.length === 0) {
         // https://github.com/microsoft/TypeScript/issues/36174
         let sourceFileText = unescape(
-          tsSourceFile.getText(tsSourceFile).replace(/\\u/g, "%u")
+          tsSourceFile.getText(tsSourceFile).replace(/\\u/g, "%u"),
         );
         if (this.options?.formatter) {
           try {
@@ -759,8 +759,8 @@ export abstract class ValOps {
     };
     const allResults = await Promise.all(
       Object.entries(patchesByModule).map(([path, patches]) =>
-        applySourceFilePatches(path as ModuleFilePath, patches)
-      )
+        applySourceFilePatches(path as ModuleFilePath, patches),
+      ),
     );
     let hasErrors = false;
     const sourceFilePatchErrors: Record<ModuleFilePath, PatchSourceError[]> =
@@ -810,8 +810,8 @@ export abstract class ValOps {
               message: "Patch not applied",
             };
           }
-        }
-      )
+        },
+      ),
     );
 
     const res: PreparedCommit = {
@@ -831,7 +831,7 @@ export abstract class ValOps {
   async createPatch(
     path: ModuleFilePath,
     patch: Patch,
-    authorId: AuthorId | null
+    authorId: AuthorId | null,
   ): Promise<
     | {
         patchId: PatchId;
@@ -894,7 +894,7 @@ export abstract class ValOps {
         if (files[filePath]) {
           files[filePath] = {
             error: new PatchError(
-              "Cannot have multiple files with same path in same patch"
+              "Cannot have multiple files with same path in same patch",
             ),
           };
         } else if (typeof value !== "string") {
@@ -921,7 +921,7 @@ export abstract class ValOps {
     const saveRes = await this.saveSourceFilePatch(
       path,
       sourceFileOps,
-      authorId
+      authorId,
     );
     if (saveRes.error) {
       return { error: saveRes.error };
@@ -943,28 +943,28 @@ export abstract class ValOps {
                 const { schema: schemaAtPath } = Internal.resolvePath(
                   modulePath,
                   source,
-                  schema
+                  schema,
                 );
                 type =
                   schemaAtPath instanceof ImageSchema ||
                   schemaAtPath instanceof RichTextSchema // if it's a rich text schema, we assume it's an image - hope this assumption holds!
                     ? "image"
                     : schemaAtPath instanceof FileSchema
-                    ? "file"
-                    : schemaAtPath.serialize().type;
+                      ? "file"
+                      : schemaAtPath.serialize().type;
               } catch (e) {
                 if (e instanceof Error) {
                   return {
                     filePath,
                     error: new PatchError(
-                      `Could not resolve file type at: ${modulePath}. Error: ${e.message}`
+                      `Could not resolve file type at: ${modulePath}. Error: ${e.message}`,
                     ),
                   };
                 }
                 return {
                   filePath,
                   error: new PatchError(
-                    `Could not resolve file type at: ${modulePath}. Unknown error.`
+                    `Could not resolve file type at: ${modulePath}. Unknown error.`,
                   ),
                 };
               }
@@ -972,7 +972,7 @@ export abstract class ValOps {
                 return {
                   filePath,
                   error: new PatchError(
-                    "Unknown file type (resolved from schema): " + type
+                    "Unknown file type (resolved from schema): " + type,
                   ),
                 };
               }
@@ -983,7 +983,7 @@ export abstract class ValOps {
                   filePath,
                   error: new PatchError(
                     "Could not get mimeType from base 64 encoded value. First chars were: " +
-                      data.value.slice(0, 20)
+                      data.value.slice(0, 20),
                   ),
                 };
               }
@@ -993,14 +993,14 @@ export abstract class ValOps {
                 return {
                   filePath,
                   error: new PatchError(
-                    "Could not create buffer from base 64 encoded value"
+                    "Could not create buffer from base 64 encoded value",
                   ),
                 };
               }
               const metadataOps = createMetadataFromBuffer(
                 type,
                 mimeType,
-                buffer
+                buffer,
               );
               if (metadataOps.errors) {
                 return {
@@ -1008,7 +1008,7 @@ export abstract class ValOps {
                   error: new PatchError(
                     `Could not get metadata. Errors: ${metadataOps.errors
                       .map((error) => error.message)
-                      .join(", ")}`
+                      .join(", ")}`,
                   ),
                 };
               }
@@ -1020,7 +1020,7 @@ export abstract class ValOps {
                   patchId,
                   data.value,
                   type,
-                  metadataOps.metadata
+                  metadataOps.metadata,
                 );
                 if (!lastRes.error) {
                   return { filePath };
@@ -1030,12 +1030,12 @@ export abstract class ValOps {
                 filePath,
                 error: new PatchError(
                   lastRes?.error?.message ||
-                    "Unexpectedly could not save patch file"
+                    "Unexpectedly could not save patch file",
                 ),
               };
             }
-          }
-        )
+          },
+        ),
       );
     return {
       patchId,
@@ -1055,29 +1055,29 @@ export abstract class ValOps {
   protected abstract saveSourceFilePatch(
     path: ModuleFilePath,
     patch: Patch,
-    authorId: AuthorId | null
+    authorId: AuthorId | null,
   ): Promise<WithGenericError<{ patchId: PatchId }>>;
   protected abstract getSourceFile(
-    path: ModuleFilePath
+    path: ModuleFilePath,
   ): Promise<WithGenericError<{ data: string }>>;
   protected abstract saveBase64EncodedBinaryFileFromPatch(
     filePath: string,
     patchId: PatchId,
     data: string,
     type: "file" | "image",
-    metadata: MetadataOfType<"file" | "image">
+    metadata: MetadataOfType<"file" | "image">,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>>;
   abstract getBase64EncodedBinaryFileFromPatch(
     filePath: string,
-    patchId: PatchId
+    patchId: PatchId,
   ): Promise<Buffer | null>;
   protected abstract getBase64EncodedBinaryFileMetadataFromPatch<
-    T extends "file" | "image"
+    T extends "file" | "image",
   >(filePath: string, type: T, patchId: PatchId): Promise<OpsMetadata<T>>;
   abstract getBinaryFile(filePath: string): Promise<Buffer | null>;
   protected abstract getBinaryFileMetadata<T extends "file" | "image">(
     filePath: string,
-    type: T
+    type: T,
   ): Promise<OpsMetadata<T>>;
   abstract deletePatches(patchIds: PatchId[]): Promise<
     | { deleted: PatchId[]; errors?: undefined; error?: undefined }
@@ -1092,7 +1092,7 @@ export abstract class ValOps {
 function isOnlyFileCheckValidationError(validationError: ValidationError) {
   if (
     validationError.fixes?.every(
-      (f) => f === "file:check-metadata" || f === "image:replace-metadata"
+      (f) => f === "file:check-metadata" || f === "image:replace-metadata",
     )
   ) {
     return true;
@@ -1218,7 +1218,7 @@ export type PatchesMetadata = {
 };
 
 export function getFieldsForType<T extends BinaryFileType>(
-  type: T
+  type: T,
 ): (keyof MetadataOfType<T> & string)[] {
   if (type === "file") {
     return ["sha256", "mimeType"] as (keyof MetadataOfType<"file"> & string)[];
@@ -1237,7 +1237,7 @@ export function getFieldsForType<T extends BinaryFileType>(
 export function createMetadataFromBuffer<T extends BinaryFileType>(
   type: BinaryFileType,
   mimeType: string,
-  buffer: Buffer
+  buffer: Buffer,
 ): OpsMetadata<T> {
   const sha256 = getSha256(mimeType, buffer);
   const errors = [];
@@ -1289,7 +1289,7 @@ export function getMimeTypeFromBase64(content: string): string | null {
   if (dataIndex > -1 || base64Index > -1) {
     const mimeType = content.slice(
       dataIndex + base64DataAttr.length,
-      base64Index
+      base64Index,
     );
     const normalizedMimeType =
       mimeType === "image/jpg" ? "image/jpeg" : mimeType;
@@ -1395,7 +1395,7 @@ export function bufferFromDataUrl(dataUrl: string): Buffer | undefined {
   if (base64Data) {
     return Buffer.from(
       base64Data,
-      "base64" // TODO: why does it not work with base64url?
+      "base64", // TODO: why does it not work with base64url?
     );
   }
 }

@@ -18,7 +18,7 @@ export function createFilePatch(
   path: string[],
   data: string | null,
   filename: string | null,
-  metadata: FileMetadata | ImageMetadata | undefined
+  metadata: FileMetadata | ImageMetadata | undefined,
 ): Patch {
   const newFilePath = createFilename(data, filename, metadata);
   if (!newFilePath || !metadata) {
@@ -91,7 +91,7 @@ export function FileField({
   schemaOptions?: FileOptions;
 }) {
   const [data, setData] = useState<{ filename?: string; src: string } | null>(
-    null
+    null,
   );
   const [loading, setLoading] = useState(false);
   const [url, setUrl] = useState<string>();
@@ -153,9 +153,9 @@ export function FileField({
                           path,
                           data.src,
                           data.filename ?? null,
-                          metadata
-                        )
-                      )
+                          metadata,
+                        ),
+                      ),
                     ).finally(() => {
                       setLoading(false);
                     });

@@ -78,7 +78,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, cache }) => {
       }
       // TODO: applyRes error
     },
-    [patches]
+    [patches],
   );
 
   const [loading, setLoading] = useState(false);
@@ -139,7 +139,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, cache }) => {
       if (patchesRes.status === 200) {
         const patches: PatchId[] = [];
         for (const [patchId, patchData] of Object.entries(
-          patchesRes.json.patches
+          patchesRes.json.patches,
         )) {
           if (!patchData?.appliedAt) {
             patches.push(patchId as PatchId);
@@ -236,7 +236,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, cache }) => {
                               "DELETE",
                               {
                                 query: { id: patches },
-                              }
+                              },
                             );
                             if (deleteRes.status === 200) {
                               setPatches([]);
@@ -334,12 +334,12 @@ function ValModule({
   initOnSubmit: InitOnSubmit;
 }): React.ReactElement {
   const [, modulePath] = Internal.splitModuleFilePathAndModulePath(
-    path as SourcePath
+    path as SourcePath,
   );
   const resolvedPath = Internal.resolvePath(
     modulePath,
     moduleSource,
-    moduleSchema
+    moduleSchema,
   );
   if (!resolvedPath) {
     console.error("Could not resolve module: " + path, {

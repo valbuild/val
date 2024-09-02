@@ -32,7 +32,7 @@ export class ValEvents {
     return () => {
       this.listeners[subscriberId].splice(
         this.listeners[subscriberId].indexOf(listener),
-        1
+        1,
       );
     };
   };

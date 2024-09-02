@@ -10,7 +10,7 @@ export function warn(message: string) {
 
 export function info(
   message: string,
-  opts: { isCodeSnippet?: true; isGood?: true } = {}
+  opts: { isCodeSnippet?: true; isGood?: true } = {},
 ) {
   if (opts.isCodeSnippet) {
     console.log(chalk.cyanBright("$ >        ") + chalk.cyan(message));

@@ -76,12 +76,12 @@ export function ValOverlay({
     Object.fromEntries(
       paths.map((path) => {
         return [path, { status: "not-asked" }] as const;
-      })
-    )
+      }),
+    ),
   );
   useEffect(() => {
     setFormData(
-      Object.fromEntries(paths.map((path) => [path, { status: "loading" }]))
+      Object.fromEntries(paths.map((path) => [path, { status: "loading" }])),
     );
     async function load() {
       const entries = await Promise.all(
@@ -125,7 +125,7 @@ export function ValOverlay({
               ] as const;
             }
           }
-        })
+        }),
       );
       setFormData(Object.fromEntries(entries));
     }
@@ -173,7 +173,7 @@ export function ValOverlay({
       }
       reloadPage(true);
     },
-    [patches]
+    [patches],
   );
 
   return (
@@ -224,7 +224,7 @@ export function ValOverlay({
                       } else {
                         alert("Could not publish");
                       }
-                    }
+                    },
                   );
                 }}
               />

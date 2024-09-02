@@ -33,9 +33,12 @@ export type ImageMetadata = {
   };
 };
 export class ImageSchema<
-  Src extends FileSource<ImageMetadata | undefined> | null
+  Src extends FileSource<ImageMetadata | undefined> | null,
 > extends Schema<Src> {
-  constructor(readonly options?: ImageOptions, readonly opt: boolean = false) {
+  constructor(
+    readonly options?: ImageOptions,
+    readonly opt: boolean = false,
+  ) {
     super();
   }
 

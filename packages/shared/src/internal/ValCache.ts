@@ -30,7 +30,7 @@ export class ValCache {
       console.error(
         "Val: failed to get patches",
         patchesResponse.json.message,
-        patchesResponse.json
+        patchesResponse.json,
       );
       return;
     }
@@ -171,7 +171,7 @@ export class ValCache {
   async applyPatch(
     path: ModuleFilePath,
     patchIds: PatchId[],
-    patch: Patch
+    patch: Patch,
   ): Promise<
     result.Result<
       {
@@ -265,7 +265,7 @@ export class ValCache {
     if (schemaRes.status === 200) {
       const paths: ModuleFilePath[] = [];
       for (const moduleId of Object.keys(
-        schemaRes.json.schemas
+        schemaRes.json.schemas,
       ) as ModuleFilePath[]) {
         const schema = schemaRes.json.schemas[moduleId];
         if (schema) {

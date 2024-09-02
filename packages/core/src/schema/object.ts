@@ -35,7 +35,10 @@ type ObjectSchemaSrcOf<Props extends ObjectSchemaProps> = {
 export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
   ObjectSchemaSrcOf<Props>
 > {
-  constructor(readonly items: Props, readonly opt: boolean = false) {
+  constructor(
+    readonly items: Props,
+    readonly opt: boolean = false,
+  ) {
     super();
   }
 
@@ -66,7 +69,7 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
           `Internal error: could not create path at ${
             !path && typeof path === "string" ? "<empty string>" : path
           } at key ${key}`, // Should! never happen
-          src
+          src,
         );
       } else {
         const subError = schema.validate(subPath, src[key]);
@@ -111,7 +114,7 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
         Object.entries(this.items).map(([key, schema]) => [
           key,
           schema.serialize(),
-        ])
+        ]),
       ),
       opt: this.opt,
     };
@@ -119,7 +122,7 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
 }
 
 export const object = <Props extends ObjectSchemaProps>(
-  schema: Props
+  schema: Props,
 ): Schema<{
   [key in keyof Props]: SelectorOfSchema<Props[key]>;
 }> => {

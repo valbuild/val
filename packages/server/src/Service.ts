@@ -39,13 +39,13 @@ export async function createService(
     },
     rmFile: fs.rmSync,
   },
-  loader?: ValModuleLoader
+  loader?: ValModuleLoader,
 ): Promise<Service> {
   const compilerOptions = getCompilerOptions(projectRoot, host);
   const sourceFileHandler = new ValSourceFileHandler(
     projectRoot,
     compilerOptions,
-    host
+    host,
   );
   const module = await newQuickJSWASMModule();
   const runtime = await newValQuickJSRuntime(
@@ -60,8 +60,8 @@ export async function createService(
           ? process.env.NODE_ENV === "development"
             ? false
             : true
-          : opts.disableCache
-      )
+          : opts.disableCache,
+      ),
   );
   return new Service(projectRoot, sourceFileHandler, runtime);
 }
@@ -72,7 +72,7 @@ export class Service {
   constructor(
     projectRoot: string,
     readonly sourceFileHandler: ValSourceFileHandler,
-    private readonly runtime: QuickJSRuntime
+    private readonly runtime: QuickJSRuntime,
   ) {
     this.projectRoot = projectRoot;
   }
@@ -80,20 +80,20 @@ export class Service {
   async get(
     moduleFilePath: ModuleFilePath,
     modulePath: ModulePath,
-    options?: { validate: boolean; source: boolean; schema: boolean }
+    options?: { validate: boolean; source: boolean; schema: boolean },
   ): Promise<SerializedModuleContent> {
     const valModule = await readValFile(
       moduleFilePath,
       this.projectRoot,
       this.runtime,
-      options ?? { validate: true, source: true, schema: true }
+      options ?? { validate: true, source: true, schema: true },
     );
 
     if (valModule.source && valModule.schema) {
       const resolved = Internal.resolvePath(
         modulePath,
         valModule.source,
-        valModule.schema
+        valModule.schema,
       );
       const sourcePath = (
         resolved.path
@@ -114,10 +114,10 @@ export class Service {
                 fatal: valModule.errors.fatal || undefined,
               }
             : valModule.errors
-            ? {
-                fatal: valModule.errors.fatal || undefined,
-              }
-            : false,
+              ? {
+                  fatal: valModule.errors.fatal || undefined,
+                }
+              : false,
       };
     } else {
       return valModule;
@@ -130,7 +130,7 @@ export class Service {
       this.projectRoot,
       patch,
       this.sourceFileHandler,
-      this.runtime
+      this.runtime,
     );
   }
 

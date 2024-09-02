@@ -26,7 +26,7 @@ import {
 } from "./remirrorTypes";
 
 export function richTextToRemirror(
-  richtext: RichTextSource<AllRichTextOptions>
+  richtext: RichTextSource<AllRichTextOptions>,
 ): RemirrorJSON {
   return {
     type: "doc",
@@ -70,7 +70,7 @@ function convertHeadingToRemirror(
     | LinkNode<AllRichTextOptions>
     | ImageNode<AllRichTextOptions>
     | BrNode
-  )[]
+  )[],
 ): RemirrorHeading {
   return {
     type: "heading",
@@ -94,7 +94,7 @@ function convertInlineToRemirror(
     | SpanNode<AllRichTextOptions>
     | ImageNode<AllRichTextOptions>
     | LinkNode<AllRichTextOptions>
-    | BrNode
+    | BrNode,
 ): (RemirrorText | RemirrorImage | RemirrorBr)[] {
   if (typeof child === "string") {
     return [convertStringToRemirror(child)];
@@ -112,7 +112,7 @@ function convertInlineToRemirror(
 }
 
 function convertSpanNodeToRemirror(
-  spanNode: SpanNode<AllRichTextOptions>
+  spanNode: SpanNode<AllRichTextOptions>,
 ): RemirrorText[] {
   if (spanNode.styles.length === 0 && spanNode.children.length === 1) {
     if (typeof spanNode.children[0] === "string") {
@@ -121,7 +121,7 @@ function convertSpanNodeToRemirror(
       // TODO: replace with error logging and something more graceful?
       throw Error(
         "Unexpected amount of children in span node: " +
-          JSON.stringify(spanNode, null, 2)
+          JSON.stringify(spanNode, null, 2),
       );
     }
   }
@@ -155,7 +155,7 @@ function convertParagraphToRemirror(
     | SpanNode<AllRichTextOptions>
     | LinkNode<AllRichTextOptions>
     | ImageNode<AllRichTextOptions>
-  )[]
+  )[],
 ): RemirrorParagraph {
   return {
     type: "paragraph",
@@ -177,7 +177,7 @@ function convertParagraphToRemirror(
         default: {
           const _exhaustiveCheck: never = child;
           throw Error(
-            "Unexpected paragraph child: " + JSON.stringify(_exhaustiveCheck)
+            "Unexpected paragraph child: " + JSON.stringify(_exhaustiveCheck),
           );
         }
       }
@@ -193,7 +193,7 @@ function createRemirrorBr(): RemirrorBr {
 }
 
 function convertLinkNodeToRemirror(
-  linkNode: LinkNode<AllRichTextOptions>
+  linkNode: LinkNode<AllRichTextOptions>,
 ): (RemirrorText | RemirrorImage | RemirrorBr)[] {
   return linkNode.children
     .flatMap(convertInlineToRemirror)
@@ -216,7 +216,7 @@ function convertLinkNodeToRemirror(
 }
 
 function convertImageNodeToRemirror(
-  imageNode: ImageNode<AllRichTextOptions>
+  imageNode: ImageNode<AllRichTextOptions>,
 ): RemirrorImage {
   const fileSource = imageNode.src;
   if (!(VAL_EXTENSION in fileSource) || fileSource[VAL_EXTENSION] !== "file") {
@@ -234,7 +234,7 @@ function convertImageNodeToRemirror(
 }
 
 function convertUlToRemirror(
-  ulNode: UnorderedListNode<AllRichTextOptions>
+  ulNode: UnorderedListNode<AllRichTextOptions>,
 ): RemirrorBulletList {
   return {
     type: "bulletList",
@@ -243,7 +243,7 @@ function convertUlToRemirror(
 }
 
 function convertOlToRemirror(
-  olNode: OrderedListNode<AllRichTextOptions>
+  olNode: OrderedListNode<AllRichTextOptions>,
 ): RemirrorOrderedList {
   return {
     type: "orderedList",
@@ -252,7 +252,7 @@ function convertOlToRemirror(
 }
 
 function convertListItemToRemirror(
-  liNode: ListItemNode<AllRichTextOptions>
+  liNode: ListItemNode<AllRichTextOptions>,
 ): RemirrorListItem {
   return {
     type: "listItem",
@@ -261,7 +261,7 @@ function convertListItemToRemirror(
 }
 
 function convertListItemToRemirrorParagraph(
-  rtChildren: ListItemNode<AllRichTextOptions>["children"]
+  rtChildren: ListItemNode<AllRichTextOptions>["children"],
 ): RemirrorListItem["content"] {
   const children: RemirrorListItem["content"] = [];
   for (const child of rtChildren) {
@@ -313,7 +313,7 @@ function convertListItemToRemirrorParagraph(
         default: {
           const _exhaustiveCheck: never = child;
           throw Error(
-            "Unexpected list item child: " + JSON.stringify(_exhaustiveCheck)
+            "Unexpected list item child: " + JSON.stringify(_exhaustiveCheck),
           );
         }
       }

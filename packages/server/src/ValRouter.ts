@@ -131,7 +131,7 @@ export async function createValServer(
   route: string,
   opts: ValApiOptions,
   callbacks: ValServerCallbacks,
-  formatter?: (code: string, filePath: string) => string | Promise<string>
+  formatter?: (code: string, filePath: string) => string | Promise<string>,
 ): Promise<ValServer> {
   const valServerConfig = await initHandlerOptions(route, opts);
   return ValServer(
@@ -140,13 +140,13 @@ export async function createValServer(
       formatter,
       ...valServerConfig,
     },
-    callbacks
+    callbacks,
   );
 }
 
 async function initHandlerOptions(
   route: string,
-  opts: ValApiOptions
+  opts: ValApiOptions,
 ): Promise<ValServerConfig> {
   const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
   const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
@@ -164,7 +164,7 @@ async function initHandlerOptions(
   if (isProxyMode) {
     if (!maybeApiKey || !maybeValSecret) {
       throw new Error(
-        "VAL_API_KEY and VAL_SECRET env vars must both be set in proxy mode"
+        "VAL_API_KEY and VAL_SECRET env vars must both be set in proxy mode",
       );
     }
     const valContentUrl =
@@ -181,7 +181,7 @@ async function initHandlerOptions(
     }
     if (!maybeValProject) {
       throw new Error(
-        "Proxy mode does not work unless the 'project' option in val.config is defined or the VAL_PROJECT env var is set."
+        "Proxy mode does not work unless the 'project' option in val.config is defined or the VAL_PROJECT env var is set.",
       );
     }
     const coreVersion = opts.versions?.core;
@@ -227,16 +227,16 @@ async function initHandlerOptions(
 
 // TODO: remove
 export async function safeReadGit(
-  cwd: string
+  cwd: string,
 ): Promise<{ commit?: string; branch?: string }> {
   async function findGitHead(
     currentDir: string,
-    depth: number
+    depth: number,
   ): Promise<{ commit?: string; branch?: string }> {
     const gitHeadPath = path.join(currentDir, ".git", "HEAD");
     if (depth > 1000) {
       console.error(
-        `Reached max depth while scanning for .git folder. Current working dir: ${cwd}.`
+        `Reached max depth while scanning for .git folder. Current working dir: ${cwd}.`,
       );
       return {
         commit: undefined,
@@ -286,13 +286,13 @@ export async function safeReadGit(
 
 async function readCommit(
   gitDir: string,
-  branchName: string
+  branchName: string,
 ): Promise<string | undefined> {
   try {
     return (
       await fs.readFile(
         path.join(gitDir, ".git", "refs", "heads", branchName),
-        "utf-8"
+        "utf-8",
       )
     ).trim();
   } catch (err) {
@@ -303,7 +303,7 @@ async function readCommit(
 export function createValApiRouter<Res>(
   route: string,
   valServerPromise: Promise<ValServer>,
-  convert: (valServerRes: ValServerGenericResult) => Res
+  convert: (valServerRes: ValServerGenericResult) => Res,
 ): (req: Request) => Promise<Res> {
   const uiRequestHandler = createUIRequestHandler();
   return async (req): Promise<Res> => {
@@ -333,7 +333,7 @@ export function createValApiRouter<Res>(
     };
     async function getValServerResponse(
       reqApiRoutePath: string,
-      req: Request
+      req: Request,
     ): Promise<ValServerGenericResult> {
       const anyApi =
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -359,7 +359,7 @@ export function createValApiRouter<Res>(
               if (!pathRes.success) {
                 return zodErrorResult(
                   pathRes.error,
-                  `invalid path: '${subPath}' endpoint: '${routeDef}'`
+                  `invalid path: '${subPath}' endpoint: '${routeDef}'`,
                 );
               } else {
                 path = pathRes.data;
@@ -390,7 +390,7 @@ export function createValApiRouter<Res>(
           status: 404,
           json: {
             message: `Requested method ${method} on route ${route} is not valid. Valid methods are: ${Object.keys(
-              anyApi[route]
+              anyApi[route],
             ).join(", ")}`,
             details: {
               route,
@@ -400,7 +400,7 @@ export function createValApiRouter<Res>(
         };
       }
       const endpointImpl = anyValServer?.[route]?.[method] as (
-        reqData: Record<string, unknown>
+        reqData: Record<string, unknown>,
       ) => Promise<ValServerGenericResult>;
       if (!endpointImpl) {
         return {
@@ -445,7 +445,7 @@ export function createValApiRouter<Res>(
         return zodErrorResult(cookiesRes.error, "invalid cookies");
       }
       const actualQueryParams = groupQueryParams(
-        Array.from(url.searchParams.entries())
+        Array.from(url.searchParams.entries()),
       );
       let query = {};
       if (reqDefinition.query) {
@@ -480,7 +480,7 @@ export function createValApiRouter<Res>(
           }
           if (!isArray) {
             arrayCompatibleRule = arrayCompatibleRule.transform(
-              (arg) => arg && arg[0]
+              (arg) => arg && arg[0],
             );
           }
           queryRules[key] = arrayCompatibleRule;
@@ -489,7 +489,7 @@ export function createValApiRouter<Res>(
         if (!queryRes.success) {
           return zodErrorResult(
             queryRes.error,
-            `invalid query params: (${JSON.stringify(actualQueryParams)})`
+            `invalid query params: (${JSON.stringify(actualQueryParams)})`,
           );
         }
         query = queryRes.data;
@@ -523,7 +523,7 @@ export function createValApiRouter<Res>(
 
     if (path.startsWith("/static")) {
       return convert(
-        await uiRequestHandler(path.slice("/static".length), url.href)
+        await uiRequestHandler(path.slice("/static".length), url.href),
       );
     } else {
       return convert(await getValServerResponse(path, req));
@@ -538,7 +538,7 @@ function formatZodErrorString(error: z.ZodError): string {
 
 function zodErrorResult(
   error: z.ZodError,
-  message: string
+  message: string,
 ): ValServerGenericResult {
   return {
     status: 400,
@@ -557,10 +557,10 @@ function getCookies<
     val_session?: z.ZodString | z.ZodOptional<z.ZodString>;
     val_state?: z.ZodString | z.ZodOptional<z.ZodString>;
     val_enable?: z.ZodString | z.ZodOptional<z.ZodString>;
-  }
+  },
 >(
   req: Request,
-  cookiesDef: Cookies
+  cookiesDef: Cookies,
 ): z.SafeParseReturnType<
   Record<string, string>,
   {

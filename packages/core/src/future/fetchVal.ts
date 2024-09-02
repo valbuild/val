@@ -20,24 +20,24 @@ import {
 import { Json } from "../Json";
 
 export function fetchVal<T extends SelectorSource>(
-  selector: T
+  selector: T,
 ): SelectorOf<T> extends GenericSelector<infer S>
   ? Promise<Val<JsonOfSource<S>>>
   : never {
   return Promise.resolve(
-    getVal(selector) as unknown
+    getVal(selector) as unknown,
   ) as SelectorOf<T> extends GenericSelector<infer S>
     ? Promise<Val<JsonOfSource<S>>>
     : never;
 }
 
 export function getVal<T extends SelectorSource>(
-  selector: T
+  selector: T,
 ): SelectorOf<T> extends GenericSelector<infer S>
   ? Val<JsonOfSource<S>>
   : never {
   return newValProxy(
-    serializedValOfSelectorSource(selector)
+    serializedValOfSelectorSource(selector),
   ) as SelectorOf<T> extends GenericSelector<infer S>
     ? Val<JsonOfSource<S>>
     : never;
@@ -68,7 +68,7 @@ function isObjectOrObjectSelector(child: any) {
 }
 
 export function serializedValOfSelectorSource<T extends SelectorSource>(
-  selector: T
+  selector: T,
 ) {
   const wrappedSelector = newSelectorProxy(selector); // NOTE: we do this if call-site uses a literal with selectors inside
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -85,8 +85,8 @@ export function serializedValOfSelectorSource<T extends SelectorSource>(
           rec(
             isSelector(item) // NOTE: We do this since selectors currently do not create selectors of items unless specifically required.
               ? item
-              : newSelectorProxy(item, createValPathOfItem(valPath, i))
-          )
+              : newSelectorProxy(item, createValPathOfItem(valPath, i)),
+          ),
         ),
         valPath,
       };
@@ -102,9 +102,9 @@ export function serializedValOfSelectorSource<T extends SelectorSource>(
               rec(
                 isSelector(value) // NOTE: We do this since selectors currently do not create selectors of items unless specifically required.
                   ? value
-                  : newSelectorProxy(value, createValPathOfItem(valPath, key))
+                  : newSelectorProxy(value, createValPathOfItem(valPath, key)),
               ),
-            ])
+            ]),
           ),
         valPath,
       };
@@ -137,7 +137,7 @@ function strip(value: SerializedVal | Json): Json {
           Object.entries(val).map(([key, value]) => [
             key,
             value && strip(value),
-          ])
+          ]),
         ) as Json;
       }
     // intentional fallthrough
@@ -183,7 +183,7 @@ function newValProxy<T extends Json>(val: SerializedVal): Val<T> {
                   Reflect.get(target, prop)?.valPath ??
                   createValPathOfItem(
                     val.valPath,
-                    Array.isArray(target) ? Number(prop) : prop
+                    Array.isArray(target) ? Number(prop) : prop,
                   ),
               } as SerializedVal);
             }

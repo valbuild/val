@@ -4,7 +4,10 @@ import { JSONValue } from "@valbuild/core/patch";
 import { JsonPrimitive, FileSource, FILE_REF_PROP } from "@valbuild/core";
 
 export class ValSyntaxError {
-  constructor(public message: string, public node: ts.Node) {}
+  constructor(
+    public message: string,
+    public node: ts.Node,
+  ) {}
 }
 
 export type ValSyntaxErrorTree =
@@ -13,7 +16,7 @@ export type ValSyntaxErrorTree =
 
 function forEachError(
   tree: ValSyntaxErrorTree,
-  callback: (error: ValSyntaxError) => void
+  callback: (error: ValSyntaxError) => void,
 ) {
   if (Array.isArray(tree)) {
     for (const subtree of tree) {
@@ -25,7 +28,7 @@ function forEachError(
 }
 
 export function flattenErrors(
-  tree: ValSyntaxErrorTree
+  tree: ValSyntaxErrorTree,
 ): [ValSyntaxError, ...ValSyntaxError[]] {
   const result: ValSyntaxError[] = [];
   forEachError(tree, result.push.bind(result));
@@ -34,7 +37,7 @@ export function flattenErrors(
 
 export function flatMapErrors<T>(
   tree: ValSyntaxErrorTree,
-  cb: (error: ValSyntaxError) => T
+  cb: (error: ValSyntaxError) => T,
 ): [T, ...T[]] {
   const result: T[] = [];
   forEachError(tree, (error) => result.push(cb(error)));
@@ -43,7 +46,7 @@ export function flatMapErrors<T>(
 
 export function formatSyntaxError(
   error: ValSyntaxError,
-  sourceFile: ts.SourceFile
+  sourceFile: ts.SourceFile,
 ): string {
   const pos = sourceFile.getLineAndCharacterOfPosition(error.node.pos);
   return `${pos.line}:${pos.character} ${error.message}`;
@@ -51,7 +54,7 @@ export function formatSyntaxError(
 
 export function formatSyntaxErrorTree(
   tree: ValSyntaxErrorTree,
-  sourceFile: ts.SourceFile
+  sourceFile: ts.SourceFile,
 ): string[] {
   return flatMapErrors(tree, (error) => formatSyntaxError(error, sourceFile));
 }
@@ -71,7 +74,7 @@ type LiteralPropertyName = (
 };
 
 function isLiteralPropertyName(
-  name: ts.PropertyName
+  name: ts.PropertyName,
 ): name is LiteralPropertyName {
   return (
     ts.isIdentifier(name) ||
@@ -85,9 +88,9 @@ type LiteralPropertyAssignment = ts.PropertyAssignment & {
 };
 
 function validateObjectProperties<
-  T extends readonly ts.ObjectLiteralElementLike[]
+  T extends readonly ts.ObjectLiteralElementLike[],
 >(
-  nodes: T
+  nodes: T,
 ): result.Result<T & readonly LiteralPropertyAssignment[], ValSyntaxErrorTree> {
   const errors: ValSyntaxError[] = [];
   for (const node of nodes) {
@@ -95,15 +98,15 @@ function validateObjectProperties<
       errors.push(
         new ValSyntaxError(
           "Object literal element must be property assignment",
-          node
-        )
+          node,
+        ),
       );
     } else if (!isLiteralPropertyName(node.name)) {
       errors.push(
         new ValSyntaxError(
           "Object literal element key must be an identifier or a literal",
-          node
-        )
+          node,
+        ),
       );
     }
   }
@@ -118,7 +121,7 @@ function validateObjectProperties<
  * validating its children.
  */
 export function shallowValidateExpression(
-  value: ts.Expression
+  value: ts.Expression,
 ): ValSyntaxError | undefined {
   return ts.isStringLiteralLike(value) ||
     ts.isNumericLiteral(value) ||
@@ -136,7 +139,7 @@ export function shallowValidateExpression(
  * Validates that the expression is JSON compatible.
  */
 export function deepValidateExpression(
-  value: ts.Expression
+  value: ts.Expression,
 ): result.Result<void, ValSyntaxErrorTree> {
   if (ts.isStringLiteralLike(value)) {
     return result.voidOk;
@@ -156,11 +159,11 @@ export function deepValidateExpression(
       result.flatMap((assignments: ts.NodeArray<LiteralPropertyAssignment>) =>
         pipe(
           assignments.map((assignment) =>
-            deepValidateExpression(assignment.initializer)
+            deepValidateExpression(assignment.initializer),
           ),
-          result.allV
-        )
-      )
+          result.allV,
+        ),
+      ),
     );
   } else if (isValFileMethodCall(value)) {
     if (value.arguments.length >= 1) {
@@ -168,8 +171,8 @@ export function deepValidateExpression(
         return result.err(
           new ValSyntaxError(
             "First argument of c.file must be a string literal",
-            value.arguments[0]
-          )
+            value.arguments[0],
+          ),
         );
       }
     }
@@ -178,15 +181,15 @@ export function deepValidateExpression(
         return result.err(
           new ValSyntaxError(
             "Second argument of c.file must be an object literal",
-            value.arguments[1]
-          )
+            value.arguments[1],
+          ),
         );
       }
     }
     return result.voidOk;
   } else {
     return result.err(
-      new ValSyntaxError("Expression must be a literal or call c.file", value)
+      new ValSyntaxError("Expression must be a literal or call c.file", value),
     );
   }
 }
@@ -195,7 +198,7 @@ export function deepValidateExpression(
  * Evaluates the expression as a JSON value
  */
 export function evaluateExpression(
-  value: ts.Expression
+  value: ts.Expression,
 ): result.Result<JSONValue, ValSyntaxErrorTree> {
   // The text property of a LiteralExpression stores the interpreted value of the literal in text form. For a StringLiteral,
   // or any literal of a template, this means quotes have been removed and escapes have been converted to actual characters.
@@ -223,14 +226,14 @@ export function evaluateExpression(
             pipe(
               evaluateExpression(assignment.initializer),
               result.map<JSONValue, [key: string, value: JSONValue]>(
-                (value) => [assignment.name.text, value]
-              )
-            )
+                (value) => [assignment.name.text, value],
+              ),
+            ),
           ),
-          result.all
-        )
+          result.all,
+        ),
       ),
-      result.map(Object.fromEntries)
+      result.map(Object.fromEntries),
     );
   } else if (isValFileMethodCall(value)) {
     return pipe(
@@ -245,8 +248,8 @@ export function evaluateExpression(
                   [FILE_REF_PROP]: ref.text,
                   _type: "file",
                   metadata,
-                } as FileSource<{ [key: string]: JsonPrimitive }>)
-            )
+                }) as FileSource<{ [key: string]: JsonPrimitive }>,
+            ),
           );
         } else {
           return result.ok({
@@ -254,39 +257,39 @@ export function evaluateExpression(
             _type: "file",
           } as FileSource<{ [key: string]: JsonPrimitive }>);
         }
-      })
+      }),
     );
   } else {
     return result.err(
-      new ValSyntaxError("Expression must be a literal or call c.file", value)
+      new ValSyntaxError("Expression must be a literal or call c.file", value),
     );
   }
 }
 
 export function findObjectPropertyAssignment(
   value: ts.ObjectLiteralExpression,
-  key: string
+  key: string,
 ): result.Result<LiteralPropertyAssignment | undefined, ValSyntaxErrorTree> {
   return pipe(
     validateObjectProperties(value.properties),
     result.flatMap((assignments: ts.NodeArray<LiteralPropertyAssignment>) => {
       const matchingAssignments = assignments.filter(
-        (assignment) => assignment.name.text === key
+        (assignment) => assignment.name.text === key,
       );
       if (matchingAssignments.length === 0) return result.ok(undefined);
       if (matchingAssignments.length > 1) {
         return result.err(
-          new ValSyntaxError(`Object key "${key}" is ambiguous`, value)
+          new ValSyntaxError(`Object key "${key}" is ambiguous`, value),
         );
       }
       const [assignment] = matchingAssignments;
       return result.ok(assignment);
-    })
+    }),
   );
 }
 
 export function isValFileMethodCall(
-  node: ts.Expression
+  node: ts.Expression,
 ): node is ts.CallExpression {
   return (
     ts.isCallExpression(node) &&
@@ -298,51 +301,51 @@ export function isValFileMethodCall(
 }
 
 export function findValFileNodeArg(
-  node: ts.CallExpression
+  node: ts.CallExpression,
 ): result.Result<ts.StringLiteral, ValSyntaxErrorTree> {
   if (node.arguments.length === 0) {
     return result.err(
-      new ValSyntaxError(`Invalid c.file() call: missing ref argument`, node)
+      new ValSyntaxError(`Invalid c.file() call: missing ref argument`, node),
     );
   } else if (node.arguments.length > 2) {
     return result.err(
       new ValSyntaxError(
         `Invalid c.file() call: too many arguments ${node.arguments.length}}`,
-        node
-      )
+        node,
+      ),
     );
   } else if (!ts.isStringLiteral(node.arguments[0])) {
     return result.err(
       new ValSyntaxError(
         `Invalid c.file() call: ref must be a string literal`,
-        node
-      )
+        node,
+      ),
     );
   }
   const refNode = node.arguments[0];
   return result.ok(refNode);
 }
 export function findValFileMetadataArg(
-  node: ts.CallExpression
+  node: ts.CallExpression,
 ): result.Result<ts.ObjectLiteralExpression | undefined, ValSyntaxErrorTree> {
   if (node.arguments.length === 0) {
     return result.err(
-      new ValSyntaxError(`Invalid c.file() call: missing ref argument`, node)
+      new ValSyntaxError(`Invalid c.file() call: missing ref argument`, node),
     );
   } else if (node.arguments.length > 2) {
     return result.err(
       new ValSyntaxError(
         `Invalid c.file() call: too many arguments ${node.arguments.length}}`,
-        node
-      )
+        node,
+      ),
     );
   } else if (node.arguments.length === 2) {
     if (!ts.isObjectLiteralExpression(node.arguments[1])) {
       return result.err(
         new ValSyntaxError(
           `Invalid c.file() call: metadata must be a object literal`,
-          node
-        )
+          node,
+        ),
       );
     }
     return result.ok(node.arguments[1]);
@@ -356,7 +359,7 @@ export function findValFileMetadataArg(
  * initializers of the values at their respective indices in the evaluated list.
  */
 export function validateInitializers(
-  nodes: ReadonlyArray<ts.Expression>
+  nodes: ReadonlyArray<ts.Expression>,
 ): ValSyntaxErrorTree | undefined {
   for (const node of nodes) {
     if (ts.isSpreadElement(node)) {

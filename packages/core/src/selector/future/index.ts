@@ -51,28 +51,28 @@ import { RichTextSelector } from "../richtext";
 export type Selector<T extends Source> = Source extends T
   ? GenericSelector<T>
   : T extends I18nSource<infer L, infer S>
-  ? I18nSelector<L, S>
-  : T extends RemoteSource<infer S>
-  ? S extends RemoteCompatibleSource
-    ? RemoteSelector<S>
-    : GenericSelector<Source, "Could not determine remote source">
-  : T extends FileSource
-  ? FileSelector
-  : T extends RichTextSource<infer O>
-  ? RichTextSelector<O>
-  : T extends SourceObject
-  ? ObjectSelector<T>
-  : T extends SourceArray
-  ? ArraySelector<T>
-  : T extends string
-  ? StringSelector<T>
-  : T extends number
-  ? NumberSelector<T>
-  : T extends boolean
-  ? BooleanSelector<T>
-  : T extends null
-  ? PrimitiveSelector<null>
-  : never;
+    ? I18nSelector<L, S>
+    : T extends RemoteSource<infer S>
+      ? S extends RemoteCompatibleSource
+        ? RemoteSelector<S>
+        : GenericSelector<Source, "Could not determine remote source">
+      : T extends FileSource
+        ? FileSelector
+        : T extends RichTextSource<infer O>
+          ? RichTextSelector<O>
+          : T extends SourceObject
+            ? ObjectSelector<T>
+            : T extends SourceArray
+              ? ArraySelector<T>
+              : T extends string
+                ? StringSelector<T>
+                : T extends number
+                  ? NumberSelector<T>
+                  : T extends boolean
+                    ? BooleanSelector<T>
+                    : T extends null
+                      ? PrimitiveSelector<null>
+                      : never;
 
 export type SelectorSource =
   | SourcePrimitive
@@ -106,7 +106,7 @@ export const SourceOrExpr = Symbol("SourceOrExpr");
 export const ValError = Symbol("ValError");
 export abstract class GenericSelector<
   out T extends Source,
-  Error extends string | undefined = undefined
+  Error extends string | undefined = undefined,
 > {
   readonly [Path]: SourcePath | undefined;
   readonly [SourceOrExpr]: T | Expr;
@@ -116,7 +116,7 @@ export abstract class GenericSelector<
     valOrExpr: T,
     path: SourcePath | undefined,
     schema?: Schema<T>,
-    error?: Error
+    error?: Error,
   ) {
     this[Path] = path;
     this[SourceOrExpr] = valOrExpr;
@@ -126,7 +126,7 @@ export abstract class GenericSelector<
 
   assert<U extends Source, E extends Source = null>(
     schema: Schema<U>,
-    other?: () => E
+    other?: () => E,
   ): SelectorOf<U | E> {
     throw new Error("Not implemented");
   }
@@ -135,22 +135,22 @@ export abstract class GenericSelector<
 export type SourceOf<T extends SelectorSource> = Source extends T
   ? Source
   : T extends Source
-  ? T
-  : T extends undefined
-  ? null
-  : T extends GenericSelector<infer S>
-  ? S
-  : T extends readonly (infer S)[] // NOTE: the infer S instead of Selector Source here, is to avoid infinite recursion
-  ? S extends SelectorSource
-    ? {
-        [key in keyof T]: SourceOf<A.Try<T[key], SelectorSource>>;
-      }
-    : never
-  : T extends { [key: string]: SelectorSource }
-  ? {
-      [key in keyof T]: SourceOf<A.Try<T[key], SelectorSource>>;
-    }
-  : never;
+    ? T
+    : T extends undefined
+      ? null
+      : T extends GenericSelector<infer S>
+        ? S
+        : T extends readonly (infer S)[] // NOTE: the infer S instead of Selector Source here, is to avoid infinite recursion
+          ? S extends SelectorSource
+            ? {
+                [key in keyof T]: SourceOf<A.Try<T[key], SelectorSource>>;
+              }
+            : never
+          : T extends { [key: string]: SelectorSource }
+            ? {
+                [key in keyof T]: SourceOf<A.Try<T[key], SelectorSource>>;
+              }
+            : never;
 
 /**
  * Use this type to convert types that accepts both Source and Selectors
@@ -160,7 +160,7 @@ export type SourceOf<T extends SelectorSource> = Source extends T
 export type SelectorOf<U extends SelectorSource> = Source extends U
   ? GenericSelector<Source>
   : SourceOf<U> extends infer S // we need this to avoid infinite recursion
-  ? S extends Source
-    ? Selector<S>
-    : GenericSelector<Source, "Could not determine selector of source">
-  : GenericSelector<Source, "Could not determine source">;
+    ? S extends Source
+      ? Selector<S>
+      : GenericSelector<Source, "Could not determine selector of source">
+    : GenericSelector<Source, "Could not determine source">;

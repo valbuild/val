@@ -21,7 +21,7 @@ function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
   const valEvents = useValEvents();
   React.useEffect(() => {
     setEnabled(
-      document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`)
+      document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`),
     );
   }, [valEvents]);
   if (valEvents) {
@@ -35,7 +35,7 @@ function useValStega<T extends SelectorSource>(selector: T): UseValType<T> {
     const moduleMap = React.useSyncExternalStore(
       valEvents.subscribe(moduleIds),
       valEvents.getSnapshot(moduleIds),
-      valEvents.getServerSnapshot(moduleIds)
+      valEvents.getServerSnapshot(moduleIds),
     );
     return stegaEncode(selector, {
       disabled: !enabled,

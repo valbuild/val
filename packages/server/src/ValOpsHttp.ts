@@ -68,15 +68,15 @@ const GetPatches = z.object({
       z.object({
         patch: Patch,
       }),
-      BasePatchResponse
-    )
+      BasePatchResponse,
+    ),
   ),
   errors: z
     .array(
       z.object({
         patchId: PatchId.optional(),
         message: z.string(),
-      })
+      }),
     )
     .optional(),
 });
@@ -95,7 +95,7 @@ const FilesResponse = z.object({
         commitSha: CommitSha,
         value: z.string(),
       }),
-    ])
+    ]),
   ),
   errors: z
     .array(
@@ -112,7 +112,7 @@ const FilesResponse = z.object({
           commitSha: CommitSha,
           message: z.string(),
         }),
-      ])
+      ]),
     )
     .optional(),
 });
@@ -126,7 +126,7 @@ const DeletePatchesResponse = z.object({
       z.object({
         message: z.string(),
         patchId: PatchId,
-      })
+      }),
     )
     .optional(),
 });
@@ -157,7 +157,7 @@ export class ValOpsHttp extends ValOps {
        * the root would be /apps/my-app
        */
       root?: string;
-    }
+    },
   ) {
     super(valModules, options);
     this.authHeaders = {
@@ -205,10 +205,10 @@ export class ValOpsHttp extends ValOps {
           ...this.authHeaders,
           "Content-Type": "application/json",
         },
-      }
+      },
     ).then(
       async (
-        res
+        res,
       ): Promise<OmitPatch extends true ? PatchesMetadata : Patches> => {
         const patches: (OmitPatch extends true
           ? PatchesMetadata
@@ -245,7 +245,7 @@ export class ValOpsHttp extends ValOps {
             patches,
             error: {
               message: `Could not parse get patches response. Error: ${fromError(
-                parsed.error
+                parsed.error,
               )}`,
             },
           } as OmitPatch extends true ? PatchesMetadata : Patches;
@@ -260,14 +260,14 @@ export class ValOpsHttp extends ValOps {
               res.statusText,
           },
         } as OmitPatch extends true ? PatchesMetadata : Patches;
-      }
+      },
     );
   }
 
   protected async saveSourceFilePatch(
     path: ModuleFilePath,
     patch: PatchT,
-    authorId: AuthorId | null
+    authorId: AuthorId | null,
   ): Promise<WithGenericError<{ patchId: PatchId }>> {
     return fetch(`${this.hostUrl}/v1/${this.project}/patches`, {
       method: "POST",
@@ -293,7 +293,7 @@ export class ValOpsHttp extends ValOps {
           return {
             error: {
               message: `Could not parse save patch response. Error: ${fromError(
-                parsed.error
+                parsed.error,
               )}`,
             },
           };
@@ -324,7 +324,7 @@ export class ValOpsHttp extends ValOps {
     patchId: PatchId,
     data: string,
     type: BinaryFileType,
-    metadata: MetadataOfType<BinaryFileType>
+    metadata: MetadataOfType<BinaryFileType>,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
     return fetch(
       `${this.hostUrl}/v1/${this.project}/patches/${patchId}/files`,
@@ -340,7 +340,7 @@ export class ValOpsHttp extends ValOps {
           type,
           metadata,
         }),
-      }
+      },
     )
       .then(async (res) => {
         if (res.ok) {
@@ -354,7 +354,7 @@ export class ValOpsHttp extends ValOps {
           return {
             error: {
               message: `Could not parse save patch file response. Error: ${fromError(
-                parsed.error
+                parsed.error,
               )}`,
             },
           };
@@ -391,7 +391,7 @@ export class ValOpsHttp extends ValOps {
           root: string;
           commitSha: CommitSha;
         }
-    )[]
+    )[],
   ): Promise<
     WithGenericError<{
       files: (
@@ -428,7 +428,7 @@ export class ValOpsHttp extends ValOps {
     const stringifiedFiles = JSON.stringify({ files, root: this.root });
     params.set(
       "body_sha", // We use this for cache invalidation
-      Internal.getSHA256Hash(textEncoder.encode(stringifiedFiles))
+      Internal.getSHA256Hash(textEncoder.encode(stringifiedFiles)),
     );
     return fetch(`${this.hostUrl}/v1/${this.project}/files?${params}`, {
       method: "PUT", // Yes, PUT is weird. Weirder to have a body in a GET request.
@@ -449,7 +449,7 @@ export class ValOpsHttp extends ValOps {
           return {
             error: {
               message: `Could not parse file response. Error: ${fromError(
-                parsedFileResponse.error
+                parsedFileResponse.error,
               )}`,
             },
           };
@@ -476,7 +476,7 @@ export class ValOpsHttp extends ValOps {
   }
 
   protected override async getSourceFile(
-    path: ModuleFilePath
+    path: ModuleFilePath,
   ): Promise<WithGenericError<{ data: string }>> {
     const filesRes = await this.getHttpFiles([
       {
@@ -522,7 +522,7 @@ export class ValOpsHttp extends ValOps {
 
   override async getBase64EncodedBinaryFileFromPatch(
     filePath: string,
-    patchId: PatchId
+    patchId: PatchId,
   ): Promise<Buffer | null> {
     const filesRes = await this.getHttpFiles([
       {
@@ -542,7 +542,7 @@ export class ValOpsHttp extends ValOps {
   }
 
   protected override async getBase64EncodedBinaryFileMetadataFromPatch<
-    T extends "file" | "image"
+    T extends "file" | "image",
   >(filePath: string, type: T, patchId: PatchId): Promise<OpsMetadata<T>> {
     const params = new URLSearchParams();
     params.set("file_path", filePath);
@@ -551,7 +551,7 @@ export class ValOpsHttp extends ValOps {
         `${this.hostUrl}/v1/${this.project}/patches/${patchId}/metadata?${params}`,
         {
           headers: { ...this.authHeaders, "Content-Type": "application/json" },
-        }
+        },
       );
       if (metadataRes.ok) {
         const json = await metadataRes.json();
@@ -565,7 +565,7 @@ export class ValOpsHttp extends ValOps {
           errors: [
             {
               message: `Could not parse metadata response. Error: ${fromError(
-                parsed.error
+                parsed.error,
               )}`,
               filePath,
             },
@@ -601,7 +601,7 @@ export class ValOpsHttp extends ValOps {
 
   protected override async getBinaryFileMetadata<T extends "file" | "image">(
     filePath: string,
-    type: T
+    type: T,
   ): Promise<OpsMetadata<T>> {
     // TODO: call get metadata on this instance which caches + returns the metadata for this filepath / commit
     // something like this:
@@ -663,7 +663,7 @@ export class ValOpsHttp extends ValOps {
           return {
             error: {
               message: `Could not parse delete patches response. Error: ${fromError(
-                parsed.error
+                parsed.error,
               )}`,
             },
           };
@@ -693,7 +693,7 @@ export class ValOpsHttp extends ValOps {
     prepared: PreparedCommit,
     message: string,
     committer: AuthorId,
-    newBranch?: string
+    newBranch?: string,
   ): Promise<
     WithGenericError<{
       updatedFiles: string[];
@@ -734,7 +734,7 @@ export class ValOpsHttp extends ValOps {
         return {
           error: {
             message: `Could not parse commit response. Error: ${fromError(
-              parsed.error
+              parsed.error,
             )}`,
           },
         };
