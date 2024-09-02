@@ -24,7 +24,7 @@ export const RemirrorText = z.intersection(
     .object({
       marks: z.array(z.union([RemirrorTextMark, RemirrorLinkMark])),
     })
-    .partial()
+    .partial(),
 );
 export type RemirrorText = z.infer<typeof RemirrorText>;
 
@@ -36,7 +36,7 @@ export const RemirrorBr = z.intersection(
     .object({
       marks: z.array(RemirrorTextMark),
     })
-    .partial()
+    .partial(),
 );
 export type RemirrorBr = z.infer<typeof RemirrorBr>;
 
@@ -69,10 +69,10 @@ export const RemirrorImage = z.intersection(
             title: z.union([z.string(), z.null()]),
             fileName: z.union([z.string(), z.null()]),
           })
-          .partial()
+          .partial(),
       ),
     })
-    .partial()
+    .partial(),
 );
 export type RemirrorImage = z.infer<typeof RemirrorImage>;
 
@@ -85,7 +85,7 @@ export const RemirrorHeading = z.intersection(
       }),
       content: z.array(z.union([RemirrorText, RemirrorImage, RemirrorBr])),
     })
-    .partial()
+    .partial(),
 );
 export type RemirrorHeading = z.infer<typeof RemirrorHeading>;
 
@@ -99,8 +99,8 @@ export const RemirrorBulletList: z.ZodType<{
       .object({
         content: z.array(RemirrorListItem),
       })
-      .partial()
-  )
+      .partial(),
+  ),
 );
 export type RemirrorBulletList = z.infer<typeof RemirrorBulletList>;
 
@@ -114,8 +114,8 @@ export const RemirrorOrderedList: z.ZodType<{
       .object({
         content: z.array(RemirrorListItem),
       })
-      .partial()
-  )
+      .partial(),
+  ),
 );
 export type RemirrorOrderedList = z.infer<typeof RemirrorOrderedList>;
 
@@ -136,11 +136,11 @@ export const RemirrorListItem: z.ZodType<{
           .partial()
           .optional(),
         content: z.array(
-          z.union([RemirrorParagraph, RemirrorBulletList, RemirrorOrderedList])
+          z.union([RemirrorParagraph, RemirrorBulletList, RemirrorOrderedList]),
         ),
       })
-      .partial()
-  )
+      .partial(),
+  ),
 );
 export type RemirrorListItem = z.infer<typeof RemirrorListItem>;
 
@@ -154,8 +154,8 @@ export const RemirrorParagraph: z.ZodType<{
       .object({
         content: z.array(z.union([RemirrorText, RemirrorImage, RemirrorBr])),
       })
-      .partial()
-  )
+      .partial(),
+  ),
 );
 export type RemirrorParagraph = z.infer<typeof RemirrorParagraph>;
 
@@ -167,7 +167,7 @@ export const RemirrorJSON = z.object({
       RemirrorHeading,
       RemirrorBulletList,
       RemirrorOrderedList,
-    ])
+    ]),
   ),
 });
 export type RemirrorJSON = z.infer<typeof RemirrorJSON>;

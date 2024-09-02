@@ -37,14 +37,14 @@ const DefaultArgs = {
       Internal.splitModuleFilePathAndModulePath(path);
     console.log(
       moduleFilePath,
-      await patchCallBack(Internal.createPatchPath(modulePath))
+      await patchCallBack(Internal.createPatchPath(modulePath)),
     );
   }) satisfies InitOnSubmit,
 };
 
 function create<S extends Source>(
   schema: Schema<S>,
-  source: S
+  source: S,
 ): {
   schema: SerializedSchema;
   source: S;
@@ -120,7 +120,7 @@ export const BasicEmptyObject: Story = {
     top: true,
     ...create(
       s.object({ one: s.string().nullable(), two: s.string() }).nullable(),
-      null
+      null,
     ),
   },
 };

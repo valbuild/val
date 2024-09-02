@@ -32,7 +32,7 @@ export type RemoteSource<Src extends RemoteCompatibleSource> = {
 } & PhantomType<Src>;
 
 export function remote<Src extends RemoteCompatibleSource>(
-  ref: string
+  ref: string,
 ): RemoteSource<Src> {
   return {
     [REMOTE_REF_PROP]: ref as RemoteRef,
@@ -41,7 +41,7 @@ export function remote<Src extends RemoteCompatibleSource>(
 }
 
 export function isRemote(
-  obj: unknown
+  obj: unknown,
 ): obj is RemoteSource<RemoteCompatibleSource> {
   return (
     typeof obj === "object" &&

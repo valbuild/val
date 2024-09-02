@@ -3,7 +3,7 @@ import { Fragment } from "react";
 
 export function Path({ children }: { children: string }) {
   const [moduleFilePathSegs, modulePathSegs] = children.split(
-    Internal.ModuleFilePathSep
+    Internal.ModuleFilePathSep,
   );
   const segs = moduleFilePathSegs.split("/").filter((seg) => seg);
   return segs
@@ -18,7 +18,7 @@ export function Path({ children }: { children: string }) {
     .concat(
       ...(modulePathSegs
         ? [<Seg key={modulePathSegs}>{modulePathSegs}</Seg>]
-        : [])
+        : []),
     );
 }
 

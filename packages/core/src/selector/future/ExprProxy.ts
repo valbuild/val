@@ -7,7 +7,7 @@ type AnyFun = (...args: any[]) => any;
 
 export function newExprSelectorProxy<T extends Source>(
   root: expr.Expr,
-  depth = 0
+  depth = 0,
 ): Selector<T> {
   return new Proxy(new GenericExprSelector(root, depth), {
     get: (target, prop) => {
@@ -17,7 +17,7 @@ export function newExprSelectorProxy<T extends Source>(
       if (!hasOwn(target, prop)) {
         return newExprSelectorProxy(
           new expr.Call([new expr.StringLiteral(prop.toString()), root], false),
-          depth
+          depth,
         );
       }
       return Reflect.get(target, prop);
@@ -28,13 +28,16 @@ export function newExprSelectorProxy<T extends Source>(
 export function root(sourcePath: string) {
   return new expr.Call(
     [new expr.Sym("val"), new expr.StringLiteral(sourcePath)],
-    false
+    false,
   );
 }
 
 class GenericExprSelector {
   [SourceOrExpr]: expr.Expr;
-  constructor(private readonly root: expr.Expr, private readonly depth = 0) {
+  constructor(
+    private readonly root: expr.Expr,
+    private readonly depth = 0,
+  ) {
     this[SourceOrExpr] = root;
   }
 
@@ -59,12 +62,12 @@ class GenericExprSelector {
           typeof other === "string"
             ? new expr.StringLiteral(other)
             : typeof other === "undefined"
-            ? expr.NilSym
-            : convertLiteralProxy(other),
+              ? expr.NilSym
+              : convertLiteralProxy(other),
         ],
-        false
+        false,
       ),
-      this.depth
+      this.depth,
     );
   };
 }
@@ -74,20 +77,20 @@ function genericHigherOrderFunction(
   name: string,
   f: AnyFun,
   args: number,
-  depth: number
+  depth: number,
 ) {
   const argsExprs: Selector<Source>[] = [];
   for (let i = 0; i < args; i++) {
     argsExprs.push(
-      newExprSelectorProxy(new expr.Sym(`@[${depth},${i}]`), depth + 1)
+      newExprSelectorProxy(new expr.Sym(`@[${depth},${i}]`), depth + 1),
     );
   }
   return newExprSelectorProxy(
     new expr.Call(
       [new expr.Sym(name), root, convertLiteralProxy(f(...argsExprs))],
-      true
+      true,
     ),
-    depth
+    depth,
   );
 }
 
@@ -96,7 +99,7 @@ function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
 }
 
 export function convertLiteralProxy(
-  source: expr.Expr | SelectorSource
+  source: expr.Expr | SelectorSource,
 ): expr.Expr {
   const [convertedLiteral] = convertObjectToStringExpr(source, true);
   return withJsonCall(convertedLiteral, false)[0];
@@ -109,7 +112,7 @@ export function convertLiteralProxy(
  */
 function withJsonCall(
   e: expr.Expr,
-  isLiteralScope: boolean
+  isLiteralScope: boolean,
 ): [e: expr.Expr, isJson: boolean] {
   if (
     !isLiteralScope &&
@@ -122,7 +125,7 @@ function withJsonCall(
 
 function convertObjectToStringExpr(
   source: expr.Expr | SelectorSource,
-  isLiteralScope: boolean
+  isLiteralScope: boolean,
 ): [e: expr.Expr, isJson: boolean] {
   if (source === null || source === undefined) {
     return [expr.NilSym, true];
@@ -131,7 +134,7 @@ function convertObjectToStringExpr(
   } else if (typeof source === "number" || typeof source === "boolean") {
     return withJsonCall(
       new expr.StringLiteral(source.toString()),
-      isLiteralScope
+      isLiteralScope,
     );
   } else if (typeof source === "object" && SourceOrExpr in source) {
     const selector = source;
@@ -157,7 +160,7 @@ function convertObjectToStringExpr(
         typeof v === "string"
           ? withJsonCall(
               new expr.StringLiteral(JSON.stringify(v)),
-              isLiteralScope
+              isLiteralScope,
             )
           : convertObjectToStringExpr(v, isLiteralScope);
 
@@ -171,7 +174,7 @@ function convertObjectToStringExpr(
         : `{${converted
             .map(
               ([key, v]) =>
-                `${JSON.stringify(key)}: ${getStringLiteralValue(v)}`
+                `${JSON.stringify(key)}: ${getStringLiteralValue(v)}`,
             )
             .join(", ")}}`;
 
@@ -203,7 +206,7 @@ function convertObjectToStringExpr(
     ];
   }
   throw new Error(
-    `Unsupported type '${typeof source}': ${JSON.stringify(source)}`
+    `Unsupported type '${typeof source}': ${JSON.stringify(source)}`,
   );
 }
 

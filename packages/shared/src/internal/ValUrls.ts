@@ -11,7 +11,7 @@ export const urlOf: ValUrls = (...args) => {
           return [];
         }
         return [[key, value.toString()]];
-      }
+      },
     );
     const searchParams = new URLSearchParams(params);
     return `${route + "?" + searchParams.toString()}`;

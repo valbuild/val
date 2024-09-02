@@ -13,7 +13,7 @@ function initESLint(fixtureConfigName) {
     overrideConfigFile: path.resolve(
       __dirname,
       "../fixtures/",
-      fixtureConfigName
+      fixtureConfigName,
     ),
   });
 }
@@ -64,7 +64,7 @@ export default c.define(
     expect(results).toHaveLength(1);
     expect(results[0].messages).toHaveLength(1);
     expect(results[0].messages[0].fix?.text).toEqual(
-      '"/content/stuff/with/all/test.val.ts"'
+      '"/content/stuff/with/all/test.val.ts"',
     );
   });
   // TODO: we can't test this anymore because we do not know the root dir - perhaps the

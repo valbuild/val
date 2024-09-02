@@ -30,7 +30,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
   constructor(
     readonly options?: StringOptions,
     readonly opt: boolean = false,
-    private readonly isRaw: boolean = false
+    private readonly isRaw: boolean = false,
   ) {
     super();
   }
@@ -39,7 +39,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     return new StringSchema<Src>(
       { ...this.options, minLength },
       this.opt,
-      this.isRaw
+      this.isRaw,
     );
   }
 
@@ -47,7 +47,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     return new StringSchema<Src>(
       { ...this.options, maxLength },
       this.opt,
-      this.isRaw
+      this.isRaw,
     );
   }
 
@@ -55,7 +55,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     return new StringSchema<Src>(
       { ...this.options, regexp },
       this.opt,
-      this.isRaw
+      this.isRaw,
     );
   }
 
@@ -112,7 +112,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     return new StringSchema<Src extends null ? RawString | null : RawString>(
       this.options,
       this.opt,
-      true
+      true,
     );
   }
 
@@ -134,7 +134,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
 }
 
 export const string = <T extends string>(
-  options?: Record<string, never>
+  options?: Record<string, never>,
 ): StringSchema<T> => {
   return new StringSchema(options);
 };

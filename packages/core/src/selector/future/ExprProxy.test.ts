@@ -48,21 +48,21 @@ const ExprSelectorTestCases: any[] = [
   {
     description: "filter string",
     input: newExprSelectorProxy<string[]>(root("/app/foo")).filter((v) =>
-      v.eq("hei")
+      v.eq("hei"),
     ),
     expected: "!(filter (val '/app/foo') (eq @[0,0] 'hei'))",
   },
   {
     description: "filter number",
     input: newExprSelectorProxy<number[]>(root("/app/foo")).filter((v) =>
-      v.eq(1)
+      v.eq(1),
     ),
     expected: "!(filter (val '/app/foo') (eq @[0,0] (json '1')))",
   },
   {
     description: "filter optional",
     input: newExprSelectorProxy<number[]>(root("/app/foo")).filter((v) =>
-      v.eq(null)
+      v.eq(null),
     ),
     expected: "!(filter (val '/app/foo') (eq @[0,0] ()))",
   },
@@ -88,7 +88,7 @@ const ExprSelectorTestCases: any[] = [
   {
     description: "multi module",
     input: newExprSelectorProxy<string>(root("/app/foo")).andThen(() =>
-      newExprSelectorProxy<string[]>(root("/app/bar"))
+      newExprSelectorProxy<string[]>(root("/app/bar")),
     ),
     expected: "!(andThen (val '/app/foo') (val '/app/bar'))",
   },
@@ -152,7 +152,7 @@ const LiteralConversionTestCases: {
     input: [
       123,
       newExprSelectorProxy<string[]>(root("/app/foo")).map((v) =>
-        v.andThen((a) => ({ bar: a.eq("bar") }))
+        v.andThen((a) => ({ bar: a.eq("bar") })),
       ),
     ],
     expected:
@@ -166,7 +166,7 @@ const LiteralConversionTestCases: {
         v.andThen((a) => ({
           bar: a.eq("bar"),
           more: newExprSelectorProxy<string[]>(root("/app/foo")),
-        }))
+        })),
       ),
     ],
     expected:
@@ -186,18 +186,18 @@ describe("expr", () => {
       } else {
         expect(valOrExpr).toBe(expect.any(expr.Expr));
       }
-    }
+    },
   );
   test.each(LiteralConversionTestCases)(
     'literal conversion ($description): "$expected"',
     ({ input, expected }) =>
-      expect(convertLiteralProxy(input).transpile()).toBe(expected)
+      expect(convertLiteralProxy(input).transpile()).toBe(expected),
   );
 });
 
 function root(sourcePath: string) {
   return new expr.Call(
     [new expr.Sym("val"), new expr.StringLiteral(sourcePath)],
-    false
+    false,
   );
 }

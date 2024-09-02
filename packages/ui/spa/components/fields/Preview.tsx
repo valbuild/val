@@ -119,7 +119,7 @@ function PreviewImage(
     | {
         src: string;
         alt?: string;
-      }
+      },
 ) {
   const [isMouseOver, setIsMouseOver] = useState<{
     x: number;
@@ -172,7 +172,7 @@ function PreviewImage(
             }}
             src={url}
           ></img>,
-          hoverElem
+          hoverElem,
         )}
     </span>
   );
@@ -194,7 +194,7 @@ export function PreviewRichText({ source: source }: { source: JsonObject }) {
   }
   function build(
     node: RichTextNode<AllRichTextOptions>,
-    key: number
+    key: number,
   ): React.ReactElement {
     if (typeof node === "string") {
       return <span key={key}>{node}</span>;

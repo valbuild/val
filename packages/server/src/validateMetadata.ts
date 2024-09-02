@@ -2,7 +2,7 @@ import { FileMetadata, ImageMetadata } from "@valbuild/core";
 
 export function validateMetadata<Metadata extends ImageMetadata | FileMetadata>(
   actualMetadata: unknown,
-  expectedMetadata: Metadata
+  expectedMetadata: Metadata,
 ):
   | false
   | {
@@ -23,17 +23,16 @@ export function validateMetadata<Metadata extends ImageMetadata | FileMetadata>(
   for (const anyKey in expectedMetadata) {
     if (typeof anyKey !== "string") {
       globalErrors.push(
-        `Expected metadata has key '${anyKey}' that is not typeof 'string', but: '${typeof anyKey}'. This is most likely a Val bug.`
+        `Expected metadata has key '${anyKey}' that is not typeof 'string', but: '${typeof anyKey}'. This is most likely a Val bug.`,
       );
     } else {
       if (anyKey in actualMetadata) {
         const key = anyKey as keyof Metadata & string;
         if (expectedMetadata[key] !== recordMetadata[key]) {
-          erroneousMetadata[
-            key
-          ] = `Expected metadata '${key}' to be ${JSON.stringify(
-            expectedMetadata[key as keyof Metadata]
-          )}, but got ${JSON.stringify(recordMetadata[key])}.`;
+          erroneousMetadata[key] =
+            `Expected metadata '${key}' to be ${JSON.stringify(
+              expectedMetadata[key as keyof Metadata],
+            )}, but got ${JSON.stringify(recordMetadata[key])}.`;
         }
       } else {
         missingMetadata.push(anyKey as keyof Metadata);

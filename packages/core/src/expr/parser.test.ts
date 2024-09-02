@@ -153,6 +153,6 @@ describe("parser", () => {
       } else {
         expect(res.value.transpile()).toBe(overrideTest || input);
       }
-    }
+    },
   );
 });

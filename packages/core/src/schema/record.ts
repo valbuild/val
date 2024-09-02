@@ -16,13 +16,16 @@ export type SerializedRecordSchema = {
 export class RecordSchema<T extends Schema<SelectorSource>> extends Schema<
   Record<string, SelectorOfSchema<T>>
 > {
-  constructor(readonly item: T, readonly opt: boolean = false) {
+  constructor(
+    readonly item: T,
+    readonly opt: boolean = false,
+  ) {
     super();
   }
 
   validate(
     path: SourcePath,
-    src: Record<string, SelectorOfSchema<T>>
+    src: Record<string, SelectorOfSchema<T>>,
   ): ValidationErrors {
     let error: ValidationErrors = false;
 
@@ -49,7 +52,7 @@ export class RecordSchema<T extends Schema<SelectorSource>> extends Schema<
           `Internal error: could not create path at ${
             !path && typeof path === "string" ? "<empty string>" : path
           } at key ${elem}`, // Should! never happen
-          src
+          src,
         );
       } else {
         const subError = this.item.validate(subPath, elem as SelectorSource);
@@ -97,7 +100,7 @@ export class RecordSchema<T extends Schema<SelectorSource>> extends Schema<
 }
 
 export const record = <S extends Schema<SelectorSource>>(
-  schema: S
+  schema: S,
 ): Schema<Record<string, SelectorOfSchema<S>>> => {
   return new RecordSchema(schema);
 };

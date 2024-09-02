@@ -13,7 +13,7 @@ const JSONValueT: z.ZodType<JSONValueT> = z.lazy(() =>
     z.null(),
     z.array(JSONValueT),
     z.record(JSONValueT),
-  ])
+  ]),
 );
 
 const OperationT: z.ZodType<OperationT> = z.discriminatedUnion("op", [

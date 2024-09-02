@@ -139,7 +139,7 @@ const Internal = {
   ModuleFilePathSep,
   notFileOp: (op: Operation) => op.op !== "file",
   isFileOp: (
-    op: Operation
+    op: Operation,
   ): op is {
     op: "file";
     path: string[];
