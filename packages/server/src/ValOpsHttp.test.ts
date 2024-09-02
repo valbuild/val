@@ -2,7 +2,7 @@
 import { ModuleFilePath, PatchId, initVal } from "@valbuild/core";
 import { Script } from "node:vm";
 import { transform } from "sucrase";
-import prettier from "prettier";
+import synchronizedPrettier from "@prettier/sync";
 import { ValOpsHttp } from "./ValOpsHttp";
 import { AuthorId, CommitSha } from "./ValOps";
 
@@ -35,7 +35,7 @@ describe("ValOpsFS", () => {
 
     // #region test modules
     const sourceFiles: Record<string, string> = {
-      "/components/clientContent.val.ts": await prettier.format(
+      "/components/clientContent.val.ts": synchronizedPrettier.format(
         `
         import { s, c, type t } from "../val.config";
 
@@ -112,7 +112,7 @@ describe("ValOpsFS", () => {
       {
         root: "/examples/next",
         formatter: (code, filePath) =>
-          prettier.format(code, { filepath: filePath }),
+          synchronizedPrettier.format(code, { filepath: filePath }),
       },
     );
 
