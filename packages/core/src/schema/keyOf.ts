@@ -20,21 +20,21 @@ type KeyOfSelector<Sel extends GenericSelector<SourceArray | SourceObject>> =
     ? S extends readonly Source[]
       ? number
       : S extends SourceObject
-      ? string extends keyof S
-        ? RawString
-        : keyof S
-      : S extends Record<string, Source> // do we need record?
-      ? RawString
-      : never
+        ? string extends keyof S
+          ? RawString
+          : keyof S
+        : S extends Record<string, Source> // do we need record?
+          ? RawString
+          : never
     : never;
 
 export class KeyOfSchema<
-  Sel extends GenericSelector<SourceArray | SourceObject>
+  Sel extends GenericSelector<SourceArray | SourceObject>,
 > extends Schema<KeyOfSelector<Sel>> {
   constructor(
     readonly schema?: SerializedSchema,
     readonly sourcePath?: SourcePath,
-    readonly opt: boolean = false
+    readonly opt: boolean = false,
   ) {
     super();
   }
@@ -96,7 +96,7 @@ export class KeyOfSchema<
           [path]: [
             {
               message: `Value of keyOf (object) must be: ${keys.join(
-                ", "
+                ", ",
               )}. Found: ${src}`,
             },
           ],
@@ -151,7 +151,7 @@ export class KeyOfSchema<
     const path = this.sourcePath;
     if (!path) {
       throw new Error(
-        "Cannot serialize keyOf schema with empty selector. TIP: keyOf must be used with a Val Module."
+        "Cannot serialize keyOf schema with empty selector. TIP: keyOf must be used with a Val Module.",
       );
     }
     const serializedSchema = this.schema;
@@ -172,7 +172,7 @@ export class KeyOfSchema<
         break;
       default:
         throw new Error(
-          `Cannot serialize keyOf schema with selector of type '${serializedSchema.type}'. keyOf must be used with a Val Module.`
+          `Cannot serialize keyOf schema with selector of type '${serializedSchema.type}'. keyOf must be used with a Val Module.`,
         );
     }
     return {
@@ -186,12 +186,12 @@ export class KeyOfSchema<
 }
 
 export const keyOf = <
-  Src extends GenericSelector<SourceArray | SourceObject> & ValModuleBrand // ValModuleBrand enforces call site to pass in a val module - selectors are not allowed. The reason is that this should make it easier to patch. We might be able to relax this constraint in the future
+  Src extends GenericSelector<SourceArray | SourceObject> & ValModuleBrand, // ValModuleBrand enforces call site to pass in a val module - selectors are not allowed. The reason is that this should make it easier to patch. We might be able to relax this constraint in the future
 >(
-  valModule: Src
+  valModule: Src,
 ): Schema<KeyOfSelector<Src>> => {
   return new KeyOfSchema(
     valModule?.[GetSchema]?.serialize(),
-    getValPath(valModule)
+    getValPath(valModule),
   );
 };

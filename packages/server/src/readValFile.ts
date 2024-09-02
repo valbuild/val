@@ -7,7 +7,7 @@ export const readValFile = async (
   moduleFilePath: ModuleFilePath,
   rootDirPath: string,
   runtime: QuickJSRuntime,
-  options: { validate: boolean; source: boolean; schema: boolean }
+  options: { validate: boolean; source: boolean; schema: boolean },
 ): Promise<SerializedModuleContent> => {
   const context = runtime.newContext();
 
@@ -34,21 +34,21 @@ export const readValFile = async (
       context.setProp(
         optionsHandle,
         "validate",
-        context.newNumber(+options.validate)
+        context.newNumber(+options.validate),
       );
     }
     if (options.source !== undefined) {
       context.setProp(
         optionsHandle,
         "source",
-        context.newNumber(+options.source)
+        context.newNumber(+options.source),
       );
     }
     if (options.schema !== undefined) {
       context.setProp(
         optionsHandle,
         "schema",
-        context.newNumber(+options.schema)
+        context.newNumber(+options.schema),
       );
     }
   }
@@ -80,14 +80,14 @@ globalThis.valModule = {
 `;
     const result = context.evalCode(
       code,
-      getSyntheticContainingPath(rootDirPath)
+      getSyntheticContainingPath(rootDirPath),
     );
     const fatalErrors: string[] = [];
     if (result.error) {
       const error = result.error.consume(context.dump);
       console.error(
         `Fatal error reading val file: ${moduleFilePath}. Error: ${error.message}\n`,
-        error.stack
+        error.stack,
       );
       return {
         path: moduleFilePath as string as SourcePath,
@@ -116,7 +116,7 @@ globalThis.valModule = {
       ) {
         if (valModule.path !== moduleFilePath) {
           fatalErrors.push(
-            `Wrong c.define path! Expected: '${moduleFilePath}', found: '${valModule.path}'`
+            `Wrong c.define path! Expected: '${moduleFilePath}', found: '${valModule.path}'`,
           );
         } else if (
           encodeURIComponent(valModule.path).replace(/%2F/g, "/") !==
@@ -126,16 +126,16 @@ globalThis.valModule = {
             `Invalid c.define path! Must be a web-safe path without escape characters, found: '${
               valModule.path
             }', which was encoded as: '${encodeURIComponent(
-              valModule.path
-            ).replace("%2F", "/")}'`
+              valModule.path,
+            ).replace("%2F", "/")}'`,
           );
         } else if (valModule?.schema === undefined && options.schema) {
           fatalErrors.push(
-            `Expected val path: '${moduleFilePath}' to have a schema`
+            `Expected val path: '${moduleFilePath}' to have a schema`,
           );
         } else if (valModule?.source === undefined && options.source) {
           fatalErrors.push(
-            `Expected val path: '${moduleFilePath}' to have a source`
+            `Expected val path: '${moduleFilePath}' to have a source`,
           );
         }
       }

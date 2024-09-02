@@ -23,37 +23,37 @@ describe("val module loader", () => {
         await loader.getModule(
           loader.resolveModulePath(
             `${testCase.valConfigDir}/val-system.${testCase.ext}`,
-            "./pages/blogs.val"
-          )
-        )
+            "./pages/blogs.val",
+          ),
+        ),
       ).toContain("/pages/blogs");
       expect(
         await loader.getModule(
           loader.resolveModulePath(
             `${testCase.valConfigDir}/pages/blogs.val.${testCase.ext}`,
-            "../val.config"
-          )
-        )
+            "../val.config",
+          ),
+        ),
       ).toContain("@valbuild/next");
-    }
+    },
   );
 
   test("resolution based on baseDir / paths in tsconfig", () => {
     const rootDir = path.resolve(
       __dirname,
       TestCaseDir,
-      "basic-next-src-typescript"
+      "basic-next-src-typescript",
     );
     const moduleLoader = createModuleLoader(rootDir);
 
     const containingFile = "./src/pages/blogs.val.ts";
     const baseCase = moduleLoader.resolveModulePath(
       containingFile,
-      "../val.config"
+      "../val.config",
     ); // tsconfig maps @ to src
     const pathsMapping = moduleLoader.resolveModulePath(
       containingFile,
-      "@/val.config"
+      "@/val.config",
     ); // tsconfig maps @ to src
     expect(baseCase).toBeDefined();
     expect(baseCase).toEqual(pathsMapping);
@@ -63,13 +63,13 @@ describe("val module loader", () => {
     const rootDir = path.resolve(
       __dirname,
       TestCaseDir,
-      "typescript-description-files"
+      "typescript-description-files",
     );
     const moduleLoader = createModuleLoader(rootDir);
 
     const containingFile = "./pages/blogs.val.js";
     expect(
-      moduleLoader.resolveModulePath(containingFile, "../val.config")
+      moduleLoader.resolveModulePath(containingFile, "../val.config"),
     ).toMatch(/val\.config\.js$/);
   });
 });

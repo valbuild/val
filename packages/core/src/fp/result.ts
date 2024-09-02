@@ -80,7 +80,7 @@ export function allT<T extends unknown[], E>(results: {
  * @see {@link allT} for use with tuple types.
  */
 export function all<T, E>(
-  results: readonly Result<T, E>[]
+  results: readonly Result<T, E>[],
 ): Result<T[], NonEmptyArray<E>> {
   return allT<T[], E>(results);
 }
@@ -90,7 +90,7 @@ export function all<T, E>(
  * Err, returns Err with all Err values concatenated into an array.
  */
 export function allV<E>(
-  results: readonly Result<unknown, E>[]
+  results: readonly Result<unknown, E>[],
 ): Result<void, NonEmptyArray<E>> {
   const errs: E[] = [];
   for (const result of results) {
@@ -120,7 +120,7 @@ export function allV<E>(
  */
 export function flatMapReduce<T, E, A>(
   reducer: (acc: T, current: A, currentIndex: number) => Result<T, E>,
-  initVal: T
+  initVal: T,
 ): (arr: readonly A[]) => Result<T, E> {
   return (arr) => {
     let val: Result<T, E> = ok(initVal);
@@ -132,7 +132,7 @@ export function flatMapReduce<T, E, A>(
 }
 
 export function map<T0, T1>(
-  onOk: (value: T0) => T1
+  onOk: (value: T0) => T1,
 ): <E>(result: Result<T0, E>) => Result<T1, E> {
   return (result) => {
     if (isOk(result)) {
@@ -144,7 +144,7 @@ export function map<T0, T1>(
 }
 
 export function flatMap<T0, T1, E1>(
-  onOk: (value: T0) => Result<T1, E1>
+  onOk: (value: T0) => Result<T1, E1>,
 ): <E>(result: Result<T0, E>) => Result<T1, E | E1> {
   return (result) => {
     if (isOk(result)) {
@@ -156,7 +156,7 @@ export function flatMap<T0, T1, E1>(
 }
 
 export function mapErr<E0, E1>(
-  onErr: (error: E0) => E1
+  onErr: (error: E0) => E1,
 ): <T>(result: Result<T, E0>) => Result<T, E1> {
   return (result) => {
     if (isErr(result)) {
@@ -169,11 +169,11 @@ export function mapErr<E0, E1>(
 
 export function fromPredicate<T0, T1 extends T0, E>(
   refinement: (value: T0) => value is T1,
-  onFalse: (value: T0) => E
+  onFalse: (value: T0) => E,
 ): (value: T0) => Result<T1, E>;
 export function fromPredicate<T0, E>(
   refinement: (value: T0) => boolean,
-  onFalse: (value: T0) => E
+  onFalse: (value: T0) => E,
 ): <T1 extends T0>(value: T1) => Result<T1, E> {
   return (value) => {
     if (refinement(value)) {
@@ -189,16 +189,15 @@ export function fromPredicate<T0, E>(
 export const filterOrElse: {
   <T0, T1 extends T0, E>(
     refinement: (value: T0) => value is T1,
-    onFalse: (value: T0) => E
+    onFalse: (value: T0) => E,
   ): (result: Result<T0, E>) => Result<T1, E>;
-  <T0, E>(refinement: (value: T0) => boolean, onFalse: (value: T0) => E): <
-    T1 extends T0
-  >(
-    result: Result<T1, E>
-  ) => Result<T1, E>;
+  <T0, E>(
+    refinement: (value: T0) => boolean,
+    onFalse: (value: T0) => E,
+  ): <T1 extends T0>(result: Result<T1, E>) => Result<T1, E>;
 } = <T0, E>(
   refinement: (value: T0) => boolean,
-  onFalse: (value: T0) => E
+  onFalse: (value: T0) => E,
 ): (<T1 extends T0>(result: Result<T1, E>) => Result<T1, E>) => {
   return (result) => {
     if (isOk(result)) {

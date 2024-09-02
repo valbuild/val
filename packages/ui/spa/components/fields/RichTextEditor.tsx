@@ -109,7 +109,7 @@ export function RichTextEditor<E extends AnyExtension>({
         "p-4 border rounded-md outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 appearance-none border-input bg-background",
         {
           "pt-[54px] -translate-y-[50px]": showToolbar,
-        }
+        },
       ),
     ];
   }, [showToolbar]);
@@ -181,7 +181,7 @@ const Toolbar = ({
           "sticky top-0 flex flex-col py-2 z-[40] border divide-y rounded-md rounded-b-none border-t-0 rounded-t-none pt-[1px] border-input bg-background",
           {
             hidden: !showToolbar,
-          }
+          },
         )}
       >
         <div className="flex items-center justify-between">

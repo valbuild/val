@@ -6,5 +6,5 @@ import { FileSource } from "./file";
  *
  */
 export type ImageSource<
-  Metadata extends ImageMetadata | undefined = ImageMetadata
+  Metadata extends ImageMetadata | undefined = ImageMetadata,
 > = FileSource<Metadata>;

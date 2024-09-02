@@ -14,10 +14,10 @@ import { SerializedSchema } from "./zod/SerializedSchema";
 import { SourcePath } from "./zod/SourcePath";
 
 const PatchId = z.string().refine(
-  (_id): _id is PatchId => true // TODO:
+  (_id): _id is PatchId => true, // TODO:
 );
 const ModuleFilePath = z.string().refine(
-  (_path): _path is ModuleFilePath => true // TODO:
+  (_path): _path is ModuleFilePath => true, // TODO:
 );
 
 const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
@@ -321,7 +321,7 @@ export const Api = {
                     timestamp: z.string(),
                   })
                   .nullable(),
-              })
+              }),
             ),
             error: GenericError.optional(),
             errors: z.record(PatchId, GenericError).optional(),
@@ -412,8 +412,8 @@ export const Api = {
                   patchId: PatchId,
                   skipped: z.boolean(),
                   error: GenericError,
-                })
-              )
+                }),
+              ),
             ),
           }),
         }),
@@ -435,7 +435,7 @@ export const Api = {
                 validationErrors: z
                   .record(SourcePath, z.array(ValidationError))
                   .optional(),
-              })
+              }),
             ),
             newPatchId: PatchId.optional(),
           }),
@@ -467,7 +467,7 @@ export const Api = {
               z.object({
                 sourceFilePatchErrors: z.record(
                   ModuleFilePath,
-                  z.array(GenericError)
+                  z.array(GenericError),
                 ),
                 binaryFilePatchErrors: z.record(GenericError),
               }),
@@ -599,7 +599,7 @@ export type ServerOf<Api extends ApiGuard> = {
                   >;
                 }
               : undefined;
-          }>
+          }>,
         ) => Promise<z.infer<Api[Route][Method]["res"]>>
       : never;
   };
@@ -610,7 +610,7 @@ export type ClientOf<Api extends ApiGuard> = <
   Method extends keyof Api[Route],
   Endpoint extends Api[Route][Method] extends ApiEndpoint
     ? Api[Route][Method]
-    : never
+    : never,
 >(
   route: Route,
   method: Method,
@@ -632,7 +632,7 @@ export type ClientOf<Api extends ApiGuard> = <
           >;
         }
       : undefined;
-  }>
+  }>,
 ) => Promise<z.infer<Endpoint["res"]> | ClientFetchErrors>;
 
 export type ClientFetchErrors =
@@ -680,25 +680,25 @@ export type UrlOf<Api extends ApiGuard> = <
   Method extends keyof Api[Route] & "GET",
   Endpoint extends Api[Route][Method] extends ApiEndpoint
     ? Api[Route][Method]
-    : never
+    : never,
 >(
   // We prefix with host to be able to differentiate api calls and the /val route.
   // At some point we will want to change /api/val and /val to be customizable and then this won't work
   ...args: Route extends "/val"
     ? [route: Route]
     : Endpoint["req"]["query"] extends Record<
-        string,
-        z.ZodSchema<ValidQueryParamTypes>
-      >
-    ? [
-        route: `/api/val${Route & string}`,
-        query: {
-          [key in keyof Endpoint["req"]["query"]]: z.infer<
-            Endpoint["req"]["query"][key]
-          >;
-        }
-      ]
-    : [route: `/api/val${Route & string}`]
+          string,
+          z.ZodSchema<ValidQueryParamTypes>
+        >
+      ? [
+          route: `/api/val${Route & string}`,
+          query: {
+            [key in keyof Endpoint["req"]["query"]]: z.infer<
+              Endpoint["req"]["query"][key]
+            >;
+          },
+        ]
+      : [route: `/api/val${Route & string}`]
 ) => string;
 
 export type Api = {

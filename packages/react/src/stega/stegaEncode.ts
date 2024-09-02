@@ -187,16 +187,16 @@ export type File<Metadata extends FileMetadata> = {
 export type StegaOfRichTextSource<T extends Source> = Json extends T
   ? Json
   : T extends ImageSource
-  ? Image
-  : T extends SourceObject
-  ? {
-      [key in keyof T]: StegaOfRichTextSource<T[key]>;
-    }
-  : T extends SourceArray
-  ? StegaOfRichTextSource<T[number]>[]
-  : T extends JsonPrimitive
-  ? T
-  : never;
+    ? Image
+    : T extends SourceObject
+      ? {
+          [key in keyof T]: StegaOfRichTextSource<T[key]>;
+        }
+      : T extends SourceArray
+        ? StegaOfRichTextSource<T[number]>[]
+        : T extends JsonPrimitive
+          ? T
+          : never;
 
 /**
  * RichText is accessible by users (after conversion via useVal / fetchVal)
@@ -208,37 +208,37 @@ export type RichText<O extends RichTextOptions> = StegaOfRichTextSource<
 export type StegaOfSource<T extends Source> = Json extends T
   ? Json
   : T extends RichTextSource<infer O>
-  ? RichText<O>
-  : T extends FileSource<infer M>
-  ? M extends ImageMetadata
-    ? Image
-    : M extends FileMetadata
-    ? File<M>
-    : never
-  : T extends SourceObject
-  ? {
-      [key in keyof T]: StegaOfSource<T[key]>;
-    }
-  : T extends SourceArray
-  ? StegaOfSource<T[number]>[]
-  : T extends RawString
-  ? string
-  : string extends T
-  ? ValEncodedString
-  : T extends JsonPrimitive
-  ? T
-  : never;
+    ? RichText<O>
+    : T extends FileSource<infer M>
+      ? M extends ImageMetadata
+        ? Image
+        : M extends FileMetadata
+          ? File<M>
+          : never
+      : T extends SourceObject
+        ? {
+            [key in keyof T]: StegaOfSource<T[key]>;
+          }
+        : T extends SourceArray
+          ? StegaOfSource<T[number]>[]
+          : T extends RawString
+            ? string
+            : string extends T
+              ? ValEncodedString
+              : T extends JsonPrimitive
+                ? T
+                : never;
 
 export function stegaEncode(
   input: any,
   opts: {
     getModule?: (modulePath: string) => any;
     disabled?: boolean;
-  }
+  },
 ): any {
   function rec(
     sourceOrSelector: any,
-    recOpts?: { path: any; schema: any }
+    recOpts?: { path: any; schema: any },
   ): any {
     if (recOpts?.schema && isKeyOfSchema(recOpts?.schema)) {
       return sourceOrSelector;
@@ -267,13 +267,13 @@ export function stegaEncode(
                 console.warn(
                   "Expected literal schema at key in , but found: ",
                   keySchema,
-                  { key, schema: s }
+                  { key, schema: s },
                 );
               }
             } else {
               console.warn(
                 "Expected union containing object schema, but found: ",
-                s
+                s,
               );
             }
           });
@@ -324,7 +324,7 @@ export function stegaEncode(
             Internal.getSource(sourceOrSelector),
           opts.disabled
             ? undefined
-            : { path: selectorPath, schema: newSchema?.serialize() }
+            : { path: selectorPath, schema: newSchema?.serialize() },
         );
       }
 
@@ -346,7 +346,7 @@ export function stegaEncode(
           };
         }
         console.error(
-          `Encountered unexpected extension: ${sourceOrSelector[VAL_EXTENSION]}`
+          `Encountered unexpected extension: ${sourceOrSelector[VAL_EXTENSION]}`,
         );
         return sourceOrSelector;
       }
@@ -358,8 +358,8 @@ export function stegaEncode(
             recOpts && {
               path: Internal.createValPathOfItem(recOpts.path, i),
               schema: recOpts.schema.item,
-            }
-          )
+            },
+          ),
         );
       }
 
@@ -374,9 +374,9 @@ export function stegaEncode(
               schema: isRecordSchema(recOpts.schema)
                 ? recOpts.schema.item
                 : isObjectSchema(recOpts.schema)
-                ? recOpts.schema.items[key]
-                : unknownSchema(recOpts.schema),
-            }
+                  ? recOpts.schema.items[key]
+                  : unknownSchema(recOpts.schema),
+            },
           );
         }
         return res;
@@ -384,9 +384,9 @@ export function stegaEncode(
 
       console.error(
         `Could not transform source selector: ${typeof sourceOrSelector} (array: ${Array.isArray(
-          sourceOrSelector
+          sourceOrSelector,
         )})`,
-        sourceOrSelector
+        sourceOrSelector,
       );
       return sourceOrSelector;
     }
@@ -404,7 +404,7 @@ export function stegaEncode(
           origin: "val.build",
           data: { valPath: recOpts.path },
         },
-        false // auto detection on urls and dates is disabled, isDate could be used but it is also disabled (users should use a date schema instead): isDate(sourceOrSelector) // skip = true if isDate
+        false, // auto detection on urls and dates is disabled, isDate could be used but it is also disabled (users should use a date schema instead): isDate(sourceOrSelector) // skip = true if isDate
       );
     }
 
@@ -416,7 +416,7 @@ export function stegaEncode(
     }
 
     console.error(
-      `Unexpected type of source selector: ${typeof sourceOrSelector}`
+      `Unexpected type of source selector: ${typeof sourceOrSelector}`,
     );
     return sourceOrSelector;
   }
@@ -424,19 +424,19 @@ export function stegaEncode(
 }
 
 function isRecordSchema(
-  schema: SerializedSchema | undefined
+  schema: SerializedSchema | undefined,
 ): schema is SerializedRecordSchema {
   return schema?.type === "record";
 }
 
 function isLiteralSchema(
-  schema: SerializedSchema | undefined
+  schema: SerializedSchema | undefined,
 ): schema is SerializedLiteralSchema {
   return schema?.type === "literal";
 }
 
 function isDateSchema(
-  schema: SerializedSchema | undefined
+  schema: SerializedSchema | undefined,
 ): schema is SerializedDateSchema {
   return schema?.type === "date";
 }
@@ -447,25 +447,25 @@ function unknownSchema(schema: unknown) {
 }
 
 function isUnionSchema(
-  schema: SerializedSchema | undefined
+  schema: SerializedSchema | undefined,
 ): schema is SerializedUnionSchema {
   return schema?.type === "union";
 }
 
 function isKeyOfSchema(
-  schema: SerializedSchema | undefined
+  schema: SerializedSchema | undefined,
 ): schema is SerializedUnionSchema {
   return schema?.type === "keyOf";
 }
 
 function isRichTextSchema(
-  schema: SerializedSchema | undefined
+  schema: SerializedSchema | undefined,
 ): schema is SerializedObjectSchema {
   return schema?.type === "richtext";
 }
 
 function isObjectSchema(
-  schema: SerializedSchema | undefined
+  schema: SerializedSchema | undefined,
 ): schema is SerializedObjectSchema {
   return schema?.type === "object";
 }
@@ -499,7 +499,7 @@ export function getModuleIds(input: any): string[] {
           return;
         }
         console.error(
-          `Encountered unexpected extension: ${sourceOrSelector[VAL_EXTENSION]}`
+          `Encountered unexpected extension: ${sourceOrSelector[VAL_EXTENSION]}`,
         );
         return sourceOrSelector;
       }
@@ -518,9 +518,9 @@ export function getModuleIds(input: any): string[] {
 
       console.error(
         `Could not transform source selector: ${typeof sourceOrSelector} (array: ${Array.isArray(
-          sourceOrSelector
+          sourceOrSelector,
         )})`,
-        sourceOrSelector
+        sourceOrSelector,
       );
       return;
     }
@@ -537,7 +537,7 @@ export function getModuleIds(input: any): string[] {
     }
 
     console.error(
-      `Unexpected type of source selector: ${typeof sourceOrSelector}`
+      `Unexpected type of source selector: ${typeof sourceOrSelector}`,
     );
     return;
   }

@@ -5,7 +5,7 @@ import { Token, tokenize } from "./tokenizer";
 export class ParserError {
   constructor(
     public readonly message: string,
-    public readonly span?: [number, number?]
+    public readonly span?: [number, number?],
   ) {}
 }
 
@@ -14,7 +14,7 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
 
   function slurpCall(
     first: Token,
-    isAnon: boolean
+    isAnon: boolean,
   ): result.Result<Call | Sym, ParserError> {
     // peek
     if (
@@ -47,11 +47,14 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
         new ParserError("unbalanced parens: missing a ')'", [
           first.span[0],
           first.span[1] + 1,
-        ])
+        ]),
       );
     }
     return result.ok(
-      new Call(args, isAnon, [first.span[0], args.slice(-1)[0].span?.[1] || -1])
+      new Call(args, isAnon, [
+        first.span[0],
+        args.slice(-1)[0].span?.[1] || -1,
+      ]),
     );
   }
 
@@ -62,7 +65,7 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
   }
 
   function slurpTemplate(
-    first: Token
+    first: Token,
   ): result.Result<StringLiteral | StringTemplate, ParserError> {
     const children: Expr[] = [];
     while (tokens.length > 0) {
@@ -80,14 +83,14 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
               new ParserError("unbalanced string template: missing a '}'", [
                 first.span[0],
                 children.slice(-1)[0].span?.[1],
-              ])
+              ]),
             );
           } else if (last.type !== "}") {
             return result.err(
               new ParserError(
                 "unbalanced string template: expected '}'",
-                last.span
-              )
+                last.span,
+              ),
             );
           }
         } else {
@@ -97,8 +100,8 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
         children.push(
           new StringLiteral(
             nextToken.unescapedValue || nextToken.value || "",
-            nextToken.span
-          )
+            nextToken.span,
+          ),
         );
       }
     }
@@ -109,21 +112,21 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
         new ParserError("unbalanced string template: missing a '''", [
           first.span[0],
           children.slice(-1)[0].span?.[1],
-        ])
+        ]),
       );
     } else if (last.type !== "'") {
       return result.err(
-        new ParserError("unbalanced string template: expected '''", last.span)
+        new ParserError("unbalanced string template: expected '''", last.span),
       );
     }
 
     return result.ok(
-      new StringTemplate(children, [first.span[0], last.span[1]])
+      new StringTemplate(children, [first.span[0], last.span[1]]),
     );
   }
 
   function slurpString(
-    first: Token
+    first: Token,
   ): result.Result<StringLiteral | StringTemplate, ParserError> {
     if (tokens[0]?.type === "string" && tokens[1]?.type === "'") {
       const stringToken = tokens.shift();
@@ -134,8 +137,8 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
       return result.ok(
         new StringLiteral(
           stringToken.unescapedValue || stringToken.value || "",
-          [first.span[0], last.span[1]]
-        )
+          [first.span[0], last.span[1]],
+        ),
       );
     } else if (tokens[0]?.type === "'") {
       const last = tokens.shift();
@@ -153,7 +156,7 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
     const first = tokens.shift();
     if (!first) {
       return result.err(
-        new ParserError("expected '(', '!(', string or literal", [0, 0])
+        new ParserError("expected '(', '!(', string or literal", [0, 0]),
       );
     }
     if (first.type === "(" || first.type === "!(") {
@@ -165,32 +168,32 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
         return result.err(
           new ParserError(
             "unexpected token: '(' and ')' are not allowed in tokens",
-            first.span
-          )
+            first.span,
+          ),
         );
       }
       if (first.value?.includes("'")) {
         return result.err(
           new ParserError(
             'unexpected token: "\'" is not allowed in tokens',
-            first.span
-          )
+            first.span,
+          ),
         );
       }
       if (first.value?.includes(".")) {
         return result.err(
           new ParserError(
             'unexpected token: "." is not allowed in tokens',
-            first.span
-          )
+            first.span,
+          ),
         );
       }
       if (first.value?.includes("{") || first.value?.includes("}")) {
         return result.err(
           new ParserError(
             "unexpected token: '{' and '}' are not allowed in tokens",
-            first.span
-          )
+            first.span,
+          ),
         );
       }
       return result.ok(new Sym(first.value || "", first.span));
@@ -202,8 +205,8 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
               ? `, got: '${first.value || first.type}'`
               : ""
           }`,
-          first.span
-        )
+          first.span,
+        ),
       );
     }
   }
@@ -217,7 +220,7 @@ function parseTokens(inputTokens: Token[]): result.Result<Expr, ParserError> {
       new ParserError("expected end of input, superfluous tokens", [
         tokens[0].span[0],
         tokens.slice(-1)[0].span[1],
-      ])
+      ]),
     );
   }
   return res;

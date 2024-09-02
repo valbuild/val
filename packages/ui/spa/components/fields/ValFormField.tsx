@@ -145,14 +145,14 @@ export function ValFormField({
     if (schema.key.type !== "literal") {
       console.error(
         "Val: found union with non-literal key type. Check schema corresponding to path:",
-        path
+        path,
       );
     } else {
       return (
         <StringUnionField
           path={path}
           options={schema.items.flatMap((item) =>
-            item.type === "literal" ? [item.value] : []
+            item.type === "literal" ? [item.value] : [],
           )}
           onSubmit={onSubmit}
           defaultValue={source}
@@ -179,9 +179,9 @@ export function ValFormField({
     `Unsupported schema: ${
       schema.type
     } (source type: ${typeof source}) source:`,
-    source
+    source,
   );
   throw Error(
-    `Unsupported schema: ${schema.type} (source type: ${typeof source}) source:`
+    `Unsupported schema: ${schema.type} (source type: ${typeof source}) source:`,
   );
 }

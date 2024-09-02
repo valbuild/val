@@ -23,19 +23,19 @@ export const createModuleLoader = (
       fs.writeFileSync(fileName, data, encoding);
     },
     rmFile: fs.rmSync,
-  }
+  },
 ): ValModuleLoader => {
   const compilerOptions = getCompilerOptions(rootDir, host);
   const sourceFileHandler = new ValSourceFileHandler(
     rootDir,
     compilerOptions,
-    host
+    host,
   );
   const loader = new ValModuleLoader(
     rootDir,
     compilerOptions,
     sourceFileHandler,
-    host
+    host,
   );
   return loader;
 };
@@ -59,7 +59,7 @@ export class ValModuleLoader {
       },
       rmFile: fs.rmSync,
     },
-    private readonly disableCache: boolean = false
+    private readonly disableCache: boolean = false,
   ) {
     this.cache = {};
     this.cacheSize = 0;
@@ -100,11 +100,11 @@ export class ValModuleLoader {
 
   resolveModulePath(
     containingFilePath: string,
-    requestedModuleName: string
+    requestedModuleName: string,
   ): string {
     let sourceFileName = this.sourceFileHandler.resolveSourceModulePath(
       containingFilePath,
-      requestedModuleName
+      requestedModuleName,
     );
 
     if (requestedModuleName === "@vercel/stega") {
@@ -122,8 +122,8 @@ export class ValModuleLoader {
       }
       throw Error(
         `Could not find matching js file for module "${requestedModuleName}" requested by: "${containingFilePath}". Tried:\n${matches.tried.join(
-          "\n"
-        )}${debugInfo}`
+          "\n",
+        )}${debugInfo}`,
       );
     }
     const filePath = matches.match;
@@ -131,14 +131,14 @@ export class ValModuleLoader {
     const followedPath = this.host.realpath?.(filePath) ?? filePath;
     if (!followedPath) {
       throw Error(
-        `File path was empty: "${filePath}", containing file: "${containingFilePath}", requested module: "${requestedModuleName}"`
+        `File path was empty: "${filePath}", containing file: "${containingFilePath}", requested module: "${requestedModuleName}"`,
       );
     }
     return followedPath;
   }
 
   private findMatchingJsFile(
-    filePath: string
+    filePath: string,
   ): { match: string } | { match: false; tried: string[] } {
     let requiresReplacements = false;
     for (const [currentEnding] of JsFileLookupMapping) {

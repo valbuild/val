@@ -8,7 +8,10 @@ import { isSerializedVal, SourcePath } from "../val";
 import { Json } from "../Json";
 
 export class EvalError {
-  constructor(public readonly message: string, public readonly expr: Expr) {}
+  constructor(
+    public readonly message: string,
+    public readonly expr: Expr,
+  ) {}
 
   toString() {
     return `${this.message} in: ${this.expr.transpile()}`;
@@ -28,7 +31,7 @@ const MAX_STACK_SIZE = 100; // an arbitrary semi-large number
 function evaluateSync(
   expr: Expr,
   getSource: (path: string) => Json,
-  stack: readonly LocalSelector<Source>[][]
+  stack: readonly LocalSelector<Source>[][],
 ): LocalSelector<Source> {
   // TODO: amount of evaluates should be limited?
   if (stack.length > MAX_STACK_SIZE) {
@@ -36,10 +39,10 @@ function evaluateSync(
       `Stack overflow. Final frames: ${stack
         .slice(-10)
         .map((frame, i) =>
-          frame.map((s, j) => `@[${i},${j}]: ${JSON.stringify(s)}`).join(", ")
+          frame.map((s, j) => `@[${i},${j}]: ${JSON.stringify(s)}`).join(", "),
         )
         .join(" -> ")}`,
-      expr
+      expr,
     );
   }
   if (expr instanceof Call) {
@@ -54,14 +57,14 @@ function evaluateSync(
         } else {
           throw new EvalError(
             "argument of 'val' must be a string literal",
-            expr
+            expr,
           );
         }
       } else if (expr.children[0].value === "json") {
         if (expr.children.length !== 2) {
           throw new EvalError(
             "must call 'json' with exactly one argument",
-            expr
+            expr,
           );
         }
         const value = evaluateSync(expr.children[1], getSource, stack);
@@ -71,7 +74,7 @@ function evaluateSync(
         if (typeof valObj !== "string") {
           throw new EvalError(
             `cannot parse JSON: ${JSON.stringify(valObj)}, expected string`,
-            expr.children[1]
+            expr.children[1],
           );
         }
         try {
@@ -87,7 +90,7 @@ function evaluateSync(
               `cannot parse JSON: ${valObj}, ${
                 e.message
               } - value: ${JSON.stringify(value)}`,
-              expr.children[1]
+              expr.children[1],
             );
           }
           throw e;
@@ -97,7 +100,7 @@ function evaluateSync(
         if (expr.children.length !== 2) {
           throw new EvalError(
             "must call 'stringify' with exactly one argument",
-            expr
+            expr,
           );
         }
         const res = evaluateSync(expr.children[1], getSource, stack);
@@ -113,9 +116,9 @@ function evaluateSync(
     if (typeof prop !== "string" && typeof prop !== "number") {
       throw new EvalError(
         `cannot access ${JSON.stringify(obj)} with property ${JSON.stringify(
-          prop
+          prop,
         )}: is not a string or number`,
-        expr
+        expr,
       );
     }
 
@@ -126,9 +129,9 @@ function evaluateSync(
         if (typeof maybeFunction !== "function") {
           throw new EvalError(
             `cannot access property ${JSON.stringify(prop)} of ${JSON.stringify(
-              obj
+              obj,
             )}: required higher ordered function got ${typeof obj[prop]}`,
-            expr
+            expr,
           );
         }
         if (expr.children[0] instanceof Sym) {
@@ -136,13 +139,13 @@ function evaluateSync(
             return evaluateSync(
               expr.children[2],
               getSource,
-              stack.concat([args])
+              stack.concat([args]),
             );
           });
         } else {
           throw new EvalError(
             `cannot call an expression that is not a symbol, got: '${expr.children[0].type}'`,
-            expr
+            expr,
           );
         }
       } else {
@@ -155,7 +158,7 @@ function evaluateSync(
             } else {
               throw new EvalError(
                 "argument of 'val' must be a string literal",
-                expr
+                expr,
               );
             }
           }
@@ -166,24 +169,24 @@ function evaluateSync(
           if (typeof maybeFunction !== "function") {
             throw new EvalError(
               `cannot access property ${JSON.stringify(
-                prop
+                prop,
               )} of ${JSON.stringify(obj)}: required function got ${typeof obj[
                 prop
               ]}`,
-              expr
+              expr,
             );
           }
           return maybeFunction(
-            ...args.map((arg) => evaluateSync(arg, getSource, stack))
+            ...args.map((arg) => evaluateSync(arg, getSource, stack)),
           );
         }
         const maybeValue = obj[prop];
         if (typeof maybeValue === "function") {
           throw new EvalError(
             `cannot access property ${JSON.stringify(prop)} of ${JSON.stringify(
-              obj
+              obj,
             )}: required value got ${typeof obj[prop]}`,
-            expr
+            expr,
           );
         }
         return maybeValue;
@@ -229,7 +232,7 @@ function evaluateSync(
           }
           return JSON.stringify(evalRes[SourceOrExpr]);
         })
-        .join("")
+        .join(""),
     );
   }
   throw new EvalError(`could not evaluate`, expr);
@@ -238,7 +241,7 @@ function evaluateSync(
 export function evaluate(
   expr: Expr,
   source: (ref: string) => Json,
-  stack: readonly LocalSelector<Source>[][]
+  stack: readonly LocalSelector<Source>[][],
 ): result.Result<LocalSelector<Source>, EvalError> {
   try {
     return result.ok(evaluateSync(expr, source, stack));

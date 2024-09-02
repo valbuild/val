@@ -143,10 +143,10 @@ describe("parseOperation", () => {
             expect.objectContaining<StaticPatchIssue>({
               path,
               message: expect.anything(),
-            })
-          )
-        )
-      )
+            }),
+          ),
+        ),
+      ),
     );
   });
 });
@@ -191,7 +191,7 @@ describe("parseJSONPointer", () => {
     "invalid: %s",
     (path: string) => {
       expect(parseJSONPointer(path)).toEqual(result.err(expect.any(String)));
-    }
+    },
   );
 });
 

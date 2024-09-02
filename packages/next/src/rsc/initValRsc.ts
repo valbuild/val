@@ -22,10 +22,10 @@ const initFetchValStega =
     getHeaders: () => Headers,
     getCookies: () => {
       get(name: string): { name: string; value: string } | undefined;
-    }
+    },
   ) =>
   <T extends SelectorSource>(
-    selector: T
+    selector: T,
   ): SelectorOf<T> extends GenericSelector<infer S>
     ? Promise<StegaOfSource<S>>
     : never => {
@@ -35,7 +35,7 @@ const initFetchValStega =
     } catch (err) {
       console.error(
         "Val: could not check if Val is enabled! This might be due to an error to check draftMode. fetchVal can only be used server-side. Use useVal on clients.",
-        err
+        err,
       );
     }
 
@@ -46,13 +46,13 @@ const initFetchValStega =
         headers = getHeaders();
         if (!(headers instanceof Headers)) {
           throw new Error(
-            "Expected an instance of Headers. Check Val rsc config."
+            "Expected an instance of Headers. Check Val rsc config.",
           );
         }
       } catch (err) {
         console.error(
           "Val: could not read headers! fetchVal can only be used server-side. Use useVal on clients.",
-          err
+          err,
         );
         headers = null;
       }
@@ -63,7 +63,7 @@ const initFetchValStega =
       } catch (err) {
         console.error(
           "Val: could not read cookies! fetchVal can only be used server-side. Use useVal on clients.",
-          err
+          err,
         );
         cookies = null;
       }
@@ -86,7 +86,7 @@ const initFetchValStega =
               throw Error(JSON.stringify(patchesRes.json, null, 2));
             }
             const allPatches = Object.keys(
-              patchesRes.json.patches
+              patchesRes.json.patches,
             ) as PatchId[];
             return client("/tree/~", "PUT", {
               path: undefined,
@@ -122,7 +122,7 @@ const initFetchValStega =
             console.error("Val: failed while fetching modules", err);
             if (process.env.NODE_ENV === "development") {
               throw Error(
-                "Val: Could not fetch data. This is likely due to a misconfiguration or a bug. Check the console for more details."
+                "Val: Could not fetch data. This is likely due to a misconfiguration or a bug. Check the console for more details.",
               );
             }
             return stegaEncode(selector, {});
@@ -187,7 +187,7 @@ type ValNextRscConfig = {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function initValRsc(
   config: ValConfig,
-  rscNextConfig: ValNextRscConfig
+  rscNextConfig: ValNextRscConfig,
 ): {
   fetchValStega: ReturnType<typeof initFetchValStega>;
 } {
@@ -203,7 +203,7 @@ export function initValRsc(
       },
       () => {
         return rscNextConfig.cookies();
-      }
+      },
     ),
   };
 }

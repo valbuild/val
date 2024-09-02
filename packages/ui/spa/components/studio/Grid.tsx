@@ -35,7 +35,7 @@ export function Grid({ children }: GridProps): React.ReactElement {
           : x.current - event.screenX;
       targetRef.current.style.width = `${Math.max(
         originalWidth.current + dx,
-        150
+        150,
       )}px`;
     }
   };
@@ -49,8 +49,8 @@ export function Grid({ children }: GridProps): React.ReactElement {
           column === "left"
             ? leftColRef
             : column === "right"
-            ? rightColRef
-            : null;
+              ? rightColRef
+              : null;
         isResizing.current = true;
         if (columnRef && columnRef.current) {
           x.current = event.screenX;
@@ -83,7 +83,7 @@ export function Grid({ children }: GridProps): React.ReactElement {
           {
             "w-[300px]": showMobileLeftMenu,
             "w-0 md:w-[300px]": !showMobileLeftMenu,
-          }
+          },
         )}
       >
         <Grid.Column>

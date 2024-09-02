@@ -45,7 +45,7 @@ export type ValServerRedirectResult<Names extends ValCookiesNames> =
   | ValServerError;
 export type ValServerResult<
   Names extends ValCookiesNames,
-  Body extends string | ReadableStream<Uint8Array> | never = never
+  Body extends string | ReadableStream<Uint8Array> | never = never,
 > =
   | {
       status: 200 | 201;
@@ -57,7 +57,7 @@ export type ValServerResult<
 
 export type ValServerJsonResult<
   Body extends Json | never = never,
-  Error extends Json | never = never
+  Error extends Json | never = never,
 > =
   | {
       status: 200 | 201;
@@ -74,7 +74,7 @@ export type ValServerGenericResult =
 
 export type ValUIRequestHandler = (
   path: string,
-  url: string
+  url: string,
 ) => Promise<ValServerGenericResult>;
 
 export type ValSession =

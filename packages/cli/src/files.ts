@@ -30,7 +30,7 @@ export async function files({
   async function printOrGetFileRefs(file: string) {
     const moduleId = `/${file}`.replace(
       /(\.val\.(ts|js))$/,
-      ""
+      "",
     ) as ModuleFilePath; // TODO: check if this always works? (Windows?)
     const valModule = await service.get(moduleId, "" as ModulePath, {
       validate: true,
@@ -48,7 +48,7 @@ export async function files({
             if (isFileRef(value)) {
               const absoluteFilePathUsedByVal = path.join(
                 projectRoot,
-                ...value[FILE_REF_PROP].split("/")
+                ...value[FILE_REF_PROP].split("/"),
               );
               if (printFilesUsedByVal) {
                 console.log(absoluteFilePathUsedByVal);
@@ -86,7 +86,7 @@ export async function files({
 }
 
 function isFileRef(
-  value: unknown
+  value: unknown,
 ): value is { [FILE_REF_PROP]: string; [VAL_EXTENSION]: "file" } {
   if (!value) return false;
   if (typeof value !== "object") return false;

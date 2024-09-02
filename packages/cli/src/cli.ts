@@ -61,7 +61,7 @@ async function main(): Promise<void> {
         },
       },
       hardRejection: false,
-    }
+    },
   );
 
   if (input.length === 0) {
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
     case "files":
       if (flags.fix || flags.noEslint) {
         return error(
-          `Command "files" does not support --fix or --noEslint flags`
+          `Command "files" does not support --fix or --noEslint flags`,
         );
       }
       return files({
@@ -106,8 +106,8 @@ void main().catch((err) => {
     err instanceof Error
       ? err.message + "\n" + err.stack
       : typeof err === "object"
-      ? JSON.stringify(err, null, 2)
-      : err
+        ? JSON.stringify(err, null, 2)
+        : err,
   );
   process.exitCode = 1;
 });

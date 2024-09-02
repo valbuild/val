@@ -123,8 +123,8 @@ describe("JSONOps", () => {
     expect(
       pipe(
         ops.add(deepClone(input), path, value),
-        result.mapErr(() => PatchError)
-      )
+        result.mapErr(() => PatchError),
+      ),
     ).toEqual(expected);
   });
 
@@ -199,8 +199,8 @@ describe("JSONOps", () => {
     expect(
       pipe(
         ops.remove(deepClone(input), path),
-        result.mapErr(() => PatchError)
-      )
+        result.mapErr(() => PatchError),
+      ),
     ).toEqual(expected);
   });
 
@@ -286,8 +286,8 @@ describe("JSONOps", () => {
     expect(
       pipe(
         ops.replace(deepClone(input), path, value),
-        result.mapErr(() => PatchError)
-      )
+        result.mapErr(() => PatchError),
+      ),
     ).toEqual(expected);
   });
 
@@ -373,8 +373,8 @@ describe("JSONOps", () => {
     expect(
       pipe(
         ops.move(deepClone(input), from, path),
-        result.mapErr(() => PatchError)
-      )
+        result.mapErr(() => PatchError),
+      ),
     ).toEqual(expected);
   });
 
@@ -467,8 +467,8 @@ describe("JSONOps", () => {
     expect(
       pipe(
         ops.copy(deepClone(input), from, path),
-        result.mapErr(() => PatchError)
-      )
+        result.mapErr(() => PatchError),
+      ),
     ).toEqual(expected);
   });
 
@@ -582,8 +582,8 @@ describe("JSONOps", () => {
     expect(
       pipe(
         ops.test(deepClone(input), path, value),
-        result.mapErr(() => PatchError)
-      )
+        result.mapErr(() => PatchError),
+      ),
     ).toEqual(expected);
   });
 });

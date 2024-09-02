@@ -9,7 +9,7 @@ function testSourceFile(expression: string): ts.SourceFile {
     "test.ts",
     `(${expression})`,
     ts.ScriptTarget.ES2020,
-    true
+    true,
   );
 }
 
@@ -18,7 +18,7 @@ function testSourceFile(expression: string): ts.SourceFile {
  * would be an issue with the test data.
  */
 function findRoot(
-  sourceFile: ts.SourceFile
+  sourceFile: ts.SourceFile,
 ): result.Result<ts.Expression, never> {
   if (sourceFile.statements.length !== 1) {
     throw Error("Invalid test source file");
@@ -146,7 +146,7 @@ describe("TSOps", () => {
       path: ["image"],
       value: { _ref: "/public/val/image.jpg" },
       expected: result.ok(
-        `{ foo: "bar", image: c.file("/public/val/image.jpg") }`
+        `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
       ),
     },
     {
@@ -173,7 +173,7 @@ describe("TSOps", () => {
         sha256: "abc",
       },
       expected: result.ok(
-        `{ foo: "bar", image: c.file("/public/val/image.jpg", { width: 123, height: 456, sha256: "abc" }) }`
+        `{ foo: "bar", image: c.file("/public/val/image.jpg", { width: 123, height: 456, sha256: "abc" }) }`,
       ),
     },
     {
@@ -197,8 +197,8 @@ describe("TSOps", () => {
       pipe(
         expected,
         result.map(testSourceFile),
-        result.mapErr((errorType) => expect.any(errorType))
-      )
+        result.mapErr((errorType) => expect.any(errorType)),
+      ),
     );
   });
 
@@ -293,8 +293,8 @@ describe("TSOps", () => {
       pipe(
         expected,
         result.map(testSourceFile),
-        result.mapErr((errorType) => expect.any(errorType))
-      )
+        result.mapErr((errorType) => expect.any(errorType)),
+      ),
     );
   });
 
@@ -388,7 +388,7 @@ describe("TSOps", () => {
       path: ["_ref"],
       value: "/public/val/foo/bar2.jpg",
       expected: result.ok(
-        `c.file("/public/val/foo/bar2.jpg", { checksum: "123", width: 456, height: 789 })`
+        `c.file("/public/val/foo/bar2.jpg", { checksum: "123", width: 456, height: 789 })`,
       ),
     },
     // TODO:
@@ -405,7 +405,7 @@ describe("TSOps", () => {
       path: ["metadata", "checksum"],
       value: "101112",
       expected: result.ok(
-        `c.file("/public/val/foo/bar.jpg", { checksum: "101112", width: 456, height: 789 })`
+        `c.file("/public/val/foo/bar.jpg", { checksum: "101112", width: 456, height: 789 })`,
       ),
     },
     {
@@ -414,7 +414,7 @@ describe("TSOps", () => {
       path: ["foo", "bar", "_ref"],
       value: "/public/val/foo/bar/zoo2.jpg",
       expected: result.ok(
-        `{ foo: { bar: c.file("/public/val/foo/bar/zoo2.jpg") } }`
+        `{ foo: { bar: c.file("/public/val/foo/bar/zoo2.jpg") } }`,
       ),
     },
     {
@@ -456,8 +456,8 @@ describe("TSOps", () => {
       pipe(
         expected,
         result.map(testSourceFile),
-        result.mapErr((errorType) => expect.any(errorType))
-      )
+        result.mapErr((errorType) => expect.any(errorType)),
+      ),
     );
   });
 
@@ -544,7 +544,7 @@ describe("TSOps", () => {
       from: ["baz"],
       path: ["bar"],
       expected: result.ok(
-        `{ foo: null, bar: c.file("/public/val/foo/bar.jpg") }`
+        `{ foo: null, bar: c.file("/public/val/foo/bar.jpg") }`,
       ),
     },
     {
@@ -560,7 +560,7 @@ describe("TSOps", () => {
       from: ["foo"],
       path: ["baz", "metadata"],
       expected: result.ok(
-        `{ baz: c.file("/public/val/foo/bar.jpg", { bar: "zoo" }) }`
+        `{ baz: c.file("/public/val/foo/bar.jpg", { bar: "zoo" }) }`,
       ),
     },
   ])("move $name", ({ input, from, path, expected }) => {
@@ -570,8 +570,8 @@ describe("TSOps", () => {
       pipe(
         expected,
         result.map(testSourceFile),
-        result.mapErr((errorType) => expect.any(errorType))
-      )
+        result.mapErr((errorType) => expect.any(errorType)),
+      ),
     );
   });
 
@@ -672,14 +672,14 @@ describe("TSOps", () => {
       from: ["bar"],
       path: ["foo", "metadata"],
       expected: result.ok(
-        `{ foo: c.file("/public/val/image1.jpg", null), bar: null }`
+        `{ foo: c.file("/public/val/image1.jpg", null), bar: null }`,
       ),
     },
   ])("copy $name", ({ input, from, path, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);
     expect(ops.copy(src, from, path)).toEqual(
-      pipe(expected, result.map(testSourceFile), result.mapErr(expect.any))
+      pipe(expected, result.map(testSourceFile), result.mapErr(expect.any)),
     );
   });
 
@@ -813,7 +813,7 @@ describe("TSOps", () => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);
     expect(ops.test(src, path, value)).toEqual(
-      pipe(expected, result.mapErr(expect.any))
+      pipe(expected, result.mapErr(expect.any)),
     );
   });
 });

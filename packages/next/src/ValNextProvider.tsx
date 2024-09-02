@@ -29,7 +29,7 @@ export const ValNextProvider = (props: {
 
   React.useEffect(() => {
     setEnabled(
-      document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`)
+      document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`),
     );
   }, []);
 
@@ -74,10 +74,10 @@ Val is currently hidden and disabled.
 
 To enable Val, go to the following URL:
 ${window.location.origin}/api/val/enable?redirect_to=${encodeURIComponent(
-            window.location.href
+            window.location.href,
           )}
           
-You are seeing this message because you are in development mode.`
+You are seeing this message because you are in development mode.`,
         );
       }
     }

@@ -42,6 +42,6 @@ export function jsxDEV(type, props, key, isStaticChildren, source, self) {
     key,
     isStaticChildren,
     source,
-    self
+    self,
   );
 }

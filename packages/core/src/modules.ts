@@ -31,7 +31,7 @@ export type ValModules = {
  */
 export function modules(
   config: ValConfig,
-  modules: ValModules["modules"]
+  modules: ValModules["modules"],
 ): ValModules {
   return {
     config,

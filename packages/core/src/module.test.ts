@@ -47,7 +47,7 @@ describe("module", () => {
 
   test("getSourceAtPath: basic selector", () => {
     const [, modulePath] = splitModuleFilePathAndModulePath(
-      '/app?p="foo"."bar".1."zoo"' as SourcePath
+      '/app?p="foo"."bar".1."zoo"' as SourcePath,
     );
     expect(modulePath).toStrictEqual('"foo"."bar".1."zoo"');
     const resolvedModuleAtPath = getSourceAtPath(
@@ -56,7 +56,7 @@ describe("module", () => {
         foo: {
           bar: [{ zoo: "zoo1" }, { zoo: "zoo2" }],
         },
-      })
+      }),
     );
     expect(resolvedModuleAtPath[GetSource]).toStrictEqual("zoo2");
   });
@@ -68,7 +68,7 @@ describe("module", () => {
         foo: {
           bar: [{ zoo: "zoo1" }, { zoo: "zoo2" }],
         },
-      }
+      },
     );
     expect(resolvedModuleAtPath).toStrictEqual("zoo2");
   });
@@ -80,7 +80,7 @@ describe("module", () => {
         foo: {
           "b.ar": [{ 'z"oo': "zoo1" }, { 'z"oo': "zoo2" }],
         },
-      })
+      }),
     );
     expect(resolvedModuleAtPath[GetSource]).toStrictEqual("zoo2");
   });
@@ -90,7 +90,7 @@ describe("module", () => {
       object({
         foo: array(object({ bar: string() })),
         zoo: number(),
-      })
+      }),
     );
     const { schema, source } = resolveAtPath(
       '0."foo".0."bar"' as ModulePath,
@@ -104,7 +104,7 @@ describe("module", () => {
           zoo: 1,
         },
       ] as SelectorOfSchema<typeof basicSchema>,
-      basicSchema
+      basicSchema,
     );
     expect(schema).toBeInstanceOf(StringSchema);
     expect(source).toStrictEqual("bar1");
@@ -148,9 +148,9 @@ describe("module", () => {
         foo: union(
           "type",
           object({ type: literal("test1"), bar: object({ zoo: string() }) }),
-          object({ type: literal("test2"), bar: object({ zoo: number() }) })
+          object({ type: literal("test2"), bar: object({ zoo: number() }) }),
         ),
-      })
+      }),
     );
     const res = resolveAtPath(
       '0."foo"."bar"."zoo"' as ModulePath,
@@ -162,7 +162,7 @@ describe("module", () => {
           },
         },
       ] as SelectorOfSchema<typeof basicSchema>,
-      basicSchema.serialize()
+      basicSchema.serialize(),
     );
     expect(res.schema).toStrictEqual(number().serialize());
     expect(res.source).toStrictEqual(1);

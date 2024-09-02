@@ -32,11 +32,11 @@ export function StringField({
                 regexp: schema.options.regexp
                   ? new RegExp(
                       schema.options.regexp.source,
-                      schema.options.regexp.flags
+                      schema.options.regexp.flags,
                     )
                   : undefined,
               }
-            : undefined
+            : undefined,
         ).validate(path, value);
       }}
     />

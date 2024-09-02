@@ -21,7 +21,7 @@ describe("Imagepatch", () => {
     const newFileName = "image1.jpg";
     const newFilePath = `/public/image1_${defaultValue.metadata.sha256.slice(
       0,
-      5
+      5,
     )}.png`;
 
     const imagePatch = [
@@ -44,7 +44,7 @@ describe("Imagepatch", () => {
       path,
       newPngImageData,
       newFileName,
-      defaultValue.metadata
+      defaultValue.metadata,
     );
     expect(newPatch).toEqual(imagePatch);
   });
@@ -67,7 +67,7 @@ describe("Imagepatch", () => {
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAIAQMAAAD+wSzIAAAABlBMVEX///+/v7+jQ3Y5AAAADklEQVQI12P4AIX8EAgALgAD/aNpbtEAAAAASUVORK5CYII";
     const newFilePath = `/public/gurba_${defaultValue.metadata.sha256.slice(
       0,
-      5
+      5,
     )}.png`;
 
     const imagePatch = [
@@ -90,7 +90,7 @@ describe("Imagepatch", () => {
       path,
       newPngImageData,
       "gurba",
-      defaultValue.metadata
+      defaultValue.metadata,
     );
     expect(newPatch).toEqual(imagePatch);
   });
@@ -133,7 +133,7 @@ describe("Imagepatch", () => {
       path,
       newPngImageData,
       null,
-      defaultValue.metadata
+      defaultValue.metadata,
     );
     expect(newPatch).toEqual(imagePatch);
   });
@@ -175,7 +175,7 @@ describe("Imagepatch", () => {
       path,
       newPngImageData,
       null,
-      defaultValue.metadata
+      defaultValue.metadata,
     );
     expect(newPatch).toEqual(imagePatch);
   });

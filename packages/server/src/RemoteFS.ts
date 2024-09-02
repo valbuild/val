@@ -50,7 +50,7 @@ export class RemoteFS implements ValFS {
     extensions: readonly string[],
     excludes: readonly string[] | undefined,
     includes: readonly string[],
-    depth?: number | undefined
+    depth?: number | undefined,
   ): readonly string[] => {
     // TODO: rewrite this! And make some tests! This is a mess!
     // Considered using glob which typescript seems to use, but that works on an entire typeof fs
@@ -94,7 +94,7 @@ export class RemoteFS implements ValFS {
     filePath: string,
     data: string,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    encoding: "utf8"
+    encoding: "utf8",
   ): void => {
     // never write real fs
     const { directory, filename } = RemoteFS.parsePath(filePath);
@@ -131,7 +131,7 @@ export class RemoteFS implements ValFS {
       return true;
     }
     const { directory, filename } = RemoteFS.parsePath(
-      this.realpath(filePath) // ts.sys seems to resolve symlinks while calling fileExists, i.e. a broken symlink (pointing to a non-existing file) is not considered to exist
+      this.realpath(filePath), // ts.sys seems to resolve symlinks while calling fileExists, i.e. a broken symlink (pointing to a non-existing file) is not considered to exist
     );
 
     return !!this.data[directory]?.utf8Files[filename];

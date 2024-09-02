@@ -15,7 +15,7 @@ import { ValEncodedString } from "./external_exempt_from_val_quickjs";
 type ValAttrs = { "data-val-path"?: string };
 
 export const initVal = (
-  config?: ValConfig
+  config?: ValConfig,
 ): InitVal & {
   val: ValConstructor & {
     raw: typeof raw;
@@ -34,7 +34,7 @@ export const initVal = (
     val: {
       ...val,
       attrs: <T extends ValModule<SelectorSource> | Json>(
-        target: T
+        target: T,
       ): ValAttrs => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const anyTarget = target as any;

@@ -27,7 +27,7 @@ async function main() {
         },
       },
       hardRejection: false,
-    }
+    },
   );
 
   await init(flags.root, { yes: flags.yes });
@@ -42,8 +42,8 @@ void main().catch((err) => {
     err instanceof Error
       ? err.message + "\n" + err.stack
       : typeof err === "object"
-      ? JSON.stringify(err, null, 2)
-      : err
+        ? JSON.stringify(err, null, 2)
+        : err,
   );
   process.exitCode = 1;
 });

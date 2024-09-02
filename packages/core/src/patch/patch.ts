@@ -8,7 +8,7 @@ export type PatchJSON = OperationJSON[];
 function apply<T, E>(
   document: T,
   ops: Ops<T, E>,
-  op: Operation
+  op: Operation,
 ): result.Result<T, E | PatchError> {
   switch (op.op) {
     case "add":
@@ -36,14 +36,14 @@ function apply<T, E>(
 export function applyPatch<T, E>(
   document: T,
   ops: Ops<T, E>,
-  patch: Operation[]
+  patch: Operation[],
 ): result.Result<T, E | PatchError> {
   return pipe(
     patch,
     result.flatMapReduce(
       (doc: T, op: Operation): result.Result<T, E | PatchError> =>
         apply(doc, ops, op),
-      document
-    )
+      document,
+    ),
   );
 }

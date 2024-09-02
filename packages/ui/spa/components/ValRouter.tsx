@@ -30,7 +30,7 @@ export function ValRouter({
       if (valPathIndex > -1) {
         const modulePath = new URLSearchParams(location.search).get("p");
         const moduleFilePath = location.pathname.slice(
-          valPathIndex + VAL_CONTENT_VIEW_ROUTE.length
+          valPathIndex + VAL_CONTENT_VIEW_ROUTE.length,
         );
         const path = moduleFilePath + (modulePath ? `?p=${modulePath}` : "");
         setSourcePath(path as SourcePath);
@@ -54,7 +54,7 @@ export function ValRouter({
         window.location.href = navigateTo;
       }
     },
-    [overlay]
+    [overlay],
   );
   return (
     <ValRouterContext.Provider

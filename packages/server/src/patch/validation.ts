@@ -15,7 +15,7 @@ const JSONValueT: z.ZodType<JSONValueT> = z.lazy(() =>
     z.null(),
     z.array(JSONValueT),
     z.record(JSONValueT),
-  ])
+  ]),
 );
 
 /**
