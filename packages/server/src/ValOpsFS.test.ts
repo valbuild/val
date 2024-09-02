@@ -45,7 +45,7 @@ describe("ValOpsFS", () => {
 
     // #region test modules
     const sourceFiles: Record<string, string> = {
-      "/test/test1.val.js": prettier.format(
+      "/test/test1.val.js": await prettier.format(
         `
       import { s, c } from "val.config";
       
@@ -69,7 +69,7 @@ describe("ValOpsFS", () => {
       `,
         { parser: "babel" },
       ),
-      "/test/test2.val.js": prettier.format(
+      "/test/test2.val.js": await prettier.format(
         `
       import { s, c } from "val.config";
       
