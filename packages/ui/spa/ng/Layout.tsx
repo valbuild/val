@@ -1,20 +1,23 @@
 import {
-  ArrowDownUp,
-  Bell,
+  ArrowUpDown,
   ChevronDown,
   ChevronRight,
   ChevronsUpDown,
   Languages,
   ListFilter,
   Plus,
+  Search,
   Tally2,
 } from "lucide-react";
-import { Button, ButtonProps } from "../components/ui/button";
+import { Button } from "../components/ui/button";
+import { useState } from "react";
+import classNames from "classnames";
+import { ScrollArea } from "@radix-ui/react-scroll-area";
 
 export function Layout() {
   return (
-    <div className="absolute top-0 left-0 w-full h-screen">
-      <main className="grid grid-cols-[284px_auto_284px] grid-rows-[64px_auto] h-full py-4">
+    <div className="absolute top-0 left-0 w-full min-h-screen">
+      <main className="grid grid-cols-[284px_auto_284px] grid-rows-[64px_auto] py-4">
         <HeaderLeft />
         <HeaderCenter />
         <HeaderRight />
@@ -29,7 +32,7 @@ export function Layout() {
 
 function HeaderLeft() {
   return (
-    <div className="flex items-center h-12 gap-4 px-5 pt-4">
+    <div className="flex items-center gap-4 px-5 pt-4 ml-4 bg-primary-foreground rounded-t-3xl">
       <div>
         <FakeIcon />
       </div>
@@ -40,30 +43,30 @@ function HeaderLeft() {
 
 function Left() {
   return (
-    <div className="flex flex-col justify-between px-5">
-      <nav className="max-h-full overflow-scroll">
+    <div className="flex flex-col justify-between pb-4 ml-4 bg-primary-foreground rounded-b-3xl">
+      <nav>
         <Divider />
-        <Members />
+        <ScrollArea className="max-h-[max(50vh-40px,200px)] overflow-scroll">
+          <Explorer
+            title="Blank website"
+            items={["Projects", "Benefits", "Darkside", "Salary", "Working"]}
+          />
+        </ScrollArea>
         <Divider />
-        <Explorer
-          title="Blank website"
-          items={["Projects", "Benefits", "Darkside", "Salary", "Working"]}
-        />
-        <Divider />
-        <Explorer
-          title="Pages"
-          items={[
-            "Projects",
-            "About",
-            "Events",
-            "Positions",
-            "Jobs",
-            "Contacts",
-          ]}
-        />
-        <Divider />
+        <ScrollArea className="max-h-[max(50vh-40px,200px)] overflow-scroll">
+          <Explorer
+            title="Pages"
+            items={[
+              "Projects",
+              "About",
+              "Events",
+              "Positions",
+              "Jobs",
+              "Contacts",
+            ]}
+          />
+        </ScrollArea>
       </nav>
-      <Author />
     </div>
   );
 }
@@ -100,22 +103,6 @@ function Author() {
   );
 }
 
-function Members() {
-  return (
-    <div className="flex items-center gap-2 p-2 bg-primary-foreground w-fit rounded-3xl">
-      <Author />
-      <img
-        src="https://randomuser.me/api/portraits/women/71.jpg"
-        className="w-8 h-8 rounded-full"
-      />
-      <div className="w-8 h-8 text-xs leading-8 text-center rounded-full bg-secondary text-secondary-foreground">
-        +10
-      </div>
-      <ChevronDown />
-    </div>
-  );
-}
-
 function List() {
   return (
     <Button
@@ -130,68 +117,91 @@ function List() {
 
 function HeaderCenter() {
   return (
-    <div className="flex items-center justify-between p-4 mx-4 rounded-t-2xl bg-primary-foreground">
-      <span>Projects</span>
-      <ButtonRow>
-        <IconButton>
-          <Plus />
-        </IconButton>
-        <IconButton>
-          <ArrowDownUp />
-        </IconButton>
-        <IconButton>
-          <ListFilter />
-        </IconButton>
-        <IconButton>
-          <Languages />
-        </IconButton>
-      </ButtonRow>
+    <div className="flex items-center justify-center mx-4">
+      <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-background font-[SpaceGrotesk] w-fit">
+        <span className="text-muted">Blank Website</span>
+        <span className="text-muted"> /</span>
+        <span className="text-muted">Aidn</span>
+        <span className="text-muted">/</span>
+        <span>Item</span>
+      </div>
     </div>
   );
-}
-
-function IconButton(props: ButtonProps) {
-  return <Button className="px-2" variant="secondary" {...props} />;
-}
-
-function ButtonRow({ children }: { children: React.ReactNode[] }) {
-  return <div className="flex items-center gap-2">{children}</div>;
 }
 
 function Center() {
-  return (
-    <div className="p-4 mx-4 mb-4 rounded-b-2xl bg-primary-foreground">
-      Center
-    </div>
-  );
+  return <div className="p-4 mx-4 mb-4">C enter</div>;
 }
 
 function HeaderRight() {
   return (
-    <div className="flex items-center justify-end gap-2 p-4">
-      <ButtonRow>
-        <Button className="px-2 py-2 bg-transparent border-transparent text-foreground">
-          <Bell />
-        </Button>
-        <Button className="h-10 px-2 py-2 bg-transparent border-transparent text-foreground">
-          Preview
-        </Button>
-        <Button className="h-10 bg-transparent border-muted" variant="outline">
-          Publish
-        </Button>
-      </ButtonRow>
+    <div className="flex items-center justify-between p-4 mr-4 text-sm bg-primary-foreground rounded-t-3xl">
+      <div className="flex items-center gap-2">
+        <Button variant="secondary">Preview</Button>
+        <Button>Publish</Button>
+      </div>
+      <Author />
     </div>
   );
 }
 
 function Right() {
   return (
-    <div className="px-5">
+    <div className="pb-4 mr-4 text-sm rounded-b-3xl bg-primary-foreground h-fit">
       <Divider />
-      <PendingChanges />
+      <Tools />
       <Divider />
-      <ValidationErrors />
+      <Tabs />
     </div>
+  );
+}
+
+function Tools() {
+  return (
+    <div className="flex items-center gap-4 px-4 justify-evenly">
+      <button>
+        <Plus size={16} />
+      </button>
+      <button>
+        <ArrowUpDown size={16} />
+      </button>
+      <button>
+        <ListFilter size={16} />
+      </button>
+      <button>
+        <div className="flex items-center gap-2">
+          <Languages size={16} />
+          <ChevronDown size={16} />
+        </div>
+      </button>
+      <button>
+        <Search size={16} />
+      </button>
+    </div>
+  );
+}
+
+function Tabs() {
+  const [activeTab, setActiveTab] = useState<"changes" | "errors">("changes");
+  return (
+    <ScrollArea className="max-h-[max(50vh-40px,200px)] overflow-scroll px-4">
+      <div className="flex gap-4">
+        <button
+          onClick={() => setActiveTab("changes")}
+          className={classNames({ "text-muted": activeTab !== "changes" })}
+        >
+          Changes
+        </button>
+        <button
+          onClick={() => setActiveTab("errors")}
+          className={classNames({ "text-muted": activeTab !== "errors" })}
+        >
+          Errors
+        </button>
+      </div>
+      {activeTab === "changes" && <PendingChanges />}
+      {activeTab === "errors" && <ValidationErrors />}
+    </ScrollArea>
   );
 }
 
@@ -202,24 +212,46 @@ function PendingChanges() {
     "https://randomuser.me/api/portraits/women/12.jpg",
     "https://randomuser.me/api/portraits/women/33.jpg",
     "https://randomuser.me/api/portraits/women/15.jpg",
+    "https://randomuser.me/api/portraits/women/71.jpg",
+    "https://randomuser.me/api/portraits/women/51.jpg",
+    "https://randomuser.me/api/portraits/women/12.jpg",
+    "https://randomuser.me/api/portraits/women/33.jpg",
+    "https://randomuser.me/api/portraits/women/15.jpg",
+    "https://randomuser.me/api/portraits/women/71.jpg",
+    "https://randomuser.me/api/portraits/women/51.jpg",
+    "https://randomuser.me/api/portraits/women/12.jpg",
+    "https://randomuser.me/api/portraits/women/33.jpg",
+    "https://randomuser.me/api/portraits/women/15.jpg",
+    "https://randomuser.me/api/portraits/women/71.jpg",
+    "https://randomuser.me/api/portraits/women/51.jpg",
+    "https://randomuser.me/api/portraits/women/12.jpg",
+    "https://randomuser.me/api/portraits/women/33.jpg",
+    "https://randomuser.me/api/portraits/women/15.jpg",
+    "https://randomuser.me/api/portraits/women/71.jpg",
+    "https://randomuser.me/api/portraits/women/51.jpg",
+    "https://randomuser.me/api/portraits/women/12.jpg",
+    "https://randomuser.me/api/portraits/women/33.jpg",
+    "https://randomuser.me/api/portraits/women/15.jpg",
+    "https://randomuser.me/api/portraits/women/71.jpg",
+    "https://randomuser.me/api/portraits/women/51.jpg",
+    "https://randomuser.me/api/portraits/women/12.jpg",
+    "https://randomuser.me/api/portraits/women/33.jpg",
+    "https://randomuser.me/api/portraits/women/15.jpg",
   ];
   return (
     <div>
-      <div className="p-2">Pending changes ({items.length})</div>
-      <div>
-        {items.map((item, i) => (
-          <div className="flex justify-between p-2 text-xs" key={i}>
-            <span className="flex items-center gap-4 ">
-              <img src={item} className="w-8 h-8 rounded-full" />
-              <span className="truncate">3 changes</span>
-            </span>
-            <span className="flex items-center gap-4 text-muted-foreground">
-              <span className="truncate">2 days ago</span>
-              <ChevronDown />
-            </span>
-          </div>
-        ))}
-      </div>
+      {items.map((item, i) => (
+        <div className="flex justify-between py-2 text-xs" key={i}>
+          <span className="flex items-center gap-4 ">
+            <img src={item} className="w-8 h-8 rounded-full" />
+            <span className="truncate">3 changes</span>
+          </span>
+          <span className="flex items-center gap-4 text-muted-foreground">
+            <span className="truncate">2 days ago</span>
+            <ChevronDown />
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -228,18 +260,15 @@ function ValidationErrors() {
   const items = ["Menneskene", "Blogs", "Contact", "Content"];
   return (
     <div>
-      <div className="p-2">Validation errors ({items.length})</div>
-      <div>
-        {items.map((item, i) => (
-          <div className="flex justify-between p-2 text-xs" key={i}>
-            <span className="flex items-center gap-4 ">{item}</span>
-            <span className="flex items-center gap-4 text-muted-foreground">
-              <span className="truncate">2 days ago</span>
-              <ChevronDown />
-            </span>
-          </div>
-        ))}
-      </div>
+      {items.map((item, i) => (
+        <div className="flex justify-between py-2 text-xs" key={i}>
+          <span className="flex items-center gap-4 ">{item}</span>
+          <span className="flex items-center gap-4 text-muted-foreground">
+            <span className="truncate">2 days ago</span>
+            <ChevronDown />
+          </span>
+        </div>
+      ))}
     </div>
   );
 }

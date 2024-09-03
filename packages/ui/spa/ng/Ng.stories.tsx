@@ -17,6 +17,10 @@ export const Test1 = {
         href="https://fonts.googleapis.com/css2?family=Urbanist:ital,wght@0,100..900;1,100..900&display=swap"
         rel="stylesheet"
       ></link>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&display=swap"
+        rel="stylesheet"
+      ></link>
       <div className="font-[Urbanist]">
         <Layout />
       </div>
