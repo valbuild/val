@@ -97,24 +97,28 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     return false;
   }
 
-  assert(path: SourcePath, src: Src): SchemaAssertResult<Src> {
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
     if (this.opt && src === null) {
       return {
         success: true,
         data: src,
-      };
+      } as SchemaAssertResult<Src>;
     }
     if (typeof src === "string") {
       return {
         success: true,
         data: src,
-      };
+      } as SchemaAssertResult<Src>;
     }
     return {
       success: false,
       errors: {
         [path]: [
-          { message: `Expected 'string', got '${typeof src}'`, value: src },
+          {
+            message: `Expected 'string', got '${typeof src}'`,
+            value: src,
+            typeError: true,
+          },
         ],
       },
     };

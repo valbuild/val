@@ -1,15 +1,12 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   Schema,
   SchemaAssertResult,
   SelectorOfSchema,
   SerializedSchema,
 } from ".";
-import { initVal } from "../initVal";
 import { SelectorSource } from "../selector";
 import { createValPathOfItem } from "../selector/SelectorProxy";
 import { SourcePath } from "../val";
-import { string } from "./string";
 import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedRecordSchema = {
@@ -18,9 +15,10 @@ export type SerializedRecordSchema = {
   opt: boolean;
 };
 
-export class RecordSchema<T extends Schema<SelectorSource>> extends Schema<
-  Record<string, SelectorOfSchema<T>>
-> {
+export class RecordSchema<
+  T extends Schema<SelectorSource>,
+  Src extends Record<string, SelectorOfSchema<T>> | null,
+> extends Schema<Src> {
   constructor(
     readonly item: T,
     readonly opt: boolean = false,
@@ -28,16 +26,17 @@ export class RecordSchema<T extends Schema<SelectorSource>> extends Schema<
     super();
   }
 
-  validate(
-    path: SourcePath,
-    src: Record<string, SelectorOfSchema<T>>,
-  ): ValidationErrors {
+  validate(path: SourcePath, src: Src): ValidationErrors {
     let error: ValidationErrors = false;
 
     if (this.opt && (src === null || src === undefined)) {
       return false;
     }
-
+    if (src === null) {
+      return {
+        [path]: [{ message: `Expected 'object', got 'null'` }],
+      } as ValidationErrors;
+    }
     if (typeof src !== "object") {
       return {
         [path]: [{ message: `Expected 'object', got '${typeof src}'` }],
@@ -71,25 +70,26 @@ export class RecordSchema<T extends Schema<SelectorSource>> extends Schema<
         }
       }
     });
-
     return error;
   }
 
-  assert(
-    path: SourcePath,
-    src: Record<string, SelectorOfSchema<T>>
-  ): SchemaAssertResult<Record<string, SelectorOfSchema<T>>> {
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
     if (this.opt && src === null) {
       return {
         success: true,
         data: src,
-      };
+      } as SchemaAssertResult<Src>;
     }
     if (typeof src !== "object") {
       return {
         success: false,
         errors: {
-          [path]: [{ message: `Expected 'object', got '${typeof src}'` }],
+          [path]: [
+            {
+              message: `Expected 'object', got '${typeof src}'`,
+              typeError: true,
+            },
+          ],
         },
       };
     }
@@ -97,18 +97,20 @@ export class RecordSchema<T extends Schema<SelectorSource>> extends Schema<
       return {
         success: false,
         errors: {
-          [path]: [{ message: `Expected 'object', got 'array'` }],
+          [path]: [
+            { message: `Expected 'object', got 'array'`, typeError: true },
+          ],
         },
       };
     }
     return {
       success: true,
       data: src,
-    };
+    } as SchemaAssertResult<Src>;
   }
 
-  nullable(): Schema<Record<string, SelectorOfSchema<T>> | null> {
-    return new RecordSchema(this.item, true);
+  nullable(): Schema<Src | null> {
+    return new RecordSchema(this.item, true) as Schema<Src | null>;
   }
 
   serialize(): SerializedRecordSchema {
@@ -123,5 +125,7 @@ export class RecordSchema<T extends Schema<SelectorSource>> extends Schema<
 export const record = <S extends Schema<SelectorSource>>(
   schema: S,
 ): Schema<Record<string, SelectorOfSchema<S>>> => {
-  return new RecordSchema(schema);
+  return new RecordSchema(schema) as Schema<
+    Record<string, SelectorOfSchema<S>>
+  >;
 };

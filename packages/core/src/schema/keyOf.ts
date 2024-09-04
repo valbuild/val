@@ -20,25 +20,26 @@ type KeyOfSelector<Sel extends GenericSelector<SourceArray | SourceObject>> =
     ? S extends readonly Source[]
       ? number
       : S extends SourceObject
-        ? string extends keyof S
-          ? RawString
-          : keyof S
-        : S extends Record<string, Source> // do we need record?
-          ? RawString
-          : never
+      ? string extends keyof S
+        ? RawString
+        : keyof S
+      : S extends Record<string, Source> // do we need record?
+      ? RawString
+      : never
     : never;
 
 export class KeyOfSchema<
   Sel extends GenericSelector<SourceArray | SourceObject>,
-> extends Schema<KeyOfSelector<Sel>> {
+  Src extends KeyOfSelector<Sel> | null
+> extends Schema<Src> {
   constructor(
     readonly schema?: SerializedSchema,
     readonly sourcePath?: SourcePath,
-    readonly opt: boolean = false,
+    readonly opt: boolean = false
   ) {
     super();
   }
-  validate(path: SourcePath, src: KeyOfSelector<Sel>): ValidationErrors {
+  validate(path: SourcePath, src: Src): ValidationErrors {
     if (this.opt && (src === null || src === undefined)) {
       return false;
     }
@@ -96,7 +97,7 @@ export class KeyOfSchema<
           [path]: [
             {
               message: `Value of keyOf (object) must be: ${keys.join(
-                ", ",
+                ", "
               )}. Found: ${src}`,
             },
           ],
@@ -106,14 +107,24 @@ export class KeyOfSchema<
     return false;
   }
 
-  assert(
-    path: SourcePath,
-    src: KeyOfSelector<Sel>
-  ): SchemaAssertResult<KeyOfSelector<Sel>> {
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
     if (this.opt && src === null) {
       return {
         success: true,
         data: src,
+      } as SchemaAssertResult<Src>;
+    }
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Expected 'string', got 'null'`,
+              typeError: true,
+            },
+          ],
+        },
       };
     }
     const schema = this.schema;
@@ -124,6 +135,7 @@ export class KeyOfSchema<
           [path]: [
             {
               message: `Neither key nor schema was found. keyOf is missing an argument.`,
+              typeError: true,
             },
           ],
         },
@@ -144,6 +156,7 @@ export class KeyOfSchema<
           [path]: [
             {
               message: `Schema of first argument must be either: 'array', 'object' or 'record'. Found '${serializedSchema.type}'`,
+              typeError: true,
             },
           ],
         },
@@ -156,7 +169,7 @@ export class KeyOfSchema<
           [path]: [
             {
               message: `Value of keyOf (array) must be 'number', got '${typeof src}'`,
-              value: src,
+              typeError: true,
             },
           ],
         },
@@ -169,12 +182,15 @@ export class KeyOfSchema<
           [path]: [
             {
               message: `Value of keyOf (record) must be 'string', got '${typeof src}'`,
-              value: src,
+              typeError: true,
             },
           ],
         },
       };
     }
+    // We check actual value here, since TypeScript also does this. Literals are used in other types (unions),
+    // and there it also makes sense to check the actual string values (i.e. that it is not just a string) since
+    // missing one would lead to a runtime error. At least this is what we are thinking currently.
     if (serializedSchema.type === "object") {
       const keys = Object.keys(serializedSchema.items);
       if (!keys.includes(src as string)) {
@@ -186,7 +202,7 @@ export class KeyOfSchema<
                 message: `Value of keyOf (object) must be: ${keys.join(
                   ", "
                 )}. Found: ${src}`,
-                value: src,
+                typeError: true,
               },
             ],
           },
@@ -196,18 +212,22 @@ export class KeyOfSchema<
     return {
       success: true,
       data: src,
-    };
+    } as SchemaAssertResult<Src>;
   }
 
-  nullable(): Schema<KeyOfSelector<Sel> | null> {
-    return new KeyOfSchema(this.schema, this.sourcePath, true);
+  nullable(): Schema<Src | null> {
+    return new KeyOfSchema(
+      this.schema,
+      this.sourcePath,
+      true
+    ) as Schema<Src | null>;
   }
 
   serialize(): SerializedSchema {
     const path = this.sourcePath;
     if (!path) {
       throw new Error(
-        "Cannot serialize keyOf schema with empty selector. TIP: keyOf must be used with a Val Module.",
+        "Cannot serialize keyOf schema with empty selector. TIP: keyOf must be used with a Val Module."
       );
     }
     const serializedSchema = this.schema;
@@ -228,7 +248,7 @@ export class KeyOfSchema<
         break;
       default:
         throw new Error(
-          `Cannot serialize keyOf schema with selector of type '${serializedSchema.type}'. keyOf must be used with a Val Module.`,
+          `Cannot serialize keyOf schema with selector of type '${serializedSchema.type}'. keyOf must be used with a Val Module.`
         );
     }
     return {
@@ -242,12 +262,12 @@ export class KeyOfSchema<
 }
 
 export const keyOf = <
-  Src extends GenericSelector<SourceArray | SourceObject> & ValModuleBrand, // ValModuleBrand enforces call site to pass in a val module - selectors are not allowed. The reason is that this should make it easier to patch. We might be able to relax this constraint in the future
+  Src extends GenericSelector<SourceArray | SourceObject> & ValModuleBrand // ValModuleBrand enforces call site to pass in a val module - selectors are not allowed. The reason is that this should make it easier to patch. We might be able to relax this constraint in the future
 >(
-  valModule: Src,
+  valModule: Src
 ): Schema<KeyOfSelector<Src>> => {
   return new KeyOfSchema(
     valModule?.[GetSchema]?.serialize(),
-    getValPath(valModule),
-  );
+    getValPath(valModule)
+  ) as Schema<KeyOfSelector<Src>>;
 };

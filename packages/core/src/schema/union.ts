@@ -1,15 +1,12 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SchemaAssertResult, SerializedSchema } from ".";
+import { AssertError, Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { createValPathOfItem } from "../selector/SelectorProxy";
 import { SelectorSource } from "../selector/index";
 import { SourceObject } from "../source";
 import { SourcePath } from "../val";
 import { LiteralSchema } from "./literal";
 import { ObjectSchema, SerializedObjectSchema } from "./object";
-import {
-  ValidationError,
-  ValidationErrors,
-} from "./validation/ValidationError";
+import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedUnionSchema = {
   type: "union";
@@ -24,9 +21,9 @@ type SourceOf<
     Key extends string
       ? SourceObject & { [k in Key]: string }
       : Key extends Schema<string>
-        ? string
-        : unknown
-  >[],
+      ? string
+      : unknown
+  >[]
 > = T extends Schema<infer S>[]
   ? S extends SelectorSource
     ? S | (Key extends Schema<infer K> ? K : never)
@@ -39,16 +36,15 @@ export class UnionSchema<
     Key extends string
       ? SourceObject & { [k in Key]: string }
       : Key extends Schema<string>
-        ? string
-        : unknown
+      ? string
+      : unknown
   >[],
-> extends Schema<SourceOf<Key, T>> {
-  validate(path: SourcePath, src: SourceOf<Key, T>): ValidationErrors {
+  Src extends SourceOf<Key, T> | null
+> extends Schema<Src> {
+  validate(path: SourcePath, src: Src): ValidationErrors {
     const unknownSrc = src as unknown;
     const errors: ValidationErrors = false;
-
-    if (this.opt && (unknownSrc === null || unknownSrc === undefined)) {
-      // TODO: src should never be undefined
+    if (this.opt && unknownSrc === null) {
       return false;
     }
 
@@ -57,6 +53,7 @@ export class UnionSchema<
         [path]: [
           {
             message: `Missing required first argument in union`,
+            schemaError: true,
           },
         ],
       };
@@ -68,7 +65,7 @@ export class UnionSchema<
         [path]: [
           {
             message: `A union schema must take more than 1 schema arguments`,
-            fatal: true,
+            schemaError: true,
           },
         ],
       };
@@ -80,21 +77,25 @@ export class UnionSchema<
           [path]: [
             {
               message: `Key is a string, so all schema items must be objects`,
-              fatal: true,
+              schemaError: true,
             },
           ],
         };
       }
-      const objectSchemas = this.items as unknown as ObjectSchema<{
-        [key: string]: Schema<SelectorSource>;
-      }>[];
+      const objectSchemas = this.items as unknown as ObjectSchema<
+        {
+          [key: string]: Schema<SelectorSource>;
+        },
+        {
+          [key: string]: SelectorSource;
+        }
+      >[];
       const serializedSchemas = objectSchemas.map((schema) =>
-        schema.serialize(),
+        schema.serialize()
       );
       const illegalSchemas = serializedSchemas.filter(
         (schema) =>
-          !(schema.type === "object") ||
-          !(schema.items[key].type === "literal"),
+          !(schema.type === "object") || !(schema.items[key].type === "literal")
       );
 
       if (illegalSchemas.length > 0) {
@@ -104,9 +105,9 @@ export class UnionSchema<
               message: `All schema items must be objects with a key: ${key} that is a literal schema. Found: ${JSON.stringify(
                 illegalSchemas,
                 null,
-                2,
+                2
               )}`,
-              fatal: true,
+              schemaError: true,
             },
           ],
         };
@@ -114,14 +115,14 @@ export class UnionSchema<
       const serializedObjectSchemas =
         serializedSchemas as SerializedObjectSchema[];
       const optionalLiterals = serializedObjectSchemas.filter(
-        (schema) => schema.items[key].opt,
+        (schema) => schema.items[key].opt
       );
       if (optionalLiterals.length > 1) {
         return {
           [path]: [
             {
               message: `Schema cannot have an optional keys: ${key}`,
-              fatal: true,
+              schemaError: true,
             },
           ],
         };
@@ -132,6 +133,7 @@ export class UnionSchema<
           [path]: [
             {
               message: `Expected an object`,
+              typeError: true,
             },
           ],
         };
@@ -143,6 +145,7 @@ export class UnionSchema<
           [path]: [
             {
               message: `Missing required key: ${key}`,
+              typeError: true,
             },
           ],
         };
@@ -159,7 +162,7 @@ export class UnionSchema<
               [path]: [
                 {
                   message: `Found duplicate key in schema: ${schemaKey.value}`,
-                  fatal: true,
+                  schemaError: true,
                 },
               ],
             };
@@ -167,7 +170,7 @@ export class UnionSchema<
         }
       }
       const objectSchemaAtKey = objectSchemas.find(
-        (schema) => !schema.items[key].validate(path, objectSrc[key]),
+        (schema) => !schema.items[key].validate(path, objectSrc[key])
       );
       if (!objectSchemaAtKey) {
         const keyPath = createValPathOfItem(path, key);
@@ -175,7 +178,7 @@ export class UnionSchema<
           throw new Error(
             `Internal error: could not create path at ${
               !path && typeof path === "string" ? "<empty string>" : path
-            } at key ${key}`,
+            } at key ${key}`
           );
         }
         return {
@@ -194,8 +197,8 @@ export class UnionSchema<
                       `Expected literal schema, got ${JSON.stringify(
                         keySchema,
                         null,
-                        2,
-                      )}`,
+                        2
+                      )}`
                     );
                   }
                 })
@@ -214,7 +217,7 @@ export class UnionSchema<
           [path]: [
             {
               message: `Key is a literal schema, so all schema items must be literals`,
-              fatal: true,
+              typeError: true,
             },
           ],
         };
@@ -222,7 +225,7 @@ export class UnionSchema<
       const literalItems = [key, ...this.items] as LiteralSchema<string>[];
       if (typeof unknownSrc === "string") {
         const isMatch = literalItems.some(
-          (item) => !item.validate(path, unknownSrc),
+          (item) => !item.validate(path, unknownSrc)
         );
         if (!isMatch) {
           return {
@@ -248,23 +251,21 @@ export class UnionSchema<
     return errors;
   }
 
-  assert(
-    path: SourcePath,
-    src: SourceOf<Key, T>
-  ): SchemaAssertResult<SourceOf<Key, T>> {
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
     if (this.opt && src === null) {
       return {
         success: true,
         data: src,
-      };
+      } as SchemaAssertResult<Src>;
     }
-    if (!src) {
+    if (src === null) {
       return {
         success: false,
         errors: {
           [path]: [
             {
-              message: `Expected an object`,
+              message: `Expected 'object', got 'null'`,
+              typeError: true,
             },
           ],
         },
@@ -276,7 +277,8 @@ export class UnionSchema<
         errors: {
           [path]: [
             {
-              message: `Missing required first argument in union`,
+              message: `Missing required first argument in union schema`,
+              schemaError: true,
             },
           ],
         },
@@ -289,6 +291,7 @@ export class UnionSchema<
           [path]: [
             {
               message: `The schema of this value is wrong. Schema is neither a union of literals nor a tagged union (of objects)`,
+              schemaError: true,
             },
           ],
         },
@@ -296,66 +299,82 @@ export class UnionSchema<
     }
     if (this.key instanceof LiteralSchema) {
       let success = false;
-      let errors: ValidationErrors = false;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      for (const schema of [this.key].concat(...(this.items as any))) {
-        if (!(schema instanceof LiteralSchema)) {
+      const errors: Record<SourcePath, AssertError[]> = {};
+      for (const itemSchema of [this.key as Schema<string>].concat(
+        ...(this.items as Schema<string>[])
+      )) {
+        if (!(itemSchema instanceof LiteralSchema)) {
           return {
             success: false,
             errors: {
               [path]: [
                 {
                   message: `Schema of value is a union of string, so all schema items must be literals`,
+                  schemaError: true,
                 },
               ],
             },
           };
         }
-        const res = schema.assert(path, src);
+        if (typeof src !== "string") {
+          errors[path] = [
+            {
+              message: `Expected 'string', got '${typeof src}'`,
+              typeError: true,
+            },
+          ];
+          continue;
+        }
+        const res = itemSchema.assert(path, src);
         if (res.success) {
           success = true;
           break;
-        } else if (res.errors) {
-          if (!errors) {
-            errors = {};
-          }
-          if (res.errors[path]) {
-            errors = {
-              [path]: errors[path].concat(...res.errors[path]),
-            };
-          } else {
-            errors = {
-              ...res.errors,
-              ...errors,
-            };
+        } else {
+          for (const [key, value] of Object.entries(res.errors)) {
+            if (!errors[key as SourcePath]) {
+              errors[key as SourcePath] = [];
+            }
+            errors[key as SourcePath].push(...value);
           }
         }
       }
-
       if (!success) {
         return {
           success: false,
           errors,
         };
       }
-
       return {
         success: true,
         data: src,
-      };
+      } as SchemaAssertResult<Src>;
     } else if (typeof this.key === "string") {
-      for (const schema of this.items) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const res = schema.assert(path, src as any);
-        if (!res.success) {
-          return res;
+      let success = false;
+      const errors: Record<SourcePath, AssertError[]> = {};
+      for (const itemSchema of this.items) {
+        const res = itemSchema.assert(path, src);
+        if (res.success) {
+          success = true;
+          break;
+        } else {
+          for (const [key, value] of Object.entries(res.errors)) {
+            if (!errors[key as SourcePath]) {
+              errors[key as SourcePath] = [];
+            }
+            errors[key as SourcePath].push(...value); // by appending all type errors, we most likely get a lot of duplicate errors. Currently we believe this is correct though, but should probably be handled in when showing the errors to users
+          }
         }
       }
-
+      if (!success) {
+        return {
+          success: false,
+          errors,
+        };
+      }
       return {
         success: true,
         data: src,
-      };
+      } as SchemaAssertResult<Src>;
     } else {
       return {
         success: false,
@@ -363,6 +382,7 @@ export class UnionSchema<
           [path]: [
             {
               message: `The schema of this value is wrong. Schema is neither a union of literals nor a tagged union (of objects)`,
+              schemaError: true,
             },
           ],
         },
@@ -370,8 +390,8 @@ export class UnionSchema<
     }
   }
 
-  nullable(): Schema<SourceOf<Key, T> | null> {
-    return new UnionSchema(this.key, this.items, true);
+  nullable(): Schema<Src | null> {
+    return new UnionSchema(this.key, this.items, true) as Schema<Src | null>;
   }
 
   serialize(): SerializedSchema {
@@ -394,7 +414,7 @@ export class UnionSchema<
   constructor(
     readonly key: Key,
     readonly items: T,
-    readonly opt: boolean = false,
+    readonly opt: boolean = false
   ) {
     super();
   }
@@ -406,9 +426,9 @@ export const union = <
     Key extends string
       ? SourceObject & { [k in Key]: string }
       : Key extends Schema<string>
-        ? string
-        : unknown
-  >[],
+      ? string
+      : unknown
+  >[]
 >(
   key: Key,
   ...objects: T

@@ -11,12 +11,12 @@ import { SerializedNumberSchema } from "./number";
 import { SerializedObjectSchema } from "./object";
 import { SerializedRecordSchema } from "./record";
 import { SerializedRichTextSchema } from "./richtext";
-import { SerializedStringSchema } from "./string";
+import { RawString, SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
 import { SerializedDateSchema } from "./date";
 import { ValidationErrors } from "./validation/ValidationError";
 import { FileSource } from "../source/file";
-import { ImageSource } from "../source/image";
+import { GenericRichTextSourceNode, RichTextSource } from "../source/richtext";
 // import { SerializedI18nSchema } from "./future/i18n";
 // import { SerializedOneOfSchema } from "./future/oneOf";
 
@@ -38,19 +38,37 @@ export type SerializedSchema =
   | SerializedImageSchema;
 
 type Primitives = number | string | boolean | null | FileSource;
+export type AssertError =
+  | {
+      message: string;
+      schemaError: true;
+    }
+  | {
+      message: string;
+      typeError: true;
+    }
+  | {
+      message: string;
+      internalError: true;
+    };
 export type SchemaAssertResult<Src extends SelectorSource> =
   | {
       // It would be more elegant if we derived this in the individual schema classes, however we must support the case when the abstract class is the only thing available (Schema<string[]> does not dispatch on type-level to ArraySchema)
-      data: Src extends Primitives
+      data: Src extends RawString
+        ? string
+        : // eslint-disable-next-line @typescript-eslint/ban-types
+        Src extends RichTextSource<{}>
+        ? GenericRichTextSourceNode[]
+        : Src extends Primitives
         ? Src
         : Src extends Array<SelectorSource>
         ? SelectorSource[]
-        : Src extends Record<string, SelectorSource>
-        ? Record<string, SelectorSource | undefined>
+        : Src extends { [key: string]: SelectorSource }
+        ? { [key in keyof Src]: SelectorSource }
         : never;
       success: true;
     }
-  | { success: false; errors: ValidationErrors };
+  | { success: false; errors: Record<SourcePath, AssertError[]> };
 export abstract class Schema<Src extends SelectorSource> {
   /** Validate the value of source content */
   abstract validate(path: SourcePath, src: Src): ValidationErrors;
@@ -69,7 +87,7 @@ export abstract class Schema<Src extends SelectorSource> {
    * When using assert, you must assert recursively if you want to verify the entire source.
    * For example, if you have an object schema, you must assert each key / value pair manually.
    */
-  abstract assert(path: SourcePath, src: unknown): SchemaAssertResult<Src>;
+  abstract assert(path: SourcePath, src: unknown): SchemaAssertResult<Src>; // TODO: rename to parse? or _assert / _parse to indicate it is private? Or make protected (requires us to have some sort of calling it in the UX Val code)
   abstract nullable(): Schema<Src | null>;
   abstract serialize(): SerializedSchema;
   // remote(): Src extends RemoteCompatibleSource
@@ -84,7 +102,7 @@ export abstract class Schema<Src extends SelectorSource> {
     current: ValidationErrors,
     path: SourcePath,
     message: string,
-    value?: unknown,
+    value: unknown
   ): ValidationErrors {
     if (current) {
       if (current[path]) {
@@ -94,7 +112,9 @@ export abstract class Schema<Src extends SelectorSource> {
       }
       return current;
     } else {
-      return { [path]: [{ message, value }] } as ValidationErrors;
+      return {
+        [path]: [{ message, value }],
+      } as ValidationErrors;
     }
   }
 }

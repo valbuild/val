@@ -3,7 +3,7 @@ import { SourcePath } from "../val";
 import { number } from "./number";
 
 describe("NumberSchema", () => {
-  test("assert: should return success if src is a number", () => {
+  test("assert: should return true if src is a number", () => {
     const schema = number().nullable();
     const test = schema.assert("foo" as SourcePath, 1);
     if (test.success) {
@@ -14,7 +14,7 @@ describe("NumberSchema", () => {
       data: 1,
     });
   });
-  test("assert: should return errors if src is a string", () => {
+  test("assert: should return false if src is a string", () => {
     const schema = number();
     expect(schema.assert("foo" as SourcePath, "1" as any).success).toEqual(
       false

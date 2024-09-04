@@ -26,18 +26,23 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     return false;
   }
 
-  assert(path: SourcePath, src: Src): SchemaAssertResult<Src> {
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
     if (this.opt && src === null) {
       return {
         success: true,
         data: src,
-      };
+      } as SchemaAssertResult<Src>;
     }
     if (src === null) {
       return {
         success: false,
         errors: {
-          [path]: [{ message: "Expected 'boolean', got 'null'", value: src }],
+          [path]: [
+            {
+              message: "Expected 'boolean', got 'null'",
+              typeError: true,
+            },
+          ],
         },
       };
     }
@@ -46,7 +51,10 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
         success: false,
         errors: {
           [path]: [
-            { message: `Expected 'boolean', got '${typeof src}'`, value: src },
+            {
+              message: `Expected 'boolean', got '${typeof src}'`,
+              typeError: true,
+            },
           ],
         },
       };
@@ -54,7 +62,7 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     return {
       success: true,
       data: src,
-    };
+    } as SchemaAssertResult<Src>;
   }
 
   nullable(): Schema<Src | null> {
@@ -69,5 +77,5 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
 }
 
 export const boolean = (): Schema<boolean> => {
-  return new BooleanSchema();
+  return new BooleanSchema() as Schema<boolean>;
 };

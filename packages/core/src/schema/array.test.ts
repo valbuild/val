@@ -1,17 +1,18 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
-import { Schema } from ".";
 import { SourcePath } from "../val";
 import { array } from "./array";
 import { number } from "./number";
 
-describe("NumberSchema", () => {
-  test("assert: should return true if src is a number", () => {
-    const schema: Schema<{ test: string }> = {} as any;
-    const a = schema.assert("foo" as SourcePath, [1]);
-    if (a.success) {
-      a.data;
-    }
+describe("ArraySchema", () => {
+  test("assert: should return success if src is an array", () => {
+    const schema = array(number());
+    expect(schema.assert("path" as SourcePath, [])).toEqual({
+      success: true,
+      data: [],
+    });
   });
-  test("assert: should return false if src is a string", () => {});
+
+  test("assert: should return error if src is string", () => {
+    const schema = array(number());
+    expect(schema.assert("path" as SourcePath, "").success).toEqual(false);
+  });
 });
