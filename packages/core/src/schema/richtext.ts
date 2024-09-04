@@ -88,7 +88,7 @@ export class RichTextSchema<
   private recursiveAssert(
     path: string,
     node: unknown,
-    errors: Record<string, AssertError[]>
+    errors: Record<string, AssertError[]>,
   ) {
     if (typeof node !== "object") {
       if (!errors[path]) {
@@ -147,7 +147,7 @@ export class RichTextSchema<
           const child = node.children[i];
           const pathAtError = unsafeCreateSourcePath(
             unsafeCreateSourcePath(path, "children"),
-            i
+            i,
           );
           if (typeof child === "object") {
             this.recursiveAssert(pathAtError, child, errors);

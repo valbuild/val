@@ -27,7 +27,7 @@ describe("UnionSchema", () => {
     const schema = union(
       "type",
       object({ type: literal("string") }),
-      object({ type: literal("number") })
+      object({ type: literal("number") }),
     );
     const res = schema.assert("foo" as SourcePath, { wrongKey: "string" });
     expect(res.success).toEqual(false);
