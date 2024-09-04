@@ -10,7 +10,7 @@ describe("KeyOfSchema", () => {
     const schema = keyOf(
       define("/path2", record(object({ key: string() })), {
         one: { key: "test" },
-      })
+      }),
     );
     const src = "one";
     const res = schema.assert("path" as SourcePath, src);

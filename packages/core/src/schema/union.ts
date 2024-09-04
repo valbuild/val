@@ -21,9 +21,9 @@ type SourceOf<
     Key extends string
       ? SourceObject & { [k in Key]: string }
       : Key extends Schema<string>
-      ? string
-      : unknown
-  >[]
+        ? string
+        : unknown
+  >[],
 > = T extends Schema<infer S>[]
   ? S extends SelectorSource
     ? S | (Key extends Schema<infer K> ? K : never)
@@ -36,10 +36,10 @@ export class UnionSchema<
     Key extends string
       ? SourceObject & { [k in Key]: string }
       : Key extends Schema<string>
-      ? string
-      : unknown
+        ? string
+        : unknown
   >[],
-  Src extends SourceOf<Key, T> | null
+  Src extends SourceOf<Key, T> | null,
 > extends Schema<Src> {
   validate(path: SourcePath, src: Src): ValidationErrors {
     const unknownSrc = src as unknown;
@@ -91,11 +91,12 @@ export class UnionSchema<
         }
       >[];
       const serializedSchemas = objectSchemas.map((schema) =>
-        schema.serialize()
+        schema.serialize(),
       );
       const illegalSchemas = serializedSchemas.filter(
         (schema) =>
-          !(schema.type === "object") || !(schema.items[key].type === "literal")
+          !(schema.type === "object") ||
+          !(schema.items[key].type === "literal"),
       );
 
       if (illegalSchemas.length > 0) {
@@ -105,7 +106,7 @@ export class UnionSchema<
               message: `All schema items must be objects with a key: ${key} that is a literal schema. Found: ${JSON.stringify(
                 illegalSchemas,
                 null,
-                2
+                2,
               )}`,
               schemaError: true,
             },
@@ -115,7 +116,7 @@ export class UnionSchema<
       const serializedObjectSchemas =
         serializedSchemas as SerializedObjectSchema[];
       const optionalLiterals = serializedObjectSchemas.filter(
-        (schema) => schema.items[key].opt
+        (schema) => schema.items[key].opt,
       );
       if (optionalLiterals.length > 1) {
         return {
@@ -170,7 +171,7 @@ export class UnionSchema<
         }
       }
       const objectSchemaAtKey = objectSchemas.find(
-        (schema) => !schema.items[key].validate(path, objectSrc[key])
+        (schema) => !schema.items[key].validate(path, objectSrc[key]),
       );
       if (!objectSchemaAtKey) {
         const keyPath = createValPathOfItem(path, key);
@@ -178,7 +179,7 @@ export class UnionSchema<
           throw new Error(
             `Internal error: could not create path at ${
               !path && typeof path === "string" ? "<empty string>" : path
-            } at key ${key}`
+            } at key ${key}`,
           );
         }
         return {
@@ -197,8 +198,8 @@ export class UnionSchema<
                       `Expected literal schema, got ${JSON.stringify(
                         keySchema,
                         null,
-                        2
-                      )}`
+                        2,
+                      )}`,
                     );
                   }
                 })
@@ -225,7 +226,7 @@ export class UnionSchema<
       const literalItems = [key, ...this.items] as LiteralSchema<string>[];
       if (typeof unknownSrc === "string") {
         const isMatch = literalItems.some(
-          (item) => !item.validate(path, unknownSrc)
+          (item) => !item.validate(path, unknownSrc),
         );
         if (!isMatch) {
           return {
@@ -301,7 +302,7 @@ export class UnionSchema<
       let success = false;
       const errors: Record<SourcePath, AssertError[]> = {};
       for (const itemSchema of [this.key as Schema<string>].concat(
-        ...(this.items as Schema<string>[])
+        ...(this.items as Schema<string>[]),
       )) {
         if (!(itemSchema instanceof LiteralSchema)) {
           return {
@@ -414,7 +415,7 @@ export class UnionSchema<
   constructor(
     readonly key: Key,
     readonly items: T,
-    readonly opt: boolean = false
+    readonly opt: boolean = false,
   ) {
     super();
   }
@@ -426,9 +427,9 @@ export const union = <
     Key extends string
       ? SourceObject & { [k in Key]: string }
       : Key extends Schema<string>
-      ? string
-      : unknown
-  >[]
+        ? string
+        : unknown
+  >[],
 >(
   key: Key,
   ...objects: T

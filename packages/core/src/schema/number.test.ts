@@ -17,7 +17,7 @@ describe("NumberSchema", () => {
   test("assert: should return errors if src is a string", () => {
     const schema = number();
     expect(schema.assert("foo" as SourcePath, "1" as any).success).toEqual(
-      false
+      false,
     );
   });
 });

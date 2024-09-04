@@ -230,23 +230,23 @@ export function createValPathOfItem(
 // TODO: replace createValPathOfItem everywhere with this newer implementation (that does not return undefined but throws)
 export function unsafeCreateSourcePath(
   path: string,
-  itemKey: string | number | symbol
+  itemKey: string | number | symbol,
 ) {
   if (typeof itemKey === "symbol") {
     throw Error(
-      `Cannot create val path of array item with symbol prop: ${itemKey.toString()}`
+      `Cannot create val path of array item with symbol prop: ${itemKey.toString()}`,
     );
   }
   if (!path) {
     throw Error(
-      `Cannot create val path of array item of empty or missing path: ${path}. Item: ${itemKey}`
+      `Cannot create val path of array item of empty or missing path: ${path}. Item: ${itemKey}`,
     );
   }
   if (path.includes(Internal.ModuleFilePathSep)) {
     return `${path}.${JSON.stringify(itemKey)}` as SourcePath;
   }
   return `${path}${Internal.ModuleFilePathSep}${JSON.stringify(
-    itemKey
+    itemKey,
   )}` as SourcePath;
 }
 

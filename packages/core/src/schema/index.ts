@@ -57,15 +57,15 @@ export type SchemaAssertResult<Src extends SelectorSource> =
       data: Src extends RawString
         ? string
         : // eslint-disable-next-line @typescript-eslint/ban-types
-        Src extends RichTextSource<{}>
-        ? GenericRichTextSourceNode[]
-        : Src extends Primitives
-        ? Src
-        : Src extends Array<SelectorSource>
-        ? SelectorSource[]
-        : Src extends { [key: string]: SelectorSource }
-        ? { [key in keyof Src]: SelectorSource }
-        : never;
+          Src extends RichTextSource<{}>
+          ? GenericRichTextSourceNode[]
+          : Src extends Primitives
+            ? Src
+            : Src extends Array<SelectorSource>
+              ? SelectorSource[]
+              : Src extends { [key: string]: SelectorSource }
+                ? { [key in keyof Src]: SelectorSource }
+                : never;
       success: true;
     }
   | { success: false; errors: Record<SourcePath, AssertError[]> };
@@ -102,7 +102,7 @@ export abstract class Schema<Src extends SelectorSource> {
     current: ValidationErrors,
     path: SourcePath,
     message: string,
-    value: unknown
+    value: unknown,
   ): ValidationErrors {
     if (current) {
       if (current[path]) {

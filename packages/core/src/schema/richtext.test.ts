@@ -81,7 +81,7 @@ describe("RichTextSchema", () => {
         [
           `/richtext.val.ts?p=1`,
           `/richtext.val.ts?p=2."children".0."children".0."children".1`,
-        ].sort()
+        ].sort(),
       );
       const errorAtPath =
         res.errors[

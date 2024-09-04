@@ -24,9 +24,12 @@ export type SerializedArraySchema = {
 
 export class ArraySchema<
   T extends Schema<SelectorSource>,
-  Src extends SelectorOfSchema<T>[] | null
+  Src extends SelectorOfSchema<T>[] | null,
 > extends Schema<Src> {
-  constructor(readonly item: T, readonly opt: boolean = false) {
+  constructor(
+    readonly item: T,
+    readonly opt: boolean = false,
+  ) {
     super();
   }
 
@@ -115,7 +118,7 @@ export class ArraySchema<
 }
 
 export const array = <S extends Schema<SelectorSource>>(
-  schema: S
+  schema: S,
 ): Schema<SelectorOfSchema<S>[]> => {
   return new ArraySchema(schema);
 };

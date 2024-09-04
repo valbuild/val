@@ -39,7 +39,7 @@ export class OneOfSchema<
   }
   assert(
     path: SourcePath,
-    src: OneOfSelector<Sel>
+    src: OneOfSelector<Sel>,
   ): SchemaAssertResult<OneOfSelector<Sel>> {
     throw new Error("Method not implemented.");
   }
