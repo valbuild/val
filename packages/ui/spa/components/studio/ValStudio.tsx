@@ -87,7 +87,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, cache }) => {
             applyRes.error.errors.map(({ patchError, patchId }) => ({
               message: "Error: " + patchError,
               brokenPatchId: patchId,
-            }))
+            })),
           );
         }
       }
@@ -123,7 +123,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, cache }) => {
                 resetRes.error.errors.map(({ patchError, patchId }) => ({
                   message: "Error: " + patchError,
                   brokenPatchId: patchId,
-                }))
+                })),
               );
             } else {
               setErrorMessages([
