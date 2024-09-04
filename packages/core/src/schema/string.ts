@@ -116,7 +116,6 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
         [path]: [
           {
             message: `Expected 'string', got '${typeof src}'`,
-            value: src,
             typeError: true,
           },
         ],
