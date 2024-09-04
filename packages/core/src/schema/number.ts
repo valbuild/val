@@ -35,31 +35,47 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     return false;
   }
 
-  assert(path: SourcePath, src: unknown) {
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
     if (this.opt && src === null) {
       return {
         success: true,
         data: src,
+      } as SchemaAssertResult<Src>;
+    }
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: "Expected 'number', got 'null'",
+              typeError: true,
+            },
+          ],
+        },
       };
     }
     if (typeof src === "number") {
       return {
         success: true,
         data: src,
-      };
+      } as SchemaAssertResult<Src>;
     }
     return {
       success: false,
       errors: {
         [path]: [
-          { message: `Expected 'number', got '${typeof src}'`, value: src },
+          {
+            message: `Expected 'number', got '${typeof src}'`,
+            typeError: true,
+          },
         ],
       },
     };
   }
 
-  nullable(): Schema<number | null> {
-    return new NumberSchema<Src | null>(this.options, true);
+  nullable(): Schema<Src> {
+    return new NumberSchema<Src | null>(this.options, true) as Schema<Src>;
   }
 
   serialize(): SerializedSchema {

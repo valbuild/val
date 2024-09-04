@@ -53,7 +53,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
             {
               message: `From date ${this.options.from} is after to date ${this.options.to}`,
               value: src,
-              fatal: true,
+              typeError: true,
             },
           ],
         } as ValidationErrors;
@@ -101,18 +101,23 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     return false;
   }
 
-  assert(path: SourcePath, src: Src): SchemaAssertResult<Src> {
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
     if (this.opt && src === null) {
       return {
         success: true,
         data: src,
-      };
+      } as SchemaAssertResult<Src>;
     }
     if (src === null) {
       return {
         success: false,
         errors: {
-          [path]: [{ message: "Expected 'string', got 'null'", value: src }],
+          [path]: [
+            {
+              message: "Expected 'string', got 'null'",
+              typeError: true,
+            },
+          ],
         },
       };
     }
@@ -121,7 +126,10 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
         success: false,
         errors: {
           [path]: [
-            { message: `Expected 'string', got '${typeof src}'`, value: src },
+            {
+              message: `Expected 'string', got '${typeof src}'`,
+              typeError: true,
+            },
           ],
         },
       };
@@ -130,7 +138,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     return {
       success: true,
       data: src,
-    };
+    } as SchemaAssertResult<Src>;
   }
 
   from(from: string): DateSchema<Src> {

@@ -166,48 +166,57 @@ export class ImageSchema<
     } as ValidationErrors;
   }
 
-  assert(path: SourcePath, src: Src): SchemaAssertResult<Src> {
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
     if (this.opt && src === null) {
       return {
         success: true,
         data: src,
+      } as SchemaAssertResult<Src>;
+    }
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            { message: `Expected 'object', got 'null'`, typeError: true },
+          ],
+        },
       };
     }
     if (typeof src !== "object") {
       return {
         success: false,
         errors: {
-          [path]: [{ message: `Expected object, got '${typeof src}'` }],
+          [path]: [
+            {
+              message: `Expected 'object', got '${typeof src}'`,
+              typeError: true,
+            },
+          ],
         },
       };
     }
-    if (src === null) {
-      return {
-        success: false,
-        errors: {
-          [path]: [{ message: `Expected object with file reference` }],
-        },
-      };
-    }
-    if (src[FILE_REF_PROP] !== "image") {
+    if (!(FILE_REF_PROP in src)) {
       return {
         success: false,
         errors: {
           [path]: [
             {
               message: `Value of this schema must use: 'c.image' (error type: missing_ref_prop)`,
+              typeError: true,
             },
           ],
         },
       };
     }
-    if (src?.[VAL_EXTENSION] !== "file") {
+    if (!(VAL_EXTENSION in src && src[VAL_EXTENSION] === "file")) {
       return {
         success: false,
         errors: {
           [path]: [
             {
               message: `Value of this schema must use: 'c.image' (error type: missing_file_extension)`,
+              typeError: true,
             },
           ],
         },
@@ -216,7 +225,7 @@ export class ImageSchema<
     return {
       success: true,
       data: src,
-    };
+    } as SchemaAssertResult<Src>;
   }
 
   nullable(): Schema<Src | null> {

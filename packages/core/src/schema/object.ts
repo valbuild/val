@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
+  AssertError,
   Schema,
   SchemaAssertResult,
   SelectorOfSchema,
@@ -98,12 +99,21 @@ export class ObjectSchema<
     return error;
   }
 
-  assert(path: SourcePath, src: unknown) {
-    throw new Error("Method not implemented.");
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
     if (this.opt && src === null) {
       return {
         success: true,
         data: src,
+      } as SchemaAssertResult<Src>;
+    }
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            { message: `Expected 'object', got 'null'`, typeError: true },
+          ],
+        },
       };
     }
 
@@ -111,49 +121,54 @@ export class ObjectSchema<
       return {
         success: false,
         errors: {
-          [path]: [{ message: `Expected 'object', got '${typeof src}'` }],
+          [path]: [
+            {
+              message: `Expected 'object', got '${typeof src}'`,
+              typeError: true,
+            },
+          ],
         },
       };
     } else if (Array.isArray(src)) {
       return {
         success: false,
         errors: {
-          [path]: [{ message: `Expected 'object', got 'array'` }],
+          [path]: [
+            { message: `Expected 'object', got 'array'`, typeError: true },
+          ],
         },
       };
     }
 
-    let error: ValidationErrors = false;
+    const errorsAtPath: AssertError[] = [];
     for (const key of Object.keys(this.items)) {
       const subPath = createValPathOfItem(path, key);
       if (!subPath) {
-        error = this.appendValidationError(
-          error,
-          path,
-          `Internal error: could not create path at ${
+        errorsAtPath.push({
+          message: `Internal error: could not create path at ${
             !path && typeof path === "string" ? "<empty string>" : path
           } at key ${key}`, // Should! never happen
-          src,
-        );
-      } else if (!src?.[key]) {
-        error = this.appendValidationError(
-          error,
-          subPath,
-          `Expected key '${key}' not found in object`,
-          src,
-        );
+          internalError: true,
+        });
+      } else if (!(key in src)) {
+        errorsAtPath.push({
+          message: `Expected key '${key}' not found in object`,
+          typeError: true,
+        });
       }
     }
-    if (error) {
+    if (errorsAtPath.length > 0) {
       return {
         success: false,
-        errors: error,
+        errors: {
+          [path]: errorsAtPath,
+        },
       };
     }
     return {
       success: true,
       data: src,
-    };
+    } as SchemaAssertResult<Src>;
   }
 
   nullable(): Schema<Src | null> {

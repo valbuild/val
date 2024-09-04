@@ -75,6 +75,14 @@ export type Styles<O extends RichTextOptions> =
   | Italic<O>
   | Bold<O>;
 
+export type GenericRichTextSourceNode = {
+  tag: string;
+  styles?: string[];
+  href?: string;
+  src?: ImageSource;
+  children?: (string | GenericRichTextSourceNode)[];
+};
+
 //#region Paragraph
 export type ParagraphNode<O extends RichTextOptions> = {
   tag: "p";
