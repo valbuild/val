@@ -88,5 +88,5 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
 }
 
 export const number = (options?: NumberOptions): Schema<number> => {
-  return new NumberSchema(options);
+  return new NumberSchema(options) as Schema<number>;
 };

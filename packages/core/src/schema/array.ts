@@ -44,7 +44,8 @@ export class ArraySchema<
     let error: Record<SourcePath, ValidationError[]> = {};
     for (const [idx, i] of Object.entries(assertRes.data)) {
       const subPath = unsafeCreateSourcePath(path, Number(idx));
-      const subError = this.item.validate(subPath, i);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const subError = this.item.validate(subPath, i as any);
       if (subError) {
         error = {
           ...subError,
