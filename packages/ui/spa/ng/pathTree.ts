@@ -1,11 +1,11 @@
-export type ExplorerItemType = {
+export type PathNode = {
   name: string;
   fullPath: string;
   isDirectory?: true;
-  children: ExplorerItemType[];
+  children: PathNode[];
 };
-export function pathTree(filePaths: string[]): ExplorerItemType {
-  const allPaths: Record<string, ExplorerItemType> = {
+export function pathTree(filePaths: string[]): PathNode {
+  const allPaths: Record<string, PathNode> = {
     "/": {
       name: "/",
       fullPath: "/",
@@ -37,7 +37,7 @@ export function pathTree(filePaths: string[]): ExplorerItemType {
         throw new Error("Expected name to be non-empty");
       }
       if (!allPaths[fullPath]) {
-        const node: ExplorerItemType = {
+        const node: PathNode = {
           name,
           fullPath,
           children: [],
@@ -48,10 +48,6 @@ export function pathTree(filePaths: string[]): ExplorerItemType {
         }
         allPaths[fullPath] = node;
         allPaths[dir || "/"].children.push(allPaths[fullPath]);
-        // we do not have to sort here, but we will need it later so why not? TODO: it would be more efficient to sort everything at the end
-        allPaths[dir || "/"].children.sort((a, b) =>
-          a.name.localeCompare(b.name),
-        );
       }
     }
   }

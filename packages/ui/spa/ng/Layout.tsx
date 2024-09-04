@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronsUpDown,
+  File,
   Languages,
   ListFilter,
   Plus,
@@ -10,9 +11,12 @@ import {
   Tally2,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import classNames from "classnames";
 import { ScrollArea } from "@radix-ui/react-scroll-area";
+import { PathNode, pathTree } from "./pathTree";
+import { fixCapitalization } from "./fixCapitalization";
+import { SourcePath } from "@valbuild/core";
 
 export function Layout() {
   return (
@@ -49,7 +53,31 @@ function Left() {
         <ScrollArea className="max-h-[max(50vh-40px,200px)] overflow-scroll">
           <Explorer
             title="Blank website"
-            items={["Projects", "Benefits", "Darkside", "Salary", "Working"]}
+            items={[
+              "/content/events/series.val",
+              "/content/projects.val",
+              "/content/benefits.val",
+              "/content/pages/projects.val",
+              "/content/pages/about.val",
+              "/content/pages/events.val",
+              "/content/pages/positions.val",
+              "/content/pages/jobs.val",
+              "/content/pages/contactJob.val",
+              "/content/pages/handbook.val",
+              "/content/pages/workingConditions.val",
+              "/content/pages/services.val",
+              "/content/pages/home.val",
+              "/content/pages/contactSales.val",
+              "/content/pages/employees.val",
+              "/content/darkside.val",
+              "/content/salary.val",
+              "/content/workingConditions.val",
+              "/content/footer.val",
+              "/content/services.val",
+              "/content/availablePositions.val",
+              "/content/employees/contactEmployees.val",
+              "/content/employees/employeeList.val",
+            ]}
           />
         </ScrollArea>
         <Divider />
@@ -57,12 +85,11 @@ function Left() {
           <Explorer
             title="Pages"
             items={[
-              "Projects",
-              "About",
-              "Events",
-              "Positions",
-              "Jobs",
-              "Contacts",
+              "/content/projects.val.ts",
+              "/content/employees/employeeList.val.ts",
+              "/content/pages/projects.val.ts",
+              "/content/salary.val.ts",
+              "/content/handbook.val.ts",
             ]}
           />
         </ScrollArea>
@@ -71,20 +98,106 @@ function Left() {
   );
 }
 
+function prettifyFilename(filename: string) {
+  return fixCapitalization(filename.split(".")[0]);
+}
+
+function sortPathTree(a: PathNode, b: PathNode) {
+  if (a.isDirectory && !b.isDirectory) {
+    return -1;
+  }
+  if (!a.isDirectory && b.isDirectory) {
+    return 1;
+  }
+  return a.name.localeCompare(b.name);
+}
+
 function Explorer({ items, title }: { title: string; items: string[] }) {
+  const root = useMemo(() => {
+    return pathTree(items);
+  }, [items]);
   return (
     <div className="px-2">
       <div className="py-2">{title}</div>
       <div>
-        {items.map((item, i) => (
-          <div className="flex justify-between p-2" key={i}>
-            <span className="flex items-center text-sm">
-              <Tally2 />
-              <span>{item}</span>
-            </span>
-            <ChevronRight />
-          </div>
+        {root.children.sort(sortPathTree).map((child, i) => (
+          <ExplorerNode {...child} name={child.name} key={i} />
         ))}
+      </div>
+    </div>
+  );
+}
+
+function ExplorerNode({
+  name,
+  // fullPath,
+  isDirectory,
+  children,
+}: PathNode) {
+  const [isOpen, setIsOpen] = useState(true);
+  return (
+    <div className="w-full">
+      <div className="flex justify-between w-full p-2">
+        <button
+          className="flex items-center pr-2"
+          onClick={() => {
+            // navigate(fullPath);
+          }}
+        >
+          {isDirectory ? <Tally2 /> : <File className="pr-2" />}
+          <span>{prettifyFilename(name)}</span>
+        </button>
+        <button
+          onClick={() => {
+            setIsOpen(!isOpen);
+          }}
+        >
+          <ChevronRight
+            className={classNames({
+              "transform rotate-90": isOpen,
+              hidden: !children.length,
+            })}
+          />
+        </button>
+      </div>
+      <div className="pl-2">
+        <AnimateHeight isOpen={isOpen}>
+          {children.sort(sortPathTree).map((child, i) => (
+            <ExplorerNode {...child} key={i} />
+          ))}
+        </AnimateHeight>
+      </div>
+    </div>
+  );
+}
+
+function AnimateHeight({
+  isOpen,
+  children,
+  duration = 0.3,
+}: {
+  isOpen: boolean;
+  children: React.ReactNode | React.ReactNode[];
+  duration?: number;
+}) {
+  return (
+    <div
+      style={{ transition: `grid-template-rows ${duration}s` }}
+      className={classNames("grid overflow-hidden", {
+        "grid-rows-[0fr]": !isOpen,
+        "grid-rows-[1fr]": isOpen,
+      })}
+    >
+      <div
+        style={{
+          transition: `visibility ${duration}s`,
+        }}
+        className={classNames("min-h-0", {
+          visible: isOpen,
+          invisible: !isOpen,
+        })}
+      >
+        {children}
       </div>
     </div>
   );
