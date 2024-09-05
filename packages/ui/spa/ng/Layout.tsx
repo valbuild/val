@@ -1,17 +1,18 @@
 import {
-  ArrowDownUp,
-  Bell,
+  ArrowUpDown,
   ChevronDown,
   ChevronRight,
   ChevronsUpDown,
+  File,
   Languages,
   ListFilter,
   Plus,
+  Search,
   Tally2,
 } from "lucide-react";
-import { Button, ButtonProps } from "../components/ui/button";
+import { Button } from "../components/ui/button";
 import classNames from "classnames";
-import React from "react";
+import React, { useMemo, useState } from "react";
 import { deserializeSchema, Internal, SourcePath } from "@valbuild/core";
 import { Module } from "./components/Module";
 import {
@@ -20,12 +21,16 @@ import {
   useModuleSource,
   useNavigation,
 } from "./UIProvider";
+import { ScrollArea } from "../components/ui/scroll-area";
+import { PathNode, pathTree } from "./pathTree";
+import { fixCapitalization } from "./fixCapitalization";
+import { Remote } from "../utils/Remote";
 
 export function Layout() {
   return (
     <UIProvider>
-      <div className="absolute top-0 left-0 w-full h-screen">
-        <main className="grid grid-cols-[284px_auto_284px] grid-rows-[64px_auto] h-full py-4">
+      <div className="absolute top-0 left-0 w-full min-h-screen">
+        <main className="grid grid-cols-[284px_auto_284px] grid-rows-[64px_auto] py-4">
           <HeaderLeft />
           <HeaderCenter />
           <HeaderRight />
@@ -41,7 +46,7 @@ export function Layout() {
 
 function HeaderLeft() {
   return (
-    <div className="flex items-center h-12 gap-4 px-5 pt-4">
+    <div className="flex items-center gap-4 px-5 pt-4 ml-4 bg-primary-foreground rounded-t-3xl">
       <div>
         <FakeIcon />
       </div>
@@ -52,55 +57,61 @@ function HeaderLeft() {
 
 function Left() {
   return (
-    <div className="flex flex-col justify-between px-5">
-      <nav className="max-h-full overflow-scroll">
+    <div className="flex flex-col justify-between pb-4 ml-4 bg-primary-foreground rounded-b-3xl">
+      <nav>
         <Divider />
-        <Members />
+        <ScrollArea className="max-h-[max(50vh-40px,200px)] overflow-scroll">
+          <NavContentExplorer title="Blank website" />
+        </ScrollArea>
         <Divider />
-        <NavContentExplorer title="Content" />
-        <Divider />
-        <NavSiteMap
-          title="Blank website"
-          items={["Projects", "Benefits", "Darkside", "Salary", "Working"]}
-        />
-        <Divider />
+        <ScrollArea className="max-h-[max(50vh-40px,200px)] overflow-scroll">
+          <NavSiteMap
+            title="Pages"
+            items={[
+              "/content/projects.val.ts",
+              "/content/employees/employeeList.val.ts",
+              "/content/pages/projects.val.ts",
+              "/content/salary.val.ts",
+              "/content/handbook.val.ts",
+            ]}
+          />
+        </ScrollArea>
       </nav>
-      <Author size="lg" />
     </div>
   );
 }
 
-function NavContentExplorer({ title }: { title: string }) {
+function useSchemasTree(): Remote<PathNode> {
   const remoteSchemasByModuleFilePath = useSchemas();
-  const { navigate } = useNavigation();
-  if (remoteSchemasByModuleFilePath.status === "error") {
-    throw new Error(remoteSchemasByModuleFilePath.error);
+  return useMemo(() => {
+    if (remoteSchemasByModuleFilePath.status === "success") {
+      const filePaths = Object.keys(remoteSchemasByModuleFilePath.data);
+      return {
+        status: remoteSchemasByModuleFilePath.status,
+        data: pathTree(filePaths),
+      };
+    }
+    return remoteSchemasByModuleFilePath;
+  }, [remoteSchemasByModuleFilePath]);
+}
+
+function NavContentExplorer({ title }: { title: string }) {
+  const remoteSchemaTree = useSchemasTree();
+  if (remoteSchemaTree.status === "error") {
+    throw new Error(remoteSchemaTree.error);
   }
-  if (remoteSchemasByModuleFilePath.status !== "success") {
+  if (remoteSchemaTree.status !== "success") {
     return <Loading />;
   }
+  const root = remoteSchemaTree.data;
 
   return (
     <div className="px-2">
       <div className="py-2">{title}</div>
       <div>
-        {Object.keys(remoteSchemasByModuleFilePath.data).map(
-          (moduleFilePath) => (
-            <button
-              className="flex justify-between p-2"
-              key={moduleFilePath}
-              onClick={() => {
-                navigate(moduleFilePath as SourcePath);
-              }}
-            >
-              <span className="flex items-center text-sm">
-                <Tally2 />
-                <span>{moduleFilePath}</span>
-              </span>
-              <ChevronRight />
-            </button>
-          )
-        )}
+        {root.children.sort(sortPathTree).map((child, i) => (
+          <ExplorerNode {...child} name={child.name} key={i} />
+        ))}
       </div>
     </div>
   );
@@ -111,19 +122,99 @@ function Loading() {
 }
 
 function NavSiteMap({ items, title }: { title: string; items: string[] }) {
+  const root = useMemo(() => {
+    return pathTree(items);
+  }, [items]);
   return (
     <div className="px-2">
       <div className="py-2">{title}</div>
       <div>
-        {items.map((item, i) => (
-          <div className="flex justify-between p-2" key={i}>
-            <span className="flex items-center text-sm">
-              <Tally2 />
-              <span>{item}</span>
-            </span>
-            <ChevronRight />
-          </div>
+        {root.children.sort(sortPathTree).map((child, i) => (
+          <ExplorerNode {...child} name={child.name} key={i} />
         ))}
+      </div>
+    </div>
+  );
+}
+
+function prettifyFilename(filename: string) {
+  return fixCapitalization(filename.split(".")[0]);
+}
+
+function sortPathTree(a: PathNode, b: PathNode) {
+  if (a.isDirectory && !b.isDirectory) {
+    return -1;
+  }
+  if (!a.isDirectory && b.isDirectory) {
+    return 1;
+  }
+  return a.name.localeCompare(b.name);
+}
+
+function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
+  const { navigate } = useNavigation();
+  const [isOpen, setIsOpen] = useState(true);
+  return (
+    <div className="w-full">
+      <button
+        className="flex justify-between w-full p-2"
+        onClick={() => {
+          if (isDirectory) {
+            setIsOpen(!isOpen);
+          } else {
+            navigate(fullPath as SourcePath);
+          }
+        }}
+      >
+        <div className="flex items-center pr-2">
+          {isDirectory ? <Tally2 /> : <File className="pr-2" />}
+          <span>{prettifyFilename(name)}</span>
+        </div>
+        <ChevronRight
+          className={classNames("transform", {
+            "rotate-90": isOpen,
+            hidden: !children.length,
+          })}
+        />
+      </button>
+      <div className="pl-2">
+        <AnimateHeight isOpen={isOpen}>
+          {children.sort(sortPathTree).map((child, i) => (
+            <ExplorerNode {...child} key={i} />
+          ))}
+        </AnimateHeight>
+      </div>
+    </div>
+  );
+}
+
+function AnimateHeight({
+  isOpen,
+  children,
+  duration = 0.3,
+}: {
+  isOpen: boolean;
+  children: React.ReactNode | React.ReactNode[];
+  duration?: number;
+}) {
+  return (
+    <div
+      style={{ transition: `grid-template-rows ${duration}s` }}
+      className={classNames("grid overflow-hidden", {
+        "grid-rows-[0fr]": !isOpen,
+        "grid-rows-[1fr]": isOpen,
+      })}
+    >
+      <div
+        style={{
+          transition: `visibility ${duration}s`,
+        }}
+        className={classNames("min-h-0", {
+          visible: isOpen,
+          invisible: !isOpen,
+        })}
+      >
+        {children}
       </div>
     </div>
   );
@@ -145,22 +236,6 @@ function Author({ size }: { size: "md" | "lg" }) {
   );
 }
 
-function Members() {
-  return (
-    <div className="flex items-center gap-2 p-2 bg-primary-foreground w-fit rounded-3xl">
-      <Author size="md" />
-      <img
-        src="https://randomuser.me/api/portraits/women/71.jpg"
-        className="w-8 h-8 rounded-full"
-      />
-      <div className="w-8 h-8 text-xs leading-8 text-center rounded-full bg-secondary text-secondary-foreground">
-        +10
-      </div>
-      <ChevronDown />
-    </div>
-  );
-}
-
 function List() {
   return (
     <Button
@@ -175,32 +250,16 @@ function List() {
 
 function HeaderCenter() {
   return (
-    <div className="flex items-center justify-between p-4 mx-4 rounded-t-2xl bg-primary-foreground">
-      <span>Projects</span>
-      <ButtonRow>
-        <IconButton>
-          <Plus />
-        </IconButton>
-        <IconButton>
-          <ArrowDownUp />
-        </IconButton>
-        <IconButton>
-          <ListFilter />
-        </IconButton>
-        <IconButton>
-          <Languages />
-        </IconButton>
-      </ButtonRow>
+    <div className="flex items-center justify-center mx-4">
+      <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-background font-[SpaceGrotesk] w-fit">
+        <span className="text-muted">Blank Website</span>
+        <span className="text-muted"> /</span>
+        <span className="text-muted">Aidn</span>
+        <span className="text-muted">/</span>
+        <span>Item</span>
+      </div>
     </div>
   );
-}
-
-function IconButton(props: ButtonProps) {
-  return <Button className="px-2" variant="secondary" {...props} />;
-}
-
-function ButtonRow({ children }: { children: React.ReactNode[] }) {
-  return <div className="flex items-center gap-2">{children}</div>;
 }
 
 function Center() {
@@ -244,7 +303,7 @@ function Center() {
     moduleSchema,
   });
   return (
-    <div className="p-4 max-w-[80vw] overflow-x-hidden mx-4 mb-4 rounded-b-2xl bg-primary-foreground flex flex-col gap-4">
+    <div className="p-4 max-w-[80vw] overflow-x-hidden mx-4 mb-4 rounded-b-2xl flex flex-col gap-4">
       <div>{path}</div>
       <Module
         path={path}
@@ -265,30 +324,73 @@ function EmptyContent() {
 
 function HeaderRight() {
   return (
-    <div className="flex items-center justify-end gap-2 p-4">
-      <ButtonRow>
-        <Button className="px-2 py-2 bg-transparent border-transparent text-foreground">
-          <Bell />
-        </Button>
-        <Button className="h-10 px-2 py-2 bg-transparent border-transparent text-foreground">
-          Preview
-        </Button>
-        <Button className="h-10 bg-transparent border-muted" variant="outline">
-          Publish
-        </Button>
-      </ButtonRow>
+    <div className="flex items-center justify-between p-4 mr-4 text-sm bg-primary-foreground rounded-t-3xl">
+      <div className="flex items-center gap-2">
+        <Button variant="secondary">Preview</Button>
+        <Button>Publish</Button>
+      </div>
+      <Author size="md" />
     </div>
   );
 }
 
 function Right() {
   return (
-    <div className="px-5">
+    <div className="pb-4 mr-4 text-sm rounded-b-3xl bg-primary-foreground h-fit">
       <Divider />
-      <PendingChanges />
+      <Tools />
       <Divider />
-      <ValidationErrors />
+      <Tabs />
     </div>
+  );
+}
+
+function Tools() {
+  return (
+    <div className="flex items-center gap-4 px-4 justify-evenly">
+      <button>
+        <Plus size={16} />
+      </button>
+      <button>
+        <ArrowUpDown size={16} />
+      </button>
+      <button>
+        <ListFilter size={16} />
+      </button>
+      <button>
+        <div className="flex items-center gap-2">
+          <Languages size={16} />
+          <ChevronDown size={16} />
+        </div>
+      </button>
+      <button>
+        <Search size={16} />
+      </button>
+    </div>
+  );
+}
+
+function Tabs() {
+  const [activeTab, setActiveTab] = useState<"changes" | "errors">("changes");
+  return (
+    <ScrollArea className="max-h-[max(50vh-40px,200px)] overflow-scroll px-4">
+      <div className="flex gap-4">
+        <button
+          onClick={() => setActiveTab("changes")}
+          className={classNames({ "text-muted": activeTab !== "changes" })}
+        >
+          Changes
+        </button>
+        <button
+          onClick={() => setActiveTab("errors")}
+          className={classNames({ "text-muted": activeTab !== "errors" })}
+        >
+          Errors
+        </button>
+      </div>
+      {activeTab === "changes" && <PendingChanges />}
+      {activeTab === "errors" && <ValidationErrors />}
+    </ScrollArea>
   );
 }
 
@@ -299,24 +401,46 @@ function PendingChanges() {
     "https://randomuser.me/api/portraits/women/12.jpg",
     "https://randomuser.me/api/portraits/women/33.jpg",
     "https://randomuser.me/api/portraits/women/15.jpg",
+    "https://randomuser.me/api/portraits/women/71.jpg",
+    "https://randomuser.me/api/portraits/women/51.jpg",
+    "https://randomuser.me/api/portraits/women/12.jpg",
+    "https://randomuser.me/api/portraits/women/33.jpg",
+    "https://randomuser.me/api/portraits/women/15.jpg",
+    "https://randomuser.me/api/portraits/women/71.jpg",
+    "https://randomuser.me/api/portraits/women/51.jpg",
+    "https://randomuser.me/api/portraits/women/12.jpg",
+    "https://randomuser.me/api/portraits/women/33.jpg",
+    "https://randomuser.me/api/portraits/women/15.jpg",
+    "https://randomuser.me/api/portraits/women/71.jpg",
+    "https://randomuser.me/api/portraits/women/51.jpg",
+    "https://randomuser.me/api/portraits/women/12.jpg",
+    "https://randomuser.me/api/portraits/women/33.jpg",
+    "https://randomuser.me/api/portraits/women/15.jpg",
+    "https://randomuser.me/api/portraits/women/71.jpg",
+    "https://randomuser.me/api/portraits/women/51.jpg",
+    "https://randomuser.me/api/portraits/women/12.jpg",
+    "https://randomuser.me/api/portraits/women/33.jpg",
+    "https://randomuser.me/api/portraits/women/15.jpg",
+    "https://randomuser.me/api/portraits/women/71.jpg",
+    "https://randomuser.me/api/portraits/women/51.jpg",
+    "https://randomuser.me/api/portraits/women/12.jpg",
+    "https://randomuser.me/api/portraits/women/33.jpg",
+    "https://randomuser.me/api/portraits/women/15.jpg",
   ];
   return (
     <div>
-      <div className="p-2">Pending changes ({items.length})</div>
-      <div>
-        {items.map((item, i) => (
-          <div className="flex justify-between p-2 text-xs" key={i}>
-            <span className="flex items-center gap-4 ">
-              <img src={item} className="w-8 h-8 rounded-full" />
-              <span className="truncate">3 changes</span>
-            </span>
-            <span className="flex items-center gap-4 text-muted-foreground">
-              <span className="truncate">2 days ago</span>
-              <ChevronDown />
-            </span>
-          </div>
-        ))}
-      </div>
+      {items.map((item, i) => (
+        <div className="flex justify-between py-2 text-xs" key={i}>
+          <span className="flex items-center gap-4 ">
+            <img src={item} className="w-8 h-8 rounded-full" />
+            <span className="truncate">3 changes</span>
+          </span>
+          <span className="flex items-center gap-4 text-muted-foreground">
+            <span className="truncate">2 days ago</span>
+            <ChevronDown />
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -325,36 +449,35 @@ function ValidationErrors() {
   const items = ["Menneskene", "Blogs", "Contact", "Content"];
   return (
     <div>
-      <div className="p-2">Validation errors ({items.length})</div>
-      <div>
-        {items.map((item, i) => (
-          <div className="flex justify-between p-2 text-xs" key={i}>
-            <span className="flex items-center gap-4 ">{item}</span>
-            <span className="flex items-center gap-4 text-muted-foreground">
-              <span className="truncate">2 days ago</span>
-              <ChevronDown />
-            </span>
-          </div>
-        ))}
-      </div>
+      {items.map((item, i) => (
+        <div className="flex justify-between py-2 text-xs" key={i}>
+          <span className="flex items-center gap-4 ">{item}</span>
+          <span className="flex items-center gap-4 text-muted-foreground">
+            <span className="truncate">2 days ago</span>
+            <ChevronDown />
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
 
 function LayoutBackground() {
   return (
-    <div
-      className="absolute top-0 left-0 w-full h-full -z-5"
-      style={{
-        background: `
+    <>
+      <div
+        className="absolute top-0 left-0 invisible w-full h-full -z-5 dark:visible"
+        style={{
+          background: `
         radial-gradient(circle 50vw at 42% 20%, rgba(31,42,61,1), rgba(0,0,0,0.4)),
 radial-gradient(circle 60vw at 94% 45%, rgba(105,88,119,1), rgba(0,0,0,0.3)),
 radial-gradient(circle 80vw at 96% 95%, rgba(86,154,130,1), rgba(0,0,0,0.1)),
 radial-gradient(circle 50vw at 28% 23%, rgba(2,8,23,1), rgba(0,0,0,0.7)),
 url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='6.48' numOctaves='1' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")
 `,
-      }}
-    />
+        }}
+      />
+    </>
   );
 }
 

@@ -27,7 +27,6 @@ export function KeyOfField({
   source: any;
   schema: KeyOfSchema<GenericSelector<SourceArray | SourceObject>>;
 }) {
-  console.log("KeyOfField of", schema.sourcePath);
   const remoteReferencedSource = useModuleSource(
     (schema.sourcePath ?? null) as ModuleFilePath | null
   );
