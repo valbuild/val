@@ -14,5 +14,6 @@ export function fixCapitalization(path: string): string {
       lastWasLowerCase = true;
     }
   }
+  styledPath = styledPath.replace(/[-–—]/g, "");
   return styledPath;
 }
