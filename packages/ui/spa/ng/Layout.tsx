@@ -13,6 +13,7 @@ import { Button, ButtonProps } from "../components/ui/button";
 import classNames from "classnames";
 import React, { useContext, useEffect, useState } from "react";
 import {
+  deserializeSchema,
   Internal,
   Json,
   ModuleFilePath,
@@ -21,10 +22,7 @@ import {
 } from "@valbuild/core";
 import fakeModules from "./fakeContent/val.modules";
 import { Remote } from "../utils/Remote";
-import { StringField } from "../components/fields/primitives/StringField";
-import { UnexpectedSourceType } from "../components/fields/UnexpectedSourceType";
-import { NumberField } from "../components/fields/primitives/NumberField";
-import { BooleanField } from "../components/fields/primitives/BooleanField";
+import { Module } from "./components/Module";
 
 const UIContext = React.createContext<{
   getSchemasByModuleFilePath: () => Promise<
@@ -49,7 +47,6 @@ const UIContext = React.createContext<{
 async function getFakeModuleDefs() {
   const moduleDefs = await Promise.all(
     fakeModules.modules.map(async (module) => {
-      module.def().then(console.log);
       return module.def().then((module) => module.default);
     })
   );
@@ -129,7 +126,7 @@ function useSchemas(): Remote<Record<ModuleFilePath, SerializedSchema>> {
   return schemas;
 }
 
-function useNavigation() {
+export function useNavigation() {
   const { navigate, currentSourcePath } = useContext(UIContext);
   return {
     navigate,
@@ -155,7 +152,7 @@ function useModuleSource(moduleFilePath: ModuleFilePath | null): Remote<Json> {
       .catch((err: Error) => {
         setSourceContent({ status: "error", error: err.message });
       });
-  }, [sourceContent, getSourceContent]);
+  }, [getSourceContent]);
 
   return sourceContent;
 }
@@ -368,6 +365,7 @@ function Center() {
   if (remoteSourceContent.status !== "success") {
     return <Loading />;
   }
+
   const [moduleFilePath, modulePath] = maybeSplittedPaths;
   const path = currentSourcePath as unknown as SourcePath;
 
@@ -375,36 +373,17 @@ function Center() {
   const moduleSource = remoteSourceContent.data;
   const { source: sourceAtSourcePath, schema: schemaAtSourcePath } =
     Internal.resolvePath(modulePath, moduleSource, moduleSchema);
+
   return (
-    <div className="p-4 mx-4 mb-4 rounded-b-2xl bg-primary-foreground">
+    <div className="p-4 max-w-[80vw] overflow-x-hidden mx-4 mb-4 rounded-b-2xl bg-primary-foreground flex flex-col gap-4">
+      <div>{path}</div>
       <Module
         path={path}
         source={sourceAtSourcePath}
-        schema={schemaAtSourcePath}
+        schema={deserializeSchema(schemaAtSourcePath)}
       />
     </div>
   );
-}
-
-function Module({
-  path,
-  source,
-  schema,
-}: {
-  path: SourcePath;
-  source: Json;
-  schema: SerializedSchema;
-}) {
-  if (schema.type === "string") {
-    return <StringField path={path} source={source} schema={schema} />;
-  } else if (schema.type === "number") {
-    return <NumberField path={path} source={source} schema={schema} />;
-  } else if (schema.type === "boolean") {
-    return <BooleanField path={path} source={source} schema={schema} />;
-  } else if (schema.type === "image") {
-    return <img />;
-  }
-  return <UnexpectedSourceType source={source} schema={schema} />;
 }
 
 function EmptyContent() {
