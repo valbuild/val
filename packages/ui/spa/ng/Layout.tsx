@@ -54,29 +54,29 @@ function Left() {
           <Explorer
             title="Blank website"
             items={[
-              "/content/events/series.val",
-              "/content/projects.val",
-              "/content/benefits.val",
-              "/content/pages/projects.val",
-              "/content/pages/about.val",
-              "/content/pages/events.val",
-              "/content/pages/positions.val",
-              "/content/pages/jobs.val",
-              "/content/pages/contactJob.val",
-              "/content/pages/handbook.val",
-              "/content/pages/workingConditions.val",
-              "/content/pages/services.val",
-              "/content/pages/home.val",
-              "/content/pages/contactSales.val",
-              "/content/pages/employees.val",
-              "/content/darkside.val",
-              "/content/salary.val",
-              "/content/workingConditions.val",
-              "/content/footer.val",
-              "/content/services.val",
-              "/content/availablePositions.val",
-              "/content/employees/contactEmployees.val",
-              "/content/employees/employeeList.val",
+              "/content/events/series.val.ts",
+              "/content/projects.val.ts",
+              "/content/benefits.val.ts",
+              "/content/pages/projects.val.ts",
+              "/content/pages/about.val.ts",
+              "/content/pages/events.val.ts",
+              "/content/pages/positions.val.ts",
+              "/content/pages/jobs.val.ts",
+              "/content/pages/contactJob.val.ts",
+              "/content/pages/handbook.val.ts",
+              "/content/pages/workingConditions.val.ts",
+              "/content/pages/services.val.ts",
+              "/content/pages/home.val.ts",
+              "/content/pages/contactSales.val.ts",
+              "/content/pages/employees.val.ts",
+              "/content/darkside.val.ts",
+              "/content/salary.val.ts",
+              "/content/workingConditions.val.ts",
+              "/content/footer.val.ts",
+              "/content/services.val.ts",
+              "/content/availablePositions.val.ts",
+              "/content/employees/contactEmployees.val.ts",
+              "/content/employees/employeeList.val.ts",
             ]}
           />
         </ScrollArea>
@@ -153,8 +153,8 @@ function ExplorerNode({
           }}
         >
           <ChevronRight
-            className={classNames({
-              "transform rotate-90": isOpen,
+            className={classNames("transform", {
+              "rotate-90": isOpen,
               hidden: !children.length,
             })}
           />
@@ -243,7 +243,7 @@ function HeaderCenter() {
 }
 
 function Center() {
-  return <div className="p-4 mx-4 mb-4">C enter</div>;
+  return <div className="p-4 mx-4 mb-4">Center</div>;
 }
 
 function HeaderRight() {
