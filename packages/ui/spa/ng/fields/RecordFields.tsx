@@ -12,10 +12,10 @@ import {
   CardHeader,
   CardTitle,
 } from "../../components/ui/card";
-import { useNavigation } from "../Layout";
 import { fromCamelToTitleCase } from "../../utils/prettifyText";
 import { NullSource } from "../components/NullSource";
 import { Preview } from "../components/Preview";
+import { useNavigation } from "../UIProvider";
 
 export function RecordFields({
   source,
