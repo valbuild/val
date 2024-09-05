@@ -1,3 +1,4 @@
+// used by fakeContent to fake the t exported by val.config.ts
 import {
   GenericSelector,
   Schema,
