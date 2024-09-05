@@ -1,6 +1,9 @@
 import {
+  deserializeSchema,
   GenericSelector,
   KeyOfSchema,
+  ModuleFilePath,
+  ModulePath,
   SourceArray,
   SourceObject,
   SourcePath,
@@ -13,6 +16,7 @@ import {
   SelectTrigger,
 } from "../../components/ui/select";
 import { NullSource } from "../components/NullSource";
+import { useModuleSource } from "../UIProvider";
 
 export function KeyOfField({
   path,
@@ -23,34 +27,45 @@ export function KeyOfField({
   source: any;
   schema: KeyOfSchema<GenericSelector<SourceArray | SourceObject>>;
 }) {
+  console.log("KeyOfField of", schema.sourcePath);
+  const remoteReferencedSource = useModuleSource(
+    (schema.sourcePath ?? null) as ModuleFilePath | null
+  );
   if (!source) {
     return <NullSource />;
   }
   if (source === null) {
     return <UnexpectedSourceType source={source} schema={schema} />;
   }
+  if (remoteReferencedSource.status === "error") {
+    throw new Error(remoteReferencedSource.error);
+  }
+  if (remoteReferencedSource.status !== "success") {
+    return <div>Loading...</div>;
+  }
+  if (typeof remoteReferencedSource.data !== "object") {
+    return (
+      <UnexpectedSourceType
+        source={remoteReferencedSource.data}
+        schema={schema}
+      />
+    );
+  }
+  const referencedSchema = schema.schema && deserializeSchema(schema.schema);
+  const keys =
+    remoteReferencedSource.data && Object.keys(remoteReferencedSource.data);
   return (
     <Select>
       <SelectTrigger className="h-[8ch]">{source}</SelectTrigger>
       <SelectContent>
         <div className="relative pr-6">
-          {Object.keys(source).map((key) => (
-            <SelectItem className="h-[8ch]" key={key} value={key}>
-              {/* <PreviewDropDownItem
-                source={
-                  isJsonArray(selectorSource)
-                    ? selectorSource[Number(key)]
-                    : selectorSource[key]
-                }
-                schema={
-                  selectorSchema.type === "object"
-                    ? selectorSchema.items[key]
-                    : selectorSchema.item
-                }
-              /> */}
-              {JSON.stringify(source[key])}
-            </SelectItem>
-          ))}
+          {referencedSchema &&
+            keys?.map((key) => (
+              <SelectItem className="h-[8ch]" key={key} value={key}>
+                {key}
+                {/* TODO: preview key */}
+              </SelectItem>
+            ))}
         </div>
       </SelectContent>
     </Select>
