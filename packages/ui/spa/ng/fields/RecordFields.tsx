@@ -112,7 +112,7 @@ export function RecordFields({
         <Card
           key={key}
           onClick={() => navigate(concatSourcePath(path, key))}
-          className="bg-primary-foreground cursor-pointer hover:bg-[#121a30]"
+          className="bg-primary-foreground cursor-pointer hover:bg-primary-foreground/50"
         >
           <CardHeader>
             <CardTitle className="text-md">{fixCapitalization(key)}</CardTitle>
