@@ -296,12 +296,6 @@ function Center() {
   const moduleSource = remoteSourceContent.data;
   const { source: sourceAtSourcePath, schema: schemaAtSourcePath } =
     Internal.resolvePath(modulePath, moduleSource, moduleSchema);
-  console.log({
-    currentSourcePath,
-    sourceAtSourcePath,
-    schemaAtSourcePath,
-    moduleSchema,
-  });
   return (
     <div className="p-4 overflow-x-hidden mb-4 rounded-b-2xl flex flex-col gap-4 w-[600px] mx-auto">
       <div>{path}</div>

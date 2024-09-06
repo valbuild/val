@@ -32,9 +32,8 @@ export function ListFields({
         if (schema instanceof ObjectSchema) {
           return Object.entries(schema.items).map(([label, itemSchema]) => {
             return (
-              <Field key={index} label={label}>
+              <Field key={`${label}-${index}`} label={label}>
                 <Module
-                  key={`${label}-${index}`}
                   path={path}
                   source={item[label]}
                   schema={itemSchema as Schema<SelectorSource>}
