@@ -107,12 +107,12 @@ export function RecordFields({
   ];
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {Object.entries(source).map(([key, value]) => (
         <Card
           key={key}
           onClick={() => navigate(concatSourcePath(path, key))}
-          className="bg-primary-foreground cursor-pointer hover:bg-primary-foreground/50"
+          className="bg-primary-foreground cursor-pointer hover:bg-primary-foreground/50 min-w-[274px]"
         >
           <CardHeader>
             <CardTitle className="text-md">{fixCapitalization(key)}</CardTitle>

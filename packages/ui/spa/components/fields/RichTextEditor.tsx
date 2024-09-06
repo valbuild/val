@@ -106,16 +106,17 @@ export function RichTextEditor<E extends AnyExtension>({
   const remirrorClassNames = useMemo(() => {
     return [
       classNames(
-        "p-4 border rounded-md outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 appearance-none border-input bg-background",
-        {
-          "pt-[54px] -translate-y-[50px]": showToolbar,
-        }
+        "p-4 outline-none focus:outline-none appearance-none bg-primary-foreground rounded-b-md"
       ),
     ];
   }, [showToolbar]);
 
   return (
-    <div className={classNames("relative text-base val-rich-text-editor")}>
+    <div
+      className={classNames(
+        "relative text-base val-rich-text-editor focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 border border-input rounded-md"
+      )}
+    >
       <Remirror
         manager={manager}
         initialContent={state}
@@ -178,7 +179,7 @@ const Toolbar = ({
       <div className="h-0" ref={dropdownContainerRef}></div>
       <div
         className={classNames(
-          "sticky top-0 flex flex-col py-2 z-[40] border divide-y rounded-md rounded-b-none border-t-0 rounded-t-none pt-[1px] border-input bg-background",
+          "sticky top-0 flex flex-col py-2 z-[40] divide-y rounded-md rounded-b-none border-b border-input bg-primary-foreground",
           {
             hidden: !showToolbar,
           }
