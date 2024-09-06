@@ -8,7 +8,7 @@ export function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-4 border border-secondary rounded-lg p-6">
+    <div className="flex flex-col gap-4 border border-border rounded-lg p-6">
       {label && <Label>{label}</Label>}
       {children}
     </div>

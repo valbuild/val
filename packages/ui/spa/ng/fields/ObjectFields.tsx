@@ -38,82 +38,89 @@ export function ObjectFields({
 
   return Object.entries(schema.items).map(([label, itemSchema]) => {
     const key = JSON.stringify({ label, itemSchema });
-    if (itemSchema instanceof StringSchema) {
-      return (
-        <Field key={key} label={label}>
-          <StringField path={path} source={source[label]} schema={itemSchema} />
-        </Field>
-      );
-    } else if (itemSchema instanceof NumberSchema) {
-      return (
-        <Field key={key} label={label}>
-          <NumberField path={path} source={source[label]} schema={itemSchema} />
-        </Field>
-      );
-    } else if (itemSchema instanceof BooleanSchema) {
-      return (
-        <Field key={key} label={label}>
-          <BooleanField
-            path={path}
-            source={source[label]}
-            schema={itemSchema}
-          />
-        </Field>
-      );
-    } else if (itemSchema instanceof ImageSchema) {
-      return (
-        <Field key={key} label={label}>
-          <ImageField path={path} source={source[label]} schema={itemSchema} />
-        </Field>
-      );
-    } else if (itemSchema instanceof ArraySchema) {
-      return (
-        <Field key={key} label={label}>
-          <ListFields
-            path={path}
-            source={source[label]}
-            schema={itemSchema.item}
-          />
-        </Field>
-      );
-    } else if (itemSchema instanceof KeyOfSchema) {
-      return (
-        <Field key={key} label={label}>
-          <KeyOfField path={path} source={source[label]} schema={itemSchema} />
-        </Field>
-      );
-    } else if (itemSchema instanceof UnionSchema) {
-      return (
-        <Field key={key} label={label}>
-          <UnionField path={path} source={source[label]} schema={itemSchema} />
-        </Field>
-      );
-    } else if (itemSchema instanceof ObjectSchema) {
-      return (
-        <Field key={key} label={label}>
-          <ObjectFields
-            path={path}
-            source={source[label]}
-            schema={itemSchema}
-          />
-        </Field>
-      );
-    } else if (itemSchema instanceof RichTextSchema) {
-      return (
-        <Field key={key} label={label}>
-          <RichTextField
-            path={path}
-            source={source[label]}
-            schema={itemSchema}
-          />
-        </Field>
-      );
-    } else {
-      return (
-        <Field key={key} label={label}>
-          <div>Unknown schema</div>
-        </Field>
-      );
-    }
+    const renderField = () => {
+      switch (true) {
+        case itemSchema instanceof StringSchema:
+          return (
+            <StringField
+              path={path}
+              source={source[label]}
+              schema={itemSchema}
+            />
+          );
+        case itemSchema instanceof NumberSchema:
+          return (
+            <NumberField
+              path={path}
+              source={source[label]}
+              schema={itemSchema}
+            />
+          );
+        case itemSchema instanceof BooleanSchema:
+          return (
+            <BooleanField
+              path={path}
+              source={source[label]}
+              schema={itemSchema}
+            />
+          );
+        case itemSchema instanceof ImageSchema:
+          return (
+            <ImageField
+              path={path}
+              source={source[label]}
+              schema={itemSchema}
+            />
+          );
+        case itemSchema instanceof ArraySchema:
+          return (
+            <ListFields
+              path={path}
+              source={source[label]}
+              schema={itemSchema.item}
+            />
+          );
+        case itemSchema instanceof KeyOfSchema:
+          return (
+            <KeyOfField
+              path={path}
+              source={source[label]}
+              schema={itemSchema}
+            />
+          );
+        case itemSchema instanceof UnionSchema:
+          return (
+            <UnionField
+              path={path}
+              source={source[label]}
+              schema={itemSchema}
+            />
+          );
+        case itemSchema instanceof ObjectSchema:
+          return (
+            <ObjectFields
+              path={path}
+              source={source[label]}
+              schema={itemSchema}
+            />
+          );
+        case itemSchema instanceof RichTextSchema:
+          return (
+            <RichTextField
+              path={path}
+              source={source[label]}
+              schema={itemSchema}
+            />
+          );
+        default:
+          return <div>Unknown schema</div>;
+      }
+    };
+
+    return (
+      <Field key={key} label={label}>
+        {renderField()}
+      </Field>
+    );
   });
 }
