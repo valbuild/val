@@ -24,7 +24,7 @@ export const schema = s.object({
 export type ClientContent = t.inferSchema<typeof schema>;
 
 export default c.define("/components/clientContent.val.ts", schema, {
-  text: "Client components works",
+  text: "Http works",
   date: "2001-05-08",
   objectUnions: {
     type: "object-type-2",
