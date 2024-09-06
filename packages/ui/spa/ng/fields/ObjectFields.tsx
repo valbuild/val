@@ -21,7 +21,7 @@ import { ImageField } from "./ImageField";
 import { UnionField } from "./UnionField";
 import { RichTextField } from "./RichTextField";
 import { NullSource } from "../components/NullSource";
-import { Label } from "../components/Label";
+import { Field } from "../components/Field";
 
 export function ObjectFields({
   source,
@@ -36,97 +36,83 @@ export function ObjectFields({
     return <NullSource />;
   }
 
-  if (!source) {
-    return <div>Source is null</div>;
-  }
-
   return Object.entries(schema.items).map(([label, itemSchema]) => {
     const key = JSON.stringify({ label, itemSchema });
     if (itemSchema instanceof StringSchema) {
       return (
-        <div key={key}>
-          <Label>{label}</Label>
+        <Field key={key} label={label}>
           <StringField path={path} source={source[label]} schema={itemSchema} />
-        </div>
+        </Field>
       );
     } else if (itemSchema instanceof NumberSchema) {
       return (
-        <div key={key}>
-          <div>{label}</div>
+        <Field key={key} label={label}>
           <NumberField path={path} source={source[label]} schema={itemSchema} />
-        </div>
+        </Field>
       );
     } else if (itemSchema instanceof BooleanSchema) {
       return (
-        <div key={key}>
-          <Label>{label}</Label>
+        <Field key={key} label={label}>
           <BooleanField
             path={path}
             source={source[label]}
             schema={itemSchema}
           />
-        </div>
+        </Field>
       );
     } else if (itemSchema instanceof ImageSchema) {
       return (
-        <div key={key}>
-          <Label>{label}</Label>
+        <Field key={key} label={label}>
           <ImageField path={path} source={source[label]} schema={itemSchema} />
-        </div>
+        </Field>
       );
     } else if (itemSchema instanceof ArraySchema) {
       return (
-        <div key={key}>
-          <Label>{label}</Label>
+        <Field key={key} label={label}>
           <ListFields
             path={path}
             source={source[label]}
             schema={itemSchema.item}
           />
-        </div>
+        </Field>
       );
     } else if (itemSchema instanceof KeyOfSchema) {
       return (
-        <div key={key}>
-          <Label>{label}</Label>
+        <Field key={key} label={label}>
           <KeyOfField path={path} source={source[label]} schema={itemSchema} />
-        </div>
+        </Field>
       );
     } else if (itemSchema instanceof UnionSchema) {
       return (
-        <div key={key}>
-          <Label>{label}</Label>
+        <Field key={key} label={label}>
           <UnionField path={path} source={source[label]} schema={itemSchema} />
-        </div>
+        </Field>
       );
     } else if (itemSchema instanceof ObjectSchema) {
       return (
-        <div key={key}>
-          <Label>{label}</Label>
+        <Field key={key} label={label}>
           <ObjectFields
             path={path}
             source={source[label]}
             schema={itemSchema}
           />
-        </div>
+        </Field>
       );
     } else if (itemSchema instanceof RichTextSchema) {
       return (
-        <div key={key}>
-          <Label>{label}</Label>
+        <Field key={key} label={label}>
           <RichTextField
             path={path}
             source={source[label]}
             schema={itemSchema}
           />
-        </div>
+        </Field>
       );
     } else {
       return (
-        <div key={key}>
-          <Label>{label}</Label>
+        <Field key={key} label={label}>
           <div>Unknown schema</div>
-        </div>
+        </Field>
       );
     }
   });

@@ -303,13 +303,15 @@ function Center() {
     moduleSchema,
   });
   return (
-    <div className="p-4 max-w-[80vw] overflow-x-hidden mx-4 mb-4 rounded-b-2xl flex flex-col gap-4">
+    <div className="p-4 overflow-x-hidden mb-4 rounded-b-2xl flex flex-col gap-4 w-[600px] mx-auto">
       <div>{path}</div>
-      <Module
-        path={path}
-        source={sourceAtSourcePath}
-        schema={deserializeSchema(schemaAtSourcePath)}
-      />
+      <div className="flex flex-col gap-12 w-full">
+        <Module
+          path={path}
+          source={sourceAtSourcePath}
+          schema={deserializeSchema(schemaAtSourcePath)}
+        />
+      </div>
     </div>
   );
 }

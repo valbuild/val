@@ -57,15 +57,13 @@ export function KeyOfField({
     <Select>
       <SelectTrigger className="h-[8ch]">{source}</SelectTrigger>
       <SelectContent>
-        <div className="relative pr-6">
-          {referencedSchema &&
-            keys?.map((key) => (
-              <SelectItem className="h-[8ch]" key={key} value={key}>
-                {key}
-                {/* TODO: preview key */}
-              </SelectItem>
-            ))}
-        </div>
+        {referencedSchema &&
+          keys?.map((key) => (
+            <SelectItem className="h-[8ch]" key={key} value={key}>
+              {key}
+              {/* TODO: preview key */}
+            </SelectItem>
+          ))}
       </SelectContent>
     </Select>
   );

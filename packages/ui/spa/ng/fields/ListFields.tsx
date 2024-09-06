@@ -9,6 +9,7 @@ import {
 import { UnexpectedSourceType } from "../../components/fields/UnexpectedSourceType";
 import { Module } from "../components/Module";
 import { NullSource } from "../components/NullSource";
+import { Field } from "../components/Field";
 
 export function ListFields({
   path,
@@ -26,20 +27,19 @@ export function ListFields({
     return <UnexpectedSourceType source={source} schema={schema} />;
   }
   return (
-    <div>
+    <>
       {source.map((item, index) => {
         if (schema instanceof ObjectSchema) {
           return Object.entries(schema.items).map(([label, itemSchema]) => {
             return (
-              <div>
-                <div>{label}</div>
+              <Field key={index} label={label}>
                 <Module
                   key={`${label}-${index}`}
                   path={path}
                   source={item[label]}
                   schema={itemSchema as Schema<SelectorSource>}
                 />
-              </div>
+              </Field>
             );
           });
         } else if (schema instanceof ArraySchema) {
@@ -54,7 +54,7 @@ export function ListFields({
         }
         return <Module key={index} path={path} source={item} schema={schema} />;
       })}
-    </div>
+    </>
   );
 }
 
