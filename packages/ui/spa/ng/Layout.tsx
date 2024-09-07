@@ -57,14 +57,14 @@ function HeaderLeft() {
 
 function Left() {
   return (
-    <div className="flex flex-col justify-between pb-4 ml-4 bg-primary-foreground rounded-b-3xl">
+    <div className="flex flex-col justify-between pb-4 ml-4 h-fit bg-primary-foreground rounded-b-3xl">
       <nav>
         <Divider />
-        <ScrollArea className="max-h-[max(50vh-40px,200px)] overflow-scroll">
+        <ScrollArea className="max-h-[max(50vh-80px,100px)] overflow-scroll">
           <NavContentExplorer title="Blank website" />
         </ScrollArea>
         <Divider />
-        <ScrollArea className="max-h-[max(50vh-40px,200px)] overflow-scroll">
+        <ScrollArea className="max-h-[max(50vh-80px,100px)] overflow-scroll">
           <NavSiteMap
             title="Pages"
             items={[
@@ -299,7 +299,7 @@ function Center() {
   return (
     <div className="p-4 overflow-x-hidden mb-4 rounded-b-2xl flex flex-col gap-4 w-[600px] mx-auto">
       <div>{path}</div>
-      <div className="flex flex-col gap-12 w-full">
+      <div className="flex flex-col w-full gap-12">
         <Module
           path={path}
           source={sourceAtSourcePath}
