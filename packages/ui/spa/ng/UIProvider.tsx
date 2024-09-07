@@ -165,7 +165,7 @@ const fakePatches: Record<string, PatchWithMetadata[]> = {
         name: "k Ekholdt",
         avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
       },
-      created_at: "2021-08-12T12:00:00Z",
+      created_at: "2024-08-12T12:00:00Z",
       patch: [
         {
           op: "replace",
@@ -180,7 +180,7 @@ const fakePatches: Record<string, PatchWithMetadata[]> = {
         name: "k Ekholdt",
         avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
       },
-      created_at: "2021-08-12T12:00:00Z",
+      created_at: "2024-09-01T12:00:00Z",
       patch: [
         {
           op: "replace",
@@ -195,7 +195,7 @@ const fakePatches: Record<string, PatchWithMetadata[]> = {
         name: "k Ekholdt",
         avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
       },
-      created_at: "2021-08-12T12:00:00Z",
+      created_at: "2024-09-07T12:00:00Z",
       patch: [
         {
           op: "replace",

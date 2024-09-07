@@ -13,18 +13,27 @@ import {
 import { Button } from "../components/ui/button";
 import classNames from "classnames";
 import React, { useMemo, useState } from "react";
-import { deserializeSchema, Internal, SourcePath } from "@valbuild/core";
+import {
+  deserializeSchema,
+  Internal,
+  ModuleFilePath,
+  ModulePath,
+  SourcePath,
+} from "@valbuild/core";
 import { Module } from "./components/Module";
 import {
   UIProvider,
   useSchemas,
   useModuleSource,
   useNavigation,
+  useErrors,
+  usePatches,
 } from "./UIProvider";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { PathNode, pathTree } from "./pathTree";
 import { fixCapitalization } from "./fixCapitalization";
 import { Remote } from "../utils/Remote";
+import { convertPatchPathToModulePath } from "./convertPatchPathToModulePath";
 
 export function Layout() {
   return (
@@ -425,49 +434,138 @@ function Tabs() {
   );
 }
 
+function PendingChangeItemTitle({
+  moduleFilePath,
+  modulePath,
+}: {
+  moduleFilePath: ModuleFilePath;
+  modulePath: ModulePath;
+}) {
+  const moduleFilePathParts = moduleFilePath.split("/");
+  const modulePathParts = modulePath.split(".");
+  return (
+    <>
+      <span className="inline-block w-1/2 truncate" dir="rtl">
+        {moduleFilePathParts.map((part, i) => (
+          <>
+            <span
+              className={classNames({
+                "text-muted": !(
+                  modulePathParts.length === 0 &&
+                  i === moduleFilePathParts.length - 1
+                ),
+              })}
+            >
+              {prettifyFilename(part)}
+            </span>
+            {i > 0 && i < moduleFilePathParts.length - 1 && (
+              <span className="text-muted">/</span>
+            )}
+          </>
+        ))}
+      </span>
+      <span className="inline-block w-1/2 truncate">
+        {modulePathParts.map((part, i) => (
+          <>
+            <span className="text-muted">/</span>
+            <span
+              className={classNames({
+                "text-muted": i === modulePathParts.length - 2,
+              })}
+            >
+              {prettifyFilename(JSON.parse(part))}
+            </span>
+          </>
+        ))}
+      </span>
+    </>
+  );
+}
+
+function relativeLocalDate(now: Date, date: string) {
+  const then = new Date(date);
+  const diff = now.getTime() - then.getTime();
+  if (diff < 1000 * 60) {
+    return "just now";
+  }
+  if (diff < 1000 * 60 * 60 * 24) {
+    return "yesterday";
+  }
+  if (diff < 1000 * 60 * 60) {
+    return `${Math.floor(diff / 1000 / 60)}m ago`;
+  }
+  if (diff < 1000 * 60 * 60 * 24) {
+    return `${Math.floor(diff / 1000 / 60 / 60)}h ago`;
+  }
+  return `${Math.floor(diff / 1000 / 60 / 60 / 24)}d ago`;
+}
+
 function PendingChanges() {
-  const items = [
-    "https://randomuser.me/api/portraits/women/71.jpg",
-    "https://randomuser.me/api/portraits/women/51.jpg",
-    "https://randomuser.me/api/portraits/women/12.jpg",
-    "https://randomuser.me/api/portraits/women/33.jpg",
-    "https://randomuser.me/api/portraits/women/15.jpg",
-    "https://randomuser.me/api/portraits/women/71.jpg",
-    "https://randomuser.me/api/portraits/women/51.jpg",
-    "https://randomuser.me/api/portraits/women/12.jpg",
-    "https://randomuser.me/api/portraits/women/33.jpg",
-    "https://randomuser.me/api/portraits/women/15.jpg",
-    "https://randomuser.me/api/portraits/women/71.jpg",
-    "https://randomuser.me/api/portraits/women/51.jpg",
-    "https://randomuser.me/api/portraits/women/12.jpg",
-    "https://randomuser.me/api/portraits/women/33.jpg",
-    "https://randomuser.me/api/portraits/women/15.jpg",
-    "https://randomuser.me/api/portraits/women/71.jpg",
-    "https://randomuser.me/api/portraits/women/51.jpg",
-    "https://randomuser.me/api/portraits/women/12.jpg",
-    "https://randomuser.me/api/portraits/women/33.jpg",
-    "https://randomuser.me/api/portraits/women/15.jpg",
-    "https://randomuser.me/api/portraits/women/71.jpg",
-    "https://randomuser.me/api/portraits/women/51.jpg",
-    "https://randomuser.me/api/portraits/women/12.jpg",
-    "https://randomuser.me/api/portraits/women/33.jpg",
-    "https://randomuser.me/api/portraits/women/15.jpg",
-    "https://randomuser.me/api/portraits/women/71.jpg",
-    "https://randomuser.me/api/portraits/women/51.jpg",
-    "https://randomuser.me/api/portraits/women/12.jpg",
-    "https://randomuser.me/api/portraits/women/33.jpg",
-    "https://randomuser.me/api/portraits/women/15.jpg",
-  ];
+  const { patches } = usePatches();
+  const now = useMemo(() => new Date(), []);
+  const items = useMemo((): Remote<
+    {
+      moduleFilePath: ModuleFilePath;
+      modulePath: ModulePath;
+      created_at: string;
+      avatar: string | null;
+    }[]
+  > => {
+    const items: {
+      moduleFilePath: ModuleFilePath;
+      modulePath: ModulePath;
+      created_at: string;
+      avatar: string | null;
+    }[] = [];
+    // we probably want to massage this data so that it is grouped by author or something
+    // we have code for that but we might want to re-implement it since it is messy
+    if (patches.status === "success") {
+      for (const moduleFilePathS in patches.data) {
+        const moduleFilePath = moduleFilePathS as ModuleFilePath;
+        const metadata = patches.data[moduleFilePath];
+        for (const patch of metadata) {
+          for (const op of patch.patch) {
+            items.push({
+              moduleFilePath,
+              modulePath: convertPatchPathToModulePath(op.path),
+              created_at: patch.created_at,
+              avatar: patch.author.avatar,
+            });
+          }
+        }
+      }
+
+      return { status: "success", data: items.reverse() };
+    } else {
+      return patches;
+    }
+  }, [patches]);
+
+  if (items.status === "error") {
+    throw new Error(items.error);
+  }
+  if (items.status !== "success") {
+    return <Loading />;
+  }
   return (
     <div>
-      {items.map((item, i) => (
+      {items.data.map((item, i) => (
         <div className="flex justify-between py-2 text-xs" key={i}>
           <span className="flex items-center gap-4 ">
-            <img src={item} className="w-8 h-8 rounded-full" />
-            <span className="truncate">3 changes</span>
+            {/* {item.avatar && (
+              <img src={item.avatar} className="w-8 h-8 rounded-full" />
+            )} */}
+            <span className="inline-block max-w-full">
+              <PendingChangeItemTitle
+                moduleFilePath={item.moduleFilePath}
+                modulePath={item.modulePath}
+              />
+            </span>
           </span>
           <span className="flex items-center gap-4 text-muted-foreground">
-            <span className="truncate">2 days ago</span>
+            <span className="truncate">
+              {relativeLocalDate(now, item.created_at)}
+            </span>
             <ChevronDown />
           </span>
         </div>
