@@ -249,14 +249,50 @@ function List() {
 }
 
 function HeaderCenter() {
+  const { currentSourcePath } = useNavigation();
+  const maybeSplittedPaths =
+    currentSourcePath &&
+    Internal.splitModuleFilePathAndModulePath(
+      currentSourcePath as unknown as SourcePath
+    );
+  if (!maybeSplittedPaths) {
+    return null;
+  }
+  const [moduleFilePath, modulePath] = maybeSplittedPaths;
+  const moduleFilePathParts = moduleFilePath.split("/");
+  const modulePathParts = modulePath ? modulePath.split(".") : [];
   return (
     <div className="flex items-center justify-center mx-4">
       <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-background font-[SpaceGrotesk] w-fit">
-        <span className="text-muted">Blank Website</span>
-        <span className="text-muted"> /</span>
-        <span className="text-muted">Aidn</span>
-        <span className="text-muted">/</span>
-        <span>Item</span>
+        {moduleFilePathParts.map((part, i) => (
+          <>
+            <span
+              className={classNames({
+                "text-muted": !(
+                  modulePathParts.length === 0 &&
+                  i === moduleFilePathParts.length - 1
+                ),
+              })}
+            >
+              {prettifyFilename(part)}
+            </span>
+            {i > 0 && i < moduleFilePathParts.length - 1 && (
+              <span className="text-muted">/</span>
+            )}
+          </>
+        ))}
+        {modulePathParts.map((part, i) => (
+          <>
+            <span className="text-muted">/</span>
+            <span
+              className={classNames({
+                "text-muted": i === modulePathParts.length - 2,
+              })}
+            >
+              {prettifyFilename(JSON.parse(part))}
+            </span>
+          </>
+        ))}
       </div>
     </div>
   );
@@ -298,7 +334,6 @@ function Center() {
     Internal.resolvePath(modulePath, moduleSource, moduleSchema);
   return (
     <div className="p-4 overflow-x-hidden mb-4 rounded-b-2xl flex flex-col gap-4 w-[600px] mx-auto">
-      <div>{path}</div>
       <div className="flex flex-col w-full gap-12">
         <Module
           path={path}
