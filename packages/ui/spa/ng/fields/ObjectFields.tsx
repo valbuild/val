@@ -120,7 +120,7 @@ export function ObjectFields({
     };
 
     return (
-      <Field key={key} label={label}>
+      <Field key={key} label={label} path={subPath}>
         {renderField()}
       </Field>
     );

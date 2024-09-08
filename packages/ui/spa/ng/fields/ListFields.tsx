@@ -30,12 +30,14 @@ export function ListFields({
   return (
     <>
       {source.map((item, index) => {
+        const subPath = sourcePathOfItem(path, index);
         if (schema instanceof ObjectSchema) {
           return Object.entries(schema.items).map(([label, itemSchema]) => {
+            const entryPath = sourcePathOfItem(subPath, label);
             return (
-              <Field key={`${label}-${index}`} label={label}>
+              <Field key={entryPath} label={label} path={entryPath}>
                 <Module
-                  path={sourcePathOfItem(path, label)}
+                  path={entryPath}
                   source={item[label]}
                   schema={itemSchema as Schema<SelectorSource>}
                 />
@@ -46,19 +48,14 @@ export function ListFields({
           return (
             <Module
               key={index}
-              path={sourcePathOfItem(path, index)}
+              path={subPath}
               source={item}
               schema={schema.item as Schema<SelectorSource>}
             />
           );
         }
         return (
-          <Module
-            key={index}
-            path={sourcePathOfItem(path, index)}
-            source={item}
-            schema={schema}
-          />
+          <Module key={index} path={subPath} source={item} schema={schema} />
         );
       })}
     </>
