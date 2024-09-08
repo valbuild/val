@@ -90,6 +90,13 @@ export function splitModuleFilePathAndModulePath(
   ];
 }
 
+export function joinModuleFilePathAndModulePath(
+  moduleFilePath: ModuleFilePath,
+  modulePath: ModulePath
+): SourcePath {
+  return `${moduleFilePath}${ModuleFilePathSep}${modulePath}` as SourcePath;
+}
+
 export const ModuleFilePathSep = "?p=";
 
 export function getSourceAtPath(
