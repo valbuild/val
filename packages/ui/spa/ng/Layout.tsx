@@ -1,14 +1,11 @@
 import {
-  ArrowUpDown,
   ChevronDown,
   ChevronRight,
   ChevronsUpDown,
   File,
-  Languages,
-  ListFilter,
-  Plus,
   Search,
   Tally2,
+  X,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import classNames from "classnames";
@@ -27,12 +24,17 @@ import {
   useModuleSource,
   useNavigation,
   usePatches,
+  useErrors,
+  useSearch,
+  useModuleSourceAndSchema,
 } from "./UIProvider";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { PathNode, pathTree } from "./pathTree";
 import { fixCapitalization } from "./fixCapitalization";
 import { Remote } from "../utils/Remote";
 import { convertPatchPathToModulePath } from "./convertPatchPathToModulePath";
+import { error } from "console";
+import { Field } from "./components/Field";
 
 export function Layout() {
   return (
@@ -257,6 +259,44 @@ function List() {
 }
 
 function HeaderCenter() {
+  const { search, setSearch } = useSearch();
+
+  if (search) {
+    return (
+      <HeaderCenterContainer>
+        <Search />
+        <input
+          className="px-2 bg-transparent focus:outline-none"
+          defaultValue="@error"
+        ></input>
+        <button
+          onClick={() => {
+            setSearch(false);
+          }}
+        >
+          <X />
+        </button>
+      </HeaderCenterContainer>
+    );
+  }
+  return (
+    <HeaderCenterContainer>
+      <PathBar />
+    </HeaderCenterContainer>
+  );
+}
+
+function HeaderCenterContainer({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-center">
+      <div className="flex items-center px-4 py-2 rounded-2xl bg-background font-[SpaceGrotesk] w-fit">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function PathBar() {
   const { currentSourcePath } = useNavigation();
   const maybeSplittedPaths =
     currentSourcePath &&
@@ -270,43 +310,118 @@ function HeaderCenter() {
   const moduleFilePathParts = moduleFilePath.split("/");
   const modulePathParts = modulePath ? modulePath.split(".") : [];
   return (
-    <div className="flex items-center justify-center mx-4">
-      <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-background font-[SpaceGrotesk] w-fit">
-        {moduleFilePathParts.map((part, i) => (
-          <>
-            <span
-              className={classNames({
-                "text-muted": !(
-                  modulePathParts.length === 0 &&
-                  i === moduleFilePathParts.length - 1
-                ),
-              })}
-            >
-              {prettifyFilename(part)}
-            </span>
-            {i > 0 && i < moduleFilePathParts.length - 1 && (
-              <span className="text-muted">/</span>
-            )}
-          </>
-        ))}
-        {modulePathParts.map((part, i) => (
-          <>
+    <div className="flex items-center gap-2">
+      {moduleFilePathParts.map((part, i) => (
+        <>
+          <span
+            className={classNames({
+              "text-muted": !(
+                modulePathParts.length === 0 &&
+                i === moduleFilePathParts.length - 1
+              ),
+            })}
+          >
+            {prettifyFilename(part)}
+          </span>
+          {i > 0 && i < moduleFilePathParts.length - 1 && (
             <span className="text-muted">/</span>
-            <span
-              className={classNames({
-                "text-muted": i === modulePathParts.length - 2,
-              })}
-            >
-              {prettifyFilename(JSON.parse(part))}
-            </span>
-          </>
-        ))}
-      </div>
+          )}
+        </>
+      ))}
+      {modulePathParts.map((part, i) => (
+        <>
+          <span className="text-muted">/</span>
+          <span
+            className={classNames({
+              "text-muted": i === modulePathParts.length - 2,
+            })}
+          >
+            {prettifyFilename(JSON.parse(part))}
+          </span>
+        </>
+      ))}
     </div>
   );
 }
 
 function Center() {
+  const { search } = useSearch();
+  if (search) {
+    return <SearchFields type={search.type} query={search.query} />;
+  }
+  return <SourceFields />;
+}
+
+function SearchFields({ type, query }: { type: string; query?: string }) {
+  if (type === "error") {
+    return <SearchErrorFields query={query} />;
+  }
+  return <div>TODO</div>;
+}
+
+function SearchErrorFields({ query }: { query?: string }) {
+  const { errors } = useErrors();
+
+  const errorFields = useMemo((): Remote<SourcePath[]> => {
+    if (errors.status === "success") {
+      const allErrorFields = Object.keys(errors.data) as SourcePath[];
+      if (query) {
+        return {
+          status: "success",
+          data: allErrorFields.filter((errorField) =>
+            errorField.includes(query)
+          ),
+        };
+      } else {
+        return { status: "success", data: allErrorFields };
+      }
+    } else {
+      return errors;
+    }
+  }, [errors]);
+
+  if (errorFields.status === "error") {
+    throw new Error(errorFields.error);
+  }
+  if (errorFields.status !== "success") {
+    return <Loading />;
+  }
+  return (
+    <div className="flex flex-col items-center gap-10">
+      {errorFields.data.map((path) => (
+        <SearchField path={path} />
+      ))}
+    </div>
+  );
+}
+
+function SearchField({ path }: { path: SourcePath }) {
+  const res = useModuleSourceAndSchema(path);
+  if (res.status === "error") {
+    throw new Error(res.error);
+  }
+  if (res.status !== "success") {
+    return <Loading />;
+  }
+  const { source, schema, moduleFilePath, modulePath } = res.data;
+  return (
+    <Field
+      label={
+        <span className="inline-block">
+          <CompressedPath
+            moduleFilePath={moduleFilePath}
+            modulePath={modulePath}
+          ></CompressedPath>
+        </span>
+      }
+      path={path}
+    >
+      <Module path={path} source={source} schema={deserializeSchema(schema)} />
+    </Field>
+  );
+}
+
+function SourceFields() {
   const { currentSourcePath } = useNavigation();
   const maybeSplittedPaths =
     currentSourcePath &&
@@ -377,63 +492,14 @@ function Right() {
   return (
     <div className="pb-4 mr-4 text-sm rounded-b-3xl bg-primary-foreground h-fit">
       <Divider />
-      <Tools />
+      <ValidationErrors />
       <Divider />
-      <Tabs />
+      <PendingChanges />
     </div>
   );
 }
 
-function Tools() {
-  return (
-    <div className="flex items-center gap-4 px-4 justify-evenly">
-      <button>
-        <Plus size={16} />
-      </button>
-      <button>
-        <ArrowUpDown size={16} />
-      </button>
-      <button>
-        <ListFilter size={16} />
-      </button>
-      <button>
-        <div className="flex items-center gap-2">
-          <Languages size={16} />
-          <ChevronDown size={16} />
-        </div>
-      </button>
-      <button>
-        <Search size={16} />
-      </button>
-    </div>
-  );
-}
-
-function Tabs() {
-  const [activeTab, setActiveTab] = useState<"changes" | "errors">("changes");
-  return (
-    <ScrollArea className="max-h-[max(50vh-40px,200px)] overflow-scroll px-4">
-      <div className="flex gap-4">
-        <button
-          onClick={() => setActiveTab("changes")}
-          className={classNames({ "text-muted": activeTab !== "changes" })}
-        >
-          Changes
-        </button>
-        <button
-          onClick={() => setActiveTab("errors")}
-          className={classNames({ "text-muted": activeTab !== "errors" })}
-        >
-          Errors
-        </button>
-      </div>
-      {activeTab === "changes" && <PendingChanges />}
-      {activeTab === "errors" && <ValidationErrors />}
-    </ScrollArea>
-  );
-}
-
-function PendingChangeItemTitle({
+function CompressedPath({
   moduleFilePath,
   modulePath,
 }: {
@@ -547,15 +613,16 @@ function PendingChanges() {
     return <Loading />;
   }
   return (
-    <div>
+    <ScrollArea className="max-h-[max(50vh-40px,200px)] overflow-scroll px-4 text-xs">
+      <div className="py-2">Pending changes</div>
       {items.data.map((item, i) => (
-        <div className="grid grid-cols-2 py-2 text-xs" key={i}>
+        <div className="grid grid-cols-2 py-2" key={i}>
           <span className="flex items-center gap-4 ">
             {/* {item.avatar && (
               <img src={item.avatar} className="w-8 h-8 rounded-full" />
             )} */}
             <span className="inline-block max-w-full">
-              <PendingChangeItemTitle
+              <CompressedPath
                 moduleFilePath={item.moduleFilePath}
                 modulePath={item.modulePath}
               />
@@ -569,24 +636,57 @@ function PendingChanges() {
           </span>
         </div>
       ))}
-    </div>
+    </ScrollArea>
   );
 }
 
 function ValidationErrors() {
-  const items = ["Menneskene", "Blogs", "Contact", "Content"];
+  const { errors } = useErrors();
+  const { setSearch } = useSearch();
+  const errorSourcePaths = useMemo((): Remote<string[]> => {
+    if (errors.status === "success") {
+      return {
+        status: "success",
+        data: Object.keys(errors.data),
+      };
+    } else {
+      return errors;
+    }
+  }, [errors]);
+  if (errorSourcePaths.status === "error") {
+    throw new Error(errorSourcePaths.error);
+  }
+  if (errorSourcePaths.status !== "success") {
+    return <Loading />;
+  }
+
   return (
-    <div>
-      {items.map((item, i) => (
-        <div className="flex justify-between py-2 text-xs" key={i}>
-          <span className="flex items-center gap-4 ">{item}</span>
-          <span className="flex items-center gap-4 text-muted-foreground">
-            <span className="truncate">2 days ago</span>
-            <ChevronDown />
-          </span>
-        </div>
-      ))}
-    </div>
+    <ScrollArea className="max-h-[max(50vh-40px,200px)] overflow-scroll px-4 text-xs">
+      <div className="flex justify-between py-2">
+        <span>Validation errors</span>
+        <Button
+          className="h-4 px-1 py-0 text-xs"
+          onClick={() => {
+            setSearch({ type: "error" });
+          }}
+        >
+          View
+        </Button>
+      </div>
+      {errorSourcePaths.data.map((errorSourcePath) => {
+        const [moduleFilePath, modulePath] =
+          Internal.splitModuleFilePathAndModulePath(
+            errorSourcePath as SourcePath
+          );
+        return (
+          <CompressedPath
+            key={errorSourcePath}
+            moduleFilePath={moduleFilePath}
+            modulePath={modulePath}
+          />
+        );
+      })}
+    </ScrollArea>
   );
 }
 
