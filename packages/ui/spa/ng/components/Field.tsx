@@ -10,7 +10,7 @@ export function Field({
   children,
   path,
 }: {
-  label?: string;
+  label?: string | React.ReactNode;
   children: React.ReactNode;
   path: SourcePath;
 }) {
@@ -23,7 +23,8 @@ export function Field({
         "border-border": !hasErrors,
       })}
     >
-      {label && <Label>{label}</Label>}
+      {typeof label === "string" && <Label>{label}</Label>}
+      {label && typeof label !== "string" && label}
       {children}
       <FieldError errors={errors} />
     </div>

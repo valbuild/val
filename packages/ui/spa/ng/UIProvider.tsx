@@ -3,6 +3,7 @@ import {
   Internal,
   Json,
   ModuleFilePath,
+  ModulePath,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
@@ -19,6 +20,20 @@ const UIContext = React.createContext<{
   navigate: (path: SourcePath | ModuleFilePath) => void;
   isPublishing: boolean;
   setIsPublishing: (isPublishing: boolean) => void;
+  search:
+    | false
+    | {
+        type: "error" | "change";
+        query?: string;
+      };
+  setSearch: (
+    search:
+      | false
+      | {
+          type: "error" | "change";
+          query?: string;
+        }
+  ) => void;
 }>({
   getSchemasByModuleFilePath: (): never => {
     throw new Error("UIContext not provided");
@@ -32,6 +47,10 @@ const UIContext = React.createContext<{
   },
   isPublishing: false,
   setIsPublishing: () => {
+    throw new Error("UIContext not provided");
+  },
+  search: false,
+  setSearch: () => {
     throw new Error("UIContext not provided");
   },
 });
@@ -52,13 +71,21 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   >("/content/basic.val.ts" as SourcePath); // TODO: just testing out /content/basic.val.ts for now
   // just fake state:
   const [isPublishing, setIsPublishing] = useState(false);
+  const [search, setSearch] = useState<
+    false | { type: "error" | "change"; query?: string }
+  >(false);
   return (
     <UIContext.Provider
       value={{
         isPublishing,
         setIsPublishing,
+        search,
+        setSearch,
         currentSourcePath,
-        navigate: setSourcePath,
+        navigate: (sourcePath) => {
+          setSearch(false);
+          setSourcePath(sourcePath);
+        },
         getSourceContent: async (
           moduleFilePath: ModuleFilePath
         ): Promise<Json> => {
@@ -120,6 +147,57 @@ export function useSchemas(): Remote<Record<ModuleFilePath, SerializedSchema>> {
   }, [getSchemasByModuleFilePath]);
 
   return schemas;
+}
+
+export function useModuleSourceAndSchema(path: SourcePath): Remote<{
+  moduleFilePath: ModuleFilePath;
+  modulePath: ModulePath;
+  schema: SerializedSchema;
+  source: Json;
+}> {
+  // We could have one end point that get schema & source for a path
+  const schemas = useSchemas();
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(path);
+  const moduleSource = useModuleSource(moduleFilePath);
+  return useMemo(() => {
+    if (schemas.status === "success" && moduleSource.status === "success") {
+      const { schema, source } = Internal.resolvePath(
+        modulePath,
+        moduleSource.data,
+        schemas.data[moduleFilePath]
+      );
+      return {
+        status: "success",
+        data: {
+          moduleFilePath,
+          modulePath,
+          schema: schema,
+          source: source,
+        },
+      };
+    } else if (schemas.status !== "error" && moduleSource.status === "error") {
+      return moduleSource;
+    } else if (schemas.status === "error" && moduleSource.status !== "error") {
+      return schemas;
+    } else if (schemas.status === "error" && moduleSource.status === "error") {
+      return {
+        status: "error",
+        error: `Failed to load schema and module. Schema error: ${schemas.error}. Module error: ${moduleSource.error}`,
+      };
+    } else if (
+      schemas.status === "loading" ||
+      moduleSource.status === "loading"
+    ) {
+      return {
+        status: "loading",
+      };
+    } else {
+      return {
+        status: "not-asked",
+      };
+    }
+  }, [path, schemas]);
 }
 
 export function useNavigation() {
@@ -354,5 +432,13 @@ export function useValState() {
       }
     },
     isPublishing,
+  };
+}
+
+export function useSearch() {
+  const { search, setSearch } = useContext(UIContext);
+  return {
+    search,
+    setSearch,
   };
 }
