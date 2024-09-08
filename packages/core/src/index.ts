@@ -66,6 +66,7 @@ import {
   resolvePath,
   splitModuleFilePathAndModulePath,
   ModuleFilePathSep,
+  joinModuleFilePathAndModulePath,
 } from "./module";
 import { getSchema } from "./selector";
 import { ModulePath, getValPath, isVal } from "./val";
@@ -127,6 +128,7 @@ const Internal = {
   getSource,
   resolvePath,
   splitModuleFilePathAndModulePath,
+  joinModuleFilePathAndModulePath,
   isVal,
   createValPathOfItem,
   getSHA256Hash,

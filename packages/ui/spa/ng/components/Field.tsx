@@ -1,9 +1,16 @@
 import { SourcePath } from "@valbuild/core";
 import { Label } from "./Label";
-import { useErrorsOfPath, ValError } from "../UIProvider";
+import {
+  PatchWithMetadata,
+  useErrorsOfPath,
+  usePatchesOfPath,
+  ValError,
+} from "../UIProvider";
 import { Remote } from "../../utils/Remote";
 import classNames from "classnames";
 import { ShieldAlert } from "lucide-react";
+import { relativeLocalDate } from "../relativeLocalDate";
+import { useMemo } from "react";
 
 export function Field({
   label,
@@ -15,23 +22,27 @@ export function Field({
   path: SourcePath;
 }) {
   const errors = useErrorsOfPath(path);
+  const patches = usePatchesOfPath(path);
   const hasErrors = errors.status === "success" && errors.data.length > 0;
+  const hasPatches = patches.status === "success" && patches.data.length > 0;
   return (
     <div
       className={classNames("flex flex-col gap-4 p-6 border rounded-lg", {
         "border-destructive": hasErrors,
-        "border-border": !hasErrors,
+        "border-accent": !hasErrors && hasPatches,
+        "border-border": !hasErrors && !hasPatches,
       })}
     >
       {typeof label === "string" && <Label>{label}</Label>}
       {label && typeof label !== "string" && label}
       {children}
       <FieldError errors={errors} />
+      <FieldChanges patches={patches} />
     </div>
   );
 }
 
-export function FieldError({ errors }: { errors: Remote<ValError[]> }) {
+function FieldError({ errors }: { errors: Remote<ValError[]> }) {
   if (errors.status === "success" && errors.data.length > 0) {
     return (
       <div className="flex items-start gap-1 text-sm text-destructive">
@@ -49,4 +60,24 @@ export function FieldError({ errors }: { errors: Remote<ValError[]> }) {
     );
   }
   return null;
+}
+
+function FieldChanges({ patches }: { patches: Remote<PatchWithMetadata[]> }) {
+  const now = useMemo(() => new Date(), []);
+  if (patches.status === "success" && patches.data.length > 0) {
+    const lastDate = patches.data
+      .map((patch) => new Date(patch.created_at))
+      .sort()?.[0]
+      ?.toISOString();
+    const author = patches.data.map((patch) => patch.author)[0]; // TODO: create multiple overlapping avatar images
+    return (
+      <div className="flex justify-end gap-2 text-accent">
+        <img
+          src={author.avatar}
+          className="object-cover w-6 h-6 rounded-full"
+        />
+        {lastDate && <span>{relativeLocalDate(now, lastDate)}</span>}
+      </div>
+    );
+  }
 }
