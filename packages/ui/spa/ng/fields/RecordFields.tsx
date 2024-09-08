@@ -23,6 +23,7 @@ import { useEffect, useState } from "react";
 import { fixCapitalization } from "../fixCapitalization";
 import { RecordBadges } from "../components/RecordBadges";
 import { formatDateToString } from "../../utils/formatDateToString";
+import { sourcePathOfItem } from "../sourcePathOfItem";
 
 export function RecordFields({
   source,
@@ -107,11 +108,11 @@ export function RecordFields({
   ];
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       {Object.entries(source).map(([key, value]) => (
         <Card
           key={key}
-          onClick={() => navigate(concatSourcePath(path, key))}
+          onClick={() => navigate(sourcePathOfItem(path, key))}
           className="bg-primary-foreground cursor-pointer hover:bg-primary-foreground/50 min-w-[274px]"
         >
           <CardHeader>
@@ -119,7 +120,7 @@ export function RecordFields({
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <RecordBadges counts={counts} />
-            <div className="flex justify-between items-end">
+            <div className="flex items-end justify-between">
               <p className="text-xs text-muted-foreground">
                 {formatDateToString(new Date())}
               </p>
@@ -133,12 +134,4 @@ export function RecordFields({
       ))}
     </div>
   );
-}
-
-function concatSourcePath(path: SourcePath, key: string): SourcePath {
-  const valPath = Internal.createValPathOfItem(path, key);
-  if (!valPath) {
-    throw new Error("Could not create path");
-  }
-  return valPath;
 }

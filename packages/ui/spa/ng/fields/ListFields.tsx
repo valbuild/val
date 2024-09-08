@@ -10,6 +10,7 @@ import { UnexpectedSourceType } from "../../components/fields/UnexpectedSourceTy
 import { Module } from "../components/Module";
 import { NullSource } from "../components/NullSource";
 import { Field } from "../components/Field";
+import { sourcePathOfItem } from "../sourcePathOfItem";
 
 export function ListFields({
   path,
@@ -34,7 +35,7 @@ export function ListFields({
             return (
               <Field key={`${label}-${index}`} label={label}>
                 <Module
-                  path={path}
+                  path={sourcePathOfItem(path, label)}
                   source={item[label]}
                   schema={itemSchema as Schema<SelectorSource>}
                 />
@@ -45,13 +46,20 @@ export function ListFields({
           return (
             <Module
               key={index}
-              path={path}
+              path={sourcePathOfItem(path, index)}
               source={item}
               schema={schema.item as Schema<SelectorSource>}
             />
           );
         }
-        return <Module key={index} path={path} source={item} schema={schema} />;
+        return (
+          <Module
+            key={index}
+            path={sourcePathOfItem(path, index)}
+            source={item}
+            schema={schema}
+          />
+        );
       })}
     </>
   );
