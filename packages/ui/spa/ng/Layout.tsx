@@ -33,33 +33,30 @@ import { PathNode, pathTree } from "./pathTree";
 import { fixCapitalization } from "./fixCapitalization";
 import { Remote } from "../utils/Remote";
 import { convertPatchPathToModulePath } from "./convertPatchPathToModulePath";
-import { error } from "console";
 import { Field } from "./components/Field";
 
 export function Layout() {
   return (
     <UIProvider>
-      <div className="absolute top-0 left-0 w-full min-h-screen">
-        <main className="grid grid-cols-[284px_auto_284px] grid-rows-[64px_auto] py-4">
-          <HeaderLeft />
-          <HeaderCenter />
-          <HeaderRight />
-          <Left />
-          <Center />
-          <Right />
-        </main>
-        <LayoutBackground />
-      </div>
+      {/* <div className="absolute top-0 left-0 w-full min-h-screen"> */}
+      <main className="grid grid-cols-[284px_auto_284px] grid-rows-[64px_auto] py-4 bg-secondary">
+        <HeaderLeft />
+        <HeaderCenter />
+        <HeaderRight />
+        <Left />
+        <Center />
+        <Right />
+      </main>
+      {/* <LayoutBackground /> */}
+      {/* </div> */}
     </UIProvider>
   );
 }
 
 function HeaderLeft() {
   return (
-    <div className="flex items-center gap-4 px-5 pt-4 ml-4 bg-primary-foreground rounded-t-3xl">
-      <div>
-        <FakeIcon />
-      </div>
+    <div className="flex items-center gap-2 px-5 pt-4 ml-4 text-xs bg-primary-foreground rounded-t-3xl">
+      <FakeIcon />
       <List />
     </div>
   );
@@ -67,7 +64,7 @@ function HeaderLeft() {
 
 function Left() {
   return (
-    <div className="flex flex-col justify-between pb-4 ml-4 h-fit bg-primary-foreground rounded-b-3xl">
+    <div className="flex flex-col justify-between pb-4 ml-4 text-xs h-fit bg-primary-foreground rounded-b-3xl">
       <nav>
         <Divider />
         <ScrollArea className="max-h-[max(50vh-80px,100px)] overflow-scroll">
@@ -249,11 +246,11 @@ function Author({ size }: { size: "md" | "lg" }) {
 function List() {
   return (
     <Button
-      className="flex items-center justify-between w-full rounded-3xl bg-primary-foreground border-primary-foreground"
+      className="flex items-center justify-between w-full text-xs rounded-3xl bg-primary-foreground border-primary-foreground"
       variant="outline"
     >
       <span>Blank Oslo</span>
-      <ChevronsUpDown size={16} />
+      <ChevronsUpDown size={12} />
     </Button>
   );
 }
@@ -712,8 +709,8 @@ url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/20
 function FakeIcon() {
   return (
     <svg
-      width="48"
-      height="49"
+      width="32"
+      height="32"
       viewBox="0 0 48 49"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
