@@ -26,7 +26,6 @@ import {
   useSchemas,
   useModuleSource,
   useNavigation,
-  useErrors,
   usePatches,
 } from "./UIProvider";
 import { ScrollArea } from "../components/ui/scroll-area";
@@ -445,7 +444,7 @@ function PendingChangeItemTitle({
   const modulePathParts = modulePath.split(".");
   return (
     <>
-      <span className="inline-block w-1/2 truncate" dir="rtl">
+      <span className="inline-block w-1/2 truncate">
         {moduleFilePathParts.map((part, i) => (
           <>
             <span
@@ -550,7 +549,7 @@ function PendingChanges() {
   return (
     <div>
       {items.data.map((item, i) => (
-        <div className="flex justify-between py-2 text-xs" key={i}>
+        <div className="grid grid-cols-2 py-2 text-xs" key={i}>
           <span className="flex items-center gap-4 ">
             {/* {item.avatar && (
               <img src={item.avatar} className="w-8 h-8 rounded-full" />
@@ -562,7 +561,7 @@ function PendingChanges() {
               />
             </span>
           </span>
-          <span className="flex items-center gap-4 text-muted-foreground">
+          <span className="flex items-center justify-end gap-4 text-muted-foreground">
             <span className="truncate">
               {relativeLocalDate(now, item.created_at)}
             </span>
