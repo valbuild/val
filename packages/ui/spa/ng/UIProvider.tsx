@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from "react";
+import React, { useContext, useEffect, useMemo, useState } from "react";
 import {
   Internal,
   Json,
@@ -255,7 +255,7 @@ export function usePatches() {
   };
 }
 
-type ValError =
+export type ValError =
   | {
       type: "validationError";
       message: string;
@@ -266,10 +266,10 @@ type ValError =
       message: string;
     };
 const fakeErrors: Record<SourcePath, ValError[]> = {
-  [`/content/employees/employeeList.val.ts` as SourcePath]: [
+  ['/content/employees/employeeList.val.ts?p="fe"."name"' as SourcePath]: [
     {
       type: "validationError",
-      message: 'Validation error: "name" must be at least 3 characters long',
+      message: '"name" must be at least 3 characters long',
     },
   ],
 };
@@ -286,6 +286,20 @@ export function useErrors() {
     }, 1000); // fake delay
   }, []);
   return { errors };
+}
+
+export function useErrorsOfPath(path: SourcePath): Remote<ValError[]> {
+  const { errors } = useErrors();
+  return useMemo(() => {
+    if (errors.status === "success") {
+      return {
+        status: "success",
+        data: errors.data[path] || [],
+      };
+    } else {
+      return errors;
+    }
+  }, [path, errors]);
 }
 
 type DeploymentMetadata = {
