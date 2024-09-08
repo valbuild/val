@@ -22,6 +22,7 @@ import { UnionField } from "./UnionField";
 import { RichTextField } from "./RichTextField";
 import { NullSource } from "../components/NullSource";
 import { Field } from "../components/Field";
+import { sourcePathOfItem } from "../sourcePathOfItem";
 
 export function ObjectFields({
   source,
@@ -38,12 +39,13 @@ export function ObjectFields({
 
   return Object.entries(schema.items).map(([label, itemSchema]) => {
     const key = JSON.stringify({ label, itemSchema });
+    const subPath = sourcePathOfItem(path, label);
     const renderField = () => {
       switch (true) {
         case itemSchema instanceof StringSchema:
           return (
             <StringField
-              path={path}
+              path={subPath}
               source={source[label]}
               schema={itemSchema}
             />
@@ -51,7 +53,7 @@ export function ObjectFields({
         case itemSchema instanceof NumberSchema:
           return (
             <NumberField
-              path={path}
+              path={subPath}
               source={source[label]}
               schema={itemSchema}
             />
@@ -59,7 +61,7 @@ export function ObjectFields({
         case itemSchema instanceof BooleanSchema:
           return (
             <BooleanField
-              path={path}
+              path={subPath}
               source={source[label]}
               schema={itemSchema}
             />
@@ -67,7 +69,7 @@ export function ObjectFields({
         case itemSchema instanceof ImageSchema:
           return (
             <ImageField
-              path={path}
+              path={subPath}
               source={source[label]}
               schema={itemSchema}
             />
@@ -75,7 +77,7 @@ export function ObjectFields({
         case itemSchema instanceof ArraySchema:
           return (
             <ListFields
-              path={path}
+              path={subPath}
               source={source[label]}
               schema={itemSchema.item}
             />
@@ -83,7 +85,7 @@ export function ObjectFields({
         case itemSchema instanceof KeyOfSchema:
           return (
             <KeyOfField
-              path={path}
+              path={subPath}
               source={source[label]}
               schema={itemSchema}
             />
@@ -91,7 +93,7 @@ export function ObjectFields({
         case itemSchema instanceof UnionSchema:
           return (
             <UnionField
-              path={path}
+              path={subPath}
               source={source[label]}
               schema={itemSchema}
             />
@@ -99,7 +101,7 @@ export function ObjectFields({
         case itemSchema instanceof ObjectSchema:
           return (
             <ObjectFields
-              path={path}
+              path={subPath}
               source={source[label]}
               schema={itemSchema}
             />
@@ -107,7 +109,7 @@ export function ObjectFields({
         case itemSchema instanceof RichTextSchema:
           return (
             <RichTextField
-              path={path}
+              path={subPath}
               source={source[label]}
               schema={itemSchema}
             />
