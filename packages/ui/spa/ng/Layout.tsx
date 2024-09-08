@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import classNames from "classnames";
-import React, { useMemo, useState } from "react";
+import React, { Fragment, useEffect, useMemo, useState } from "react";
 import {
   deserializeSchema,
   Internal,
@@ -27,6 +27,7 @@ import {
   useErrors,
   useSearch,
   useModuleSourceAndSchema,
+  useAllModuleSources,
 } from "./UIProvider";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { PathNode, pathTree } from "./pathTree";
@@ -34,18 +35,25 @@ import { fixCapitalization } from "./fixCapitalization";
 import { Remote } from "../utils/Remote";
 import { convertPatchPathToModulePath } from "./convertPatchPathToModulePath";
 import { Field } from "./components/Field";
+import { relativeLocalDate } from "./relativeLocalDate";
 
 export function Layout() {
   return (
     <UIProvider>
       {/* <div className="absolute top-0 left-0 w-full min-h-screen"> */}
-      <main className="grid grid-cols-[284px_auto_284px] grid-rows-[64px_auto] py-4 bg-secondary">
-        <HeaderLeft />
-        <HeaderCenter />
-        <HeaderRight />
-        <Left />
-        <Center />
-        <Right />
+      <main className="bg-secondary">
+        <div className="fixed top-4 left-4 w-[284px]">
+          <HeaderLeft />
+          <Left />
+        </div>
+        <div className="ml-[284px] w-[calc(100%-284*2px-16px*2)] pt-8 min-h-screen">
+          <HeaderCenter />
+          <Center />
+        </div>
+        <div className="fixed top-4 right-4 w-[284px]">
+          <HeaderRight />
+          <Right />
+        </div>
       </main>
       {/* <LayoutBackground /> */}
       {/* </div> */}
@@ -67,11 +75,11 @@ function Left() {
     <div className="flex flex-col justify-between pb-4 ml-4 text-xs h-fit bg-primary-foreground rounded-b-3xl">
       <nav>
         <Divider />
-        <ScrollArea className="max-h-[max(50vh-80px,100px)] overflow-scroll">
+        <ScrollArea className="max-h-[max(50vh-84px,100px)] overflow-scroll">
           <NavContentExplorer title="Blank website" />
         </ScrollArea>
         <Divider />
-        <ScrollArea className="max-h-[max(50vh-80px,100px)] overflow-scroll">
+        <ScrollArea className="max-h-[max(50vh-84px,100px)] overflow-scroll">
           <NavSiteMap
             title="Pages"
             items={[
@@ -257,14 +265,47 @@ function List() {
 
 function HeaderCenter() {
   const { search, setSearch } = useSearch();
+  const [query, setQuery] = useState("");
+  useEffect(() => {
+    // debounce:
+    const timeout = setTimeout(() => {
+      if (query.includes("@error")) {
+        setSearch({
+          type: "error",
+          query: query.replace("@error", "").trim(),
+        });
+      } else if (query.includes("@change")) {
+        setSearch({
+          type: "change",
+          query: query.replace("@change", "").trim(),
+        });
+      } else if (query.trim()) {
+        setSearch({ query: query.trim() });
+      }
+    }, 250);
+    return () => clearTimeout(timeout);
+  }, [query]);
 
   if (search) {
+    let queryValue = "";
+    if (search.type === "error") {
+      queryValue = `@error `;
+    }
+    if (search.type === "change") {
+      queryValue = `@change `;
+    }
+    if (search.query) {
+      queryValue += search.query;
+    }
     return (
       <HeaderCenterContainer>
         <Search />
         <input
           className="px-2 bg-transparent focus:outline-none"
-          defaultValue="@error"
+          defaultValue={queryValue}
+          onChange={(e) => {
+            setQuery(e.target.value);
+          }}
         ></input>
         <button
           onClick={() => {
@@ -294,22 +335,28 @@ function HeaderCenterContainer({ children }: { children: React.ReactNode }) {
 }
 
 function PathBar() {
+  const { setSearch } = useSearch();
   const { currentSourcePath } = useNavigation();
-  const maybeSplittedPaths =
+  const maybeSplitPaths =
     currentSourcePath &&
     Internal.splitModuleFilePathAndModulePath(
       currentSourcePath as unknown as SourcePath
     );
-  if (!maybeSplittedPaths) {
+  if (!maybeSplitPaths) {
     return null;
   }
-  const [moduleFilePath, modulePath] = maybeSplittedPaths;
+  const [moduleFilePath, modulePath] = maybeSplitPaths;
   const moduleFilePathParts = moduleFilePath.split("/");
   const modulePathParts = modulePath ? modulePath.split(".") : [];
   return (
-    <div className="flex items-center gap-2">
+    <button
+      className="flex items-center gap-2"
+      onClick={() => {
+        setSearch({ query: "" });
+      }}
+    >
       {moduleFilePathParts.map((part, i) => (
-        <>
+        <Fragment key={`${part}-${i}`}>
           <span
             className={classNames({
               "text-muted": !(
@@ -323,10 +370,10 @@ function PathBar() {
           {i > 0 && i < moduleFilePathParts.length - 1 && (
             <span className="text-muted">/</span>
           )}
-        </>
+        </Fragment>
       ))}
       {modulePathParts.map((part, i) => (
-        <>
+        <Fragment key={`${part}-${i}`}>
           <span className="text-muted">/</span>
           <span
             className={classNames({
@@ -335,9 +382,9 @@ function PathBar() {
           >
             {prettifyFilename(JSON.parse(part))}
           </span>
-        </>
+        </Fragment>
       ))}
-    </div>
+    </button>
   );
 }
 
@@ -350,15 +397,8 @@ function Center() {
 }
 
 function SearchFields({ type, query }: { type: string; query?: string }) {
-  if (type === "error") {
-    return <SearchErrorFields query={query} />;
-  }
-  return <div>TODO</div>;
-}
-
-function SearchErrorFields({ query }: { query?: string }) {
+  // TODO: only load errors if we are searching for errors?
   const { errors } = useErrors();
-
   const errorFields = useMemo((): Remote<SourcePath[]> => {
     if (errors.status === "success") {
       const allErrorFields = Object.keys(errors.data) as SourcePath[];
@@ -370,13 +410,31 @@ function SearchErrorFields({ query }: { query?: string }) {
           ),
         };
       } else {
-        return { status: "success", data: allErrorFields };
+        return { status: "success", data: Array.from(new Set(allErrorFields)) };
       }
     } else {
       return errors;
     }
   }, [errors]);
 
+  return (
+    <div className="flex flex-col items-center justify-center gap-10 pt-4">
+      {type === "error" && (
+        <SearchErrorFields query={query} errorFields={errorFields} />
+      )}
+      {type === "change" && (
+        <SearchChangeFields query={query} errorFields={errorFields} />
+      )}
+    </div>
+  );
+}
+
+function SearchErrorFields({
+  errorFields,
+}: {
+  query?: string;
+  errorFields: Remote<SourcePath[]>;
+}) {
   if (errorFields.status === "error") {
     throw new Error(errorFields.error);
   }
@@ -384,11 +442,79 @@ function SearchErrorFields({ query }: { query?: string }) {
     return <Loading />;
   }
   return (
-    <div className="flex flex-col items-center gap-10">
+    <>
       {errorFields.data.map((path) => (
-        <SearchField path={path} />
+        <SearchField key={path} path={path} />
       ))}
-    </div>
+    </>
+  );
+}
+
+function SearchChangeFields({
+  query,
+  errorFields,
+}: {
+  query?: string;
+  errorFields: Remote<SourcePath[]>;
+}) {
+  // TODO: we want to do this server side or in some more efficient way way in the future
+  const { patches } = usePatches();
+  const allModuleSources = useAllModuleSources();
+  const changeFields = useMemo((): Remote<SourcePath[]> => {
+    if (patches.status === "success" && allModuleSources.status === "success") {
+      const foundInErrorFields =
+        errorFields.status === "success" ? errorFields.data : [];
+      const allChangeFields = Object.keys(patches.data).flatMap(
+        (moduleFilePath) =>
+          patches.data[moduleFilePath as ModuleFilePath].flatMap((patch) =>
+            patch.patch.map((op) =>
+              Internal.joinModuleFilePathAndModulePath(
+                moduleFilePath as ModuleFilePath,
+                convertPatchPathToModulePath(op.path)
+              )
+            )
+          )
+      );
+      if (query) {
+        return {
+          status: "success",
+          data: Array.from(
+            new Set(
+              allChangeFields.filter(
+                (changeField) =>
+                  changeField.includes(query) &&
+                  !foundInErrorFields.includes(changeField)
+              )
+            )
+          ),
+        };
+      } else {
+        return {
+          status: "success",
+          data: Array.from(new Set(allChangeFields)),
+        };
+      }
+    } else if (patches.status === "error") {
+      return patches;
+    } else if (allModuleSources.status === "error") {
+      return allModuleSources;
+    } else {
+      return { status: "loading" };
+    }
+  }, [patches, allModuleSources, errorFields]);
+
+  if (changeFields.status === "error") {
+    throw new Error(changeFields.error);
+  }
+  if (changeFields.status !== "success") {
+    return <Loading />;
+  }
+  return (
+    <>
+      {changeFields.data.map((path) => (
+        <SearchField key={path} path={path} />
+      ))}
+    </>
   );
 }
 
@@ -420,16 +546,16 @@ function SearchField({ path }: { path: SourcePath }) {
 
 function SourceFields() {
   const { currentSourcePath } = useNavigation();
-  const maybeSplittedPaths =
+  const maybeSplitPaths =
     currentSourcePath &&
     Internal.splitModuleFilePathAndModulePath(
       currentSourcePath as unknown as SourcePath
     );
   const remoteSourceContent = useModuleSource(
-    maybeSplittedPaths && maybeSplittedPaths[0]
+    maybeSplitPaths && maybeSplitPaths[0]
   );
   const remoteSchemasByModuleFilePath = useSchemas();
-  if (!maybeSplittedPaths) {
+  if (!maybeSplitPaths) {
     return <EmptyContent />;
   }
   if (remoteSchemasByModuleFilePath.status === "error") {
@@ -445,7 +571,7 @@ function SourceFields() {
     return <Loading />;
   }
 
-  const [moduleFilePath, modulePath] = maybeSplittedPaths;
+  const [moduleFilePath, modulePath] = maybeSplitPaths;
   const path = currentSourcePath as unknown as SourcePath;
 
   const moduleSchema = remoteSchemasByModuleFilePath.data[moduleFilePath];
@@ -509,7 +635,7 @@ function CompressedPath({
     <>
       <span className="inline-block w-1/2 truncate">
         {moduleFilePathParts.map((part, i) => (
-          <>
+          <Fragment key={`${part}-${i}`}>
             <span
               className={classNames({
                 "text-muted": !(
@@ -523,12 +649,12 @@ function CompressedPath({
             {i > 0 && i < moduleFilePathParts.length - 1 && (
               <span className="text-muted">/</span>
             )}
-          </>
+          </Fragment>
         ))}
       </span>
       <span className="inline-block w-1/2 truncate">
         {modulePathParts.map((part, i) => (
-          <>
+          <Fragment key={`${part}-${i}`}>
             <span className="text-muted">/</span>
             <span
               className={classNames({
@@ -537,32 +663,15 @@ function CompressedPath({
             >
               {prettifyFilename(JSON.parse(part))}
             </span>
-          </>
+          </Fragment>
         ))}
       </span>
     </>
   );
 }
 
-function relativeLocalDate(now: Date, date: string) {
-  const then = new Date(date);
-  const diff = now.getTime() - then.getTime();
-  if (diff < 1000 * 60) {
-    return "just now";
-  }
-  if (diff < 1000 * 60 * 60 * 24) {
-    return "yesterday";
-  }
-  if (diff < 1000 * 60 * 60) {
-    return `${Math.floor(diff / 1000 / 60)}m ago`;
-  }
-  if (diff < 1000 * 60 * 60 * 24) {
-    return `${Math.floor(diff / 1000 / 60 / 60)}h ago`;
-  }
-  return `${Math.floor(diff / 1000 / 60 / 60 / 24)}d ago`;
-}
-
 function PendingChanges() {
+  const { setSearch } = useSearch();
   const { patches } = usePatches();
   const now = useMemo(() => new Date(), []);
   const items = useMemo((): Remote<
@@ -611,7 +720,17 @@ function PendingChanges() {
   }
   return (
     <ScrollArea className="max-h-[max(50vh-40px,200px)] overflow-scroll px-4 text-xs">
-      <div className="py-2">Pending changes</div>
+      <div className="flex justify-between py-2">
+        <span>Pending changes</span>
+        <Button
+          className="h-4 px-1 py-0 text-xs"
+          onClick={() => {
+            setSearch({ type: "change" });
+          }}
+        >
+          View
+        </Button>
+      </div>
       {items.data.map((item, i) => (
         <div className="grid grid-cols-2 py-2" key={i}>
           <span className="flex items-center gap-4 ">
@@ -687,6 +806,7 @@ function ValidationErrors() {
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function LayoutBackground() {
   return (
     <>

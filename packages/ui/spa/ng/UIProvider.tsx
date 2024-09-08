@@ -30,7 +30,7 @@ const UIContext = React.createContext<{
     search:
       | false
       | {
-          type: "error" | "change";
+          type?: "error" | "change";
           query?: string;
         }
   ) => void;
@@ -233,6 +233,31 @@ export function useModuleSource(
   return sourceContent;
 }
 
+export function useAllModuleSources(): Remote<Record<ModuleFilePath, Json>> {
+  const { getSchemasByModuleFilePath, getSourceContent } =
+    useContext(UIContext);
+  const [sources, setSources] = useState<Remote<Record<ModuleFilePath, Json>>>({
+    status: "not-asked",
+  });
+
+  useEffect(() => {
+    getSchemasByModuleFilePath()
+      .then(async (schemas) => {
+        const sources: Record<ModuleFilePath, Json> = {};
+        for (const moduleFilePath in schemas) {
+          sources[moduleFilePath as ModuleFilePath] = await getSourceContent(
+            moduleFilePath as ModuleFilePath
+          );
+        }
+        setSources({ status: "success", data: sources });
+      })
+      .catch((err: Error) => {
+        setSources({ status: "error", error: err.message });
+      });
+  }, [getSchemasByModuleFilePath]);
+  return sources;
+}
+
 // #region Patches
 
 const fakePatches: Record<string, PatchWithMetadata[]> = {
@@ -240,7 +265,7 @@ const fakePatches: Record<string, PatchWithMetadata[]> = {
     {
       patch_id: "1",
       author: {
-        name: "k Ekholdt",
+        name: "Fredrik Ekholdt",
         avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
       },
       created_at: "2024-08-12T12:00:00Z",
@@ -255,7 +280,7 @@ const fakePatches: Record<string, PatchWithMetadata[]> = {
     {
       patch_id: "2",
       author: {
-        name: "k Ekholdt",
+        name: "Fredrik Ekholdt",
         avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
       },
       created_at: "2024-09-01T12:00:00Z",
@@ -268,9 +293,24 @@ const fakePatches: Record<string, PatchWithMetadata[]> = {
       ],
     },
     {
+      patch_id: "5",
+      author: {
+        name: "Fredrik Ekholdt",
+        avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
+      },
+      created_at: "2024-09-07T12:00:00Z",
+      patch: [
+        {
+          op: "replace",
+          path: ["mkd", "name"],
+          value: "Heia Magne!",
+        },
+      ],
+    },
+    {
       patch_id: "3",
       author: {
-        name: "k Ekholdt",
+        name: "Fredrik Ekholdt",
         avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
       },
       created_at: "2024-09-07T12:00:00Z",
@@ -291,7 +331,7 @@ type PatchId = string;
 // Fake patch metadata - this type should be replaced with the real one...
 // The UI probably needs render grouped patches, should that be done client side or server side?
 // Pros: client side makes the API more stable, cons: slower UI? Does it even matter?
-type PatchWithMetadata = {
+export type PatchWithMetadata = {
   patch_id: PatchId;
   patch: Patch;
   author: {
@@ -378,6 +418,29 @@ export function useErrorsOfPath(path: SourcePath): Remote<ValError[]> {
       return errors;
     }
   }, [path, errors]);
+}
+
+export function usePatchesOfPath(
+  path: SourcePath
+): Remote<PatchWithMetadata[]> {
+  const { patches } = usePatches();
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(path);
+  return useMemo(() => {
+    if (patches.status === "success") {
+      return {
+        status: "success",
+        data:
+          patches.data[moduleFilePath].filter((value) => {
+            return value.patch.some((op) => {
+              return Internal.patchPathToModulePath(op.path) === modulePath;
+            });
+          }) || [],
+      };
+    } else {
+      return patches;
+    }
+  }, [path, patches]);
 }
 
 type DeploymentMetadata = {
