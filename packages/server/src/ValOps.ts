@@ -1244,7 +1244,8 @@ export function createMetadataFromBuffer<T extends BinaryFileType>(
   let availableMetadata: Record<string, string | number | undefined | null>;
   if (type === "image") {
     const { width, height, type } = sizeOf(buffer);
-    const normalizedType = type === "jpg" ? "jpeg" : type;
+    const normalizedType =
+      type === "jpg" ? "jpeg" : type === "svg" ? "svg+xml" : type;
     if (type !== undefined && `image/${normalizedType}` !== mimeType) {
       return {
         errors: [
