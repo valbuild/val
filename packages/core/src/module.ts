@@ -111,7 +111,10 @@ export function getSourceAtPath(
 function isObjectSchema(
   schema: Schema<SelectorSource> | SerializedSchema,
 ): schema is
-  | ObjectSchema<{ [key: string]: Schema<SelectorSource> }>
+  | ObjectSchema<
+      { [key: string]: Schema<SelectorSource> },
+      { [key: string]: SelectorSource }
+    >
   | SerializedObjectSchema {
   return (
     schema instanceof ObjectSchema ||
@@ -121,7 +124,9 @@ function isObjectSchema(
 
 function isRecordSchema(
   schema: Schema<SelectorSource> | SerializedSchema,
-): schema is RecordSchema<Schema<SelectorSource>> | SerializedRecordSchema {
+): schema is
+  | RecordSchema<Schema<SelectorSource>, Record<string, SelectorSource>>
+  | SerializedRecordSchema {
   return (
     schema instanceof RecordSchema ||
     (typeof schema === "object" && "type" in schema && schema.type === "record")
@@ -130,7 +135,9 @@ function isRecordSchema(
 
 function isArraySchema(
   schema: Schema<SelectorSource> | SerializedSchema,
-): schema is ArraySchema<Schema<SelectorSource>> | SerializedArraySchema {
+): schema is
+  | ArraySchema<Schema<SelectorSource>, SelectorSource[]>
+  | SerializedArraySchema {
   return (
     schema instanceof ArraySchema ||
     (typeof schema === "object" && "type" in schema && schema.type === "array")
@@ -149,7 +156,7 @@ function isArraySchema(
 function isUnionSchema(
   schema: Schema<SelectorSource> | SerializedSchema,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): schema is UnionSchema<string, any> | SerializedUnionSchema {
+): schema is UnionSchema<string, any, any> | SerializedUnionSchema {
   return (
     schema instanceof UnionSchema ||
     (typeof schema === "object" && "type" in schema && schema.type === "union")
@@ -202,6 +209,7 @@ export function resolvePath<
   schema: Sch;
   source: Src;
 } {
+  // TODO: use schema assert while resolving (and emit errors if any)
   const parts = parsePath(path);
   const origParts = [...parts];
   let resolvedSchema: Schema<SelectorSource> | SerializedSchema = schema;
@@ -319,7 +327,8 @@ export function resolvePath<
           `Invalid path: union source ${resolvedSchema} did not have required key ${key} in path: ${path}`,
         );
       }
-      const schemaOfUnionKey = resolvedSchema.items.find(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const schemaOfUnionKey: any = resolvedSchema.items.find(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (child: any) => child?.items?.[key]?.value === keyValue,
       );

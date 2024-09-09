@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from ".";
+import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 
@@ -35,16 +35,49 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     return false;
   }
 
-  assert(src: Src): boolean {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      } as SchemaAssertResult<Src>;
     }
-    return typeof src === "number";
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: "Expected 'number', got 'null'",
+              typeError: true,
+            },
+          ],
+        },
+      };
+    }
+    if (typeof src === "number") {
+      return {
+        success: true,
+        data: src,
+      } as SchemaAssertResult<Src>;
+    }
+    return {
+      success: false,
+      errors: {
+        [path]: [
+          {
+            message: `Expected 'number', got '${typeof src}'`,
+            typeError: true,
+          },
+        ],
+      },
+    };
   }
 
-  nullable(): Schema<Src | null> {
-    return new NumberSchema<Src | null>(this.options, true);
+  nullable(): Schema<Src> {
+    return new NumberSchema<Src | null>(this.options, true) as Schema<Src>;
   }
+
   serialize(): SerializedSchema {
     return {
       type: "number",
@@ -55,5 +88,5 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
 }
 
 export const number = (options?: NumberOptions): Schema<number> => {
-  return new NumberSchema(options);
+  return new NumberSchema(options) as Schema<number>;
 };
