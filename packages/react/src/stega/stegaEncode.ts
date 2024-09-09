@@ -335,9 +335,10 @@ export function stegaEncode(
         ) {
           const fileSelector = Internal.convertFileSource(sourceOrSelector);
           let url = fileSelector.url;
-          if (opts.disabled) {
-            url = fileSelector.url;
-          } else {
+          if (
+            !opts.disabled &&
+            sourceOrSelector.patch_id // if no patch id the file should be present in the public folder
+          ) {
             url = "/api/val/files/public" + fileSelector.url;
           }
           return {
