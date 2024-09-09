@@ -243,24 +243,28 @@ export function convertFileSource<
 >(src: FileSource<Metadata>): { url: string; metadata?: Metadata } {
   // TODO: /public should be configurable
   if (!src[FILE_REF_PROP].startsWith("/public")) {
+    console.warn(
+      `Val: file (${src[FILE_REF_PROP]}) does not start with "/public"`,
+    );
+    return {
+      url: src[FILE_REF_PROP],
+      metadata: src.metadata,
+    };
+  }
+
+  if (src["patch_id"]) {
     return {
       url:
-        src[FILE_REF_PROP] +
-        (src.metadata?.sha256 ? `?sha256=${src.metadata?.sha256}` : "") + // TODO: remove sha256? we do not need anymore
+        src[FILE_REF_PROP].slice("/public".length) +
+        (src.metadata?.sha256 ? `?sha256=${src.metadata?.sha256}` : "") +
         (src.patch_id
           ? `${src.metadata?.sha256 ? "&" : "?"}patch_id=${src["patch_id"]}`
           : ""),
       metadata: src.metadata,
     };
   }
-
   return {
-    url:
-      src[FILE_REF_PROP].slice("/public".length) +
-      (src.metadata?.sha256 ? `?sha256=${src.metadata?.sha256}` : "") +
-      (src.patch_id
-        ? `${src.metadata?.sha256 ? "&" : "?"}patch_id=${src["patch_id"]}`
-        : ""),
+    url: src[FILE_REF_PROP].slice("/public".length),
     metadata: src.metadata,
   };
 }
