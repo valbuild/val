@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from ".";
+import { AssertError, Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { createValPathOfItem } from "../selector/SelectorProxy";
 import { SelectorSource } from "../selector/index";
 import { SourceObject } from "../source";
@@ -39,13 +39,12 @@ export class UnionSchema<
         ? string
         : unknown
   >[],
-> extends Schema<SourceOf<Key, T>> {
-  validate(path: SourcePath, src: SourceOf<Key, T>): ValidationErrors {
+  Src extends SourceOf<Key, T> | null,
+> extends Schema<Src> {
+  validate(path: SourcePath, src: Src): ValidationErrors {
     const unknownSrc = src as unknown;
     const errors: ValidationErrors = false;
-
-    if (this.opt && (unknownSrc === null || unknownSrc === undefined)) {
-      // TODO: src should never be undefined
+    if (this.opt && unknownSrc === null) {
       return false;
     }
 
@@ -54,6 +53,7 @@ export class UnionSchema<
         [path]: [
           {
             message: `Missing required first argument in union`,
+            schemaError: true,
           },
         ],
       };
@@ -65,7 +65,7 @@ export class UnionSchema<
         [path]: [
           {
             message: `A union schema must take more than 1 schema arguments`,
-            fatal: true,
+            schemaError: true,
           },
         ],
       };
@@ -77,14 +77,19 @@ export class UnionSchema<
           [path]: [
             {
               message: `Key is a string, so all schema items must be objects`,
-              fatal: true,
+              schemaError: true,
             },
           ],
         };
       }
-      const objectSchemas = this.items as unknown as ObjectSchema<{
-        [key: string]: Schema<SelectorSource>;
-      }>[];
+      const objectSchemas = this.items as unknown as ObjectSchema<
+        {
+          [key: string]: Schema<SelectorSource>;
+        },
+        {
+          [key: string]: SelectorSource;
+        }
+      >[];
       const serializedSchemas = objectSchemas.map((schema) =>
         schema.serialize(),
       );
@@ -103,7 +108,7 @@ export class UnionSchema<
                 null,
                 2,
               )}`,
-              fatal: true,
+              schemaError: true,
             },
           ],
         };
@@ -118,7 +123,7 @@ export class UnionSchema<
           [path]: [
             {
               message: `Schema cannot have an optional keys: ${key}`,
-              fatal: true,
+              schemaError: true,
             },
           ],
         };
@@ -129,6 +134,7 @@ export class UnionSchema<
           [path]: [
             {
               message: `Expected an object`,
+              typeError: true,
             },
           ],
         };
@@ -140,6 +146,7 @@ export class UnionSchema<
           [path]: [
             {
               message: `Missing required key: ${key}`,
+              typeError: true,
             },
           ],
         };
@@ -156,7 +163,7 @@ export class UnionSchema<
               [path]: [
                 {
                   message: `Found duplicate key in schema: ${schemaKey.value}`,
-                  fatal: true,
+                  schemaError: true,
                 },
               ],
             };
@@ -211,7 +218,7 @@ export class UnionSchema<
           [path]: [
             {
               message: `Key is a literal schema, so all schema items must be literals`,
-              fatal: true,
+              typeError: true,
             },
           ],
         };
@@ -244,12 +251,150 @@ export class UnionSchema<
     }
     return errors;
   }
-  assert(src: SourceOf<Key, T>): boolean {
-    return true;
+
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      } as SchemaAssertResult<Src>;
+    }
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Expected 'object', got 'null'`,
+              typeError: true,
+            },
+          ],
+        },
+      };
+    }
+    if (!this.key) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Missing required first argument in union schema`,
+              schemaError: true,
+            },
+          ],
+        },
+      };
+    }
+    if (!Array.isArray(this.items)) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `The schema of this value is wrong. Schema is neither a union of literals nor a tagged union (of objects)`,
+              schemaError: true,
+            },
+          ],
+        },
+      };
+    }
+    if (this.key instanceof LiteralSchema) {
+      let success = false;
+      const errors: Record<SourcePath, AssertError[]> = {};
+      for (const itemSchema of [this.key as Schema<string>].concat(
+        ...(this.items as Schema<string>[]),
+      )) {
+        if (!(itemSchema instanceof LiteralSchema)) {
+          return {
+            success: false,
+            errors: {
+              [path]: [
+                {
+                  message: `Schema of value is a union of string, so all schema items must be literals`,
+                  schemaError: true,
+                },
+              ],
+            },
+          };
+        }
+        if (typeof src !== "string") {
+          errors[path] = [
+            {
+              message: `Expected 'string', got '${typeof src}'`,
+              typeError: true,
+            },
+          ];
+          continue;
+        }
+        const res = itemSchema.assert(path, src);
+        if (res.success) {
+          success = true;
+          break;
+        } else {
+          for (const [key, value] of Object.entries(res.errors)) {
+            if (!errors[key as SourcePath]) {
+              errors[key as SourcePath] = [];
+            }
+            errors[key as SourcePath].push(...value);
+          }
+        }
+      }
+      if (!success) {
+        return {
+          success: false,
+          errors,
+        };
+      }
+      return {
+        success: true,
+        data: src,
+      } as SchemaAssertResult<Src>;
+    } else if (typeof this.key === "string") {
+      let success = false;
+      const errors: Record<SourcePath, AssertError[]> = {};
+      for (const itemSchema of this.items) {
+        const res = itemSchema.assert(path, src);
+        if (res.success) {
+          success = true;
+          break;
+        } else {
+          for (const [key, value] of Object.entries(res.errors)) {
+            if (!errors[key as SourcePath]) {
+              errors[key as SourcePath] = [];
+            }
+            errors[key as SourcePath].push(...value); // by appending all type errors, we most likely get a lot of duplicate errors. Currently we believe this is correct though, but should probably be handled in when showing the errors to users
+          }
+        }
+      }
+      if (!success) {
+        return {
+          success: false,
+          errors,
+        };
+      }
+      return {
+        success: true,
+        data: src,
+      } as SchemaAssertResult<Src>;
+    } else {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `The schema of this value is wrong. Schema is neither a union of literals nor a tagged union (of objects)`,
+              schemaError: true,
+            },
+          ],
+        },
+      };
+    }
   }
-  nullable(): Schema<SourceOf<Key, T> | null> {
-    return new UnionSchema(this.key, this.items, true);
+
+  nullable(): Schema<Src | null> {
+    return new UnionSchema(this.key, this.items, true) as Schema<Src | null>;
   }
+
   serialize(): SerializedSchema {
     if (typeof this.key === "string") {
       return {

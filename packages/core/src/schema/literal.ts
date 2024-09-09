@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from ".";
+import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 
@@ -41,11 +41,43 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
     return false;
   }
 
-  assert(src: Src): boolean {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      } as SchemaAssertResult<Src>;
     }
-    return typeof src === "string";
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Expected 'string', got 'null'`,
+              typeError: true,
+            },
+          ],
+        },
+      };
+    }
+    if (typeof src === "string" && src === this.value) {
+      return {
+        success: true,
+        data: src,
+      } as SchemaAssertResult<Src>;
+    }
+    return {
+      success: false,
+      errors: {
+        [path]: [
+          {
+            message: `Expected literal '${this.value}', got '${src}'`,
+            typeError: true,
+          },
+        ],
+      },
+    };
   }
 
   nullable(): Schema<Src | null> {
@@ -61,6 +93,6 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
   }
 }
 
-export const literal = <T extends string>(value: T): Schema<T> => {
+export const literal = <T extends string>(value: T): LiteralSchema<T> => {
   return new LiteralSchema(value);
 };

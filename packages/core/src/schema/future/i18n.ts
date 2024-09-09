@@ -1,5 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SelectorOfSchema, SerializedSchema } from "..";
+import {
+  Schema,
+  SchemaAssertResult,
+  SelectorOfSchema,
+  SerializedSchema,
+} from "..";
 import { I18nCompatibleSource, I18nSource } from "../../source/future/i18n";
 import { SourcePath } from "../../val";
 import { ValidationErrors } from "../validation/ValidationError";
@@ -30,8 +35,11 @@ export class I18nSchema<Locales extends readonly string[]> extends Schema<
   }
 
   assert(
+    path: SourcePath,
     src: I18nSource<Locales, SelectorOfSchema<Schema<I18nCompatibleSource>>>,
-  ): boolean {
+  ): SchemaAssertResult<
+    I18nSource<Locales, SelectorOfSchema<Schema<I18nCompatibleSource>>>
+  > {
     throw new Error("Method not implemented.");
   }
 
@@ -65,5 +73,7 @@ export const i18n =
   <S extends Schema<I18nCompatibleSource>>(
     schema: S,
   ): Schema<I18nSource<Locales, SelectorOfSchema<S>>> => {
-    return new I18nSchema(locales, schema);
+    return new I18nSchema(locales, schema) as Schema<
+      I18nSource<Locales, SelectorOfSchema<S>>
+    >;
   };
