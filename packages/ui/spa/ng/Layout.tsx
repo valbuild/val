@@ -340,7 +340,7 @@ function PathBar() {
   const maybeSplitPaths =
     currentSourcePath &&
     Internal.splitModuleFilePathAndModulePath(
-      currentSourcePath as unknown as SourcePath
+      currentSourcePath as unknown as SourcePath,
     );
   if (!maybeSplitPaths) {
     return null;
@@ -406,7 +406,7 @@ function SearchFields({ type, query }: { type: string; query?: string }) {
         return {
           status: "success",
           data: allErrorFields.filter((errorField) =>
-            errorField.includes(query)
+            errorField.includes(query),
           ),
         };
       } else {
@@ -466,14 +466,14 @@ function SearchChangeFields({
         errorFields.status === "success" ? errorFields.data : [];
       const allChangeFields = Object.keys(patches.data).flatMap(
         (moduleFilePath) =>
-          patches.data[moduleFilePath as ModuleFilePath].flatMap((patch) =>
+          patches.data[moduleFilePath as ModuleFilePath]?.flatMap((patch) =>
             patch.patch.map((op) =>
               Internal.joinModuleFilePathAndModulePath(
                 moduleFilePath as ModuleFilePath,
-                convertPatchPathToModulePath(op.path)
-              )
-            )
-          )
+                convertPatchPathToModulePath(op.path),
+              ),
+            ),
+          ),
       );
       if (query) {
         return {
@@ -483,9 +483,9 @@ function SearchChangeFields({
               allChangeFields.filter(
                 (changeField) =>
                   changeField.includes(query) &&
-                  !foundInErrorFields.includes(changeField)
-              )
-            )
+                  !foundInErrorFields.includes(changeField),
+              ),
+            ),
           ),
         };
       } else {
@@ -549,10 +549,10 @@ function SourceFields() {
   const maybeSplitPaths =
     currentSourcePath &&
     Internal.splitModuleFilePathAndModulePath(
-      currentSourcePath as unknown as SourcePath
+      currentSourcePath as unknown as SourcePath,
     );
   const remoteSourceContent = useModuleSource(
-    maybeSplitPaths && maybeSplitPaths[0]
+    maybeSplitPaths && maybeSplitPaths[0],
   );
   const remoteSchemasByModuleFilePath = useSchemas();
   if (!maybeSplitPaths) {
@@ -792,7 +792,7 @@ function ValidationErrors() {
       {errorSourcePaths.data.map((errorSourcePath) => {
         const [moduleFilePath, modulePath] =
           Internal.splitModuleFilePathAndModulePath(
-            errorSourcePath as SourcePath
+            errorSourcePath as SourcePath,
           );
         return (
           <CompressedPath
