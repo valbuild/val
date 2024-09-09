@@ -21,7 +21,8 @@
     ]
   },
   "dependencies": {
-    "@valbuild/core": "~0.63.5"
+    "@valbuild/core": "~0.63.5",
+    "typescript": "5"
   },
   "devDependencies": {}
 }
