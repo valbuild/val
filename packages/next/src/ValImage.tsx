@@ -35,6 +35,10 @@ export function ValImage(props: ValImageProps) {
       : style;
   const useMetadataDimensions =
     src.metadata !== undefined && !rest.fill && !width && !height;
+  const isUnoptimized =
+    rest.unoptimized !== undefined
+      ? rest.unoptimized
+      : src.metadata?.mimeType === "image/svg+xml"; // SVGs are unoptimized by default
   return (
     <NextImage
       {...{
@@ -54,6 +58,7 @@ export function ValImage(props: ValImageProps) {
       fill={rest.fill}
       width={useMetadataDimensions ? src.metadata?.width : width}
       height={useMetadataDimensions ? src.metadata?.height : height}
+      unoptimized={isUnoptimized}
     ></NextImage>
   );
 }
