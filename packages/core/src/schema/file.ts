@@ -264,7 +264,9 @@ export function convertFileSource<
     };
   }
   return {
-    url: src[FILE_REF_PROP].slice("/public".length),
+    url:
+      src[FILE_REF_PROP].slice("/public".length) +
+      (src.metadata?.sha256 ? `?sha256=${src.metadata?.sha256}` : ""), // we need this to be able to know the sha when converting to and from richtext. If we removed the sha all together we would not have this problem.
     metadata: src.metadata,
   };
 }
