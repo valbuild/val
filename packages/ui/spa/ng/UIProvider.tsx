@@ -32,7 +32,7 @@ const UIContext = React.createContext<{
       | {
           type?: "error" | "change";
           query?: string;
-        }
+        },
   ) => void;
 }>({
   getSchemasByModuleFilePath: (): never => {
@@ -59,7 +59,7 @@ async function getFakeModuleDefs() {
   const moduleDefs = await Promise.all(
     fakeModules.modules.map(async (module) => {
       return module.def().then((module) => module.default);
-    })
+    }),
   );
 
   return moduleDefs;
@@ -87,7 +87,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
           setSourcePath(sourcePath);
         },
         getSourceContent: async (
-          moduleFilePath: ModuleFilePath
+          moduleFilePath: ModuleFilePath,
         ): Promise<Json> => {
           const moduleDefs = await getFakeModuleDefs();
 
@@ -165,7 +165,7 @@ export function useModuleSourceAndSchema(path: SourcePath): Remote<{
       const { schema, source } = Internal.resolvePath(
         modulePath,
         moduleSource.data,
-        schemas.data[moduleFilePath]
+        schemas.data[moduleFilePath],
       );
       return {
         status: "success",
@@ -209,7 +209,7 @@ export function useNavigation() {
 }
 
 export function useModuleSource(
-  moduleFilePath: ModuleFilePath | null
+  moduleFilePath: ModuleFilePath | null,
 ): Remote<Json> {
   const { getSourceContent } = useContext(UIContext);
   const [sourceContent, setSourceContent] = useState<Remote<Json>>({
@@ -246,7 +246,7 @@ export function useAllModuleSources(): Remote<Record<ModuleFilePath, Json>> {
         const sources: Record<ModuleFilePath, Json> = {};
         for (const moduleFilePath in schemas) {
           sources[moduleFilePath as ModuleFilePath] = await getSourceContent(
-            moduleFilePath as ModuleFilePath
+            moduleFilePath as ModuleFilePath,
           );
         }
         setSources({ status: "success", data: sources });
@@ -364,7 +364,7 @@ export function usePatches() {
             Object.entries(fakePatches).map(([path, patches]) => [
               path,
               patches.filter((patch) => !patchIds.includes(patch.patch_id)),
-            ])
+            ]),
           ),
         });
       }, 400);
@@ -421,7 +421,7 @@ export function useErrorsOfPath(path: SourcePath): Remote<ValError[]> {
 }
 
 export function usePatchesOfPath(
-  path: SourcePath
+  path: SourcePath,
 ): Remote<PatchWithMetadata[]> {
   const { patches } = usePatches();
   const [moduleFilePath, modulePath] =
@@ -431,7 +431,7 @@ export function usePatchesOfPath(
       return {
         status: "success",
         data:
-          patches.data[moduleFilePath].filter((value) => {
+          patches.data[moduleFilePath]?.filter((value) => {
             return value.patch.some((op) => {
               return Internal.patchPathToModulePath(op.path) === modulePath;
             });
