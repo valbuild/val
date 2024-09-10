@@ -36,7 +36,8 @@ export function ImageField({
   useEffect(() => {
     setUrl(
       defaultValue &&
-        "/api/val/files/public" + Internal.convertFileSource(defaultValue).url,
+        (defaultValue.patch_id ? "/api/val/files/public" : "") +
+          Internal.convertFileSource(defaultValue).url,
     );
     setHotspot(defaultValue?.metadata?.hotspot);
   }, [defaultValue]);
