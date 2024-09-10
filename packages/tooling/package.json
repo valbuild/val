@@ -1,0 +1,28 @@
+{
+  "name": "@valbuild/tooling",
+  "version": "0.63.5",
+  "description": "Utilities to build tooling for Val (VS Code extension, CLI, ...)",
+  "main": "dist/valbuild-tooling.cjs.js",
+  "module": "dist/valbuild-tooling.esm.js",
+  "exports": {
+    ".": {
+      "module": "./dist/valbuild-tooling.esm.js",
+      "default": "./dist/valbuild-tooling.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "preconstruct": {
+    "entrypoints": [
+      "index.ts"
+    ]
+  },
+  "dependencies": {
+    "@valbuild/core": "~0.63.5",
+    "typescript": "5"
+  },
+  "devDependencies": {}
+}
