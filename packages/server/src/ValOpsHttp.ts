@@ -66,7 +66,7 @@ const GetPatches = z.object({
   patches: z.array(
     z.intersection(
       z.object({
-        patch: Patch,
+        patch: Patch.optional(),
       }),
       BasePatchResponse,
     ),
