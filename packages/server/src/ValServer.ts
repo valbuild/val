@@ -531,7 +531,19 @@ export const ValServer = (
             | ModuleFilePath[]
             | undefined,
         });
+        if (patches.error) {
+          // Error is singular
+          console.error("Val: Failed to get patches", patches.errors);
+          return {
+            status: 500,
+            json: {
+              message: patches.error.message,
+              details: patches.error,
+            },
+          };
+        }
         if (patches.errors && Object.keys(patches.errors).length > 0) {
+          // Errors is plural. Different property than above.
           console.error("Val: Failed to get patches", patches.errors);
           return {
             status: 500,

@@ -10,14 +10,19 @@ import {
   ModuleFilePath,
   PatchId,
   ValConfig,
+  ValModules,
+  Internal,
 } from "@valbuild/core";
 import { cookies, draftMode, headers } from "next/headers";
-import { createValClient } from "@valbuild/shared/internal";
+import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
+import { createValServer, ValServer } from "@valbuild/server";
+import { VERSION } from "../version";
 
 const initFetchValStega =
   (
     config: ValConfig,
     valApiEndpoints: string,
+    valServerPromise: Promise<ValServer>,
     isEnabled: () => boolean,
     getHeaders: () => Headers,
     getCookies: () => {
@@ -38,7 +43,6 @@ const initFetchValStega =
         err,
       );
     }
-
     if (enabled) {
       SET_AUTO_TAG_JSX_ENABLED(true);
       let headers;
@@ -70,17 +74,19 @@ const initFetchValStega =
 
       const host: string | null = headers && getHost(headers);
       if (host && cookies) {
-        const client = createValClient(`${host}${valApiEndpoints}`);
-        // TODO: use Server directly
-        return client("/patches/~", "GET", {
-          query: {
-            omit_patch: true,
-            author: [],
-            patch_id: [],
-            module_file_path: [],
-          },
-        })
-          .then(async (patchesRes) => {
+        return valServerPromise
+          .then(async (valServer) => {
+            const patchesRes = await valServer["/patches/~"]["GET"]({
+              query: {
+                omit_patch: true,
+                author: [],
+                patch_id: [],
+                module_file_path: [],
+              },
+              cookies: {
+                [VAL_SESSION_COOKIE]: cookies.get(VAL_SESSION_COOKIE)?.value,
+              },
+            });
             if (patchesRes.status !== 200) {
               console.error("Val: could not fetch patches", patchesRes.json);
               throw Error(JSON.stringify(patchesRes.json, null, 2));
@@ -88,35 +94,42 @@ const initFetchValStega =
             const allPatches = Object.keys(
               patchesRes.json.patches,
             ) as PatchId[];
-            return client("/tree/~", "PUT", {
-              path: undefined,
+
+            const treeRes = await valServer["/tree/~"]["PUT"]({
+              path: "/",
               query: {
                 validate_sources: true,
                 validate_all: false,
                 validate_binary_files: false,
               },
               body: { patchIds: allPatches },
-            }).then((res) => {
-              if (res.status === 200) {
-                const { modules } = res.json;
-                return stegaEncode(selector, {
-                  disabled: !enabled,
-                  getModule: (path) => {
-                    const module = modules[path as ModuleFilePath];
-                    if (module) {
-                      return module.source;
-                    }
-                  },
-                });
-              } else {
-                if (res.status === 401) {
-                  console.warn("Val: authentication error: ", res.json.message);
-                } else {
-                  console.error("Val: could not fetch modules", res.json);
-                  throw Error(JSON.stringify(res.json, null, 2));
-                }
-              }
+              cookies: {
+                [VAL_SESSION_COOKIE]: cookies.get(VAL_SESSION_COOKIE)?.value,
+              },
             });
+
+            if (treeRes.status === 200) {
+              const { modules } = treeRes.json;
+              return stegaEncode(selector, {
+                disabled: !enabled,
+                getModule: (path) => {
+                  const module = modules[path as ModuleFilePath];
+                  if (module) {
+                    return module.source;
+                  }
+                },
+              });
+            } else {
+              if (treeRes.status === 401) {
+                console.warn(
+                  "Val: authentication error: ",
+                  treeRes.json.message,
+                );
+              } else {
+                console.error("Val: could not fetch modules", treeRes.json);
+                throw Error(JSON.stringify(treeRes.json, null, 2));
+              }
+            }
           })
           .catch((err) => {
             console.error("Val: failed while fetching modules", err);
@@ -187,14 +200,47 @@ type ValNextRscConfig = {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function initValRsc(
   config: ValConfig,
+  valModules: ValModules,
   rscNextConfig: ValNextRscConfig,
 ): {
   fetchValStega: ReturnType<typeof initFetchValStega>;
 } {
+  const coreVersion = Internal.VERSION.core;
+  if (!coreVersion) {
+    throw new Error("Could not get @valbuild/core package version");
+  }
+  const nextVersion = VERSION;
+  if (!nextVersion) {
+    throw new Error("Could not get @valbuild/next package version");
+  }
+
+  const valServerPromise = createValServer(
+    valModules,
+    "/api/val",
+    {
+      versions: {
+        next: nextVersion,
+        core: coreVersion,
+      },
+      ...config,
+    },
+    {
+      async isEnabled() {
+        return rscNextConfig.draftMode().isEnabled;
+      },
+      async onEnable() {
+        rscNextConfig.draftMode().enable();
+      },
+      async onDisable() {
+        rscNextConfig.draftMode().disable();
+      },
+    },
+  );
   return {
     fetchValStega: initFetchValStega(
       config,
       valApiEndpoints, // TODO: get from config
+      valServerPromise,
       () => {
         return rscNextConfig.draftMode().isEnabled;
       },
