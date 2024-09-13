@@ -61,16 +61,17 @@ const initFetchValStega =
         headers = null;
       }
 
-      let cookies;
-      try {
-        cookies = getCookies();
-      } catch (err) {
-        console.error(
-          "Val: could not read cookies! fetchVal can only be used server-side. Use useVal on clients.",
-          err,
-        );
-        cookies = null;
-      }
+      const cookies = (() => {
+        try {
+          return getCookies();
+        } catch (err) {
+          console.error(
+            "Val: could not read cookies! fetchVal can only be used server-side. Use useVal on clients.",
+            err,
+          );
+          return null;
+        }
+      })();
 
       const host: string | null = headers && getHost(headers);
       if (host && cookies) {
