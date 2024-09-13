@@ -129,7 +129,7 @@ export class ValCache {
               patchError: item.error.message,
               patchId: item.patchId,
               skipped: item.skipped,
-            }))
+            })),
         ),
       });
     } else {
@@ -211,7 +211,7 @@ export class ValCache {
   }
 
   async deletePatches(
-    patchIds: PatchId[]
+    patchIds: PatchId[],
   ): Promise<result.Result<PatchId[], { message: string }>> {
     const patchesRes = await this.client("/patches/~", "DELETE", {
       query: {
@@ -297,7 +297,7 @@ export class ValCache {
               patchError: item.error.message,
               patchId: item.patchId,
               skipped: item.skipped,
-            }))
+            })),
         ),
       });
     } else {
