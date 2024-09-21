@@ -43,15 +43,15 @@ export function Layout() {
     <UIProvider>
       {/* <div className="absolute top-0 left-0 w-full min-h-screen"> */}
       <main className="bg-background">
-        <div className="fixed top-4 left-4 w-[284px]">
+        <div className="fixed top-4 left-4 w-[284px] hidden md:block">
           <HeaderLeft />
           <Left />
         </div>
-        <div className="mx-auto w-[calc(100%-284*2px)] max-w-[600px] min-h-screen">
+        <div className="mx-auto w-full md:w-[calc(100%-284*2px)] max-w-[600px] min-h-screen">
           <HeaderCenter />
           <Center />
         </div>
-        <div className="fixed top-4 right-4 w-[284px]">
+        <div className="fixed top-4 right-4 w-[284px] hidden md:block">
           <HeaderRight />
           <Right />
         </div>
