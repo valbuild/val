@@ -40,89 +40,103 @@ export function ObjectFields({
   return Object.entries(schema.items).map(([label, itemSchema]) => {
     const key = JSON.stringify({ label, itemSchema });
     const subPath = sourcePathOfItem(path, label);
-    const renderField = () => {
-      switch (true) {
-        case itemSchema instanceof StringSchema:
-          return (
+    switch (true) {
+      case itemSchema instanceof StringSchema:
+        return (
+          <Field key={key} label={label} path={subPath}>
             <StringField
               path={subPath}
               source={source[label]}
               schema={itemSchema}
             />
-          );
-        case itemSchema instanceof NumberSchema:
-          return (
+          </Field>
+        );
+      case itemSchema instanceof NumberSchema:
+        return (
+          <Field key={key} label={label} path={subPath}>
             <NumberField
               path={subPath}
               source={source[label]}
               schema={itemSchema}
             />
-          );
-        case itemSchema instanceof BooleanSchema:
-          return (
+          </Field>
+        );
+      case itemSchema instanceof BooleanSchema:
+        return (
+          <Field key={key} label={label} path={subPath}>
             <BooleanField
               path={subPath}
               source={source[label]}
               schema={itemSchema}
             />
-          );
-        case itemSchema instanceof ImageSchema:
-          return (
+          </Field>
+        );
+      case itemSchema instanceof ImageSchema:
+        return (
+          <Field key={key} label={label} path={subPath}>
             <ImageField
               path={subPath}
               source={source[label]}
               schema={itemSchema}
             />
-          );
-        case itemSchema instanceof ArraySchema:
-          return (
+          </Field>
+        );
+      case itemSchema instanceof ArraySchema:
+        return (
+          <Field key={key} label={label} path={subPath} transparent>
             <ListFields
               path={subPath}
               source={source[label]}
               schema={itemSchema.item}
             />
-          );
-        case itemSchema instanceof KeyOfSchema:
-          return (
+          </Field>
+        );
+      case itemSchema instanceof KeyOfSchema:
+        return (
+          <Field key={key} label={label} path={subPath}>
             <KeyOfField
               path={subPath}
               source={source[label]}
               schema={itemSchema}
             />
-          );
-        case itemSchema instanceof UnionSchema:
-          return (
+          </Field>
+        );
+      case itemSchema instanceof UnionSchema:
+        return (
+          <Field key={key} label={label} path={subPath}>
             <UnionField
               path={subPath}
               source={source[label]}
               schema={itemSchema}
             />
-          );
-        case itemSchema instanceof ObjectSchema:
-          return (
+          </Field>
+        );
+      case itemSchema instanceof ObjectSchema:
+        return (
+          <Field key={key} label={label} path={subPath} transparent>
             <ObjectFields
               path={subPath}
               source={source[label]}
               schema={itemSchema}
             />
-          );
-        case itemSchema instanceof RichTextSchema:
-          return (
+          </Field>
+        );
+      case itemSchema instanceof RichTextSchema:
+        return (
+          <Field key={key} label={label} path={subPath}>
             <RichTextField
               path={subPath}
               source={source[label]}
               schema={itemSchema}
             />
-          );
-        default:
-          return <div>Unknown schema</div>;
-      }
-    };
-
-    return (
-      <Field key={key} label={label} path={subPath}>
-        {renderField()}
-      </Field>
-    );
+          </Field>
+        );
+      default:
+        return (
+          <Field key={key} label={label} path={subPath}>
+            <div>Unknown schema</div>
+          </Field>
+        );
+    }
   });
 }
