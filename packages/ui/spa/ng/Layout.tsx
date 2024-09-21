@@ -47,7 +47,7 @@ export function Layout() {
           <HeaderLeft />
           <Left />
         </div>
-        <div className="ml-[284px] w-[calc(100%-284*2px-16px*2)] pt-8 min-h-screen">
+        <div className="ml-[284px] w-[calc(100%-284*2px-16px*2)] min-h-screen">
           <HeaderCenter />
           <Center />
         </div>
@@ -267,13 +267,14 @@ function HeaderCenter() {
     }
     return (
       <HeaderCenterContainer>
-        <Search />
+        <Search size={22} />
         <input
-          className="px-2 bg-transparent focus:outline-none"
+          className="px-2 bg-transparent focus:outline-none w-[calc(100%-48px)]"
           defaultValue={queryValue}
           onChange={(e) => {
             setQuery(e.target.value);
           }}
+          autoFocus
         ></input>
         <button
           onClick={() => {
@@ -287,15 +288,26 @@ function HeaderCenter() {
   }
   return (
     <HeaderCenterContainer>
-      <PathBar />
+      <button
+        className="flex items-center justify-between w-full h-full"
+        onClick={() => {
+          setSearch({ query: "" });
+        }}
+      >
+        <div className="flex items-center h-full pr-4 border-r border-border">
+          <Search size={22} />
+        </div>
+        <PathBar />
+        <div>⌘K</div>
+      </button>
     </HeaderCenterContainer>
   );
 }
 
 function HeaderCenterContainer({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-center">
-      <div className="flex items-center px-4 py-2 rounded-2xl bg-background font-[SpaceGrotesk] w-fit">
+    <div className="flex items-center justify-center w-full mb-16">
+      <div className="flex items-center justify-between px-4 rounded-2xl bg-primary-foreground font-[SpaceGrotesk] w-full max-w-[calc(600px-32px)] h-16 border border-border">
         {children}
       </div>
     </div>
@@ -303,7 +315,6 @@ function HeaderCenterContainer({ children }: { children: React.ReactNode }) {
 }
 
 function PathBar() {
-  const { setSearch } = useSearch();
   const { currentSourcePath } = useNavigation();
   const maybeSplitPaths =
     currentSourcePath &&
@@ -317,12 +328,7 @@ function PathBar() {
   const moduleFilePathParts = moduleFilePath.split("/");
   const modulePathParts = modulePath ? modulePath.split(".") : [];
   return (
-    <button
-      className="flex items-center gap-2"
-      onClick={() => {
-        setSearch({ query: "" });
-      }}
-    >
+    <div className="flex items-center gap-2">
       {moduleFilePathParts.map((part, i) => (
         <Fragment key={`${part}-${i}`}>
           <span
@@ -336,13 +342,17 @@ function PathBar() {
             {prettifyFilename(part)}
           </span>
           {i > 0 && i < moduleFilePathParts.length - 1 && (
-            <span className="text-muted">/</span>
+            <span className="text-muted">
+              <ChevronRight size={16} />
+            </span>
           )}
         </Fragment>
       ))}
       {modulePathParts.map((part, i) => (
         <Fragment key={`${part}-${i}`}>
-          <span className="text-muted">/</span>
+          <span className="text-muted">
+            <ChevronRight size={16} />
+          </span>
           <span
             className={classNames({
               "text-muted": i === modulePathParts.length - 2,
@@ -352,7 +362,7 @@ function PathBar() {
           </span>
         </Fragment>
       ))}
-    </button>
+    </div>
   );
 }
 
