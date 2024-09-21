@@ -68,7 +68,7 @@ async function getFakeModuleDefs() {
 export function UIProvider({ children }: { children: React.ReactNode }) {
   const [currentSourcePath, setSourcePath] = useState<
     SourcePath | ModuleFilePath | null
-  >("/content/basic.val.ts" as SourcePath); // TODO: just testing out /content/basic.val.ts for now
+  >("/content/employees/contactEmployees.val.ts" as SourcePath); // TODO: just testing out /content/basic.val.ts for now
   // just fake state:
   const [isPublishing, setIsPublishing] = useState(false);
   const [search, setSearch] = useState<

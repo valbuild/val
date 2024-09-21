@@ -16,10 +16,12 @@ export function Field({
   label,
   children,
   path,
+  transparent,
 }: {
   label?: string | React.ReactNode;
   children: React.ReactNode;
   path: SourcePath;
+  transparent?: boolean;
 }) {
   const errors = useErrorsOfPath(path);
   const patches = usePatchesOfPath(path);
@@ -31,6 +33,7 @@ export function Field({
         "border-destructive": hasErrors,
         "border-accent": !hasErrors && hasPatches,
         "border-border": !hasErrors && !hasPatches,
+        "bg-primary-foreground": !transparent,
       })}
     >
       {typeof label === "string" && <Label>{label}</Label>}

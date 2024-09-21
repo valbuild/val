@@ -106,7 +106,7 @@ export function RichTextEditor<E extends AnyExtension>({
   const remirrorClassNames = useMemo(() => {
     return [
       classNames(
-        "p-4 outline-none focus:outline-none appearance-none bg-primary-foreground rounded-b-md"
+        "p-4 outline-none focus:outline-none appearance-none bg-background rounded-b-md",
       ),
     ];
   }, [showToolbar]);
@@ -114,7 +114,7 @@ export function RichTextEditor<E extends AnyExtension>({
   return (
     <div
       className={classNames(
-        "relative text-base val-rich-text-editor focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 border border-input rounded-md"
+        "relative text-base val-rich-text-editor focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 border border-input rounded-md",
       )}
     >
       <Remirror
@@ -182,7 +182,7 @@ const Toolbar = ({
           "sticky top-0 flex flex-col py-2 z-[40] divide-y rounded-md rounded-b-none border-b border-input bg-primary-foreground",
           {
             hidden: !showToolbar,
-          }
+          },
         )}
       >
         <div className="flex items-center justify-between">
