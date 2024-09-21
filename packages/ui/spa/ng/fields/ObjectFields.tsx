@@ -83,7 +83,13 @@ export function ObjectFields({
         );
       case itemSchema instanceof ArraySchema:
         return (
-          <Field key={key} label={label} path={subPath} transparent>
+          <Field
+            key={key}
+            label={label}
+            path={subPath}
+            transparent
+            foldLevel="2"
+          >
             <ListFields
               path={subPath}
               source={source[label]}
@@ -113,7 +119,13 @@ export function ObjectFields({
         );
       case itemSchema instanceof ObjectSchema:
         return (
-          <Field key={key} label={label} path={subPath} transparent>
+          <Field
+            key={key}
+            label={label}
+            path={subPath}
+            transparent
+            foldLevel="2"
+          >
             <ObjectFields
               path={subPath}
               source={source[label]}
