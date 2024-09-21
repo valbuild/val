@@ -306,8 +306,8 @@ function HeaderCenter() {
 
 function HeaderCenterContainer({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-center w-full mb-16">
-      <div className="flex items-center justify-between px-4 rounded-2xl bg-primary-foreground font-[SpaceGrotesk] w-full max-w-[calc(600px-32px)] h-16 border border-border">
+    <div className="flex items-center justify-center w-full mb-10 text-sm">
+      <div className="flex items-center justify-between px-4 rounded-2xl bg-primary-foreground font-[SpaceGrotesk] w-full max-w-[calc(600px-32px)] h-12 border border-border">
         {children}
       </div>
     </div>
