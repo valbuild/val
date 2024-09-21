@@ -47,7 +47,7 @@ export function Layout() {
           <HeaderLeft />
           <Left />
         </div>
-        <div className="ml-[284px] w-[calc(100%-284*2px-16px*2)] min-h-screen">
+        <div className="mx-auto w-[calc(100%-284*2px)] max-w-[600px] min-h-screen">
           <HeaderCenter />
           <Center />
         </div>
@@ -306,8 +306,8 @@ function HeaderCenter() {
 
 function HeaderCenterContainer({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-center w-full mb-10 text-sm">
-      <div className="flex items-center justify-between px-4 rounded-2xl bg-primary-foreground font-[SpaceGrotesk] w-full max-w-[calc(600px-32px)] h-12 border border-border">
+    <div className="px-4 mx-auto mb-10 text-sm">
+      <div className="flex items-center justify-between px-4 rounded-2xl bg-primary-foreground font-[SpaceGrotesk] h-12 border border-border">
         {children}
       </div>
     </div>
@@ -557,7 +557,7 @@ function SourceFields() {
   const { source: sourceAtSourcePath, schema: schemaAtSourcePath } =
     Internal.resolvePath(modulePath, moduleSource, moduleSchema);
   return (
-    <div className="p-4 overflow-x-hidden mb-4 rounded-b-2xl flex flex-col gap-4 w-[600px] mx-auto">
+    <div className="flex flex-col gap-4 p-4 mb-4 rounded-b-2xl">
       <div className="flex flex-col w-full gap-12">
         <Module
           path={path}

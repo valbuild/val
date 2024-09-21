@@ -24,7 +24,7 @@ export function Field({
   children: React.ReactNode;
   path: SourcePath;
   transparent?: boolean;
-  foldLevel: "2" | "1";
+  foldLevel?: "2" | "1";
 }) {
   const [isExpanded, setIsExpanded] = useState(true);
   const errors = useErrorsOfPath(path);
