@@ -41,7 +41,7 @@ export function Layout() {
   return (
     <UIProvider>
       {/* <div className="absolute top-0 left-0 w-full min-h-screen"> */}
-      <main className="bg-secondary">
+      <main className="bg-background">
         <div className="fixed top-4 left-4 w-[284px]">
           <HeaderLeft />
           <Left />
