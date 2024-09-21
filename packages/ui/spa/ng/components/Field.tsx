@@ -8,37 +8,54 @@ import {
 } from "../UIProvider";
 import { Remote } from "../../utils/Remote";
 import classNames from "classnames";
-import { ShieldAlert } from "lucide-react";
+import { ChevronDown, ChevronsDown, ShieldAlert } from "lucide-react";
 import { relativeLocalDate } from "../relativeLocalDate";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { AnimateHeight } from "./AnimateHeight";
 
 export function Field({
   label,
   children,
   path,
   transparent,
+  foldLevel = "1",
 }: {
   label?: string | React.ReactNode;
   children: React.ReactNode;
   path: SourcePath;
   transparent?: boolean;
+  foldLevel: "2" | "1";
 }) {
+  const [isExpanded, setIsExpanded] = useState(true);
   const errors = useErrorsOfPath(path);
   const patches = usePatchesOfPath(path);
   const hasErrors = errors.status === "success" && errors.data.length > 0;
   const hasPatches = patches.status === "success" && patches.data.length > 0;
   return (
     <div
-      className={classNames("flex flex-col gap-4 p-6 border rounded-lg", {
+      className={classNames("flex flex-col gap-6 p-4 border rounded-lg", {
         "border-destructive": hasErrors,
         "border-accent": !hasErrors && hasPatches,
         "border-border": !hasErrors && !hasPatches,
         "bg-primary-foreground": !transparent,
       })}
     >
-      {typeof label === "string" && <Label>{label}</Label>}
-      {label && typeof label !== "string" && label}
-      {children}
+      <div className="flex justify-between">
+        {typeof label === "string" && <Label>{label}</Label>}
+        {label && typeof label !== "string" && label}
+        <button
+          onClick={() => setIsExpanded((prev) => !prev)}
+          className={classNames("transform transition-transform", {
+            "rotate-180": isExpanded,
+          })}
+        >
+          {foldLevel === "1" && <ChevronDown size={16} />}
+          {foldLevel === "2" && <ChevronsDown size={16} />}
+        </button>
+      </div>
+      <AnimateHeight isOpen={isExpanded}>
+        <div className="flex flex-col gap-6">{children}</div>
+      </AnimateHeight>
       <FieldError errors={errors} />
       <FieldChanges patches={patches} />
     </div>
