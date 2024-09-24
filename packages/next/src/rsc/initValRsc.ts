@@ -92,9 +92,9 @@ const initFetchValStega =
               console.error("Val: could not fetch patches", patchesRes.json);
               throw Error(JSON.stringify(patchesRes.json, null, 2));
             }
-            const allPatches = Object.keys(
-              patchesRes.json.patches,
-            ) as PatchId[];
+            const allPatches = patchesRes.json.patches.map(
+              (patch) => patch.patchBlockSha as PatchId,
+            );
 
             const treeRes = await valServer["/tree/~"]["PUT"]({
               path: "/",

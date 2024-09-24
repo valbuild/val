@@ -19,6 +19,7 @@ import {
   ValOps,
   ValOpsOptions,
   WithGenericError,
+  SaveSourceFilePatchBlockResult,
 } from "./ValOps";
 import { z } from "zod";
 import { fromError } from "zod-validation-error";
@@ -264,11 +265,12 @@ export class ValOpsHttp extends ValOps {
     );
   }
 
-  protected async saveSourceFilePatch(
+  protected async saveSourceFilePatchBlock(
     path: ModuleFilePath,
     patch: PatchT,
     authorId: AuthorId | null,
-  ): Promise<WithGenericError<{ patchId: PatchId }>> {
+  ): Promise<SaveSourceFilePatchBlockResult> {
+    console.log("Saving patch", path, patch, authorId);
     return fetch(`${this.hostUrl}/v1/${this.project}/patches`, {
       method: "POST",
       headers: {
@@ -285,6 +287,7 @@ export class ValOpsHttp extends ValOps {
       }),
     })
       .then(async (res) => {
+        console.log("Save res:", JSON.stringify(res));
         if (res.ok) {
           const parsed = SavePatchResponse.safeParse(await res.json());
           if (parsed.success) {

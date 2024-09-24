@@ -5,6 +5,15 @@ import { Operation, OperationJSON } from "./operation";
 export type Patch = Operation[];
 export type PatchJSON = OperationJSON[];
 
+export type ParentRef =
+  | { type: "head"; headContentSha: string }
+  | { type: "patch"; patchBlockSha: string };
+
+export type PatchBlock = {
+  patch: Patch;
+  parentRef: ParentRef;
+};
+
 function apply<T, E>(
   document: T,
   ops: Ops<T, E>,

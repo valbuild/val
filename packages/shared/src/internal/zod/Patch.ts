@@ -2,6 +2,8 @@ import type {
   JSONValue as JSONValueT,
   Operation as OperationT,
   Patch as PatchT,
+  PatchBlock as PatchBlockT,
+  ParentRef as ParentRefT,
 } from "@valbuild/core/patch";
 import { z } from "zod";
 
@@ -76,3 +78,16 @@ const OperationT: z.ZodType<OperationT> = z.discriminatedUnion("op", [
 
 export const Patch: z.ZodType<PatchT> = z.array(OperationT);
 export type Patch = PatchT;
+
+export const ParentRef: z.ZodType<ParentRefT> = z.union([
+  z.object({ type: z.literal("head"), headContentSha: z.string() }),
+  z.object({ type: z.literal("patch"), patchBlockSha: z.string() }),
+]);
+export type ParentRef = ParentRefT;
+
+export const PatchBlock: z.ZodType<PatchBlockT> = z.object({
+  patch: Patch,
+  parentRef: ParentRef,
+});
+
+export type PatchBlock = PatchBlockT;

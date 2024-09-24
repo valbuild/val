@@ -1,7 +1,7 @@
 import { initVal } from "@valbuild/next";
 
 const { s, c, val, config } = initVal({
-  project: "valbuild/val-examples-next",
+  project: "isakgb/val",
   root: "/examples/next",
 });
 

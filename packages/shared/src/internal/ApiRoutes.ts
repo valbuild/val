@@ -9,16 +9,22 @@ import {
   VAL_SESSION_COOKIE,
   VAL_STATE_COOKIE,
 } from "./server/types";
-import { Patch } from "./zod/Patch";
+import { Patch, PatchBlock } from "./zod/Patch";
 import { SerializedSchema } from "./zod/SerializedSchema";
 import { SourcePath } from "./zod/SourcePath";
 
 const PatchId = z.string().refine(
   (_id): _id is PatchId => true, // TODO:
 );
+
 const ModuleFilePath = z.string().refine(
   (_path): _path is ModuleFilePath => true, // TODO:
 );
+
+const ParentRef = z.union([
+  z.object({ type: z.literal("head"), headContentSha: z.string() }),
+  z.object({ type: z.literal("patch"), patchBlockSha: z.string() }),
+]);
 
 const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("image:add-metadata"),
@@ -41,6 +47,18 @@ const notFoundResponse = z.object({
   }),
 });
 const GenericError = z.object({ message: z.string() });
+
+const GenericPatchError = z.union([
+  z.object({
+    patchId: PatchId,
+    message: z.string(),
+  }),
+  z.object({
+    parentPatchId: z.string(),
+    message: z.string(),
+  }),
+]);
+
 const ModulesError = z.object({
   message: z.string(),
   path: ModuleFilePath.optional(),
@@ -274,7 +292,7 @@ export const Api = {
           status: z.literal(500),
           json: z.object({
             message: z.string(),
-            details: z.record(PatchId, GenericError),
+            errors: z.array(GenericPatchError),
           }),
         }),
         z.object({
@@ -301,17 +319,27 @@ export const Api = {
           status: z.literal(500),
           json: z.object({
             message: z.string(),
-            details: z.record(PatchId, GenericError),
+            patchErrors: z.array(GenericPatchError),
+          }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: z.object({
+            message: z.string(),
+            error: GenericError,
           }),
         }),
         z.object({
           status: z.literal(200),
           json: z.object({
-            patches: z.record(
-              PatchId,
+            patches: z.array(
               z.object({
                 path: ModuleFilePath,
-                patch: Patch.optional(),
+                patchBlock: z.object({
+                  patch: Patch.optional(),
+                  parentRef: ParentRef,
+                }),
+                patchBlockSha: z.string(),
                 createdAt: z.string(),
                 authorId: z.string().nullable(),
                 appliedAt: z
@@ -323,6 +351,7 @@ export const Api = {
                   .nullable(),
               }),
             ),
+            baseSha: z.string(),
             error: GenericError.optional(),
             errors: z.record(PatchId, GenericError).optional(),
           }),
@@ -366,7 +395,10 @@ export const Api = {
             addPatch: z
               .object({
                 path: ModuleFilePath,
-                patch: Patch,
+                patchBlock: z.object({
+                  patch: Patch,
+                  parentRef: ParentRef,
+                }),
               })
               .optional(),
           })
@@ -391,6 +423,12 @@ export const Api = {
           json: z.object({
             message: z.string(),
             details: z.union([z.array(ModulesError), GenericError]),
+          }),
+        }),
+        z.object({
+          status: z.literal(409),
+          json: z.object({
+            message: z.string(),
           }),
         }),
         z.object({
