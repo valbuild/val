@@ -80,9 +80,9 @@ const initFetchValStega =
             const patchesRes = await valServer["/patches/~"]["GET"]({
               query: {
                 omit_patch: true,
-                author: [],
-                patch_id: [],
-                module_file_path: [],
+                author: undefined,
+                patch_id: undefined,
+                module_file_path: undefined,
               },
               cookies: {
                 [VAL_SESSION_COOKIE]: cookies.get(VAL_SESSION_COOKIE)?.value,
