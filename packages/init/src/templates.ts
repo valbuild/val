@@ -7,12 +7,16 @@ const { useValStega: useVal } = initValClient(config);
 export { useVal };
 `;
 
-export const VAL_RSC = (configImportPath: string) => `import "server-only";
+export const VAL_RSC = (
+  configImportPath: string,
+  valModulesImportPath: string,
+) => `import "server-only";
 import { initValRsc } from "@valbuild/next/rsc";
 import { config } from "${configImportPath}";
+import valModules from "${valModulesImportPath}";
 import { cookies, draftMode, headers } from "next/headers";
 
-const { fetchValStega: fetchVal } = initValRsc(config, {
+const { fetchValStega: fetchVal } = initValRsc(config, valModules, {
   draftMode,
   headers,
   cookies,
