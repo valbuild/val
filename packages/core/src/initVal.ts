@@ -3,7 +3,7 @@
 import { define } from "./module";
 import { InitSchema, initSchema } from "./initSchema";
 import { getValPath as getPath } from "./val";
-import { file } from "./source/file";
+import { initFile } from "./source/file";
 import { richtext, image as rtImage } from "./source/richtext";
 import { link } from "./source/link";
 // import { i18n, I18n } from "./source/future/i18n";
@@ -12,9 +12,9 @@ import { link } from "./source/link";
 export type ContentConstructor = {
   define: typeof define;
   // remote: typeof remote;
-  file: typeof file;
+  file: ReturnType<typeof initFile>;
   rt: {
-    image: typeof file;
+    image: ReturnType<typeof initFile>;
     link: typeof link;
   };
   richtext: typeof richtext;
@@ -23,9 +23,14 @@ export type ValConstructor = {
   unstable_getPath: typeof getPath;
 };
 
-export type ValConfig = {
+type FileDirectory<Dir extends string> = `${Dir}${string}`;
+
+export type ValConfig<Dir extends `/public/${string}` = "/public/"> = {
   project?: string;
   root?: string;
+  files?: {
+    directory: FileDirectory<Dir>;
+  };
   gitCommit?: string;
   gitBranch?: string;
 };
@@ -43,9 +48,11 @@ export type InitVal = {
 //       [K in keyof A]: NarrowStrings<A[K]>;
 //     };
 
+let valConfig: ValConfig | undefined;
+
 // TODO: Rename to createValSystem (only to be used by internal things), we can then export * from '@valbuild/core' in the next package then.
 export const initVal = (
-  config?: ValConfig,
+  config?: ValConfig
 ): //   options?: {
 //   readonly locales?: NarrowStrings<{
 //     readonly required: Locales;
@@ -55,6 +62,10 @@ export const initVal = (
 //   }>;
 // }
 InitVal => {
+  console.log("config in createValSystem:", config);
+  valConfig = config ? config : {};
+
+  console.log("valConfig in createValSystem:", valConfig);
   // const locales = options?.locales;
   const s = initSchema();
   // if (locales?.required) {
@@ -80,7 +91,7 @@ InitVal => {
     c: {
       define,
       // remote,
-      file,
+      file: initFile(config),
       richtext,
       rt: {
         image: rtImage,
@@ -92,3 +103,5 @@ InitVal => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
 };
+
+export { valConfig };

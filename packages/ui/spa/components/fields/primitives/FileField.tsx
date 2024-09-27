@@ -5,6 +5,7 @@ import {
   VAL_EXTENSION,
   Internal,
   ImageSource,
+  valConfig,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { File } from "lucide-react";
@@ -18,16 +19,17 @@ export function createFilePatch(
   path: string[],
   data: string | null,
   filename: string | null,
-  metadata: FileMetadata | ImageMetadata | undefined,
+  metadata: FileMetadata | ImageMetadata | undefined
 ): Patch {
   const newFilePath = createFilename(data, filename, metadata);
+  console.log("valConfig in FileField", valConfig);
   if (!newFilePath || !metadata) {
     return [];
   }
   return [
     {
       value: {
-        [FILE_REF_PROP]: `/public/${newFilePath}`,
+        [FILE_REF_PROP]: `/public/foo/${newFilePath}`,
         [VAL_EXTENSION]: "file",
         metadata,
       },
@@ -38,7 +40,7 @@ export function createFilePatch(
       value: data,
       op: "file",
       path,
-      filePath: `/public/${newFilePath}`,
+      filePath: `/public/foo/${newFilePath}`,
     },
   ];
 }
@@ -91,7 +93,7 @@ export function FileField({
   schemaOptions?: FileOptions;
 }) {
   const [data, setData] = useState<{ filename?: string; src: string } | null>(
-    null,
+    null
   );
   const [loading, setLoading] = useState(false);
   const [url, setUrl] = useState<string>();
@@ -153,9 +155,9 @@ export function FileField({
                           path,
                           data.src,
                           data.filename ?? null,
-                          metadata,
-                        ),
-                      ),
+                          metadata
+                        )
+                      )
                     ).finally(() => {
                       setLoading(false);
                     });

@@ -1,4 +1,4 @@
-export { initVal } from "./initVal";
+export { initVal, valConfig } from "./initVal";
 export { modules, type ValModules } from "./modules";
 export type {
   InitVal,
@@ -139,7 +139,7 @@ const Internal = {
   ModuleFilePathSep,
   notFileOp: (op: Operation) => op.op !== "file",
   isFileOp: (
-    op: Operation,
+    op: Operation
   ): op is {
     op: "file";
     path: string[];
