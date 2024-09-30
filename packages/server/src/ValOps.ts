@@ -91,13 +91,60 @@ export abstract class ValOps {
     if (typeof input === "string") {
       str = input;
     } else {
-      str = JSON.stringify(input);
+      str = JSON.stringify(input); // TODO: We should probably use hashObject here
     }
     return Internal.getSHA256Hash(textEncoder.encode(str));
   }
 
+  private hashObject(obj: object): string {
+    const collector: string[] = [];
+    this.collectObjectRecursive(obj, collector);
+    return Internal.getSHA256Hash(textEncoder.encode(collector.join("")));
+  }
+
+  private collectObjectRecursive(
+    item: object | string | number,
+    collector: string[],
+  ): void {
+    if (typeof item === "string") {
+      collector.push(`"`, item, `"`);
+      return;
+    } else if (typeof item === "number") {
+      collector.push(item.toString());
+      return;
+    } else if (typeof item === "object") {
+      if (Array.isArray(item)) {
+        collector.push("[");
+        for (let i = 0; i < item.length; i++) {
+          this.collectObjectRecursive(item[i], collector);
+          i !== item.length - 1 && collector.push(",");
+        }
+        collector.push("]");
+      } else {
+        collector.push("{");
+        const keys = Object.keys(item).sort();
+        keys.forEach((key, i) => {
+          collector.push(`"${key}":`);
+          this.collectObjectRecursive(
+            (item as Record<string, string | number | object>)[key],
+            collector,
+          );
+          i !== keys.length - 1 && collector.push(",");
+        });
+        collector.push("}");
+      }
+      return;
+    } else {
+      console.warn(
+        "Unknown type encountered when hashing object",
+        typeof item,
+        item,
+      );
+    }
+  }
+
   hashPatchBlock(patchBlock: PatchBlock): string {
-    return this.hash(patchBlock);
+    return this.hashObject(patchBlock);
   }
 
   // #region initTree
