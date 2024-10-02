@@ -15,6 +15,7 @@ import {
   Internal,
   ModuleFilePath,
   ModulePath,
+  PatchId,
   SourcePath,
 } from "@valbuild/core";
 import { Module } from "./components/Module";
@@ -28,6 +29,7 @@ import {
   useSearch,
   useModuleSourceAndSchema,
   useAllModuleSources,
+  usePatchesWithSourceAndSchema,
 } from "./UIProvider";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { PathNode, pathTree } from "./pathTree";
@@ -37,6 +39,7 @@ import { convertPatchPathToModulePath } from "./convertPatchPathToModulePath";
 import { Field } from "./components/Field";
 import { relativeLocalDate } from "./relativeLocalDate";
 import { AnimateHeight } from "./components/AnimateHeight";
+import { PatchSets } from "./PatchSet";
 
 export function Layout() {
   return (
@@ -644,7 +647,7 @@ function CompressedPath({
 
 function PendingChanges() {
   const { setSearch } = useSearch();
-  const { patches } = usePatches();
+  const { patches: remotePatches } = usePatchesWithSourceAndSchema();
   const now = useMemo(() => new Date(), []);
   const items = useMemo((): Remote<
     {
@@ -662,27 +665,34 @@ function PendingChanges() {
     }[] = [];
     // we probably want to massage this data so that it is grouped by author or something
     // we have code for that but we might want to re-implement it since it is messy
-    if (patches.status === "success") {
-      for (const moduleFilePathS in patches.data) {
+    if (remotePatches.status === "success") {
+      const patchSets = new PatchSets();
+      for (const moduleFilePathS in remotePatches.data) {
         const moduleFilePath = moduleFilePathS as ModuleFilePath;
-        const metadata = patches.data[moduleFilePath];
-        for (const patch of metadata) {
+        const { patches, source, schema } = remotePatches.data[moduleFilePath];
+        for (const patch of patches) {
           for (const op of patch.patch) {
-            items.push({
+            patchSets.insert(
               moduleFilePath,
-              modulePath: convertPatchPathToModulePath(op.path),
-              created_at: patch.created_at,
-              avatar: patch.author.avatar,
-            });
+              source,
+              schema,
+              op,
+              patch.patch_id as PatchId,
+            );
           }
         }
       }
 
+      const serializedPatchSets = patchSets.serialize();
+      for (const moduleFilePathS in serializedPatchSets) {
+        const moduleFilePath = moduleFilePathS as ModuleFilePath;
+      }
+
       return { status: "success", data: items.reverse() };
     } else {
-      return patches;
+      return remotePatches;
     }
-  }, [patches]);
+  }, [remotePatches]);
 
   if (items.status === "error") {
     throw new Error(items.error);
