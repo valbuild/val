@@ -42,7 +42,7 @@ export function Layout() {
   return (
     <UIProvider>
       {/* <div className="absolute top-0 left-0 w-full min-h-screen"> */}
-      <main className="bg-background">
+      <main className="bg-bg-primary">
         <div className="fixed top-4 left-4 w-[284px] hidden md:block">
           <HeaderLeft />
           <Left />
@@ -64,8 +64,8 @@ export function Layout() {
 
 function HeaderLeft() {
   return (
-    <div className="flex items-center gap-2 px-5 pt-4 ml-4 text-xs bg-primary-foreground rounded-t-3xl">
-      <FakeIcon />
+    <div className="flex items-center gap-2 px-5 pt-4 ml-4 text-xs bg-bg-secondary rounded-t-3xl">
+      <Author size="md" />
       <List />
     </div>
   );
@@ -73,7 +73,7 @@ function HeaderLeft() {
 
 function Left() {
   return (
-    <div className="flex flex-col justify-between pb-4 ml-4 text-xs h-fit bg-primary-foreground rounded-b-3xl">
+    <div className="flex flex-col justify-between pb-4 ml-4 text-xs h-fit bg-bg-secondary rounded-b-3xl">
       <nav>
         <Divider />
         <ScrollArea className="max-h-[max(50vh-84px,100px)] overflow-scroll">
@@ -204,7 +204,7 @@ function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
   );
 }
 function Divider() {
-  return <div className="w-full pt-4 mb-4 border-b border-border" />;
+  return <div className="w-full pt-4 mb-4 border-b border-border-primary" />;
 }
 
 function Author({ size }: { size: "md" | "lg" }) {
@@ -221,13 +221,10 @@ function Author({ size }: { size: "md" | "lg" }) {
 
 function List() {
   return (
-    <Button
-      className="flex items-center justify-between w-full text-xs rounded-3xl bg-primary-foreground border-primary-foreground"
-      variant="outline"
-    >
+    <button className="flex items-center justify-between w-full px-4 py-2 text-xs rounded-3xl bg-bg-secondary">
       <span>Blank Oslo</span>
       <ChevronsUpDown size={12} />
-    </Button>
+    </button>
   );
 }
 
@@ -307,7 +304,7 @@ function HeaderCenter() {
 function HeaderCenterContainer({ children }: { children: React.ReactNode }) {
   return (
     <div className="px-4 mx-auto mb-10 text-sm">
-      <div className="flex items-center justify-between px-4 rounded-2xl bg-primary-foreground font-[SpaceGrotesk] h-12 border border-border">
+      <div className="flex items-center justify-between px-4 rounded-2xl bg-bg-secondary font-[SpaceGrotesk] h-12 border border-border-primary">
         {children}
       </div>
     </div>
@@ -579,19 +576,16 @@ function EmptyContent() {
 
 function HeaderRight() {
   return (
-    <div className="flex items-center justify-between p-4 mr-4 text-sm bg-primary-foreground rounded-t-3xl">
-      <div className="flex items-center gap-2">
-        <Button variant="secondary">Preview</Button>
-        <Button>Publish</Button>
-      </div>
-      <Author size="md" />
+    <div className="flex items-center justify-end gap-2 p-4 mr-4 text-sm bg-bg-secondary rounded-t-3xl">
+      <Button>Preview</Button>
+      <Button>Publish</Button>
     </div>
   );
 }
 
 function Right() {
   return (
-    <div className="pb-4 mr-4 text-sm rounded-b-3xl bg-primary-foreground h-fit">
+    <div className="pb-4 mr-4 text-sm rounded-b-3xl bg-bg-secondary h-fit">
       <Divider />
       <ValidationErrors />
       <Divider />
