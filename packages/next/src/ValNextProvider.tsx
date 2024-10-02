@@ -29,8 +29,27 @@ export const ValNextProvider = (props: {
 
   React.useEffect(() => {
     setEnabled(
-      document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`),
+      document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`)
     );
+  }, []);
+
+  React.useEffect(() => {
+    const valOverlayReadyEventListener = () => {
+      const event = new CustomEvent("val-config-event", {
+        detail: {
+          type: "config",
+          config: props.config,
+        },
+      });
+      window.dispatchEvent(event);
+    };
+    window.addEventListener("val-overlay-ready", valOverlayReadyEventListener);
+    return () => {
+      window.removeEventListener(
+        "val-overlay-ready",
+        valOverlayReadyEventListener
+      );
+    };
   }, []);
 
   React.useEffect(() => {
@@ -74,10 +93,10 @@ Val is currently hidden and disabled.
 
 To enable Val, go to the following URL:
 ${window.location.origin}/api/val/enable?redirect_to=${encodeURIComponent(
-            window.location.href,
+            window.location.href
           )}
           
-You are seeing this message because you are in development mode.`,
+You are seeing this message because you are in development mode.`
         );
       }
     }
@@ -85,7 +104,7 @@ You are seeing this message because you are in development mode.`,
 
   // TODO: use portal to mount overlay
   return (
-    <ValContext.Provider value={{ valEvents, enabled }}>
+    <ValContext.Provider value={{ valEvents, enabled, config: props.config }}>
       {props.children}
       {enabled && (
         <React.Fragment>

@@ -3,9 +3,6 @@ import { initVal } from "@valbuild/next";
 const { s, c, val, config } = initVal({
   project: "valbuild/val-examples-next",
   root: "/examples/next",
-  files: {
-    directory: "/public/test",
-  },
 });
 
 export type { t } from "@valbuild/next";

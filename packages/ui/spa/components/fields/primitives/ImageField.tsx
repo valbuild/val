@@ -11,6 +11,8 @@ import { createFilePatch } from "./FileField";
 import { Patch } from "@valbuild/core/patch";
 import { FieldContainer } from "../FieldContainer";
 import { ImageOptions } from "@valbuild/core/src/schema/image";
+import { useValConfig } from "../../ValConfigContext";
+import { ConfigDirectory } from "@valbuild/core/src/initVal";
 
 export function ImageField({
   path,
@@ -36,11 +38,12 @@ export function ImageField({
   useEffect(() => {
     setUrl(
       defaultValue &&
-        "/api/val/files/public" + Internal.convertFileSource(defaultValue).url,
+        "/api/val/files/public" + Internal.convertFileSource(defaultValue).url
     );
     setHotspot(defaultValue?.metadata?.hotspot);
   }, [defaultValue]);
 
+  const { config } = useValConfig();
   return (
     <FieldContainer>
       <div className="pr-6 w-fit">
@@ -156,8 +159,9 @@ export function ImageField({
                           data.src,
                           data.filename ?? null,
                           metadata,
-                        ),
-                      ),
+                          config.files?.directory as ConfigDirectory
+                        )
+                      )
                     ).finally(() => {
                       setLoading(false);
                     });
@@ -176,7 +180,7 @@ export function ImageField({
 
 function createFileMetadataPatch(
   path: string[],
-  metadata: Partial<ImageMetadata | FileMetadata>,
+  metadata: Partial<ImageMetadata | FileMetadata>
 ): Patch {
   const metadataPath = path.concat("metadata");
   return [
