@@ -23,7 +23,6 @@ export const initVal = (
     unstable_decodeValPathOfString: typeof decodeValPathOfString;
   };
 } => {
-  console.log("config in initVal before createValSystem:", config);
   const { s, c, val, config: systemConfig } = createValSystem(config);
   const currentConfig = {
     ...systemConfig,

@@ -23,13 +23,13 @@ export type ValConstructor = {
   unstable_getPath: typeof getPath;
 };
 
-type FileDirectory<Dir extends string> = `${Dir}${string}`;
+export type ConfigDirectory = `/public/${string}`;
 
-export type ValConfig<Dir extends `/public/${string}` = "/public/"> = {
+export type ValConfig = {
   project?: string;
   root?: string;
   files?: {
-    directory: FileDirectory<Dir>;
+    directory: ConfigDirectory;
   };
   gitCommit?: string;
   gitBranch?: string;
@@ -48,8 +48,6 @@ export type InitVal = {
 //       [K in keyof A]: NarrowStrings<A[K]>;
 //     };
 
-let valConfig: ValConfig | undefined;
-
 // TODO: Rename to createValSystem (only to be used by internal things), we can then export * from '@valbuild/core' in the next package then.
 export const initVal = (
   config?: ValConfig
@@ -62,10 +60,6 @@ export const initVal = (
 //   }>;
 // }
 InitVal => {
-  console.log("config in createValSystem:", config);
-  valConfig = config ? config : {};
-
-  console.log("valConfig in createValSystem:", valConfig);
   // const locales = options?.locales;
   const s = initSchema();
   // if (locales?.required) {
@@ -103,5 +97,3 @@ InitVal => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
 };
-
-export { valConfig };
