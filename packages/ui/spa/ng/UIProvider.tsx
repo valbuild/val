@@ -1,9 +1,12 @@
 import React, { useContext, useEffect, useMemo, useState } from "react";
 import {
+  deserializeSchema,
   Internal,
   Json,
   ModuleFilePath,
   ModulePath,
+  Schema,
+  SelectorSource,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
@@ -356,20 +359,51 @@ export function usePatches() {
   }, []);
   return {
     patches,
-    deletePatches: (patchIds: PatchId[]) => {
-      setTimeout(() => {
-        setPatches({
-          status: "success",
-          data: Object.fromEntries(
-            Object.entries(fakePatches).map(([path, patches]) => [
-              path,
-              patches.filter((patch) => !patchIds.includes(patch.patch_id)),
-            ]),
-          ),
-        });
-      }, 400);
-    },
-    // stashPatches: (patchIds: PatchId[]) => {},
+  };
+}
+
+export function usePatchesWithSourceAndSchema() {
+  const { getSourceContent, getSchemasByModuleFilePath } =
+    useContext(UIContext);
+  const [patches, setPatches] = useState<
+    Remote<
+      Record<
+        ModuleFilePath,
+        {
+          patches: PatchWithMetadata[];
+          source: Json;
+          schema: Schema<SelectorSource>;
+        }
+      >
+    >
+  >({
+    status: "not-asked",
+  });
+  useEffect(() => {
+    setTimeout(async () => {
+      const allPatches = fakePatches;
+      const allSchemas = await getSchemasByModuleFilePath();
+
+      const res = await Promise.all(
+        Object.entries(allPatches).map(async ([moduleFilePathS, patches]) => {
+          const moduleFilePath = moduleFilePathS as ModuleFilePath;
+          const source = await getSourceContent(moduleFilePath);
+          const schema = deserializeSchema(allSchemas[moduleFilePath]);
+          if (!schema) {
+            throw new Error("No schema found for module: " + moduleFilePath);
+          }
+          return [moduleFilePath, { patches, source, schema }] as const;
+        }),
+      );
+      const data = Object.fromEntries(res);
+      setPatches({
+        status: "success",
+        data,
+      });
+    }, 1000); // fake delay
+  }, []);
+  return {
+    patches,
   };
 }
 
