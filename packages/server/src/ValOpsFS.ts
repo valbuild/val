@@ -15,14 +15,17 @@ import {
   bufferFromDataUrl,
   createMetadataFromBuffer,
   getFieldsForType,
+  SaveSourceFilePatchResult,
 } from "./ValOps";
 import fsPath from "path";
 import ts from "typescript";
 import { z } from "zod";
 import fs from "fs";
 import { fromError } from "zod-validation-error";
-import { Patch } from "./patch/validation";
+import { Patch, ParentRef } from "./patch/validation";
 import { guessMimeTypeFromPath } from "./ValServer";
+import { result } from "@valbuild/core/fp";
+import { ParentPatchId } from "@valbuild/core/src/val";
 
 export class ValOpsFS extends ValOps {
   private static readonly VAL_DIR = ".val";
@@ -55,50 +58,48 @@ export class ValOpsFS extends ValOps {
       );
     }
     const patches: Patches["patches"] = {};
-    const errors: NonNullable<Patches["errors"]> = {};
+    const errors: NonNullable<Patches["errors"]> = [];
 
-    const sortedPatchIds = patchJsonFiles
-      .map((file) => parseInt(fsPath.basename(fsPath.dirname(file)), 10))
-      .sort();
-    for (const patchIdNum of sortedPatchIds) {
-      if (Number.isNaN(patchIdNum)) {
-        throw new Error(
-          "Could not parse patch id from file name. Files found: " +
-            patchJsonFiles.join(", "),
-        );
-      }
-      const patchId = patchIdNum.toString() as PatchId;
-      if (includes && includes.length > 0 && !includes.includes(patchId)) {
-        continue;
-      }
-      const parsedFSPatchRes = this.parseJsonFile(
-        this.getPatchFilePath(patchId),
-        FSPatch,
+    const parsedUnsortedFsPatches = patchJsonFiles
+      .map((file) => fsPath.basename(fsPath.dirname(file)) as ParentPatchId)
+      .map(
+        (patchDir) =>
+          [
+            patchDir,
+            this.parseJsonFile(this.getPatchFilePath(patchDir), FSPatch),
+            this.host.fileExists(this.getPatchBaseFile(patchDir))
+              ? this.parseJsonFile(this.getPatchBaseFile(patchDir), FSPatchBase)
+              : undefined,
+          ] as const,
       );
 
-      let parsedFSPatchBaseRes = undefined;
-      if (this.host.fileExists(this.getPatchBaseFile(patchId))) {
-        parsedFSPatchBaseRes = this.parseJsonFile(
-          this.getPatchBaseFile(patchId),
-          FSPatchBase,
-        );
-      }
-      if (parsedFSPatchRes.error) {
-        errors[patchId] = parsedFSPatchRes.error;
-      } else if (parsedFSPatchBaseRes && parsedFSPatchBaseRes.error) {
-        errors[patchId] = parsedFSPatchBaseRes.error;
+    parsedUnsortedFsPatches.forEach(([dir, parsedPatch, parsedBase]) => {
+      if (parsedPatch.error) {
+        errors.push({ ...parsedPatch.error, parentPatchId: dir });
+      } else if (parsedBase && parsedBase.error) {
+        errors.push({ ...parsedBase.error, parentPatchId: dir });
       } else {
-        patches[patchId] = {
-          ...(parsedFSPatchRes.data as {
+        if (
+          includes &&
+          includes.length > 0 &&
+          !includes.includes(parsedPatch.data.patchId as PatchId)
+        ) {
+          return;
+        }
+
+        patches[parsedPatch.data.patchId as PatchId] = {
+          ...(parsedPatch.data as {
             // parseFile does keep refined types?
             path: ModuleFilePath;
             patch: Patch;
+            patchId: PatchId;
+            parentRef: ParentRef;
             createdAt: string;
             authorId: AuthorId | null;
             coreVersion: string;
           }),
-          appliedAt: parsedFSPatchBaseRes
-            ? (parsedFSPatchBaseRes.data as {
+          appliedAt: parsedBase
+            ? (parsedBase.data as {
                 // parseFile does keep refined types?
                 baseSha: BaseSha;
                 timestamp: string;
@@ -106,11 +107,19 @@ export class ValOpsFS extends ValOps {
             : null,
         };
       }
-    }
+    });
+
+    // If there are patches, but no head. error
     if (Object.keys(errors).length > 0) {
       return { patches, errors };
     }
     return { patches };
+  }
+
+  getParentPatchIdFromParentRef(parentRef: ParentRef): ParentPatchId {
+    return (
+      parentRef.type === "head" ? "head" : parentRef.patchId
+    ) as ParentPatchId;
   }
 
   override async fetchPatches<OmitPatch extends boolean>(filters: {
@@ -122,10 +131,7 @@ export class ValOpsFS extends ValOps {
     const patches: (OmitPatch extends true
       ? PatchesMetadata
       : Patches)["patches"] = {};
-    const errors: NonNullable<
-      (OmitPatch extends true ? PatchesMetadata : Patches)["errors"]
-    > = {};
-    const { errors: allErrors, patches: allPatches } = await this.readPatches(
+    const { errors, patches: allPatches } = await this.readPatches(
       filters.patchIds,
     );
     for (const [patchIdS, patch] of Object.entries(allPatches)) {
@@ -144,17 +150,14 @@ export class ValOpsFS extends ValOps {
       }
       patches[patchId] = {
         patch: filters.omitPatch ? undefined : patch.patch,
+        parentRef: patch.parentRef,
         path: patch.path,
         createdAt: patch.createdAt,
         authorId: patch.authorId,
         appliedAt: patch.appliedAt,
       };
-      const error = allErrors && allErrors[patchId];
-      if (error) {
-        errors[patchId] = error;
-      }
     }
-    if (errors && Object.keys(errors).length > 0) {
+    if (errors && errors.length > 0) {
       return { patches, errors } as OmitPatch extends true
         ? PatchesMetadata
         : Patches;
@@ -253,36 +256,49 @@ export class ValOpsFS extends ValOps {
   protected override async saveSourceFilePatch(
     path: ModuleFilePath,
     patch: Patch,
+    parentRef: ParentRef,
     authorId: AuthorId | null,
-  ): Promise<WithGenericError<{ patchId: PatchId }>> {
-    let fileId = Date.now();
+  ): Promise<SaveSourceFilePatchResult> {
+    let patchDir = this.getParentPatchIdFromParentRef(parentRef);
     try {
-      while (
-        this.host.fileExists(
-          this.getPatchFilePath(fileId.toString() as PatchId),
-        )
-      ) {
-        // ensure unique file / patch id
-        fileId++;
-      }
-      const patchId = fileId.toString() as PatchId;
+      const patchId = crypto.randomUUID() as PatchId;
       const data: z.infer<typeof FSPatch> = {
         patch,
+        patchId,
+        parentRef,
         path,
         authorId,
         coreVersion: Internal.VERSION.core,
         createdAt: new Date().toISOString(),
       };
-      this.host.writeUf8File(
-        this.getPatchFilePath(patchId),
+      const writeRes = this.host.tryWriteUf8File(
+        this.getPatchFilePath(patchDir),
         JSON.stringify(data),
       );
-      return { patchId };
+
+      if (writeRes.type === "error") {
+        return writeRes.errorType === "dir-already-exists"
+          ? result.err({ errorType: "patch-id-conflict" })
+          : result.err({
+              errorType: "other",
+              error: writeRes.error,
+              message: "Failed to write patch file",
+            });
+      }
+      return result.ok({ patchId });
     } catch (err) {
       if (err instanceof Error) {
-        return { error: { message: err.message } };
+        return result.err({
+          errorType: "other",
+          error: err,
+          message: err.message,
+        });
       }
-      return { error: { message: "Unknown error" } };
+      return result.err({
+        errorType: "other",
+        error: err,
+        message: "Unknown error",
+      });
     }
   }
 
@@ -318,13 +334,15 @@ export class ValOpsFS extends ValOps {
 
   protected override async saveBase64EncodedBinaryFileFromPatch(
     filePath: string,
+    parentRef: ParentRef,
     patchId: PatchId,
     data: string,
     _type: BinaryFileType,
     metadata: MetadataOfType<BinaryFileType>,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
-    const patchFilePath = this.getBinaryFilePath(filePath, patchId);
-    const metadataFilePath = this.getBinaryFileMetadataPath(filePath, patchId);
+    const patchDir = this.getParentPatchIdFromParentRef(parentRef);
+    const patchFilePath = this.getBinaryFilePath(filePath, patchDir);
+    const metadataFilePath = this.getBinaryFileMetadataPath(filePath, patchDir);
     try {
       const buffer = bufferFromDataUrl(data);
       if (!buffer) {
@@ -350,7 +368,17 @@ export class ValOpsFS extends ValOps {
   protected override async getBase64EncodedBinaryFileMetadataFromPatch<
     T extends BinaryFileType,
   >(filePath: string, type: T, patchId: PatchId): Promise<OpsMetadata<T>> {
-    const metadataFilePath = this.getBinaryFileMetadataPath(filePath, patchId);
+    const patchDirRes = await this.getParentPatchIdFromPatchId(patchId);
+    if (result.isErr(patchDirRes)) {
+      return {
+        errors: [{ message: "Failed to get patch dir from patch id" }],
+      };
+    }
+    const metadataFilePath = this.getBinaryFileMetadataPath(
+      filePath,
+      patchDirRes.value,
+    );
+
     if (!this.host.fileExists(metadataFilePath)) {
       return {
         errors: [{ message: "Metadata file not found", filePath }],
@@ -384,7 +412,11 @@ export class ValOpsFS extends ValOps {
     filePath: string,
     patchId: PatchId,
   ): Promise<Buffer | null> {
-    const absPath = this.getBinaryFilePath(filePath, patchId);
+    const patchDirRes = await this.getParentPatchIdFromPatchId(patchId);
+    if (!result.isOk(patchDirRes)) {
+      return null;
+    }
+    const absPath = this.getBinaryFilePath(filePath, patchDirRes.value);
 
     if (!this.host.fileExists(absPath)) {
       return null;
@@ -402,9 +434,24 @@ export class ValOpsFS extends ValOps {
   > {
     const deleted: PatchId[] = [];
     let errors: Record<PatchId, GenericErrorMessage> | null = null;
+    let patchDirMapRes = await this.getParentPatchIdFromPatchIdMap();
+    if (result.isErr(patchDirMapRes)) {
+      return { error: { message: "Failed to get patch dir map" } };
+    }
+
     for (const patchId of patchIds) {
+      const patchDir = patchDirMapRes.value[patchId];
+      if (!patchDir) {
+        if (!errors) {
+          errors = {};
+        }
+        errors[patchId] = {
+          message: "Failed to find PatchDir for PatchId " + patchId,
+        };
+        continue;
+      }
       try {
-        this.host.deleteDir(this.getPatchDir(patchId));
+        this.host.deleteDir(this.getFullPatchDir(patchDir));
         deleted.push(patchId);
       } catch (err) {
         if (!errors) {
@@ -423,10 +470,10 @@ export class ValOpsFS extends ValOps {
 
   async saveFiles(preparedCommit: PreparedCommit): Promise<{
     updatedFiles: string[];
-    errors: Record<string, GenericErrorMessage & { filePath: string }>;
+    errors: Record<string, GenericErrorMessage & { filePath?: string }>;
   }> {
     const updatedFiles: string[] = [];
-    const errors: Record<string, GenericErrorMessage & { filePath: string }> =
+    const errors: Record<string, GenericErrorMessage & { filePath?: string }> =
       {};
 
     for (const [filePath, data] of Object.entries(
@@ -444,12 +491,29 @@ export class ValOpsFS extends ValOps {
       }
     }
 
+    const patchIdToPatchDirMapRes = await this.getParentPatchIdFromPatchIdMap();
+    if (result.isErr(patchIdToPatchDirMapRes)) {
+      return {
+        updatedFiles,
+        errors,
+      };
+    }
+    const patchIdToPatchDirMap = patchIdToPatchDirMapRes.value;
+
     for (const [filePath, { patchId }] of Object.entries(
       preparedCommit.patchedBinaryFilesDescriptors,
     )) {
       const absPath = fsPath.join(this.rootDir, ...filePath.split("/"));
       try {
-        this.host.copyFile(this.getBinaryFilePath(filePath, patchId), absPath);
+        const patchDir = patchIdToPatchDirMap[patchId];
+        if (!patchDir) {
+          errors[absPath] = {
+            message: "Failed to find PatchDir for PatchId " + patchId,
+            filePath,
+          };
+          continue;
+        }
+        this.host.copyFile(this.getBinaryFilePath(filePath, patchDir), absPath);
         updatedFiles.push(absPath);
       } catch (err) {
         errors[absPath] = {
@@ -464,7 +528,14 @@ export class ValOpsFS extends ValOps {
         baseSha: await this.getBaseSha(),
         timestamp: new Date().toISOString(),
       };
-      const absPath = this.getPatchBaseFile(patchId);
+      const patchDir = patchIdToPatchDirMap[patchId];
+      if (!patchDir) {
+        errors[`patchId:${patchId}`] = {
+          message: "Failed to find PatchDir for PatchId " + patchId,
+        };
+        continue;
+      }
+      const absPath = this.getPatchBaseFile(patchDir);
       try {
         this.host.writeUf8File(absPath, JSON.stringify(appliedAt));
       } catch (err) {
@@ -515,39 +586,80 @@ export class ValOpsFS extends ValOps {
     return createMetadataFromBuffer(type, mimeType, buffer);
   }
 
+  private async getParentPatchIdFromPatchId(
+    patchId: PatchId,
+  ): Promise<
+    result.Result<ParentPatchId, "failed-to-read-patches" | "patch-not-found">
+  > {
+    // This is not great. If needed we should find a better way
+    const patches = await this.readPatches();
+    if (patches.errors || patches.error) {
+      console.error("Failed to read patches", JSON.stringify(patches));
+      return result.err("failed-to-read-patches");
+    }
+    const patch = patches.patches[patchId];
+    if (!patch) {
+      console.error("Could not find patch with patchId: ", patchId);
+      return result.err("patch-not-found");
+    }
+
+    return result.ok(this.getParentPatchIdFromParentRef(patch.parentRef));
+  }
+
+  private async getParentPatchIdFromPatchIdMap(): Promise<
+    result.Result<
+      Record<PatchId, ParentPatchId | undefined>,
+      "failed-to-read-patches"
+    >
+  > {
+    const patches = await this.readPatches();
+    if (patches.errors || patches.error) {
+      console.error("Failed to read patches", JSON.stringify(patches));
+      return result.err("failed-to-read-patches");
+    }
+    return result.ok(
+      Object.fromEntries(
+        Object.entries(patches.patches).map(([patchId, value]) => [
+          patchId,
+          this.getParentPatchIdFromParentRef(value.parentRef),
+        ]),
+      ),
+    );
+  }
+
   // #region fs file path helpers
   private getPatchesDir() {
     return fsPath.join(this.rootDir, ValOpsFS.VAL_DIR, "patches");
   }
 
-  private getPatchDir(patchId: PatchId) {
-    return fsPath.join(this.getPatchesDir(), patchId);
+  private getFullPatchDir(patchDir: ParentPatchId) {
+    return fsPath.join(this.getPatchesDir(), patchDir);
   }
 
-  private getBinaryFilePath(filename: string, patchId: PatchId) {
+  private getBinaryFilePath(filename: string, patchDir: ParentPatchId) {
     return fsPath.join(
-      this.getPatchDir(patchId),
+      this.getFullPatchDir(patchDir),
       "files",
       filename,
       fsPath.basename(filename),
     );
   }
 
-  private getBinaryFileMetadataPath(filename: string, patchId: PatchId) {
+  private getBinaryFileMetadataPath(filename: string, patchDir: ParentPatchId) {
     return fsPath.join(
-      this.getPatchDir(patchId),
+      this.getFullPatchDir(patchDir),
       "files",
       filename,
       "metadata.json",
     );
   }
 
-  private getPatchFilePath(patchId: PatchId) {
-    return fsPath.join(this.getPatchDir(patchId), "patch.json");
+  private getPatchFilePath(patchDir: ParentPatchId) {
+    return fsPath.join(this.getFullPatchDir(patchDir), "patch.json");
   }
 
-  private getPatchBaseFile(patchId: PatchId) {
-    return fsPath.join(this.getPatchDir(patchId), "base.json");
+  private getPatchBaseFile(patchDir: ParentPatchId) {
+    return fsPath.join(this.getFullPatchDir(patchDir), "base.json");
   }
 }
 
@@ -585,12 +697,50 @@ class FSOpsHost {
   }
 
   readUtf8File(path: string): string {
+    console.log("Reading file: ", path);
     return fs.readFileSync(path, "utf-8");
   }
 
   writeUf8File(path: string, data: string): void {
+    console.log("Writing file: ", path);
     fs.mkdirSync(fsPath.dirname(path), { recursive: true });
     fs.writeFileSync(path, data, "utf-8");
+  }
+
+  tryWriteUf8File(
+    path: string,
+    data: string,
+  ):
+    | { type: "success" }
+    | {
+        type: "error";
+        errorType: "dir-already-exists" | "failed-to-write-file";
+        error: unknown;
+      } {
+    console.log("Trying to write file: ", path);
+    try {
+      const parentDir = fsPath.join(fsPath.dirname(path), "../");
+      fs.mkdirSync(parentDir, { recursive: true });
+      // Make the parent dir separately. This is because we need mkdir to throw
+      // if the directory already exists. If we use recursive: true, it doesn't
+      fs.mkdirSync(fsPath.dirname(path), { recursive: false });
+    } catch (e) {
+      return {
+        type: "error",
+        errorType: "dir-already-exists",
+        error: e,
+      };
+    }
+    try {
+      fs.writeFileSync(path, data, "utf-8");
+    } catch (e) {
+      return {
+        type: "error",
+        errorType: "failed-to-write-file",
+        error: e,
+      };
+    }
+    return { type: "success" };
   }
 
   writeBinaryFile(path: string, data: Buffer): void {
@@ -612,6 +762,8 @@ const FSPatch = z.object({
       "Path is not valid. Must start with '/' and include '.val.'",
     ),
   patch: Patch,
+  patchId: z.string(),
+  parentRef: ParentRef,
   authorId: z
     .string()
     .refine((p): p is AuthorId => true)

@@ -7,6 +7,7 @@ import {
 import { result } from "@valbuild/core/fp";
 import { Patch } from "@valbuild/core/patch";
 import { ValClient } from "./ValClient";
+import { ParentRef } from "./zod/Patch";
 
 export type ValCacheError =
   | {
@@ -90,7 +91,9 @@ export class ValCache {
         message: "Failed to get patches",
       });
     }
-    const allPatches = Object.keys(patchesRes.json.patches) as PatchId[];
+    const allPatches = patchesRes.json.patches.map(
+      (patch) => patch.patchBlockSha,
+    ) as PatchId[];
 
     const treeRes = await this.client("/tree/~", "PUT", {
       path: undefined,
@@ -230,6 +233,7 @@ export class ValCache {
     path: ModuleFilePath,
     patchIds: PatchId[],
     patch: Patch,
+    parentRef: ParentRef,
   ): Promise<
     result.Result<
       {
@@ -256,6 +260,7 @@ export class ValCache {
         addPatch: {
           path,
           patch,
+          parentRef,
         },
       },
     });
