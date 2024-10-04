@@ -11,7 +11,9 @@ const { valNextAppRouter } = initValServer(
   {
     draftMode,
     formatter: (code, filePath) => {
-      return prettier.format(code, { filepath: filePath });
+      return prettier.format(code, {
+        filepath: filePath,
+      });
     },
   },
 );

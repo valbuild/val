@@ -4,7 +4,10 @@ import {
   ValModules,
   Internal,
 } from "@valbuild/core";
-import type { Patch as PatchT } from "@valbuild/core/patch";
+import type {
+  Patch as PatchT,
+  ParentRef as ParentRefT,
+} from "@valbuild/core/patch";
 import {
   type AuthorId,
   type BaseSha,
@@ -19,6 +22,7 @@ import {
   ValOps,
   ValOpsOptions,
   WithGenericError,
+  SaveSourceFilePatchResult,
 } from "./ValOps";
 import { z } from "zod";
 import { fromError } from "zod-validation-error";
@@ -267,8 +271,10 @@ export class ValOpsHttp extends ValOps {
   protected async saveSourceFilePatch(
     path: ModuleFilePath,
     patch: PatchT,
+    parentRef: ParentRefT,
     authorId: AuthorId | null,
-  ): Promise<WithGenericError<{ patchId: PatchId }>> {
+  ): Promise<SaveSourceFilePatchResult> {
+    console.log("Saving patch", path, patch, authorId);
     return fetch(`${this.hostUrl}/v1/${this.project}/patches`, {
       method: "POST",
       headers: {

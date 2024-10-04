@@ -26,6 +26,7 @@ import { ValClient, ValCache } from "@valbuild/shared/internal";
 import { ValCacheProvider } from "../ValCacheContext";
 import { ValMenu } from "./ValMenu";
 import { ValWindow } from "./ValWindow";
+import { ParentRef } from "@valbuild/core/patch";
 
 export type ValOverlayProps = {
   defaultTheme?: "dark" | "light";
@@ -134,10 +135,25 @@ export function ValOverlay({
 
   const [windowSize, setWindowSize] = useState<WindowSize>();
   const [patches, setPatches] = useState<PatchId[]>([]);
+  const [baseSha, setBaseSha] = useState<string | null>(null);
   useEffect(() => {
     currentPatchesId.current = patches.map(String).join(";");
   }, [patches]);
 
+  const parentRefRef = useRef<ParentRef>();
+
+  useEffect(() => {
+    if (!baseSha) {
+      return;
+    }
+    parentRefRef.current =
+      patches.length > 0
+        ? {
+            type: "patch" as const,
+            patchId: patches[patches.length - 1],
+          }
+        : { type: "head" as const, headBaseSha: baseSha };
+  }, [patches, baseSha]);
   useEffect(() => {
     client("/patches/~", "GET", {
       query: {
@@ -152,7 +168,8 @@ export function ValOverlay({
           console.error("Val: could not parse patches", res.json);
           return;
         }
-        setPatches(Object.keys(res.json.patches) as PatchId[]);
+        setPatches(res.json.patches.map((patch) => patch.patchId));
+        setBaseSha(res.json.baseSha);
       })
       .catch((err) => {
         console.warn("Val: could not fetch patches", err);
@@ -161,19 +178,37 @@ export function ValOverlay({
 
   const initOnSubmit: InitOnSubmit = useCallback(
     (path) => async (callback) => {
+      if (!baseSha) {
+        console.error("Val: baseSha is missing");
+        return;
+      }
+      if (!parentRefRef.current) {
+        console.error("Val: parentRefRef.current is missing");
+        return;
+      }
       const [moduleFilePath, modulePath] =
         Internal.splitModuleFilePathAndModulePath(path);
       const patch = await callback(Internal.createPatchPath(modulePath));
-      const applyRes = await cache.applyPatch(moduleFilePath, patches, patch);
+
+      const applyRes = await cache.applyPatch(
+        moduleFilePath,
+        patches,
+        patch,
+        parentRefRef.current,
+      );
       if (result.isOk(applyRes)) {
         const allAppliedPatches = patches
           .slice()
           .concat(applyRes.value.newPatchId);
+        parentRefRef.current = {
+          type: "patch",
+          patchId: applyRes.value.newPatchId,
+        };
         setPatches(allAppliedPatches);
       }
       reloadPage(true);
     },
-    [patches],
+    [patches, baseSha],
   );
 
   return (
