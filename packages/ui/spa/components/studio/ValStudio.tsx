@@ -28,6 +28,7 @@ import { Remote } from "../../utils/Remote";
 import { PathTree } from "../fields/PathTree";
 import { ValImagePreviewContext } from "../fields/PreviewImage";
 import { ValClient } from "@valbuild/shared/src/internal/ValClient";
+import { ParentRef } from "@valbuild/core/patch";
 
 interface ValFullscreenProps {
   client: ValClient;
@@ -70,16 +71,49 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, cache }) => {
     .map(({ brokenPatchId }) => brokenPatchId)
     .filter((patchId): patchId is PatchId => !!patchId);
 
+  const [baseSha, setBaseSha] = useState<string | null>(null);
+  const parentRefRef = useRef<ParentRef>();
+
+  useEffect(() => {
+    if (!baseSha) {
+      return;
+    }
+    parentRefRef.current =
+      patches.length > 0
+        ? {
+            type: "patch" as const,
+            patchId: patches[patches.length - 1],
+          }
+        : { type: "head" as const, headBaseSha: baseSha };
+  }, [patches, baseSha]);
+
   const initOnSubmit: InitOnSubmit = useCallback(
     (path) => async (callback) => {
+      if (!baseSha) {
+        console.error("Val: baseSha is missing");
+        return;
+      }
+      if (!parentRefRef.current) {
+        console.error("Val: parentRefRef.current is missing");
+        return;
+      }
       const [moduleFilePath, modulePath] =
         Internal.splitModuleFilePathAndModulePath(path);
       const patch = await callback(Internal.createPatchPath(modulePath));
-      const applyRes = await cache.applyPatch(moduleFilePath, patches, patch);
+      const applyRes = await cache.applyPatch(
+        moduleFilePath,
+        patches,
+        patch,
+        parentRefRef.current,
+      );
       if (result.isOk(applyRes)) {
         const allAppliedPatches = patches
           .slice()
           .concat(applyRes.value.newPatchId);
+        parentRefRef.current = {
+          type: "patch",
+          patchId: applyRes.value.newPatchId,
+        };
         setPatches(allAppliedPatches);
       } else {
         if (applyRes.error.errorType === "patch-error") {
@@ -92,7 +126,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, cache }) => {
         }
       }
     },
-    [patches],
+    [patches, baseSha],
   );
 
   const [loading, setLoading] = useState(false);
@@ -168,15 +202,8 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client, cache }) => {
       },
     }).then((patchesRes) => {
       if (patchesRes.status === 200) {
-        const patches: PatchId[] = [];
-        for (const [patchId, patchData] of Object.entries(
-          patchesRes.json.patches,
-        )) {
-          if (!patchData?.appliedAt) {
-            patches.push(patchId as PatchId);
-          }
-        }
-        setPatches(patches);
+        setPatches(patchesRes.json.patches.map((patch) => patch.patchId));
+        setBaseSha(patchesRes.json.baseSha);
       } else {
         console.error("Could not get patches", patchesRes.json);
       }

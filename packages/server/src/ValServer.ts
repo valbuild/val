@@ -30,6 +30,7 @@ import {
 } from "./ValOps";
 import { fromError } from "zod-validation-error";
 import { ValOpsHttp } from "./ValOpsHttp";
+import { result } from "@valbuild/core/fp";
 
 export type ValServerOptions = {
   route: string;
@@ -503,6 +504,7 @@ export const ValServer = (
     //#region patches
     "/patches/~": {
       GET: async (req) => {
+        // TODO: Fix type error patchId is string somewhere and PatchId somewhere else
         const query = req.query;
         const cookies = req.cookies;
         const auth = getAuth(cookies);
@@ -522,40 +524,53 @@ export const ValServer = (
             },
           };
         }
+        const omit_patch = query.omit_patch === true;
         const authors = query.author as AuthorId[] | undefined;
-        const patches = await serverOps.fetchPatches({
+        const fetchedPatches = await serverOps.fetchPatches({
           authors,
           patchIds: query.patch_id as PatchId[] | undefined,
-          omitPatch: query.omit_patch === true,
+          omitPatch: omit_patch,
           moduleFilePaths: query.module_file_path as
             | ModuleFilePath[]
             | undefined,
         });
-        if (patches.error) {
+        console.log(
+          "Fetched patches:",
+          JSON.stringify(fetchedPatches, null, 2),
+        );
+
+        if (fetchedPatches.error) {
           // Error is singular
-          console.error("Val: Failed to get patches", patches.errors);
+          console.error("Val: Failed to get patches", fetchedPatches.error);
           return {
             status: 500,
             json: {
-              message: patches.error.message,
-              details: patches.error,
+              message: fetchedPatches.error.message,
+              error: fetchedPatches.error,
             },
           };
         }
-        if (patches.errors && Object.keys(patches.errors).length > 0) {
+        if (
+          fetchedPatches.errors &&
+          Object.keys(fetchedPatches.errors).length > 0
+        ) {
           // Errors is plural. Different property than above.
-          console.error("Val: Failed to get patches", patches.errors);
+          console.error("Val: Failed to get patches", fetchedPatches.errors);
           return {
             status: 500,
             json: {
               message: "Failed to get patches",
-              details: patches.errors,
+              patchErrors: fetchedPatches.errors,
             },
           };
         }
+        const patches = await serverOps.createPatchChain(
+          fetchedPatches.patches,
+        );
+
         return {
           status: 200,
-          json: patches,
+          json: { patches, baseSha: await serverOps.getBaseSha() },
         };
       },
 
@@ -587,7 +602,10 @@ export const ValServer = (
             status: 500,
             json: {
               message: "Failed to delete patches",
-              details: deleteRes.errors,
+              errors: Object.entries(deleteRes.errors).map(([id, error]) => ({
+                patchId: id as PatchId,
+                ...error,
+              })),
             },
           };
         }
@@ -717,20 +735,30 @@ export const ValServer = (
           }
           if (body?.addPatch) {
             const newPatchModuleFilePath = body.addPatch.path;
-            const newPatchOps = body.addPatch.patch;
+            const newPatch = body.addPatch.patch;
             const authorId = "id" in auth ? (auth.id as AuthorId) : null;
             const createPatchRes = await serverOps.createPatch(
               newPatchModuleFilePath,
-              newPatchOps,
+              newPatch,
+              body.addPatch.parentRef,
               authorId,
             );
-            if (createPatchRes.error) {
+            if (result.isErr(createPatchRes)) {
+              if (createPatchRes.error.errorType === "patch-id-conflict") {
+                return {
+                  status: 409,
+                  json: {
+                    message: "Patch id conflict",
+                  },
+                };
+              }
               return {
                 status: 500,
                 json: {
                   message:
-                    "Failed to create patch: " + createPatchRes.error.message,
-                  details: createPatchRes.error,
+                    "Failed to create patch: " +
+                    createPatchRes.error.error.message,
+                  details: createPatchRes.error.error,
                 },
               };
             }
@@ -748,12 +776,13 @@ export const ValServer = (
             //     };
             //   }
             // }
-            newPatchId = createPatchRes.patchId;
-            patchOps.patches[createPatchRes.patchId] = {
+            newPatchId = createPatchRes.value.patchId;
+            patchOps.patches[newPatchId] = {
               path: newPatchModuleFilePath,
-              patch: newPatchOps,
+              patch: newPatch,
+              parentRef: body.addPatch.parentRef,
               authorId,
-              createdAt: createPatchRes.createdAt,
+              createdAt: createPatchRes.value.createdAt,
               appliedAt: null,
             };
           }
