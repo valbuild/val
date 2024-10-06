@@ -2,15 +2,12 @@ import {
   ModuleFilePath,
   PatchId,
   Json,
-  SelectorSource,
   Internal,
-  ArraySchema,
-  RecordSchema,
-  Schema,
+  SerializedSchema,
 } from "@valbuild/core";
 import { Operation } from "@valbuild/core/patch";
 
-type PatchSetId = string; // this uses the JSON Patch format a string that looks like this: /path/to/patch
+type PatchSetPath = string; // this uses the JSON Patch format a string that looks like this: /path/to/patch
 type PatchPath = string[];
 /**
  * A patch set is a set of patches that are non-independent of each other. This is useful for example when we want to apply a set of patches atomically.
@@ -19,7 +16,7 @@ type PatchPath = string[];
  */
 export type SerializedPatchSet = Record<
   ModuleFilePath,
-  | Record<PatchSetId, PatchId[]> // we have patch sets
+  | Record<PatchSetPath, PatchId[]> // we have patch sets
   | PatchId[] // no patch sets (each patch is its own patch set)
 >;
 
@@ -41,7 +38,7 @@ export class PatchSets {
   insert(
     moduleFilePath: ModuleFilePath,
     source: Json,
-    schema: Schema<SelectorSource>,
+    schema: SerializedSchema,
     op: Operation,
     patchId: PatchId,
   ) {
@@ -66,13 +63,13 @@ export class PatchSets {
           source,
           schema,
         );
-        if (schemaAtPath instanceof ArraySchema) {
+        if (schemaAtPath.type === "array") {
           // for arrays we would need a lot of logic to create a patch set that is not on the entire parent so for now we do just that
           node.insert(op.path.slice(0, -1), patchId);
           if (op.op === "move") {
             node.insert(op.from.slice(0, -1), patchId);
           }
-        } else if (schemaAtPath instanceof RecordSchema) {
+        } else if (schemaAtPath.type === "record") {
           node.insert(op.path, patchId);
           if (op.op === "move") {
             node.insert(op.from, patchId);
@@ -80,7 +77,7 @@ export class PatchSets {
         } else {
           throw new Error(
             `Cannot perform op: '${op.op}' on non-array or non-record schema. Type: ${
-              schemaAtPath.serialize().type
+              schemaAtPath.type
             }`,
           );
         }
@@ -181,8 +178,8 @@ class PatchSetNode {
     }
   }
 
-  serialize(): Record<PatchSetId, PatchId[]> {
-    const result: Record<PatchSetId, PatchId[]> = {};
+  serialize(): Record<PatchSetPath, PatchId[]> {
+    const result: Record<PatchSetPath, PatchId[]> = {};
     function go(
       node: PatchSetNode,
       path: string[],

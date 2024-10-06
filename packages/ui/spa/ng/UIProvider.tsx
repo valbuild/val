@@ -1,18 +1,17 @@
 import React, { useContext, useEffect, useMemo, useState } from "react";
 import {
-  deserializeSchema,
   Internal,
   Json,
   ModuleFilePath,
   ModulePath,
-  Schema,
-  SelectorSource,
   SerializedSchema,
   SourcePath,
+  PatchId as RealPatchId,
 } from "@valbuild/core";
 import fakeModules from "./fakeContent/val.modules";
 import { Remote } from "../utils/Remote";
 import { Patch } from "@valbuild/core/patch";
+import { PatchSets, SerializedPatchSet } from "../utils/PatchSet";
 
 const UIContext = React.createContext<{
   getSchemasByModuleFilePath: () => Promise<
@@ -26,15 +25,17 @@ const UIContext = React.createContext<{
   search:
     | false
     | {
-        type: "error" | "change";
-        query?: string;
+        type?: "error" | "change";
+        sourcePath?: SourcePath;
+        filter?: string;
       };
   setSearch: (
     search:
       | false
       | {
           type?: "error" | "change";
-          query?: string;
+          sourcePath?: SourcePath;
+          filter?: string;
         },
   ) => void;
 }>({
@@ -64,7 +65,18 @@ async function getFakeModuleDefs() {
       return module.def().then((module) => module.default);
     }),
   );
-
+  const test = {};
+  for (const moduleDef of moduleDefs) {
+    const path = Internal.getValPath(moduleDef);
+    if (!path) {
+      throw new Error("No path found for module");
+    }
+    test[path] = {
+      source: Internal.getSource(moduleDef),
+      schema: Internal.getSchema(moduleDef)?.serialize(),
+    };
+  }
+  console.log(test);
   return moduleDefs;
 }
 
@@ -75,7 +87,7 @@ export function UIProvider({ children }: { children: React.ReactNode }) {
   // just fake state:
   const [isPublishing, setIsPublishing] = useState(false);
   const [search, setSearch] = useState<
-    false | { type: "error" | "change"; query?: string }
+    false | { type?: "error" | "change"; query?: string }
   >(false);
   return (
     <UIContext.Provider
@@ -268,6 +280,7 @@ const fakePatches: Record<string, PatchWithMetadata[]> = {
     {
       patch_id: "1",
       author: {
+        id: "1",
         name: "Fredrik Ekholdt",
         avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
       },
@@ -283,6 +296,7 @@ const fakePatches: Record<string, PatchWithMetadata[]> = {
     {
       patch_id: "2",
       author: {
+        id: "1",
         name: "Fredrik Ekholdt",
         avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
       },
@@ -298,6 +312,7 @@ const fakePatches: Record<string, PatchWithMetadata[]> = {
     {
       patch_id: "5",
       author: {
+        id: "1",
         name: "Fredrik Ekholdt",
         avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
       },
@@ -313,6 +328,7 @@ const fakePatches: Record<string, PatchWithMetadata[]> = {
     {
       patch_id: "3",
       author: {
+        id: "1",
         name: "Fredrik Ekholdt",
         avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
       },
@@ -328,6 +344,12 @@ const fakePatches: Record<string, PatchWithMetadata[]> = {
   ],
 };
 
+export type Author = {
+  id: string;
+  name: string;
+  avatar: string;
+};
+
 /** Used by fake data so we do not have to type assert all.the.f***king.time. */
 type PatchId = string;
 
@@ -337,10 +359,7 @@ type PatchId = string;
 export type PatchWithMetadata = {
   patch_id: PatchId;
   patch: Patch;
-  author: {
-    name: string;
-    avatar: string;
-  };
+  author: Author | null;
   created_at: string;
 };
 export function usePatches() {
@@ -362,48 +381,83 @@ export function usePatches() {
   };
 }
 
-export function usePatchesWithSourceAndSchema() {
+export function usePatchSets() {
   const { getSourceContent, getSchemasByModuleFilePath } =
     useContext(UIContext);
-  const [patches, setPatches] = useState<
-    Remote<
-      Record<
-        ModuleFilePath,
-        {
-          patches: PatchWithMetadata[];
-          source: Json;
-          schema: Schema<SelectorSource>;
-        }
-      >
-    >
-  >({
+  const [patchSets, setPatchSets] = useState<Remote<SerializedPatchSet>>({
     status: "not-asked",
   });
+  const { patches: allPatches } = usePatches();
   useEffect(() => {
-    setTimeout(async () => {
-      const allPatches = fakePatches;
+    const timeout = setTimeout(async () => {
       const allSchemas = await getSchemasByModuleFilePath();
-
+      if (allPatches.status !== "success") {
+        return setPatchSets(allPatches);
+      }
       const res = await Promise.all(
-        Object.entries(allPatches).map(async ([moduleFilePathS, patches]) => {
-          const moduleFilePath = moduleFilePathS as ModuleFilePath;
-          const source = await getSourceContent(moduleFilePath);
-          const schema = deserializeSchema(allSchemas[moduleFilePath]);
-          if (!schema) {
-            throw new Error("No schema found for module: " + moduleFilePath);
-          }
-          return [moduleFilePath, { patches, source, schema }] as const;
-        }),
+        Object.entries(allPatches.data).map(
+          async ([moduleFilePathS, patches]) => {
+            const moduleFilePath = moduleFilePathS as ModuleFilePath;
+            const source = await getSourceContent(moduleFilePath);
+            const schema = allSchemas[moduleFilePath];
+            if (!schema) {
+              throw new Error("No schema found for module: " + moduleFilePath);
+            }
+            return [moduleFilePath, { patches, source, schema }] as const;
+          },
+        ),
       );
       const data = Object.fromEntries(res);
-      setPatches({
+
+      const patchSets = new PatchSets();
+      const patchesById: Record<PatchId, PatchWithMetadata> = {};
+      for (const moduleFilePathS in data) {
+        const moduleFilePath = moduleFilePathS as ModuleFilePath;
+        const { patches, source, schema } = data[moduleFilePath];
+        for (const patch of patches) {
+          patchesById[patch.patch_id as PatchId] = patch;
+          for (const op of patch.patch) {
+            patchSets.insert(
+              moduleFilePath,
+              source,
+              schema,
+              op,
+              patch.patch_id as RealPatchId,
+            );
+          }
+        }
+      }
+      setPatchSets({
         status: "success",
-        data,
+        data: patchSets.serialize(),
       });
-    }, 1000); // fake delay
-  }, []);
+    }, 100); // fake delay to simulate loading from server
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [allPatches]);
+  const patchMetadataByPatchId: Remote<Record<RealPatchId, PatchWithMetadata>> =
+    useMemo(() => {
+      if (allPatches.status === "success") {
+        const res: Record<RealPatchId, PatchWithMetadata> = {};
+        for (const moduleFilePathS in allPatches.data) {
+          const moduleFilePath = moduleFilePathS as ModuleFilePath;
+          for (const patch of allPatches.data[moduleFilePath]) {
+            res[patch.patch_id as RealPatchId] = patch;
+          }
+        }
+        return {
+          status: "success",
+          data: res,
+        };
+      }
+      return allPatches;
+    }, [allPatches]);
+
   return {
-    patches,
+    patchSets,
+    patchMetadataByPatchId,
   };
 }
 
@@ -539,3 +593,43 @@ export function useSearch() {
     setSearch,
   };
 }
+
+export type SearchResult = {
+  schemaType: SerializedSchema["type"];
+  sourcePath: SourcePath;
+};
+export function useSearchResults(params: {
+  type?: "error" | "change";
+  filter?: string;
+}): Remote<SearchResult[]> {
+  const allSources = useAllModuleSources();
+
+  useMemo(() => {}, [allSources, params]);
+  return [];
+}
+
+// TODO: not the optimal way of searching
+async function getAllSourcePaths(
+  sources: Record<ModuleFilePath, Json>,
+  params: {
+    type?: "error" | "change";
+    filter?: string;
+  },
+): RemoteUpdating<SourcePath[]> {}
+
+type RemoteUpdating<T> =
+  | {
+      status: "not-asked";
+    }
+  | {
+      status: "loading";
+    }
+  | {
+      status: "complete";
+      data: T;
+    }
+  | { status: "updating"; data: T }
+  | {
+      status: "error";
+      error: string;
+    };

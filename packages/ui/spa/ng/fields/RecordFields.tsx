@@ -23,7 +23,7 @@ import { useEffect, useState } from "react";
 import { fixCapitalization } from "../fixCapitalization";
 import { RecordBadges } from "../components/RecordBadges";
 import { formatDateToString } from "../../utils/formatDateToString";
-import { sourcePathOfItem } from "../sourcePathOfItem";
+import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 
 export function RecordFields({
   source,

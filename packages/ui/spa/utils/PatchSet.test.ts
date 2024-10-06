@@ -314,7 +314,13 @@ function testPatchSet(
   const patchSet = new PatchSets();
   for (const patch of patches) {
     for (const op of patch.patch) {
-      patchSet.insert(moduleFilePath, source, schema, op, patch.patchId);
+      patchSet.insert(
+        moduleFilePath,
+        source,
+        schema.serialize(),
+        op,
+        patch.patchId,
+      );
     }
   }
   return patchSet;

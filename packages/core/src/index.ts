@@ -62,12 +62,15 @@ export {
 } from "./selector";
 import {
   getSource,
-  parsePath,
+  splitModulePath,
   resolvePath,
   splitModuleFilePathAndModulePath,
   ModuleFilePathSep,
   joinModuleFilePathAndModulePath,
+  parentOfSourcePath,
+  patchPathToModulePath,
 } from "./module";
+export { ModuleFilePathSep };
 import { getSchema } from "./selector";
 import { ModulePath, getValPath, isVal } from "./val";
 import { convertFileSource } from "./schema/file";
@@ -141,7 +144,7 @@ const Internal = {
   ModuleFilePathSep,
   notFileOp: (op: Operation) => op.op !== "file",
   isFileOp: (
-    op: Operation
+    op: Operation,
   ): op is {
     op: "file";
     path: string[];
@@ -154,19 +157,11 @@ const Internal = {
       .map((segment) => segment && tryJsonParse(segment))
       .join("/")}`,
   createPatchPath: (modulePath: ModulePath) => {
-    return parsePath(modulePath);
+    return splitModulePath(modulePath);
   },
-  patchPathToModulePath: (patchPath: string[]): ModulePath => {
-    return patchPath
-      .map((segment) => {
-        // TODO: I am worried that something is lost here: what if the segment is a string that happens to be a parsable as a number? We could make those keys illegal?
-        if (Number.isInteger(Number(segment))) {
-          return segment;
-        }
-        return JSON.stringify(segment);
-      })
-      .join(".") as ModulePath;
-  },
+  splitModulePath,
+  parentOfSourcePath,
+  patchPathToModulePath,
   VAL_ENABLE_COOKIE_NAME: "val_enable" as const,
   VAL_STATE_COOKIE: "val_state" as const,
   VAL_SESSION_COOKIE: "val_session" as const,

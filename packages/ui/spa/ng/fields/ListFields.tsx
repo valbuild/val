@@ -10,7 +10,7 @@ import { UnexpectedSourceType } from "../../components/fields/UnexpectedSourceTy
 import { Module } from "../components/Module";
 import { NullSource } from "../components/NullSource";
 import { Field } from "../components/Field";
-import { sourcePathOfItem } from "../sourcePathOfItem";
+import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 
 export function ListFields({
   path,
