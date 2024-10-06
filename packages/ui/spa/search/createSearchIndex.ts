@@ -160,12 +160,27 @@ function rec(
           source,
       );
     }
-  } else if (schema.type === "keyOf" || schema.type === "date") {
+  } else if (schema.type === "date") {
     if (typeof source === "string") {
       sourceIndex.add(path, source + " " + path);
     } else {
       throw new Error(
-        "Expected string, got " +
+        "Expected string for schema date, got " +
+          typeof source +
+          " for " +
+          path +
+          ": " +
+          source,
+      );
+    }
+  } else if (schema.type === "keyOf") {
+    if (typeof source === "string") {
+      sourceIndex.add(path, source + " " + path);
+    } else if (typeof source === "number") {
+      sourceIndex.add(path, source + " " + path);
+    } else {
+      throw new Error(
+        "Expected string or number for schema keyOf, got " +
           typeof source +
           " for " +
           path +
@@ -330,7 +345,7 @@ function addTokenizedSourcePath(
 ) {
   sourcePathIndex.add(sourcePath, tokenizeSourcePath(sourcePath).join(" "));
 }
-const debugPerf = false;
+const debugPerf = true;
 export function createSearchIndex(
   modules: Record<ModuleFilePath, { source: Json; schema: SerializedSchema }>,
 ): FlexSearch.Index {
