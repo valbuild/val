@@ -1,4 +1,4 @@
-import { pathTree } from "./pathTree";
+import { pathTree } from "../ng/pathTree";
 
 describe("pathTree", () => {
   test("should successfully parse val module file paths", () => {

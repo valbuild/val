@@ -43,6 +43,7 @@ function Overlay() {
           <ValOverlay
             client={client}
             cache={cache}
+            className="bg-bg"
             onSubmit={() => {
               const event = new CustomEvent("val-event", {
                 detail: {

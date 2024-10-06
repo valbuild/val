@@ -1,7 +1,9 @@
 import {
+  ArrowRight,
   ChevronDown,
   ChevronRight,
   ChevronsUpDown,
+  Clock,
   File,
   Search,
   Tally2,
@@ -29,32 +31,34 @@ import {
   useSearch,
   useModuleSourceAndSchema,
   useAllModuleSources,
-  usePatchesWithSourceAndSchema,
+  usePatchSets,
+  Author as AuthorT,
+  useSearchResults,
 } from "./UIProvider";
 import { ScrollArea } from "../components/ui/scroll-area";
-import { PathNode, pathTree } from "./pathTree";
-import { fixCapitalization } from "./fixCapitalization";
+import { PathNode, pathTree } from "../utils/pathTree";
+import { fixCapitalization } from "../utils/fixCapitalization";
 import { Remote } from "../utils/Remote";
-import { convertPatchPathToModulePath } from "./convertPatchPathToModulePath";
+import { convertPatchPathToModulePath } from "../utils/convertPatchPathToModulePath";
 import { Field } from "./components/Field";
-import { relativeLocalDate } from "./relativeLocalDate";
+import { relativeLocalDate } from "../utils/relativeLocalDate";
 import { AnimateHeight } from "./components/AnimateHeight";
-import { PatchSets } from "./PatchSet";
+import { Checkbox } from "../components/ui/checkbox";
 
 export function Layout() {
   return (
     <UIProvider>
       {/* <div className="absolute top-0 left-0 w-full min-h-screen"> */}
       <main className="bg-bg-primary">
-        <div className="fixed top-4 left-4 w-[284px] hidden md:block">
+        <div className="fixed top-4 left-4 w-[320px] hidden md:block">
           <HeaderLeft />
           <Left />
         </div>
-        <div className="mx-auto w-full md:w-[calc(100%-284*2px)] max-w-[600px] min-h-screen">
+        <div className="mx-auto w-full md:w-[calc(100%-320*2px)] max-w-[600px] min-h-screen">
           <HeaderCenter />
           <Center />
         </div>
-        <div className="fixed top-4 right-4 w-[284px] hidden md:block">
+        <div className="fixed top-4 right-4 w-[320px] hidden md:block">
           <HeaderRight />
           <Right />
         </div>
@@ -240,37 +244,27 @@ function HeaderCenter() {
       if (query.includes("@error")) {
         setSearch({
           type: "error",
-          query: query.replace("@error", "").trim(),
+          filter: query.replace("@error", "").trim(),
         });
       } else if (query.includes("@change")) {
         setSearch({
           type: "change",
-          query: query.replace("@change", "").trim(),
+          filter: query.replace("@change", "").trim(),
         });
       } else if (query.trim()) {
-        setSearch({ query: query.trim() });
+        setSearch({ filter: query.trim() });
       }
     }, 250);
     return () => clearTimeout(timeout);
   }, [query]);
 
   if (search) {
-    let queryValue = "";
-    if (search.type === "error") {
-      queryValue = `@error `;
-    }
-    if (search.type === "change") {
-      queryValue = `@change `;
-    }
-    if (search.query) {
-      queryValue += search.query;
-    }
     return (
       <HeaderCenterContainer>
         <Search size={22} />
         <input
           className="px-2 bg-transparent focus:outline-none w-[calc(100%-48px)]"
-          defaultValue={queryValue}
+          value={query}
           onChange={(e) => {
             setQuery(e.target.value);
           }}
@@ -291,7 +285,7 @@ function HeaderCenter() {
       <button
         className="flex items-center justify-between w-full h-full"
         onClick={() => {
-          setSearch({ query: "" });
+          setSearch({ filter: "" });
         }}
       >
         <div className="flex items-center h-full pr-4 border-r border-border">
@@ -369,133 +363,33 @@ function PathBar() {
 function Center() {
   const { search } = useSearch();
   if (search) {
-    return <SearchFields type={search.type} query={search.query} />;
+    return (
+      <SearchFields
+        type={search.type}
+        sourcePath={search.sourcePath}
+        filter={search.filter}
+      />
+    );
   }
   return <SourceFields />;
 }
 
-function SearchFields({ type, query }: { type: string; query?: string }) {
-  // TODO: only load errors if we are searching for errors?
-  const { errors } = useErrors();
-  const errorFields = useMemo((): Remote<SourcePath[]> => {
-    if (errors.status === "success") {
-      const allErrorFields = Object.keys(errors.data) as SourcePath[];
-      if (query) {
-        return {
-          status: "success",
-          data: allErrorFields.filter((errorField) =>
-            errorField.includes(query),
-          ),
-        };
-      } else {
-        return { status: "success", data: Array.from(new Set(allErrorFields)) };
-      }
-    } else {
-      return errors;
-    }
-  }, [errors]);
-
-  return (
-    <div className="flex flex-col items-center justify-center gap-10 pt-4">
-      {type === "error" && (
-        <SearchErrorFields query={query} errorFields={errorFields} />
-      )}
-      {type === "change" && (
-        <SearchChangeFields query={query} errorFields={errorFields} />
-      )}
-    </div>
-  );
-}
-
-function SearchErrorFields({
-  errorFields,
+function SearchFields({
+  type,
+  sourcePath,
+  filter,
 }: {
-  query?: string;
-  errorFields: Remote<SourcePath[]>;
+  type?: "change" | "error";
+  sourcePath?: SourcePath;
+  filter?: string;
 }) {
-  if (errorFields.status === "error") {
-    throw new Error(errorFields.error);
-  }
-  if (errorFields.status !== "success") {
-    return <Loading />;
-  }
-  return (
-    <>
-      {errorFields.data.map((path) => (
-        <SearchField key={path} path={path} />
-      ))}
-    </>
-  );
+  const results = useSearchResults({
+    type,
+    filter,
+    sourcePath,
+  });
+  return <div className="flex flex-col gap-10 pt-4"></div>;
 }
-
-function SearchChangeFields({
-  query,
-  errorFields,
-}: {
-  query?: string;
-  errorFields: Remote<SourcePath[]>;
-}) {
-  // TODO: we want to do this server side or in some more efficient way way in the future
-  const { patches } = usePatches();
-  const allModuleSources = useAllModuleSources();
-  const changeFields = useMemo((): Remote<SourcePath[]> => {
-    if (patches.status === "success" && allModuleSources.status === "success") {
-      const foundInErrorFields =
-        errorFields.status === "success" ? errorFields.data : [];
-      const allChangeFields = Object.keys(patches.data).flatMap(
-        (moduleFilePath) =>
-          patches.data[moduleFilePath as ModuleFilePath]?.flatMap((patch) =>
-            patch.patch.map((op) =>
-              Internal.joinModuleFilePathAndModulePath(
-                moduleFilePath as ModuleFilePath,
-                convertPatchPathToModulePath(op.path),
-              ),
-            ),
-          ),
-      );
-      if (query) {
-        return {
-          status: "success",
-          data: Array.from(
-            new Set(
-              allChangeFields.filter(
-                (changeField) =>
-                  changeField.includes(query) &&
-                  !foundInErrorFields.includes(changeField),
-              ),
-            ),
-          ),
-        };
-      } else {
-        return {
-          status: "success",
-          data: Array.from(new Set(allChangeFields)),
-        };
-      }
-    } else if (patches.status === "error") {
-      return patches;
-    } else if (allModuleSources.status === "error") {
-      return allModuleSources;
-    } else {
-      return { status: "loading" };
-    }
-  }, [patches, allModuleSources, errorFields]);
-
-  if (changeFields.status === "error") {
-    throw new Error(changeFields.error);
-  }
-  if (changeFields.status !== "success") {
-    return <Loading />;
-  }
-  return (
-    <>
-      {changeFields.data.map((path) => (
-        <SearchField key={path} path={path} />
-      ))}
-    </>
-  );
-}
-
 function SearchField({ path }: { path: SourcePath }) {
   const res = useModuleSourceAndSchema(path);
   if (res.status === "error") {
@@ -578,20 +472,34 @@ function EmptyContent() {
 }
 
 function HeaderRight() {
+  const { patches } = usePatches();
+  const { errors } = useErrors();
+
+  let publishDisabled = false;
+  if (patches.status !== "success") {
+    publishDisabled = true;
+  }
+  if (patches.status === "success") {
+    publishDisabled = Object.keys(patches.data).length === 0;
+  }
+  if (errors.status !== "success") {
+    publishDisabled = true;
+  }
+  if (errors.status === "success") {
+    publishDisabled = Object.keys(errors.data).length > 0;
+  }
+
   return (
-    <div className="flex items-center justify-end gap-2 p-4 mr-4 text-sm bg-bg-secondary rounded-t-3xl">
-      <Button>Preview</Button>
-      <Button>Publish</Button>
+    <div className="flex items-center justify-end gap-2 p-4 mb-1 text-sm bg-bg-secondary rounded-3xl">
+      <Button disabled={publishDisabled}>Publish</Button>
     </div>
   );
 }
 
 function Right() {
   return (
-    <div className="pb-4 mr-4 text-sm rounded-b-3xl bg-bg-secondary h-fit">
-      <Divider />
+    <div className="flex flex-col gap-1">
       <ValidationErrors />
-      <Divider />
       <PendingChanges />
     </div>
   );
@@ -645,54 +553,163 @@ function CompressedPath({
   );
 }
 
+type PatchSetPatchItem = {
+  title: string;
+  subTitle: string[];
+  sourcePath: SourcePath;
+  type: "add" | "replace" | "remove" | "move" | "copy" | "test" | "file";
+  patchId: string;
+  author: AuthorT | null;
+  created_at: string;
+};
+type PatchSetItem =
+  | {
+      title: string;
+      subTitle: string[];
+      sourcePath: SourcePath;
+      isPatchSet: true;
+      patches: PatchSetPatchItem[];
+      authors: AuthorT[];
+      updated_at: string;
+    }
+  | ({ isPatchSet: false } & PatchSetPatchItem);
+
+function getTitles(moduleFilePath: string, patchPath: string[]) {
+  const parts = moduleFilePath
+    .split("/")
+    .slice(1)
+    .map(prettifyFilename)
+    .concat(patchPath.map(prettifyFilename));
+  const title = parts[parts.length - 1];
+  const subTitle = parts.slice(0, -1);
+  return { title, subTitle };
+}
+
 function PendingChanges() {
   const { setSearch } = useSearch();
-  const { patches: remotePatches } = usePatchesWithSourceAndSchema();
+  const {
+    patchSets: remotePatchSets,
+    patchMetadataByPatchId: remotePatchMetadataByPatchId,
+  } = usePatchSets();
   const now = useMemo(() => new Date(), []);
-  const items = useMemo((): Remote<
-    {
-      moduleFilePath: ModuleFilePath;
-      modulePath: ModulePath;
-      created_at: string;
-      avatar: string | null;
-    }[]
-  > => {
-    const items: {
-      moduleFilePath: ModuleFilePath;
-      modulePath: ModulePath;
-      created_at: string;
-      avatar: string | null;
-    }[] = [];
+  const currentAuthorId = "1";
+  const items = useMemo((): Remote<PatchSetItem[]> => {
+    const patchSetsItems: PatchSetItem[] = [];
     // we probably want to massage this data so that it is grouped by author or something
     // we have code for that but we might want to re-implement it since it is messy
-    if (remotePatches.status === "success") {
-      const patchSets = new PatchSets();
-      for (const moduleFilePathS in remotePatches.data) {
-        const moduleFilePath = moduleFilePathS as ModuleFilePath;
-        const { patches, source, schema } = remotePatches.data[moduleFilePath];
-        for (const patch of patches) {
-          for (const op of patch.patch) {
-            patchSets.insert(
-              moduleFilePath,
-              source,
-              schema,
-              op,
-              patch.patch_id as PatchId,
-            );
+    if (remotePatchSets.status !== "success") {
+      return remotePatchSets;
+    }
+    if (remotePatchMetadataByPatchId.status !== "success") {
+      return remotePatchMetadataByPatchId;
+    }
+    const patchMetadataByPatchId = remotePatchMetadataByPatchId.data;
+    const serializedPatchSets = remotePatchSets.data;
+    for (const moduleFilePathS in serializedPatchSets) {
+      const moduleFilePath = moduleFilePathS as ModuleFilePath;
+      const modulePatchSets = serializedPatchSets[moduleFilePath];
+      if (Array.isArray(modulePatchSets)) {
+        for (const patchId of modulePatchSets) {
+          const patchMetadata = patchMetadataByPatchId[patchId];
+          if (patchMetadata) {
+            for (const op of patchMetadata.patch) {
+              const { title, subTitle } = getTitles(moduleFilePath, op.path);
+              patchSetsItems.push({
+                isPatchSet: false,
+                type: op.op,
+                title,
+                subTitle,
+                sourcePath: Internal.joinModuleFilePathAndModulePath(
+                  moduleFilePath,
+                  Internal.patchPathToModulePath(op.path),
+                ),
+                patchId,
+                created_at: patchMetadata.created_at,
+                author: patchMetadata.author,
+              });
+            }
           }
         }
+      } else {
+        for (const patchSetPathS in modulePatchSets) {
+          const patchIds = modulePatchSets[patchSetPathS];
+          const authors: AuthorT[] = [];
+          const authorIds: Set<string> = new Set();
+          let updatedAt = "";
+          const patchSetSubItems: PatchSetPatchItem[] = [];
+          for (const patchIdS of patchIds) {
+            const patchId = patchIdS as PatchId;
+            const patch = patchMetadataByPatchId[patchId];
+            if (patch.author) {
+              if (!authorIds.has(patch.author.id)) {
+                authors.push(patch.author);
+                authorIds.add(patch.author.id);
+              }
+            }
+            if (!updatedAt) {
+              updatedAt = patch.created_at;
+            } else {
+              // assumes that comparing iso datetime strings works
+              updatedAt =
+                patch.created_at > updatedAt ? patch.created_at : updatedAt;
+            }
+            for (const op of patch.patch) {
+              const { title, subTitle } = getTitles(moduleFilePath, op.path);
+              patchSetSubItems.push({
+                title,
+                subTitle,
+                sourcePath: Internal.joinModuleFilePathAndModulePath(
+                  moduleFilePath,
+                  Internal.patchPathToModulePath(op.path),
+                ),
+                type: op.op,
+                author: patch.author,
+                patchId: patchId,
+                created_at: patch.created_at,
+              });
+            }
+            patchSetSubItems.sort((a, b) => {
+              return isoStringSort(b.created_at, a.created_at); // most recent first
+            });
+          }
+          const patchSetPath = patchSetPathS.split("/").slice(1); // remove the first empty string
+          const { title, subTitle } = getTitles(moduleFilePath, patchSetPath);
+          patchSetsItems.push({
+            title,
+            subTitle,
+            sourcePath: Internal.joinModuleFilePathAndModulePath(
+              moduleFilePath,
+              Internal.patchPathToModulePath(patchSetPath),
+            ),
+            isPatchSet: true,
+            patches: patchSetSubItems,
+            authors,
+            updated_at: updatedAt,
+          });
+        }
       }
-
-      const serializedPatchSets = patchSets.serialize();
-      for (const moduleFilePathS in serializedPatchSets) {
-        const moduleFilePath = moduleFilePathS as ModuleFilePath;
-      }
-
-      return { status: "success", data: items.reverse() };
-    } else {
-      return remotePatches;
     }
-  }, [remotePatches]);
+
+    patchSetsItems.sort((a, b) => {
+      // sort current author first, then by date:
+      const isCurrentAuthorA = a.isPatchSet
+        ? a.authors.some((author) => author.id === currentAuthorId)
+        : a.author?.id === currentAuthorId;
+      const isCurrentAuthorB = b.isPatchSet
+        ? b.authors.some((author) => author.id === currentAuthorId)
+        : b.author?.id === currentAuthorId;
+      if (isCurrentAuthorA && !isCurrentAuthorB) {
+        return -1;
+      }
+      if (!isCurrentAuthorA && isCurrentAuthorB) {
+        return 1;
+      }
+      const aUpdatedAt = a.isPatchSet ? a.updated_at : a.created_at;
+      const bUpdatedAt = b.isPatchSet ? b.updated_at : b.created_at;
+      return isoStringSort(bUpdatedAt, aUpdatedAt); // most recent first
+    });
+    return { status: "success", data: patchSetsItems };
+  }, [remotePatchSets, remotePatchMetadataByPatchId]);
 
   if (items.status === "error") {
     throw new Error(items.error);
@@ -700,52 +717,298 @@ function PendingChanges() {
   if (items.status !== "success") {
     return <Loading />;
   }
-  return (
-    <ScrollArea className="max-h-[max(50vh-40px,200px)] overflow-scroll px-4 text-xs">
-      <div className="flex justify-between py-2">
-        <span>Pending changes</span>
-        <Button
-          className="h-4 px-1 py-0 text-xs"
-          onClick={() => {
-            setSearch({ type: "change" });
-          }}
-        >
-          View
-        </Button>
+  if (items.data.length === 0) {
+    return (
+      <div className="py-4 rounded-3xl bg-bg-secondary">
+        <span className="px-3 text-sm font-bold">No pending changes</span>
       </div>
-      {items.data.map((item, i) => (
-        <div className="grid grid-cols-2 py-2" key={i}>
-          <span className="flex items-center gap-4 ">
-            {/* {item.avatar && (
-              <img src={item.avatar} className="w-8 h-8 rounded-full" />
-            )} */}
-            <span className="inline-block max-w-full">
-              <CompressedPath
-                moduleFilePath={item.moduleFilePath}
-                modulePath={item.modulePath}
-              />
-            </span>
+    );
+  }
+
+  return (
+    <div className="py-4 rounded-3xl bg-bg-secondary">
+      <ScrollArea>
+        <div className="flex justify-between px-3 py-2">
+          <span className="flex items-center gap-2">
+            <ChangesAmountBadge
+              amount={items.data.reduce(
+                (prev, item) =>
+                  prev + (item.isPatchSet ? item.patches.length : 1),
+                0,
+              )}
+            />
+            <span className="text-sm font-bold">Changes</span>
           </span>
-          <span className="flex items-center justify-end gap-4 text-muted-foreground">
-            <span className="truncate">
-              {relativeLocalDate(now, item.created_at)}
-            </span>
-            <ChevronDown />
+          <Checkbox checked />
+        </div>
+        <div className="flex flex-col pt-4">
+          {items.data.map((item, i) =>
+            item.isPatchSet ? (
+              <PatchSetCard
+                key={[item.title].concat(item.subTitle).join("/")}
+                title={item.title}
+                subTitle={item.subTitle}
+                sourcePath={item.sourcePath}
+                patches={item.patches}
+                authors={item.authors}
+                date={item.updated_at}
+                now={now}
+                expandable={item.patches.length > 1}
+              />
+            ) : (
+              <PatchSetCard
+                key={i}
+                title={item.title}
+                subTitle={item.subTitle}
+                sourcePath={item.sourcePath}
+                date={item.created_at}
+                now={now}
+                patches={[]}
+                authors={item.author ? [item.author] : []}
+                expandable={false}
+              />
+            ),
+          )}
+        </div>
+      </ScrollArea>
+      <Divider />
+      <button
+        className="flex items-center justify-between w-full px-3"
+        onClick={() => {
+          setSearch({ type: "change" });
+        }}
+      >
+        <span>See all changes</span>
+        <span>
+          <ArrowRight size={16} />
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function isoStringSort(a: string, b: string) {
+  // NOTE: we benchmarked different sort methods on ISO datetime strings on node v18.17.0 and v22.9.0 and localeCompare was about 10x faster than new Date().getTime and about 100x faster than localeCompare with numeric: true or sensitivity: 'base' (or both) despite various AIs telling us the opposite. Go figure...
+  // the undefined sets the locale to
+  return a.localeCompare(b, ["en-US"]);
+}
+
+function PatchSetCard({
+  title,
+  subTitle,
+  sourcePath,
+  patches,
+  authors,
+  date,
+  now,
+  expandable,
+}: {
+  title: string;
+  subTitle: string[];
+  sourcePath: SourcePath;
+  patches: PatchSetPatchItem[];
+  authors: AuthorT[];
+  date: string;
+  now: Date;
+  expandable: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const { setSearch } = useSearch();
+
+  return (
+    <div
+      className={classNames("flex flex-col text-sm rounded-t-lg py-4 gap-2", {
+        "bg-bg-secondary rounded-b-lg": !isOpen,
+        "bg-bg-secondary_hover": isOpen,
+      })}
+    >
+      <div className="flex flex-col gap-1 px-3">
+        <div className="flex items-center justify-between">
+          <button
+            className="flex items-center gap-2 "
+            onClick={() => {
+              if (expandable) {
+                setIsOpen(!isOpen);
+              } else {
+                setSearch({ type: "change", sourcePath });
+              }
+            }}
+          >
+            {expandable && (
+              <ChevronDown
+                size={16}
+                className={classNames(
+                  "transform text-fg-quinary duration-300",
+                  {
+                    "rotate-180": isOpen,
+                    "rotate-0": !isOpen,
+                  },
+                )}
+              />
+            )}
+            <span>{title}</span>
+          </button>
+          <Checkbox checked />
+        </div>
+        <button
+          onClick={() => {
+            if (expandable) {
+              setIsOpen(!isOpen);
+            } else {
+              setSearch({
+                type: "change",
+                sourcePath: Internal.parentOfSourcePath(sourcePath),
+              });
+            }
+          }}
+          className="text-left"
+        >
+          <SubTitle subTitle={subTitle} />
+        </button>
+        <div className="flex items-center gap-2 text-xs">
+          <Clock className="text-fg-secondary" size={11} />
+          <span className="text-fg-quinary">
+            {relativeLocalDate(now, date)}
           </span>
         </div>
+      </div>
+      <div
+        className={classNames("flex items-center px-3", {
+          "justify-between": expandable,
+          "justify-end": !expandable,
+        })}
+      >
+        {expandable && <ChangesAmountBadge amount={patches.length} />}
+        <div className="flex items-center gap-[2px]">
+          {authors.slice(0, 2).map((author) => (
+            <Avatar key={author.id} {...author} />
+          ))}
+          {authors.length > 2 && (
+            <div className="w-6 h-6 leading-6 text-center rounded-full bg-bg-brand-primary text-text-secondary">
+              +{authors.length - 2}
+            </div>
+          )}
+        </div>
+      </div>
+      <AnimateHeight isOpen={isOpen}>
+        <div className="flex flex-col gap-1 pt-1 bg-bg-secondary">
+          {patches.map((patch, i) => (
+            <PatchCard
+              key={i}
+              title={patch.title}
+              subTitle={patch.subTitle}
+              sourcePath={patch.sourcePath}
+              type={patch.type}
+              author={patch.author}
+              created_at={patch.created_at}
+              now={now}
+              last={i === patches.length - 1}
+            />
+          ))}
+        </div>
+      </AnimateHeight>
+    </div>
+  );
+}
+
+function SubTitle({ subTitle }: { subTitle: string[] }) {
+  return (
+    <div className="flex max-w-full text-xs truncate text-fg-quinary">
+      {subTitle.map((part, i) => (
+        <Fragment key={i}>
+          <span className="truncate">{part}</span>
+          {i < subTitle.length - 1 && (
+            <span>
+              <ChevronRight size={14} />
+            </span>
+          )}
+        </Fragment>
       ))}
-    </ScrollArea>
+    </div>
+  );
+}
+
+function ChangesAmountBadge({ amount }: { amount: number }) {
+  return (
+    <div className="h-6 leading-6 text-center min-w-8 rounded-xl bg-bg-brand-primary text-text-secondary">
+      {amount}
+    </div>
+  );
+}
+
+function Avatar({ avatar }: AuthorT) {
+  return <img src={avatar} className="w-6 h-6 rounded-full" />;
+}
+
+function PatchCard({
+  title,
+  subTitle,
+  sourcePath,
+  author,
+  created_at,
+  now,
+  last,
+}: {
+  title: string;
+  subTitle: string[];
+  sourcePath: SourcePath;
+  type: PatchSetPatchItem["type"];
+  author: AuthorT | null;
+  created_at: string;
+  now: Date;
+  last: boolean;
+}) {
+  const { setSearch } = useSearch();
+  return (
+    <div
+      className={classNames("flex text-left bg-bg-secondary_hover gap-[11px]", {
+        "rounded-b-lg": last,
+      })}
+    >
+      <div className="w-[11px] px-3">
+        <div className="pl-[5px] h-[40px] mr-[5px] border-r border-border-primary"></div>
+        <div className="py-1 text-fg-secondary">
+          <Clock size={11} />
+        </div>
+        <div className="pl-[5px] h-[40px] mr-[5px] border-r border-border-primary"></div>
+      </div>
+      <div className="flex flex-col max-w-[210px] py-2 text-fg-quartenary">
+        <div className="flex items-center justify-between">
+          <button
+            className="text-left"
+            onClick={() => {
+              setSearch({ type: "change", sourcePath });
+            }}
+          >
+            <div className="font-bold">{title}</div>
+          </button>
+          <Checkbox checked />
+        </div>
+        <button
+          className="text-left"
+          onClick={() => {
+            setSearch({
+              type: "change",
+              sourcePath: Internal.parentOfSourcePath(sourcePath),
+            });
+          }}
+        >
+          <SubTitle subTitle={subTitle} />
+        </button>
+        <div className="text-xs">{relativeLocalDate(now, created_at)}</div>
+        <div className="self-end py-1">{author && <Avatar {...author} />}</div>
+      </div>
+    </div>
   );
 }
 
 function ValidationErrors() {
   const { errors } = useErrors();
-  const { setSearch } = useSearch();
-  const errorSourcePaths = useMemo((): Remote<string[]> => {
+  const errorSourcePaths = useMemo((): Remote<SourcePath[]> => {
     if (errors.status === "success") {
       return {
         status: "success",
-        data: Object.keys(errors.data),
+        data: Object.keys(errors.data) as SourcePath[],
       };
     } else {
       return errors;
@@ -757,71 +1020,81 @@ function ValidationErrors() {
   if (errorSourcePaths.status !== "success") {
     return <Loading />;
   }
-
+  if (errorSourcePaths.data.length === 0) {
+    return null;
+  }
   return (
-    <ScrollArea className="max-h-[max(50vh-40px,200px)] overflow-scroll px-4 text-xs">
-      <div className="flex justify-between py-2">
-        <span>Validation errors</span>
-        <Button
-          className="h-4 px-1 py-0 text-xs"
-          onClick={() => {
-            setSearch({ type: "error" });
-          }}
-        >
-          View
-        </Button>
-      </div>
-      {errorSourcePaths.data.map((errorSourcePath) => {
-        const [moduleFilePath, modulePath] =
-          Internal.splitModuleFilePathAndModulePath(
-            errorSourcePath as SourcePath,
-          );
-        return (
-          <CompressedPath
-            key={errorSourcePath}
-            moduleFilePath={moduleFilePath}
-            modulePath={modulePath}
-          />
-        );
-      })}
-    </ScrollArea>
-  );
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function LayoutBackground() {
-  return (
-    <>
-      <div
-        className="absolute top-0 left-0 invisible w-full h-full -z-5 dark:visible"
-        style={{
-          background: `
-        radial-gradient(circle 50vw at 42% 20%, rgba(31,42,61,1), rgba(0,0,0,0.4)),
-radial-gradient(circle 60vw at 94% 45%, rgba(105,88,119,1), rgba(0,0,0,0.3)),
-radial-gradient(circle 80vw at 96% 95%, rgba(86,154,130,1), rgba(0,0,0,0.1)),
-radial-gradient(circle 50vw at 28% 23%, rgba(2,8,23,1), rgba(0,0,0,0.7)),
-url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='6.48' numOctaves='1' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")
-`,
+    <div className="py-4 rounded-3xl bg-bg-secondary">
+      <ScrollArea className="max-h-[max(50vh-40px,200px)] overflow-scroll">
+        <div className="flex items-center gap-2 px-4">
+          <ErrorsAmountBadge amount={errorSourcePaths.data.length} />
+          <span className="font-bold">Errors</span>
+        </div>
+        <Divider />
+        <div className="flex flex-col px-4">
+          {errorSourcePaths.data.map((errorSourcePath) => {
+            return (
+              <ValidationErrorCard
+                key={errorSourcePath}
+                sourcePath={errorSourcePath}
+              />
+            );
+          })}
+        </div>
+      </ScrollArea>
+      <Divider />
+      <button
+        className="flex items-center justify-between w-full px-4 text-left"
+        onClick={() => {
+          // setSearch({ type: "error" });
         }}
-      />
-    </>
+      >
+        <span>See all errors</span>
+        <span>
+          <ArrowRight size={16} />
+        </span>
+      </button>
+    </div>
   );
 }
 
-function FakeIcon() {
+function ValidationErrorCard({ sourcePath }: { sourcePath: SourcePath }) {
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(sourcePath);
+  const { title, subTitle } = getTitles(
+    moduleFilePath,
+    Internal.splitModulePath(modulePath),
+  );
+  const { setSearch } = useSearch();
   return (
-    <svg
-      width="32"
-      height="32"
-      viewBox="0 0 48 49"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <circle cx="24" cy="24.5" r="24" fill="#272D2A" />
-      <path
-        d="M26.1786 19.4509C23.991 19.4509 22.2502 20.5704 21.1792 22.3943V10.625C19.0041 11.035 18.234 11.1831 16.625 11.4617V11.7854C17.4597 12.0984 17.5849 12.1586 18.2953 12.4749V35.9783H21.1792V33.9703C23.3229 37.4006 28.4665 36.9178 31.0296 34.0707C35.6717 29.5678 33.0961 19.3338 26.1786 19.4509ZM28.3289 33.516C26.5052 35.8101 22.668 35.9222 21.1784 33.4884C21.1784 30.8437 21.1784 25.5225 21.1784 22.8795C22.6581 20.0491 26.7796 20.3537 28.4491 22.8837C30.4758 25.2439 30.5007 31.3515 28.3289 33.516Z"
-        fill="#FFFCB6"
-      />
-    </svg>
+    <div className="py-3">
+      <button
+        className="flex items-center gap-2 text-left"
+        onClick={() => {
+          setSearch({ type: "error", sourcePath });
+        }}
+      >
+        <span>{title}</span>
+      </button>
+      <button
+        className="text-left"
+        onClick={() => {
+          setSearch({
+            type: "error",
+            sourcePath: Internal.parentOfSourcePath(sourcePath),
+          });
+        }}
+      >
+        <SubTitle subTitle={subTitle} />
+      </button>
+    </div>
+  );
+}
+
+function ErrorsAmountBadge({ amount }: { amount: number }) {
+  return (
+    <div className="h-6 leading-6 text-center min-w-8 rounded-xl bg-bg-error-primary text-text-secondary">
+      {amount}
+    </div>
   );
 }

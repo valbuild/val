@@ -9,7 +9,7 @@ import {
 import { Remote } from "../../utils/Remote";
 import classNames from "classnames";
 import { ChevronDown, ChevronsDown, ShieldAlert } from "lucide-react";
-import { relativeLocalDate } from "../relativeLocalDate";
+import { relativeLocalDate } from "../../utils/relativeLocalDate";
 import { useMemo, useState } from "react";
 import { AnimateHeight } from "./AnimateHeight";
 
@@ -33,11 +33,11 @@ export function Field({
   const hasPatches = patches.status === "success" && patches.data.length > 0;
   return (
     <div
-      className={classNames("flex flex-col gap-6 p-4 border rounded-lg", {
-        "border-destructive": hasErrors,
-        "border-accent": !hasErrors && hasPatches,
-        "border-border": !hasErrors && !hasPatches,
-        "bg-primary-foreground": !transparent,
+      className={classNames("p-4 border rounded-lg", {
+        "border-border-error": hasErrors,
+        "border-border-brand": !hasErrors && hasPatches,
+        "border-border-primary": !hasErrors && !hasPatches,
+        "bg-bg-primary": !transparent,
       })}
     >
       <div className="flex justify-between">
@@ -54,10 +54,12 @@ export function Field({
         </button>
       </div>
       <AnimateHeight isOpen={isExpanded}>
-        <div className="flex flex-col gap-6">{children}</div>
+        <div className="flex flex-col gap-6 pt-6">{children}</div>
+        <div className="pt-6">
+          <FieldError errors={errors} />
+          <FieldChanges patches={patches} />
+        </div>
       </AnimateHeight>
-      <FieldError errors={errors} />
-      <FieldChanges patches={patches} />
     </div>
   );
 }

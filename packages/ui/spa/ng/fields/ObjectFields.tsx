@@ -22,7 +22,7 @@ import { UnionField } from "./UnionField";
 import { RichTextField } from "./RichTextField";
 import { NullSource } from "../components/NullSource";
 import { Field } from "../components/Field";
-import { sourcePathOfItem } from "../sourcePathOfItem";
+import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 
 export function ObjectFields({
   source,
