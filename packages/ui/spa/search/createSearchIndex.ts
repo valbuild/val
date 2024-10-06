@@ -29,8 +29,7 @@ function rec(
     return;
   }
   if (schema.type === "richtext") {
-    addTokenizedSourcePath(sourcePathIndex, path);
-    sourceIndex.add(path, stringifyRichText(source));
+    sourceIndex.add(path, stringifyRichText(source) + " " + path);
   } else if (schema.type === "array") {
     if (!Array.isArray(source)) {
       throw new Error(
@@ -145,12 +144,12 @@ function rec(
             source,
         );
       } else {
-        sourceIndex.add(path, source);
+        sourceIndex.add(path, source + " " + path);
       }
     }
   } else if (schema.type === "string") {
     if (typeof source === "string") {
-      sourceIndex.add(path, source);
+      sourceIndex.add(path, source + " " + path);
     } else {
       throw new Error(
         "Expected string, got " +
@@ -163,7 +162,7 @@ function rec(
     }
   } else if (schema.type === "keyOf" || schema.type === "date") {
     if (typeof source === "string") {
-      sourceIndex.add(path, source);
+      sourceIndex.add(path, source + " " + path);
     } else {
       throw new Error(
         "Expected string, got " +
@@ -176,7 +175,7 @@ function rec(
     }
   } else if (schema.type === "number") {
     if (typeof source === "number") {
-      sourceIndex.add(path, source.toString());
+      sourceIndex.add(path, source.toString() + " " + path);
     } else {
       throw new Error(
         "Expected number, got " +
@@ -188,7 +187,7 @@ function rec(
       );
     }
   } else if (schema.type === "literal") {
-    sourceIndex.add(path, schema.value);
+    sourceIndex.add(path, schema.value + " " + path);
   } else if (schema.type === "image" || schema.type === "file") {
     if (
       source &&
@@ -196,7 +195,7 @@ function rec(
       FILE_REF_PROP in source &&
       typeof source[FILE_REF_PROP] === "string"
     ) {
-      sourceIndex.add(path, source[FILE_REF_PROP]);
+      sourceIndex.add(path, source[FILE_REF_PROP] + " " + path);
     } else {
       throw new Error(
         "Expected object with file ref prop, got " +
@@ -334,38 +333,21 @@ function addTokenizedSourcePath(
 const debugPerf = false;
 export function createSearchIndex(
   modules: Record<ModuleFilePath, { source: Json; schema: SerializedSchema }>,
-): Record<
-  ModuleFilePath,
-  { sourcePath: FlexSearch.Index; source: FlexSearch.Index }
-> {
+): FlexSearch.Index {
   if (debugPerf) {
     console.time("indexing");
   }
-  const indices: Record<
-    ModuleFilePath,
-    { sourcePath: FlexSearch.Index; source: FlexSearch.Index }
-  > = {};
+  const index = new FlexSearch.Index();
   for (const moduleFilePathS in modules) {
     const moduleFilePath = moduleFilePathS as ModuleFilePath;
 
-    indices[moduleFilePath] = {
-      sourcePath: new FlexSearch.Index(),
-      source: new FlexSearch.Index(),
-    };
-
     const { source, schema } = modules[moduleFilePath];
-    addTokenizedSourcePath(indices[moduleFilePath].sourcePath, moduleFilePath);
+    addTokenizedSourcePath(index, moduleFilePath);
 
-    rec(
-      source,
-      schema,
-      (moduleFilePathS + "?p=") as SourcePath,
-      indices[moduleFilePath].source,
-      indices[moduleFilePath].sourcePath,
-    );
+    rec(source, schema, (moduleFilePathS + "?p=") as SourcePath, index, index);
   }
   if (debugPerf) {
     console.timeEnd("indexing");
   }
-  return indices;
+  return index;
 }

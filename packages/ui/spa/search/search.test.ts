@@ -154,12 +154,19 @@ describe("search", () => {
       '/content/magic/mcguffin/test1.val.ts?p="unique"',
       '/content/magic/mcguffin/test1.val.ts?p="unique"."name"',
     ]);
+    // check that filter on source path works:
     expect(
       search(
         indices,
         '/content/magic/mcguffin/test1.val.ts?p="unique" Name of test',
       ).sort(),
     ).toEqual(['/content/magic/mcguffin/test1.val.ts?p="unique"."name"']);
+    expect(
+      search(
+        indices,
+        '/content/test2.val.ts?p="testRichText" world within richtext',
+      ).sort(),
+    ).toEqual(['/content/test2.val.ts?p="testRichText"'].sort());
   });
 });
 
