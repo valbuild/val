@@ -20,7 +20,7 @@ import {
 import { NullSource } from "../components/NullSource";
 import { useNavigation } from "../UIProvider";
 import { useEffect, useState } from "react";
-import { fixCapitalization } from "../../utils/fixCapitalization"; //
+import { fixCapitalization } from "../../utils/fixCapitalization";
 import { RecordBadges } from "../components/RecordBadges";
 import { formatDateToString } from "../../utils/formatDateToString";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
