@@ -270,7 +270,7 @@ export function resolvePath<
         );
       }
 
-      if (!resolvedSource[part]) {
+      if (resolvedSource[part] === undefined) {
         throw Error(
           `Invalid path: object source did not have key ${part} from path: ${path}`,
         );
