@@ -12,6 +12,8 @@ import fakeModules from "./fakeContent/val.modules";
 import { Remote } from "../utils/Remote";
 import { Patch } from "@valbuild/core/patch";
 import { PatchSets, SerializedPatchSet } from "../utils/PatchSet";
+import FlexSearch from "flexsearch";
+import { createSearchIndex, search } from "../search";
 
 const UIContext = React.createContext<{
   getSchemasByModuleFilePath: () => Promise<
@@ -65,9 +67,15 @@ async function getFakeModuleDefs() {
       return module.def().then((module) => module.default);
     }),
   );
-  const test = {};
+  const test: Record<
+    ModuleFilePath,
+    {
+      source: Json;
+      schema?: SerializedSchema;
+    }
+  > = {};
   for (const moduleDef of moduleDefs) {
-    const path = Internal.getValPath(moduleDef);
+    const path = Internal.getValPath(moduleDef) as unknown as ModuleFilePath;
     if (!path) {
       throw new Error("No path found for module");
     }
@@ -76,8 +84,33 @@ async function getFakeModuleDefs() {
       schema: Internal.getSchema(moduleDef)?.serialize(),
     };
   }
-  console.log(test);
   return moduleDefs;
+}
+
+async function getFakeSearchData() {
+  const moduleDefs = await Promise.all(
+    fakeModules.modules.map(async (module) => {
+      return module.def().then((module) => module.default);
+    }),
+  );
+  const test: Record<
+    ModuleFilePath,
+    {
+      source: Json;
+      schema: SerializedSchema;
+    }
+  > = {};
+  for (const moduleDef of moduleDefs) {
+    const path = Internal.getValPath(moduleDef) as unknown as ModuleFilePath;
+    if (!path) {
+      throw new Error("No path found for module");
+    }
+    test[path] = {
+      source: Internal.getSource(moduleDef),
+      schema: Internal.getSchema(moduleDef)!.serialize(),
+    };
+  }
+  return test;
 }
 
 export function UIProvider({ children }: { children: React.ReactNode }) {
@@ -599,37 +632,109 @@ export type SearchResult = {
   sourcePath: SourcePath;
 };
 export function useSearchResults(params: {
-  type?: "error" | "change";
-  filter?: string;
+  query: string;
+  patches: PatchId[]; // TODO: use patches
 }): Remote<SearchResult[]> {
-  const allSources = useAllModuleSources();
+  const [allSourcesAndSchemas, setAllSourcesAndSchemas] = useState<
+    Remote<Record<ModuleFilePath, { source: Json; schema: SerializedSchema }>>
+  >({
+    status: "not-asked",
+  });
 
-  useMemo(() => {}, [allSources, params]);
-  return [];
+  const [index, setIndex] = useState<Remote<FlexSearch.Index>>({
+    status: "not-asked",
+  });
+
+  useEffect(() => {
+    setAllSourcesAndSchemas({ status: "loading" });
+    getFakeSearchData()
+      .then((data) => {
+        setAllSourcesAndSchemas({
+          status: "success",
+          data: data,
+        });
+      })
+      .catch((err) => {
+        setAllSourcesAndSchemas({
+          status: "error",
+          error: err.message,
+        });
+      });
+  }, []);
+
+  useEffect(() => {
+    if (allSourcesAndSchemas.status === "success") {
+      try {
+        setIndex({ status: "loading" });
+        const index = createSearchIndex(allSourcesAndSchemas.data);
+        setIndex({
+          status: "success",
+          data: index,
+        });
+      } catch (err) {
+        setIndex({
+          status: "error",
+          error: err instanceof Error ? err.message : JSON.stringify(err),
+        });
+      }
+    }
+  }, [allSourcesAndSchemas]);
+
+  const [results, setResults] = useState<Remote<SearchResult[]>>({
+    status: "not-asked",
+  });
+
+  useEffect(() => {
+    if (params.query === "") {
+      setResults({
+        status: "success",
+        data: [],
+      });
+    } else if (
+      index.status === "success" &&
+      allSourcesAndSchemas.status === "success" &&
+      params.query
+    ) {
+      const results: SearchResult[] = search(index.data, params.query).map(
+        (result) => {
+          const [moduleFilePath, modulePath] =
+            Internal.splitModuleFilePathAndModulePath(result);
+          const schema = allSourcesAndSchemas.data[moduleFilePath].schema;
+          const source = allSourcesAndSchemas.data[moduleFilePath].source;
+          const { schema: schemaAtPath } = Internal.resolvePath(
+            modulePath,
+            source,
+            schema,
+          );
+          return {
+            schemaType: schemaAtPath.type,
+            sourcePath: result,
+          };
+        },
+      );
+      setResults({
+        status: "success",
+        data: results,
+      });
+    } else if (index.status === "error") {
+      setResults({
+        status: "error",
+        error: index.error,
+      });
+    } else if (allSourcesAndSchemas.status === "error") {
+      setResults({
+        status: "error",
+        error: allSourcesAndSchemas.error,
+      });
+    } else if (
+      allSourcesAndSchemas.status !== "success" ||
+      index.status !== "success"
+    ) {
+      setResults({
+        status: "loading",
+      });
+    }
+  }, [index, allSourcesAndSchemas, params.query]);
+
+  return results;
 }
-
-// TODO: not the optimal way of searching
-async function getAllSourcePaths(
-  sources: Record<ModuleFilePath, Json>,
-  params: {
-    type?: "error" | "change";
-    filter?: string;
-  },
-): RemoteUpdating<SourcePath[]> {}
-
-type RemoteUpdating<T> =
-  | {
-      status: "not-asked";
-    }
-  | {
-      status: "loading";
-    }
-  | {
-      status: "complete";
-      data: T;
-    }
-  | { status: "updating"; data: T }
-  | {
-      status: "error";
-      error: string;
-    };

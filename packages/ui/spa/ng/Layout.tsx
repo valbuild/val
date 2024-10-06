@@ -251,7 +251,7 @@ function HeaderCenter() {
           type: "change",
           filter: query.replace("@change", "").trim(),
         });
-      } else if (query.trim()) {
+      } else {
         setSearch({ filter: query.trim() });
       }
     }, 250);
@@ -375,7 +375,6 @@ function Center() {
 }
 
 function SearchFields({
-  type,
   sourcePath,
   filter,
 }: {
@@ -384,11 +383,22 @@ function SearchFields({
   filter?: string;
 }) {
   const results = useSearchResults({
-    type,
-    filter,
-    sourcePath,
+    query: (sourcePath || "") + " " + (filter || ""),
+    patches: [], // TODO: get patches
   });
-  return <div className="flex flex-col gap-10 pt-4"></div>;
+  if (results.status === "error") {
+    throw new Error(results.error);
+  }
+  if (results.status !== "success") {
+    return <Loading />;
+  }
+  return (
+    <div className="flex flex-col gap-10 pt-4">
+      {results.data.map((result) => {
+        return <SearchField key={result.sourcePath} path={result.sourcePath} />;
+      })}
+    </div>
+  );
 }
 function SearchField({ path }: { path: SourcePath }) {
   const res = useModuleSourceAndSchema(path);
@@ -512,11 +522,22 @@ function CompressedPath({
   moduleFilePath: ModuleFilePath;
   modulePath: ModulePath;
 }) {
-  const moduleFilePathParts = moduleFilePath.split("/");
-  const modulePathParts = modulePath.split(".");
+  const moduleFilePathParts = moduleFilePath.split("/"); // TODO: create a function to split module file paths properly
+  const modulePathParts = Internal.splitModulePath(modulePath);
+  const { navigate } = useNavigation();
   return (
-    <>
-      <span className="inline-block w-1/2 truncate">
+    <div
+      title={Internal.joinModuleFilePathAndModulePath(
+        moduleFilePath,
+        modulePath,
+      )}
+    >
+      <button
+        className="inline-block w-1/2 text-left truncate"
+        onClick={() => {
+          navigate(moduleFilePath);
+        }}
+      >
         {moduleFilePathParts.map((part, i) => (
           <Fragment key={`${part}-${i}`}>
             <span
@@ -534,8 +555,18 @@ function CompressedPath({
             )}
           </Fragment>
         ))}
-      </span>
-      <span className="inline-block w-1/2 truncate">
+      </button>
+      <button
+        className="inline-block w-1/2 text-left truncate"
+        onClick={() => {
+          navigate(
+            Internal.joinModuleFilePathAndModulePath(
+              moduleFilePath,
+              modulePath,
+            ),
+          );
+        }}
+      >
         {modulePathParts.map((part, i) => (
           <Fragment key={`${part}-${i}`}>
             <span className="text-muted">/</span>
@@ -544,12 +575,12 @@ function CompressedPath({
                 "text-muted": i === modulePathParts.length - 2,
               })}
             >
-              {prettifyFilename(JSON.parse(part))}
+              {prettifyFilename(part)}
             </span>
           </Fragment>
         ))}
-      </span>
-    </>
+      </button>
+    </div>
   );
 }
 
