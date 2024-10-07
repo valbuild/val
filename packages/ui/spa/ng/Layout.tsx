@@ -22,7 +22,6 @@ import {
 } from "@valbuild/core";
 import { Module } from "./components/Module";
 import {
-  UIProvider,
   useSchemas,
   useModuleSource,
   useNavigation,
@@ -30,7 +29,6 @@ import {
   useErrors,
   useSearch,
   useModuleSourceAndSchema,
-  useAllModuleSources,
   usePatchSets,
   Author as AuthorT,
   useSearchResults,
@@ -39,7 +37,6 @@ import { ScrollArea } from "../components/ui/scroll-area";
 import { PathNode, pathTree } from "../utils/pathTree";
 import { fixCapitalization } from "../utils/fixCapitalization";
 import { Remote } from "../utils/Remote";
-import { convertPatchPathToModulePath } from "../utils/convertPatchPathToModulePath";
 import { Field } from "./components/Field";
 import { relativeLocalDate } from "../utils/relativeLocalDate";
 import { AnimateHeight } from "./components/AnimateHeight";
@@ -47,25 +44,20 @@ import { Checkbox } from "../components/ui/checkbox";
 
 export function Layout() {
   return (
-    <UIProvider>
-      {/* <div className="absolute top-0 left-0 w-full min-h-screen"> */}
-      <main className="bg-bg-primary">
-        <div className="fixed top-4 left-4 w-[320px] hidden md:block">
-          <HeaderLeft />
-          <Left />
-        </div>
-        <div className="mx-auto w-full md:w-[calc(100%-320*2px)] max-w-[600px] min-h-screen">
-          <HeaderCenter />
-          <Center />
-        </div>
-        <div className="fixed top-4 right-4 w-[320px] hidden md:block">
-          <HeaderRight />
-          <Right />
-        </div>
-      </main>
-      {/* <LayoutBackground /> */}
-      {/* </div> */}
-    </UIProvider>
+    <main className="bg-bg-primary">
+      <div className="fixed top-4 left-4 w-[320px] hidden md:block">
+        <HeaderLeft />
+        <Left />
+      </div>
+      <div className="mx-auto w-full md:w-[calc(100%-320*2px)] max-w-[600px] min-h-screen">
+        <HeaderCenter />
+        <Center />
+      </div>
+      <div className="fixed top-4 right-4 w-[320px] hidden md:block">
+        <HeaderRight />
+        <Right />
+      </div>
+    </main>
   );
 }
 
@@ -655,7 +647,7 @@ function PendingChanges() {
                   Internal.patchPathToModulePath(op.path),
                 ),
                 patchId,
-                created_at: patchMetadata.created_at,
+                created_at: patchMetadata.createdAt,
                 author: patchMetadata.author,
               });
             }
@@ -678,11 +670,11 @@ function PendingChanges() {
               }
             }
             if (!updatedAt) {
-              updatedAt = patch.created_at;
+              updatedAt = patch.createdAt;
             } else {
               // assumes that comparing iso datetime strings works
               updatedAt =
-                patch.created_at > updatedAt ? patch.created_at : updatedAt;
+                patch.createdAt > updatedAt ? patch.createdAt : updatedAt;
             }
             for (const op of patch.patch) {
               const { title, subTitle } = getTitles(moduleFilePath, op.path);
@@ -696,7 +688,7 @@ function PendingChanges() {
                 type: op.op,
                 author: patch.author,
                 patchId: patchId,
-                created_at: patch.created_at,
+                created_at: patch.createdAt,
               });
             }
             patchSetSubItems.sort((a, b) => {

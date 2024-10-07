@@ -88,7 +88,7 @@ function FieldChanges({ patches }: { patches: Remote<PatchWithMetadata[]> }) {
   const now = useMemo(() => new Date(), []);
   if (patches.status === "success" && patches.data.length > 0) {
     const lastDate = patches.data
-      .map((patch) => new Date(patch.created_at))
+      .map((patch) => new Date(patch.createdAt))
       .sort()?.[0]
       ?.toISOString();
     const author = patches.data.map((patch) => patch.author)[0]; // TODO: create multiple overlapping avatar images
