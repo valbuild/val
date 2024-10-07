@@ -1,9 +1,14 @@
 import type { Meta } from "@storybook/react";
 import { Layout } from "./Layout";
+import { UIProvider } from "./UIProvider";
+import { ValClient } from "@valbuild/shared/internal";
 const meta: Meta = { title: "Next Gen" };
 
 export default meta;
 
+const fakeClient: ValClient = (route, method, params) => {
+  throw new Error("Not implemented");
+};
 export const Test1 = {
   render: () => (
     <>
@@ -22,7 +27,9 @@ export const Test1 = {
         rel="stylesheet"
       ></link>
       <div className="font-[Urbanist]">
-        <Layout />
+        <UIProvider client={fakeClient}>
+          <Layout />
+        </UIProvider>
       </div>
     </>
   ),

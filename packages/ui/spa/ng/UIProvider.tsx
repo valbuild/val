@@ -14,16 +14,9 @@ import { Patch } from "@valbuild/core/patch";
 import { PatchSets, SerializedPatchSet } from "../utils/PatchSet";
 import FlexSearch from "flexsearch";
 import { createSearchIndex, search } from "../search";
+import { ValClient } from "@valbuild/shared/internal";
 
 const UIContext = React.createContext<{
-  getSchemasByModuleFilePath: () => Promise<
-    Record<ModuleFilePath, SerializedSchema>
-  >;
-  getSourceContent: (moduleFilePath: ModuleFilePath) => Promise<Json>;
-  currentSourcePath: SourcePath | ModuleFilePath | null;
-  navigate: (path: SourcePath | ModuleFilePath) => void;
-  isPublishing: boolean;
-  setIsPublishing: (isPublishing: boolean) => void;
   search:
     | false
     | {
@@ -41,20 +34,6 @@ const UIContext = React.createContext<{
         },
   ) => void;
 }>({
-  getSchemasByModuleFilePath: (): never => {
-    throw new Error("UIContext not provided");
-  },
-  getSourceContent: (): never => {
-    throw new Error("UIContext not provided");
-  },
-  currentSourcePath: null,
-  navigate: () => {
-    throw new Error("UIContext not provided");
-  },
-  isPublishing: false,
-  setIsPublishing: () => {
-    throw new Error("UIContext not provided");
-  },
   search: false,
   setSearch: () => {
     throw new Error("UIContext not provided");
@@ -113,62 +92,171 @@ async function getFakeSearchData() {
   return test;
 }
 
-export function UIProvider({ children }: { children: React.ReactNode }) {
-  const [currentSourcePath, setSourcePath] = useState<
-    SourcePath | ModuleFilePath | null
-  >('/content/projects.val.ts?p="aidn"' as SourcePath); // TODO: just testing out /content/basic.val.ts for now
-  // just fake state:
-  const [isPublishing, setIsPublishing] = useState(false);
+/**
+ * Use this for remote data that can be updated (is changing).
+ * Use Remote for data that requires a refresh to update
+ */
+export type UpdatingRemote<T> =
+  | {
+      status: "not-asked";
+    }
+  | {
+      status: "initializing";
+    }
+  | {
+      status: "success";
+      data: T;
+    }
+  | {
+      status: "updating";
+      data: T;
+    }
+  | {
+      status: "error";
+      error: string;
+    };
+export function UIProvider({
+  children,
+  client,
+  statInterval,
+}: {
+  children: React.ReactNode;
+  client: ValClient;
+  statInterval?: number;
+}) {
   const [search, setSearch] = useState<
     false | { type?: "error" | "change"; query?: string }
   >(false);
+  const [schemaSha, setSchemaSha] = useState<string | null>(null); // reset schemas and sources if this is null
+  const [schemas, setSchemas] = useState<
+    Remote<Record<ModuleFilePath, SerializedSchema>>
+  >({
+    status: "not-asked",
+  });
+  const [sources, setSources] = useState<
+    Record<ModuleFilePath, UpdatingRemote<Json>>
+  >({});
+  const [patchData, setPatchData] = useState<
+    Record<PatchId, Remote<PatchWithMetadata>>
+  >({});
+  const [errors, setErrors] = useState<
+    Record<SourcePath, UpdatingRemote<ValError[]>>
+  >({});
+  const [stat, setStat] = useState<
+    UpdatingRemote<{
+      // TODO:
+      // deployments: Record<
+      //   ModuleFilePath,
+      //   {
+      //     status: "deployed" | "deploying" | "failed";
+      //     id: string;
+      //   }[]
+      // >;
+      patches: Record<ModuleFilePath, PatchId[]>;
+    }>
+  >({
+    status: "not-asked",
+  });
+
+  useEffect(() => {
+    if (schemaSha === null) {
+      setSchemas({ status: "loading" });
+      client("/schema", "GET", {})
+        .then((res) => {
+          if (res.status === 200) {
+            const sources: Record<ModuleFilePath, UpdatingRemote<Json>> = {};
+            const schemas: Record<ModuleFilePath, SerializedSchema> = {};
+            setSchemaSha(res.json.schemaSha);
+            for (const moduleFilePathS in res.json.schemas) {
+              const moduleFilePath = moduleFilePathS as ModuleFilePath;
+              const schema = res.json.schemas[moduleFilePath];
+              if (schema) {
+                schemas[moduleFilePath] = schema;
+                sources[moduleFilePath] = { status: "not-asked" };
+              }
+            }
+            setSources(sources);
+            setSchemas({
+              status: "success",
+              data: schemas,
+            });
+          }
+        })
+        .catch((err) => {
+          setSchemas({ status: "error", error: err.message });
+        });
+    }
+  }, [schemaSha]);
+
+  useEffect(() => {
+    if (schemaSha !== null) {
+      let timeout: NodeJS.Timeout | null = null;
+      const statHandler = () => {
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+        // we are anticipating that the patches endpoints will be split into different endpoints:
+        // one (/stat), which will return the current patch ids (and the schema sha, base sha and deployments). This could be a long-polling endpoint which will be started every time the last one is finished, but which will hold the connection until there is a change. If it times out or fails some other way we also start it again. Why long-polling and not websocket: nextjs does not support websockets. We could use websockets if we decide to not go through the web server.
+        // another to get the actual metadata for a set of patch ids (/patches)
+        // and then another to get the actual deployment metadata of a set of deployment ids (/deployments)
+        client("/patches/~", "GET", {
+          query: {
+            author: undefined,
+            patch_id: undefined,
+            module_file_path: undefined,
+            omit_patch: true,
+          },
+        })
+          .then((res) => {
+            if (res.status === 200) {
+              const patches: Record<ModuleFilePath, PatchId[]> = {};
+              const sources: Record<ModuleFilePath, UpdatingRemote<Json>> = {};
+              for (const patchIdS in res.json.patches) {
+                const patchId = patchIdS as RealPatchId;
+                const patch = res.json.patches[patchId];
+                const moduleFilePath = patch?.path;
+                if (moduleFilePath) {
+                  if (!patches[moduleFilePath]) {
+                    patches[moduleFilePath] = [];
+                  }
+                  patches[moduleFilePath].push(patchId);
+                  sources[moduleFilePath] = { status: "not-asked" }; // reset sources
+                }
+              }
+              setSources(sources);
+              setStat({
+                status: "success",
+                data: {
+                  patches: patches,
+                },
+              });
+            } else {
+              setStat({
+                status: "error",
+                error: res.json.message,
+              });
+            }
+          })
+          .finally(() => {
+            if (statInterval) {
+              timeout = setTimeout(statHandler, statInterval);
+            }
+          });
+      };
+      statHandler();
+    }
+  }, [statInterval, schemaSha]);
+
   return (
     <UIContext.Provider
       value={{
-        isPublishing,
-        setIsPublishing,
+        stat,
+        schemas,
+        sources,
+        patchData,
+        errors,
         search,
         setSearch,
-        currentSourcePath,
-        navigate: (sourcePath) => {
-          setSearch(false);
-          setSourcePath(sourcePath);
-        },
-        getSourceContent: async (
-          moduleFilePath: ModuleFilePath,
-        ): Promise<Json> => {
-          const moduleDefs = await getFakeModuleDefs();
-
-          const moduleDef = moduleDefs.find((module) => {
-            const path = Internal.getValPath(module);
-            return path === (moduleFilePath as unknown as SourcePath);
-          });
-
-          if (!moduleDef) {
-            throw new Error("Module not found");
-          }
-          return Internal.getSource(moduleDef) as Json;
-        },
-        getSchemasByModuleFilePath: async () => {
-          const moduleDefs = await getFakeModuleDefs();
-          const schemaByModuleFilePath: Record<
-            ModuleFilePath,
-            SerializedSchema
-          > = {};
-          for (const module of moduleDefs) {
-            const schema = Internal.getSchema(module);
-            const path = Internal.getValPath(module);
-            if (!path) {
-              throw new Error("No path found for module");
-            }
-            if (!schema) {
-              throw new Error("No schema found for module: " + path);
-            }
-            schemaByModuleFilePath[path as unknown as ModuleFilePath] =
-              schema.serialize();
-          }
-          return schemaByModuleFilePath;
-        },
       }}
     >
       {children}
@@ -311,13 +399,13 @@ export function useAllModuleSources(): Remote<Record<ModuleFilePath, Json>> {
 const fakePatches: Record<string, PatchWithMetadata[]> = {
   "/content/employees/employeeList.val.ts": [
     {
-      patch_id: "1",
+      patchId: "1",
       author: {
         id: "1",
         name: "Fredrik Ekholdt",
         avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
       },
-      created_at: "2024-08-12T12:00:00Z",
+      createdAt: "2024-08-12T12:00:00Z",
       patch: [
         {
           op: "replace",
@@ -327,13 +415,13 @@ const fakePatches: Record<string, PatchWithMetadata[]> = {
       ],
     },
     {
-      patch_id: "2",
+      patchId: "2",
       author: {
         id: "1",
         name: "Fredrik Ekholdt",
         avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
       },
-      created_at: "2024-09-01T12:00:00Z",
+      createdAt: "2024-09-01T12:00:00Z",
       patch: [
         {
           op: "replace",
@@ -343,13 +431,13 @@ const fakePatches: Record<string, PatchWithMetadata[]> = {
       ],
     },
     {
-      patch_id: "5",
+      patchId: "5",
       author: {
         id: "1",
         name: "Fredrik Ekholdt",
         avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
       },
-      created_at: "2024-09-07T12:00:00Z",
+      createdAt: "2024-09-07T12:00:00Z",
       patch: [
         {
           op: "replace",
@@ -359,13 +447,13 @@ const fakePatches: Record<string, PatchWithMetadata[]> = {
       ],
     },
     {
-      patch_id: "3",
+      patchId: "3",
       author: {
         id: "1",
         name: "Fredrik Ekholdt",
         avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
       },
-      created_at: "2024-09-07T12:00:00Z",
+      createdAt: "2024-09-07T12:00:00Z",
       patch: [
         {
           op: "replace",
@@ -390,10 +478,11 @@ type PatchId = string;
 // The UI probably needs render grouped patches, should that be done client side or server side?
 // Pros: client side makes the API more stable, cons: slower UI? Does it even matter?
 export type PatchWithMetadata = {
-  patch_id: PatchId;
+  patchId: PatchId;
   patch: Patch;
   author: Author | null;
-  created_at: string;
+  createdAt: string;
+  error: string | null;
 };
 export function usePatches() {
   const [patches, setPatches] = useState<
@@ -448,14 +537,14 @@ export function usePatchSets() {
         const moduleFilePath = moduleFilePathS as ModuleFilePath;
         const { patches, source, schema } = data[moduleFilePath];
         for (const patch of patches) {
-          patchesById[patch.patch_id as PatchId] = patch;
+          patchesById[patch.patchId as PatchId] = patch;
           for (const op of patch.patch) {
             patchSets.insert(
               moduleFilePath,
               source,
               schema,
               op,
-              patch.patch_id as RealPatchId,
+              patch.patchId as RealPatchId,
             );
           }
         }
@@ -477,7 +566,7 @@ export function usePatchSets() {
         for (const moduleFilePathS in allPatches.data) {
           const moduleFilePath = moduleFilePathS as ModuleFilePath;
           for (const patch of allPatches.data[moduleFilePath]) {
-            res[patch.patch_id as RealPatchId] = patch;
+            res[patch.patchId as RealPatchId] = patch;
           }
         }
         return {
@@ -564,60 +653,26 @@ export function usePatchesOfPath(
   }, [path, patches]);
 }
 
-type DeploymentMetadata = {
-  patch_ids: PatchId[];
-  created_at: string;
-  created_by: {
-    name: string;
-    avatar: string;
-  };
-  triggered_by: "val" | "git-commit";
-};
-const fakeDeployments: DeploymentMetadata[] = [
-  {
-    patch_ids: ["1", "2", "3"],
-    created_at: new Date().toISOString(),
-    created_by: {
-      name: "Fredrik Ekholdt",
-      avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
-    },
-    triggered_by: "val",
-  },
-];
-export function useDeployments() {
-  const { isPublishing } = useValState();
-  const [deployments, setDeployments] = useState<Remote<DeploymentMetadata[]>>({
-    status: "not-asked",
-  });
-  useEffect(() => {
-    if (isPublishing) {
-      setDeployments({ status: "loading" });
-      setTimeout(() => {
-        setDeployments({
-          status: "success",
-          data: fakeDeployments,
-        });
-      }, 1000); // fake delay
-    }
-  }, [isPublishing]);
-  return { deployments, estimatedDeploymentDurationSeconds: 60 + 30 };
-}
-
-// TODO: do we want a central place where global state should be managed? That would make sense right?
-export function useValState() {
-  const { isPublishing, setIsPublishing } = useContext(UIContext);
-  return {
-    publish: () => {
-      if (!isPublishing) {
-        setIsPublishing(true);
-        setTimeout(() => {
-          setIsPublishing(false);
-        }, 5000); // fake delay
-      }
-    },
-    isPublishing,
-  };
-}
+// type DeploymentMetadata = {
+//   patch_ids: PatchId[];
+//   created_at: string;
+//   created_by: {
+//     name: string;
+//     avatar: string;
+//   };
+//   triggered_by: "val" | "git-commit";
+// };
+// const fakeDeployments: DeploymentMetadata[] = [
+//   {
+//     patch_ids: ["1", "2", "3"],
+//     created_at: new Date().toISOString(),
+//     created_by: {
+//       name: "Fredrik Ekholdt",
+//       avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
+//     },
+//     triggered_by: "val",
+//   },
+// ];
 
 export function useSearch() {
   const { search, setSearch } = useContext(UIContext);
