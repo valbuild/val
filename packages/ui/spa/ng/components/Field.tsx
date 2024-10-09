@@ -5,7 +5,7 @@ import {
   useErrorsOfPath,
   usePatchesOfPath,
   ValError,
-} from "../UIProvider";
+} from "../ValProvider";
 import { Remote } from "../../utils/Remote";
 import classNames from "classnames";
 import { ChevronDown, ChevronsDown, ShieldAlert } from "lucide-react";

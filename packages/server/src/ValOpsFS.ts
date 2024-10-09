@@ -15,6 +15,9 @@ import {
   bufferFromDataUrl,
   createMetadataFromBuffer,
   getFieldsForType,
+  CommitSha,
+  DeploymentsStatus,
+  SchemaSha,
 } from "./ValOps";
 import fsPath from "path";
 import ts from "typescript";
@@ -23,6 +26,7 @@ import fs from "fs";
 import { fromError } from "zod-validation-error";
 import { Patch } from "./patch/validation";
 import { guessMimeTypeFromPath } from "./ValServer";
+import chokidar from "chokidar";
 
 export class ValOpsFS extends ValOps {
   private static readonly VAL_DIR = ".val";
@@ -30,7 +34,7 @@ export class ValOpsFS extends ValOps {
   constructor(
     private readonly rootDir: string,
     valModules: ValModules,
-    options?: ValOpsOptions
+    options?: ValOpsOptions,
   ) {
     super(valModules, options);
     this.host = new FSOpsHost();
@@ -39,6 +43,18 @@ export class ValOpsFS extends ValOps {
   override async onInit(): Promise<void> {
     // do nothing
   }
+
+  private async getStat(params: {
+    baseSha: BaseSha;
+    schemaSha: SchemaSha;
+    patches: PatchId[];
+    deployments: Record<string, DeploymentsStatus>;
+  }): Promise<{
+    baseSha: BaseSha;
+    schemaSha: SchemaSha;
+    commitSha: CommitSha;
+    patches: PatchId[];
+  }> {}
 
   private async readPatches(includes?: PatchId[]): Promise<Patches> {
     const patchesCacheDir = this.getPatchesDir();
@@ -51,7 +67,7 @@ export class ValOpsFS extends ValOps {
         patchesCacheDir,
         ["patch.json"],
         [],
-        []
+        [],
       );
     }
     const patches: Patches["patches"] = {};
@@ -64,7 +80,7 @@ export class ValOpsFS extends ValOps {
       if (Number.isNaN(patchIdNum)) {
         throw new Error(
           "Could not parse patch id from file name. Files found: " +
-            patchJsonFiles.join(", ")
+            patchJsonFiles.join(", "),
         );
       }
       const patchId = patchIdNum.toString() as PatchId;
@@ -73,14 +89,14 @@ export class ValOpsFS extends ValOps {
       }
       const parsedFSPatchRes = this.parseJsonFile(
         this.getPatchFilePath(patchId),
-        FSPatch
+        FSPatch,
       );
 
       let parsedFSPatchBaseRes = undefined;
       if (this.host.fileExists(this.getPatchBaseFile(patchId))) {
         parsedFSPatchBaseRes = this.parseJsonFile(
           this.getPatchBaseFile(patchId),
-          FSPatchBase
+          FSPatchBase,
         );
       }
       if (parsedFSPatchRes.error) {
@@ -126,7 +142,7 @@ export class ValOpsFS extends ValOps {
       (OmitPatch extends true ? PatchesMetadata : Patches)["errors"]
     > = {};
     const { errors: allErrors, patches: allPatches } = await this.readPatches(
-      filters.patchIds
+      filters.patchIds,
     );
     for (const [patchIdS, patch] of Object.entries(allPatches)) {
       const patchId = patchIdS as PatchId;
@@ -165,7 +181,7 @@ export class ValOpsFS extends ValOps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private parseJsonFile<T = any>(
     filePath: string,
-    parser?: z.ZodType<T>
+    parser?: z.ZodType<T>,
   ):
     | { data: T; error?: undefined }
     | { error: GenericErrorMessage & { filePath: string } } {
@@ -219,7 +235,7 @@ export class ValOpsFS extends ValOps {
         return {
           error: {
             message: `Could not parse file: ${filePath}. Details: ${JSON.stringify(
-              fromError(parsed.error).toString()
+              fromError(parsed.error).toString(),
             )}`,
             details: parsed.error,
             filePath,
@@ -253,13 +269,13 @@ export class ValOpsFS extends ValOps {
   protected override async saveSourceFilePatch(
     path: ModuleFilePath,
     patch: Patch,
-    authorId: AuthorId | null
+    authorId: AuthorId | null,
   ): Promise<WithGenericError<{ patchId: PatchId }>> {
     let fileId = Date.now();
     try {
       while (
         this.host.fileExists(
-          this.getPatchFilePath(fileId.toString() as PatchId)
+          this.getPatchFilePath(fileId.toString() as PatchId),
         )
       ) {
         // ensure unique file / patch id
@@ -275,7 +291,7 @@ export class ValOpsFS extends ValOps {
       };
       this.host.writeUf8File(
         this.getPatchFilePath(patchId),
-        JSON.stringify(data)
+        JSON.stringify(data),
       );
       return { patchId };
     } catch (err) {
@@ -287,7 +303,7 @@ export class ValOpsFS extends ValOps {
   }
 
   protected override async getSourceFile(
-    path: ModuleFilePath
+    path: ModuleFilePath,
   ): Promise<WithGenericError<{ data: string }>> {
     const filePath = fsPath.join(this.rootDir, path);
     if (!this.host.fileExists(filePath)) {
@@ -302,7 +318,7 @@ export class ValOpsFS extends ValOps {
 
   protected async saveSourceFile(
     path: ModuleFilePath,
-    data: string
+    data: string,
   ): Promise<WithGenericError<{ path: ModuleFilePath }>> {
     const filePath = fsPath.join(this.rootDir, ...path.split("/"));
     try {
@@ -321,7 +337,7 @@ export class ValOpsFS extends ValOps {
     patchId: PatchId,
     data: string,
     _type: BinaryFileType,
-    metadata: MetadataOfType<BinaryFileType>
+    metadata: MetadataOfType<BinaryFileType>,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
     const patchFilePath = this.getBinaryFilePath(filePath, patchId);
     const metadataFilePath = this.getBinaryFileMetadataPath(filePath, patchId);
@@ -348,7 +364,7 @@ export class ValOpsFS extends ValOps {
   }
 
   protected override async getBase64EncodedBinaryFileMetadataFromPatch<
-    T extends BinaryFileType
+    T extends BinaryFileType,
   >(filePath: string, type: T, patchId: PatchId): Promise<OpsMetadata<T>> {
     const metadataFilePath = this.getBinaryFileMetadataPath(filePath, patchId);
     if (!this.host.fileExists(metadataFilePath)) {
@@ -358,7 +374,7 @@ export class ValOpsFS extends ValOps {
     }
     const metadataParseRes = this.parseJsonFile(
       metadataFilePath,
-      z.record(z.union([z.string(), z.number()]))
+      z.record(z.union([z.string(), z.number()])),
     );
     if (metadataParseRes.error) {
       return { errors: [metadataParseRes.error] };
@@ -382,7 +398,7 @@ export class ValOpsFS extends ValOps {
 
   override async getBase64EncodedBinaryFileFromPatch(
     filePath: string,
-    patchId: PatchId
+    patchId: PatchId,
   ): Promise<Buffer | null> {
     const absPath = this.getBinaryFilePath(filePath, patchId);
 
@@ -430,7 +446,7 @@ export class ValOpsFS extends ValOps {
       {};
 
     for (const [filePath, data] of Object.entries(
-      preparedCommit.patchedSourceFiles
+      preparedCommit.patchedSourceFiles,
     )) {
       const absPath = fsPath.join(this.rootDir, ...filePath.split("/"));
       try {
@@ -445,7 +461,7 @@ export class ValOpsFS extends ValOps {
     }
 
     for (const [filePath, { patchId }] of Object.entries(
-      preparedCommit.patchedBinaryFilesDescriptors
+      preparedCommit.patchedBinaryFilesDescriptors,
     )) {
       const absPath = fsPath.join(this.rootDir, ...filePath.split("/"));
       try {
@@ -491,7 +507,7 @@ export class ValOpsFS extends ValOps {
 
   protected override async getBinaryFileMetadata<T extends BinaryFileType>(
     filePath: string,
-    type: T
+    type: T,
   ): Promise<OpsMetadata<T>> {
     const buffer = await this.getBinaryFile(filePath);
     if (!buffer) {
@@ -505,7 +521,7 @@ export class ValOpsFS extends ValOps {
         errors: [
           {
             message: `Could not guess mime type of file ext: ${fsPath.extname(
-              filePath
+              filePath,
             )}`,
             filePath,
           },
@@ -529,7 +545,7 @@ export class ValOpsFS extends ValOps {
       this.getPatchDir(patchId),
       "files",
       filename,
-      fsPath.basename(filename)
+      fsPath.basename(filename),
     );
   }
 
@@ -538,7 +554,7 @@ export class ValOpsFS extends ValOps {
       this.getPatchDir(patchId),
       "files",
       filename,
-      "metadata.json"
+      "metadata.json",
     );
   }
 
@@ -571,7 +587,7 @@ class FSOpsHost {
     path: string,
     extensions: readonly string[],
     exclude: readonly string[],
-    include: readonly string[]
+    include: readonly string[],
   ): readonly string[] {
     return ts.sys.readDirectory(path, extensions, exclude, include);
   }
@@ -609,7 +625,7 @@ const FSPatch = z.object({
     .string()
     .refine(
       (p): p is ModuleFilePath => p.startsWith("/") && p.includes(".val."),
-      "Path is not valid. Must start with '/' and include '.val.'"
+      "Path is not valid. Must start with '/' and include '.val.'",
     ),
   patch: Patch,
   authorId: z

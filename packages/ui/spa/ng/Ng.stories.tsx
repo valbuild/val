@@ -1,6 +1,6 @@
 import type { Meta } from "@storybook/react";
 import { Layout } from "./Layout";
-import { UIProvider } from "./UIProvider";
+import { ValProvider } from "./ValProvider";
 import { ValClient } from "@valbuild/shared/internal";
 const meta: Meta = { title: "Next Gen" };
 
@@ -27,9 +27,9 @@ export const Test1 = {
         rel="stylesheet"
       ></link>
       <div className="font-[Urbanist]">
-        <UIProvider client={fakeClient}>
+        <ValProvider client={fakeClient}>
           <Layout />
-        </UIProvider>
+        </ValProvider>
       </div>
     </>
   ),

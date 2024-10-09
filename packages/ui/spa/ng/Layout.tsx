@@ -32,7 +32,7 @@ import {
   usePatchSets,
   Author as AuthorT,
   useSearchResults,
-} from "./UIProvider";
+} from "./ValProvider";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { PathNode, pathTree } from "../utils/pathTree";
 import { fixCapitalization } from "../utils/fixCapitalization";
