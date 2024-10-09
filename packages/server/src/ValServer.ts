@@ -23,9 +23,11 @@ import { z } from "zod";
 import { ValOpsFS } from "./ValOpsFS";
 import {
   AuthorId,
+  BaseSha,
   GenericErrorMessage,
   PatchAnalysis,
   PatchSourceError,
+  SchemaSha,
   Sources,
 } from "./ValOps";
 import { fromError } from "zod-validation-error";
@@ -521,16 +523,22 @@ export const ValServer = (
             },
           };
         }
-        const currentStat = await serverOps.getStat(req.body);
-
+        const currentStat = await serverOps.getStat(
+          req.body as {
+            baseSha: BaseSha;
+            schemaSha: SchemaSha;
+            patches?: PatchId[];
+          } | null,
+        );
+        if (currentStat.type === "error") {
+          return {
+            status: 500,
+            json: currentStat.error,
+          };
+        }
         return {
           status: 200,
-          json: {
-            baseSha: currentStat.baseSha,
-            schemaSha: currentStat.schemaSha,
-            deployments: currentStat.deployments,
-            patches: currentStat.patches,
-          },
+          json: currentStat,
         };
       },
     },

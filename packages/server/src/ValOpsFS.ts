@@ -15,9 +15,8 @@ import {
   bufferFromDataUrl,
   createMetadataFromBuffer,
   getFieldsForType,
-  CommitSha,
-  DeploymentsStatus,
   SchemaSha,
+  CommitSha,
 } from "./ValOps";
 import fsPath from "path";
 import ts from "typescript";
@@ -27,6 +26,8 @@ import { fromError } from "zod-validation-error";
 import { Patch } from "./patch/validation";
 import { guessMimeTypeFromPath } from "./ValServer";
 import chokidar from "chokidar";
+
+let watcher: chokidar.FSWatcher | null = null;
 
 export class ValOpsFS extends ValOps {
   private static readonly VAL_DIR = ".val";
@@ -44,17 +45,101 @@ export class ValOpsFS extends ValOps {
     // do nothing
   }
 
-  private async getStat(params: {
-    baseSha: BaseSha;
-    schemaSha: SchemaSha;
-    patches: PatchId[];
-    deployments: Record<string, DeploymentsStatus>;
-  }): Promise<{
-    baseSha: BaseSha;
-    schemaSha: SchemaSha;
-    commitSha: CommitSha;
-    patches: PatchId[];
-  }> {}
+  async getStat(
+    params: {
+      baseSha: BaseSha;
+      schemaSha: SchemaSha;
+      patches: PatchId[];
+    } | null,
+  ): Promise<
+    | {
+        type: "request-again" | "no-change" | "did-change";
+        baseSha: BaseSha;
+        schemaSha: SchemaSha;
+        patches: PatchId[];
+      }
+    | {
+        type: "use-websocket";
+        url: string;
+        baseSha: BaseSha;
+        schemaSha: SchemaSha;
+        commitSha: CommitSha;
+      }
+    | { type: "error"; error: GenericErrorMessage }
+  > {
+    // In ValOpsFS, we don't have a websocket server to listen to file changes so we use long-polling.
+    // If a file that Val depends on changes, we break the connection and tell the client to request again to get the latest values.
+    try {
+      const currentBaseSha = await this.getBaseSha();
+      const currentSchemaSha = await this.getSchemaSha();
+      const patchData = await this.readPatches();
+      const patches: PatchId[] = [];
+      // TODO: use proper patch sequences when available:
+      for (const [patchId] of Object.entries(patchData.patches).sort(
+        ([, a], [, b]) => {
+          return a.createdAt.localeCompare(b.createdAt, undefined);
+        },
+      )) {
+        patches.push(patchId as PatchId);
+      }
+      // something changed: return immediately
+      const didChange =
+        !params ||
+        currentBaseSha !== params.baseSha ||
+        currentSchemaSha !== params.schemaSha ||
+        patches.length !== params.patches.length ||
+        patches.some((p, i) => p !== params.patches[i]);
+      if (didChange) {
+        return {
+          type: "did-change",
+          baseSha: currentBaseSha,
+          schemaSha: currentSchemaSha,
+          patches,
+        };
+      }
+
+      const type = await Promise.race([
+        new Promise<"request-again">((resolve) => {
+          if (watcher) {
+            watcher.close();
+          }
+          watcher = chokidar
+            .watch(".", {
+              ignored: ["node_modules", ".git", ".next"],
+            })
+            .on("change", (path) => {
+              const isChange =
+                path.startsWith(this.getPatchesDir()) ||
+                path.endsWith(".val.ts") ||
+                path.endsWith(".val.js") ||
+                path.endsWith("val.config.ts") ||
+                path.endsWith("val.config.js") ||
+                path.endsWith("val.modules.ts") ||
+                path.endsWith("val.modules.js");
+              if (isChange) {
+                // a file that Val depends on just changed or a patch was created, break connection and request stat again to get the new values
+                resolve("request-again");
+              }
+            });
+        }),
+        new Promise<"no-change">((resolve) =>
+          setTimeout(() => resolve("no-change"), 5000),
+        ),
+      ]);
+
+      return {
+        type,
+        baseSha: currentBaseSha,
+        schemaSha: currentSchemaSha,
+        patches,
+      };
+    } catch (err) {
+      if (err instanceof Error) {
+        return { type: "error", error: { message: err.message } };
+      }
+      return { type: "error", error: { message: "Unknown error" } };
+    }
+  }
 
   private async readPatches(includes?: PatchId[]): Promise<Patches> {
     const patchesCacheDir = this.getPatchesDir();
@@ -73,10 +158,10 @@ export class ValOpsFS extends ValOps {
     const patches: Patches["patches"] = {};
     const errors: NonNullable<Patches["errors"]> = {};
 
-    const sortedPatchIds = patchJsonFiles
+    const edPatchIds = patchJsonFiles
       .map((file) => parseInt(fsPath.basename(fsPath.dirname(file)), 10))
       .sort();
-    for (const patchIdNum of sortedPatchIds) {
+    for (const patchIdNum of edPatchIds) {
       if (Number.isNaN(patchIdNum)) {
         throw new Error(
           "Could not parse patch id from file name. Files found: " +

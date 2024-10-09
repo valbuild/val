@@ -265,10 +265,9 @@ export const Api = {
           .object({
             schemaSha: z.string(),
             baseSha: z.string(),
-            sources: z.record(ModuleFilePath, z.string()),
-            patches: z.record(PatchId, z.string()),
+            patches: z.array(z.string()).optional(),
           })
-          .partial(),
+          .nullable(),
         cookies: {
           val_session: z.string().optional(),
         },
@@ -279,19 +278,30 @@ export const Api = {
           json: GenericError,
         }),
         z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+        z.object({
           status: z.literal(200),
-          json: z.object({
-            schemaSha: z.string(),
-            baseSha: z.string(),
-            deployments: z.record(
-              z.union([
-                z.literal("deploying"),
-                z.literal("deployed"),
-                z.literal("failed"),
+          json: z.union([
+            z.object({
+              type: z.union([
+                z.literal("request-again"),
+                z.literal("no-change"),
+                z.literal("did-change"),
               ]),
-            ),
-            patches: z.array(PatchId),
-          }),
+              baseSha: z.string(),
+              schemaSha: z.string(),
+              patches: z.array(PatchId),
+            }),
+            z.object({
+              type: z.literal("use-websocket"),
+              url: z.string(),
+              baseSha: z.string(),
+              schemaSha: z.string(),
+              commitSha: z.string(),
+            }),
+          ]),
         }),
       ]),
     },
