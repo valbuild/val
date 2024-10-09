@@ -15,8 +15,9 @@ import { PatchSets, SerializedPatchSet } from "../utils/PatchSet";
 import FlexSearch from "flexsearch";
 import { createSearchIndex, search } from "../search";
 import { ValClient } from "@valbuild/shared/internal";
+import { useValState } from "./useValState";
 
-const UIContext = React.createContext<{
+const ValContext = React.createContext<{
   search:
     | false
     | {
@@ -137,7 +138,7 @@ export function ValProvider({
     statInterval,
   );
   return (
-    <UIContext.Provider
+    <ValContext.Provider
       value={{
         stat,
         schemas,
@@ -149,12 +150,12 @@ export function ValProvider({
       }}
     >
       {children}
-    </UIContext.Provider>
+    </ValContext.Provider>
   );
 }
 
 export function useSchemas(): Remote<Record<ModuleFilePath, SerializedSchema>> {
-  const { getSchemasByModuleFilePath } = useContext(UIContext);
+  const { getSchemasByModuleFilePath } = useContext(ValContext);
   const [schemas, setSchemas] = useState<
     Remote<Record<ModuleFilePath, SerializedSchema>>
   >({
@@ -226,7 +227,7 @@ export function useModuleSourceAndSchema(path: SourcePath): Remote<{
 }
 
 export function useNavigation() {
-  const { navigate, currentSourcePath } = useContext(UIContext);
+  const { navigate, currentSourcePath } = useContext(ValContext);
   return {
     navigate,
     currentSourcePath,
@@ -236,7 +237,7 @@ export function useNavigation() {
 export function useModuleSource(
   moduleFilePath: ModuleFilePath | null,
 ): Remote<Json> {
-  const { getSourceContent } = useContext(UIContext);
+  const { getSourceContent } = useContext(ValContext);
   const [sourceContent, setSourceContent] = useState<Remote<Json>>({
     status: "not-asked",
   });
@@ -260,7 +261,7 @@ export function useModuleSource(
 
 export function useAllModuleSources(): Remote<Record<ModuleFilePath, Json>> {
   const { getSchemasByModuleFilePath, getSourceContent } =
-    useContext(UIContext);
+    useContext(ValContext);
   const [sources, setSources] = useState<Remote<Record<ModuleFilePath, Json>>>({
     status: "not-asked",
   });
@@ -285,74 +286,7 @@ export function useAllModuleSources(): Remote<Record<ModuleFilePath, Json>> {
 
 // #region Patches
 
-const fakePatches: Record<string, PatchWithMetadata[]> = {
-  "/content/employees/employeeList.val.ts": [
-    {
-      patchId: "1",
-      author: {
-        id: "1",
-        name: "Fredrik Ekholdt",
-        avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
-      },
-      createdAt: "2024-08-12T12:00:00Z",
-      patch: [
-        {
-          op: "replace",
-          path: ["fe", "name"],
-          value: 'Freddy "The Fish" Fish', // thx copilot
-        },
-      ],
-    },
-    {
-      patchId: "2",
-      author: {
-        id: "1",
-        name: "Fredrik Ekholdt",
-        avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
-      },
-      createdAt: "2024-09-01T12:00:00Z",
-      patch: [
-        {
-          op: "replace",
-          path: ["fe", "name"],
-          value: "Fredr",
-        },
-      ],
-    },
-    {
-      patchId: "5",
-      author: {
-        id: "1",
-        name: "Fredrik Ekholdt",
-        avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
-      },
-      createdAt: "2024-09-07T12:00:00Z",
-      patch: [
-        {
-          op: "replace",
-          path: ["mkd", "name"],
-          value: "Heia Magne!",
-        },
-      ],
-    },
-    {
-      patchId: "3",
-      author: {
-        id: "1",
-        name: "Fredrik Ekholdt",
-        avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
-      },
-      createdAt: "2024-09-07T12:00:00Z",
-      patch: [
-        {
-          op: "replace",
-          path: ["fe", "name"],
-          value: "k Ekholdt",
-        },
-      ],
-    },
-  ],
-};
+const fakePatches: Record<string, PatchWithMetadata[]> = {};
 
 export type Author = {
   id: string;
@@ -394,7 +328,7 @@ export function usePatches() {
 
 export function usePatchSets() {
   const { getSourceContent, getSchemasByModuleFilePath } =
-    useContext(UIContext);
+    useContext(ValContext);
   const [patchSets, setPatchSets] = useState<Remote<SerializedPatchSet>>({
     status: "not-asked",
   });
@@ -564,7 +498,7 @@ export function usePatchesOfPath(
 // ];
 
 export function useSearch() {
-  const { search, setSearch } = useContext(UIContext);
+  const { search, setSearch } = useContext(ValContext);
   return {
     search,
     setSearch,

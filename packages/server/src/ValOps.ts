@@ -57,8 +57,6 @@ const tsOps = new TSOps((document) => {
   );
 });
 
-export type DeploymentsStatus = "deployed" | "deploying" | "failed";
-
 export type ValOpsOptions = {
   formatter?: (code: string, filePath: string) => string | Promise<string>;
 };
@@ -96,17 +94,38 @@ export abstract class ValOps {
   }
 
   // #region stat
-  abstract getStat(params: {
-    baseSha: BaseSha;
-    schemaSha: SchemaSha;
-    patches: PatchId[];
-    deployments: Record<string, DeploymentsStatus>;
-  }): Promise<{
-    baseSha: BaseSha;
-    schemaSha: SchemaSha;
-    commitSha: CommitSha;
-    patches: PatchId[];
-  }>;
+  /**
+   * Get the status from Val
+   *
+   * This works differently in ValOpsFS and ValOpsHttp:
+   * - In ValOpsFS (for dev mode) works using long-polling operations since we cannot use WebSockets in the host Next.js server and we do not want to hammer the server with requests (though we could argue that it would be ok in dev, it is not up to our standards as a kick-ass CMS).
+   * - In ValOpsHttp (in production) it returns a WebSocket URL so that the client can connect directly.
+   *
+   * The reason we do not use long polling in production is that Vercel (a very likely host for Next.js), bills by wall time and long polling would therefore be very expensive.
+   */
+  abstract getStat(
+    params: {
+      baseSha: BaseSha;
+      schemaSha: SchemaSha;
+      patches?: PatchId[];
+      // TODO: deployments: Record<DeploymentId, "deployed" | "deploying" | "failed">
+    } | null,
+  ): Promise<
+    | {
+        type: "request-again" | "no-change" | "did-change";
+        baseSha: BaseSha;
+        schemaSha: SchemaSha;
+        patches: PatchId[];
+      }
+    | {
+        type: "use-websocket";
+        url: string;
+        baseSha: BaseSha;
+        schemaSha: SchemaSha;
+        commitSha: CommitSha;
+      }
+    | { type: "error"; error: GenericErrorMessage }
+  >;
 
   // #region initTree
   private async initTree(): Promise<{
