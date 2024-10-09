@@ -63,7 +63,7 @@ export type ValServer = ServerOf<Api>;
 export const ValServer = (
   valModules: ValModules,
   options: ValServerConfig,
-  callbacks: ValServerCallbacks
+  callbacks: ValServerCallbacks,
 ): ServerOf<Api> => {
   let serverOps: ValOpsHttp | ValOpsFS;
   if (options.mode === "fs") {
@@ -81,7 +81,7 @@ export const ValServer = (
       {
         formatter: options.formatter,
         root: options.root,
-      }
+      },
     );
   } else {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -96,11 +96,11 @@ export const ValServer = (
     }
     const url = new URL(
       `/auth/${options.project}/authorize`,
-      options.valBuildUrl
+      options.valBuildUrl,
     );
     url.searchParams.set(
       "redirect_uri",
-      encodeURIComponent(`${publicValApiRe}/callback`)
+      encodeURIComponent(`${publicValApiRe}/callback`),
     );
     url.searchParams.set("state", token);
     return url.toString();
@@ -115,14 +115,14 @@ export const ValServer = (
     }
     const url = new URL(
       `/auth/${options.project}/authorize`,
-      options.valBuildUrl
+      options.valBuildUrl,
     );
     url.searchParams.set("error", encodeURIComponent(error));
     return url.toString();
   };
 
   const consumeCode = async (
-    code: string
+    code: string,
   ): Promise<{
     sub: string;
     exp: number;
@@ -138,7 +138,7 @@ export const ValServer = (
     }
     const url = new URL(
       `/api/val/${options.project}/auth/token`,
-      options.valBuildUrl
+      options.valBuildUrl,
     );
     url.searchParams.set("code", encodeURIComponent(code));
     if (!options.apiKey) {
@@ -171,7 +171,7 @@ export const ValServer = (
   };
 
   const getAuth = (
-    cookies: Partial<Record<"val_session", string>>
+    cookies: Partial<Record<"val_session", string>>,
   ):
     | { error: string }
     | { id: string; error?: undefined }
@@ -239,7 +239,7 @@ export const ValServer = (
         const query = req.query;
         const redirectToRes = getRedirectUrl(
           query,
-          options.valEnableRedirectUrl
+          options.valEnableRedirectUrl,
         );
         if (typeof redirectToRes !== "string") {
           return redirectToRes;
@@ -260,7 +260,7 @@ export const ValServer = (
         const query = req.query;
         const redirectToRes = getRedirectUrl(
           query,
-          options.valDisableRedirectUrl
+          options.valDisableRedirectUrl,
         );
         if (typeof redirectToRes !== "string") {
           return redirectToRes;
@@ -293,7 +293,7 @@ export const ValServer = (
         const redirectUrl = new URL(query.redirect_to);
         const appAuthorizeUrl = getAuthorizeUrl(
           `${redirectUrl.origin}/${options.route}`,
-          token
+          token,
         );
         await callbacks.onEnable(true);
         return {
@@ -355,7 +355,7 @@ export const ValServer = (
               },
             },
             redirectTo: getAppErrorUrl(
-              `Authorization callback failed. Details: ${callbackReqError}`
+              `Authorization callback failed. Details: ${callbackReqError}`,
             ),
           };
         }
@@ -383,7 +383,7 @@ export const ValServer = (
               },
             },
             redirectTo: getAppErrorUrl(
-              "Setup is not correct: secret is missing"
+              "Setup is not correct: secret is missing",
             ),
           };
         }
@@ -392,7 +392,7 @@ export const ValServer = (
             ...data,
             exp, // this is the client side exp
           },
-          valSecret
+          valSecret,
         );
 
         return {
@@ -457,7 +457,7 @@ export const ValServer = (
           }
           const url = new URL(
             `/api/val/${options.project}/auth/session`,
-            options.valBuildUrl
+            options.valBuildUrl,
           );
           const fetchRes = await fetch(url, {
             headers: getAuthHeaders(data.token, "application/json"),
@@ -495,6 +495,41 @@ export const ValServer = (
             [VAL_STATE_COOKIE]: {
               value: null,
             },
+          },
+        };
+      },
+    },
+
+    //#region stat
+    "/stat": {
+      POST: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
+        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+          return {
+            status: 401,
+            json: {
+              message: "Unauthorized",
+            },
+          };
+        }
+        const currentStat = await serverOps.getStat(req.body);
+
+        return {
+          status: 200,
+          json: {
+            baseSha: currentStat.baseSha,
+            schemaSha: currentStat.schemaSha,
+            deployments: currentStat.deployments,
+            patches: currentStat.patches,
           },
         };
       },
@@ -693,7 +728,7 @@ export const ValServer = (
           let patchErrors: Record<PatchId, { message: string }> | undefined =
             undefined;
           for (const [patchIdS, error] of Object.entries(
-            patchOps.errors || {}
+            patchOps.errors || {},
           )) {
             const patchId = patchIdS as PatchId;
             if (!patchErrors) {
@@ -710,7 +745,7 @@ export const ValServer = (
             const createPatchRes = await serverOps.createPatch(
               newPatchModuleFilePath,
               newPatchOps,
-              authorId
+              authorId,
             );
             if (createPatchRes.error) {
               return {
@@ -785,7 +820,7 @@ export const ValServer = (
                       message: error.error.message,
                     },
                   })),
-                ])
+                ]),
               ) as Record<
                 ModuleFilePath,
                 {
@@ -804,7 +839,7 @@ export const ValServer = (
           const schemas = await serverOps.getSchemas();
           const sourcesValidation = await serverOps.validateSources(
             schemas,
-            tree.sources
+            tree.sources,
           );
 
           // TODO: send validation errors
@@ -812,7 +847,7 @@ export const ValServer = (
             const binaryFilesValidation = await serverOps.validateFiles(
               schemas,
               tree.sources,
-              sourcesValidation.files
+              sourcesValidation.files,
             );
           }
         }
@@ -875,8 +910,8 @@ export const ValServer = (
         const PostSaveBody = z.object({
           patchIds: z.array(
             z.string().refine(
-              (id): id is PatchId => true // TODO:
-            )
+              (id): id is PatchId => true, // TODO:
+            ),
           ),
         });
         const bodyRes = PostSaveBody.safeParse(body);
@@ -916,8 +951,8 @@ export const ValServer = (
                       errors.map((e) => ({
                         message: formatPatchSourceError(e),
                       })),
-                    ]
-                  )
+                    ],
+                  ),
                 ),
                 binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
               },
@@ -937,7 +972,7 @@ export const ValServer = (
               "Update content: " +
                 Object.keys(analysis.patchesByModule) +
                 " modules changed",
-              auth.id as AuthorId
+              auth.id as AuthorId,
             );
             return {
               status: 200,
@@ -974,7 +1009,7 @@ export const ValServer = (
         if (query.patch_id) {
           fileBuffer = await serverOps.getBase64EncodedBinaryFileFromPatch(
             filePath,
-            query.patch_id as PatchId
+            query.patch_id as PatchId,
           );
         } else {
           fileBuffer = await serverOps.getBinaryFile(filePath);
@@ -1016,7 +1051,7 @@ export type ValServerCallbacks = {
 
 function verifyCallbackReq(
   stateCookie: string | undefined,
-  queryParams: Record<string, unknown>
+  queryParams: Record<string, unknown>,
 ):
   | {
       success: { code: string; redirect_uri?: string };
@@ -1125,7 +1160,7 @@ async function createJsonError(fetchRes: Response): Promise<ValServerError> {
   console.error(
     "Unexpected failure (did not get a json) - Val down?",
     fetchRes.status,
-    await fetchRes.text()
+    await fetchRes.text(),
   );
   return {
     status: fetchRes.status as ValServerErrorStatus,
@@ -1162,7 +1197,7 @@ async function withAuth<T>(
   secret: string,
   cookies: ValCookies<VAL_SESSION_COOKIE>,
   errorMessageType: string,
-  handler: (data: IntegratedServerJwtPayload) => Promise<T>
+  handler: (data: IntegratedServerJwtPayload) => Promise<T>,
 ): Promise<ReturnType<ServerOf<Api>["/session"]["GET"]> | T> {
   const cookie = cookies[VAL_SESSION_COOKIE];
   if (typeof cookie === "string") {
@@ -1211,7 +1246,7 @@ async function withAuth<T>(
 
 function getAuthHeaders(
   token: string,
-  type?: "application/json" | "application/json-patch+json"
+  type?: "application/json" | "application/json-patch+json",
 ):
   | { Authorization: string }
   | { "Content-Type": string; Authorization: string } {
@@ -1251,7 +1286,7 @@ export function bufferToReadableStream(buffer: Buffer) {
 }
 export function getRedirectUrl(
   query: { redirect_to?: string | undefined },
-  overrideHost: string | undefined
+  overrideHost: string | undefined,
 ): string | { status: 400; json: { message: string } } {
   if (typeof query.redirect_to !== "string") {
     return {

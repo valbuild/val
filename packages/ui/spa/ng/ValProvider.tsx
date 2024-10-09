@@ -6,7 +6,7 @@ import {
   ModulePath,
   SerializedSchema,
   SourcePath,
-  PatchId as RealPatchId,
+  PatchId as PatchId,
 } from "@valbuild/core";
 import fakeModules from "./fakeContent/val.modules";
 import { Remote } from "../utils/Remote";
@@ -108,6 +108,10 @@ export type UpdatingRemote<T> =
       data: T;
     }
   | {
+      status: "update-requested";
+      data: T;
+    }
+  | {
       status: "updating";
       data: T;
     }
@@ -115,7 +119,7 @@ export type UpdatingRemote<T> =
       status: "error";
       error: string;
     };
-export function UIProvider({
+export function ValProvider({
   children,
   client,
   statInterval,
@@ -127,126 +131,11 @@ export function UIProvider({
   const [search, setSearch] = useState<
     false | { type?: "error" | "change"; query?: string }
   >(false);
-  const [schemaSha, setSchemaSha] = useState<string | null>(null); // reset schemas and sources if this is null
-  const [schemas, setSchemas] = useState<
-    Remote<Record<ModuleFilePath, SerializedSchema>>
-  >({
-    status: "not-asked",
-  });
-  const [sources, setSources] = useState<
-    Record<ModuleFilePath, UpdatingRemote<Json>>
-  >({});
-  const [patchData, setPatchData] = useState<
-    Record<PatchId, Remote<PatchWithMetadata>>
-  >({});
-  const [errors, setErrors] = useState<
-    Record<SourcePath, UpdatingRemote<ValError[]>>
-  >({});
-  const [stat, setStat] = useState<
-    UpdatingRemote<{
-      // TODO:
-      // deployments: Record<
-      //   ModuleFilePath,
-      //   {
-      //     status: "deployed" | "deploying" | "failed";
-      //     id: string;
-      //   }[]
-      // >;
-      patches: Record<ModuleFilePath, PatchId[]>;
-    }>
-  >({
-    status: "not-asked",
-  });
 
-  useEffect(() => {
-    if (schemaSha === null) {
-      setSchemas({ status: "loading" });
-      client("/schema", "GET", {})
-        .then((res) => {
-          if (res.status === 200) {
-            const sources: Record<ModuleFilePath, UpdatingRemote<Json>> = {};
-            const schemas: Record<ModuleFilePath, SerializedSchema> = {};
-            setSchemaSha(res.json.schemaSha);
-            for (const moduleFilePathS in res.json.schemas) {
-              const moduleFilePath = moduleFilePathS as ModuleFilePath;
-              const schema = res.json.schemas[moduleFilePath];
-              if (schema) {
-                schemas[moduleFilePath] = schema;
-                sources[moduleFilePath] = { status: "not-asked" };
-              }
-            }
-            setSources(sources);
-            setSchemas({
-              status: "success",
-              data: schemas,
-            });
-          }
-        })
-        .catch((err) => {
-          setSchemas({ status: "error", error: err.message });
-        });
-    }
-  }, [schemaSha]);
-
-  useEffect(() => {
-    if (schemaSha !== null) {
-      let timeout: NodeJS.Timeout | null = null;
-      const statHandler = () => {
-        if (timeout) {
-          clearTimeout(timeout);
-        }
-        // we are anticipating that the patches endpoints will be split into different endpoints:
-        // one (/stat), which will return the current patch ids (and the schema sha, base sha and deployments). This could be a long-polling endpoint which will be started every time the last one is finished, but which will hold the connection until there is a change. If it times out or fails some other way we also start it again. Why long-polling and not websocket: nextjs does not support websockets. We could use websockets if we decide to not go through the web server.
-        // another to get the actual metadata for a set of patch ids (/patches)
-        // and then another to get the actual deployment metadata of a set of deployment ids (/deployments)
-        client("/patches/~", "GET", {
-          query: {
-            author: undefined,
-            patch_id: undefined,
-            module_file_path: undefined,
-            omit_patch: true,
-          },
-        })
-          .then((res) => {
-            if (res.status === 200) {
-              const patches: Record<ModuleFilePath, PatchId[]> = {};
-              const sources: Record<ModuleFilePath, UpdatingRemote<Json>> = {};
-              for (const patchIdS in res.json.patches) {
-                const patchId = patchIdS as RealPatchId;
-                const patch = res.json.patches[patchId];
-                const moduleFilePath = patch?.path;
-                if (moduleFilePath) {
-                  if (!patches[moduleFilePath]) {
-                    patches[moduleFilePath] = [];
-                  }
-                  patches[moduleFilePath].push(patchId);
-                  sources[moduleFilePath] = { status: "not-asked" }; // reset sources
-                }
-              }
-              setSources(sources);
-              setStat({
-                status: "success",
-                data: {
-                  patches: patches,
-                },
-              });
-            } else {
-              setStat({
-                status: "error",
-                error: res.json.message,
-              });
-            }
-          })
-          .finally(() => {
-            if (statInterval) {
-              timeout = setTimeout(statHandler, statInterval);
-            }
-          });
-      };
-      statHandler();
-    }
-  }, [statInterval, schemaSha]);
-
+  const { stat, schemas, sources, patchData, errors } = useValState(
+    client,
+    statInterval,
+  );
   return (
     <UIContext.Provider
       value={{
@@ -472,13 +361,13 @@ export type Author = {
 };
 
 /** Used by fake data so we do not have to type assert all.the.f***king.time. */
-type PatchId = string;
+type FakePatchId = string;
 
 // Fake patch metadata - this type should be replaced with the real one...
 // The UI probably needs render grouped patches, should that be done client side or server side?
 // Pros: client side makes the API more stable, cons: slower UI? Does it even matter?
 export type PatchWithMetadata = {
-  patchId: PatchId;
+  patchId: FakePatchId;
   patch: Patch;
   author: Author | null;
   createdAt: string;
@@ -532,19 +421,19 @@ export function usePatchSets() {
       const data = Object.fromEntries(res);
 
       const patchSets = new PatchSets();
-      const patchesById: Record<PatchId, PatchWithMetadata> = {};
+      const patchesById: Record<FakePatchId, PatchWithMetadata> = {};
       for (const moduleFilePathS in data) {
         const moduleFilePath = moduleFilePathS as ModuleFilePath;
         const { patches, source, schema } = data[moduleFilePath];
         for (const patch of patches) {
-          patchesById[patch.patchId as PatchId] = patch;
+          patchesById[patch.patchId as FakePatchId] = patch;
           for (const op of patch.patch) {
             patchSets.insert(
               moduleFilePath,
               source,
               schema,
               op,
-              patch.patchId as RealPatchId,
+              patch.patchId as PatchId,
             );
           }
         }
@@ -559,14 +448,14 @@ export function usePatchSets() {
       clearTimeout(timeout);
     };
   }, [allPatches]);
-  const patchMetadataByPatchId: Remote<Record<RealPatchId, PatchWithMetadata>> =
+  const patchMetadataByPatchId: Remote<Record<PatchId, PatchWithMetadata>> =
     useMemo(() => {
       if (allPatches.status === "success") {
-        const res: Record<RealPatchId, PatchWithMetadata> = {};
+        const res: Record<PatchId, PatchWithMetadata> = {};
         for (const moduleFilePathS in allPatches.data) {
           const moduleFilePath = moduleFilePathS as ModuleFilePath;
           for (const patch of allPatches.data[moduleFilePath]) {
-            res[patch.patchId as RealPatchId] = patch;
+            res[patch.patchId as PatchId] = patch;
           }
         }
         return {
@@ -688,7 +577,7 @@ export type SearchResult = {
 };
 export function useSearchResults(params: {
   query: string;
-  patches: PatchId[]; // TODO: use patches
+  patches: FakePatchId[]; // TODO: use patches
 }): Remote<SearchResult[]> {
   const [allSourcesAndSchemas, setAllSourcesAndSchemas] = useState<
     Remote<Record<ModuleFilePath, { source: Json; schema: SerializedSchema }>>

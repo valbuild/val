@@ -18,7 +18,7 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { NullSource } from "../components/NullSource";
-import { useNavigation } from "../UIProvider";
+import { useNavigation } from "../ValProvider";
 import { useEffect, useState } from "react";
 import { fixCapitalization } from "../../utils/fixCapitalization";
 import { RecordBadges } from "../components/RecordBadges";

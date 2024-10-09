@@ -16,7 +16,7 @@ import {
   SelectTrigger,
 } from "../../components/ui/select";
 import { NullSource } from "../components/NullSource";
-import { useModuleSource } from "../UIProvider";
+import { useModuleSource } from "../ValProvider";
 
 export function KeyOfField({
   path,
@@ -28,7 +28,7 @@ export function KeyOfField({
   schema: KeyOfSchema<GenericSelector<SourceArray | SourceObject>>;
 }) {
   const remoteReferencedSource = useModuleSource(
-    (schema.sourcePath ?? null) as ModuleFilePath | null
+    (schema.sourcePath ?? null) as ModuleFilePath | null,
   );
   if (!source) {
     return <NullSource />;
