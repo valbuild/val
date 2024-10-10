@@ -65,11 +65,11 @@ import {
   splitModulePath,
   resolvePath,
   splitModuleFilePathAndModulePath,
-  ModuleFilePathSep,
   joinModuleFilePathAndModulePath,
   parentOfSourcePath,
   patchPathToModulePath,
 } from "./module";
+const ModuleFilePathSep = "?p=";
 export { ModuleFilePathSep };
 import { getSchema } from "./selector";
 import { ModulePath, getValPath, isVal } from "./val";
