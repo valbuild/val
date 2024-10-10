@@ -189,6 +189,7 @@ export class ValOpsHttp extends ValOps {
         baseSha: BaseSha;
         schemaSha: SchemaSha;
         commitSha: CommitSha;
+        patches: PatchId[];
       }
     | { type: "error"; error: GenericErrorMessage }
   > {
@@ -200,11 +201,27 @@ export class ValOpsHttp extends ValOps {
     }
     const currentBaseSha = await this.getBaseSha();
     const currentSchemaSha = await this.getSchemaSha();
+    const patchData = await this.fetchPatches({
+      omitPatch: true,
+      authors: undefined,
+      patchIds: undefined,
+      moduleFilePaths: undefined,
+    });
+    const patches: PatchId[] = [];
+    // TODO: use proper patch sequences when available:
+    for (const [patchId] of Object.entries(patchData.patches).sort(
+      ([, a], [, b]) => {
+        return a.createdAt.localeCompare(b.createdAt, undefined);
+      },
+    )) {
+      patches.push(patchId as PatchId);
+    }
     return {
       type: "use-websocket",
       url: `${this.hostUrl.replace(/^http/, "ws")}/v1/${this.project}/stat`,
       baseSha: currentBaseSha,
       schemaSha: currentSchemaSha,
+      patches,
       commitSha: this.commitSha as CommitSha,
     };
   }

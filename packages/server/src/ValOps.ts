@@ -123,6 +123,7 @@ export abstract class ValOps {
         baseSha: BaseSha;
         schemaSha: SchemaSha;
         commitSha: CommitSha;
+        patches: PatchId[];
       }
     | { type: "error"; error: GenericErrorMessage }
   >;

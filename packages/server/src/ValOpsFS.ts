@@ -64,6 +64,7 @@ export class ValOpsFS extends ValOps {
         baseSha: BaseSha;
         schemaSha: SchemaSha;
         commitSha: CommitSha;
+        patches: PatchId[];
       }
     | { type: "error"; error: GenericErrorMessage }
   > {
@@ -137,7 +138,7 @@ export class ValOpsFS extends ValOps {
       if (err instanceof Error) {
         return { type: "error", error: { message: err.message } };
       }
-      return { type: "error", error: { message: "Unknown error" } };
+      return { type: "error", error: { message: "Unknown error (getStat)" } };
     }
   }
 
