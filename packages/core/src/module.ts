@@ -26,6 +26,7 @@ import { RecordSchema, SerializedRecordSchema } from "./schema/record";
 import { RawString } from "./schema/string";
 import { ImageSelector } from "./selector/image";
 import { ImageSource } from "./source/image";
+import { ModuleFilePathSep } from ".";
 
 const brand = Symbol("ValModule");
 export type ValModule<T extends SelectorSource> = SelectorOf<T> &
@@ -96,8 +97,6 @@ export function joinModuleFilePathAndModulePath(
 ): SourcePath {
   return `${moduleFilePath}${ModuleFilePathSep}${modulePath}` as SourcePath;
 }
-
-export const ModuleFilePathSep = "?p=";
 
 export function getSourceAtPath(
   modulePath: ModulePath,
