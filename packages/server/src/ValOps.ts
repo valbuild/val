@@ -83,14 +83,8 @@ export abstract class ValOps {
     this.modulesErrors = null;
   }
 
-  private hash(input: string | object): string {
-    let str;
-    if (typeof input === "string") {
-      str = input;
-    } else {
-      str = JSON.stringify(input);
-    }
-    return Internal.getSHA256Hash(textEncoder.encode(str));
+  private hash(input: string): string {
+    return Internal.getSHA256Hash(textEncoder.encode(input));
   }
 
   // #region stat
@@ -230,13 +224,16 @@ export abstract class ValOps {
           currentSources[pathM] = source;
           currentSchemas[pathM] = schema;
           // make sure the checks above is enough that this does not fail - even if val modules are not set up correctly
-          baseSha += this.hash({
-            path,
-            schema: schema.serialize(),
-            source,
-            modulesErrors: currentModulesErrors,
-          });
-          schemaSha += this.hash(schema.serialize());
+          baseSha = this.hash(
+            baseSha +
+              JSON.stringify({
+                path,
+                schema: schema.serialize(),
+                source,
+                modulesErrors: currentModulesErrors,
+              }),
+          );
+          schemaSha = this.hash(schemaSha + JSON.stringify(schema.serialize()));
         });
       }
       this.sources = currentSources;
