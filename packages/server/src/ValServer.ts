@@ -527,7 +527,7 @@ export const ValServer = (
           req.body as {
             baseSha: BaseSha;
             schemaSha: SchemaSha;
-            patches?: PatchId[];
+            patches: PatchId[];
           } | null,
         );
         if (currentStat.type === "error") {

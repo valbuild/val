@@ -133,10 +133,7 @@ export function ValProvider({
     false | { type?: "error" | "change"; query?: string }
   >(false);
 
-  const { stat, schemas, sources, patchData, errors } = useValState(
-    client,
-    statInterval,
-  );
+  const { stat, schemas, sources, patchData, errors } = useValState(client);
   return (
     <ValContext.Provider
       value={{
@@ -286,7 +283,74 @@ export function useAllModuleSources(): Remote<Record<ModuleFilePath, Json>> {
 
 // #region Patches
 
-const fakePatches: Record<string, PatchWithMetadata[]> = {};
+const fakePatches: Record<string, PatchWithMetadata[]> = {
+  "/content/employees/employeeList.val.ts": [
+    {
+      patchId: "1",
+      author: {
+        id: "1",
+        name: "Fredrik Ekholdt",
+        avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
+      },
+      createdAt: "2024-08-12T12:00:00Z",
+      patch: [
+        {
+          op: "replace",
+          path: ["fe", "name"],
+          value: 'Freddy "The Fish" Fish', // thx copilot
+        },
+      ],
+    },
+    {
+      patchId: "2",
+      author: {
+        id: "1",
+        name: "Fredrik Ekholdt",
+        avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
+      },
+      createdAt: "2024-09-01T12:00:00Z",
+      patch: [
+        {
+          op: "replace",
+          path: ["fe", "name"],
+          value: "Fredr",
+        },
+      ],
+    },
+    {
+      patchId: "5",
+      author: {
+        id: "1",
+        name: "Fredrik Ekholdt",
+        avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
+      },
+      createdAt: "2024-09-07T12:00:00Z",
+      patch: [
+        {
+          op: "replace",
+          path: ["mkd", "name"],
+          value: "Heia Magne!",
+        },
+      ],
+    },
+    {
+      patchId: "3",
+      author: {
+        id: "1",
+        name: "Fredrik Ekholdt",
+        avatar: "https://avatars.githubusercontent.com/u/91758?s=400&v=4",
+      },
+      createdAt: "2024-09-07T12:00:00Z",
+      patch: [
+        {
+          op: "replace",
+          path: ["fe", "name"],
+          value: "k Ekholdt",
+        },
+      ],
+    },
+  ],
+};
 
 export type Author = {
   id: string;
