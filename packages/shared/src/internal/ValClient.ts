@@ -70,7 +70,8 @@ export const createValClient = (host: string): ValClient => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: anyReq.body ? JSON.stringify(anyReq.body) : undefined,
+        body:
+          anyReq.body !== undefined ? JSON.stringify(anyReq.body) : undefined,
       }).then(async (res) => {
         const contentTypeHeaders = res.headers.get("content-type");
         if (!contentTypeHeaders?.includes("application/json")) {
@@ -78,8 +79,7 @@ export const createValClient = (host: string): ValClient => {
             status: null,
             json: {
               type: "client_side_validation_error",
-              message:
-                "Invalid content type. This could be a result of mismatched Val versions.",
+              message: `Invalid content type header in response. Could not find application/json in ${Array.from(res.headers.entries())}. This could be a result of mismatched Val versions.`,
               details: {
                 validationError: "Invalid content type",
                 data: {
