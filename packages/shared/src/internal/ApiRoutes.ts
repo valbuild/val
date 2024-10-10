@@ -300,6 +300,7 @@ export const Api = {
               baseSha: z.string(),
               schemaSha: z.string(),
               commitSha: z.string(),
+              patches: z.array(PatchId),
             }),
           ]),
         }),
