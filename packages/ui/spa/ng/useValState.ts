@@ -99,36 +99,42 @@ function useStat(client: ValClient) {
   });
 
   const webSocketRef = useRef<WebSocket | null>(null);
+
+  const statIdRef = useRef(0);
   useEffect(() => {
     if (stat.status === "updated-request-again" || stat.status === "error") {
       if (stat.wait === 0) {
-        execStat(client, webSocketRef, stat, setStat);
+        execStat(client, webSocketRef, statIdRef, stat, setStat);
       } else {
         const timeout = setTimeout(() => {
-          execStat(client, webSocketRef, stat, setStat);
+          execStat(client, webSocketRef, statIdRef, stat, setStat);
         }, stat.wait);
         return () => clearTimeout(timeout);
       }
     }
   }, [client, stat]);
+
   useEffect(() => {
     setStat({
       status: "initializing",
     });
-    execStat(client, webSocketRef, stat, setStat);
+    execStat(client, webSocketRef, statIdRef, stat, setStat);
   }, [client]);
 
+  console.log(stat);
   return stat;
 }
 
 const WebSocketStatInterval = 10 * 1000;
 
-function execStat(
+async function execStat(
   client: ValClient,
   webSocketRef: React.MutableRefObject<WebSocket | null>,
+  statIdRef: React.MutableRefObject<number>,
   stat: StatState,
   setStat: Dispatch<SetStateAction<StatState>>,
 ) {
+  const id = ++statIdRef.current;
   let body = null;
   if ("data" in stat && stat.data) {
     body = {
@@ -142,6 +148,9 @@ function execStat(
     body: body,
   })
     .then((res) => {
+      if (statIdRef.current !== 0 && statIdRef.current !== id) {
+        return;
+      }
       if (res.status === 200) {
         if (
           res.json.type === "did-change" ||
@@ -151,7 +160,7 @@ function execStat(
           setStat({
             status: "updated-request-again",
             data: res.json,
-            wait: webSocketRef.current ? WebSocketStatInterval : 0, // why 0 wait? If websocket is not used, we are long polling so no point in waiting
+            wait: webSocketRef.current ? WebSocketStatInterval : 0, // why 0 wait unless websocket? If websocket is not used, we are long polling so no point in waiting
           });
         } else if (res.json.type === "use-websocket") {
           if (webSocketRef.current) {
@@ -159,7 +168,7 @@ function execStat(
           }
           webSocketRef.current = new WebSocket(res.json.url);
           webSocketRef.current.onmessage = (event) => {
-            const message = WSMessage.parse(JSON.parse(event.data));
+            const message = WSMessage.parse(event.data);
             setStat((prev) => {
               if ("data" in prev && prev.data) {
                 return {
@@ -190,12 +199,15 @@ function execStat(
       }
     })
     .catch((err) => {
+      if (statIdRef.current !== 0 && statIdRef.current !== id) {
+        return;
+      }
       setStat((prev) => createError(prev, err.message));
     });
 }
 
 function createError(stat: StatState, message: string): StatState {
-  const retries = "retries" in stat ? stat.retries : 0;
+  const retries = "retries" in stat ? stat.retries + 1 : 0;
   // a bit of random jitter in the start, but maxes out pretty soon on 5000ms
   const waitMillis =
     stat.status === "error" && stat.retries > 1
