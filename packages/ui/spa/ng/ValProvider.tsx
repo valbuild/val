@@ -99,28 +99,28 @@ async function getFakeSearchData() {
  */
 export type UpdatingRemote<T> =
   | {
-      status: "not-asked";
+      status: "not-asked"; // no data has been requested
     }
   | {
-      status: "requested";
+      status: "requested"; // data has been requested
     }
   | {
-      status: "loading";
+      status: "loading"; // data is loading
     }
   | {
-      status: "success";
+      status: "success"; // data has been loaded
       data: T;
     }
   | {
-      status: "update-requested";
+      status: "update-requested"; // update with new data has been requested
       data: T;
     }
   | {
-      status: "updating";
+      status: "updating"; // updating with new data
       data: T;
     }
   | {
-      status: "error";
+      status: "error"; // an error occurred
       error: string;
       data?: T;
     };
