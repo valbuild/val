@@ -205,7 +205,7 @@ export function useValState(client: ValClient) {
           } else {
             setSchemas({
               status: "error",
-              error: "Schema sha mismatch",
+              error: "Schema (different checksums) mismatch",
             });
           }
         } else {
@@ -219,7 +219,88 @@ export function useValState(client: ValClient) {
   }, [schemaSha]);
 
   const maybePatchIds = "data" in stat ? stat.data?.patches : undefined;
+  const sourceEffectIdRef = useRef(0);
+  const setRequestedSourcesToLoadingOrUpdating = useCallback(
+    (paths: string[] | "all") => {
+      setSources((prev) => {
+        const sources: typeof prev = {};
+        let didChange = false;
+        for (const moduleFilePathS of paths === "all"
+          ? Object.keys(prev)
+          : paths) {
+          const moduleFilePath = moduleFilePathS as ModuleFilePath;
+          if (prev[moduleFilePath].status === "requested") {
+            sources[moduleFilePath] = {
+              status: "loading",
+            };
+            didChange = true;
+          } else if (prev[moduleFilePath].status === "update-requested") {
+            sources[moduleFilePath] = {
+              status: "updating",
+              data: prev[moduleFilePath].data,
+            };
+            didChange = true;
+          }
+        }
+        if (didChange) {
+          return sources;
+        }
+        return prev;
+      });
+    },
+    [],
+  );
+  const updateSources = useCallback(
+    (
+      paths: string[] | "all",
+      newModules: Partial<
+        Record<
+          ModuleFilePath,
+          {
+            source?: Json;
+          }
+        >
+      >,
+      error?: string,
+    ) => {
+      setSources((prev) => {
+        const sources: typeof prev = {};
+        for (const moduleFilePathS of paths === "all"
+          ? Object.keys(prev)
+          : paths) {
+          const moduleFilePath = moduleFilePathS as ModuleFilePath;
+          if (error) {
+            sources[moduleFilePath] = {
+              status: "error",
+              error,
+              data:
+                "data" in prev[moduleFilePath]
+                  ? prev[moduleFilePath].data
+                  : undefined,
+            };
+          } else if (newModules[moduleFilePath]?.source) {
+            sources[moduleFilePath] = {
+              status: "success",
+              data: newModules[moduleFilePath].source,
+            };
+          } else if (!newModules[moduleFilePath]?.source) {
+            sources[moduleFilePath] = {
+              status: "error",
+              error: "No source",
+              data:
+                "data" in prev[moduleFilePath]
+                  ? prev[moduleFilePath].data
+                  : undefined,
+            };
+          }
+        }
+        return sources;
+      });
+    },
+    [],
+  );
   useEffect(() => {
+    const id = ++sourceEffectIdRef.current;
     let requiredUpdateCount = 0;
     let modulesCount = 0;
     for (const moduleFilePathS in sources) {
@@ -235,29 +316,7 @@ export function useValState(client: ValClient) {
     }
     // if all modules are requested, we can do a bulk request
     if (requiredUpdateCount > 0 && requiredUpdateCount === modulesCount) {
-      setSources((prev) => {
-        const sources = { ...prev };
-        let didChange = false;
-        for (const moduleFilePathS in sources) {
-          const moduleFilePath = moduleFilePathS as ModuleFilePath;
-          if (sources[moduleFilePath].status === "requested") {
-            sources[moduleFilePath] = {
-              status: "loading",
-            };
-            didChange = true;
-          } else if (sources[moduleFilePath].status === "update-requested") {
-            sources[moduleFilePath] = {
-              status: "updating",
-              data: sources[moduleFilePath].data,
-            };
-            didChange = true;
-          }
-        }
-        if (didChange) {
-          return sources;
-        }
-        return prev;
-      });
+      setRequestedSourcesToLoadingOrUpdating("all");
       client("/tree/~", "PUT", {
         path: undefined,
         query: {
@@ -269,34 +328,13 @@ export function useValState(client: ValClient) {
           patchIds: maybePatchIds || [],
         },
       }).then((res) => {
+        if (id !== sourceEffectIdRef.current) {
+          return;
+        }
         if (res.status === 200) {
-          setSources((prev) => {
-            const sources = { ...prev };
-            for (const moduleFilePathS in sources) {
-              const moduleFilePath = moduleFilePathS as ModuleFilePath;
-              sources[moduleFilePath] = {
-                status: "success",
-                data: res.json.modules[moduleFilePath]?.source,
-              };
-            }
-            return sources;
-          });
+          updateSources("all", res.json.modules);
         } else {
-          setSources((prev) => {
-            const sources = { ...prev };
-            for (const moduleFilePathS in sources) {
-              const moduleFilePath = moduleFilePathS as ModuleFilePath;
-              sources[moduleFilePath] = {
-                status: "error",
-                error: res.json.message,
-                data:
-                  "data" in prev[moduleFilePath]
-                    ? prev[moduleFilePath].data
-                    : undefined,
-              };
-            }
-            return sources;
-          });
+          updateSources("all", {}, res.json.message);
         }
       });
     } else {
@@ -306,6 +344,7 @@ export function useValState(client: ValClient) {
           sources[moduleFilePath].status === "requested" ||
           sources[moduleFilePath].status === "update-requested"
         ) {
+          setRequestedSourcesToLoadingOrUpdating([moduleFilePath]);
           client("/tree/~", "PUT", {
             path: moduleFilePath,
             query: {
@@ -317,28 +356,13 @@ export function useValState(client: ValClient) {
               patchIds: maybePatchIds || [],
             },
           }).then((res) => {
+            if (id !== sourceEffectIdRef.current) {
+              return;
+            }
             if (res.status === 200) {
-              setSources((prev) => {
-                const sources = { ...prev };
-                sources[moduleFilePath] = {
-                  status: "success",
-                  data: res.json.modules[moduleFilePath]?.source,
-                };
-                return sources;
-              });
+              updateSources([moduleFilePath], res.json.modules);
             } else {
-              setSources((prev) => {
-                const sources = { ...prev };
-                sources[moduleFilePath] = {
-                  status: "error",
-                  error: res.json.message,
-                  data:
-                    "data" in prev[moduleFilePath]
-                      ? prev[moduleFilePath].data
-                      : undefined,
-                };
-                return sources;
-              });
+              updateSources([moduleFilePath], {}, res.json.message);
             }
           });
         }
@@ -361,6 +385,12 @@ const WSMessage = z.object({
   patches: z.array(PatchId),
 });
 const StatData = z.object({
+  type: z.union([
+    z.literal("did-change"),
+    z.literal("no-change"),
+    z.literal("request-again"),
+    z.literal("use-websocket"),
+  ]),
   schemaSha: z.string(),
   baseSha: z.string(),
   patches: z.array(PatchId),
