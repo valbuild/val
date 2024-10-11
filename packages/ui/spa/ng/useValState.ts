@@ -84,7 +84,8 @@ export function useValState(client: ValClient) {
           updateSources([moduleFilePath], res.json.modules);
         } else {
           const modules = "modules" in res.json ? res.json.modules : {};
-          updateSources([moduleFilePath], modules, res.json.message);
+          const errors = "errors" in res.json ? res.json.errors : {};
+          updateSources([moduleFilePath], modules, errors);
           setSourcePathErrors((prev) => {
             const errors = { ...prev };
             errors[moduleFilePath as unknown as SourcePath] = {
@@ -144,18 +145,24 @@ export function useValState(client: ValClient) {
           }
         >
       >,
-      error?: string,
+      errors?: Partial<
+        Record<ModuleFilePath, { error: { message: string } }[]>
+      >,
     ) => {
+      try {
+        throw Error("");
+      } catch (e) {
+        console.error(e.stack);
+      }
       setSources((prev) => {
         const sources: typeof prev = { ...prev };
-        for (const moduleFilePathS of paths === "all"
-          ? Object.keys(prev)
-          : paths) {
+        const moduleFilePaths = paths === "all" ? Object.keys(prev) : paths;
+        for (const moduleFilePathS of moduleFilePaths) {
           const moduleFilePath = moduleFilePathS as ModuleFilePath;
-          if (error) {
+          if (errors && errors[moduleFilePath]) {
             sources[moduleFilePath] = {
               status: "error",
-              error,
+              errors: errors[moduleFilePath].map((e) => e.error.message),
               data: newModules[moduleFilePath]?.source
                 ? newModules[moduleFilePath].source
                 : "data" in prev[moduleFilePath]
@@ -166,15 +173,6 @@ export function useValState(client: ValClient) {
             sources[moduleFilePath] = {
               status: "success",
               data: newModules[moduleFilePath].source,
-            };
-          } else if (!newModules[moduleFilePath]?.source) {
-            sources[moduleFilePath] = {
-              status: "error",
-              error: "No source",
-              data:
-                "data" in prev[moduleFilePath]
-                  ? prev[moduleFilePath].data
-                  : undefined,
             };
           }
         }
@@ -309,7 +307,8 @@ export function useValState(client: ValClient) {
           updateSources("all", res.json.modules);
         } else {
           const modules = "modules" in res.json ? res.json.modules : {};
-          updateSources("all", modules, res.json.message);
+          const errors = "errors" in res.json ? res.json.errors : {};
+          updateSources("all", modules, errors);
         }
       });
     } else {
@@ -335,7 +334,8 @@ export function useValState(client: ValClient) {
               updateSources([moduleFilePath], res.json.modules);
             } else {
               const modules = "modules" in res.json ? res.json.modules : {};
-              updateSources("all", modules, res.json.message);
+              const errors = "errors" in res.json ? res.json.errors : {};
+              updateSources("all", modules, errors);
             }
           });
         }
