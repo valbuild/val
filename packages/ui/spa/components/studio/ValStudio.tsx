@@ -17,9 +17,6 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client }) => {
     console.log(state.stat.data);
     return (
       <div className="flex flex-col gap-10">
-        <pre>{JSON.stringify(state.stat.data, null, 2)}</pre>
-        <pre>{JSON.stringify(state.sources, null, 2)}</pre>
-        <pre>{JSON.stringify(state.sourcePathErrors, null, 2)}</pre>
         <button
           onClick={() => {
             state.addPatch("/content/authors.val.ts" as any, [
@@ -33,6 +30,14 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client }) => {
         >
           Add patch
         </button>
+        <div className="grid">
+          <div>Status: {state.stat.status}</div>
+          <div>Type: {state.stat.data?.type}</div>
+          <div>Base sha: {state.stat.data?.baseSha}</div>
+          <div>Patch count: {state.stat.data?.patches.length}</div>
+        </div>
+        <pre>{JSON.stringify(state.sources, null, 2)}</pre>
+        <pre>{JSON.stringify(state.sourcePathErrors, null, 2)}</pre>
       </div>
     );
   }
