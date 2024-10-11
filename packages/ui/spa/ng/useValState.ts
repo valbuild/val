@@ -195,7 +195,9 @@ export function useValState(client: ValClient) {
         if (res.status === 200) {
           if (res.json.schemaSha === schemaSha) {
             setSources((prev) => {
-              const sources: Record<ModuleFilePath, UpdatingRemote<Json>> = {};
+              const sources: Record<ModuleFilePath, UpdatingRemote<Json>> = {
+                ...prev,
+              };
               let didChange = false;
               for (const moduleFilePathS in res.json.schemas) {
                 const moduleFilePath = moduleFilePathS as ModuleFilePath;
@@ -303,7 +305,6 @@ export function useValState(client: ValClient) {
         if (currentState !== currentStateRef.current) {
           return;
         }
-        console.log(res.status, res.json?.type);
         if (res.status === 200) {
           updateSources("all", res.json.modules);
         } else {
