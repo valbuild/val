@@ -812,37 +812,6 @@ export const ValServer = (
         } else {
           tree = await serverOps.getTree();
         }
-        if (tree.errors && Object.keys(tree.errors).length > 0) {
-          console.error("Val: Failed to get tree", JSON.stringify(tree.errors));
-          const res: z.infer<Api["/tree/~"]["PUT"]["res"]> = {
-            status: 400,
-            json: {
-              type: "patch-error",
-              errors: Object.fromEntries(
-                Object.entries(tree.errors).map(([key, value]) => [
-                  key,
-                  value.map((error) => ({
-                    patchId: error.patchId,
-                    skipped: error.skipped,
-                    error: {
-                      message: error.error.message,
-                    },
-                  })),
-                ]),
-              ) as Record<
-                ModuleFilePath,
-                {
-                  patchId: PatchId;
-                  skipped: boolean;
-                  error: { message: string };
-                }[]
-              >,
-              message: "One or more patches failed to be applied",
-            },
-          };
-          return res;
-        }
-
         if (query.validate_sources || query.validate_binary_files) {
           const schemas = await serverOps.getSchemas();
           const sourcesValidation = await serverOps.validateSources(
@@ -888,6 +857,40 @@ export const ValServer = (
                   : undefined,
             };
           }
+        }
+
+        if (tree.errors && Object.keys(tree.errors).length > 0) {
+          console.error("Val: Failed to get tree", JSON.stringify(tree.errors));
+          const res: z.infer<Api["/tree/~"]["PUT"]["res"]> = {
+            status: 400,
+            json: {
+              type: "patch-error",
+              schemaSha,
+              modules,
+
+              errors: Object.fromEntries(
+                Object.entries(tree.errors).map(([key, value]) => [
+                  key,
+                  value.map((error) => ({
+                    patchId: error.patchId,
+                    skipped: error.skipped,
+                    error: {
+                      message: error.error.message,
+                    },
+                  })),
+                ]),
+              ) as Record<
+                ModuleFilePath,
+                {
+                  patchId: PatchId;
+                  skipped: boolean;
+                  error: { message: string };
+                }[]
+              >,
+              message: "One or more patches failed to be applied",
+            },
+          };
+          return res;
         }
 
         const res: z.infer<Api["/tree/~"]["PUT"]["res"]> = {

@@ -454,6 +454,23 @@ export const Api = {
           json: z.object({
             type: z.literal("patch-error"),
             message: z.string(),
+            schemaSha: z.string(),
+            modules: z.record(
+              ModuleFilePath,
+              z.object({
+                source: z.any(), //.optional(), // TODO: Json zod type
+                patches: z
+                  .object({
+                    applied: z.array(PatchId),
+                    skipped: z.array(PatchId).optional(),
+                    errors: z.record(PatchId, GenericError).optional(),
+                  })
+                  .optional(),
+                validationErrors: z
+                  .record(SourcePath, z.array(ValidationError))
+                  .optional(),
+              }),
+            ),
             errors: z.record(
               ModuleFilePath,
               z.array(
