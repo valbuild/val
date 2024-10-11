@@ -860,7 +860,6 @@ export const ValServer = (
         }
 
         if (tree.errors && Object.keys(tree.errors).length > 0) {
-          console.error("Val: Failed to get tree", JSON.stringify(tree.errors));
           const res: z.infer<Api["/tree/~"]["PUT"]["res"]> = {
             status: 400,
             json: {
