@@ -22,10 +22,10 @@ import fsPath from "path";
 import ts from "typescript";
 import { z } from "zod";
 import fs from "fs";
+import nodePath from "path";
 import { fromError } from "zod-validation-error";
 import { Patch } from "./patch/validation";
 import { guessMimeTypeFromPath } from "./ValServer";
-import chokidar from "chokidar";
 
 export class ValOpsFS extends ValOps {
   private static readonly VAL_DIR = ".val";
@@ -71,6 +71,8 @@ export class ValOpsFS extends ValOps {
     try {
       const currentBaseSha = await this.getBaseSha();
       const currentSchemaSha = await this.getSchemaSha();
+      const moduleFilePaths = Object.keys(await this.getSchemas());
+
       const patchData = await this.readPatches();
       const patches: PatchId[] = [];
       // TODO: use proper patch sequences when available:
@@ -96,40 +98,165 @@ export class ValOpsFS extends ValOps {
           patches,
         };
       }
-      let watcher: chokidar.FSWatcher | null = null;
-
-      const type = await Promise.race([
-        new Promise<"request-again">((resolve) => {
-          if (watcher) {
-            watcher.close();
+      let fsWatcher: fs.FSWatcher | null = null;
+      let stopPolling = false;
+      const didDirectoryChangeUsingPolling = (
+        dir: string,
+        interval: number,
+        setHandle: (h: NodeJS.Timeout) => void,
+      ): Promise<"request-again"> => {
+        const mtimeInDir: Record<string, number> = {};
+        if (fs.existsSync(dir)) {
+          for (const file of fs.readdirSync(dir)) {
+            mtimeInDir[file] = fs
+              .statSync(nodePath.join(dir, file))
+              .mtime.getTime();
           }
-          watcher = chokidar
-            .watch(".", {
-              ignored: ["node_modules", ".git", ".next"],
-            })
-            .on("change", (path) => {
+        }
+        return new Promise<"request-again">((resolve) => {
+          const go = (resolve: (v: "request-again") => void) => {
+            const start = Date.now();
+            if (fs.existsSync(dir)) {
+              const subDirs = fs.readdirSync(dir);
+              // amount of files changed
+              if (subDirs.length !== Object.keys(mtimeInDir).length) {
+                resolve("request-again");
+              }
+              for (const file of fs.readdirSync(dir)) {
+                const mtime = fs
+                  .statSync(nodePath.join(dir, file))
+                  .mtime.getTime();
+                if (mtime !== mtimeInDir[file]) {
+                  resolve("request-again");
+                }
+              }
+            } else {
+              // dir had files, but now is deleted
+              if (Object.keys(mtimeInDir).length > 0) {
+                resolve("request-again");
+              }
+            }
+            if (Date.now() - start > interval) {
+              console.warn("Val: polling interval of patches exceeded");
+            }
+            if (stopPolling) {
+              return;
+            }
+            setHandle(setTimeout(() => go(resolve), interval));
+          };
+          setHandle(setTimeout(() => go(resolve), interval));
+        });
+      };
+
+      const didFilesChangeUsingPolling = (
+        files: string[],
+        interval: number,
+        setHandle: (h: NodeJS.Timeout) => void,
+      ): Promise<"request-again"> => {
+        const mtimes: Record<string, number> = {};
+        for (const file of files) {
+          if (fs.existsSync(file)) {
+            mtimes[file] = fs.statSync(file).mtime.getTime();
+          } else {
+            mtimes[file] = -1;
+          }
+        }
+        return new Promise<"request-again">((resolve) => {
+          const go = (resolve: (v: "request-again") => void) => {
+            const start = Date.now();
+            for (const file of files) {
+              const mtime = fs.existsSync(file)
+                ? fs.statSync(file).mtime.getTime()
+                : -1;
+              if (mtime !== mtimes[file]) {
+                resolve("request-again");
+              }
+            }
+            if (Date.now() - start > interval) {
+              console.warn("Val: polling interval of files exceeded");
+            }
+            setHandle(setTimeout(() => go(resolve), interval));
+          };
+          if (stopPolling) {
+            return;
+          }
+          setHandle(setTimeout(() => go(resolve), interval));
+        });
+      };
+
+      const statFilePollingInterval =
+        this.options?.statFilePollingInterval || 250; // relatively low interval, but there would typically not be that many files (less than 1000 at the very least) - hopefully if we have customers with more files than that, we also have devs working on Val that easily can fix this :) Besides this is just the default
+      const disableFilePolling = this.options?.disableFilePolling || false;
+      let patchesDirHandle: NodeJS.Timeout;
+      let valFilesIntervalHandle: NodeJS.Timeout;
+      const type = await Promise.race([
+        // we poll the patches directory for changes since fs.watch does not work reliably on all system (in particular on WSL) and just checking the patches dir is relatively cheap
+        disableFilePolling
+          ? new Promise<"request-again">(() => {})
+          : didDirectoryChangeUsingPolling(
+              this.getPatchesDir(),
+              statFilePollingInterval,
+              (handle) => {
+                patchesDirHandle = handle;
+              },
+            ),
+        // we poll the files that Val depends on for changes
+        disableFilePolling
+          ? new Promise<"request-again">(() => {})
+          : didFilesChangeUsingPolling(
+              [
+                nodePath.join(this.rootDir, "val.config.ts"),
+                nodePath.join(this.rootDir, "val.modules.ts"),
+                nodePath.join(this.rootDir, "val.config.js"),
+                nodePath.join(this.rootDir, "val.modules.js"),
+                ...moduleFilePaths.map((p) => nodePath.join(this.rootDir, p)),
+              ],
+              statFilePollingInterval,
+              (handle) => {
+                valFilesIntervalHandle = handle;
+              },
+            ),
+        new Promise<"request-again">((resolve) => {
+          fsWatcher = fs.watch(
+            this.rootDir,
+            {
+              recursive: true,
+            },
+            (eventType, filename) => {
+              if (!filename) {
+                return;
+              }
               const isChange =
-                path.startsWith(this.getPatchesDir()) ||
-                path.endsWith(".val.ts") ||
-                path.endsWith(".val.js") ||
-                path.endsWith("val.config.ts") ||
-                path.endsWith("val.config.js") ||
-                path.endsWith("val.modules.ts") ||
-                path.endsWith("val.modules.js");
+                filename.startsWith(
+                  this.getPatchesDir().slice(this.rootDir.length + 1),
+                ) ||
+                filename.endsWith(".val.ts") ||
+                filename.endsWith(".val.js") ||
+                filename.endsWith("val.config.ts") ||
+                filename.endsWith("val.config.js") ||
+                filename.endsWith("val.modules.ts") ||
+                filename.endsWith("val.modules.js");
               if (isChange) {
                 // a file that Val depends on just changed or a patch was created, break connection and request stat again to get the new values
                 resolve("request-again");
               }
-            });
+            },
+          );
         }),
         new Promise<"no-change">((resolve) =>
-          setTimeout(() => resolve("no-change"), 5000),
+          setTimeout(
+            () => resolve("no-change"),
+            this.options?.statPollingInterval || 20000,
+          ),
         ),
-      ]);
-      if (watcher) {
-        watcher.close();
-      }
-
+      ]).finally(() => {
+        if (fsWatcher) {
+          fsWatcher.close();
+        }
+        stopPolling = true;
+        clearInterval(patchesDirHandle);
+        clearInterval(valFilesIntervalHandle);
+      });
       return {
         type,
         baseSha: currentBaseSha,

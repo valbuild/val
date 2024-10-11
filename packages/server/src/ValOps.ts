@@ -59,6 +59,10 @@ const tsOps = new TSOps((document) => {
 
 export type ValOpsOptions = {
   formatter?: (code: string, filePath: string) => string | Promise<string>;
+  statPollingInterval?: number;
+  statFilePollingInterval?: number;
+  disableFilePolling?: boolean;
+  disableFileWatcher?: boolean;
 };
 // #region ValOps
 export abstract class ValOps {
@@ -74,7 +78,7 @@ export abstract class ValOps {
 
   constructor(
     private readonly valModules: ValModules,
-    private readonly options?: ValOpsOptions,
+    protected readonly options?: ValOpsOptions,
   ) {
     this.sources = null;
     this.baseSha = null;
