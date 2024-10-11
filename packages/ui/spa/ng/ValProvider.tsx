@@ -121,7 +121,7 @@ export type UpdatingRemote<T> =
     }
   | {
       status: "error"; // an error occurred
-      error: string;
+      errors: string[] | string;
       data?: T;
     };
 export function ValProvider({
