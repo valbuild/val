@@ -27,8 +27,6 @@ import { Patch } from "./patch/validation";
 import { guessMimeTypeFromPath } from "./ValServer";
 import chokidar from "chokidar";
 
-let watcher: chokidar.FSWatcher | null = null;
-
 export class ValOpsFS extends ValOps {
   private static readonly VAL_DIR = ".val";
   private readonly host: FSOpsHost;
@@ -98,6 +96,7 @@ export class ValOpsFS extends ValOps {
           patches,
         };
       }
+      let watcher: chokidar.FSWatcher | null = null;
 
       const type = await Promise.race([
         new Promise<"request-again">((resolve) => {
@@ -127,6 +126,9 @@ export class ValOpsFS extends ValOps {
           setTimeout(() => resolve("no-change"), 5000),
         ),
       ]);
+      if (watcher) {
+        watcher.close();
+      }
 
       return {
         type,
