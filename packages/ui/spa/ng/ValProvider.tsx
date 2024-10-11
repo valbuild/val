@@ -102,7 +102,10 @@ export type UpdatingRemote<T> =
       status: "not-asked";
     }
   | {
-      status: "initializing";
+      status: "requested";
+    }
+  | {
+      status: "loading";
     }
   | {
       status: "success";
@@ -119,6 +122,7 @@ export type UpdatingRemote<T> =
   | {
       status: "error";
       error: string;
+      data?: T;
     };
 export function ValProvider({
   children,
@@ -473,6 +477,10 @@ export function usePatchSets() {
 export type ValError =
   | {
       type: "validationError";
+      message: string;
+    }
+  | {
+      type: "patchError";
       message: string;
     }
   | {
