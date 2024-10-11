@@ -14,6 +14,7 @@ import React, {
   SetStateAction,
   Dispatch,
   useCallback,
+  useMemo,
 } from "react";
 import { Remote } from "../utils/Remote";
 import { UpdatingRemote, PatchWithMetadata, ValError } from "./ValProvider";
@@ -35,115 +36,55 @@ export function useValState(client: ValClient) {
   const [sourcePathErrors, setSourcePathErrors] = useState<
     Record<SourcePath, UpdatingRemote<ValError[]>>
   >({});
-  const [stat, setStat] = useStat(client);
+  const [stat] = useStat(client);
 
+  const addPatchIdRef = useRef(0);
   const addPatch = useCallback(
     (moduleFilePath: ModuleFilePath, patch: Patch) => {
-      const currentSource =
-        sources[moduleFilePath] &&
-        "data" in sources[moduleFilePath] &&
-        sources[moduleFilePath].data;
-      console.log("currentSource", currentSource);
-      let didFail = false;
-      if (currentSource) {
-        // optimistic update if source is available - source should typically be available
-        const patchRes = applyPatch(currentSource as JSONValue, ops, patch);
-        if (patchRes.kind === "ok") {
-          setSources((prev) => {
-            const sources = { ...prev };
-            sources[moduleFilePath] = {
-              status: "updating",
-              data: patchRes.value,
-            };
-            return sources;
-          });
-        } else {
-          didFail = true;
-          setSourcePathErrors((prev) => {
-            const errors = { ...prev };
-            errors[moduleFilePath as unknown as SourcePath] = {
-              status: "success",
-              data: [
-                {
-                  type: "patchError",
-                  message: `Could not apply patch (${patchRes.error.message})`,
-                },
-              ],
-            };
-            return errors;
-          });
+      const id = ++addPatchIdRef.current;
+      setSources((prev) => {
+        // optimistically update if source is available - source should typically be available
+        if ("data" in prev[moduleFilePath]) {
+          const currentSource = prev[moduleFilePath].data;
+          if (currentSource) {
+            const patchRes = applyPatch(currentSource as JSONValue, ops, patch);
+            if (patchRes.kind === "ok") {
+              const sources: typeof prev = { ...prev };
+              sources[moduleFilePath] = {
+                ...prev[moduleFilePath],
+                data: patchRes.value,
+              };
+              return sources;
+            }
+            // if we fail, we do not optimistically update, we could extend this to also not send the patch (since it should / would fail)
+          }
         }
-      }
-      if (didFail) {
-        return;
-      }
+        return prev;
+      });
+      setRequestedSourcesToLoadingOrUpdating([moduleFilePath]);
       client("/tree/~", "PUT", {
+        body: {
+          addPatch: {
+            path: moduleFilePath,
+            patch,
+          },
+          patchIds: "data" in stat && stat.data ? stat.data.patches : [],
+        },
         path: moduleFilePath,
         query: {
           validate_sources: true,
           validate_all: false,
           validate_binary_files: false,
         },
-        body: {
-          addPatch: {
-            path: moduleFilePath,
-            patch,
-          },
-        },
       }).then((res) => {
+        if (id !== addPatchIdRef.current) {
+          return;
+        }
         if (res.status === 200) {
-          setSources((prev) => {
-            const sources = { ...prev };
-            sources[moduleFilePath] = {
-              status: "success",
-              data: res.json.modules[moduleFilePath]?.source,
-            };
-            return sources;
-          });
-          setSourcePathErrors((prev) => {
-            const moduleValidationErrors =
-              res.json.modules[moduleFilePath]?.patches?.errors;
-            const errors = { ...prev };
-            for (const patchId in moduleValidationErrors) {
-              console.log(
-                "patchId",
-                patchId,
-                moduleValidationErrors[patchId as PatchId],
-              );
-            }
-            // errors[moduleFilePath as unknown as SourcePath] = {
-            //   status: "success",
-            //   data: [res.json.modules[moduleFilePath]?.errors],
-            // };
-            return errors;
-          });
-          if (res.json.newPatchId) {
-            const newPatchId = res.json.newPatchId;
-            setStat((prev) => {
-              return {
-                ...prev,
-                patches:
-                  "data" in prev && prev.data
-                    ? [...prev.data.patches, newPatchId]
-                    : [newPatchId],
-              };
-            });
-          } else {
-            setSourcePathErrors((prev) => {
-              const errors = { ...prev };
-              errors[moduleFilePath as unknown as SourcePath] = {
-                status: "success",
-                data: [
-                  {
-                    type: "patchError",
-                    message: `Could not create new patch`,
-                  },
-                ],
-              };
-              return errors;
-            });
-          }
+          updateSources([moduleFilePath], res.json.modules);
         } else {
+          const modules = "modules" in res.json ? res.json.modules : {};
+          updateSources([moduleFilePath], modules, res.json.message);
           setSourcePathErrors((prev) => {
             const errors = { ...prev };
             errors[moduleFilePath as unknown as SourcePath] = {
@@ -151,7 +92,7 @@ export function useValState(client: ValClient) {
               data: [
                 {
                   type: "patchError",
-                  message: `Could not create new patch`,
+                  message: `Could not create patch: ${res.json.message}`,
                 },
               ],
             };
@@ -160,70 +101,12 @@ export function useValState(client: ValClient) {
         }
       });
     },
-    [sources],
+    [sources, stat],
   );
-
-  const schemaSha =
-    "data" in stat && stat.data?.schemaSha ? stat.data.schemaSha : undefined;
-  useEffect(() => {
-    if (schemaSha) {
-      setSchemas({
-        status: "loading",
-      });
-      client("/schema", "GET", {}).then((res) => {
-        if (res.status === 200) {
-          if (res.json.schemaSha === schemaSha) {
-            setSources((prev) => {
-              const sources: Record<ModuleFilePath, UpdatingRemote<Json>> = {};
-              let didChange = false;
-              for (const moduleFilePathS in res.json.schemas) {
-                const moduleFilePath = moduleFilePathS as ModuleFilePath;
-                const status = prev[moduleFilePath]?.status;
-                if (status === "not-asked") {
-                  continue;
-                }
-                didChange = true;
-                if (status === undefined) {
-                  sources[moduleFilePath] = {
-                    status: "not-asked",
-                  };
-                } else {
-                  sources[moduleFilePath] = {
-                    status: "requested",
-                  };
-                }
-              }
-              if (didChange) {
-                return sources;
-              }
-              return prev;
-            });
-            setSchemas({
-              status: "success",
-              data: res.json,
-            });
-          } else {
-            setSchemas({
-              status: "error",
-              error: "Schema (different checksums) mismatch",
-            });
-          }
-        } else {
-          setSchemas({
-            status: "error",
-            error: res.json.message,
-          });
-        }
-      });
-    }
-  }, [schemaSha]);
-
-  const maybePatchIds = "data" in stat ? stat.data?.patches : undefined;
-  const sourceEffectIdRef = useRef(0);
   const setRequestedSourcesToLoadingOrUpdating = useCallback(
     (paths: string[] | "all") => {
       setSources((prev) => {
-        const sources: typeof prev = {};
+        const sources: typeof prev = { ...prev };
         let didChange = false;
         for (const moduleFilePathS of paths === "all"
           ? Object.keys(prev)
@@ -264,7 +147,7 @@ export function useValState(client: ValClient) {
       error?: string,
     ) => {
       setSources((prev) => {
-        const sources: typeof prev = {};
+        const sources: typeof prev = { ...prev };
         for (const moduleFilePathS of paths === "all"
           ? Object.keys(prev)
           : paths) {
@@ -273,8 +156,9 @@ export function useValState(client: ValClient) {
             sources[moduleFilePath] = {
               status: "error",
               error,
-              data:
-                "data" in prev[moduleFilePath]
+              data: newModules[moduleFilePath]?.source
+                ? newModules[moduleFilePath].source
+                : "data" in prev[moduleFilePath]
                   ? prev[moduleFilePath].data
                   : undefined,
             };
@@ -299,8 +183,96 @@ export function useValState(client: ValClient) {
     },
     [],
   );
+
+  const schemaSha =
+    "data" in stat && stat.data?.schemaSha ? stat.data.schemaSha : undefined;
   useEffect(() => {
-    const id = ++sourceEffectIdRef.current;
+    if (schemaSha) {
+      setSchemas({
+        status: "loading",
+      });
+      client("/schema", "GET", {}).then((res) => {
+        if (res.status === 200) {
+          if (res.json.schemaSha === schemaSha) {
+            setSources((prev) => {
+              const sources: Record<ModuleFilePath, UpdatingRemote<Json>> = {};
+              let didChange = false;
+              for (const moduleFilePathS in res.json.schemas) {
+                const moduleFilePath = moduleFilePathS as ModuleFilePath;
+                const status = prev[moduleFilePath]?.status;
+                if (status === "not-asked") {
+                  continue;
+                }
+                didChange = true;
+                if (status === undefined) {
+                  sources[moduleFilePath] = {
+                    status: "not-asked",
+                  };
+                } else if (
+                  status === "loading" ||
+                  status === "updating" ||
+                  status === "requested"
+                ) {
+                  sources[moduleFilePath] = {
+                    status: "requested",
+                  };
+                } else if (prev[moduleFilePath].data) {
+                  sources[moduleFilePath] = {
+                    status: "update-requested",
+                    data: prev[moduleFilePath].data,
+                  };
+                } else {
+                  sources[moduleFilePath] = {
+                    status: "requested",
+                  };
+                }
+              }
+              if (didChange) {
+                return sources;
+              }
+              return prev;
+            });
+            setSchemas({
+              status: "success",
+              data: res.json,
+            });
+          } else {
+            setSchemas({
+              status: "error",
+              error: "Schema (different checksums) mismatch",
+            });
+          }
+        } else {
+          setSchemas({
+            status: "error",
+            error: res.json.message,
+          });
+        }
+      });
+    }
+  }, [schemaSha]);
+
+  const currentStateRef = useRef("");
+  const { currentState, currentPatchIds } = useMemo(() => {
+    const currentPatchIds =
+      "data" in stat && stat.data ? stat.data.patches : [];
+    return {
+      currentState:
+        stat.status +
+        ("data" in stat && stat.data
+          ? stat.data.baseSha + "p:" + currentPatchIds.join(",")
+          : ""),
+      currentPatchIds,
+    };
+  }, [stat]);
+  useEffect(() => {
+    // already at the current state
+    if (currentStateRef.current === currentState) {
+      return;
+    }
+    // later we ignore responses that are not at the current state
+    currentStateRef.current = currentState;
+
     let requiredUpdateCount = 0;
     let modulesCount = 0;
     for (const moduleFilePathS in sources) {
@@ -325,25 +297,24 @@ export function useValState(client: ValClient) {
           validate_binary_files: false,
         },
         body: {
-          patchIds: maybePatchIds || [],
+          patchIds: currentPatchIds,
         },
       }).then((res) => {
-        if (id !== sourceEffectIdRef.current) {
+        if (currentState !== currentStateRef.current) {
           return;
         }
+        console.log(res.status, res.json?.type);
         if (res.status === 200) {
           updateSources("all", res.json.modules);
         } else {
-          updateSources("all", {}, res.json.message);
+          const modules = "modules" in res.json ? res.json.modules : {};
+          updateSources("all", modules, res.json.message);
         }
       });
     } else {
       for (const moduleFilePathS in sources) {
         const moduleFilePath = moduleFilePathS as ModuleFilePath;
-        if (
-          sources[moduleFilePath].status === "requested" ||
-          sources[moduleFilePath].status === "update-requested"
-        ) {
+        if (sources[moduleFilePath].status !== "not-asked") {
           setRequestedSourcesToLoadingOrUpdating([moduleFilePath]);
           client("/tree/~", "PUT", {
             path: moduleFilePath,
@@ -353,22 +324,23 @@ export function useValState(client: ValClient) {
               validate_binary_files: false,
             },
             body: {
-              patchIds: maybePatchIds || [],
+              patchIds: currentPatchIds,
             },
           }).then((res) => {
-            if (id !== sourceEffectIdRef.current) {
+            if (currentState !== currentStateRef.current) {
               return;
             }
             if (res.status === 200) {
               updateSources([moduleFilePath], res.json.modules);
             } else {
-              updateSources([moduleFilePath], {}, res.json.message);
+              const modules = "modules" in res.json ? res.json.modules : {};
+              updateSources("all", modules, res.json.message);
             }
           });
         }
       }
     }
-  }, [sources, maybePatchIds]);
+  }, [sources, currentState, currentPatchIds]);
 
   return {
     stat,
