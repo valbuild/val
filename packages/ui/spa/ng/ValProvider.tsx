@@ -102,17 +102,10 @@ export type UpdatingRemote<T> =
       status: "not-asked"; // no data has been requested
     }
   | {
-      status: "requested"; // data has been requested
-    }
-  | {
       status: "loading"; // data is loading
     }
   | {
       status: "success"; // data has been loaded
-      data: T;
-    }
-  | {
-      status: "update-requested"; // update with new data has been requested
       data: T;
     }
   | {
