@@ -2,6 +2,7 @@ import { FC } from "react";
 import { ValCache } from "@valbuild/shared/internal";
 import { ValClient } from "@valbuild/shared/src/internal/ValClient";
 import { useValState } from "../../ng/useValState";
+import { ModuleFilePath } from "@valbuild/core";
 
 interface ValFullscreenProps {
   client: ValClient;
@@ -14,12 +15,11 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client }) => {
     state.stat.status !== "initializing" &&
     state.stat.status !== "not-asked"
   ) {
-    console.log(state.stat.data);
     return (
       <div className="flex flex-col gap-10">
         <button
           onClick={() => {
-            state.addPatch("/content/authors.val.ts" as any, [
+            state.addPatch("/content/authors.val.ts" as ModuleFilePath, [
               {
                 op: "replace",
                 path: ["freekh", "name"],
@@ -41,6 +41,5 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client }) => {
       </div>
     );
   }
-  console.log(state.stat);
   return <pre>{JSON.stringify(state.stat, null, 2)}</pre>;
 };

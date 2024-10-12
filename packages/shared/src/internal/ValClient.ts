@@ -120,11 +120,32 @@ export const createValClient = (host: string): ValClient => {
       return {
         status: null,
         json: {
-          message: "Failed to fetch data. This is likely a network error.",
+          message: "Failed to fetch data",
           type: "network_error",
+          retryable: isRetryable(e),
           details: e instanceof Error ? e.message : JSON.stringify(e),
         },
       } satisfies ClientFetchErrors;
     }
   };
 };
+
+function isRetryable(error: unknown) {
+  if (error instanceof TypeError) {
+    // TypeError is usually thrown by fetch when the network request fails.
+    return true;
+  }
+  if (error instanceof Error && "code" in error) {
+    const errorCode = (error as { code: string }).code;
+
+    // Network-specific errors (Node.js specific)
+    const retryableErrorCodes = [
+      "ECONNRESET",
+      "ETIMEDOUT",
+      "ENOTFOUND",
+      "EAI_AGAIN",
+    ];
+    return retryableErrorCodes.includes(errorCode);
+  }
+  return false;
+}

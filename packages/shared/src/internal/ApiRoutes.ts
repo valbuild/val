@@ -412,11 +412,13 @@ export const Api = {
         body: z
           .object({
             patchIds: z.array(PatchId).optional(),
-            addPatch: z
-              .object({
-                path: ModuleFilePath,
-                patch: Patch,
-              })
+            addPatches: z
+              .array(
+                z.object({
+                  path: ModuleFilePath,
+                  patch: Patch,
+                }),
+              )
               .optional(),
           })
           .optional(),
@@ -433,6 +435,10 @@ export const Api = {
         notFoundResponse,
         z.object({
           status: z.literal(401),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(409), // conflict: i.e. not a head of patches
           json: GenericError,
         }),
         z.object({
@@ -503,7 +509,7 @@ export const Api = {
                   .optional(),
               }),
             ),
-            newPatchId: PatchId.optional(),
+            newPatchIds: z.array(PatchId).optional(),
           }),
         }),
       ]),
@@ -728,6 +734,7 @@ export type ClientFetchErrors =
       json:
         | {
             type: "network_error";
+            retryable: boolean;
             message: string;
             details: string;
           }

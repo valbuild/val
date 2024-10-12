@@ -725,8 +725,11 @@ export const ValServer = (
           >;
         };
         let patchAnalysis: PatchAnalysis | null = null;
-        let newPatchId: PatchId | undefined = undefined;
-        if ((body?.patchIds && body?.patchIds?.length > 0) || body?.addPatch) {
+        let newPatchIds: PatchId[] | undefined = undefined;
+        if (
+          (body?.patchIds && body?.patchIds?.length > 0) ||
+          body?.addPatches
+        ) {
           // TODO: validate patches_sha
           const patchIds = body?.patchIds;
           const patchOps =
@@ -746,47 +749,52 @@ export const ValServer = (
               message: error.message,
             };
           }
-          if (body?.addPatch) {
-            const newPatchModuleFilePath = body.addPatch.path;
-            const newPatchOps = body.addPatch.patch;
-            const authorId = "id" in auth ? (auth.id as AuthorId) : null;
-            const createPatchRes = await serverOps.createPatch(
-              newPatchModuleFilePath,
-              newPatchOps,
-              authorId,
-            );
-            if (createPatchRes.error) {
-              return {
-                status: 500,
-                json: {
-                  message:
-                    "Failed to create patch: " + createPatchRes.error.message,
-                  details: createPatchRes.error,
-                },
+          if (body?.addPatches) {
+            for (const addPatch of body.addPatches) {
+              const newPatchModuleFilePath = addPatch.path;
+              const newPatchOps = addPatch.patch;
+              const authorId = "id" in auth ? (auth.id as AuthorId) : null;
+              const createPatchRes = await serverOps.createPatch(
+                newPatchModuleFilePath,
+                newPatchOps,
+                authorId,
+              );
+              if (createPatchRes.error) {
+                return {
+                  status: 500,
+                  json: {
+                    message:
+                      "Failed to create patch: " + createPatchRes.error.message,
+                    details: createPatchRes.error,
+                  },
+                };
+              }
+              // TODO: evaluate if we need this: seems wrong to delete patches that are not applied
+              // for (const fileRes of createPatchRes.files) {
+              //   if (fileRes.error) {
+              //     // clean up broken patch:
+              //     await this.serverOps.deletePatches([createPatchRes.patchId]);
+              //     return {
+              //       status: 500,
+              //       json: {
+              //         message: "Failed to create patch",
+              //         details: fileRes.error,
+              //       },
+              //     };
+              //   }
+              // }
+              if (!newPatchIds) {
+                newPatchIds = [createPatchRes.patchId];
+              }
+              newPatchIds.push(createPatchRes.patchId);
+              patchOps.patches[createPatchRes.patchId] = {
+                path: newPatchModuleFilePath,
+                patch: newPatchOps,
+                authorId,
+                createdAt: createPatchRes.createdAt,
+                appliedAt: null,
               };
             }
-            // TODO: evaluate if we need this: seems wrong to delete patches that are not applied
-            // for (const fileRes of createPatchRes.files) {
-            //   if (fileRes.error) {
-            //     // clean up broken patch:
-            //     await this.serverOps.deletePatches([createPatchRes.patchId]);
-            //     return {
-            //       status: 500,
-            //       json: {
-            //         message: "Failed to create patch",
-            //         details: fileRes.error,
-            //       },
-            //     };
-            //   }
-            // }
-            newPatchId = createPatchRes.patchId;
-            patchOps.patches[createPatchRes.patchId] = {
-              path: newPatchModuleFilePath,
-              patch: newPatchOps,
-              authorId,
-              createdAt: createPatchRes.createdAt,
-              appliedAt: null,
-            };
           }
           // TODO: errors
           patchAnalysis = serverOps.analyzePatches(patchOps.patches);
@@ -897,7 +905,7 @@ export const ValServer = (
           json: {
             schemaSha,
             modules,
-            newPatchId,
+            newPatchIds,
           },
         };
         return res;
