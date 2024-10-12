@@ -3,12 +3,12 @@ import { Patch } from "@valbuild/core/patch";
 
 export function mergePatches(
   pendingPatches: Record<ModuleFilePath, { patch: Patch; seqNumber: number }[]>,
-) {
+): { patch: Patch; path: ModuleFilePath }[] {
   const pendingPatchesModuleFilePaths = Object.keys(
     pendingPatches,
   ) as ModuleFilePath[];
   if (pendingPatchesModuleFilePaths.length === 0) {
-    return;
+    return [];
   }
   const mergedPatches: { patch: Patch; path: ModuleFilePath }[] = [];
   for (const moduleFilePath of pendingPatchesModuleFilePaths) {

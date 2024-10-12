@@ -15,21 +15,31 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client }) => {
     state.stat.status !== "initializing" &&
     state.stat.status !== "not-asked"
   ) {
+    console.log("studio", state?.sources?.["/content/authors.val.ts"]?.data);
     return (
       <div className="flex flex-col gap-10">
-        <button
-          onClick={() => {
+        <input
+          className="w-[400px] text-black"
+          disabled={
+            state?.sources?.["/content/authors.val.ts"]?.data?.["freekh"]
+              ?.name === undefined
+          }
+          value={
+            state?.sources?.["/content/authors.val.ts"]?.data?.["freekh"]
+              ?.name || ""
+          }
+          onChange={(ev) => {
+            const value = ev.target.value;
+            console.log("studio", value);
             state.addPatch("/content/authors.val.ts" as ModuleFilePath, [
               {
                 op: "replace",
                 path: ["freekh", "name"],
-                value: new Date().toISOString(),
+                value,
               },
             ]);
           }}
-        >
-          Add patch
-        </button>
+        />
         <div className="grid">
           <div>Status: {state.stat.status}</div>
           <div>Type: {state.stat.data?.type}</div>
