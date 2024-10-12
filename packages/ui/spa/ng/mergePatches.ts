@@ -1,6 +1,5 @@
-import { last } from "@remirror/core";
 import { ModuleFilePath } from "@valbuild/core";
-import { Patch, Operation } from "@valbuild/core/patch";
+import { Patch } from "@valbuild/core/patch";
 
 export function mergePatches(
   pendingPatches: Record<ModuleFilePath, { patch: Patch; seqNumber: number }[]>,
@@ -14,48 +13,21 @@ export function mergePatches(
   const mergedPatches: { patch: Patch; path: ModuleFilePath }[] = [];
   for (const moduleFilePath of pendingPatchesModuleFilePaths) {
     const patches = pendingPatches[moduleFilePath];
-    let lastMergeOp: Operation | undefined;
     const sortedPatches = patches.sort((a, b) => a.seqNumber - b.seqNumber);
     for (let i = 0; i < sortedPatches.length; i++) {
       const { patch } = sortedPatches[i];
       if (patch.length === 1 && patch[0].op === "replace") {
+        const nextPatch = sortedPatches[i + 1]?.patch;
         if (
-          lastMergeOp &&
-          lastMergeOp.op === "replace" &&
-          patch[0].path.join("/") === lastMergeOp.path.join("/")
+          nextPatch &&
+          nextPatch.length === 1 &&
+          nextPatch[0].op === "replace" &&
+          nextPatch[0].path.join("/") === patch[0].path.join("/")
         ) {
-          // merge current replace with last replace
-          lastMergeOp.value = patch[0].value;
-        } else {
-          if (lastMergeOp) {
-            mergedPatches.push({
-              patch: [lastMergeOp],
-              path: moduleFilePath,
-            });
-            lastMergeOp = undefined;
-          }
-          lastMergeOp = patch[0];
+          continue;
         }
-      } else {
-        if (lastMergeOp) {
-          mergedPatches.push({
-            patch: [lastMergeOp],
-            path: moduleFilePath,
-          });
-          lastMergeOp = undefined;
-        }
-        mergedPatches.push({
-          patch,
-          path: moduleFilePath,
-        });
       }
-    }
-    if (lastMergeOp) {
-      mergedPatches.push({
-        patch: [lastMergeOp],
-        path: moduleFilePath,
-      });
-      lastMergeOp = undefined;
+      mergedPatches.push({ patch, path: moduleFilePath });
     }
   }
   return mergedPatches;
