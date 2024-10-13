@@ -15,7 +15,6 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client }) => {
     state.stat.status !== "initializing" &&
     state.stat.status !== "not-asked"
   ) {
-    console.log("studio", state?.sources?.["/content/authors.val.ts"]?.data);
     return (
       <div className="flex flex-col gap-10">
         <input
@@ -30,7 +29,6 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client }) => {
           }
           onChange={(ev) => {
             const value = ev.target.value;
-            console.log("studio", value);
             state.addPatch("/content/authors.val.ts" as ModuleFilePath, [
               {
                 op: "replace",
