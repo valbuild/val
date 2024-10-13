@@ -39,7 +39,7 @@ export function useValState(client: ValClient) {
   >({});
   const [stat, setStat] = useStat(client);
 
-  const [pendingPatches, setPendingPatches] = useState<
+  const pendingPatchesRef = useRef<
     Record<ModuleFilePath, { patch: Patch; seqNumber: number }[]>
   >({});
   const syncSources = useCallback(
@@ -53,12 +53,16 @@ export function useValState(client: ValClient) {
       // Logically this seems easier should cover the init case and whenever we need to update individual modules (e.g. after patching)
       const path =
         requestedSources.length === 1 ? requestedSources[0] : undefined;
+
       setRequestedSourcesToLoadingOrUpdating(requestedSources);
       const currentState = { ...currentStateRef.current };
       for (const moduleFilePath of requestedSources) {
         currentState[moduleFilePath] = sourceState;
       }
       currentStateRef.current = { ...currentState };
+      if (Object.keys(pendingPatchesRef.current).length > 0) {
+        return;
+      }
       client("/tree/~", "PUT", {
         path: path,
         query: {
@@ -100,6 +104,7 @@ export function useValState(client: ValClient) {
         .catch((err) => {
           const errorMessage =
             err instanceof Error ? err.message : JSON.stringify(err);
+
           updateSources(
             requestedSources,
             {},
@@ -122,6 +127,11 @@ export function useValState(client: ValClient) {
           const moduleFilePath = moduleFilePathS as ModuleFilePath;
           if (!sources[moduleFilePath]) {
             console.warn("Requested unknown module", moduleFilePath);
+            continue;
+          }
+          // We skip if we have a pending patch for this module
+          // Because we will get a new state for this module when the patch is applied
+          if (pendingPatchesRef.current[moduleFilePath]) {
             continue;
           }
           if ("data" in sources[moduleFilePath]) {
@@ -155,6 +165,11 @@ export function useValState(client: ValClient) {
         const moduleFilePaths = paths;
         for (const moduleFilePathS of moduleFilePaths) {
           const moduleFilePath = moduleFilePathS as ModuleFilePath;
+          // We skip if we have a pending patch for this module
+          // Because we will get a new state for this module when the patch is applied
+          if (pendingPatchesRef.current[moduleFilePath]) {
+            continue;
+          }
           if (errors && errors[moduleFilePath]) {
             sources[moduleFilePath] = {
               status: "error",
@@ -206,6 +221,11 @@ export function useValState(client: ValClient) {
               let didChange = false;
               for (const moduleFilePathS in res.json.schemas) {
                 const moduleFilePath = moduleFilePathS as ModuleFilePath;
+                // We skip if we have a pending patch for this module
+                // Because we will get a new state for this module when the patch is applied
+                if (pendingPatchesRef.current[moduleFilePath]) {
+                  continue;
+                }
                 const status = prev[moduleFilePath]?.status;
                 if (status === "not-asked") {
                   continue;
@@ -293,14 +313,13 @@ export function useValState(client: ValClient) {
               patch.filter((op) => op.op !== "file"),
             );
             if (patchRes.kind === "ok") {
-              setPendingPatches((prev) => {
-                const patches: typeof prev = { ...prev };
-                patches[moduleFilePath] = [
-                  ...(prev[moduleFilePath] ?? []),
+              pendingPatchesRef.current = {
+                ...pendingPatchesRef.current,
+                [moduleFilePath]: [
+                  ...(pendingPatchesRef.current[moduleFilePath] ?? []),
                   { patch, seqNumber: patchSeqNumberRef.current++ },
-                ];
-                return patches;
-              });
+                ],
+              };
               const sources: typeof prev = { ...prev };
               sources[moduleFilePath] = {
                 ...prev[moduleFilePath],
@@ -316,14 +335,13 @@ export function useValState(client: ValClient) {
             moduleFilePath,
             patch,
           );
-          setPendingPatches((prev) => {
-            const patches: typeof prev = { ...prev };
-            patches[moduleFilePath] = [
-              ...(prev[moduleFilePath] ?? []),
+          pendingPatchesRef.current = {
+            ...pendingPatchesRef.current,
+            [moduleFilePath]: [
+              ...(pendingPatchesRef.current[moduleFilePath] ?? []),
               { patch, seqNumber: patchSeqNumberRef.current++ },
-            ];
-            return patches;
-          });
+            ],
+          };
         }
         return prev;
       });
@@ -357,109 +375,120 @@ export function useValState(client: ValClient) {
     }
   }, [schemas]);
 
-  const mergeAndSyncPatches = useCallback(
-    (
-      pendingPatches: Record<
-        ModuleFilePath,
-        {
-          patch: Patch;
-          seqNumber: number;
-        }[]
-      >,
-    ) => {
-      if (Object.keys(pendingPatches).length === 0) {
-        return [];
+  const mergeAndSyncPatches = useCallback(() => {
+    const pendingPatches = { ...pendingPatchesRef.current };
+    if (Object.keys(pendingPatches).length === 0) {
+      return [];
+    }
+    const mergedPatches = mergePatches(pendingPatches);
+    console.log("syncing", pendingPatches);
+    const syncedSeqNumbers = new Set<number>();
+    for (const moduleFilePathS in pendingPatches) {
+      const moduleFilePath = moduleFilePathS as ModuleFilePath;
+      for (const { seqNumber } of pendingPatches[moduleFilePath]) {
+        syncedSeqNumbers.add(seqNumber);
       }
-      const mergedPatches = mergePatches(pendingPatches);
-      // TODO: add a /patches POST endpoint and use that instead
-      client("/tree/~", "PUT", {
-        path: undefined,
-        query: {
-          validate_sources: false,
-          validate_all: false,
-          validate_binary_files: false,
-        },
+    }
+    // TODO: add a /patches POST endpoint and use that instead
+    client("/tree/~", "PUT", {
+      path: undefined,
+      query: {
+        validate_sources: false,
+        validate_all: false,
+        validate_binary_files: false,
+      },
 
-        body: {
-          patchIds: currentPatchIds,
-          addPatches: mergedPatches,
-        },
-      })
-        .then((res) => {
-          if (res.status === 409) {
-            // retry on conflict
-            setPendingPatches({ ...pendingPatches });
-          } else if (
-            res.status === null &&
-            res.json.type === "network_error" &&
-            res.json.retryable
-          ) {
-            // retry on network errors
-            setPendingPatches({ ...pendingPatches });
-          } else {
-            setPendingPatches({});
-            if ("errors" in res.json) {
-              // we have an explicit error for each module
-              for (const moduleFilePathS in pendingPatches) {
-                const moduleFilePath = moduleFilePathS as ModuleFilePath;
-                const errors = res.json.errors[moduleFilePath];
-                if (errors) {
-                  setSourcePathErrors((prev) => {
-                    const current = { ...prev };
-                    current[moduleFilePath as unknown as SourcePath] = {
-                      status: "error",
-                      errors: errors.map((e) => e.error.message),
-                    };
-                    return current;
-                  });
-                }
-              }
-            } else if (res.status !== 200) {
-              // we do not know what went wrong
-              for (const moduleFilePathS in pendingPatches) {
-                const moduleFilePath = moduleFilePathS as ModuleFilePath;
+      body: {
+        patchIds: currentPatchIds,
+        addPatches: mergedPatches,
+      },
+    })
+      .then((res) => {
+        if (res.status === 409) {
+          // retry on conflict
+        } else if (
+          res.status === null &&
+          res.json.type === "network_error" &&
+          res.json.retryable
+        ) {
+          // retry on network errors
+        } else {
+          for (const moduleFilePathS in pendingPatches) {
+            const moduleFilePath = moduleFilePathS as ModuleFilePath;
+            pendingPatchesRef.current[moduleFilePath] = pendingPatches[
+              moduleFilePath
+            ].filter((p) => !syncedSeqNumbers.has(p.seqNumber));
+            if (pendingPatchesRef.current[moduleFilePath].length === 0) {
+              delete pendingPatchesRef.current[moduleFilePath];
+            }
+          }
+          if ("errors" in res.json) {
+            // we have an explicit error for each module
+            for (const moduleFilePathS in pendingPatches) {
+              const moduleFilePath = moduleFilePathS as ModuleFilePath;
+              const errors = res.json.errors[moduleFilePath];
+              if (errors) {
                 setSourcePathErrors((prev) => {
                   const current = { ...prev };
                   current[moduleFilePath as unknown as SourcePath] = {
                     status: "error",
-                    errors: [res.json.message],
+                    errors: errors.map((e) => e.error.message),
                   };
                   return current;
                 });
               }
             }
+          } else if (res.status !== 200) {
+            // we do not know what went wrong
+            for (const moduleFilePathS in pendingPatches) {
+              const moduleFilePath = moduleFilePathS as ModuleFilePath;
+              setSourcePathErrors((prev) => {
+                const current = { ...prev };
+                current[moduleFilePath as unknown as SourcePath] = {
+                  status: "error",
+                  errors: [res.json.message],
+                };
+                return current;
+              });
+            }
           }
-        })
-        .catch((err) => {
-          console.error("Could not sync patches", err);
-          setPendingPatches({ ...pendingPatches });
-        });
-    },
-    [currentPatchIds],
-  );
+        }
+      })
+      .catch((err) => {
+        console.error("Could not sync patches", err);
+        // retry
+      });
+  }, [currentPatchIds]);
   const timeAtLastSync = useRef(-1);
   useEffect(() => {
-    // we want to batch patches, but we also want to sync them as soon as possible
+    // We want to batch patches for merging, but also to avoid hammering the server
+    // In addition: we want to sync them as soon as possible
+    // Lastly we never want to wait longer than N seconds before syncing if there is a patch coming in
     // if not new patches after 500ms, we sync
-    // if the patches continue after 5000ms, we force a sync
-    // if (
-    //   timeAtLastSync.current !== -1 &&
-    //   Date.now() - timeAtLastSync.current > 5000
-    // ) {
-    //   timeAtLastSync.current = Date.now();
-    //   mergeAndSyncPatches(pendingPatches);
-    // } else {
-    const timeout = setTimeout(() => {
+    // if the patches continue after 2000ms, we force a sync
+    if (
+      timeAtLastSync.current !== -1 &&
+      Date.now() - timeAtLastSync.current > 2000
+    ) {
       timeAtLastSync.current = Date.now();
-      mergeAndSyncPatches(pendingPatches);
-    }, 500);
-    return () => {
-      clearTimeout(timeout);
-    };
-    // }
-  }, [pendingPatches]);
+      mergeAndSyncPatches();
+    } else {
+      const timeout = setTimeout(() => {
+        timeAtLastSync.current = Date.now();
+        mergeAndSyncPatches();
+      }, 500);
+      return () => {
+        clearTimeout(timeout);
+      };
+    }
+  }, [sources]);
 
-  console.log("pending", JSON.stringify(pendingPatches, null, 2));
+  console.log(
+    Object.values(pendingPatchesRef.current).reduce(
+      (acc, p) => acc + p.length,
+      0,
+    ),
+  );
 
   return {
     stat,
