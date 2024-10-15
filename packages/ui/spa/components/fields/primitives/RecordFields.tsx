@@ -22,9 +22,9 @@ import { Button } from "../../ui/button";
 import { Card } from "../../ui/card";
 import { Input } from "../../ui/input";
 import { InitOnSubmit } from "../ValFormField";
-import { useNavigate } from "../../ValRouter";
 import { FieldContainer } from "../FieldContainer";
 import { ValImagePreview } from "../PreviewImage";
+import { useNavigation } from "../../ValRouter";
 
 export function ValRecord({
   path,
@@ -167,7 +167,7 @@ function ValRecordItem({
       }
     }
   }, []);
-  const navigate = useNavigate();
+  const navigate = useNavigation();
   const onSubmit = initOnSubmit(path);
   const [currentKey, setCurrentKey] = useState<string>(recordKey);
   useEffect(() => {
@@ -186,7 +186,7 @@ function ValRecordItem({
           path: path.slice(0, -1).concat(value),
         },
       ];
-    }
+    },
   );
   const [error, setError] = useState<string | null>(null);
 
@@ -242,13 +242,13 @@ function ValRecordItem({
 
 function createValPathOfItem<S extends SourcePath | ModulePath>(
   arrayPath: S | undefined,
-  prop: string | number | symbol
+  prop: string | number | symbol,
 ): S {
   const val = Internal.createValPathOfItem(arrayPath, prop);
   if (!val) {
     // Should never happen
     throw Error(
-      `Could not create val path: ${arrayPath} of ${prop?.toString()}`
+      `Could not create val path: ${arrayPath} of ${prop?.toString()}`,
     );
   }
   return val as S;
@@ -473,7 +473,7 @@ export function ValRichTextPreview({
 
   function toReact(
     node: RichTextNode<AllRichTextOptions>,
-    key: number | string
+    key: number | string,
   ): React.ReactNode {
     if (typeof node === "string") {
       return node;
@@ -590,7 +590,7 @@ export function ValRichTextPreview({
 
     const _exhaustiveCheck: never = node;
     console.error(
-      "Unexpected RichText node: " + JSON.stringify(_exhaustiveCheck)
+      "Unexpected RichText node: " + JSON.stringify(_exhaustiveCheck),
     );
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const anyNode = _exhaustiveCheck as any;

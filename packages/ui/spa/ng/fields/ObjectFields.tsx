@@ -1,87 +1,73 @@
-import {
-  ArraySchema,
-  BooleanSchema,
-  ImageSchema,
-  KeyOfSchema,
-  NumberSchema,
-  ObjectSchema,
-  RichTextSchema,
-  Schema,
-  SelectorSource,
-  SourcePath,
-  StringSchema,
-  UnionSchema,
-} from "@valbuild/core";
+import { SourcePath } from "@valbuild/core";
 import { StringField } from "../fields/StringField";
 import { NumberField } from "../fields/NumberField";
 import { BooleanField } from "../fields/BooleanField";
-import { ListFields } from "../fields/ListFields";
+import { ArrayFields } from "./ArrayFields";
 import { KeyOfField } from "./KeyOfField";
 import { ImageField } from "./ImageField";
 import { UnionField } from "./UnionField";
 import { RichTextField } from "./RichTextField";
-import { NullSource } from "../components/NullSource";
 import { Field } from "../components/Field";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
+import { FieldLoading } from "../components/FieldLoading";
+import { FieldNotFound } from "../components/FieldNotFound";
+import { FieldSchemaError } from "../components/FieldSchemaError";
+import { useSchemaAtPath } from "../ValProvider";
+import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 
-export function ObjectFields({
-  source,
-  schema,
-  path,
-}: {
-  source: any;
-  schema: ObjectSchema<{ [key: string]: Schema<SelectorSource> }>;
-  path: SourcePath;
-}) {
-  if (!source) {
-    return <NullSource />;
+export function ObjectFields({ path }: { path: SourcePath }) {
+  const type = "object";
+  const schemaAtPath = useSchemaAtPath(path);
+  if (schemaAtPath.status === "error") {
+    return (
+      <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
+    );
   }
-
+  if (schemaAtPath.status === "loading") {
+    return <FieldLoading path={path} type={type} />;
+  }
+  if (schemaAtPath.status === "not-found") {
+    return <FieldNotFound path={path} type={type} />;
+  }
+  if (schemaAtPath.data.type !== "object") {
+    return (
+      <FieldSchemaMismatchError
+        path={path}
+        expectedType="object"
+        actualType={schemaAtPath.data.type}
+      />
+    );
+  }
+  const schema = schemaAtPath.data;
   return Object.entries(schema.items).map(([label, itemSchema]) => {
     const key = JSON.stringify({ label, itemSchema });
     const subPath = sourcePathOfItem(path, label);
-    switch (true) {
-      case itemSchema instanceof StringSchema:
+    switch (itemSchema.type) {
+      case "string":
         return (
           <Field key={key} label={label} path={subPath}>
-            <StringField
-              path={subPath}
-              source={source[label]}
-              schema={itemSchema}
-            />
+            <StringField path={subPath} />
           </Field>
         );
-      case itemSchema instanceof NumberSchema:
+      case "number":
         return (
           <Field key={key} label={label} path={subPath}>
-            <NumberField
-              path={subPath}
-              source={source[label]}
-              schema={itemSchema}
-            />
+            <NumberField path={subPath} />
           </Field>
         );
-      case itemSchema instanceof BooleanSchema:
+      case "boolean":
         return (
           <Field key={key} label={label} path={subPath}>
-            <BooleanField
-              path={subPath}
-              source={source[label]}
-              schema={itemSchema}
-            />
+            <BooleanField path={subPath} />
           </Field>
         );
-      case itemSchema instanceof ImageSchema:
+      case "image":
         return (
           <Field key={key} label={label} path={subPath}>
-            <ImageField
-              path={subPath}
-              source={source[label]}
-              schema={itemSchema}
-            />
+            <ImageField path={subPath} />
           </Field>
         );
-      case itemSchema instanceof ArraySchema:
+      case "array":
         return (
           <Field
             key={key}
@@ -90,34 +76,22 @@ export function ObjectFields({
             transparent
             foldLevel="2"
           >
-            <ListFields
-              path={subPath}
-              source={source[label]}
-              schema={itemSchema.item}
-            />
+            <ArrayFields path={subPath} />
           </Field>
         );
-      case itemSchema instanceof KeyOfSchema:
+      case "keyOf":
         return (
           <Field key={key} label={label} path={subPath}>
-            <KeyOfField
-              path={subPath}
-              source={source[label]}
-              schema={itemSchema}
-            />
+            <KeyOfField path={subPath} />
           </Field>
         );
-      case itemSchema instanceof UnionSchema:
+      case "union":
         return (
           <Field key={key} label={label} path={subPath}>
-            <UnionField
-              path={subPath}
-              source={source[label]}
-              schema={itemSchema}
-            />
+            <UnionField path={subPath} />
           </Field>
         );
-      case itemSchema instanceof ObjectSchema:
+      case "object":
         return (
           <Field
             key={key}
@@ -126,29 +100,23 @@ export function ObjectFields({
             transparent
             foldLevel="2"
           >
-            <ObjectFields
-              path={subPath}
-              source={source[label]}
-              schema={itemSchema}
-            />
+            <ObjectFields path={subPath} />
           </Field>
         );
-      case itemSchema instanceof RichTextSchema:
+      case "richtext":
         return (
           <Field key={key} label={label} path={subPath}>
-            <RichTextField
-              path={subPath}
-              source={source[label]}
-              schema={itemSchema}
-            />
+            <RichTextField path={subPath} />
           </Field>
         );
-      default:
+      default: {
+        const exhaustiveCheck: never = itemSchema.type;
         return (
           <Field key={key} label={label} path={subPath}>
             <div>Unknown schema</div>
           </Field>
         );
+      }
     }
   });
 }

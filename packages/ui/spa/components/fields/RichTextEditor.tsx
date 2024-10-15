@@ -77,11 +77,18 @@ const allExtensions = () => {
 };
 
 export function useRichTextEditor(defaultValue?: RemirrorJSON) {
-  const { manager, state } = useRemirror({
+  const { manager, state, getContext } = useRemirror({
     extensions: allExtensions, // TODO: filter on options?
     content: defaultValue,
     selection: "start",
   });
+  // useEffect(() => {
+  //   if (getContext && defaultValue !== undefined) {
+  //     getContext()?.setContent(defaultValue, {
+  //       triggerChange: true,
+  //     });
+  //   }
+  // }, [defaultValue, getContext]);
   return { manager, state };
 }
 

@@ -3,12 +3,12 @@ import React, { useCallback, useContext, useEffect, useState } from "react";
 
 const ValRouterContext = React.createContext<{
   hardLink: boolean;
-  useNavigate: () => (path: SourcePath | ModuleFilePath) => void;
-  sourcePath: SourcePath;
+  navigate: (path: SourcePath | ModuleFilePath) => void;
+  currentSourcePath: SourcePath;
 }>({
   hardLink: false,
-  useNavigate: () => () => {},
-  sourcePath: "" as SourcePath,
+  navigate: () => {},
+  currentSourcePath: "" as SourcePath,
 });
 
 const VAL_CONTENT_VIEW_ROUTE = "/val/~"; // TODO: make route configurable
@@ -23,14 +23,14 @@ export function ValRouter({
   children: React.ReactNode;
   overlay?: boolean;
 }) {
-  const [sourcePath, setSourcePath] = useState("" as SourcePath);
+  const [currentSourcePath, setSourcePath] = useState("" as SourcePath);
   useEffect(() => {
     const listener = () => {
       const valPathIndex = location.pathname.indexOf(VAL_CONTENT_VIEW_ROUTE);
       if (valPathIndex > -1) {
         const modulePath = new URLSearchParams(location.search).get("p");
         const moduleFilePath = location.pathname.slice(
-          valPathIndex + VAL_CONTENT_VIEW_ROUTE.length
+          valPathIndex + VAL_CONTENT_VIEW_ROUTE.length,
         );
         const path = moduleFilePath + (modulePath ? `?p=${modulePath}` : "");
         setSourcePath(path as SourcePath);
@@ -42,10 +42,8 @@ export function ValRouter({
       window.removeEventListener("popstate", listener);
     };
   }, []);
-  const useNavigate = useCallback<
-    () => (path: SourcePath | ModuleFilePath) => void
-  >(
-    () => (path) => {
+  const navigate = useCallback(
+    (path: SourcePath | ModuleFilePath) => {
       const navigateTo = `${VAL_CONTENT_VIEW_ROUTE}${path}`;
       setSourcePath(path as SourcePath);
       if (!overlay) {
@@ -54,14 +52,14 @@ export function ValRouter({
         window.location.href = navigateTo;
       }
     },
-    [overlay]
+    [overlay],
   );
   return (
     <ValRouterContext.Provider
       value={{
         hardLink: !!overlay,
-        sourcePath,
-        useNavigate,
+        currentSourcePath,
+        navigate,
       }}
     >
       {children}
@@ -69,8 +67,12 @@ export function ValRouter({
   );
 }
 
-export function useNavigate(): (path: SourcePath | ModuleFilePath) => void {
-  return useContext(ValRouterContext).useNavigate();
+export function useNavigation() {
+  const { navigate, currentSourcePath } = useContext(ValRouterContext);
+  return {
+    navigate,
+    currentSourcePath,
+  };
 }
 
 export function useParams(): {
@@ -78,6 +80,6 @@ export function useParams(): {
 } {
   const ctx = useContext(ValRouterContext);
   return {
-    sourcePath: ctx.sourcePath,
+    sourcePath: ctx.currentSourcePath,
   };
 }

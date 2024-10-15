@@ -6,7 +6,7 @@ import { JSONValue, Patch } from "@valbuild/core/patch";
 import { useState, useEffect } from "react";
 import { emptyOf } from "../emptyOf";
 import { InitOnSubmit } from "../ValFormField";
-import { useNavigate } from "../../ValRouter";
+import { useNavigation } from "../../ValRouter";
 import { FieldContainer } from "../FieldContainer";
 
 export function ArrayFields({
@@ -20,7 +20,7 @@ export function ArrayFields({
   schema: SerializedArraySchema;
   initOnSubmit: InitOnSubmit;
 }): React.ReactElement {
-  const navigate = useNavigate();
+  const navigate = useNavigation();
   const onSubmit = initOnSubmit(path);
   const [loading, setLoading] = useState<boolean>(false);
   const [currentSource, setCurrentSource] = useState<JsonArray>(source);
@@ -44,7 +44,7 @@ export function ArrayFields({
           })
             .then(async () => {
               setCurrentSource((source) =>
-                [emptyOf(schema.item)].concat(...source)
+                [emptyOf(schema.item)].concat(...source),
               );
             })
             .finally(() => {
@@ -67,7 +67,7 @@ export function ArrayFields({
                 {
                   op: "remove",
                   path: path.concat(
-                    item.toString()
+                    item.toString(),
                   ) as array.NonEmptyArray<string>,
                 },
               ];
@@ -121,7 +121,7 @@ export function ArrayFields({
             })
               .then(() => {
                 setCurrentSource((source) =>
-                  source.concat(emptyOf(schema.item))
+                  source.concat(emptyOf(schema.item)),
                 );
               })
               .finally(() => {

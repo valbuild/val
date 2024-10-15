@@ -9,6 +9,7 @@ import {
   useShallowSourceAtPath,
   ValProvider,
 } from "../../ng/ValProvider";
+import { Layout } from "../../ng/Layout";
 
 interface ValFullscreenProps {
   client: ValClient;
@@ -18,8 +19,7 @@ interface ValFullscreenProps {
 export const ValStudio: FC<ValFullscreenProps> = ({ client }) => {
   return (
     <ValProvider client={client}>
-      <FakeStringField path={'/content/authors.val.ts?p="freekh"."name"'} />
-      <FakeStringField path={'/app/content.val.ts?p="hero"."title"'} />
+      <Layout />
     </ValProvider>
   );
 };
@@ -28,7 +28,7 @@ function FakeStringField({ path }: { path: string }) {
   const sourcePath = path as SourcePath;
   const shallowSourceRes = useShallowSourceAtPath(sourcePath, "string");
   const [patchPath, addPatch] = useAddPatch(sourcePath);
-  const schema = useSchemaAtPath(sourcePath, shallowSourceRes);
+  const schema = useSchemaAtPath(sourcePath);
 
   if (schema.status !== "success") {
     return (

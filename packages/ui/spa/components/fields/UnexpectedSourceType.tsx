@@ -1,17 +1,9 @@
-import { Json, Schema, SelectorSource, SerializedSchema } from "@valbuild/core";
+import { SerializedSchema } from "@valbuild/core";
 
-export function UnexpectedSourceType({
-  source,
-  schema,
-}: {
-  source: Json;
-  schema: Schema<SelectorSource> | SerializedSchema;
-}) {
+export function UnexpectedSourceType({ schema }: { schema: SerializedSchema }) {
   return (
     <div>
-      <div>Unexpected source type: {typeof source}</div>
-      <pre>Source: {JSON.stringify(source, null, 2)}</pre>
-      <pre>Schema: {JSON.stringify(schema, null, 2)}</pre>
+      <div>Unexpected source type: {typeof schema.type}</div>
     </div>
   );
 }

@@ -1,17 +1,12 @@
 import { SourcePath } from "@valbuild/core";
 import { Label } from "./Label";
-import {
-  PatchWithMetadata,
-  useErrorsOfPath,
-  usePatchesOfPath,
-  ValError,
-} from "../ValProvider";
 import { Remote } from "../../utils/Remote";
 import classNames from "classnames";
 import { ChevronDown, ChevronsDown, ShieldAlert } from "lucide-react";
 import { relativeLocalDate } from "../../utils/relativeLocalDate";
 import { useMemo, useState } from "react";
 import { AnimateHeight } from "./AnimateHeight";
+import { PatchWithMetadata, ValError } from "../useValState";
 
 export function Field({
   label,
@@ -27,16 +22,16 @@ export function Field({
   foldLevel?: "2" | "1";
 }) {
   const [isExpanded, setIsExpanded] = useState(true);
-  const errors = useErrorsOfPath(path);
-  const patches = usePatchesOfPath(path);
-  const hasErrors = errors.status === "success" && errors.data.length > 0;
-  const hasPatches = patches.status === "success" && patches.data.length > 0;
+  // const errors = useErrorsOfPath(path);
+  // const patches = usePatchesOfPath(path);
+  // const hasErrors = errors.status === "success" && errors.data.length > 0;
+  // const hasPatches = patches.status === "success" && patches.data.length > 0;
   return (
     <div
       className={classNames("p-4 border rounded-lg", {
-        "border-border-error": hasErrors,
-        "border-border-brand": !hasErrors && hasPatches,
-        "border-border-primary": !hasErrors && !hasPatches,
+        // "border-border-error": hasErrors,
+        // "border-border-brand": !hasErrors && hasPatches,
+        // "border-border-primary": !hasErrors && !hasPatches,
         "bg-bg-primary": !transparent,
       })}
     >
@@ -55,10 +50,10 @@ export function Field({
       </div>
       <AnimateHeight isOpen={isExpanded}>
         <div className="flex flex-col gap-6 pt-6">{children}</div>
-        <div className="pt-6">
+        {/* <div className="pt-6">
           <FieldError errors={errors} />
           <FieldChanges patches={patches} />
-        </div>
+        </div> */}
       </AnimateHeight>
     </div>
   );
