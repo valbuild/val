@@ -27,14 +27,35 @@ export function useValState(client: ValClient) {
   >({
     status: "not-asked",
   });
+  const [sourcesSyncStatus, setSourcesSyncStatus] = useState<
+    Record<
+      ModuleFilePath,
+      { status: "loading" } | { status: "error"; errors: string[] }
+    >
+  >({});
+  const [patchesSyncStatus, setPatchesSyncStatus] = useState<
+    Record<
+      SourcePath,
+      | {
+          status: "created-patch";
+          createdAt: string;
+        }
+      | {
+          status: "uploading-patch";
+          createdAt: string;
+          updatedAt: string;
+        }
+      | {
+          status: "error";
+          errors: string[];
+        }
+    >
+  >({});
   const [sources, setSources] = useState<
-    Record<ModuleFilePath, UpdatingRemote<Json>>
+    Record<ModuleFilePath, Json | undefined>
   >({});
   const [patchData, setPatchData] = useState<
     Record<PatchId, Remote<PatchWithMetadata>>
-  >({});
-  const [sourcePathErrors, setSourcePathErrors] = useState<
-    Record<SourcePath, UpdatingRemote<ValError[]>>
   >({});
   const [stat, setStat] = useStat(client);
 
@@ -52,16 +73,13 @@ export function useValState(client: ValClient) {
       // Logically this seems easier should cover the init case and whenever we need to update individual modules (e.g. after patching)
       const path =
         requestedSources.length === 1 ? requestedSources[0] : undefined;
-
+      setRequestedSources([]);
       setRequestedSourcesToLoadingOrUpdating(requestedSources);
       const currentState = { ...currentStateRef.current };
       for (const moduleFilePath of requestedSources) {
         currentState[moduleFilePath] = sourceState;
       }
       currentStateRef.current = { ...currentState };
-      if (Object.keys(pendingPatchesRef.current).length > 0) {
-        return;
-      }
       client("/tree/~", "PUT", {
         path: path,
         query: {
@@ -85,14 +103,6 @@ export function useValState(client: ValClient) {
 
             if (res.status === 200) {
               updateSources([moduleFilePath], res.json.modules);
-              setSourcePathErrors((prev) => {
-                const errors = { ...prev };
-                errors[moduleFilePath as unknown as SourcePath] = {
-                  status: "success",
-                  data: [], // reset errors
-                };
-                return errors;
-              });
             } else {
               const modules = "modules" in res.json ? res.json.modules : {};
               const errors = "errors" in res.json ? res.json.errors : {};
@@ -120,26 +130,20 @@ export function useValState(client: ValClient) {
   );
   const setRequestedSourcesToLoadingOrUpdating = useCallback(
     (requestedSources: ModuleFilePath[]) => {
-      setSources((prev) => {
-        const sources: typeof prev = { ...prev };
+      setSourcesSyncStatus((prev) => {
+        const syncStatus: typeof prev = { ...prev };
+        let didChange = false;
         for (const moduleFilePathS of requestedSources) {
           const moduleFilePath = moduleFilePathS as ModuleFilePath;
-          if (!sources[moduleFilePath]) {
-            console.warn("Requested unknown module", moduleFilePath);
-            continue;
-          }
-          // We skip if we have a pending patch for this module
-          // Because we will get a new state for this module when the patch is applied
-          if (pendingPatchesRef.current[moduleFilePath]) {
-            continue;
-          }
-          if ("data" in sources[moduleFilePath]) {
-            sources[moduleFilePath].status = "updating";
-          } else {
-            sources[moduleFilePath].status = "loading";
+          if (syncStatus[moduleFilePath]?.status !== "loading") {
+            syncStatus[moduleFilePath] = { status: "loading" };
+            didChange = true;
           }
         }
-        return sources;
+        if (didChange) {
+          return syncStatus;
+        }
+        return prev;
       });
     },
     [sources],
@@ -162,6 +166,20 @@ export function useValState(client: ValClient) {
       setSources((prev) => {
         const sources: typeof prev = { ...prev };
         const moduleFilePaths = paths;
+        setSourcesSyncStatus((prev) => {
+          const syncStatus: typeof prev = { ...prev };
+          for (const moduleFilePath of moduleFilePaths as ModuleFilePath[]) {
+            if (errors && errors[moduleFilePath]) {
+              syncStatus[moduleFilePath] = {
+                status: "error",
+                errors: errors[moduleFilePath].map((e) => e.error.message),
+              };
+            } else {
+              delete syncStatus[moduleFilePath];
+            }
+          }
+          return syncStatus;
+        });
         for (const moduleFilePathS of moduleFilePaths) {
           const moduleFilePath = moduleFilePathS as ModuleFilePath;
           // We skip if we have a pending patch for this module
@@ -169,21 +187,8 @@ export function useValState(client: ValClient) {
           if (pendingPatchesRef.current[moduleFilePath]) {
             continue;
           }
-          if (errors && errors[moduleFilePath]) {
-            sources[moduleFilePath] = {
-              status: "error",
-              errors: errors[moduleFilePath].map((e) => e.error.message),
-              data: newModules[moduleFilePath]?.source
-                ? newModules[moduleFilePath].source
-                : "data" in prev[moduleFilePath]
-                  ? prev[moduleFilePath].data
-                  : undefined,
-            };
-          } else if (newModules[moduleFilePath]?.source) {
-            sources[moduleFilePath] = {
-              status: "success",
-              data: newModules[moduleFilePath].source,
-            };
+          if (newModules[moduleFilePath]?.source) {
+            sources[moduleFilePath] = newModules[moduleFilePath].source;
           }
         }
         setRequestedSources((prev) => {
@@ -213,41 +218,6 @@ export function useValState(client: ValClient) {
       client("/schema", "GET", {}).then((res) => {
         if (res.status === 200) {
           if (res.json.schemaSha === schemaSha) {
-            setSources((prev) => {
-              const sources: Record<ModuleFilePath, UpdatingRemote<Json>> = {
-                ...prev,
-              };
-              let didChange = false;
-              for (const moduleFilePathS in res.json.schemas) {
-                const moduleFilePath = moduleFilePathS as ModuleFilePath;
-                // We skip if we have a pending patch for this module
-                // Because we will get a new state for this module when the patch is applied
-                if (pendingPatchesRef.current[moduleFilePath]) {
-                  continue;
-                }
-                const status = prev[moduleFilePath]?.status;
-                if (status === "not-asked") {
-                  continue;
-                }
-                didChange = true;
-                if (status === undefined) {
-                  sources[moduleFilePath] = {
-                    status: "not-asked",
-                  };
-                } else {
-                  setRequestedSources((prev) => {
-                    if (prev.includes(moduleFilePath)) {
-                      return prev;
-                    }
-                    return [...prev, moduleFilePath];
-                  });
-                }
-              }
-              if (didChange) {
-                return sources;
-              }
-              return prev;
-            });
             const schemas: Record<ModuleFilePath, SerializedSchema> = {};
             for (const moduleFilePathS in res.json.schemas) {
               const moduleFilePath = moduleFilePathS as ModuleFilePath;
@@ -303,8 +273,8 @@ export function useValState(client: ValClient) {
     (moduleFilePath: ModuleFilePath, patch: Patch) => {
       setSources((prev) => {
         // optimistically update if source is available - source should typically be available
-        if ("data" in prev[moduleFilePath]) {
-          const currentSource = prev[moduleFilePath].data;
+        if (prev[moduleFilePath]) {
+          const currentSource = prev[moduleFilePath];
           if (currentSource) {
             const patchRes = applyPatch(
               currentSource as JSONValue,
@@ -320,10 +290,7 @@ export function useValState(client: ValClient) {
                 ],
               };
               const sources: typeof prev = { ...prev };
-              sources[moduleFilePath] = {
-                ...prev[moduleFilePath],
-                data: patchRes.value,
-              };
+              sources[moduleFilePath] = patchRes.value;
               return sources;
             }
           }
@@ -344,6 +311,21 @@ export function useValState(client: ValClient) {
         }
         return prev;
       });
+      setSourcesSyncStatus((prev) => {
+        const current: typeof prev = { ...prev };
+        current[moduleFilePath] = {
+          status: "loading",
+        };
+        return current;
+      });
+      setPatchesSyncStatus((prev) => {
+        const current: typeof prev = { ...prev };
+        current[moduleFilePath as unknown as SourcePath] = {
+          status: "created-patch",
+          createdAt: new Date().toISOString(),
+        };
+        return current;
+      });
     },
     [sources, currentPatchIds, sourceState],
   );
@@ -351,28 +333,29 @@ export function useValState(client: ValClient) {
     if (sourceState === undefined) {
       return;
     }
-    if (requestedSources.length > 0) {
-      setRequestedSources([]); // we load all requested - if there is only 1 we load it individually, but if there are more we load them all
-      syncSources(sourceState, requestedSources, currentPatchIds);
-    } else {
+    // skip if we have pending patches
+    if (Object.keys(pendingPatchesRef.current).length > 0) {
+      return;
+    }
+
+    if (requestedSources.length === 0) {
       const staleModules = [];
       for (const moduleFilePathS in currentStateRef.current) {
         const moduleFilePath = moduleFilePathS as ModuleFilePath;
-        if (currentStateRef.current[moduleFilePath] !== sourceState) {
+        if (
+          currentStateRef.current[moduleFilePath] &&
+          currentStateRef.current[moduleFilePath] !== sourceState
+        ) {
           staleModules.push(moduleFilePath);
         }
       }
       if (staleModules.length > 0) {
         syncSources(sourceState, staleModules, currentPatchIds);
       }
+    } else {
+      syncSources(sourceState, requestedSources, currentPatchIds);
     }
   }, [requestedSources, sourceState, currentPatchIds]);
-
-  useEffect(() => {
-    if (schemas.status === "success") {
-      setRequestedSources(Object.keys(schemas.data) as ModuleFilePath[]);
-    }
-  }, [schemas]);
 
   const mergeAndSyncPatches = useCallback(() => {
     const pendingPatches = { ...pendingPatchesRef.current };
@@ -387,6 +370,24 @@ export function useValState(client: ValClient) {
         syncedSeqNumbers.add(seqNumber);
       }
     }
+    setPatchesSyncStatus((prev) => {
+      const current: typeof prev = {};
+      for (const moduleFilePathS in pendingPatches) {
+        const sourcePath = moduleFilePathS as SourcePath;
+        let createdAt;
+        if (prev[sourcePath] && "createdAt" in prev[sourcePath]) {
+          createdAt = prev[sourcePath].createdAt;
+        } else {
+          createdAt = new Date().toISOString();
+        }
+        current[sourcePath] = {
+          status: "uploading-patch",
+          createdAt,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return current;
+    });
     // TODO: add a /patches POST endpoint and use that instead
     client("/tree/~", "PUT", {
       path: undefined,
@@ -411,45 +412,42 @@ export function useValState(client: ValClient) {
         ) {
           // retry on network errors
         } else {
-          for (const moduleFilePathS in pendingPatches) {
+          for (const moduleFilePathS in pendingPatchesRef.current) {
             const moduleFilePath = moduleFilePathS as ModuleFilePath;
-            pendingPatchesRef.current[moduleFilePath] = pendingPatches[
+            for (const pendingPatch of pendingPatchesRef.current[
               moduleFilePath
-            ].filter((p) => !syncedSeqNumbers.has(p.seqNumber));
-            if (pendingPatchesRef.current[moduleFilePath].length === 0) {
-              delete pendingPatchesRef.current[moduleFilePath];
+            ]) {
+              if (syncedSeqNumbers.has(pendingPatch.seqNumber)) {
+                delete pendingPatchesRef.current[moduleFilePath];
+              }
             }
           }
-          if ("errors" in res.json) {
-            // we have an explicit error for each module
-            for (const moduleFilePathS in pendingPatches) {
-              const moduleFilePath = moduleFilePathS as ModuleFilePath;
-              const errors = res.json.errors[moduleFilePath];
-              if (errors) {
-                setSourcePathErrors((prev) => {
-                  const current = { ...prev };
+          setPatchesSyncStatus((prev) => {
+            const current: typeof prev = {};
+            if ("errors" in res.json) {
+              // we have an explicit error for each module
+              for (const moduleFilePathS in pendingPatches) {
+                const moduleFilePath = moduleFilePathS as ModuleFilePath;
+                const errors = res.json.errors[moduleFilePath];
+                if (errors) {
                   current[moduleFilePath as unknown as SourcePath] = {
                     status: "error",
                     errors: errors.map((e) => e.error.message),
                   };
-                  return current;
-                });
+                }
               }
-            }
-          } else if (res.status !== 200) {
-            // we do not know what went wrong
-            for (const moduleFilePathS in pendingPatches) {
-              const moduleFilePath = moduleFilePathS as ModuleFilePath;
-              setSourcePathErrors((prev) => {
-                const current = { ...prev };
+            } else if (res.status !== 200) {
+              // we do not know what went wrong
+              for (const moduleFilePathS in pendingPatches) {
+                const moduleFilePath = moduleFilePathS as ModuleFilePath;
                 current[moduleFilePath as unknown as SourcePath] = {
                   status: "error",
                   errors: [res.json.message],
                 };
-                return current;
-              });
+              }
             }
-          }
+            return current;
+          });
         }
       })
       .catch((err) => {
@@ -487,7 +485,16 @@ export function useValState(client: ValClient) {
     sources,
     patchData,
     addPatch,
-    sourcePathErrors,
+    requestModule: (moduleFilePath: ModuleFilePath) => {
+      setRequestedSources((prev) => {
+        if (prev.includes(moduleFilePath)) {
+          return prev;
+        }
+        return [...prev, moduleFilePath];
+      });
+    },
+    patchesSyncStatus,
+    sourcesSyncStatus,
   };
 }
 
