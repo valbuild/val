@@ -150,10 +150,7 @@ export type ShallowSource = EnsureAllTypes<{
   richtext: unknown[];
 }>;
 
-export function useSchemaAtPath(
-  sourcePath: SourcePath,
-  shallowSource: ShallowSourceOf<SerializedSchema["type"]>,
-) {
+export function useSchemaAtPath(sourcePath: SourcePath) {
   const { schemas, sources } = useContext(ValContext);
   const getMemoizedResolvedSchema = useCallback(():
     | { status: "not-found" }
@@ -193,11 +190,14 @@ export function useSchemaAtPath(
   return useMemo(getMemoizedResolvedSchema, [
     // NOTE: we avoid depending on sources directly, and depend on the shallowSource to avoid unnecessary re-renders
     // TODO: optimize re-renders:
-    // JSON.stringify(shallowSource),
+    // shallowSource, // Not sure if this helps
     sources,
     sourcePath,
     schemas,
   ]);
+}
+export function useSchemas() {
+  return useContext(ValContext).schemas;
 }
 
 type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =
@@ -224,13 +224,13 @@ type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =
  */
 export function useShallowSourceAtPath<
   SchemaType extends SerializedSchema["type"],
->(sourcePath: SourcePath, type: SchemaType): ShallowSourceOf<SchemaType> {
+>(sourcePath: SourcePath, type?: SchemaType): ShallowSourceOf<SchemaType> {
   const { sources, sourcesSyncStatus } = useContext(ValContext);
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const source = useMemo((): ShallowSourceOf<SchemaType> => {
     const moduleSources = sources[moduleFilePath];
-    if (moduleSources !== undefined) {
+    if (moduleSources !== undefined && type !== undefined) {
       const sourceAtSourcePath = getSourceAtSourcePath(
         modulePath,
         type,

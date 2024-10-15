@@ -18,7 +18,7 @@ import { NumberPreview } from "../fields/NumberField";
 import { UnexpectedSourceType } from "../../components/fields/UnexpectedSourceType";
 import { BooleanPreview } from "../fields/BooleanField";
 import { ImagePreview } from "../fields/ImageField";
-import { ListPreview } from "../fields/ListFields";
+import { ListPreview } from "../fields/ArrayFields";
 import { KeyOfPreview } from "../fields/KeyOfField";
 import { UnionPreview } from "../fields/UnionField";
 

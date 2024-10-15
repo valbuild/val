@@ -1,7 +1,7 @@
 import { SourcePath, ModuleFilePath, Internal } from "@valbuild/core";
 import classNames from "classnames";
 import { Path } from "../studio/Path";
-import { useNavigate } from "../ValRouter";
+import { useNavigation } from "../ValRouter";
 
 function dirPaths(paths: string[]): Record<string, string[]> {
   const res: Record<string, string[]> = {};
@@ -35,7 +35,7 @@ export function PathTree({
   const selectedModuleId =
     selectedPath &&
     Internal.splitModuleFilePathAndModulePath(selectedPath as SourcePath)[0];
-  const navigate = useNavigate();
+  const navigate = useNavigation();
   return (
     <div className="flex flex-col w-full py-2 text-xs">
       {Object.entries(tree).map(([dir, files]) => {

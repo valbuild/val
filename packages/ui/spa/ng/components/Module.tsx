@@ -1,24 +1,8 @@
-import {
-  ArraySchema,
-  BooleanSchema,
-  ImageSchema,
-  ImageSource,
-  Json,
-  KeyOfSchema,
-  NumberSchema,
-  ObjectSchema,
-  RecordSchema,
-  RichTextSchema,
-  Schema,
-  SelectorSource,
-  SourcePath,
-  StringSchema,
-  UnionSchema,
-} from "@valbuild/core";
+import { SourcePath } from "@valbuild/core";
 import { StringField } from "../fields/StringField";
 import { NumberField } from "../fields/NumberField";
 import { BooleanField } from "../fields/BooleanField";
-import { ListFields } from "../fields/ListFields";
+import { ArrayFields } from "../fields/ArrayFields";
 import { UnexpectedSourceType } from "../../components/fields/UnexpectedSourceType";
 import { RecordFields } from "../fields/RecordFields";
 import { ObjectFields } from "../fields/ObjectFields";
@@ -26,38 +10,47 @@ import { ImageField } from "../fields/ImageField";
 import { UnionField } from "../fields/UnionField";
 import { KeyOfField } from "../fields/KeyOfField";
 import { RichTextField } from "../fields/RichTextField";
+import { useSchemaAtPath } from "../ValProvider";
+import { FieldSchemaError } from "./FieldSchemaError";
+import { FieldLoading } from "./FieldLoading";
+import { FieldNotFound } from "./FieldNotFound";
 
-export function Module({
-  path,
-  source,
-  schema,
-}: {
-  path: SourcePath;
-  source: Json;
-  schema: Schema<SelectorSource>;
-}) {
-  if (schema instanceof StringSchema) {
-    return <StringField path={path} source={source} schema={schema} />;
-  } else if (schema instanceof NumberSchema) {
-    return <NumberField path={path} source={source} schema={schema} />;
-  } else if (schema instanceof BooleanSchema) {
-    return <BooleanField path={path} source={source} schema={schema} />;
-  } else if (schema instanceof ImageSchema) {
-    return (
-      <ImageField path={path} source={source as ImageSource} schema={schema} />
-    );
-  } else if (schema instanceof ObjectSchema) {
-    return <ObjectFields source={source} schema={schema} path={path} />;
-  } else if (schema instanceof ArraySchema) {
-    return <ListFields path={path} source={source} schema={schema} />;
-  } else if (schema instanceof RecordSchema) {
-    return <RecordFields source={source} schema={schema} path={path} />;
-  } else if (schema instanceof UnionSchema) {
-    return <UnionField path={path} source={source} schema={schema} />;
-  } else if (schema instanceof KeyOfSchema) {
-    return <KeyOfField path={path} source={source} schema={schema} />;
-  } else if (schema instanceof RichTextSchema) {
-    return <RichTextField path={path} source={source} schema={schema} />;
+export function Module({ path }: { path: SourcePath }) {
+  const schemaAtPath = useSchemaAtPath(path);
+  if (schemaAtPath.status === "loading") {
+    return <FieldLoading path={path} type="module" />;
   }
-  return <UnexpectedSourceType source={source} schema={schema} />;
+  if (schemaAtPath.status === "error") {
+    return (
+      <FieldSchemaError path={path} error={schemaAtPath.error} type="module" />
+    );
+  }
+  if (schemaAtPath.status === "not-found") {
+    return <FieldNotFound path={path} type="module" />;
+  }
+  const schema = schemaAtPath.data;
+
+  if (schema.type === "string") {
+    return <StringField path={path} />;
+  } else if (schema.type === "number") {
+    return <NumberField path={path} />;
+  } else if (schema.type === "boolean") {
+    return <BooleanField path={path} />;
+  } else if (schema.type === "image") {
+    return <ImageField path={path} />;
+  } else if (schema.type === "object") {
+    return <ObjectFields path={path} />;
+  } else if (schema.type === "array") {
+    return <ArrayFields path={path} />;
+  } else if (schema.type === "record") {
+    return <RecordFields path={path} />;
+  } else if (schema.type === "union") {
+    return <UnionField path={path} />;
+  } else if (schema.type === "keyOf") {
+    return <KeyOfField path={path} />;
+  } else if (schema.type === "richtext") {
+    return <RichTextField path={path} />;
+  }
+  // TODO: exhaustive check
+  return <UnexpectedSourceType schema={schema} />;
 }
