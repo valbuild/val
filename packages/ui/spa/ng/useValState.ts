@@ -1,4 +1,10 @@
-import { applyPatch, JSONOps, JSONValue, Patch } from "@valbuild/core/patch";
+import {
+  applyPatch,
+  deepClone,
+  JSONOps,
+  JSONValue,
+  Patch,
+} from "@valbuild/core/patch";
 import type {
   ModuleFilePath,
   SerializedSchema,
@@ -22,6 +28,9 @@ import { mergePatches } from "./mergePatches";
 
 const ops = new JSONOps();
 export function useValState(client: ValClient) {
+  const [requestedSources, setRequestedSources] = useState<ModuleFilePath[]>(
+    [],
+  );
   const [schemas, setSchemas] = useState<
     Remote<Record<ModuleFilePath, SerializedSchema>>
   >({
@@ -33,7 +42,7 @@ export function useValState(client: ValClient) {
       { status: "loading" } | { status: "error"; errors: string[] }
     >
   >({});
-  const [patchesSyncStatus, setPatchesSyncStatus] = useState<
+  const [patchesStatus, setPatchesStatus] = useState<
     Record<
       SourcePath,
       | {
@@ -53,9 +62,6 @@ export function useValState(client: ValClient) {
   >({});
   const [sources, setSources] = useState<
     Record<ModuleFilePath, Json | undefined>
-  >({});
-  const [patchData, setPatchData] = useState<
-    Record<PatchId, Remote<PatchWithMetadata>>
   >({});
   const [stat, setStat] = useStat(client);
 
@@ -205,9 +211,6 @@ export function useValState(client: ValClient) {
     },
     [],
   );
-  const [requestedSources, setRequestedSources] = useState<ModuleFilePath[]>(
-    [],
-  );
   const schemaSha =
     "data" in stat && stat.data?.schemaSha ? stat.data.schemaSha : undefined;
   useEffect(() => {
@@ -250,6 +253,13 @@ export function useValState(client: ValClient) {
     }
   }, [schemaSha]);
 
+  // Load all modules each time schema is updated
+  // We do not really want to do this, but we do not have a better way to initialize the source for the moment
+  useEffect(() => {
+    if (schemas.status === "success") {
+      setRequestedSources(Object.keys(schemas.data) as ModuleFilePath[]);
+    }
+  }, [schemas]);
   const { currentPatchIds, sourceState } = useMemo((): {
     currentPatchIds: PatchId[];
     sourceState?: string;
@@ -277,7 +287,7 @@ export function useValState(client: ValClient) {
           const currentSource = prev[moduleFilePath];
           if (currentSource) {
             const patchRes = applyPatch(
-              currentSource as JSONValue,
+              deepClone(currentSource) as JSONValue,
               ops,
               patch.filter((op) => op.op !== "file"),
             );
@@ -289,9 +299,34 @@ export function useValState(client: ValClient) {
                   { patch, seqNumber: patchSeqNumberRef.current++ },
                 ],
               };
+              setPatchesStatus((prev) => {
+                const current: typeof prev = { ...prev };
+                current[moduleFilePath as unknown as SourcePath] = {
+                  status: "created-patch",
+                  createdAt: new Date().toISOString(),
+                };
+                return current;
+              });
+              setSourcesSyncStatus((prev) => {
+                const current: typeof prev = { ...prev };
+                current[moduleFilePath] = {
+                  status: "loading",
+                };
+                return current;
+              });
               const sources: typeof prev = { ...prev };
               sources[moduleFilePath] = patchRes.value;
               return sources;
+            } else {
+              console.error("Could not apply patch", patchRes.error);
+              setPatchesStatus((prev) => {
+                const current: typeof prev = { ...prev };
+                current[moduleFilePath as unknown as SourcePath] = {
+                  status: "error",
+                  errors: [patchRes.error.message],
+                };
+                return current;
+              });
             }
           }
         } else {
@@ -310,21 +345,6 @@ export function useValState(client: ValClient) {
           };
         }
         return prev;
-      });
-      setSourcesSyncStatus((prev) => {
-        const current: typeof prev = { ...prev };
-        current[moduleFilePath] = {
-          status: "loading",
-        };
-        return current;
-      });
-      setPatchesSyncStatus((prev) => {
-        const current: typeof prev = { ...prev };
-        current[moduleFilePath as unknown as SourcePath] = {
-          status: "created-patch",
-          createdAt: new Date().toISOString(),
-        };
-        return current;
       });
     },
     [sources, currentPatchIds, sourceState],
@@ -370,7 +390,7 @@ export function useValState(client: ValClient) {
         syncedSeqNumbers.add(seqNumber);
       }
     }
-    setPatchesSyncStatus((prev) => {
+    setPatchesStatus((prev) => {
       const current: typeof prev = {};
       for (const moduleFilePathS in pendingPatches) {
         const sourcePath = moduleFilePathS as SourcePath;
@@ -422,7 +442,7 @@ export function useValState(client: ValClient) {
               }
             }
           }
-          setPatchesSyncStatus((prev) => {
+          setPatchesStatus((prev) => {
             const current: typeof prev = {};
             if ("errors" in res.json) {
               // we have an explicit error for each module
@@ -493,22 +513,22 @@ export function useValState(client: ValClient) {
       }
     }, 5000);
   }, []);
+  const requestModule = useCallback((moduleFilePath: ModuleFilePath) => {
+    setRequestedSources((prev) => {
+      if (prev.includes(moduleFilePath)) {
+        return prev;
+      }
+      return [...prev, moduleFilePath];
+    });
+  }, []);
 
   return {
     stat,
     schemas,
     sources,
-    patchData,
     addPatch,
-    requestModule: (moduleFilePath: ModuleFilePath) => {
-      setRequestedSources((prev) => {
-        if (prev.includes(moduleFilePath)) {
-          return prev;
-        }
-        return [...prev, moduleFilePath];
-      });
-    },
-    patchesSyncStatus,
+    requestModule,
+    patchesStatus,
     sourcesSyncStatus,
   };
 }
@@ -703,31 +723,6 @@ export type PatchWithMetadata = {
   createdAt: string;
   error: string | null;
 };
-
-/**
- * Use this for remote data that can be updated (is changing).
- * Use Remote for data that requires a refresh to update
- */
-export type UpdatingRemote<T> =
-  | {
-      status: "not-asked"; // no data has been requested
-    }
-  | {
-      status: "loading"; // data is loading
-    }
-  | {
-      status: "success"; // data has been loaded
-      data: T;
-    }
-  | {
-      status: "updating"; // updating with new data
-      data: T;
-    }
-  | {
-      status: "error"; // an error occurred
-      errors: string[] | string;
-      data?: T;
-    };
 
 export type Author = {
   id: string;

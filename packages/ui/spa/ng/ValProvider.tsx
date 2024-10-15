@@ -1,21 +1,17 @@
-import React, { useCallback, useContext, useMemo } from "react";
+import React, { useCallback, useContext, useMemo, useState } from "react";
 import {
-  AllRichTextOptions,
   FILE_REF_PROP,
-  FileSource,
-  ImageSource,
   Internal,
   Json,
   ModuleFilePath,
   ModuleFilePathSep,
   ModulePath,
-  RichTextSource,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { ValClient } from "@valbuild/shared/internal";
-import { UpdatingRemote, useValState } from "./useValState";
+import { useValState } from "./useValState";
 import { Remote } from "../utils/Remote";
 import { isJsonArray } from "../utils/isJsonArray";
 
@@ -38,43 +34,107 @@ const ValContext = React.createContext<{
   ) => void;
   addPatch: (moduleFilePath: ModuleFilePath, patch: Patch) => void;
   schemas: Remote<Record<ModuleFilePath, SerializedSchema>>;
-  sources: Record<ModuleFilePath, UpdatingRemote<Json>>;
+  sources: Record<ModuleFilePath, Json | undefined>;
+  sourcesSyncStatus: Record<
+    ModuleFilePath,
+    | {
+        status: "loading";
+      }
+    | {
+        status: "error";
+        errors: string[];
+      }
+  >;
 }>({
-  search: false,
-  setSearch: () => {
+  get search():
+    | false
+    | {
+        type?: "error" | "change";
+        sourcePath?: SourcePath;
+        filter?: string;
+      } {
     throw new Error("ValContext not provided");
   },
-  addPatch: () => {
+  get setSearch(): () => void {
+    throw new Error("ValContext not provided");
+  },
+  get addPatch(): () => void {
     throw new Error("ValContext not provided");
   },
   get schemas(): Remote<Record<ModuleFilePath, SerializedSchema>> {
     throw new Error("ValContext not provided");
   },
-  get sources(): Record<ModuleFilePath, UpdatingRemote<Json>> {
+  get sources(): Record<ModuleFilePath, Json | undefined> {
+    throw new Error("ValContext not provided");
+  },
+  get sourcesSyncStatus(): Record<
+    ModuleFilePath,
+    | {
+        status: "loading";
+      }
+    | {
+        status: "error";
+        errors: string[];
+      }
+  > {
     throw new Error("ValContext not provided");
   },
 });
 
-function ValProvider({
+export function ValProvider({
   children,
-  valClient,
+  client,
 }: {
   children: React.ReactNode;
-  valClient: ValClient;
+  client: ValClient;
 }) {
-  const { addPatch, schemas, sources } = useValState(valClient);
+  const { addPatch, schemas, sources, sourcesSyncStatus } = useValState(client);
 
   return (
     <ValContext.Provider
-      value={{ search: false, setSearch: () => {}, addPatch, schemas, sources }}
+      value={{
+        search: false,
+        setSearch: () => {},
+        addPatch,
+        schemas,
+        sources,
+        sourcesSyncStatus,
+      }}
     >
       {children}
     </ValContext.Provider>
   );
 }
 
+export function useAddPatch(sourcePath: SourcePath) {
+  const { addPatch } = useContext(ValContext);
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(sourcePath);
+  const patchPath = useMemo(() => {
+    return Internal.createPatchPath(modulePath);
+  }, [modulePath]);
+  const addPatchCallback = useCallback(
+    (patch: Patch) => {
+      addPatch(moduleFilePath, patch);
+    },
+    [addPatch, sourcePath],
+  );
+
+  return [patchPath, addPatchCallback] as const;
+}
+
 type EnsureAllTypes<T extends Record<SerializedSchema["type"], unknown>> = T;
-type TypeMapping = EnsureAllTypes<{
+/**
+ * A shallow source is the source that is just enough to render each type of schema.
+ * For example, if the schema is an object, the shallow source will contain the keys of the object and the source paths to the values below.
+ * Primitive values are complete, but shallow source guarantees does only a minimum amount of validation:
+ * object with _ref for files and images, string is a string, richtext is an array, etc.
+ *
+ * The sources must be validated properly to ensure that the source is indeed correct.
+ *
+ * The general idea is to avoid re-rendering the entire source tree when a single value changes.
+ */
+export type ShallowSource = EnsureAllTypes<{
   array: SourcePath[];
   object: Record<string, SourcePath>;
   record: Record<string, SourcePath>;
@@ -92,104 +152,109 @@ type TypeMapping = EnsureAllTypes<{
 
 export function useSchemaAtPath(
   sourcePath: SourcePath,
-  shallowSource:
-    | UpdatingRemote<TypeMapping[SerializedSchema["type"]] | null>
-    | { status: "not-found" },
-): UpdatingRemote<SerializedSchema> | { status: "not-found " } {
+  shallowSource: ShallowSourceOf<SerializedSchema["type"]>,
+) {
   const { schemas, sources } = useContext(ValContext);
   const getMemoizedResolvedSchema = useCallback(():
-    | UpdatingRemote<SerializedSchema>
-    | { status: "not-found " } => {
+    | { status: "not-found" }
+    | { status: "loading" }
+    | {
+        status: "success";
+        data: SerializedSchema;
+      }
+    | {
+        status: "error";
+        error: string;
+      } => {
     const [moduleFilePath, modulePath] =
       Internal.splitModuleFilePathAndModulePath(sourcePath);
     const moduleSources = sources[moduleFilePath];
-
-    Internal.resolvePath(modulePath);
+    if (schemas.status === "error") {
+      return schemas;
+    } else if (schemas.status === "not-asked") {
+      return { status: "loading" };
+    } else if (schemas.status === "loading") {
+      return { status: "loading" };
+    } else if (moduleSources === undefined) {
+      return { status: "not-found" };
+    }
+    const moduleSchema = schemas.data[moduleFilePath];
+    const { schema } = Internal.resolvePath(
+      modulePath,
+      moduleSources,
+      moduleSchema,
+    );
+    return {
+      status: "success",
+      data: schema,
+    };
   }, [sourcePath, sources, schemas]);
 
   return useMemo(getMemoizedResolvedSchema, [
-    // NOTE: we avoid using sources directly, and instead rely on shallowSource to avoid unecessary re-renders
-    JSON.stringify(shallowSource),
+    // NOTE: we avoid depending on sources directly, and depend on the shallowSource to avoid unnecessary re-renders
+    // TODO: optimize re-renders:
+    // JSON.stringify(shallowSource),
+    sources,
     sourcePath,
     schemas,
   ]);
 }
 
+type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =
+  | { status: "not-found" }
+  | {
+      status: "success";
+      data: ShallowSource[SchemaType] | null; // we add union to allow for nullable values
+    }
+  | {
+      status: "loading";
+      data?: ShallowSource[SchemaType] | null;
+    }
+  | {
+      status: "error";
+      data?: ShallowSource[SchemaType] | null;
+      error: string;
+    };
+
 /**
- * Shallow sources are the source that is just enough to render each type of schema.
- *
- * For example, if the schema is an object, the shallow source will contain the keys of the object and the source paths to the values below.
+ * A shallow source is the source that is just enough to render each type of schema.
+ * @see ShallowSource for more information.
  *
  * The general idea is to avoid re-rendering the entire source tree when a single value changes.
  */
 export function useShallowSourceAtPath<
   SchemaType extends SerializedSchema["type"],
->(
-  sourcePath: SourcePath,
-  type: SchemaType,
-):
-  | UpdatingRemote<TypeMapping[SerializedSchema["type"]] | null>
-  | { status: "not-found" } {
-  const { sources } = useContext(ValContext);
-
-  const source = useMemo(():
-    | UpdatingRemote<TypeMapping[SerializedSchema["type"]] | null>
-    | { status: "not-found" } => {
-    const [moduleFilePath, modulePath] =
-      Internal.splitModuleFilePathAndModulePath(sourcePath);
+>(sourcePath: SourcePath, type: SchemaType): ShallowSourceOf<SchemaType> {
+  const { sources, sourcesSyncStatus } = useContext(ValContext);
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(sourcePath);
+  const source = useMemo((): ShallowSourceOf<SchemaType> => {
     const moduleSources = sources[moduleFilePath];
-    if (
-      moduleSources.status === "updating" ||
-      moduleSources.status === "success"
-    ) {
+    if (moduleSources !== undefined) {
       const sourceAtSourcePath = getSourceAtSourcePath(
         modulePath,
         type,
-        moduleSources.data,
+        moduleSources,
       );
-      if (sourceAtSourcePath.status === "success") {
-        return {
-          status: moduleSources.status,
-          data: sourceAtSourcePath.data,
-        };
-      } else {
-        return sourceAtSourcePath;
-      }
-    } else if (moduleSources.status === "error") {
-      if (moduleSources.data) {
-        const sourceAtSourcePath = getSourceAtSourcePath(
-          modulePath,
-          type,
-          moduleSources.data,
-        );
-        if (sourceAtSourcePath.status === "success") {
-          return {
-            status: "error",
-            errors: moduleSources.errors,
-            data: sourceAtSourcePath.data,
-          };
-        } else {
-          return {
-            status: "error",
-            errors: (typeof moduleSources.errors === "string"
-              ? [moduleSources.errors]
-              : moduleSources.errors
-            ).concat(
-              sourceAtSourcePath.status === "error"
-                ? sourceAtSourcePath.errors
-                : [],
-            ),
-          };
-        }
-      }
-      return {
-        status: "error",
-        errors: moduleSources.errors,
-      };
+      return sourceAtSourcePath;
     } else {
-      return moduleSources;
+      return { status: "not-found" };
     }
-  }, [sources, sourcePath, type]);
+  }, [sources[moduleFilePath], sourcePath, type]);
+
+  const status = useMemo(() => {
+    return sourcesSyncStatus[moduleFilePath];
+  }, [moduleFilePath, sourcesSyncStatus]);
+  if ("data" in source && status?.status === "loading") {
+    return { status: "loading", data: source.data };
+  }
+  if (status?.status === "error") {
+    return {
+      status: "error",
+      data: "data" in source ? source.data : undefined,
+      error: status.errors.join(", "),
+    };
+  }
   return source;
 }
 
@@ -197,31 +262,31 @@ function getSourceAtSourcePath<SchemaType extends SerializedSchema["type"]>(
   modulePath: ModulePath,
   type: SchemaType,
   sources: Json,
-):
-  | { status: "not-found" }
-  | {
-      status: "success";
-      data: TypeMapping[SchemaType] | null;
-    }
-  | {
-      status: "error";
-      errors: string;
-    } {
+): ShallowSourceOf<SchemaType> {
   let source = sources;
+  if (sources === undefined) {
+    return { status: "not-found" };
+  }
   for (const part of Internal.splitModulePath(modulePath)) {
-    if (source === undefined) {
-      return { status: "not-found" };
-    }
-    if (typeof source !== "object") {
-      return {
-        status: "error",
-        errors: `Expected object at ${modulePath}, got ${JSON.stringify(source)}`,
-      };
-    }
+    // We allow null at the leaf node, but NOT in the middle of the path
     if (source === null) {
       return {
         status: "error",
-        errors: `Expected object at ${modulePath}, got null`,
+        error: `Expected object at ${modulePath}, got null`,
+      };
+    }
+    // We never allow undefined
+    if (source === undefined) {
+      return {
+        status: "error",
+        error: `Expected object at ${modulePath}, got undefined`,
+      };
+    }
+    // Since the source path is not at the end leaf node, we expect an object / array.
+    if (typeof source !== "object") {
+      return {
+        status: "error",
+        error: `Expected object at ${modulePath}, got ${JSON.stringify(source)}`,
       };
     }
     if (isJsonArray(source)) {
@@ -229,13 +294,20 @@ function getSourceAtSourcePath<SchemaType extends SerializedSchema["type"]>(
       if (Number.isNaN(index)) {
         return {
           status: "error",
-          errors: `Expected number at ${modulePath}, got ${part}`,
+          error: `Expected number at ${modulePath}, got ${part}`,
         };
       }
       source = source[index];
     } else {
       source = source[part];
     }
+  }
+  // We never allow undefined
+  if (source === undefined) {
+    return {
+      status: "error",
+      error: `Expected object at ${modulePath}, got undefined`,
+    };
   }
   const mappedSource = mapSource(modulePath, type, source);
   return mappedSource;
@@ -248,11 +320,11 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
 ):
   | {
       status: "success";
-      data: TypeMapping[SchemaType] | null;
+      data: ShallowSource[SchemaType] | null;
     }
   | {
       status: "error";
-      errors: string;
+      error: string;
     } {
   if (source === null) {
     return { status: "success", data: null };
@@ -262,81 +334,81 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     if (typeof source !== "object") {
       return {
         status: "error",
-        errors: `Expected object, got ${typeof source}`,
+        error: `Expected object, got ${typeof source}`,
       };
     }
     if (isJsonArray(source)) {
       return {
         status: "error",
-        errors: `Expected object, got array`,
+        error: `Expected object, got array`,
       };
     }
-    const data: TypeMapping["object" | "record"] = {};
+    const data: ShallowSource["object" | "record"] = {};
     for (const key of Object.keys(source)) {
       data[key] = concatModulePath(modulePath, key);
     }
     return {
       status: "success",
-      data: data as TypeMapping[SchemaType],
+      data: data as ShallowSource[SchemaType],
     };
   } else if (type === "array") {
     if (typeof source !== "object" || !isJsonArray(source)) {
       return {
         status: "error",
-        errors: `Expected array, got ${typeof source}`,
+        error: `Expected array, got ${typeof source}`,
       };
     }
-    const data: TypeMapping["array"] = [];
+    const data: ShallowSource["array"] = [];
     for (let i = 0; i < source.length; i++) {
       data.push(concatModulePath(modulePath, i));
     }
     return {
       status: "success",
-      data: data as TypeMapping[SchemaType],
+      data: data as ShallowSource[SchemaType],
     };
   } else if (type === "boolean") {
     if (typeof source !== "boolean") {
       return {
         status: "error",
-        errors: `Expected boolean, got ${typeof source}`,
+        error: `Expected boolean, got ${typeof source}`,
       };
     }
     return {
       status: "success",
-      data: source as TypeMapping[SchemaType],
+      data: source as ShallowSource[SchemaType],
     };
   } else if (type === "number") {
     if (typeof source !== "number") {
       return {
         status: "error",
-        errors: `Expected number, got ${typeof source}`,
+        error: `Expected number, got ${typeof source}`,
       };
     }
     return {
       status: "success",
-      data: source as TypeMapping[SchemaType],
+      data: source as ShallowSource[SchemaType],
     };
   } else if (type === "richtext") {
     if (typeof source !== "object" || !isJsonArray(source)) {
       return {
         status: "error",
-        errors: `Expected array, got ${typeof source}`,
+        error: `Expected array, got ${typeof source}`,
       };
     }
     return {
       status: "success",
-      data: source as TypeMapping[SchemaType],
+      data: source as ShallowSource[SchemaType],
     };
   } else if (type === "date" || type === "string" || type === "literal") {
     if (typeof source !== "string") {
       return {
         status: "error",
-        errors: `Expected string, got ${typeof source}`,
+        error: `Expected string, got ${typeof source}`,
       };
     }
     return {
       status: "success",
-      data: source as TypeMapping[SchemaType],
+      data: source as ShallowSource[SchemaType],
     };
   } else if (type === "file" || type === "image") {
     if (
@@ -346,56 +418,56 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     ) {
       return {
         status: "error",
-        errors: `Expected object with ${FILE_REF_PROP} property, got ${typeof source}`,
+        error: `Expected object with ${FILE_REF_PROP} property, got ${typeof source}`,
       };
     }
     return {
       status: "success",
-      data: source as TypeMapping[SchemaType],
+      data: source as ShallowSource[SchemaType],
     };
   } else if (type === "keyOf") {
     if (typeof source !== "string" && typeof source !== "number") {
       return {
         status: "error",
-        errors: `Expected string or number, got ${typeof source}`,
+        error: `Expected string or number, got ${typeof source}`,
       };
     }
     return {
       status: "success",
-      data: source as TypeMapping[SchemaType],
+      data: source as ShallowSource[SchemaType],
     };
   } else if (type === "union") {
     if (typeof source === "string") {
       return {
         status: "success",
-        data: source as TypeMapping[SchemaType],
+        data: source as ShallowSource[SchemaType],
       };
     }
     if (typeof source !== "object") {
       return {
         status: "error",
-        errors: `Expected object, got ${typeof source}`,
+        error: `Expected object, got ${typeof source}`,
       };
     }
     if (isJsonArray(source)) {
       return {
         status: "error",
-        errors: `Expected object, got array`,
+        error: `Expected object, got array`,
       };
     }
-    const data: TypeMapping["union"] = {};
+    const data: ShallowSource["union"] = {};
     for (const key of Object.keys(source)) {
       data[key] = concatModulePath(modulePath, key);
     }
     return {
       status: "success",
-      data: data as TypeMapping[SchemaType],
+      data: data as ShallowSource[SchemaType],
     };
   } else {
     const exhaustiveCheck: never = type;
     return {
       status: "error",
-      errors: `Unknown schema type: ${exhaustiveCheck}`,
+      error: `Unknown schema type: ${exhaustiveCheck}`,
     };
   }
 }
