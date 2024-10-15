@@ -1,4 +1,4 @@
-import { FC } from "react";
+import { FC, useEffect } from "react";
 import { ValCache } from "@valbuild/shared/internal";
 import { ValClient } from "@valbuild/shared/src/internal/ValClient";
 import { useValState } from "../../ng/useValState";
@@ -11,6 +11,9 @@ interface ValFullscreenProps {
 
 export const ValStudio: FC<ValFullscreenProps> = ({ client }) => {
   const state = useValState(client);
+  useEffect(() => {
+    state.requestModule("/content/authors.val.ts");
+  }, []);
   if (
     state.stat.status !== "initializing" &&
     state.stat.status !== "not-asked"
@@ -20,12 +23,11 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client }) => {
         <input
           className="w-[400px] text-black"
           disabled={
-            state?.sources?.["/content/authors.val.ts"]?.data?.["freekh"]
-              ?.name === undefined
+            state?.sources?.["/content/authors.val.ts"]?.["freekh"]?.name ===
+            undefined
           }
           value={
-            state?.sources?.["/content/authors.val.ts"]?.data?.["freekh"]
-              ?.name || ""
+            state?.sources?.["/content/authors.val.ts"]?.["freekh"]?.name || ""
           }
           onChange={(ev) => {
             const value = ev.target.value;
@@ -44,8 +46,15 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client }) => {
           <div>Base sha: {state.stat.data?.baseSha}</div>
           <div>Patch count: {state.stat.data?.patches.length}</div>
         </div>
+        <div className="grid">
+          <h3>Patches sync</h3>
+          <pre>{JSON.stringify(state.patchesSyncStatus, null, 2)}</pre>
+        </div>
+        <div className="grid">
+          <h3>Sources sync</h3>
+          <pre>{JSON.stringify(state.sourcesSyncStatus, null, 2)}</pre>
+        </div>
         <pre>{JSON.stringify(state.sources, null, 2)}</pre>
-        <pre>{JSON.stringify(state.sourcePathErrors, null, 2)}</pre>
       </div>
     );
   }
