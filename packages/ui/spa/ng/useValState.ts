@@ -456,7 +456,9 @@ export function useValState(client: ValClient) {
       });
   }, [currentPatchIds]);
   const timeAtLastSync = useRef(-1);
+  const timeSinceLastSourcesUpdateRef = useRef(-1);
   useEffect(() => {
+    timeSinceLastSourcesUpdateRef.current = Date.now();
     // We want to batch patches for merging, but also to avoid hammering the server
     // In addition: we want to sync them as soon as possible
     // Lastly we never want to wait longer than N seconds before syncing if there is a patch coming in
@@ -478,6 +480,19 @@ export function useValState(client: ValClient) {
       };
     }
   }, [sources]);
+
+  useEffect(() => {
+    setInterval(() => {
+      const maybeConnectionIssues =
+        // it has been N seconds since last sources update
+        Date.now() - timeSinceLastSourcesUpdateRef.current > 5000 &&
+        // but we still have pending patches
+        Object.keys(pendingPatchesRef.current).length > 0;
+      if (maybeConnectionIssues) {
+        mergeAndSyncPatches();
+      }
+    }, 5000);
+  }, []);
 
   return {
     stat,
