@@ -1,8 +1,14 @@
-import { FC, useEffect } from "react";
+import { FC, useEffect, useState } from "react";
 import { ValCache } from "@valbuild/shared/internal";
 import { ValClient } from "@valbuild/shared/src/internal/ValClient";
 import { useValState } from "../../ng/useValState";
-import { ModuleFilePath } from "@valbuild/core";
+import { ModuleFilePath, SourcePath } from "@valbuild/core";
+import {
+  useAddPatch,
+  useSchemaAtPath,
+  useShallowSourceAtPath,
+  ValProvider,
+} from "../../ng/ValProvider";
 
 interface ValFullscreenProps {
   client: ValClient;
@@ -10,6 +16,52 @@ interface ValFullscreenProps {
 }
 
 export const ValStudio: FC<ValFullscreenProps> = ({ client }) => {
+  return (
+    <ValProvider client={client}>
+      <FakeStringField path={'/content/authors.val.ts?p="freekh"."name"'} />
+      <FakeStringField path={'/app/content.val.ts?p="hero"."title"'} />
+    </ValProvider>
+  );
+};
+
+function FakeStringField({ path }: { path: string }) {
+  const sourcePath = path as SourcePath;
+  const shallowSourceRes = useShallowSourceAtPath(sourcePath, "string");
+  const [patchPath, addPatch] = useAddPatch(sourcePath);
+  const schema = useSchemaAtPath(sourcePath, shallowSourceRes);
+
+  if (schema.status !== "success") {
+    return (
+      <div>
+        <pre>{JSON.stringify(schema, null, 2)}</pre>
+      </div>
+    );
+  }
+  if (!("data" in shallowSourceRes)) {
+    return (
+      <div>
+        <pre>{JSON.stringify(shallowSourceRes, null, 2)}</pre>
+      </div>
+    );
+  }
+  const shallowSource = shallowSourceRes.data;
+  return (
+    <div>
+      <div>Status: {shallowSourceRes.status}</div>
+      <input
+        className="w-[400px] text-black"
+        value={shallowSource || ""}
+        onChange={(ev) => {
+          const value = ev.target.value;
+          addPatch([{ op: "replace", path: patchPath, value }]);
+        }}
+      />
+      <pre>{JSON.stringify(schema, null, 2)}</pre>
+    </div>
+  );
+}
+
+function Tester({ client }: { client: ValClient }) {
   const state = useValState(client);
   useEffect(() => {
     state.requestModule("/content/authors.val.ts");
@@ -48,7 +100,7 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client }) => {
         </div>
         <div className="grid">
           <h3>Patches sync</h3>
-          <pre>{JSON.stringify(state.patchesSyncStatus, null, 2)}</pre>
+          <pre>{JSON.stringify(state.patchesStatus, null, 2)}</pre>
         </div>
         <div className="grid">
           <h3>Sources sync</h3>
@@ -59,4 +111,4 @@ export const ValStudio: FC<ValFullscreenProps> = ({ client }) => {
     );
   }
   return <pre>{JSON.stringify(state.stat, null, 2)}</pre>;
-};
+}
