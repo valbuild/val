@@ -17,7 +17,6 @@ import React, {
   useMemo,
 } from "react";
 import { Remote } from "../utils/Remote";
-import { UpdatingRemote, PatchWithMetadata, ValError } from "./ValProvider";
 import { z } from "zod";
 import { mergePatches } from "./mergePatches";
 
@@ -381,7 +380,6 @@ export function useValState(client: ValClient) {
       return [];
     }
     const mergedPatches = mergePatches(pendingPatches);
-    console.log("syncing", pendingPatches);
     const syncedSeqNumbers = new Set<number>();
     for (const moduleFilePathS in pendingPatches) {
       const moduleFilePath = moduleFilePathS as ModuleFilePath;
@@ -482,13 +480,6 @@ export function useValState(client: ValClient) {
       };
     }
   }, [sources]);
-
-  console.log(
-    Object.values(pendingPatchesRef.current).reduce(
-      (acc, p) => acc + p.length,
-      0,
-    ),
-  );
 
   return {
     stat,
@@ -682,3 +673,57 @@ function createError(stat: StatState, message: string): StatState {
     wait: waitMillis,
   };
 }
+
+export type PatchWithMetadata = {
+  patchId: PatchId;
+  patch: Patch;
+  author: Author | null;
+  createdAt: string;
+  error: string | null;
+};
+
+/**
+ * Use this for remote data that can be updated (is changing).
+ * Use Remote for data that requires a refresh to update
+ */
+export type UpdatingRemote<T> =
+  | {
+      status: "not-asked"; // no data has been requested
+    }
+  | {
+      status: "loading"; // data is loading
+    }
+  | {
+      status: "success"; // data has been loaded
+      data: T;
+    }
+  | {
+      status: "updating"; // updating with new data
+      data: T;
+    }
+  | {
+      status: "error"; // an error occurred
+      errors: string[] | string;
+      data?: T;
+    };
+
+export type Author = {
+  id: string;
+  name: string;
+  avatar: string;
+};
+
+export type ValError =
+  | {
+      type: "validationError";
+      message: string;
+    }
+  | {
+      type: "patchError";
+      message: string;
+    }
+  | {
+      // should the UI be responsible for "handling" errors? That makes sense right now, but not sure if it will in the future
+      type: "typeError" | "schemaError" | "unknownError";
+      message: string;
+    };
