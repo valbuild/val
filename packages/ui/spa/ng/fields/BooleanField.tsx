@@ -9,7 +9,6 @@ import {
   useShallowSourceAtPath,
   useAddPatch,
 } from "../ValProvider";
-import { CheckedState } from "@radix-ui/react-checkbox";
 
 export function BooleanField({ path }: { path: SourcePath }) {
   const type = "boolean";
@@ -39,20 +38,35 @@ export function BooleanField({ path }: { path: SourcePath }) {
     return <FieldLoading path={path} type={type} />;
   }
   const source = sourceAtPath.data;
+  // null is the "indeterminate" state
+  const current = source === null ? "indeterminate" : source;
   return (
     <Checkbox
-      checked={source === null ? "indeterminate" : source}
-      onCheckedChange={(ev: CheckedState) => {
-        // TODO: check this logic. We use null to represent indeterminate state, but how should we cycle through the states?
+      checked={current}
+      onCheckedChange={() => {
         let nextValue: boolean | null = false;
+        // If optional/nullable: we cycle like this: true -> indeterminate / null -> false -> true
         if (schemaAtPath.data.opt) {
-          if (ev === true) {
+          if (current === true) {
             nextValue = null;
+          } else if (current === null) {
+            nextValue = false;
+          } else if (current === false) {
+            nextValue = true;
           } else {
-            nextValue = ev === "indeterminate" ? false : true;
+            console.warn("Unexpected value for boolean field", current);
+            nextValue = false;
           }
         } else {
-          nextValue = ev === "indeterminate" ? false : ev;
+          if (current === true) {
+            nextValue = false;
+          } else if (current === "indeterminate" || current === false) {
+            // Even if not optional: we accept that the current value is indeterminate
+            nextValue = true;
+          } else {
+            console.warn("Unexpected value for boolean field", current);
+            nextValue = false;
+          }
         }
         addPatch([
           {
