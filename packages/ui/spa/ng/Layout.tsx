@@ -290,12 +290,6 @@ function PathBar() {
   const modulePathParts = modulePath
     ? Internal.splitModulePath(modulePath)
     : [];
-  console.log({
-    moduleFilePathParts,
-    modulePathParts,
-    modulePath,
-    moduleFilePath,
-  });
   return (
     <div className="flex items-center gap-2">
       {moduleFilePathParts.map((part, i) => (
