@@ -1,59 +1,41 @@
-import {
-  ArraySchema,
-  BooleanSchema,
-  ImageSchema,
-  Json,
-  KeyOfSchema,
-  NumberSchema,
-  ObjectSchema,
-  RecordSchema,
-  RichTextSchema,
-  Schema,
-  SelectorSource,
-  StringSchema,
-  UnionSchema,
-} from "@valbuild/core";
+import { SourcePath } from "@valbuild/core";
 import { StringPreview } from "../fields/StringField";
-import { NumberPreview } from "../fields/NumberField";
-import { UnexpectedSourceType } from "../../components/fields/UnexpectedSourceType";
+import { useSchemaAtPath } from "../ValProvider";
+import { ArrayPreview } from "../fields/ArrayFields";
 import { BooleanPreview } from "../fields/BooleanField";
-import { ImagePreview } from "../fields/ImageField";
-import { ListPreview } from "../fields/ArrayFields";
-import { KeyOfPreview } from "../fields/KeyOfField";
+import { NumberPreview } from "../fields/NumberField";
 import { UnionPreview } from "../fields/UnionField";
 
-export function Preview({
-  source,
-  schema,
-}: {
-  source: Json;
-  schema: Schema<SelectorSource>;
-}) {
-  if (schema instanceof StringSchema) {
-    return <StringPreview source={source} />;
-  } else if (schema instanceof NumberSchema) {
-    return <NumberPreview source={source} />;
-  } else if (schema instanceof BooleanSchema) {
-    return <BooleanPreview source={source} />;
-  } else if (schema instanceof ImageSchema) {
-    return <ImagePreview source={source} />;
-  } else if (schema instanceof ArraySchema) {
-    return <ListPreview source={source} />;
-  } else if (schema instanceof KeyOfSchema) {
-    return <KeyOfPreview source={source} />;
-  } else if (schema instanceof UnionSchema) {
-    return <UnionPreview source={source} />;
-  } else if (schema instanceof ObjectSchema && source) {
-    return Object.entries(source).map(([key, value]) => (
-      <Preview key={key} source={value} schema={schema.items[key]} />
-    ));
-  } else if (schema instanceof RecordSchema && source) {
-    return Object.entries(source).map(([key, value]) => (
-      <Preview key={key} source={value} schema={schema.item} />
-    ));
-  } else if (schema instanceof RichTextSchema) {
-    return <div>RichText</div>;
+export function Preview({ path }: { path: SourcePath }) {
+  const schemaAtPath = useSchemaAtPath(path);
+  if (!("data" in schemaAtPath)) {
+    return <PreviewLoading path={path} />;
   }
+  const type = schemaAtPath.data.type;
 
-  return <UnexpectedSourceType source={source} schema={schema} />;
+  if (type === "string") {
+    return <StringPreview path={path} />;
+  } else if (type === "array") {
+    return <ArrayPreview path={path} />;
+  } else if (type === "boolean") {
+    return <BooleanPreview path={path} />;
+  } else if (type === "number") {
+    return <NumberPreview path={path} />;
+  } else if (type === "union") {
+    return <UnionPreview path={path} />;
+  } else {
+    return <div>TODO: preview of {type}</div>;
+  }
+}
+
+export function PreviewLoading({ path }: { path: SourcePath }) {
+  return <div key={path + "-loading"}>Loading...</div>;
+}
+
+export function PreviewNull({ path }: { path: SourcePath }) {
+  return (
+    <div key={path + "-null"} className="text-bg-brand-primary">
+      null
+    </div>
+  );
 }

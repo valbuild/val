@@ -10,6 +10,7 @@ import {
   useAddPatch,
 } from "../ValProvider";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
+import { PreviewLoading, PreviewNull } from "../components/Preview";
 
 export function NumberField({ path }: { path: SourcePath }) {
   const type = "number";
@@ -64,6 +65,13 @@ export function NumberField({ path }: { path: SourcePath }) {
   );
 }
 
-export function NumberPreview({ source }: { source: any }) {
-  return <div>{source}</div>;
+export function NumberPreview({ path }: { path: SourcePath }) {
+  const sourceAtPath = useShallowSourceAtPath(path, "number");
+  if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
+    return <PreviewLoading path={path} />;
+  }
+  if (sourceAtPath.data === null) {
+    return <PreviewNull path={path} />;
+  }
+  return <div className="truncate">{sourceAtPath.data}</div>;
 }
