@@ -530,6 +530,7 @@ export function useValState(client: ValClient) {
     requestModule,
     patchesStatus,
     sourcesSyncStatus,
+    patchIds: currentPatchIds,
   };
 }
 
@@ -718,8 +719,9 @@ function createError(stat: StatState, message: string): StatState {
 
 export type PatchWithMetadata = {
   patchId: PatchId;
+  moduleFilePath: ModuleFilePath;
   patch: Patch;
-  author: Author | null;
+  author: string | null;
   createdAt: string;
   error: string | null;
 };

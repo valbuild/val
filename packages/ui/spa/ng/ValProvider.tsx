@@ -13,14 +13,18 @@ import {
   ModuleFilePath,
   ModuleFilePathSep,
   ModulePath,
+  PatchId,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { ValClient } from "@valbuild/shared/internal";
-import { useValState } from "./useValState";
+import { PatchWithMetadata, useValState } from "./useValState";
 import { Remote } from "../utils/Remote";
 import { isJsonArray } from "../utils/isJsonArray";
+import { PatchSets } from "../utils/PatchSet";
+import { schema } from "./fakeContent/content/projects.val";
+import { findFirstNonInsertedIdx } from "../utils/findFirstNonInsertedIdx";
 
 const ValContext = React.createContext<{
   search:
@@ -53,6 +57,24 @@ const ValContext = React.createContext<{
         errors: string[];
       }
   >;
+  patchesStatus: Record<
+    SourcePath,
+    | {
+        status: "created-patch";
+        createdAt: string;
+      }
+    | {
+        status: "uploading-patch";
+        createdAt: string;
+        updatedAt: string;
+      }
+    | {
+        status: "error";
+        errors: string[];
+      }
+  >;
+  patchIds: PatchId[];
+  patchMetadataCache: Record<PatchId, Remote<PatchWithMetadata>>;
 }>({
   get search():
     | false
@@ -90,6 +112,30 @@ const ValContext = React.createContext<{
   > {
     throw new Error("ValContext not provided");
   },
+  get patchesStatus(): Record<
+    SourcePath,
+    | {
+        status: "created-patch";
+        createdAt: string;
+      }
+    | {
+        status: "uploading-patch";
+        createdAt: string;
+        updatedAt: string;
+      }
+    | {
+        status: "error";
+        errors: string[];
+      }
+  > {
+    throw new Error("ValContext not provided");
+  },
+  get patchIds(): PatchId[] {
+    throw new Error("ValContext not provided");
+  },
+  get patchMetadataCache(): Record<PatchId, Remote<PatchWithMetadata>> {
+    throw new Error("ValContext not provided");
+  },
 });
 
 export function ValProvider({
@@ -99,7 +145,16 @@ export function ValProvider({
   children: React.ReactNode;
   client: ValClient;
 }) {
-  const { addPatch, schemas, sources, sourcesSyncStatus } = useValState(client);
+  const {
+    addPatch,
+    schemas,
+    sources,
+    sourcesSyncStatus,
+    patchesStatus,
+    patchIds,
+  } = useValState(client);
+
+  // Global debounce: to avoid canceling patches that are debounced on navigation
   const debouncedPatches = useRef<Record<SourcePath, (() => Patch)[]>>({});
   useEffect(() => {
     setInterval(() => {
@@ -127,6 +182,102 @@ export function ValProvider({
     [],
   );
 
+  const [missingPatchIds, setMissingPatchIds] = useState<PatchId[]>([]);
+  const [patchMetadataCache, setPatchMetadataCache] = useState<
+    Record<PatchId, Remote<PatchWithMetadata>>
+  >({});
+  useEffect(() => {
+    setMissingPatchIds((prev) => {
+      const missingPatchIds: PatchId[] = [];
+      for (const patchId of patchIds) {
+        if (!prev.includes(patchId)) {
+          missingPatchIds.push(patchId);
+        }
+      }
+      return missingPatchIds;
+    });
+  }, [patchIds]);
+  useEffect(() => {
+    if (missingPatchIds.length === 0) {
+      return;
+    }
+    setMissingPatchIds([]);
+    setPatchMetadataCache((prev) => {
+      const current: typeof prev = { ...prev };
+      for (const patchId of missingPatchIds) {
+        current[patchId] = {
+          status: "loading",
+        };
+      }
+      return current;
+    });
+    client("/patches/~", "GET", {
+      query: {
+        patch_id: missingPatchIds,
+        module_file_path: undefined,
+        author: undefined,
+        omit_patch: false,
+      },
+    }).then((res) => {
+      if (res.status !== 200) {
+        setPatchMetadataCache((prev) => {
+          const current: typeof prev = { ...prev };
+          for (const patchId of missingPatchIds) {
+            current[patchId] = {
+              status: "error",
+              error: res.json.message,
+            };
+          }
+          return current;
+        });
+        if (
+          res.status === null &&
+          res.json.type === "network_error" &&
+          res.json.retryable
+        ) {
+          // Retry later
+          setTimeout(() => setMissingPatchIds(missingPatchIds), 1000);
+        }
+      } else {
+        setPatchMetadataCache((prev) => {
+          const current: typeof prev = { ...prev };
+          for (const patchIds in res.json.patches) {
+            const patchId = patchIds as PatchId;
+            const patchMetadata = res.json.patches[patchId];
+            if (patchMetadata && patchMetadata.patch) {
+              current[patchId] = {
+                status: "success",
+                data: {
+                  author: patchMetadata.authorId,
+                  createdAt: patchMetadata.createdAt,
+                  error: res.json?.errors?.[patchId]?.message || null,
+                  patch: patchMetadata.patch,
+                  moduleFilePath: patchMetadata.path,
+                  patchId,
+                },
+              };
+            } else if (patchMetadata === undefined) {
+              current[patchId] = {
+                status: "error",
+                error:
+                  "Expected patch metadata in response, but there was none: " +
+                  patchId,
+              };
+            } else {
+              current[patchId] = {
+                status: "error",
+
+                error:
+                  "Expected patch in response, but there was none: " + patchId,
+              };
+            }
+          }
+          return current;
+        });
+      }
+    });
+  }, [missingPatchIds]);
+
   return (
     <ValContext.Provider
       value={{
@@ -137,6 +288,9 @@ export function ValProvider({
         schemas,
         sources,
         sourcesSyncStatus,
+        patchesStatus,
+        patchIds,
+        patchMetadataCache,
       }}
     >
       {children}
@@ -159,6 +313,123 @@ export function useAddPatch(sourcePath: SourcePath) {
   );
 
   return { patchPath, addPatch: addPatchCallback, addDebouncedPatch };
+}
+
+export function usePatchMetadata(patchId: PatchId): Remote<PatchWithMetadata> {
+  const { patchMetadataCache } = useContext(ValContext);
+  return patchMetadataCache[patchId] || { status: "not-asked" };
+}
+
+export function usePatchSets(): Remote<{
+  patchSets: PatchSets;
+  loadingPatches: PatchId[];
+  failedPatches: {
+    patchId: PatchId;
+    error: string;
+  }[];
+}> {
+  const { patchMetadataCache, patchIds, sources, schemas } =
+    useContext(ValContext);
+  const lastPatchSetRef = useRef<PatchSets>();
+  const lastPatchSetPatchIdsRef = useRef<PatchId[]>();
+  const res = useMemo((): Remote<{
+    patchSets: PatchSets;
+    loadingPatches: PatchId[];
+    failedPatches: {
+      patchId: PatchId;
+      error: string;
+    }[];
+  }> => {
+    if (patchIds.length === 0) {
+      return {
+        status: "success",
+        data: {
+          patchSets: new PatchSets(),
+          loadingPatches: [],
+          failedPatches: [],
+        },
+      };
+    }
+    if (schemas.status === "loading" || schemas.status === "not-asked") {
+      return {
+        status: schemas.status,
+      };
+    }
+    if (schemas.status === "error") {
+      return {
+        status: "error",
+        error: schemas.error,
+      };
+    }
+
+    let currentPatchSets = lastPatchSetRef.current || new PatchSets();
+    // Find first non-inserted patch so we can avoid having to re-insert all patches
+    // NOTE: if sources, patchMetadataCache, or schemas change, we re-insert all patches that were not successfully inserted last time
+    const firstNonInsertedPatchIndex = findFirstNonInsertedIdx(
+      patchIds,
+      lastPatchSetPatchIdsRef.current,
+    );
+    if (firstNonInsertedPatchIndex === 0) {
+      currentPatchSets = new PatchSets();
+    }
+    const insertedPatches: PatchId[] = [];
+    const loadingPatches: PatchId[] = [];
+    const failedPatches: {
+      patchId: PatchId;
+      error: string;
+    }[] = [];
+    for (let i = firstNonInsertedPatchIndex; i < patchIds.length; i++) {
+      const patchId = patchIds[i];
+      const patch = patchMetadataCache[patchId];
+      if (patch.status === "loading" || patch.status === "not-asked") {
+        loadingPatches.push(patchId);
+        continue;
+      }
+      if (patch.status === "error") {
+        failedPatches.push({ patchId: patchId, error: patch.error });
+        continue;
+      }
+      const source = sources[patch.data.moduleFilePath];
+      if (source === undefined) {
+        failedPatches.push({
+          patchId: patchId,
+          error: "Source is missing",
+        });
+        continue;
+      }
+      const moduleSchema = schemas.data[patch.data.moduleFilePath];
+      if (moduleSchema === undefined) {
+        failedPatches.push({
+          patchId: patchId,
+          error: "Schema is missing",
+        });
+        continue;
+      }
+      for (const op of patch.data.patch) {
+        currentPatchSets.insert(
+          patch.data.moduleFilePath,
+          source,
+          moduleSchema,
+          op,
+          patchId,
+        );
+      }
+      insertedPatches.push(patchId);
+    }
+    lastPatchSetRef.current = currentPatchSets;
+    lastPatchSetPatchIdsRef.current = insertedPatches;
+
+    return {
+      status: "success",
+      data: {
+        patchSets: currentPatchSets,
+        loadingPatches,
+        failedPatches,
+      },
+    };
+  }, [patchMetadataCache, patchIds, sources, schemas]);
+
+  return res;
 }
 
 type EnsureAllTypes<T extends Record<SerializedSchema["type"], unknown>> = T;
