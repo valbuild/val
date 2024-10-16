@@ -1,5 +1,5 @@
 import { SourcePath, SerializedSchema } from "@valbuild/core";
-import { UnexpectedSourceType } from "../../components/fields/UnexpectedSourceType";
+import { UnexpectedSchemaType } from "../../components/fields/UnexpectedSourceType";
 import { ArrayFields } from "../fields/ArrayFields";
 import { BooleanField } from "../fields/BooleanField";
 import { ImageField } from "../fields/ImageField";
@@ -40,5 +40,5 @@ export function AnyField({
     return <RichTextField path={path} />;
   }
   // TODO: exhaustive check
-  return <UnexpectedSourceType schema={schema} />;
+  return <UnexpectedSchemaType schema={schema} />;
 }

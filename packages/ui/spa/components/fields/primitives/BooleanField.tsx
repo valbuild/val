@@ -3,7 +3,7 @@ import { useState } from "react";
 import { OnSubmit, SubmitStatus } from "../SubmitStatus";
 import { Checkbox } from "../../ui/checkbox";
 import { FieldContainer } from "../FieldContainer";
-import { UnexpectedSourceType } from "../UnexpectedSourceType";
+import { UnexpectedSchemaType } from "../UnexpectedSourceType";
 
 export function BooleanField({
   source,
@@ -18,7 +18,7 @@ export function BooleanField({
   const [value, setValue] = useState<Json>(source ?? null);
   const [loading, setLoading] = useState(false);
   if (typeof value !== "boolean") {
-    return <UnexpectedSourceType source={value} schema={schema} />;
+    return <UnexpectedSchemaType source={value} schema={schema} />;
   }
   return (
     <FieldContainer>
@@ -38,7 +38,7 @@ export function BooleanField({
                     path,
                     value,
                   },
-                ])
+                ]),
               ).finally(() => {
                 setLoading(false);
               });
