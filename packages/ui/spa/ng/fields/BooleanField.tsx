@@ -9,6 +9,7 @@ import {
   useShallowSourceAtPath,
   useAddPatch,
 } from "../ValProvider";
+import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 
 export function BooleanField({ path }: { path: SourcePath }) {
   const type = "boolean";
@@ -36,6 +37,15 @@ export function BooleanField({ path }: { path: SourcePath }) {
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <FieldLoading path={path} type={type} />;
+  }
+  if (schemaAtPath.data.type !== type) {
+    return (
+      <FieldSchemaMismatchError
+        path={path}
+        expectedType={type}
+        actualType={schemaAtPath.data.type}
+      />
+    );
   }
   const source = sourceAtPath.data;
   // null is the "indeterminate" state

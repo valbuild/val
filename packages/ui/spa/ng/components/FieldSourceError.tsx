@@ -5,7 +5,7 @@ export function FieldSourceError({
 }: {
   path: SourcePath;
   error: string;
-  type: SerializedSchema["type"];
+  type?: SerializedSchema["type"];
 }) {
   return (
     <div>
