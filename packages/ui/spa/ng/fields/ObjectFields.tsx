@@ -33,11 +33,10 @@ export function ObjectFields({ path }: { path: SourcePath }) {
     );
   }
   const schema = schemaAtPath.data;
-  return Object.entries(schema.items).map(([label, itemSchema]) => {
-    const key = JSON.stringify({ label, itemSchema });
-    const subPath = sourcePathOfItem(path, label);
+  return Object.entries(schema.items).map(([key, itemSchema]) => {
+    const subPath = sourcePathOfItem(path, key);
     return (
-      <Field key={key} label={label} path={subPath}>
+      <Field key={subPath} label={key} path={subPath}>
         <AnyField path={subPath} schema={itemSchema} />
       </Field>
     );
@@ -45,19 +44,36 @@ export function ObjectFields({ path }: { path: SourcePath }) {
 }
 
 export function ObjectPreview({ path }: { path: SourcePath }) {
-  const sourceAtPath = useShallowSourceAtPath(path, "object");
-  if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
-    return <PreviewLoading path={path} />;
+  const type = "object";
+  const schemaAtPath = useSchemaAtPath(path);
+  if (schemaAtPath.status === "error") {
+    return (
+      <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
+    );
   }
-  if (sourceAtPath.data === null) {
-    return <PreviewNull path={path} />;
+  if (schemaAtPath.status === "loading") {
+    return <FieldLoading path={path} type={type} />;
   }
+  if (schemaAtPath.status === "not-found") {
+    return <FieldNotFound path={path} type={type} />;
+  }
+  if (schemaAtPath.data.type !== "object") {
+    return (
+      <FieldSchemaMismatchError
+        path={path}
+        expectedType="object"
+        actualType={schemaAtPath.data.type}
+      />
+    );
+  }
+  const schema = schemaAtPath.data;
   return (
     <div className="grid grid-cols-[min-content,1fr] text-left gap-2 text-xs">
-      {Object.entries(sourceAtPath.data).map(([key, fieldPath]) => {
+      {Object.keys(schema.items).map((key) => {
+        const subPath = sourcePathOfItem(path, key);
         return (
           <PreviewField key={key} label={key}>
-            <Preview path={fieldPath} />
+            <Preview path={subPath} />
           </PreviewField>
         );
       })}
