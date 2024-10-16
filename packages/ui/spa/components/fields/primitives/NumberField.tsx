@@ -6,7 +6,7 @@ import {
 } from "@valbuild/core";
 import { BasicInputField } from "../BasicInputField";
 import { OnSubmit } from "../SubmitStatus";
-import { UnexpectedSourceType } from "../UnexpectedSourceType";
+import { UnexpectedSchemaType } from "../UnexpectedSourceType";
 
 export function NumberField({
   path,
@@ -20,7 +20,7 @@ export function NumberField({
   onSubmit?: OnSubmit;
 }) {
   if (typeof source !== "number") {
-    return <UnexpectedSourceType source={source} schema={schema} />;
+    return <UnexpectedSchemaType source={source} schema={schema} />;
   }
   return (
     <BasicInputField

@@ -6,7 +6,7 @@ import {
 } from "@valbuild/core";
 import { OnSubmit } from "../SubmitStatus";
 import { BasicInputField } from "../BasicInputField";
-import { UnexpectedSourceType } from "../UnexpectedSourceType";
+import { UnexpectedSchemaType } from "../UnexpectedSourceType";
 
 export function StringField({
   path,
@@ -20,7 +20,7 @@ export function StringField({
   onSubmit?: OnSubmit;
 }) {
   if (typeof source !== "string") {
-    return <UnexpectedSourceType source={source} schema={schema} />;
+    return <UnexpectedSchemaType source={source} schema={schema} />;
   }
   return (
     <BasicInputField
@@ -37,11 +37,11 @@ export function StringField({
                 regexp: schema.options.regexp
                   ? new RegExp(
                       schema.options.regexp.source,
-                      schema.options.regexp.flags
+                      schema.options.regexp.flags,
                     )
                   : undefined,
               }
-            : undefined
+            : undefined,
         ).validate(path, value);
       }}
     />
