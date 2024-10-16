@@ -6,7 +6,7 @@ import { ChevronDown, ChevronsDown, ShieldAlert } from "lucide-react";
 import { relativeLocalDate } from "../../utils/relativeLocalDate";
 import { useMemo, useState } from "react";
 import { AnimateHeight } from "./AnimateHeight";
-import { PatchWithMetadata, ValError } from "../useValState";
+import { PatchMetadata, ValError } from "../useValState";
 
 export function Field({
   label,
@@ -79,7 +79,7 @@ function FieldError({ errors }: { errors: Remote<ValError[]> }) {
   return null;
 }
 
-function FieldChanges({ patches }: { patches: Remote<PatchWithMetadata[]> }) {
+function FieldChanges({ patches }: { patches: Remote<PatchMetadata[]> }) {
   const now = useMemo(() => new Date(), []);
   if (patches.status === "success" && patches.data.length > 0) {
     const lastDate = patches.data
