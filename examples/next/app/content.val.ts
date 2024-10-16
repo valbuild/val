@@ -70,29 +70,171 @@ export default c.define("/app/content.val.ts", schema, {
   },
   tags: ["CMS", "react", "github", "NextJS"],
   author: "freekh",
-  text: c.richtext`
-Val is a CMS where **content** is **code** in your git repo.
-
-<br />
-
-Val is a CMS, which is useful because:
-
-- editors can **change content** without developer interactions
-- **images** can be managed without checking in code
-- **i18n** support is easy to add
-- a **well-documented** way to **structure content**
-
-<br />
-
-But, with all the benefits of having content hard-coded:
-
-- works as normal with your **favorite IDE** without any plugins: search for content, references to usages, ...
-- content is **type-checked** so you see when something is wrong immediately
-- content can be **refactored** (change names, etc) just as if it was hard-coded (because it sort of is)
-- work **locally** or in **branches** just as if you didn't use a CMS
-- **no need for code-gen** and extra build steps
-
-Visit ${c.rt.link("Val", { href: "https://val.build" })} for more information.
-`,
+  text: [
+    {
+      tag: "p",
+      children: [
+        "Val is a CMS where ",
+        { tag: "span", styles: ["bold"], children: ["content"] },
+        " is ",
+        { tag: "span", styles: ["bold"], children: ["code"] },
+        " in your git repo.",
+      ],
+    },
+    { tag: "p", children: [{ tag: "br" }] },
+    { tag: "p", children: ["Val is a CMS, which is useful because:"] },
+    {
+      tag: "ul",
+      children: [
+        {
+          tag: "li",
+          children: [
+            {
+              tag: "p",
+              children: [
+                "editors can ",
+                { tag: "span", styles: ["bold"], children: ["change content"] },
+                " without developer interactions",
+              ],
+            },
+          ],
+        },
+        {
+          tag: "li",
+          children: [
+            {
+              tag: "p",
+              children: [
+                { tag: "span", styles: ["bold"], children: ["images"] },
+                " can be managed without checking in code",
+              ],
+            },
+          ],
+        },
+        {
+          tag: "li",
+          children: [
+            {
+              tag: "p",
+              children: [
+                { tag: "span", styles: ["bold"], children: ["i18n"] },
+                " support is easy to add",
+              ],
+            },
+          ],
+        },
+        {
+          tag: "li",
+          children: [
+            {
+              tag: "p",
+              children: [
+                "a ",
+                {
+                  tag: "span",
+                  styles: ["bold"],
+                  children: ["well-documented"],
+                },
+                " way to ",
+                {
+                  tag: "span",
+                  styles: ["bold"],
+                  children: ["structure content"],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    { tag: "p", children: [{ tag: "br" }] },
+    {
+      tag: "p",
+      children: ["But, with all the benefits of having content hard-coded:"],
+    },
+    {
+      tag: "ul",
+      children: [
+        {
+          tag: "li",
+          children: [
+            {
+              tag: "p",
+              children: [
+                "works as normal with your ",
+                { tag: "span", styles: ["bold"], children: ["favorite IDE"] },
+                " without any plugins: search for content, references to usages, ...",
+              ],
+            },
+          ],
+        },
+        {
+          tag: "li",
+          children: [
+            {
+              tag: "p",
+              children: [
+                "content is ",
+                { tag: "span", styles: ["bold"], children: ["type-checked"] },
+                " so you see when something is wrong immediately",
+              ],
+            },
+          ],
+        },
+        {
+          tag: "li",
+          children: [
+            {
+              tag: "p",
+              children: [
+                "content can be ",
+                { tag: "span", styles: ["bold"], children: ["refactored"] },
+                " (change names, etc) just as if it was hard-coded (because it sort of is)",
+              ],
+            },
+          ],
+        },
+        {
+          tag: "li",
+          children: [
+            {
+              tag: "p",
+              children: [
+                "work ",
+                { tag: "span", styles: ["bold"], children: ["locally"] },
+                " or in ",
+                { tag: "span", styles: ["bold"], children: ["branches"] },
+                " just as if you didn't use a CMS",
+              ],
+            },
+          ],
+        },
+        {
+          tag: "li",
+          children: [
+            {
+              tag: "p",
+              children: [
+                {
+                  tag: "span",
+                  styles: ["bold"],
+                  children: ["no need for code-gen"],
+                },
+                " and extra build steps",
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      tag: "p",
+      children: [
+        "Visit ",
+        { tag: "a", href: "https://val.build", children: ["Val"] },
+        " for more information.",
+      ],
+    },
+  ],
   featured: false,
 });
