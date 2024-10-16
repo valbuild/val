@@ -50,11 +50,10 @@ function Left() {
     <div className="flex flex-col justify-between pb-4 ml-4 text-xs h-fit bg-bg-secondary rounded-b-3xl">
       <nav>
         <Divider />
-        <ScrollArea className="max-h-[max(50vh-84px,100px)] overflow-scroll">
-          <NavContentExplorer title="Blank website" />
+        <ScrollArea className="max-h-[max(100vh-84px,100px)] overflow-scroll">
+          <NavContentExplorer />
         </ScrollArea>
-        <Divider />
-        {/* <ScrollArea className="max-h-[max(50vh-84px,100px)] overflow-scroll">
+        {/* <Divider /><ScrollArea className="max-h-[max(50vh-84px,100px)] overflow-scroll">
           <NavSiteMap
             title="Pages"
             items={[
@@ -85,7 +84,7 @@ function useSchemasTree(): Remote<PathNode> {
   }, [remoteSchemasByModuleFilePath]);
 }
 
-function NavContentExplorer({ title }: { title: string }) {
+function NavContentExplorer({ title }: { title?: string }) {
   const remoteSchemaTree = useSchemasTree();
   if (remoteSchemaTree.status === "error") {
     throw new Error(remoteSchemaTree.error);
@@ -97,7 +96,7 @@ function NavContentExplorer({ title }: { title: string }) {
 
   return (
     <div className="px-2">
-      <div className="py-2">{title}</div>
+      {title && <div className="py-2">{title}</div>}
       <div>
         {root.children.sort(sortPathTree).map((child, i) => (
           <ExplorerNode {...child} name={child.name} key={i} />
