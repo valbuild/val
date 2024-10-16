@@ -272,7 +272,7 @@ export function useShallowSourceAtPath<
   const source = useMemo((): ShallowSourceOf<SchemaType> => {
     const moduleSources = sources[moduleFilePath];
     if (moduleSources !== undefined && type !== undefined) {
-      const sourceAtSourcePath = getSourceAtSourcePath(
+      const sourceAtSourcePath = getShallowSourceAtSourcePath(
         moduleFilePath,
         modulePath,
         type,
@@ -300,12 +300,15 @@ export function useShallowSourceAtPath<
   return source;
 }
 
-function getSourceAtSourcePath<SchemaType extends SerializedSchema["type"]>(
-  moduleFilePath: ModuleFilePath,
-  modulePath: ModulePath,
-  type: SchemaType,
-  sources: Json,
-): ShallowSourceOf<SchemaType> {
+export function useSourceAtPath(sourcePath: SourcePath) {
+  const { sources } = useContext(ValContext);
+
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(sourcePath);
+  return walkSourcePath(modulePath, sources[moduleFilePath]);
+}
+
+function walkSourcePath(modulePath: ModulePath, sources?: Json) {
   let source = sources;
   if (sources === undefined) {
     return { status: "not-found" };
@@ -352,6 +355,18 @@ function getSourceAtSourcePath<SchemaType extends SerializedSchema["type"]>(
       error: `Expected object at ${modulePath}, got undefined`,
     };
   }
+  return source;
+}
+
+function getShallowSourceAtSourcePath<
+  SchemaType extends SerializedSchema["type"],
+>(
+  moduleFilePath: ModuleFilePath,
+  modulePath: ModulePath,
+  type: SchemaType,
+  sources: Json,
+): ShallowSourceOf<SchemaType> {
+  const source = walkSourcePath(modulePath, sources);
   const mappedSource = mapSource(moduleFilePath, modulePath, type, source);
   return mappedSource;
 }

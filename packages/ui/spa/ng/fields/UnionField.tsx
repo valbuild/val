@@ -1,6 +1,5 @@
 import {
-  LiteralSchema,
-  SerializedLiteralSchema,
+  Json,
   SerializedObjectUnionSchema,
   SerializedStringUnionSchema,
   SerializedUnionSchema,
@@ -17,18 +16,17 @@ import {
   useAddPatch,
   useSchemaAtPath,
   useShallowSourceAtPath,
+  useSourceAtPath,
 } from "../ValProvider";
 import { FieldLoading } from "../components/FieldLoading";
 import { FieldNotFound } from "../components/FieldNotFound";
 import { FieldSchemaError } from "../components/FieldSchemaError";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 import { FieldSourceError } from "../components/FieldSourceError";
-import { Field } from "../components/Field";
 import { emptyOf } from "../../components/fields/emptyOf";
 import { AnyField } from "../components/AnyField";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
-import { JSONValue } from "@valbuild/core/patch";
-import { isJsonArray } from "../../utils/isJsonArray";
+import { useEffect, useRef } from "react";
 
 function isStringUnion(
   schema: SerializedUnionSchema,
@@ -129,10 +127,10 @@ function ObjectUnionField({
   path: SourcePath;
   schema: SerializedObjectUnionSchema;
 }) {
-  const keyPath = sourcePathOfItem(path, schema.key);
+  const fullSourceAtPath = useSourceAtPath(path);
   const { addPatch, patchPath } = useAddPatch(path);
+  const keyPath = sourcePathOfItem(path, schema.key);
   const currentSourceKeyRes = useShallowSourceAtPath(keyPath, "literal");
-  const schemaAtPath = useSchemaAtPath(path);
   if (
     !("data" in currentSourceKeyRes) ||
     currentSourceKeyRes.data === undefined
@@ -144,7 +142,7 @@ function ObjectUnionField({
     if (subSchema.type === "literal") {
       return subSchema.value === currentSourceKeyRes.data;
     }
-    console.warn("Expected literal schema in object union", subSchema);
+    console.error("Expected literal schema in object union", subSchema);
     return false;
   });
   if (selectedSchema?.items === undefined) {
@@ -156,15 +154,49 @@ function ObjectUnionField({
     if (subSchema.type === "literal") {
       return [subSchema.value];
     }
-    console.warn("Expected literal schema in object union", subSchema);
+    console.error("Expected literal schema in object union", subSchema);
     return [];
   });
+  const previouslySelectedSources = useRef<
+    Record<SourcePath, Record<string, Json>>
+  >({});
+
+  useEffect(() => {
+    if (
+      fullSourceAtPath !== undefined &&
+      currentSourceKeyRes.data !== undefined &&
+      typeof currentSourceKeyRes.data === "string"
+    ) {
+      if (!previouslySelectedSources.current[path]) {
+        previouslySelectedSources.current[path] = {};
+      }
+      previouslySelectedSources.current[path][currentSourceKeyRes.data] =
+        fullSourceAtPath;
+    }
+  }, [fullSourceAtPath, currentSourceKeyRes, path]);
   return (
     <div className="grid gap-4">
       <Select
         value={currentSourceKeyRes.data ?? undefined}
         onValueChange={(value) => {
-          const newValue: any = emptyOf(schema);
+          const selectedSchema = schema.items.find((item) => {
+            const subSchema = item.items?.[schema.key];
+            if (subSchema.type === "literal") {
+              return subSchema.value === value;
+            }
+            console.error("Expected literal schema in object union", subSchema);
+            return false;
+          });
+          if (selectedSchema?.items === undefined) {
+            console.error(
+              `Selected schema with ${schema.key} = ${value} not found`,
+            );
+            return;
+          }
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const newValue: any =
+            previouslySelectedSources.current[path][value] ||
+            emptyOf(selectedSchema);
           newValue[schema.key] = value;
           addPatch([
             {
