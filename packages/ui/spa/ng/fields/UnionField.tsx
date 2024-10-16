@@ -10,6 +10,6 @@ export function UnionField({ path }: { path: SourcePath }) {
   return <div>TODO union field</div>;
 }
 
-export function UnionPreview({ source }: { source: any }) {
+export function UnionPreview({ path }: { path: SourcePath }) {
   return <div>{source}</div>;
 }

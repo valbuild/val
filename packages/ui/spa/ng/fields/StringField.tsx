@@ -10,6 +10,7 @@ import { FieldNotFound } from "../components/FieldNotFound";
 import { FieldSchemaError } from "../components/FieldSchemaError";
 import { FieldSourceError } from "../components/FieldSourceError";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
+import { PreviewLoading, PreviewNull } from "../components/Preview";
 
 export function StringField({ path }: { path: SourcePath }) {
   const type = "string";
@@ -64,6 +65,13 @@ export function StringField({ path }: { path: SourcePath }) {
   );
 }
 
-export function StringPreview({ source }: { source: any }) {
-  return <div className="truncate">{source}</div>;
+export function StringPreview({ path }: { path: SourcePath }) {
+  const sourceAtPath = useShallowSourceAtPath(path, "string");
+  if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
+    return <PreviewLoading path={path} />;
+  }
+  if (sourceAtPath.data === null) {
+    return <PreviewNull path={path} />;
+  }
+  return <div className="truncate">{sourceAtPath.data}</div>;
 }

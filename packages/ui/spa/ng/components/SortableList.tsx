@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DndContext,
   closestCenter,
@@ -17,62 +17,33 @@ import { useSortable } from "@dnd-kit/sortable";
 import { DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import classNames from "classnames";
-import { EllipsisVertical, GripVertical, Trash2 } from "lucide-react";
-import {
-  JsonArray,
-  SourcePath,
-  SerializedArraySchema,
-  Json,
-  SerializedSchema,
-  Internal,
-} from "@valbuild/core";
+import { GripVertical, Trash2 } from "lucide-react";
+import { SourcePath, SerializedArraySchema } from "@valbuild/core";
 import { Preview } from "./Preview";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-} from "@radix-ui/react-dropdown-menu";
-import {
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-} from "../ui/dropdown-menu";
 
 export function SortableList({
   source,
   path,
-  schema,
-  loading,
   onClick,
   onMove,
   onDelete,
 }: {
-  source: JsonArray;
+  source: SourcePath[];
   path: SourcePath;
   schema: SerializedArraySchema;
-  loading: boolean;
-  onMove: (from: number, to: number) => Promise<void>;
+  onMove: (from: number, to: number) => void;
   onClick: (path: SourcePath) => void;
-  onDelete: (item: number) => Promise<void>;
+  onDelete: (item: number) => void;
 }) {
-  const [disabled, setDisabled] = useState<boolean>(false);
-  const [items, setItems] = useState<
-    { source: Json; path: SourcePath; id: number }[]
-  >([]);
+  const [items, setItems] = useState<{ path: SourcePath; id: number }[]>([]);
   useEffect(() => {
     const items: {
-      source: Json;
       path: SourcePath;
       id: number;
     }[] = [];
     let id = 1; // NB: starts 1 - 0 doesn't work with DndKit (???) plus we want to show 1-based index
-    for (const item of source) {
-      const itemPath = Internal.createValPathOfItem(path, id - 1);
-      if (!itemPath) {
-        console.error("Val: could not determine path of item", path, id);
-        id++;
-        continue;
-      }
-      items.push({ source: item, path: itemPath, id });
+    for (const path of source) {
+      items.push({ path: path, id });
       id++;
     }
     setItems(items);
@@ -82,9 +53,27 @@ export function SortableList({
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
-    })
+    }),
   );
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
 
+      if (active?.id !== over?.id) {
+        const oldIndex = items.findIndex(
+          (item) => item.id === Number(active?.id),
+        );
+        const newIndex = items.findIndex(
+          (item) => item.id === Number(over?.id),
+        );
+        setItems((items) => {
+          return arrayMove(items, oldIndex, newIndex);
+        });
+        onMove(oldIndex, newIndex); // DndKit is 1-based, we're 0-based
+      }
+    },
+    [items],
+  );
   return (
     <DndContext
       sensors={sensors}
@@ -93,30 +82,18 @@ export function SortableList({
     >
       <SortableContext items={items} strategy={verticalListSortingStrategy}>
         <div className="grid grid-cols-[min-content,min-content,1fr,min-content] gap-4">
-          {items.map(({ source, path, id }) => {
+          {items.map(({ path, id }) => {
             return (
               <SortableItem
                 key={id}
                 id={id}
-                source={source}
-                schema={schema.item}
                 path={path}
-                disabled={loading || disabled}
                 onClick={onClick}
                 onDelete={(id) => {
-                  setDisabled(true);
                   onDelete(
                     id -
-                      1 /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-                  )
-                    .then(() => {
-                      setItems((items) => {
-                        return items.filter((item) => item.id !== id);
-                      });
-                    })
-                    .finally(() => {
-                      setDisabled(false);
-                    });
+                      1 /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */,
+                  );
                 }}
               />
             );
@@ -125,43 +102,6 @@ export function SortableList({
       </SortableContext>
     </DndContext>
   );
-
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-
-    if (active?.id !== over?.id) {
-      setDisabled(true);
-      const oldIndex = items.findIndex(
-        (item) => item.id === Number(active?.id)
-      );
-      const newIndex = items.findIndex((item) => item.id === Number(over?.id));
-      const prevItems = items.slice();
-      setItems((items) => {
-        return arrayMove(items, oldIndex, newIndex);
-      });
-      onMove(oldIndex, newIndex)
-        .catch(() => {
-          setItems(prevItems);
-        })
-        .then(() => {
-          setItems((items) => {
-            return items.map((item, i) => {
-              const itemPath = Internal.createValPathOfItem(path, i);
-              if (!itemPath) {
-                throw Error(
-                  "Val: could not determine path of item: " + path + " i:" + i
-                );
-              }
-
-              return { ...item, path: itemPath, id: i + 1 };
-            });
-          });
-        })
-        .finally(() => {
-          setDisabled(false);
-        });
-    }
-  }
 }
 
 export const LIST_ITEM_MAX_HEIGHT = 170;
@@ -169,17 +109,13 @@ export const LIST_ITEM_MAX_HEIGHT = 170;
 export function SortableItem({
   id,
   path,
-  source,
-  schema,
   disabled,
   onClick,
   onDelete,
 }: {
   id: number;
-  source: Json;
   path: SourcePath;
-  schema: SerializedSchema;
-  disabled: boolean;
+  disabled?: boolean;
   onClick: (path: SourcePath) => void;
   onDelete: (item: number) => void;
 }) {
@@ -194,9 +130,9 @@ export function SortableItem({
         setIsTruncated(false);
       }
     }
-  }, [id, source]);
+  }, [id, path]);
   const { attributes, listeners, setNodeRef, transform, transition } =
-    useSortable({ id: id, disabled });
+    useSortable({ id: id, disabled: disabled === true });
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -241,7 +177,7 @@ export function SortableItem({
           onClick(path);
         }}
       >
-        <Preview source={source} schema={schema} />
+        <Preview path={path} />
         {isTruncated && (
           <div
             className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"
@@ -249,24 +185,13 @@ export function SortableItem({
           ></div>
         )}
       </button>
-      <button className="pt-4">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <EllipsisVertical />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-32">
-            <DropdownMenuGroup>
-              <DropdownMenuItem
-                onClick={() => {
-                  onDelete(id);
-                }}
-              >
-                <Trash2 className="w-4 h-4 mr-2" />
-                <span>Delete</span>
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+      <button
+        className="pt-4"
+        onClick={() => {
+          onDelete(id);
+        }}
+      >
+        <Trash2 className="w-4 h-4 mr-2" />
       </button>
     </div>
   );

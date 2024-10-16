@@ -10,6 +10,8 @@ import {
   useAddPatch,
 } from "../ValProvider";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
+import { PreviewLoading, PreviewNull } from "../components/Preview";
+import { Check } from "lucide-react";
 
 export function BooleanField({ path }: { path: SourcePath }) {
   const type = "boolean";
@@ -90,6 +92,18 @@ export function BooleanField({ path }: { path: SourcePath }) {
   );
 }
 
-export function BooleanPreview({ source }: { source: any }) {
-  return <div>{source}</div>;
+export function BooleanPreview({ path }: { path: SourcePath }): JSX.Element {
+  const sourceAtPath = useShallowSourceAtPath(path, "boolean");
+  if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
+    return <PreviewLoading path={path} />;
+  } else if (sourceAtPath.data === null) {
+    return <PreviewNull path={path} />;
+  } else if (sourceAtPath.data === true) {
+    return <Check className="w-4 h-4" />;
+  } else if (sourceAtPath.data === false) {
+    return <div className="w-4 h-4 rounded border-bg-brand-primary" />;
+  } else {
+    console.warn("Unexpected value for boolean field", sourceAtPath.data);
+    return <div className="w-4 h-4 rounded border-bg-brand-primary" />;
+  }
 }

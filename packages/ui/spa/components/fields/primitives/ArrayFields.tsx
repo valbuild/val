@@ -1,5 +1,5 @@
 import { Plus } from "lucide-react";
-import { SortableList } from "../SortableList";
+import { SortableList } from "../../../ng/components/SortableList";
 import { JsonArray, SourcePath, SerializedArraySchema } from "@valbuild/core";
 import { array } from "@valbuild/core/fp";
 import { JSONValue, Patch } from "@valbuild/core/patch";

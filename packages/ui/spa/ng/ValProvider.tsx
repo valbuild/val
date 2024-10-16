@@ -521,9 +521,12 @@ function concatModulePath(
   modulePath: ModulePath,
   key: string | number,
 ): SourcePath {
-  if (modulePath === "") {
+  if (!modulePath) {
     return (moduleFilePath + ModuleFilePathSep + key) as SourcePath;
   }
   return (moduleFilePath +
-    (modulePath + "." + JSON.stringify(key))) as SourcePath;
+    ModuleFilePathSep +
+    modulePath +
+    "." +
+    JSON.stringify(key)) as SourcePath;
 }
