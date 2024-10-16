@@ -51,15 +51,18 @@ export function NumberField({ path }: { path: SourcePath }) {
   const source = sourceAtPath.data;
   return (
     <Input
-      value={source || ""}
+      value={source || 0}
       onChange={(ev) => {
-        addPatch([
-          {
-            op: "replace",
-            path: patchPath,
-            value: Number(ev.target.value),
-          },
-        ]);
+        const nextNumber = Number(ev.target.value);
+        if (!Number.isNaN(nextNumber)) {
+          addPatch([
+            {
+              op: "replace",
+              path: patchPath,
+              value: nextNumber,
+            },
+          ]);
+        }
       }}
     />
   );
