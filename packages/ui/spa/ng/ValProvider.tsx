@@ -178,7 +178,7 @@ export type ShallowSource = EnsureAllTypes<{
   record: Record<string, SourcePath>;
   union: string | Record<string, SourcePath>;
   boolean: boolean;
-  keyOf: string | number;
+  keyOf: string;
   number: number;
   string: string;
   date: string;
@@ -262,14 +262,18 @@ type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =
  */
 export function useShallowSourceAtPath<
   SchemaType extends SerializedSchema["type"],
->(sourcePath: SourcePath, type?: SchemaType): ShallowSourceOf<SchemaType> {
+>(sourcePath?: SourcePath, type?: SchemaType): ShallowSourceOf<SchemaType> {
   const { sources, sourcesSyncStatus } = useContext(ValContext);
+  if (sourcePath === undefined) {
+    return { status: "loading" };
+  }
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const source = useMemo((): ShallowSourceOf<SchemaType> => {
     const moduleSources = sources[moduleFilePath];
     if (moduleSources !== undefined && type !== undefined) {
       const sourceAtSourcePath = getSourceAtSourcePath(
+        moduleFilePath,
         modulePath,
         type,
         moduleSources,
@@ -297,6 +301,7 @@ export function useShallowSourceAtPath<
 }
 
 function getSourceAtSourcePath<SchemaType extends SerializedSchema["type"]>(
+  moduleFilePath: ModuleFilePath,
   modulePath: ModulePath,
   type: SchemaType,
   sources: Json,
@@ -347,11 +352,12 @@ function getSourceAtSourcePath<SchemaType extends SerializedSchema["type"]>(
       error: `Expected object at ${modulePath}, got undefined`,
     };
   }
-  const mappedSource = mapSource(modulePath, type, source);
+  const mappedSource = mapSource(moduleFilePath, modulePath, type, source);
   return mappedSource;
 }
 
 function mapSource<SchemaType extends SerializedSchema["type"]>(
+  moduleFilePath: ModuleFilePath,
   modulePath: ModulePath,
   schemaType: SchemaType,
   source: Json,
@@ -383,7 +389,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     }
     const data: ShallowSource["object" | "record"] = {};
     for (const key of Object.keys(source)) {
-      data[key] = concatModulePath(modulePath, key);
+      data[key] = concatModulePath(moduleFilePath, modulePath, key);
     }
     return {
       status: "success",
@@ -398,7 +404,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     }
     const data: ShallowSource["array"] = [];
     for (let i = 0; i < source.length; i++) {
-      data.push(concatModulePath(modulePath, i));
+      data.push(concatModulePath(moduleFilePath, modulePath, i));
     }
     return {
       status: "success",
@@ -464,10 +470,10 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       data: source as ShallowSource[SchemaType],
     };
   } else if (type === "keyOf") {
-    if (typeof source !== "string" && typeof source !== "number") {
+    if (typeof source !== "string") {
       return {
         status: "error",
-        error: `Expected string or number, got ${typeof source}`,
+        error: `Expected string, got ${typeof source}`,
       };
     }
     return {
@@ -495,7 +501,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     }
     const data: ShallowSource["union"] = {};
     for (const key of Object.keys(source)) {
-      data[key] = concatModulePath(modulePath, key);
+      data[key] = concatModulePath(moduleFilePath, modulePath, key);
     }
     return {
       status: "success",
@@ -511,11 +517,13 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
 }
 
 function concatModulePath(
+  moduleFilePath: ModuleFilePath,
   modulePath: ModulePath,
   key: string | number,
 ): SourcePath {
   if (modulePath === "") {
-    return (ModuleFilePathSep + key) as SourcePath;
+    return (moduleFilePath + ModuleFilePathSep + key) as SourcePath;
   }
-  return (modulePath + "." + JSON.stringify(key)) as SourcePath;
+  return (moduleFilePath +
+    (modulePath + "." + JSON.stringify(key))) as SourcePath;
 }
