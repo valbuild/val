@@ -4,7 +4,7 @@ import { format } from "date-fns";
 export function emptyOf(schema: SerializedSchema): Json {
   if (schema.type === "object") {
     return Object.fromEntries(
-      Object.keys(schema.items).map((key) => [key, emptyOf(schema.items[key])])
+      Object.keys(schema.items).map((key) => [key, emptyOf(schema.items[key])]),
     );
   } else if (schema.type === "array") {
     return [];
@@ -21,9 +21,7 @@ export function emptyOf(schema: SerializedSchema): Json {
   } else if (schema.type === "number") {
     return 0;
   } else if (schema.type === "keyOf") {
-    if (schema.values === "number") {
-      return 0; // TODO: figure out this: user code might very well fail in this case
-    } else if (schema.values === "string") {
+    if (schema.values === "string") {
       return ""; // TODO: figure out this: user code might very well fail in this case
     } else {
       return schema.values[0];
