@@ -266,7 +266,7 @@ function HeaderCenter() {
 
 function HeaderCenterContainer({ children }: { children: React.ReactNode }) {
   return (
-    <div className="px-4 mx-auto mb-10 text-sm">
+    <div className="px-4 mx-auto mt-4 mb-10 text-sm">
       <div className="flex items-center justify-between px-4 rounded-2xl bg-bg-secondary font-[SpaceGrotesk] h-12 border border-border-primary">
         {children}
       </div>
@@ -295,7 +295,7 @@ function PathBar() {
         <Fragment key={`${part}-${i}`}>
           <span
             className={classNames({
-              "text-muted": !(
+              "text-fg-tertiary": !(
                 modulePathParts.length === 0 &&
                 i === moduleFilePathParts.length - 1
               ),
@@ -303,21 +303,24 @@ function PathBar() {
           >
             {prettifyFilename(part)}
           </span>
-          {i > 0 && i < moduleFilePathParts.length - 1 && (
-            <span className="text-muted">
-              <ChevronRight size={16} />
-            </span>
-          )}
+          {i < moduleFilePathParts.length - 1 &&
+            !(
+              i === moduleFilePathParts.length - 1 && modulePathParts.length > 0
+            ) && (
+              <span className="text-fg-tertiary">
+                <ChevronRight size={16} />
+              </span>
+            )}
         </Fragment>
       ))}
       {modulePathParts.map((part, i) => (
         <Fragment key={`${part}-${i}`}>
-          <span className="text-muted">
+          <span className="text-fg-tertiary">
             <ChevronRight size={16} />
           </span>
           <span
             className={classNames({
-              "text-muted": i === modulePathParts.length - 2,
+              "text-fg-tertiary": i === modulePathParts.length - 2,
             })}
           >
             {prettifyFilename(part)}
