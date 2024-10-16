@@ -234,11 +234,6 @@ export function resolvePath<
           `Schema type error: expected source to be type of array, but got ${typeof resolvedSource}`,
         );
       }
-      if (resolvedSource[part] === undefined) {
-        throw Error(
-          `Invalid path: array source (length: ${resolvedSource?.length}) did not have index ${part} from path: ${path}`,
-        );
-      }
       resolvedSource = resolvedSource[part];
       resolvedSchema = resolvedSchema.item;
     } else if (isRecordSchema(resolvedSchema)) {
