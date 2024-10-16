@@ -8,6 +8,7 @@ import {
   useShallowSourceAtPath,
   useAddPatch,
 } from "../ValProvider";
+import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 
 export function ImageField({ path }: { path: SourcePath }) {
   const type = "image";
@@ -35,6 +36,15 @@ export function ImageField({ path }: { path: SourcePath }) {
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <FieldLoading path={path} type={type} />;
+  }
+  if (schemaAtPath.data.type !== type) {
+    return (
+      <FieldSchemaMismatchError
+        path={path}
+        expectedType={type}
+        actualType={schemaAtPath.data.type}
+      />
+    );
   }
   const source = sourceAtPath.data;
   return (

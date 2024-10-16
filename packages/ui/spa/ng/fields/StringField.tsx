@@ -9,6 +9,7 @@ import { FieldLoading } from "../components/FieldLoading";
 import { FieldNotFound } from "../components/FieldNotFound";
 import { FieldSchemaError } from "../components/FieldSchemaError";
 import { FieldSourceError } from "../components/FieldSourceError";
+import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 
 export function StringField({ path }: { path: SourcePath }) {
   const type = "string";
@@ -36,6 +37,15 @@ export function StringField({ path }: { path: SourcePath }) {
   }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <FieldLoading path={path} type={type} />;
+  }
+  if (schemaAtPath.data.type !== type) {
+    return (
+      <FieldSchemaMismatchError
+        path={path}
+        expectedType={type}
+        actualType={schemaAtPath.data.type}
+      />
+    );
   }
   const source = sourceAtPath.data;
   return (
