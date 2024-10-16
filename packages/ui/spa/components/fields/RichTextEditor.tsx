@@ -47,13 +47,13 @@ import {
 } from "@remirror/extension-list";
 import { LinkExtension } from "@remirror/extension-link";
 import { HardBreakExtension } from "@remirror/extension-hard-break";
+import { RemirrorJSON as ValRemirrorJSON } from "@valbuild/shared/internal";
 import {
   RemirrorJSON,
   RemirrorManager,
   AnyExtension,
   EditorState,
 } from "@remirror/core";
-import { SubmitStatus } from "./SubmitStatus";
 
 const allExtensions = () => {
   const extensions = [
@@ -77,18 +77,11 @@ const allExtensions = () => {
 };
 
 export function useRichTextEditor(defaultValue?: RemirrorJSON) {
-  const { manager, state, getContext } = useRemirror({
+  const { manager, state } = useRemirror({
     extensions: allExtensions, // TODO: filter on options?
     content: defaultValue,
     selection: "start",
   });
-  // useEffect(() => {
-  //   if (getContext && defaultValue !== undefined) {
-  //     getContext()?.setContent(defaultValue, {
-  //       triggerChange: true,
-  //     });
-  //   }
-  // }, [defaultValue, getContext]);
   return { manager, state };
 }
 
@@ -98,14 +91,12 @@ export function RichTextEditor<E extends AnyExtension>({
   options,
   onChange,
   debug,
-  submitStatus,
 }: {
   state: Readonly<EditorState>;
   manager: RemirrorManager<E>;
   options?: RichTextOptions;
-  onChange?: (value: RemirrorJSON) => void;
+  onChange?: (value: ValRemirrorJSON) => void;
   debug?: boolean;
-  submitStatus: SubmitStatus;
 }) {
   const hasOptions =
     options && Object.entries(options).some(([, value]) => value);
@@ -139,7 +130,6 @@ export function RichTextEditor<E extends AnyExtension>({
             options={options}
             debug={debug}
             setShowToolbar={setShowToolbar}
-            submitStatus={submitStatus}
           />
           <EditorComponent />
           {onChange && <OnChangeJSON onChange={onChange} />}
@@ -153,13 +143,11 @@ const Toolbar = ({
   options,
   hasOptions,
   debug,
-  submitStatus,
   setShowToolbar,
 }: {
   options?: RichTextOptions;
   hasOptions?: boolean;
   debug?: boolean;
-  submitStatus: SubmitStatus;
   setShowToolbar: (showToolbar: boolean) => void;
 }) => {
   const chain = useChainedCommands();
@@ -382,9 +370,6 @@ const Toolbar = ({
                 Br
               </button>
             )}
-          </div>
-          <div className="pr-4">
-            <SubmitStatus submitStatus={submitStatus} />
           </div>
         </div>
         <LinkToolBar />

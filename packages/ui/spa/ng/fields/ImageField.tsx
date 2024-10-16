@@ -13,7 +13,7 @@ export function ImageField({ path }: { path: SourcePath }) {
   const type = "image";
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
-  const [patchPath, addPatch] = useAddPatch(path);
+  const { patchPath, addPatch } = useAddPatch(path);
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
