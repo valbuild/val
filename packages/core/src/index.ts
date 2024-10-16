@@ -100,7 +100,12 @@ export {
   type SerializedRichTextSchema,
   RichTextSchema,
 } from "./schema/richtext";
-export { type SerializedUnionSchema, UnionSchema } from "./schema/union";
+export {
+  type SerializedUnionSchema,
+  UnionSchema,
+  type SerializedStringUnionSchema,
+  type SerializedObjectUnionSchema,
+} from "./schema/union";
 export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
 export { deserializeSchema } from "./schema/deserialize";
 
