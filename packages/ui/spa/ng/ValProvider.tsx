@@ -1,4 +1,11 @@
-import React, { useCallback, useContext, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   FILE_REF_PROP,
   Internal,
@@ -33,6 +40,7 @@ const ValContext = React.createContext<{
         },
   ) => void;
   addPatch: (moduleFilePath: ModuleFilePath, patch: Patch) => void;
+  addDebouncedPatch: (get: () => Patch, path: SourcePath) => void;
   schemas: Remote<Record<ModuleFilePath, SerializedSchema>>;
   sources: Record<ModuleFilePath, Json | undefined>;
   sourcesSyncStatus: Record<
@@ -59,6 +67,9 @@ const ValContext = React.createContext<{
     throw new Error("ValContext not provided");
   },
   get addPatch(): () => void {
+    throw new Error("ValContext not provided");
+  },
+  get addDebouncedPatch(): () => void {
     throw new Error("ValContext not provided");
   },
   get schemas(): Remote<Record<ModuleFilePath, SerializedSchema>> {
@@ -89,6 +100,32 @@ export function ValProvider({
   client: ValClient;
 }) {
   const { addPatch, schemas, sources, sourcesSyncStatus } = useValState(client);
+  const debouncedPatches = useRef<Record<SourcePath, (() => Patch)[]>>({});
+  useEffect(() => {
+    setInterval(() => {
+      if (Object.keys(debouncedPatches.current).length === 0) {
+        return;
+      }
+      for (const [pathS, patches] of Object.entries(debouncedPatches.current)) {
+        const path = pathS as SourcePath;
+        const [moduleFilePath] =
+          Internal.splitModuleFilePathAndModulePath(path);
+        for (const getPatch of patches) {
+          addPatch(moduleFilePath, getPatch());
+        }
+      }
+      debouncedPatches.current = {};
+    }, 1000);
+  }, [addPatch]);
+  const addDebouncedPatch = useCallback(
+    (get: () => Patch, path: SourcePath) => {
+      if (!debouncedPatches.current[path]) {
+        debouncedPatches.current[path] = [];
+      }
+      debouncedPatches.current[path].push(get);
+    },
+    [],
+  );
 
   return (
     <ValContext.Provider
@@ -96,6 +133,7 @@ export function ValProvider({
         search: false,
         setSearch: () => {},
         addPatch,
+        addDebouncedPatch,
         schemas,
         sources,
         sourcesSyncStatus,
@@ -107,7 +145,7 @@ export function ValProvider({
 }
 
 export function useAddPatch(sourcePath: SourcePath) {
-  const { addPatch } = useContext(ValContext);
+  const { addPatch, addDebouncedPatch } = useContext(ValContext);
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const patchPath = useMemo(() => {
@@ -120,7 +158,7 @@ export function useAddPatch(sourcePath: SourcePath) {
     [addPatch, sourcePath],
   );
 
-  return [patchPath, addPatchCallback] as const;
+  return { patchPath, addPatch: addPatchCallback, addDebouncedPatch };
 }
 
 type EnsureAllTypes<T extends Record<SerializedSchema["type"], unknown>> = T;
