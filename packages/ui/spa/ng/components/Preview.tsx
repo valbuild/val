@@ -5,10 +5,11 @@ import { ArrayPreview } from "../fields/ArrayFields";
 import { BooleanPreview } from "../fields/BooleanField";
 import { NumberPreview } from "../fields/NumberField";
 import { UnionPreview } from "../fields/UnionField";
+import { ObjectPreview } from "../fields/ObjectFields";
 
 export function Preview({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
-  if (!("data" in schemaAtPath)) {
+  if (!("data" in schemaAtPath) || schemaAtPath.data === undefined) {
     return <PreviewLoading path={path} />;
   }
   const type = schemaAtPath.data.type;
@@ -23,6 +24,8 @@ export function Preview({ path }: { path: SourcePath }) {
     return <NumberPreview path={path} />;
   } else if (type === "union") {
     return <UnionPreview path={path} />;
+  } else if (type === "object") {
+    return <ObjectPreview path={path} />;
   } else {
     return <div>TODO: preview of {type}</div>;
   }

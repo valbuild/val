@@ -1,19 +1,13 @@
 import { SourcePath } from "@valbuild/core";
-import { StringField } from "../fields/StringField";
-import { NumberField } from "../fields/NumberField";
-import { BooleanField } from "../fields/BooleanField";
-import { ArrayFields } from "./ArrayFields";
-import { KeyOfField } from "./KeyOfField";
-import { ImageField } from "./ImageField";
-import { UnionField } from "./UnionField";
-import { RichTextField } from "./RichTextField";
 import { Field } from "../components/Field";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { FieldLoading } from "../components/FieldLoading";
 import { FieldNotFound } from "../components/FieldNotFound";
 import { FieldSchemaError } from "../components/FieldSchemaError";
-import { useSchemaAtPath } from "../ValProvider";
+import { useSchemaAtPath, useShallowSourceAtPath } from "../ValProvider";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
+import { AnyField } from "../components/AnyField";
+import { Preview, PreviewLoading, PreviewNull } from "../components/Preview";
 
 export function ObjectFields({ path }: { path: SourcePath }) {
   const type = "object";
@@ -42,81 +36,46 @@ export function ObjectFields({ path }: { path: SourcePath }) {
   return Object.entries(schema.items).map(([label, itemSchema]) => {
     const key = JSON.stringify({ label, itemSchema });
     const subPath = sourcePathOfItem(path, label);
-    switch (itemSchema.type) {
-      case "string":
-        return (
-          <Field key={key} label={label} path={subPath}>
-            <StringField path={subPath} />
-          </Field>
-        );
-      case "number":
-        return (
-          <Field key={key} label={label} path={subPath}>
-            <NumberField path={subPath} />
-          </Field>
-        );
-      case "boolean":
-        return (
-          <Field key={key} label={label} path={subPath}>
-            <BooleanField path={subPath} />
-          </Field>
-        );
-      case "image":
-        return (
-          <Field key={key} label={label} path={subPath}>
-            <ImageField path={subPath} />
-          </Field>
-        );
-      case "array":
-        return (
-          <Field
-            key={key}
-            label={label}
-            path={subPath}
-            transparent
-            foldLevel="2"
-          >
-            <ArrayFields path={subPath} />
-          </Field>
-        );
-      case "keyOf":
-        return (
-          <Field key={key} label={label} path={subPath}>
-            <KeyOfField path={subPath} />
-          </Field>
-        );
-      case "union":
-        return (
-          <Field key={key} label={label} path={subPath}>
-            <UnionField path={subPath} />
-          </Field>
-        );
-      case "object":
-        return (
-          <Field
-            key={key}
-            label={label}
-            path={subPath}
-            transparent
-            foldLevel="2"
-          >
-            <ObjectFields path={subPath} />
-          </Field>
-        );
-      case "richtext":
-        return (
-          <Field key={key} label={label} path={subPath}>
-            <RichTextField path={subPath} />
-          </Field>
-        );
-      default: {
-        const exhaustiveCheck: never = itemSchema.type;
-        return (
-          <Field key={key} label={label} path={subPath}>
-            <div>Unknown schema</div>
-          </Field>
-        );
-      }
-    }
+    return (
+      <Field key={key} label={label} path={subPath}>
+        <AnyField path={subPath} schema={itemSchema} />
+      </Field>
+    );
   });
+}
+
+export function ObjectPreview({ path }: { path: SourcePath }) {
+  const sourceAtPath = useShallowSourceAtPath(path, "object");
+  if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
+    return <PreviewLoading path={path} />;
+  }
+  if (sourceAtPath.data === null) {
+    return <PreviewNull path={path} />;
+  }
+  return (
+    <div className="grid grid-cols-[min-content,1fr] text-left gap-2 text-xs">
+      {Object.entries(sourceAtPath.data).map(([key, fieldPath]) => {
+        return (
+          <PreviewField key={key} label={key}>
+            <Preview path={fieldPath} />
+          </PreviewField>
+        );
+      })}
+    </div>
+  );
+}
+
+function PreviewField({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      <span className="text-fg-brand-primary">{label}</span>
+      {children}
+    </>
+  );
 }
