@@ -31,7 +31,10 @@ export function emptyOf(schema: SerializedSchema): Json {
   } else if (schema.type === "literal") {
     return schema.value;
   } else if (schema.type === "union") {
-    return emptyOf(schema.items[0]);
+    if (typeof schema.key === "string") {
+      return emptyOf(schema.items[0]);
+    }
+    return schema.key.value;
   } else if (schema.type === "date") {
     return format(new Date(), "yyyy-MM-dd");
   }
