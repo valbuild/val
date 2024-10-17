@@ -7,27 +7,42 @@ import { FieldSchemaError } from "../components/FieldSchemaError";
 import { useSchemaAtPath, useShallowSourceAtPath } from "../ValProvider";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 import { AnyField } from "../components/AnyField";
-import { Preview, PreviewLoading, PreviewNull } from "../components/Preview";
+import { Preview } from "../components/Preview";
+import { FieldSourceError } from "../components/FieldSourceError";
+import { prettifyFilename } from "../../utils/prettifyFilename";
+import { fixCapitalization } from "../../utils/fixCapitalization";
 
 export function ObjectFields({ path }: { path: SourcePath }) {
   const type = "object";
   const schemaAtPath = useSchemaAtPath(path);
+  const sourceAtPath = useShallowSourceAtPath(path, type);
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
     );
   }
+  if (sourceAtPath.status === "error") {
+    return (
+      <FieldSourceError path={path} error={sourceAtPath.error} type={type} />
+    );
+  }
+  if (
+    sourceAtPath.status == "not-found" ||
+    schemaAtPath.status === "not-found"
+  ) {
+    return <FieldNotFound path={path} type={type} />;
+  }
   if (schemaAtPath.status === "loading") {
     return <FieldLoading path={path} type={type} />;
   }
-  if (schemaAtPath.status === "not-found") {
-    return <FieldNotFound path={path} type={type} />;
+  if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
+    return <FieldLoading path={path} type={type} />;
   }
-  if (schemaAtPath.data.type !== "object") {
+  if (schemaAtPath.data.type !== type) {
     return (
       <FieldSchemaMismatchError
         path={path}
-        expectedType="object"
+        expectedType={type}
         actualType={schemaAtPath.data.type}
       />
     );
@@ -36,7 +51,7 @@ export function ObjectFields({ path }: { path: SourcePath }) {
   return Object.entries(schema.items).map(([key, itemSchema]) => {
     const subPath = sourcePathOfItem(path, key);
     return (
-      <Field key={subPath} label={key} path={subPath}>
+      <Field key={subPath} label={key} path={subPath} type={itemSchema.type}>
         <AnyField path={subPath} schema={itemSchema} />
       </Field>
     );
@@ -90,7 +105,7 @@ function PreviewField({
 }) {
   return (
     <>
-      <span className="text-fg-brand-primary">{label}</span>
+      <span className="flex text-fg-quinary">{fixCapitalization(label)}</span>
       {children}
     </>
   );

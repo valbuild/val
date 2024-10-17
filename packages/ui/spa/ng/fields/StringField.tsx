@@ -11,12 +11,13 @@ import { FieldSchemaError } from "../components/FieldSchemaError";
 import { FieldSourceError } from "../components/FieldSourceError";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../components/Preview";
+import { useEffect } from "react";
 
 export function StringField({ path }: { path: SourcePath }) {
   const type = "string";
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
-  const { patchPath, addPatch } = useAddPatch(path);
+  const { patchPath, addDebouncedPatch } = useAddPatch(path);
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -51,15 +52,18 @@ export function StringField({ path }: { path: SourcePath }) {
   const source = sourceAtPath.data;
   return (
     <Input
-      value={source || ""}
+      defaultValue={source || ""}
       onChange={(ev) => {
-        addPatch([
-          {
-            op: "replace",
-            path: patchPath,
-            value: ev.target.value,
-          },
-        ]);
+        addDebouncedPatch(
+          () => [
+            {
+              op: "replace",
+              path: patchPath,
+              value: ev.target.value,
+            },
+          ],
+          path,
+        );
       }}
     />
   );

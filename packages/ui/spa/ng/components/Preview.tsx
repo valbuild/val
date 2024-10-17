@@ -6,6 +6,7 @@ import { BooleanPreview } from "../fields/BooleanField";
 import { NumberPreview } from "../fields/NumberField";
 import { UnionPreview } from "../fields/UnionField";
 import { ObjectPreview } from "../fields/ObjectFields";
+import { ImagePreview } from "../fields/ImageField";
 
 export function Preview({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
@@ -26,6 +27,8 @@ export function Preview({ path }: { path: SourcePath }) {
     return <UnionPreview path={path} />;
   } else if (type === "object") {
     return <ObjectPreview path={path} />;
+  } else if (type === "image") {
+    return <ImagePreview path={path} />;
   } else {
     return <div>TODO: preview of {type}</div>;
   }

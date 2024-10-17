@@ -27,6 +27,7 @@ import { emptyOf } from "../../components/fields/emptyOf";
 import { AnyField } from "../components/AnyField";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { useEffect, useRef } from "react";
+import { Field } from "../components/Field";
 
 function isStringUnion(
   schema: SerializedUnionSchema,
@@ -88,13 +89,15 @@ export function UnionField({ path }: { path: SourcePath }) {
       <SelectField
         path={path}
         source={source}
-        options={schemaAtPath.data.items.flatMap((item) => {
-          if (item?.type === "literal") {
-            return [item.value];
-          }
-          console.warn("Unexpected item in string union", item);
-          return [];
-        })}
+        options={schemaAtPath.data.items
+          .concat(schemaAtPath.data.key)
+          .flatMap((item) => {
+            if (item?.type === "literal") {
+              return [item.value];
+            }
+            console.warn("Unexpected item in string union", item);
+            return [];
+          })}
       />
     );
   } else if (!isStringUnion(schemaAtPath.data)) {
@@ -222,16 +225,24 @@ function ObjectUnionField({
           )}
         </SelectContent>
       </Select>
-      {Object.keys(selectedSchema.items)
-        .filter((key) => key !== schema.key)
+      {Object.keys(selectedSchema?.items)
+        .filter((key) => key !== schema?.key)
         .map((key) => {
           const itemPath = sourcePathOfItem(path, key);
           return (
-            <AnyField
-              key={key}
+            <Field
               path={itemPath}
-              schema={selectedSchema.items[key]}
-            />
+              foldLevel="1"
+              transparent
+              label={key}
+              type={selectedSchema?.items?.[key]?.type}
+            >
+              <AnyField
+                key={key}
+                path={itemPath}
+                schema={selectedSchema?.items?.[key]}
+              />
+            </Field>
           );
         })}
     </div>
@@ -284,5 +295,5 @@ function LoadingSelectContent() {
 }
 
 export function UnionPreview({ path }: { path: SourcePath }) {
-  return <div>{source}</div>;
+  return <div>{path}</div>;
 }
