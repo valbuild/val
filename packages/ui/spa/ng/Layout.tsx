@@ -1,12 +1,13 @@
-import { ChevronRight, ChevronsUpDown, Search } from "lucide-react";
-import classNames from "classnames";
-import React, { Fragment } from "react";
-import { Internal, SourcePath } from "@valbuild/core";
+import { ChevronsUpDown, Search } from "lucide-react";
+import React from "react";
+import { SourcePath } from "@valbuild/core";
 import { Module } from "./components/Module";
 import { useNavigation } from "../components/ValRouter";
 import { Author } from "./components/Author";
 import { NavMenu } from "./components/NavMenu";
 import { PathBar } from "./components/PathBar";
+import { PendingChanges } from "./components/PendingChanges";
+import { Button } from "../components/ui/button";
 
 export function Layout() {
   return (
@@ -14,16 +15,18 @@ export function Layout() {
       <div className="fixed top-4 left-4 w-[320px] hidden md:block">
         <HeaderLeft />
         <div className="flex flex-col justify-between pb-4 pb- ml-4 text-xs h-fit max-h-[max(100vh-84px,112px)] bg-bg-secondary rounded-b-3xl">
-          <NavMenu className="max-h-[max(100vh-112px-32px,112px-32px)]" />
+          <NavMenu className="h-[max(100vh-112px-32px,112px-32px)]" />
         </div>
       </div>
       <div className="mx-auto w-full md:w-[calc(100%-320*2px)] max-w-[600px] min-h-screen">
         <HeaderCenter />
         <Center />
       </div>
-      <div className="fixed top-4 right-4 w-[320px] hidden md:block">
+      <div className="fixed top-4 right-4 w-[380px] mr-4 hidden md:block">
         <HeaderRight />
-        <Right />
+        <div className="flex flex-col justify-between pb-4 text-xs h-fit max-h-[max(100vh-64px-64px,112px)] bg-bg-secondary rounded-3xl">
+          <PendingChanges className="h-[max(100vh-32px,112px-32px)]" />
+        </div>
       </div>
     </main>
   );
@@ -207,7 +210,6 @@ function SourceFields() {
 // }
 
 function HeaderRight() {
-  return <div>TODO</div>;
   // const { patches } = usePatches();
   // const { errors } = useErrors();
   // let publishDisabled = false;
@@ -223,18 +225,9 @@ function HeaderRight() {
   // if (errors.status === "success") {
   //   publishDisabled = Object.keys(errors.data).length > 0;
   // }
-  // return (
-  //   <div className="flex items-center justify-end gap-2 p-4 mb-1 text-sm bg-bg-secondary rounded-3xl">
-  //     <Button disabled={publishDisabled}>Publish</Button>
-  //   </div>
-  // );
-}
-
-function Right() {
   return (
-    <div className="flex flex-col gap-1">
-      <ValidationErrors />
-      <PendingChanges />
+    <div className="flex items-center justify-end gap-2 p-4 mb-1 text-sm bg-bg-secondary rounded-3xl">
+      <Button disabled={false}>Publish</Button>
     </div>
   );
 }

@@ -15,7 +15,7 @@ export function NavMenu({ className }: { className?: string }) {
   return (
     <nav>
       <Divider />
-      <ScrollArea className={classNames("overflow-scroll", className)}>
+      <ScrollArea className={classNames("", className)}>
         <NavContentExplorer />
       </ScrollArea>
       {/* <Divider /><ScrollArea className="max-h-[max(50vh-84px,100px)] overflow-scroll">

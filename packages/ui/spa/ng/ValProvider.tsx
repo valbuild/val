@@ -22,8 +22,7 @@ import { ValClient } from "@valbuild/shared/internal";
 import { PatchWithMetadata, useValState } from "./useValState";
 import { Remote } from "../utils/Remote";
 import { isJsonArray } from "../utils/isJsonArray";
-import { PatchSets } from "../utils/PatchSet";
-import { schema } from "./fakeContent/content/projects.val";
+import { PatchSets, SerializedPatchSet } from "../utils/PatchSet";
 import { findFirstNonInsertedIdx } from "../utils/findFirstNonInsertedIdx";
 
 const ValContext = React.createContext<{
@@ -214,8 +213,8 @@ export function ValProvider({
     client("/patches/~", "GET", {
       query: {
         patch_id: missingPatchIds,
-        module_file_path: undefined,
-        author: undefined,
+        module_file_path: [],
+        author: [],
         omit_patch: false,
       },
     }).then((res) => {
@@ -320,8 +319,16 @@ export function usePatchMetadata(patchId: PatchId): Remote<PatchWithMetadata> {
   return patchMetadataCache[patchId] || { status: "not-asked" };
 }
 
+export function usePatchesMetadata(): Record<
+  PatchId,
+  Remote<PatchWithMetadata>
+> {
+  const { patchMetadataCache } = useContext(ValContext);
+  return patchMetadataCache;
+}
+
 export function usePatchSets(): Remote<{
-  patchSets: PatchSets;
+  patchSets: SerializedPatchSet;
   loadingPatches: PatchId[];
   failedPatches: {
     patchId: PatchId;
@@ -333,7 +340,7 @@ export function usePatchSets(): Remote<{
   const lastPatchSetRef = useRef<PatchSets>();
   const lastPatchSetPatchIdsRef = useRef<PatchId[]>();
   const res = useMemo((): Remote<{
-    patchSets: PatchSets;
+    patchSets: SerializedPatchSet;
     loadingPatches: PatchId[];
     failedPatches: {
       patchId: PatchId;
@@ -344,7 +351,7 @@ export function usePatchSets(): Remote<{
       return {
         status: "success",
         data: {
-          patchSets: new PatchSets(),
+          patchSets: new PatchSets().serialize(),
           loadingPatches: [],
           failedPatches: [],
         },
@@ -361,7 +368,6 @@ export function usePatchSets(): Remote<{
         error: schemas.error,
       };
     }
-
     let currentPatchSets = lastPatchSetRef.current || new PatchSets();
     // Find first non-inserted patch so we can avoid having to re-insert all patches
     // NOTE: if sources, patchMetadataCache, or schemas change, we re-insert all patches that were not successfully inserted last time
@@ -372,7 +378,7 @@ export function usePatchSets(): Remote<{
     if (firstNonInsertedPatchIndex === 0) {
       currentPatchSets = new PatchSets();
     }
-    const insertedPatches: PatchId[] = [];
+    const insertedPatches: PatchId[] = lastPatchSetPatchIdsRef.current || [];
     const loadingPatches: PatchId[] = [];
     const failedPatches: {
       patchId: PatchId;
@@ -381,6 +387,9 @@ export function usePatchSets(): Remote<{
     for (let i = firstNonInsertedPatchIndex; i < patchIds.length; i++) {
       const patchId = patchIds[i];
       const patch = patchMetadataCache[patchId];
+      if (!patch) {
+        continue;
+      }
       if (patch.status === "loading" || patch.status === "not-asked") {
         loadingPatches.push(patchId);
         continue;
@@ -418,11 +427,10 @@ export function usePatchSets(): Remote<{
     }
     lastPatchSetRef.current = currentPatchSets;
     lastPatchSetPatchIdsRef.current = insertedPatches;
-
     return {
       status: "success",
       data: {
-        patchSets: currentPatchSets,
+        patchSets: currentPatchSets.serialize(),
         loadingPatches,
         failedPatches,
       },
@@ -485,15 +493,25 @@ export function useSchemaAtPath(sourcePath: SourcePath) {
       return { status: "not-found" };
     }
     const moduleSchema = schemas.data[moduleFilePath];
-    const { schema } = Internal.resolvePath(
-      modulePath,
-      moduleSources,
-      moduleSchema,
-    );
-    return {
-      status: "success",
-      data: schema,
-    };
+    try {
+      const { schema } = Internal.resolvePath(
+        modulePath,
+        moduleSources,
+        moduleSchema,
+      );
+      return {
+        status: "success",
+        data: schema,
+      };
+    } catch (e) {
+      return {
+        status: "error",
+        error:
+          e instanceof Error
+            ? e.message
+            : "Unknown error: " + JSON.stringify(e),
+      };
+    }
   }, [sourcePath, sources, schemas]);
 
   return useMemo(getMemoizedResolvedSchema, [
@@ -579,7 +597,24 @@ export function useSourceAtPath(sourcePath: SourcePath) {
   return walkSourcePath(modulePath, sources[moduleFilePath]);
 }
 
-function walkSourcePath(modulePath: ModulePath, sources?: Json) {
+function walkSourcePath(
+  modulePath: ModulePath,
+  sources?: Json,
+):
+  | {
+      status: "success";
+      data: Json;
+    }
+  | {
+      status: "error";
+      error: string;
+    }
+  | {
+      status: "not-found";
+    }
+  | {
+      status: "loading";
+    } {
   let source = sources;
   if (sources === undefined) {
     return { status: "not-found" };
@@ -626,7 +661,7 @@ function walkSourcePath(modulePath: ModulePath, sources?: Json) {
       error: `Expected object at ${modulePath}, got undefined`,
     };
   }
-  return source;
+  return { status: "success", data: source };
 }
 
 function getShallowSourceAtSourcePath<
@@ -638,8 +673,16 @@ function getShallowSourceAtSourcePath<
   sources: Json,
 ): ShallowSourceOf<SchemaType> {
   const source = walkSourcePath(modulePath, sources);
-  const mappedSource = mapSource(moduleFilePath, modulePath, type, source);
-  return mappedSource;
+  if ("data" in source && source.data !== undefined) {
+    const mappedSource = mapSource(
+      moduleFilePath,
+      modulePath,
+      type,
+      source.data,
+    );
+    return mappedSource;
+  }
+  return source;
 }
 
 function mapSource<SchemaType extends SerializedSchema["type"]>(
@@ -697,7 +740,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       data: data as ShallowSource[SchemaType],
     };
   } else if (type === "boolean") {
-    if (typeof source !== "boolean") {
+    if (typeof source !== "boolean" && source !== null) {
       return {
         status: "error",
         error: `Expected boolean, got ${typeof source}`,
@@ -708,7 +751,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       data: source as ShallowSource[SchemaType],
     };
   } else if (type === "number") {
-    if (typeof source !== "number") {
+    if (typeof source !== "number" && source !== null) {
       return {
         status: "error",
         error: `Expected number, got ${typeof source}`,
@@ -730,10 +773,10 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
       data: source as ShallowSource[SchemaType],
     };
   } else if (type === "date" || type === "string" || type === "literal") {
-    if (typeof source !== "string") {
+    if (typeof source !== "string" && source !== null) {
       return {
         status: "error",
-        error: `Expected string, got ${typeof source}`,
+        error: `Expected string, got ${typeof source}: ${JSON.stringify(source)}`,
       };
     }
     return {
