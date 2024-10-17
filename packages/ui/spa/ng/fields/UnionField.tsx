@@ -231,6 +231,7 @@ function ObjectUnionField({
           const itemPath = sourcePathOfItem(path, key);
           return (
             <Field
+              key={itemPath}
               path={itemPath}
               foldLevel="1"
               transparent
