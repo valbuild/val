@@ -482,7 +482,7 @@ export function createValApiRouter<Res>(
           if (innerType instanceof z.ZodBoolean) {
             innerType = z
               .union([z.literal("true"), z.literal("false")])
-              .transform((arg) => Boolean(arg));
+              .transform((arg) => arg === "true");
           }
           // re-build rules:
           let arrayCompatibleRule = innerType;
