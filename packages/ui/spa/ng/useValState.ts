@@ -90,7 +90,7 @@ export function useValState(client: ValClient) {
         path: path,
         query: {
           validate_sources: true,
-          validate_all: false,
+          validate_all: path === undefined,
           validate_binary_files: false,
         },
         body: {
@@ -412,7 +412,7 @@ export function useValState(client: ValClient) {
     client("/tree/~", "PUT", {
       path: undefined,
       query: {
-        validate_sources: false,
+        validate_sources: true,
         validate_all: false,
         validate_binary_files: false,
       },
