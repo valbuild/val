@@ -264,12 +264,13 @@ export function resolvePath<
         );
       }
 
-      if (resolvedSource[part] === undefined) {
+      if (resolvedSource !== null && resolvedSource[part] === undefined) {
         throw Error(
           `Invalid path: object source did not have key ${part} from path: ${path}`,
         );
       }
-      resolvedSource = resolvedSource[part];
+      resolvedSource =
+        resolvedSource === null ? resolvedSource : resolvedSource[part];
       resolvedSchema = resolvedSchema.items[part];
       // } else if (isI18nSchema(resolvedSchema)) {
       //   if (!resolvedSchema.locales.includes(part)) {
