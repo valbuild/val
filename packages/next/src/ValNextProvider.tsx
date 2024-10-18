@@ -31,6 +31,14 @@ export const ValNextProvider = (props: {
     setShowOverlay(
       document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`),
     );
+    try {
+      setDraftMode(localStorage.getItem("val_draft_mode") === "true");
+    } catch (e) {
+      console.error(
+        "Val: could not ready default draft mode from local storage",
+        e,
+      );
+    }
   }, []);
   React.useEffect(() => {
     const valProviderOverlayListener = (event: Event) => {
@@ -48,6 +56,7 @@ export const ValNextProvider = (props: {
           typeof event.detail.value === "boolean"
         ) {
           setDraftMode(event.detail.value);
+          localStorage.setItem("val_draft_mode", event.detail.value.toString());
         } else {
           console.error(
             "Val: invalid event detail (val-overlay-provider)",
