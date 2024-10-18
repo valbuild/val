@@ -1,16 +1,17 @@
 import classNames from "classnames";
 import {
   Edit,
-  Eye,
   EyeOff,
   PanelsTopLeft,
   Search,
-  SquareMousePointer,
+  SquareDashedMousePointer,
   Upload,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimateHeight } from "../../ng/components/AnimateHeight";
+import { el } from "date-fns/locale";
+import { prettifyFilename } from "../../utils/prettifyFilename";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -29,7 +30,75 @@ type DropZones =
   | "val-menu-right-bottom";
 
 export function ValOverlay(props: ValOverlayProps) {
-  return <DraggableValMenu {...props} />;
+  const [elements, setElements] = useState<HTMLElement[]>([]);
+  const [paths, setPaths] = useState<string[]>([]);
+  useEffect(() => {
+    if (props.draftMode) {
+      let timeout: NodeJS.Timeout;
+      const updateElements = () => {
+        const newElements: HTMLElement[] = [];
+        const newPaths: string[] = [];
+        document.querySelectorAll("[data-val-path]").forEach((el) => {
+          const path = el.getAttribute("data-val-path");
+          if (!path) {
+            return;
+          }
+          if (paths.includes(path)) {
+            return;
+          }
+          newPaths.push(path);
+          newElements.push(el as HTMLElement);
+        });
+        setPaths(newPaths);
+        setElements(newElements);
+        setTimeout(updateElements, 1000);
+      };
+      // updateElements();
+      return () => {
+        clearTimeout(timeout);
+      };
+    }
+  }, [props.draftMode]);
+  return (
+    <>
+      {elements.map((el, i) => {
+        const rect = el?.getBoundingClientRect();
+        const path = el?.getAttribute("data-val-path");
+        if (!rect || !path) {
+          return null;
+        }
+
+        return (
+          <div
+            className="absolute border border-fg-brand-primary hover:border-2"
+            onClickCapture={(ev) => {
+              ev.stopPropagation();
+              console.log("clicked", path);
+            }}
+            key={i}
+            style={{
+              top: rect?.top + window.scrollY,
+              left: rect?.left,
+              width: rect?.width,
+              height: rect?.height,
+            }}
+          >
+            <div
+              className="relative top-[1px] left-[1px] truncate bg-bg-brand-primary text-text-brand-primary"
+              style={{
+                fontSize: `${Math.min(rect.height - 2, 12)}px`,
+                maxHeight: `${Math.min(rect.height - 2, 16)}px`,
+                maxWidth: `${Math.min(rect.width - 2, 300)}px`,
+              }}
+            >
+              {path}
+            </div>
+          </div>
+        );
+      })}
+      <DraggableValMenu {...props} />
+    </>
+  );
 }
 
 function ValMenu({
@@ -61,13 +130,7 @@ function ValMenu({
         >
           <MenuButton
             label="Pick content"
-            icon={
-              <SquareMousePointer
-                size={16}
-                onMouseEnter={() => console.log("mouse enter")}
-                onMouseLeave={() => console.log("mouse leave")}
-              />
-            }
+            icon={<SquareDashedMousePointer size={16} />}
           />
           <MenuButton label="Search" icon={<Search size={16} />} />
           <MenuButton
@@ -76,7 +139,10 @@ function ValMenu({
             onClick={() => setDraftMode(false)}
           />
           <div className="pb-1 mt-1 border-t border-border-primary"></div>
-          <MenuButton label="Publish" icon={<Upload size={16} />} />
+          <MenuButton
+            label="Publish"
+            icon={<Upload size={16} className="text-fg-brand-primary" />}
+          />
           <MenuButton label="Studio" icon={<PanelsTopLeft size={16} />} />
         </div>
       </AnimateHeight>
@@ -137,22 +203,26 @@ function DraggableValMenu(props: ValOverlayProps) {
     event.preventDefault();
     setDragOverDropZone(id);
   };
-
   return (
     <>
-      <div
-        className={classNames("z-overlay", getPositionClassName(dropZone))}
-        draggable
-        onDragStart={() => {
-          setIsDragging(true);
-        }}
-        onDragEnd={() => {
-          setIsDragging(false);
-        }}
-      >
-        <ValMenu dropZone={dropZone} {...props} />
-      </div>
-      {isDragging && (
+      {dropZone && (
+        <div
+          className={classNames(
+            "z-overlay cursor-grab",
+            getPositionClassName(dropZone),
+          )}
+          draggable
+          onDragStart={() => {
+            setIsDragging(true);
+          }}
+          onDragEnd={() => {
+            setIsDragging(false);
+          }}
+        >
+          <ValMenu dropZone={dropZone} {...props} />
+        </div>
+      )}
+      {isDragging && dropZone && (
         <>
           {dragOverDropZone && dragOverDropZone !== dropZone && (
             <div
