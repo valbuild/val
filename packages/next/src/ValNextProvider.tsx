@@ -23,7 +23,7 @@ export const ValNextProvider = (props: {
   const valStore = React.useMemo(() => new ValExternalStore(), []);
   const [, startTransition] = React.useTransition();
   const router = useRouter();
-  const [showOverlay, setShowOverlay] = React.useState(false);
+  const [showOverlay, setShowOverlay] = React.useState<boolean>();
   const [draftMode, setDraftMode] = React.useState(false);
   const [spaReady, setSpaReady] = React.useState(false);
 
@@ -88,38 +88,9 @@ export const ValNextProvider = (props: {
     }
   }, [draftMode, spaReady]);
 
-  React.useEffect(() => {}, [draftMode]);
-
   React.useEffect(() => {
     if (!showOverlay) {
       SET_AUTO_TAG_JSX_ENABLED(false);
-      if (process.env["NODE_ENV"] === "development" && !showOverlay) {
-        console.warn(
-          `
-###########
-###########
-###########                           @@@@
-###########                             @@
-###########    @@      @@  @@@@@@ @     @@
-###########     @@    @@  @@     @@     @@
-###########     @@    @@ %@       @     @@
-####  #####      @@  @@  .@      .@     @@
-###    ####       @@@@    @@:   @@@.    @@
-####  #####       @@@@      @@@@  =@@@@@@@@@
-###########
-
-This page is built with Val Build - the lightweight CMS where content is code.
-
-Val is currently hidden.
-
-To show Val, go to the following URL:
-${window.location.origin}/api/val/enable?redirect_to=${encodeURIComponent(
-            window.location.href,
-          )}
-          
-You are seeing this message because you are in development mode.`,
-        );
-      }
     } else {
       if (draftMode) {
         SET_AUTO_TAG_JSX_ENABLED(true);
@@ -162,6 +133,35 @@ You are seeing this message because you are in development mode.`,
     }
   }, [showOverlay, draftMode, props.disableRefresh]);
 
+  React.useEffect(() => {
+    if (process.env["NODE_ENV"] === "development" && showOverlay === false) {
+      console.warn(
+        `
+###########
+###########
+###########                           @@@@
+###########                             @@
+###########    @@      @@  @@@@@@ @     @@
+###########     @@    @@  @@     @@     @@
+###########     @@    @@ %@       @     @@
+####  #####      @@  @@  .@      .@     @@
+###    ####       @@@@    @@:   @@@.    @@
+####  #####       @@@@      @@@@  =@@@@@@@@@
+###########
+
+This page is built with Val Build - the lightweight CMS where content is code.
+
+Val is currently hidden.
+
+To show Val, go to the following URL:
+${window.location.origin}/api/val/enable?redirect_to=${encodeURIComponent(
+          window.location.href,
+        )}
+        
+You are seeing this message because you are in development mode.`,
+      );
+    }
+  }, [showOverlay]);
   return (
     <ValOverlayProvider draftMode={draftMode} store={valStore}>
       {props.children}
