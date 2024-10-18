@@ -18,7 +18,7 @@ interface ValFullscreenProps {
 
 export const ValStudio: FC<ValFullscreenProps> = ({ client }) => {
   return (
-    <ValProvider client={client}>
+    <ValProvider client={client} dispatchValEvents={false}>
       <Layout />
     </ValProvider>
   );

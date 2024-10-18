@@ -27,7 +27,7 @@ import { z } from "zod";
 import { mergePatches } from "./mergePatches";
 
 const ops = new JSONOps();
-export function useValState(client: ValClient) {
+export function useValState(client: ValClient, overlayDraftMode: boolean) {
   const [requestedSources, setRequestedSources] = useState<ModuleFilePath[]>(
     [],
   );
@@ -172,6 +172,7 @@ export function useValState(client: ValClient) {
       setSources((prev) => {
         const sources: typeof prev = { ...prev };
         const moduleFilePaths = paths;
+
         setSourcesSyncStatus((prev) => {
           const syncStatus: typeof prev = { ...prev };
           for (const moduleFilePath of moduleFilePaths as ModuleFilePath[]) {
@@ -253,6 +254,25 @@ export function useValState(client: ValClient) {
     }
   }, [schemaSha]);
 
+  useEffect(() => {
+    if (overlayDraftMode) {
+      for (const moduleFilePathS in sources) {
+        const moduleFilePath = moduleFilePathS as ModuleFilePath;
+        if (sources[moduleFilePath]) {
+          window.dispatchEvent(
+            new CustomEvent("val-event", {
+              detail: {
+                type: "source-update",
+                moduleFilePath,
+                source: sources[moduleFilePath],
+              },
+            }),
+          );
+        }
+      }
+    }
+  }, [overlayDraftMode, sources]);
+
   // Load all modules each time schema is updated
   // We do not really want to do this, but we do not have a better way to initialize the source for the moment
   useEffect(() => {
@@ -298,6 +318,21 @@ export function useValState(client: ValClient) {
               patchableOps,
             );
             if (patchRes.kind === "ok") {
+              if (overlayDraftMode) {
+                // send val-event to update the source
+                window.dispatchEvent(
+                  new CustomEvent("val-provider-overlay", {
+                    detail: {
+                      type: "source-update",
+                      detail: {
+                        moduleFilePath,
+                        source: patchRes.value,
+                      },
+                    },
+                  }),
+                );
+              }
+
               pendingPatchesRef.current = {
                 ...pendingPatchesRef.current,
                 [moduleFilePath]: [
@@ -353,7 +388,7 @@ export function useValState(client: ValClient) {
         return prev;
       });
     },
-    [sources, currentPatchIds, sourceState],
+    [sources, currentPatchIds, sourceState, overlayDraftMode],
   );
   useEffect(() => {
     if (sourceState === undefined) {
@@ -551,6 +586,14 @@ const StatData = z.object({
     z.literal("request-again"),
     z.literal("use-websocket"),
   ]),
+  config: z.object({
+    project: z.string().optional(),
+    files: z
+      .object({
+        directory: z.string(),
+      })
+      .optional(),
+  }),
   schemaSha: z.string(),
   baseSha: z.string(),
   patches: z.array(PatchId),

@@ -16,6 +16,7 @@ import {
   PatchId,
   SerializedSchema,
   SourcePath,
+  ValConfig,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { ValClient } from "@valbuild/shared/internal";
@@ -26,6 +27,7 @@ import { PatchSets, SerializedPatchSet } from "../utils/PatchSet";
 import { findFirstNonInsertedIdx } from "../utils/findFirstNonInsertedIdx";
 
 const ValContext = React.createContext<{
+  config: ValConfig | undefined;
   search:
     | false
     | {
@@ -75,6 +77,9 @@ const ValContext = React.createContext<{
   patchIds: PatchId[];
   patchMetadataCache: Record<PatchId, Remote<PatchWithMetadata>>;
 }>({
+  get config(): ValConfig | undefined {
+    throw new Error("ValContext not provided");
+  },
   get search():
     | false
     | {
@@ -140,18 +145,21 @@ const ValContext = React.createContext<{
 export function ValProvider({
   children,
   client,
+  dispatchValEvents,
 }: {
   children: React.ReactNode;
   client: ValClient;
+  dispatchValEvents: boolean;
 }) {
   const {
     addPatch,
     schemas,
+    stat,
     sources,
     sourcesSyncStatus,
     patchesStatus,
     patchIds,
-  } = useValState(client);
+  } = useValState(client, dispatchValEvents);
 
   // Global debounce: to avoid canceling patches that are debounced on navigation
   const debouncedPatches = useRef<Record<SourcePath, (() => Patch)[]>>({});
@@ -169,7 +177,7 @@ export function ValProvider({
         }
       }
       debouncedPatches.current = {};
-    }, 1000);
+    }, 200);
   }, [addPatch]);
   const addDebouncedPatch = useCallback(
     (get: () => Patch, path: SourcePath) => {
@@ -284,6 +292,10 @@ export function ValProvider({
         setSearch: () => {},
         addPatch,
         addDebouncedPatch,
+        config:
+          "data" in stat && stat.data
+            ? (stat.data?.config as ValConfig)
+            : undefined,
         schemas,
         sources,
         sourcesSyncStatus,
@@ -295,6 +307,17 @@ export function ValProvider({
       {children}
     </ValContext.Provider>
   );
+}
+
+export function useValConfig() {
+  const { config } = useContext(ValContext);
+  const lastConfig = useRef<ValConfig | undefined>(config);
+  useEffect(() => {
+    if (config) {
+      lastConfig.current = config;
+    }
+  }, [config]);
+  return lastConfig.current;
 }
 
 export function useAddPatch(sourcePath: SourcePath) {
@@ -682,7 +705,7 @@ function getShallowSourceAtSourcePath<
     );
     return mappedSource;
   }
-  return source;
+  return source as ShallowSourceOf<SchemaType>;
 }
 
 function mapSource<SchemaType extends SerializedSchema["type"]>(

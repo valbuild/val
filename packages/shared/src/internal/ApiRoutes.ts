@@ -3,6 +3,7 @@ import {
   type ValidationFix,
   type ModuleFilePath,
   type PatchId,
+  type ValConfig,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -19,6 +20,18 @@ const PatchId = z.string().refine(
 const ModuleFilePath = z.string().refine(
   (_path): _path is ModuleFilePath => true, // TODO:
 );
+
+const ValConfig = z.object({
+  project: z.string().optional(),
+  root: z.string().optional(),
+  files: z
+    .object({
+      directory: z.string(), // TODO: validate that it is prefixed by /public/
+    })
+    .optional(),
+  gitCommit: z.string().optional(),
+  gitBranch: z.string().optional(),
+});
 
 const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("image:add-metadata"),
@@ -293,6 +306,7 @@ export const Api = {
               baseSha: z.string(),
               schemaSha: z.string(),
               patches: z.array(PatchId),
+              config: ValConfig,
             }),
             z.object({
               type: z.literal("use-websocket"),
@@ -301,6 +315,7 @@ export const Api = {
               schemaSha: z.string(),
               commitSha: z.string(),
               patches: z.array(PatchId),
+              config: ValConfig,
             }),
           ]),
         }),

@@ -7,6 +7,7 @@ import {
   SourcePath,
   ValidationError,
   SerializedSchema,
+  ValConfig,
 } from "@valbuild/core";
 import {
   Api,
@@ -42,6 +43,7 @@ export type ValServerOptions = {
   valSecret?: string;
   apiKey?: string;
   project?: string;
+  config: ValConfig;
 };
 
 export type ValServerConfig = ValServerOptions &
@@ -49,6 +51,7 @@ export type ValServerConfig = ValServerOptions &
     | {
         mode: "fs";
         cwd: string;
+        config: ValConfig;
       }
     | {
         mode: "http";
@@ -58,6 +61,7 @@ export type ValServerConfig = ValServerOptions &
         commit: string;
         branch: string;
         root?: string;
+        config: ValConfig;
       }
   );
 
@@ -71,6 +75,7 @@ export const ValServer = (
   if (options.mode === "fs") {
     serverOps = new ValOpsFS(options.cwd, valModules, {
       formatter: options.formatter,
+      config: options.config,
     });
   } else if (options.mode === "http") {
     serverOps = new ValOpsHttp(
@@ -83,6 +88,7 @@ export const ValServer = (
       {
         formatter: options.formatter,
         root: options.root,
+        config: options.config,
       },
     );
   } else {
@@ -538,7 +544,10 @@ export const ValServer = (
         }
         return {
           status: 200,
-          json: currentStat,
+          json: {
+            ...currentStat,
+            config: options.config,
+          },
         };
       },
     },

@@ -11,7 +11,6 @@ import { FieldSchemaError } from "../components/FieldSchemaError";
 import { FieldSourceError } from "../components/FieldSourceError";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../components/Preview";
-import { useEffect } from "react";
 
 export function StringField({ path }: { path: SourcePath }) {
   const type = "string";
