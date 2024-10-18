@@ -85,7 +85,7 @@ function Overlay() {
                 window.dispatchEvent(event);
               }}
               disableOverlay={() => {
-                location.href = `${window.location.origin}/api/val/enable?redirect_to=${encodeURIComponent(
+                location.href = `${window.location.origin}/api/val/disable?redirect_to=${encodeURIComponent(
                   window.location.href,
                 )}`;
               }}
