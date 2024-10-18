@@ -1,24 +1,14 @@
 "use client";
-import { Json, ModuleFilePath, ValConfig } from "@valbuild/core";
+import { Json, ModuleFilePath } from "@valbuild/core";
 import React from "react";
 
-export class ValEvents {
+export class ValExternalStore {
   private readonly subscribers: Map<SubscriberId, Record<ModuleFilePath, Json>>; // uncertain whether this is the optimal way of returning
   private readonly listeners: Record<SubscriberId, (() => void)[]>;
 
   constructor() {
     this.subscribers = new Map();
     this.listeners = {};
-  }
-
-  reloadPaths(paths: ModuleFilePath[]) {
-    const event = new CustomEvent("val-store", {
-      detail: {
-        type: "reload-paths",
-        paths,
-      },
-    });
-    window.dispatchEvent(event);
   }
 
   subscribe = (paths: ModuleFilePath[]) => (listener: () => void) => {
@@ -32,7 +22,7 @@ export class ValEvents {
     return () => {
       this.listeners[subscriberId].splice(
         this.listeners[subscriberId].indexOf(listener),
-        1
+        1,
       );
     };
   };
@@ -78,18 +68,30 @@ function createSubscriberId(paths: ModuleFilePath[]): SubscriberId {
   return paths.slice().sort().join("&") as SubscriberId;
 }
 
-export type ValContext = {
-  readonly valEvents?: ValEvents;
-  readonly enabled: boolean;
-  readonly config: ValConfig;
-};
-
-export const ValContext = React.createContext<ValContext>({
-  valEvents: undefined,
-  enabled: false,
-  config: {},
+export const ValOverlayContext = React.createContext<{
+  readonly store?: ValExternalStore;
+  readonly draftMode: boolean;
+}>({
+  store: undefined,
+  draftMode: false,
 });
 
-export const useValEvents = () => {
-  return React.useContext(ValContext).valEvents;
+export function ValOverlayProvider({
+  store,
+  draftMode,
+  children,
+}: {
+  store?: ValExternalStore;
+  draftMode: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <ValOverlayContext.Provider value={{ store, draftMode }}>
+      {children}
+    </ValOverlayContext.Provider>
+  );
+}
+
+export const useValOverlayContext = () => {
+  return React.useContext(ValOverlayContext);
 };

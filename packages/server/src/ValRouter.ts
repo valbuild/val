@@ -1,6 +1,6 @@
 import { promises as fs } from "fs";
 import * as path from "path";
-import { Internal, ValConfig, ValModules } from "@valbuild/core";
+import { ValConfig, ValModules } from "@valbuild/core";
 import {
   Api,
   ApiEndpoint,
@@ -130,10 +130,11 @@ export async function createValServer(
   valModules: ValModules,
   route: string,
   opts: ValApiOptions,
+  config: ValConfig,
   callbacks: ValServerCallbacks,
   formatter?: (code: string, filePath: string) => string | Promise<string>,
 ): Promise<ValServer> {
-  const valServerConfig = await initHandlerOptions(route, opts);
+  const valServerConfig = await initHandlerOptions(route, opts, config);
   return ValServer(
     valModules,
     {
@@ -147,6 +148,7 @@ export async function createValServer(
 async function initHandlerOptions(
   route: string,
   opts: ValApiOptions,
+  config: ValConfig,
 ): Promise<ValServerConfig> {
   const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
   const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
@@ -161,6 +163,7 @@ async function initHandlerOptions(
   const maybeValProject = opts.project || process.env.VAL_PROJECT;
   const valBuildUrl =
     opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://app.val.build";
+
   if (isProxyMode) {
     if (!maybeApiKey || !maybeValSecret) {
       throw new Error(
@@ -206,6 +209,7 @@ async function initHandlerOptions(
       valDisableRedirectUrl,
       valContentUrl,
       valBuildUrl,
+      config,
     };
   } else {
     const cwd = process.cwd();
@@ -221,6 +225,7 @@ async function initHandlerOptions(
       apiKey: maybeApiKey,
       valSecret: maybeValSecret,
       project: maybeValProject,
+      config,
     };
   }
 }

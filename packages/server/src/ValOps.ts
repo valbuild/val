@@ -15,6 +15,7 @@ import {
   Source,
   SourcePath,
   VAL_EXTENSION,
+  ValConfig,
   ValModules,
   ValidationError,
   ValidationErrors,
@@ -63,6 +64,7 @@ export type ValOpsOptions = {
   statFilePollingInterval?: number;
   disableFilePolling?: boolean;
   disableFileWatcher?: boolean;
+  config: ValConfig;
 };
 // #region ValOps
 export abstract class ValOps {
