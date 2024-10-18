@@ -4,7 +4,7 @@ import jsxRuntimeDev from "react/jsx-dev-runtime";
 import React from "react";
 import { vercelStegaSplit, VERCEL_STEGA_REGEX } from "@vercel/stega";
 import { stegaDecodeString } from "./stegaDecodeString";
-// import { IS_AUTO_TAG_JSX_ENABLED } from ".";
+import { IS_AUTO_TAG_JSX_ENABLED, IS_RSC } from ".";
 
 const isIntrinsicElement = (type: any) => {
   // TODO: think this is not correct, but good enough for now?
@@ -13,9 +13,9 @@ const isIntrinsicElement = (type: any) => {
 
 const addValPathIfFound = (type: any, props: any) => {
   // TODO: increases performance. Unsure about the implications right now - seems to work. Remember to look at RSC and client (and pages/?).
-  // if (!IS_AUTO_TAG_JSX_ENABLED()) {
-  //   return;
-  // }
+  if (!IS_AUTO_TAG_JSX_ENABLED()) {
+    return;
+  }
 
   const valSources = new Set<string>();
 
@@ -62,6 +62,14 @@ const addValPathIfFound = (type: any, props: any) => {
             "Val: Could not auto tag. Reason: unexpected types found while cleaning and / or adding val path data props.",
           );
         }
+      } else {
+        if (key === "href") {
+          // This is a hack to make sure href values in Next Link components are cleaned (seems to be a React Server Component issue?)
+          const cleanValue = vercelStegaSplit(value).cleaned;
+          if (typeof key === "string" && !Array.isArray(container)) {
+            container[key] = cleanValue;
+          }
+        }
       }
     }
   }
@@ -95,6 +103,9 @@ const addValPathIfFound = (type: any, props: any) => {
     }
     if (valSources.size > 0 && !props["data-val-path"]) {
       props["data-val-path"] = Array.from(valSources).join(",");
+      if (IS_RSC()) {
+        props["data-val-rsc"] = "true";
+      }
     }
   }
 };
