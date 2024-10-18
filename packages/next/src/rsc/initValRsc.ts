@@ -1,5 +1,6 @@
 import {
   SET_AUTO_TAG_JSX_ENABLED,
+  SET_RSC,
   stegaEncode,
   type StegaOfSource,
 } from "@valbuild/react/stega";
@@ -13,7 +14,7 @@ import {
 } from "@valbuild/core";
 import { cookies, draftMode, headers } from "next/headers";
 import { createValClient } from "@valbuild/shared/internal";
-
+SET_RSC(true);
 const initFetchValStega =
   (
     config: ValConfig,
