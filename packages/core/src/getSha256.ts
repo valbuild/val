@@ -175,7 +175,7 @@ export class Hash {
       const block = new Int32Array(
         data.buffer,
         byteOffset,
-        blocks * N.inputWords
+        blocks * N.inputWords,
       );
       while (blocks--) {
         this._int32(block, offset >> 2);
@@ -190,7 +190,7 @@ export class Hash {
       const rest = new Uint8Array(
         data.buffer,
         byteOffset + offset,
-        length - offset
+        length - offset,
       );
       return this._uint8(rest);
     }

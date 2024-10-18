@@ -27,7 +27,7 @@ const addValPathIfFound = (type: any, props: any) => {
     key: string | number,
     value: string,
     props: Record<string, unknown>,
-    container: Record<string, unknown> | Array<unknown>
+    container: Record<string, unknown> | Array<unknown>,
   ) {
     if (!key) {
       return;
@@ -35,7 +35,7 @@ const addValPathIfFound = (type: any, props: any) => {
     // Prevent prototype pollution
     if (key === "__proto__" || key === "constructor" || key === "prototype") {
       console.error(
-        'Val: Could not auto tag. Reason: key is "__proto__" or "constructor" or "prototype".'
+        'Val: Could not auto tag. Reason: key is "__proto__" or "constructor" or "prototype".',
       );
       return;
     }
@@ -59,7 +59,7 @@ const addValPathIfFound = (type: any, props: any) => {
           container[key] = cleanValue;
         } else {
           console.error(
-            "Val: Could not auto tag. Reason: unexpected types found while cleaning and / or adding val path data props."
+            "Val: Could not auto tag. Reason: unexpected types found while cleaning and / or adding val path data props.",
           );
         }
       }
@@ -80,7 +80,7 @@ const addValPathIfFound = (type: any, props: any) => {
                 styleKey,
                 styleValue,
                 props,
-                value as Record<string, unknown>
+                value as Record<string, unknown>,
               );
             }
           }

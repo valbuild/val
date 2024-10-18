@@ -13,12 +13,15 @@ import { createFilename } from "../../../utils/readImage";
 import { OnSubmit, SubmitStatus } from "../SubmitStatus";
 import { FieldContainer } from "../FieldContainer";
 import { FileOptions } from "@valbuild/core/src/schema/file";
+import { ConfigDirectory } from "@valbuild/core/src/initVal";
+import { useValConfig } from "../../ValConfigContext";
 
 export function createFilePatch(
   path: string[],
   data: string | null,
   filename: string | null,
-  metadata: FileMetadata | ImageMetadata | undefined
+  metadata: FileMetadata | ImageMetadata | undefined,
+  directory: ConfigDirectory = "/public/val"
 ): Patch {
   const newFilePath = createFilename(data, filename, metadata);
   if (!newFilePath || !metadata) {
@@ -27,7 +30,7 @@ export function createFilePatch(
   return [
     {
       value: {
-        [FILE_REF_PROP]: `/public/${newFilePath}`,
+        [FILE_REF_PROP]: `${directory}/${newFilePath}`,
         [VAL_EXTENSION]: "file",
         metadata,
       },
@@ -38,7 +41,7 @@ export function createFilePatch(
       value: data,
       op: "file",
       path,
-      filePath: `/public/${newFilePath}`,
+      filePath: `${directory}/${newFilePath}`,
     },
   ];
 }
@@ -99,6 +102,7 @@ export function FileField({
     const url = defaultValue && Internal.convertFileSource(defaultValue).url;
     setUrl(url);
   }, [defaultValue]);
+  const { config } = useValConfig();
   return (
     <FieldContainer>
       <div className="w-fit">
@@ -153,7 +157,8 @@ export function FileField({
                           path,
                           data.src,
                           data.filename ?? null,
-                          metadata
+                          metadata,
+                          config.files?.directory as ConfigDirectory
                         )
                       )
                     ).finally(() => {

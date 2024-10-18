@@ -34,6 +34,25 @@ export const ValNextProvider = (props: {
   }, []);
 
   React.useEffect(() => {
+    const valOverlayReadyEventListener = () => {
+      const event = new CustomEvent("val-config-event", {
+        detail: {
+          type: "config",
+          config: props.config,
+        },
+      });
+      window.dispatchEvent(event);
+    };
+    window.addEventListener("val-overlay-ready", valOverlayReadyEventListener);
+    return () => {
+      window.removeEventListener(
+        "val-overlay-ready",
+        valOverlayReadyEventListener
+      );
+    };
+  }, []);
+
+  React.useEffect(() => {
     if (enabled) {
       SET_AUTO_TAG_JSX_ENABLED(true);
       const valEventListener = (event: Event) => {
@@ -85,7 +104,7 @@ You are seeing this message because you are in development mode.`
 
   // TODO: use portal to mount overlay
   return (
-    <ValContext.Provider value={{ valEvents, enabled }}>
+    <ValContext.Provider value={{ valEvents, enabled, config: props.config }}>
       {props.children}
       {enabled && (
         <React.Fragment>

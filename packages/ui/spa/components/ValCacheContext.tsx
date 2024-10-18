@@ -22,7 +22,7 @@ export const ValCacheContext = React.createContext<{
 }>({
   get cache(): never {
     throw Error(
-      "ValCacheContext not found. Ensure components are wrapped by ValCacheContext!"
+      "ValCacheContext not found. Ensure components are wrapped by ValCacheContext!",
     );
   },
 });
@@ -46,7 +46,7 @@ export type ValFromPath =
     };
 export function useValFromPath(
   moduleFilePath: ModuleFilePath,
-  modulePath: ModulePath
+  modulePath: ModulePath,
 ): ValFromPath {
   const [current, setCurrent] = useState<ValFromPath>({ status: "idle" });
 
@@ -59,7 +59,7 @@ export function useValFromPath(
         const valAtPath = Internal.resolvePath(
           modulePath,
           module.source,
-          module.schema
+          module.schema,
         );
         setCurrent({
           status: "success",

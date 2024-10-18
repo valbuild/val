@@ -6,57 +6,57 @@ import { getServerMimeType } from "../spa/serverMimeType";
 import { VAL_APP_PATH, VAL_CSS_PATH } from "./constants";
 
 const files: Record<string, string> = JSON.parse(
-  `BUILD_REPLACE_THIS_WITH_RECORD`
+  `BUILD_REPLACE_THIS_WITH_RECORD`,
 ) as unknown as Record<string, string>;
 
 const decodedFiles: Record<string, string> = Object.fromEntries(
   Object.entries(files).map(([key, value]) => [
     key,
     Buffer.from(value, "base64").toString("utf-8"),
-  ])
+  ]),
 );
 
 export function createUIRequestHandler(): ValUIRequestHandler {
   if (typeof files !== "object") {
     throw new Error(
-      "Val UI files missing (error: is not an object)! This Val version or build is corrupted!"
+      "Val UI files missing (error: is not an object)! This Val version or build is corrupted!",
     );
   }
   const jsFiles = Object.keys(decodedFiles).filter(
-    (path) => path.endsWith(".js") || path.endsWith(".jsx")
+    (path) => path.endsWith(".js") || path.endsWith(".jsx"),
   );
   if (jsFiles.length === 0) {
     throw new Error(
-      "Val UI files missing (error: no .js files found)! This Val version or build is corrupted!"
+      "Val UI files missing (error: no .js files found)! This Val version or build is corrupted!",
     );
   } else if (jsFiles.length > 1) {
     throw new Error(
       `Val UI files missing (error: multiple .js files found: ${jsFiles.join(
-        " ,"
-      )})! This Val version or build is corrupted!`
+        " ,",
+      )})! This Val version or build is corrupted!`,
     );
   }
   const MAIN_FILE = jsFiles[0];
 
   const cssFiles = Object.keys(decodedFiles).filter((path) =>
-    path.endsWith(".css")
+    path.endsWith(".css"),
   );
   if (cssFiles.length === 0) {
     throw new Error(
-      "Val UI files missing (error: no .css files found)! This Val version or build is corrupted!"
+      "Val UI files missing (error: no .css files found)! This Val version or build is corrupted!",
     );
   } else if (cssFiles.length > 1) {
     throw new Error(
       `Val UI files missing (error: multiple .css files found: ${jsFiles.join(
-        " ,"
-      )})! This Val version or build is corrupted!`
+        " ,",
+      )})! This Val version or build is corrupted!`,
     );
   }
   const MAIN_CSS_FILE = cssFiles[0];
   const htmlPage = decodedFiles["/index.html"];
   if (!htmlPage) {
     throw new Error(
-      "Val UI files missing (error: no index.html file found)! This Val version or build is corrupted!"
+      "Val UI files missing (error: no index.html file found)! This Val version or build is corrupted!",
     );
   }
 

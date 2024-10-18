@@ -13,19 +13,19 @@ if (valAppElem) {
   ReactDOM.createRoot(valAppElem).render(
     <React.StrictMode>
       <App></App>
-    </React.StrictMode>
+    </React.StrictMode>,
   );
 } else if (valAppStaticElem) {
   ReactDOM.createRoot(valAppStaticElem).render(
     <React.StrictMode>
       <AppStatic></AppStatic>
-    </React.StrictMode>
+    </React.StrictMode>,
   );
 } else if (valOverlayElem) {
   ReactDOM.createRoot(valOverlayElem).render(
     <React.StrictMode>
       <Overlay></Overlay>
-    </React.StrictMode>
+    </React.StrictMode>,
   );
 } else {
   console.error("Val: could not mount Val element. Check your configuration.");

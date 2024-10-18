@@ -35,7 +35,7 @@ export default {
               n.source.value.endsWith("val.config.ts") ||
               n.source.value.endsWith("val.config.js"))
               ? n.source.value
-              : false
+              : false,
           );
           if (
             maybeValConfigImportDeclaration?.type === "ImportDeclaration" &&
@@ -99,7 +99,7 @@ export default {
                   fix: (fixer) =>
                     fixer.replaceText(
                       firstArg,
-                      `${rawArg}${expectedValue}${rawArg}`
+                      `${rawArg}${expectedValue}${rawArg}`,
                     ),
                 });
               }

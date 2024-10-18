@@ -15,7 +15,7 @@ export async function createFixPatch(
   config: { projectRoot: string },
   apply: boolean,
   sourcePath: SourcePath,
-  validationError: ValidationError
+  validationError: ValidationError,
 ): Promise<{ patch: Patch; remainingErrors: ValidationError[] } | undefined> {
   async function getImageMetadata(): Promise<ImageMetadata> {
     const fileRef = getValidationErrorFileRef(validationError);

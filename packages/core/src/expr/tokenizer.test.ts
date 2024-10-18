@@ -506,7 +506,7 @@ describe("tokenizer", () => {
     ({ input, endCursor }) => {
       const [, cursor] = tokenize(input);
       expect(cursor).toStrictEqual(endCursor || input.length);
-    }
+    },
   );
 
   test.each(TokenizerTestCases)(
@@ -522,7 +522,7 @@ describe("tokenizer", () => {
       if (endCursor === undefined) {
         expect(stop + 1).toBe(input.length);
       }
-    }
+    },
   );
 
   test.each(TokenizerTestCases)(
@@ -531,9 +531,9 @@ describe("tokenizer", () => {
       for (const token of expected) {
         if (token.type === "ws") continue;
         expect(input.slice(token.span[0], token.span[1] + 1)).toBe(
-          token.unescapedValue || token.value || token.type
+          token.unescapedValue || token.value || token.type,
         );
       }
-    }
+    },
   );
 });

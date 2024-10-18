@@ -9,7 +9,7 @@ export default c.define("/test", s.string(), "test");`;
     "test.ts",
     sourceText,
     ts.ScriptTarget.ES2020,
-    true
+    true,
   );
 
   const analysis = analyzeValModule(sourceFile);
@@ -17,7 +17,7 @@ export default c.define("/test", s.string(), "test");`;
     result.ok<ValModuleAnalysis>({
       schema: expect.anything(),
       source: expect.anything(),
-    })
+    }),
   );
 
   const { schema, source } = (analysis as result.Ok<ValModuleAnalysis>).value;

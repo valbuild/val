@@ -38,7 +38,7 @@ export function StringUnionField({
             if (onSubmit) {
               setLoading(true);
               onSubmit((path) =>
-                Promise.resolve(createStringUnionPatch(path, value))
+                Promise.resolve(createStringUnionPatch(path, value)),
               ).finally(() => {
                 setLoading(false);
               });
@@ -66,7 +66,7 @@ export function StringUnionField({
 
 export function createStringUnionPatch(
   path: string[],
-  value: string | null
+  value: string | null,
 ): Patch {
   return [
     {

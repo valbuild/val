@@ -51,7 +51,7 @@ describe("read val file", () => {
         schema: true,
         source: true,
         validate: true,
-      }
+      },
     );
     expect(result).toHaveProperty("source");
     expect(result).toHaveProperty("schema");

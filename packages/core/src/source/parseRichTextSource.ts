@@ -30,7 +30,7 @@ function parseTokens(
   tokens: marked.Token[],
   sourceNodes: (ImageSource | LinkSource)[],
   cursor: number,
-  insideList = false
+  insideList = false,
 ): { children: RichTextNode<AllRichTextOptions>[]; cursor: number } {
   const children: RichTextNode<AllRichTextOptions>[] = [];
 
@@ -40,22 +40,22 @@ function parseTokens(
       | marked.Tokens.Del
       | marked.Tokens.Em
       | marked.Tokens.Generic,
-    clazz: Styles<AllRichTextOptions>
+    clazz: Styles<AllRichTextOptions>,
   ) {
     const parsedTokens = parseTokens(
       token.tokens ? token.tokens : [],
       sourceNodes,
-      0
+      0,
     ) as { children: [SpanNode<AllRichTextOptions>] } | { children: string[] };
     children.push({
       tag: "span",
       styles: [clazz].concat(
         parsedTokens.children.flatMap((child) =>
-          typeof child === "string" ? [] : child.styles
-        )
+          typeof child === "string" ? [] : child.styles,
+        ),
       ),
       children: parsedTokens.children.flatMap((child) =>
-        typeof child === "string" ? child : child.children
+        typeof child === "string" ? child : child.children,
       ) as [string],
     });
   }
@@ -82,7 +82,8 @@ function parseTokens(
     } else if (token.type === "text") {
       if ("tokens" in token && Array.isArray(token.tokens)) {
         children.push(
-          ...parseTokens(token.tokens, sourceNodes, cursor, insideList).children
+          ...parseTokens(token.tokens, sourceNodes, cursor, insideList)
+            .children,
         );
       } else {
         if (insideList && typeof token.raw === "string") {
@@ -93,7 +94,7 @@ function parseTokens(
               if (i === lines.length - 1 && line === "") return [];
               if (line === "") return [{ tag: "p", children: [{ tag: "br" }] }];
               return [line, { tag: "p", children: [{ tag: "br" }] }];
-            }
+            },
           );
           children.push(...tags);
         } else {
@@ -116,7 +117,7 @@ function parseTokens(
               token.tokens ? token.tokens : [],
               sourceNodes,
               0,
-              true
+              true,
             ).children,
           },
         ] as ListItemNode<AllRichTextOptions>["children"],
@@ -130,11 +131,11 @@ function parseTokens(
       const suffixIndex = token.text.indexOf(VAL_START_TAG_SUFFIX);
       if (token.text.startsWith(VAL_START_TAG_PREFIX) && suffixIndex > -1) {
         const number = Number(
-          token.text.slice(VAL_START_TAG_PREFIX.length, suffixIndex)
+          token.text.slice(VAL_START_TAG_PREFIX.length, suffixIndex),
         );
         if (Number.isNaN(number)) {
           throw Error(
-            `Illegal val intermediate node: ${JSON.stringify(token)}`
+            `Illegal val intermediate node: ${JSON.stringify(token)}`,
           );
         }
         const { children: subChildren, cursor: subCursor } = parseTokens(
@@ -149,7 +150,7 @@ function parseTokens(
             return token;
           }),
           sourceNodes,
-          cursor + 1
+          cursor + 1,
         );
         const sourceNode = sourceNodes[number];
         if (sourceNode._type === "link") {
@@ -192,7 +193,7 @@ function parseTokens(
           children: parseTokens(
             token.tokens ? token.tokens : [],
             sourceNodes,
-            0
+            0,
           ).children as LinkNode<AllRichTextOptions>["children"],
         });
       }
@@ -203,7 +204,7 @@ function parseTokens(
       });
     } else {
       console.error(
-        `Could not parse markdown: unsupported token type: ${token.type}. Found: ${token.raw}`
+        `Could not parse markdown: unsupported token type: ${token.type}. Found: ${token.raw}`,
       );
     }
     cursor++;
@@ -228,11 +229,11 @@ export function parseRichTextSource<O extends RichTextOptions>({
       if (node) {
         if (node[VAL_EXTENSION] === "link") {
           return templateString.concat(
-            `${VAL_START_TAG_PREFIX}${i}${VAL_START_TAG_SUFFIX}${node.children[0]}${VAL_END_TAG}`
+            `${VAL_START_TAG_PREFIX}${i}${VAL_START_TAG_SUFFIX}${node.children[0]}${VAL_END_TAG}`,
           );
         } else {
           return templateString.concat(
-            `${VAL_START_TAG_PREFIX}${i}${VAL_START_TAG_SUFFIX}${VAL_END_TAG}`
+            `${VAL_START_TAG_PREFIX}${i}${VAL_START_TAG_SUFFIX}${VAL_END_TAG}`,
           );
         }
       }
@@ -245,7 +246,7 @@ export function parseRichTextSource<O extends RichTextOptions>({
   const { children, cursor } = parseTokens(tokenList, nodes, 0);
   if (cursor !== tokenList.length) {
     throw Error(
-      "Unexpectedly terminated markdown parsing. Possible reason: unclosed html tag?"
+      "Unexpectedly terminated markdown parsing. Possible reason: unclosed html tag?",
     );
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

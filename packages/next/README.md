@@ -200,7 +200,7 @@ export const schema = s.object({
           bold: true, // <- Enables bold in richtext
         },
       }),
-    })
+    }),
   ),
 });
 
@@ -223,7 +223,7 @@ export default c.define(
         ],
       },
     ],
-  }
+  },
 );
 ```
 
@@ -524,7 +524,7 @@ export function ValRichText({
 }) {
   function build(
     node: RichTextNode<MyRichTextOptions>,
-    key?: number
+    key?: number,
   ): JSX.Element | string {
     if (typeof node === "string") {
       return node;
@@ -543,7 +543,7 @@ export function ValRichText({
         key,
         className,
       },
-      "children" in node ? node.children.map(build) : null
+      "children" in node ? node.children.map(build) : null,
     );
   }
   return <div {...val.attrs(root)}>{root.children.map(build)}</div>;
@@ -622,7 +622,7 @@ s.union(
     type: s.literal("productPage"),
     sku: s.number(),
     // ...
-  })
+  }),
 ); // <- Schema<{ type: "blogPage", author: string } | { type: "productPage", sku: number }>
 ```
 
@@ -633,7 +633,7 @@ You can also use a union to create a union of string literals. This is useful if
 ```ts
 s.union(
   s.literal("one"),
-  s.literal("two")
+  s.literal("two"),
   //...
 ); // <- Schema<"one" | "two">
 ```

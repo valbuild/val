@@ -30,7 +30,7 @@ export function isSelector(source: any): source is GenericSelector<Source> {
 export function newSelectorProxy(
   source: any,
   path?: SourcePath,
-  moduleSchema?: any
+  moduleSchema?: any,
 ): any {
   if (typeof source === "object") {
     if (isSelector(source)) {
@@ -93,8 +93,8 @@ export function newSelectorProxy(
                       newSelectorProxy(
                         a,
                         createValPathOfItem(path, i),
-                        moduleSchema?.item
-                      )
+                        moduleSchema?.item,
+                      ),
                     )
                     .filter((a) => {
                       if (f && f instanceof Schema) {
@@ -112,9 +112,9 @@ export function newSelectorProxy(
                       newSelectorProxy(
                         a,
                         createValPathOfItem(path, i),
-                        moduleSchema?.item
+                        moduleSchema?.item,
                       ),
-                      newSelectorProxy(i)
+                      newSelectorProxy(i),
                     );
                     if (isSelector(valueOrSelector)) {
                       return valueOrSelector;
@@ -135,13 +135,13 @@ export function newSelectorProxy(
                 return newSelectorProxy(
                   reflectedValue,
                   createValPathOfItem(path, Number(prop)),
-                  moduleSchema?.item
+                  moduleSchema?.item,
                 );
               }
               return newSelectorProxy(
                 reflectedValue,
                 createValPathOfItem(path, prop),
-                moduleSchema?.items[prop]
+                moduleSchema?.items[prop],
               );
             }
             return reflectedValue;
@@ -184,7 +184,7 @@ function selectorAsVal(sel: any): any {
   ) {
     // is object
     return Object.fromEntries(
-      Object.entries(sel).map(([k, v]) => [k, selectorAsVal(v)])
+      Object.entries(sel).map(([k, v]) => [k, selectorAsVal(v)]),
     );
   } else if (
     typeof sel === "object" &&

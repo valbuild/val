@@ -15,7 +15,10 @@ export type SerializedNumberSchema = {
 };
 
 export class NumberSchema<Src extends number | null> extends Schema<Src> {
-  constructor(readonly options?: NumberOptions, readonly opt: boolean = false) {
+  constructor(
+    readonly options?: NumberOptions,
+    readonly opt: boolean = false,
+  ) {
     super();
   }
   validate(path: SourcePath, src: Src): ValidationErrors {

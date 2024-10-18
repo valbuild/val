@@ -5,7 +5,7 @@ import { transform } from "sucrase";
 import { ValOpsFS } from "./ValOpsFS";
 import fs from "fs";
 import path from "node:path";
-import prettier from "prettier";
+import synchronizedPrettier from "@prettier/sync";
 
 describe("ValOpsFS", () => {
   test("flow", async () => {
@@ -28,7 +28,7 @@ describe("ValOpsFS", () => {
       const res = new Script(
         transform(code, {
           transforms: ["imports"],
-        }).code
+        }).code,
       ).runInNewContext({
         exports: {},
         require: (path: string) => {
@@ -45,7 +45,7 @@ describe("ValOpsFS", () => {
 
     // #region test modules
     const sourceFiles: Record<string, string> = {
-      "/test/test1.val.js": prettier.format(
+      "/test/test1.val.js": synchronizedPrettier.format(
         `
       import { s, c } from "val.config";
       
@@ -67,9 +67,9 @@ describe("ValOpsFS", () => {
         }
       );
       `,
-        { parser: "babel" }
+        { parser: "babel" },
       ),
-      "/test/test2.val.js": prettier.format(
+      "/test/test2.val.js": synchronizedPrettier.format(
         `
       import { s, c } from "val.config";
       
@@ -91,7 +91,7 @@ describe("ValOpsFS", () => {
         }
       );
       `,
-        { parser: "babel" }
+        { parser: "babel" },
       ),
     };
     const binaryFiles = {
@@ -125,7 +125,7 @@ describe("ValOpsFS", () => {
       fs.writeFileSync(
         path.join(rootDir, filePath),
         base64UrlData,
-        "base64url"
+        "base64url",
       );
     }
 
@@ -137,8 +137,8 @@ describe("ValOpsFS", () => {
       },
       {
         formatter: (code, filePath) =>
-          prettier.format(code, { filepath: filePath }),
-      }
+          synchronizedPrettier.format(code, { filepath: filePath }),
+      },
     );
 
     // #region test
@@ -168,7 +168,7 @@ describe("ValOpsFS", () => {
           value: anotherSmallPng,
         },
       ],
-      null
+      null,
     );
     if (patchRes1.error) {
       console.log("patch error", patchRes1.error);
@@ -199,14 +199,14 @@ describe("ValOpsFS", () => {
     const v1 = await ops.validateSources(
       schemas,
       t1.sources,
-      patchAnalysis.patchesByModule
+      patchAnalysis.patchesByModule,
     );
     console.log("source validation", JSON.stringify(v1, null, 2));
     const fv1 = await ops.validateFiles(
       schemas,
       t1.sources,
       v1.files,
-      patchAnalysis.fileLastUpdatedByPatchId
+      patchAnalysis.fileLastUpdatedByPatchId,
     );
     console.log("files validation", JSON.stringify(fv1, null, 2));
     const pc1 = await ops.prepare({
@@ -218,7 +218,7 @@ describe("ValOpsFS", () => {
     console.log("save files", JSON.stringify(s1, null, 2));
     console.log(
       "found patches",
-      JSON.stringify(await ops.fetchPatches({ omitPatch: false }), null, 2)
+      JSON.stringify(await ops.fetchPatches({ omitPatch: false }), null, 2),
     );
   });
 });

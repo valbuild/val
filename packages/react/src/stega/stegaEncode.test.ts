@@ -12,7 +12,7 @@ describe("stega transform", () => {
         text: s.richtext({}),
         n: s.number(),
         b: s.boolean(),
-      })
+      }),
     );
 
     const valModule = c.define("/test.val.ts", schema, [
@@ -57,17 +57,17 @@ describe("stega transform", () => {
     });
     //
     expect(vercelStegaSplit(transformed[0].image.url).cleaned).toStrictEqual(
-      "/api/val/files/public/test1.png?sha256=1231"
+      "/api/val/files/public/test1.png?sha256=1231",
     );
     expect(vercelStegaSplit(transformed[1].image.url).cleaned).toStrictEqual(
-      "/api/val/files/public/test2.png?sha256=1232"
+      "/api/val/files/public/test2.png?sha256=1232",
     );
 
     expect(transformed[0].text.valPath).toStrictEqual(
-      '/test.val.ts?p=0."text"'
+      '/test.val.ts?p=0."text"',
     );
     expect(transformed[1].text.valPath).toStrictEqual(
-      '/test.val.ts?p=1."text"'
+      '/test.val.ts?p=1."text"',
     );
   });
 
@@ -81,7 +81,7 @@ describe("stega transform", () => {
           { test: c.define("/test2.val.ts", schema, ["one", "two"]) },
         ],
         test: c.define("/test3.val.ts", schema, ["one", "two"]),
-      })
+      }),
     ).toStrictEqual(["/test1.val.ts", "/test2.val.ts", "/test3.val.ts"]);
   });
 
@@ -95,7 +95,7 @@ describe("stega transform", () => {
             return ["1", "2"];
           }
         },
-      }
+      },
     );
 
     expect(vercelStegaSplit(transformed[0]).cleaned).toStrictEqual("1");
@@ -111,7 +111,7 @@ describe("stega transform", () => {
     const schema = s.object({ str: s.string(), rawStr: s.string().raw() });
     const transformed = stegaEncode(
       c.define("/test1.val.ts", schema, { str: "one", rawStr: "two" }),
-      {}
+      {},
     );
     //expect(transformed.str).toStrictEqual("one");
     expect(transformed.rawStr).toStrictEqual("two");
@@ -121,7 +121,7 @@ describe("stega transform", () => {
     const schema = s.union(s.literal("one"), s.literal("two"));
     const transformed = stegaEncode(
       c.define("/test1.val.ts", schema, "one"),
-      {}
+      {},
     );
     expect(transformed).toStrictEqual("one");
   });
@@ -130,14 +130,14 @@ describe("stega transform", () => {
     const schema = s.union(
       "type",
       s.object({ type: s.literal("type1"), str: s.string() }),
-      s.object({ type: s.literal("type2"), num: s.number() })
+      s.object({ type: s.literal("type2"), num: s.number() }),
     );
     const transformed = stegaEncode(
       c.define("/test1.val.ts", schema, {
         type: "type1",
         str: "one",
       }),
-      {}
+      {},
     );
     expect(transformed.type).toStrictEqual("type1");
     expect(vercelStegaSplit(transformed.str).cleaned).toStrictEqual("one");
@@ -153,7 +153,7 @@ describe("stega transform", () => {
     const schema = s.date();
     const transformed = stegaEncode(
       c.define("/test1.val.ts", schema, "2024-08-21"),
-      {}
+      {},
     );
     expect(transformed).toStrictEqual("2024-08-21");
   });
@@ -165,7 +165,7 @@ describe("stega transform", () => {
     const schema2 = s.keyOf(schema1);
     const transformed = stegaEncode(
       c.define("/test2.val.ts", schema2, "test"),
-      {}
+      {},
     );
     expect(transformed).toStrictEqual("test");
   });
@@ -210,11 +210,11 @@ describe("stega transform", () => {
             return ["1", "2"];
           }
         },
-      }
+      },
     );
 
     expect(vercelStegaSplit(transformed.foo[0].test[0]).cleaned).toStrictEqual(
-      "one"
+      "one",
     );
     expect(vercelStegaDecode(transformed.foo[0].test[0])).toStrictEqual({
       data: {
@@ -226,7 +226,7 @@ describe("stega transform", () => {
     //
 
     expect(vercelStegaSplit(transformed.foo[1].test[0]).cleaned).toStrictEqual(
-      "1"
+      "1",
     );
     expect(vercelStegaDecode(transformed.foo[1].test[0])).toStrictEqual({
       data: {
@@ -237,6 +237,5 @@ describe("stega transform", () => {
   });
 });
 
-type SchemaOf<T extends Schema<SelectorSource>> = T extends Schema<infer S>
-  ? S
-  : never;
+type SchemaOf<T extends Schema<SelectorSource>> =
+  T extends Schema<infer S> ? S : never;

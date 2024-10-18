@@ -89,7 +89,7 @@ export function GenericUnionField({
                       Object.keys(item.items).map((key) => [
                         key,
                         emptyOf(item.items[key]),
-                      ])
+                      ]),
                     ),
                     [schema.key]: key,
                   };

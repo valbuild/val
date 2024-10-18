@@ -11,7 +11,7 @@ export const Tree = z.object({
       schema: z.any().optional(),
       source: z.any().optional(),
       // TODO: patches
-    })
+    }),
   ),
 });
 

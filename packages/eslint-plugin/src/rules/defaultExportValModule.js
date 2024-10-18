@@ -44,8 +44,8 @@ export default {
                         return fixer.replaceText(
                           parent.parent,
                           `export default ${context.sourceCode.getText(
-                            variableInit
-                          )}`
+                            variableInit,
+                          )}`,
                         );
                       },
                     });
@@ -65,7 +65,7 @@ export default {
                     fix: function (fixer) {
                       return fixer.replaceText(
                         parent,
-                        `export default ${context.sourceCode.getText(parent)}`
+                        `export default ${context.sourceCode.getText(parent)}`,
                       );
                     },
                   });

@@ -173,8 +173,8 @@ const EvalTestCases: {
 describe("eval", () => {
   test.each(
     EvalTestCases.filter(({ focus }) =>
-      EvalTestCases.some((v) => v.focus) ? focus : true
-    )
+      EvalTestCases.some((v) => v.focus) ? focus : true,
+    ),
   )('evaluate: "$expr"', ({ expr, expected }) => {
     const parseRes = parse(expr);
     if (result.isErr(parseRes)) {
@@ -188,10 +188,10 @@ describe("eval", () => {
           (path) => {
             return sources[path as keyof typeof sources];
           },
-          []
+          [],
         ),
-        result.map((v) => selectorToVal(v))
-      )
+        result.map((v) => selectorToVal(v)),
+      ),
     ).toStrictEqual(expected);
   });
   //

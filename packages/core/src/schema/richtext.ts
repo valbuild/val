@@ -12,9 +12,12 @@ export type SerializedRichTextSchema = {
 
 export class RichTextSchema<
   O extends RichTextOptions,
-  Src extends RichTextSource<O> | null
+  Src extends RichTextSource<O> | null,
 > extends Schema<Src> {
-  constructor(readonly options: O, readonly opt: boolean = false) {
+  constructor(
+    readonly options: O,
+    readonly opt: boolean = false,
+  ) {
     super();
   }
 
@@ -52,7 +55,7 @@ export class RichTextSchema<
 }
 
 export const richtext = <O extends RichTextOptions>(
-  options?: O
+  options?: O,
 ): Schema<RichTextSource<O>> => {
   return new RichTextSchema<O, RichTextSource<O>>(options ?? ({} as O));
 };

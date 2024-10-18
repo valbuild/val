@@ -112,7 +112,7 @@ export function ValRichText<O extends RichTextOptions>({
   transform?: (
     node: RichTextNode,
     children: ReactNode | ReactNode[],
-    className?: string
+    className?: string,
   ) => JSX.Element | string | undefined;
 }) {
   const root = children as RichText<AllRichTextOptions>;
@@ -127,7 +127,7 @@ export function ValRichText<O extends RichTextOptions>({
     const className = classNameOfTag(
       child.tag,
       child.tag === "span" ? child.styles : [],
-      theme
+      theme,
     );
     if (child.tag === "img") {
       const transformed = transform && transform(child, []);
@@ -156,7 +156,7 @@ export function ValRichText<O extends RichTextOptions>({
       const transformed = transform(
         child as RichTextNode,
         children ?? [],
-        className
+        className,
       );
       if (transformed !== undefined) {
         return transformed;
@@ -180,7 +180,7 @@ export function ValRichText<O extends RichTextOptions>({
 function classNameOfTag(
   tag: string,
   style: Styles<AllRichTextOptions>[],
-  theme?: Partial<AllThemes>
+  theme?: Partial<AllThemes>,
 ) {
   let thisTagClassName: string | null = null;
   if (theme && tag in theme) {

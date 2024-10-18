@@ -11,6 +11,8 @@ import { createFilePatch } from "./FileField";
 import { Patch } from "@valbuild/core/patch";
 import { FieldContainer } from "../FieldContainer";
 import { ImageOptions } from "@valbuild/core/src/schema/image";
+import { useValConfig } from "../../ValConfigContext";
+import { ConfigDirectory } from "@valbuild/core/src/initVal";
 
 export function ImageField({
   path,
@@ -41,6 +43,7 @@ export function ImageField({
     setHotspot(defaultValue?.metadata?.hotspot);
   }, [defaultValue]);
 
+  const { config } = useValConfig();
   return (
     <FieldContainer>
       <div className="pr-6 w-fit">
@@ -155,7 +158,8 @@ export function ImageField({
                           path,
                           data.src,
                           data.filename ?? null,
-                          metadata
+                          metadata,
+                          config.files?.directory as ConfigDirectory
                         )
                       )
                     ).finally(() => {

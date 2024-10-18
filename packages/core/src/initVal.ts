@@ -3,7 +3,7 @@
 import { define } from "./module";
 import { InitSchema, initSchema } from "./initSchema";
 import { getValPath as getPath } from "./val";
-import { file } from "./source/file";
+import { initFile } from "./source/file";
 import { richtext, image as rtImage } from "./source/richtext";
 import { link } from "./source/link";
 // import { i18n, I18n } from "./source/future/i18n";
@@ -12,9 +12,9 @@ import { link } from "./source/link";
 export type ContentConstructor = {
   define: typeof define;
   // remote: typeof remote;
-  file: typeof file;
+  file: ReturnType<typeof initFile>;
   rt: {
-    image: typeof file;
+    image: ReturnType<typeof initFile>;
     link: typeof link;
   };
   richtext: typeof richtext;
@@ -23,9 +23,14 @@ export type ValConstructor = {
   unstable_getPath: typeof getPath;
 };
 
+export type ConfigDirectory = `/public/${string}`;
+
 export type ValConfig = {
   project?: string;
   root?: string;
+  files?: {
+    directory: ConfigDirectory;
+  };
   gitCommit?: string;
   gitBranch?: string;
 };
@@ -80,7 +85,7 @@ InitVal => {
     c: {
       define,
       // remote,
-      file,
+      file: initFile(config),
       richtext,
       rt: {
         image: rtImage,

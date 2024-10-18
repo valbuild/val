@@ -26,14 +26,14 @@ const MIN_NEXT_VERSION = "13.4.0";
 let maxResetLength = 0;
 export async function init(
   root: string = process.cwd(),
-  { yes: defaultAnswers }: { yes?: boolean } = {}
+  { yes: defaultAnswers }: { yes?: boolean } = {},
 ) {
   logger.info(
     "Initializing " +
       chalk.bgBlack.hex("#37cd99")("Val") +
       ' in "' +
       root +
-      '"...\n'
+      '"...\n',
   );
   process.stdout.write("Analyzing project...");
   const analysis = await analyze(path.resolve(root), walk(path.resolve(root)));
@@ -126,7 +126,7 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
   }
   const analysis: Analysis = { root };
   const packageJsonPath = files.find(
-    (file) => file === [root, "package.json"].join(sep)
+    (file) => file === [root, "package.json"].join(sep),
   );
   analysis.packageJsonDir = packageJsonPath && path.dirname(packageJsonPath);
 
@@ -148,7 +148,7 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
         analysis.valNextVersion = packageJson.dependencies["@valbuild/next"];
       } catch (err) {
         throw new Error(
-          `Failed to parse package.json in file: ${packageJsonPath}`
+          `Failed to parse package.json in file: ${packageJsonPath}`,
         );
       }
     }
@@ -158,7 +158,7 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
     if (minNextVersion) {
       analysis.nextVersionIsSatisfied = semver.satisfies(
         minNextVersion,
-        ">=" + MIN_NEXT_VERSION
+        ">=" + MIN_NEXT_VERSION,
       );
     }
   }
@@ -167,7 +167,7 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
     if (minValVersion) {
       analysis.valNextVersionIsSatisfied = semver.satisfies(
         minValVersion,
-        ">=" + MIN_VAL_VERSION
+        ">=" + MIN_VAL_VERSION,
       );
     }
   }
@@ -176,7 +176,7 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
     if (minValVersion) {
       analysis.valCoreVersionIsSatisfied = semver.satisfies(
         minValVersion,
-        ">=" + MIN_VAL_VERSION
+        ">=" + MIN_VAL_VERSION,
       );
     }
   }
@@ -187,7 +187,7 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
     if (analysis.eslintRcJsText) {
       // TODO: Evaluate and extract config?
       analysis.isValEslintRulesConfigured = analysis.eslintRcJsText.includes(
-        "plugin:@valbuild/recommended"
+        "plugin:@valbuild/recommended",
       );
     }
   }
@@ -197,12 +197,12 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
   if (analysis.eslintRcJsonPath) {
     analysis.eslintRcJsonText = fs.readFileSync(
       analysis.eslintRcJsonPath,
-      "utf8"
+      "utf8",
     );
     if (analysis.eslintRcJsonText) {
       // TODO: Parse properly
       analysis.isValEslintRulesConfigured = analysis.eslintRcJsonText.includes(
-        "plugin:@valbuild/recommended"
+        "plugin:@valbuild/recommended",
       );
     }
   }
@@ -295,7 +295,7 @@ type Plan = Partial<{
 
 async function plan(
   analysis: Readonly<Analysis>,
-  defaultAnswers: boolean = false
+  defaultAnswers: boolean = false,
 ): Promise<Plan> {
   const plan: Plan = { root: analysis.root };
 
@@ -329,7 +329,7 @@ async function plan(
   } else {
     if (!analysis.valCoreVersionIsSatisfied) {
       logger.warn(
-        `  This init script expects @valbuild/core >= ${MIN_VAL_VERSION}. Found: ${analysis.valCoreVersion}`
+        `  This init script expects @valbuild/core >= ${MIN_VAL_VERSION}. Found: ${analysis.valCoreVersion}`,
       );
       const answer = !defaultAnswers
         ? await confirm({
@@ -339,14 +339,14 @@ async function plan(
         : false;
       if (!answer) {
         logger.error(
-          `Aborted: @valbuild/core version is not satisfied.\n\nInstall the @valbuild/core@${MIN_VAL_VERSION} package with your favorite package manager.\n\nExample:\n\n  npm install -D @valbuild/core@${MIN_VAL_VERSION}\n`
+          `Aborted: @valbuild/core version is not satisfied.\n\nInstall the @valbuild/core@${MIN_VAL_VERSION} package with your favorite package manager.\n\nExample:\n\n  npm install -D @valbuild/core@${MIN_VAL_VERSION}\n`,
         );
         return { abort: true };
       }
     } else {
       logger.info(
         `  Val version: found ${analysis.valCoreVersion} >= ${MIN_VAL_VERSION}`,
-        { isGood: true }
+        { isGood: true },
       );
     }
   }
@@ -356,7 +356,7 @@ async function plan(
   } else {
     if (!analysis.valNextVersionIsSatisfied) {
       logger.warn(
-        `  This init script expects @valbuild/next >= ${MIN_VAL_VERSION}. Found: ${analysis.valNextVersion}`
+        `  This init script expects @valbuild/next >= ${MIN_VAL_VERSION}. Found: ${analysis.valNextVersion}`,
       );
       const answer = !defaultAnswers
         ? await confirm({
@@ -366,26 +366,26 @@ async function plan(
         : false;
       if (!answer) {
         logger.error(
-          `Aborted: @valbuild/next version is not satisfied.\n\nInstall the @valbuild/next@${MIN_VAL_VERSION} package with your favorite package manager.\n\nExample:\n\n  npm install -D @valbuild/next@${MIN_VAL_VERSION}\n`
+          `Aborted: @valbuild/next version is not satisfied.\n\nInstall the @valbuild/next@${MIN_VAL_VERSION} package with your favorite package manager.\n\nExample:\n\n  npm install -D @valbuild/next@${MIN_VAL_VERSION}\n`,
         );
         return { abort: true };
       }
     } else {
       logger.info(
         `  Val version: found ${analysis.valNextVersion} >= ${MIN_VAL_VERSION}`,
-        { isGood: true }
+        { isGood: true },
       );
     }
   }
   if (!analysis.nextVersionIsSatisfied) {
     logger.error(
-      `Val requires Next.js >= ${MIN_NEXT_VERSION}. Found: ${analysis.nextVersion}`
+      `Val requires Next.js >= ${MIN_NEXT_VERSION}. Found: ${analysis.nextVersion}`,
     );
     return { abort: true };
   } else {
     logger.info(
       `  Next.js version: found ${analysis.nextVersion} >= ${MIN_NEXT_VERSION}`,
-      { isGood: true }
+      { isGood: true },
     );
   }
   if (analysis.isTypeScript) {
@@ -426,7 +426,7 @@ async function plan(
       : false;
     if (!answer) {
       logger.error(
-        "Aborted: the Val eslint plugin is not installed.\n\nInstall the @valbuild/eslint-plugin package with your favorite package manager.\n\nExample:\n\n  npm install -D @valbuild/eslint-plugin\n"
+        "Aborted: the Val eslint plugin is not installed.\n\nInstall the @valbuild/eslint-plugin package with your favorite package manager.\n\nExample:\n\n  npm install -D @valbuild/eslint-plugin\n",
       );
       return { abort: true };
     }
@@ -445,7 +445,7 @@ async function plan(
         "  Git state: clean (only package.json / lock files modified)",
         {
           isGood: true,
-        }
+        },
       );
     } else {
       logger.info("  Git state: clean", { isGood: true });
@@ -474,11 +474,11 @@ async function plan(
   // New required files:
   const valConfigPath = path.join(
     analysis.root,
-    analysis.isTypeScript ? "val.config.ts" : "val.config.js"
+    analysis.isTypeScript ? "val.config.ts" : "val.config.js",
   );
   if (fs.existsSync(valConfigPath)) {
     logger.error(
-      `Aborted: a Val config file: ${valConfigPath} already exists.`
+      `Aborted: a Val config file: ${valConfigPath} already exists.`,
     );
     return { abort: true };
   }
@@ -499,7 +499,7 @@ async function plan(
       const exampleDir = path.join(analysis.srcDir, "examples", "val");
       const examplePath = path.join(
         exampleDir,
-        "example.val." + (analysis.isJavaScript ? "js" : "ts")
+        "example.val." + (analysis.isJavaScript ? "js" : "ts"),
       );
       const exampleImport = path
         .relative(exampleDir, valConfigPath)
@@ -507,12 +507,12 @@ async function plan(
         .replace(".ts", "");
       if (!analysis.packageJsonDir) {
         throw Error(
-          "Could not detect package.json directory! This is a Val bug."
+          "Could not detect package.json directory! This is a Val bug.",
         );
       }
       const exampleModuleFilePath = `/${path.relative(
         analysis.packageJsonDir,
-        examplePath
+        examplePath,
       )}`;
 
       plan.includeExample = {
@@ -520,7 +520,7 @@ async function plan(
         source: BASIC_EXAMPLE(
           exampleModuleFilePath,
           exampleImport,
-          !!analysis.isJavaScript
+          !!analysis.isJavaScript,
         ),
       };
     }
@@ -555,7 +555,7 @@ async function plan(
     .replace(".ts", "");
   const valServerPath = path.join(
     valUtilsDir,
-    analysis.isTypeScript ? "val.server.ts" : "val.server.js"
+    analysis.isTypeScript ? "val.server.ts" : "val.server.js",
   );
   plan.createValServer = {
     path: valServerPath,
@@ -571,7 +571,7 @@ async function plan(
     "(val)",
     "val",
     "[[...val]]",
-    analysis.isTypeScript ? "page.tsx" : "page.jsx"
+    analysis.isTypeScript ? "page.tsx" : "page.jsx",
   );
   const valPageImportPath = path
     .relative(path.dirname(valAppPagePath), valConfigPath)
@@ -588,7 +588,7 @@ async function plan(
     "api",
     "val",
     "[[...val]]",
-    analysis.isTypeScript ? "route.ts" : "route.js"
+    analysis.isTypeScript ? "route.ts" : "route.js",
   );
   const valRouterImportPath = path
     .relative(path.dirname(valRouterPath), valServerPath)
@@ -612,7 +612,7 @@ async function plan(
       plan.createValClient = {
         path: path.join(
           valUtilsDir,
-          analysis.isTypeScript ? "val.client.ts" : "val.client.js"
+          analysis.isTypeScript ? "val.client.ts" : "val.client.js",
         ),
         source: VAL_CLIENT(valUtilsImportPath),
       };
@@ -631,7 +631,7 @@ async function plan(
       plan.createValRsc = {
         path: path.join(
           valUtilsDir,
-          analysis.isTypeScript ? "val.rsc.ts" : "val.rsc.js"
+          analysis.isTypeScript ? "val.rsc.ts" : "val.rsc.js",
         ),
         source: VAL_RSC(valUtilsImportPath),
       };
@@ -666,7 +666,7 @@ async function plan(
           .relative(path.dirname(analysis.appRouterLayoutPath), valConfigPath)
           .replace(".js", "")
           .replace(".ts", ""),
-      }
+      },
     );
 
     const diff = diffLines(analysis.appRouterLayoutFile, res, {});
@@ -717,7 +717,7 @@ async function plan(
     } else {
       if (analysis.eslintRcJsPath) {
         logger.warn(
-          'Cannot patch eslint: found .eslintrc.js but can only patch JSON files (at the moment).\nAdd the following to your eslint config:\n\n  "extends": ["plugin:@valbuild/recommended"]\n'
+          'Cannot patch eslint: found .eslintrc.js but can only patch JSON files (at the moment).\nAdd the following to your eslint config:\n\n  "extends": ["plugin:@valbuild/recommended"]\n',
         );
       } else if (analysis.eslintRcJsonPath) {
         const answer = !defaultAnswers
@@ -730,12 +730,12 @@ async function plan(
         if (answer) {
           const currentEslintRc = fs.readFileSync(
             analysis.eslintRcJsonPath,
-            "utf-8"
+            "utf-8",
           );
           const parsedEslint = JSON.parse(currentEslintRc);
           if (typeof parsedEslint !== "object") {
             logger.error(
-              `Could not patch eslint: ${analysis.eslintRcJsonPath} was not an object`
+              `Could not patch eslint: ${analysis.eslintRcJsonPath} was not an object`,
             );
             return { abort: true };
           }
@@ -798,7 +798,7 @@ async function plan(
             logger.warn(
               `Failed to parse VS Code extensions.json found here: ${settingsPath}.${
                 err instanceof Error ? `Parse error: ${err.message}` : ""
-              }`
+              }`,
             );
             return {
               abort: true,
@@ -816,7 +816,7 @@ async function plan(
         currentSettings = {
           ...currentSettings,
           recommendations: (currentRecommendations || []).concat(
-            valBuildIntelliSense
+            valBuildIntelliSense,
           ),
         };
       }
@@ -865,12 +865,12 @@ Val was successfully initialized!
       `https://app.val.build/orgs/new${
         plan.gitRemote
           ? `?org=${encodeURIComponent(
-              plan.gitRemote.owner
+              plan.gitRemote.owner,
             )}&owner=${encodeURIComponent(
-              plan.gitRemote.owner
+              plan.gitRemote.owner,
             )}&repo=${encodeURIComponent(plan.gitRemote.repo)}`
           : ""
-      }`
+      }`,
     )}
 
 `);
@@ -879,7 +879,7 @@ Val was successfully initialized!
 function writeFile(
   fileOp: FileOp | undefined,
   rootDir: string,
-  isUpdate: boolean
+  isUpdate: boolean,
 ) {
   if (fileOp) {
     fs.mkdirSync(path.dirname(fileOp.path), { recursive: true });
@@ -887,9 +887,9 @@ function writeFile(
     logger.info(
       `  ${isUpdate ? "Patched" : "Created"} file: ${fileOp.path.replace(
         rootDir,
-        ""
+        "",
       )}`,
-      { isGood: true }
+      { isGood: true },
     );
   }
 }
@@ -907,7 +907,7 @@ function getGitStatusIsClean(gitStatus: StatusResult): Analysis["isGitClean"] {
           path === "yarn.lock" ||
           path === "pnpm-lock.yaml"
         )
-      )
+      ),
   );
   if (filteredFiles.length === 0) {
     if (gitStatus.files.length !== 0) {

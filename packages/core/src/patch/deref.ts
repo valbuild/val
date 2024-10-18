@@ -5,7 +5,7 @@ import { Patch } from "./patch";
 import { Operation } from "./operation";
 
 function derefPath(
-  path: string[]
+  path: string[],
 ): result.Result<[string[], string[] | null], PatchError> {
   const dereffedPath: string[] = [];
   let referencedPath: string[] | null = null;
@@ -19,9 +19,9 @@ function derefPath(
           return result.err(
             new PatchError(
               `Cannot reference within reference: ${segment}. Path: ${path.join(
-                "/"
-              )}`
-            )
+                "/",
+              )}`,
+            ),
           );
         }
         referencedPath.push(segment);
@@ -42,7 +42,7 @@ export type DerefPatchResult = {
 export function derefPatch<D, E>(
   patch: Operation[],
   document: D,
-  ops: Ops<D, E>
+  ops: Ops<D, E>,
 ): result.Result<DerefPatchResult, E | PatchError> {
   const fileUpdates: {
     [file: string]: string;
@@ -64,18 +64,18 @@ export function derefPatch<D, E>(
               return result.err(
                 new PatchError(
                   `Cannot sub-reference file reference at path: ${dereffedPath.join(
-                    "/"
-                  )}`
-                )
+                    "/",
+                  )}`,
+                ),
               );
             }
             if (typeof op.value !== "string") {
               return result.err(
                 new PatchError(
                   `Expected base64 encoded string value for file reference, got ${JSON.stringify(
-                    op.value
-                  )}`
-                )
+                    op.value,
+                  )}`,
+                ),
               );
             }
             fileUpdates[value[FILE_REF_PROP]] = op.value;
@@ -92,9 +92,9 @@ export function derefPatch<D, E>(
             return result.err(
               new PatchError(
                 `Unknown reference: ${JSON.stringify(
-                  op
-                )} at path: ${dereffedPath.join("/")}`
-              )
+                  op,
+                )} at path: ${dereffedPath.join("/")}`,
+              ),
             );
           }
         } else {
@@ -110,8 +110,8 @@ export function derefPatch<D, E>(
       if (typeof op.value !== "string") {
         return result.err(
           new PatchError(
-            `File operation must have a value that is typeof string. Found: ${typeof op.value}`
-          )
+            `File operation must have a value that is typeof string. Found: ${typeof op.value}`,
+          ),
         );
       }
       fileUpdates[op.filePath] = op.value;

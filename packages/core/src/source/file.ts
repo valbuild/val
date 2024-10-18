@@ -1,4 +1,5 @@
 import { VAL_EXTENSION } from ".";
+import { ValConfig } from "../initVal";
 import { Json } from "../Json";
 
 export const FILE_REF_PROP = "_ref" as const;
@@ -22,23 +23,63 @@ export type FileSource<
   readonly patch_id?: string;
 };
 
-export function file<Metadata extends { readonly [key: string]: Json }>(
-  ref: `/public/${string}`,
-  metadata: Metadata
-): FileSource<Metadata>;
-export function file(
-  ref: `/public/${string}`,
-  metadata?: undefined
-): FileSource<undefined>;
-export function file<
-  Metadata extends { readonly [key: string]: Json } | undefined
->(ref: `/public/${string}`, metadata?: Metadata): FileSource<Metadata> {
-  return {
-    [FILE_REF_PROP]: ref,
-    [VAL_EXTENSION]: "file",
-    metadata,
-  } as FileSource<Metadata>;
-}
+export const initFile = (config?: ValConfig) => {
+  const fileDirectory = config?.files?.directory ?? "/public/val";
+
+  type FileDirectory = typeof fileDirectory;
+
+  function file<Metadata extends { readonly [key: string]: Json }>(
+    ref: `${FileDirectory}/${string}`,
+    metadata: Metadata
+  ): FileSource<Metadata>;
+
+  function file(
+    ref: `${FileDirectory}/${string}`,
+    metadata?: undefined
+  ): FileSource<undefined>;
+
+  function file<Metadata extends { readonly [key: string]: Json } | undefined>(
+    ref: `${FileDirectory}/${string}`,
+    metadata?: Metadata
+  ): FileSource<Metadata> {
+    return {
+      [FILE_REF_PROP]: ref,
+      [VAL_EXTENSION]: "file",
+      metadata,
+    } as FileSource<Metadata>;
+  }
+
+  return file;
+};
+
+// type Directory =
+//   | (typeof config extends { files: { directory: infer D } } ? D : never)
+//   | `/public/val`;
+// console.log("path", config);
+// const userSpecifiedDirectory: Directory = config ?? "/public/val";
+
+// const directory = userSpecifiedDirectory;
+
+// export function file<Metadata extends { readonly [key: string]: Json }>(
+//   ref: `${typeof directory}/${string}`,
+//   metadata: Metadata
+// ): FileSource<Metadata>;
+// export function file(
+//   ref: `${typeof directory}/${string}`,
+//   metadata?: undefined
+// ): FileSource<undefined>;
+// export function file<
+//   Metadata extends { readonly [key: string]: Json } | undefined
+// >(
+//   ref: `${typeof directory}/${string}`,
+//   metadata?: Metadata
+// ): FileSource<Metadata> {
+//   return {
+//     [FILE_REF_PROP]: ref,
+//     [VAL_EXTENSION]: "file",
+//     metadata,
+//   } as FileSource<Metadata>;
+// }
 
 export function isFile(obj: unknown): obj is FileSource {
   return (

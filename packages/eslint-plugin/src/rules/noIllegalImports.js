@@ -35,7 +35,7 @@ export default {
             "importKind" in node &&
             node["importKind"] !== "type" &&
             !node.specifiers.every(
-              (s) => "importKind" in s && s["importKind"] === "type"
+              (s) => "importKind" in s && s["importKind"] === "type",
             )
           ) {
             const message = `Val: can only 'import type' or import from source that is either: a .val.{j,t}s file, a @valbuild package, or val.config.{j,t}s.`;
