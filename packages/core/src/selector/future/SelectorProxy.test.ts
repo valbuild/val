@@ -26,7 +26,7 @@ describe("SelectorProxy", () => {
       string[]
     >;
     expectValOrExpr(
-      string1.map((a) => a).filter((a) => a.eq("foo"))
+      string1.map((a) => a).filter((a) => a.eq("foo")),
     ).toStrictEqual({
       val: ["foo"],
       [Path]: "/app/texts",
@@ -70,7 +70,7 @@ describe("SelectorProxy", () => {
     const sourcePath = "/app/numbers" as SourcePath;
     const numbersVal = newSelectorProxy(
       [1, 2, undefined, null, "test"],
-      sourcePath
+      sourcePath,
     ) as Selector<(number | string | null)[]>;
     expectValOrExpr(numbersVal.filter(string().nullable())).toStrictEqual({
       val: [null, null, "test"],
@@ -82,7 +82,7 @@ describe("SelectorProxy", () => {
     const sourcePath = "/app/blog" as SourcePath;
     const blogsVal = newSelectorProxy(
       { title: "title1" },
-      sourcePath
+      sourcePath,
     ) as Selector<{ title: string }>;
     expectValOrExpr(blogsVal).toStrictEqual({
       val: { title: "title1" },
@@ -94,7 +94,7 @@ describe("SelectorProxy", () => {
     const sourcePath = "/app/blog" as SourcePath;
     const blogsVal = newSelectorProxy(
       { title: "title1" },
-      sourcePath
+      sourcePath,
     ) as Selector<{ title: string }>;
     expectValOrExpr(blogsVal.title).toStrictEqual({
       val: "title1",
@@ -106,7 +106,7 @@ describe("SelectorProxy", () => {
     const sourcePath = "/app/blogs" as SourcePath;
     const blogsVal = newSelectorProxy(
       [{ title: "title1" }],
-      sourcePath
+      sourcePath,
     ) as Selector<{ title: string }[]>;
     expectValOrExpr(blogsVal[0]).toStrictEqual({
       val: {
@@ -120,7 +120,7 @@ describe("SelectorProxy", () => {
     const sourcePath = "/app/blogs" as SourcePath;
     const blogsVal = newSelectorProxy(
       [{ title: "title1" }],
-      sourcePath
+      sourcePath,
     ) as Selector<{ title: string }[]>;
     expectValOrExpr(blogsVal.map((v) => v)[0]).toStrictEqual({
       val: {
@@ -134,7 +134,7 @@ describe("SelectorProxy", () => {
     const sourcePath = "/app/blogs" as SourcePath;
     const blogsVal = newSelectorProxy(
       [{ title: "title1" }],
-      sourcePath
+      sourcePath,
     ) as Selector<{ title: string }[]>;
     expectValOrExpr(blogsVal.map((blog) => blog)).toStrictEqual({
       val: [{ title: "title1" }],
@@ -146,7 +146,7 @@ describe("SelectorProxy", () => {
     const sourcePath = "/app/blogs" as SourcePath;
     const blogsVal = newSelectorProxy(
       [{ title: "title1" }, { title: "title2" }],
-      sourcePath
+      sourcePath,
     ) as Selector<{ title: string }[]>;
     expectValOrExpr(blogsVal.map((blog) => blog)[0].title).toStrictEqual({
       val: "title1",
@@ -158,7 +158,7 @@ describe("SelectorProxy", () => {
     const sourcePath = "/app/blogs" as SourcePath;
     const blogsVal = newSelectorProxy(
       [{ title: "title1" }, { title: "title2" }],
-      sourcePath
+      sourcePath,
     ) as Selector<{ title: string }[]>;
     expectValOrExpr(blogsVal.map((blog) => blog.title)[0]).toStrictEqual({
       val: "title1",

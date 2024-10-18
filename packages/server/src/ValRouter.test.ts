@@ -18,7 +18,7 @@ describe("ValRouter", () => {
                   s.object({
                     name: s.string(),
                     birthdate: s.date().from("1900-01-01").to("2024-01-01"),
-                  })
+                  }),
                 ),
                 {
                   teddy: {
@@ -30,7 +30,7 @@ describe("ValRouter", () => {
                   thoram: { name: "Thomas Ramirez", birthdate: "1970-01-01" },
                   isabjo: { name: "Isak Bjørnstad", birthdate: "1970-01-01" },
                   kimmid: { name: "Kim Midtlid", birthdate: "1970-01-01" },
-                }
+                },
               ),
             }),
         },
@@ -45,9 +45,9 @@ describe("ValRouter", () => {
         },
         async onDisable() {},
         async onEnable() {},
-      }
+      },
     ),
-    (res) => res
+    (res) => res,
   );
 
   test("smoke test valid route: /tree/~", async () => {
@@ -59,7 +59,7 @@ describe("ValRouter", () => {
         headers: new Headers({
           Cookie: `val_session=${encodeJwt({}, "")}`,
         }),
-      })
+      }),
     );
     expect(serverRes).toBeDefined();
     expect(serverRes.status).toBe(200);
@@ -75,7 +75,7 @@ describe("ValRouter", () => {
         headers: new Headers({
           Cookie: `val_session=${encodeJwt({}, "")}`,
         }),
-      })
+      }),
     );
     expect(serverRes).toBeDefined();
     expect(serverRes.status).toBe(200);
@@ -87,7 +87,7 @@ describe("ValRouter", () => {
       fakeRequest({
         method: "GET",
         url: new URL("http://localhost:3000/api/val/patches/~"),
-      })
+      }),
     );
     expect(serverRes).toBeDefined();
     expect(serverRes.status).toBe(200);
@@ -99,13 +99,13 @@ describe("ValRouter", () => {
       fakeRequest({
         method: "PUT",
         url: new URL(
-          "http://localhost:3000/api/val/invalid/~?validate_all=true&validate_sources=true"
+          "http://localhost:3000/api/val/invalid/~?validate_all=true&validate_sources=true",
         ),
         json: {},
         headers: new Headers({
           Cookie: `val_session=${encodeJwt({}, "")}`,
         }),
-      })
+      }),
     );
     expect(serverRes).toBeDefined();
     expect(serverRes.status).toBe(404);

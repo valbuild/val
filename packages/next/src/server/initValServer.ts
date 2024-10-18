@@ -10,7 +10,7 @@ const initValNextAppRouter = (
   config: ValConfig,
   nextConfig: ValServerNextConfig & {
     formatter?: (code: string, filePath: string) => Promise<string> | string;
-  }
+  },
 ) => {
   const route = "/api/val"; // TODO: get from config
   const coreVersion = Internal.VERSION.core;
@@ -45,7 +45,7 @@ const initValNextAppRouter = (
           nextConfig.draftMode().disable();
         },
       },
-      nextConfig.formatter
+      nextConfig.formatter,
     ),
     (valRes): NextResponse => {
       let headersInit: HeadersInit | undefined = undefined;
@@ -64,7 +64,7 @@ const initValNextAppRouter = (
         headers.set("Set-Cookie", "");
         for (const [cookieName, cookie] of Object.entries(valRes.cookies)) {
           const cookieValue = `${cookieName}=${encodeURIComponent(
-            cookie.value || ""
+            cookie.value || "",
           )}${cookie.options?.httpOnly ? "; HttpOnly" : ""}${
             cookie.options?.secure ? "; Secure" : ""
           }${
@@ -96,7 +96,7 @@ const initValNextAppRouter = (
         headers,
         status: valRes.status,
       });
-    }
+    },
   );
 };
 
@@ -111,7 +111,7 @@ export function initValServer(
   config: ValConfig & {
     disableCache?: boolean;
   },
-  nextConfig: ValServerNextConfig
+  nextConfig: ValServerNextConfig,
 ): {
   valNextAppRouter: ReturnType<typeof initValNextAppRouter>;
 } {

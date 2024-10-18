@@ -12,5 +12,5 @@ export type FileSelector<Metadata extends FileMetadata | undefined> =
   } & Metadata extends undefined
     ? {}
     : Metadata extends Source
-    ? { readonly metadata: UnknownSelector<Metadata> }
-    : {};
+      ? { readonly metadata: UnknownSelector<Metadata> }
+      : {};

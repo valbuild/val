@@ -4,7 +4,7 @@ import sizeOf from "image-size";
 const textEncoder = new TextEncoder();
 export async function extractImageMetadata(
   filename: string,
-  input: Buffer
+  input: Buffer,
 ): Promise<ImageMetadata> {
   const imageSize = sizeOf(input);
   let mimeType: string | null = null;
@@ -40,14 +40,14 @@ export function getSha256(mimeType: string, input: Buffer): string {
   return Internal.getSHA256Hash(
     textEncoder.encode(
       // TODO: we should probably store the mimetype in the metadata and reuse it here
-      `data:${mimeType};base64,${input.toString("base64")}`
-    )
+      `data:${mimeType};base64,${input.toString("base64")}`,
+    ),
   );
 }
 
 export async function extractFileMetadata(
   filename: string,
-  input: Buffer
+  input: Buffer,
 ): Promise<FileMetadata> {
   let mimeType = Internal.filenameToMimeType(filename);
   if (!mimeType) {

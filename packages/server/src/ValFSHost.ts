@@ -14,7 +14,7 @@ export interface IValFSHost
   writeFile(
     fileName: string,
     data: string | Buffer,
-    encoding: "binary" | "utf8"
+    encoding: "binary" | "utf8",
   ): void;
   rmFile(fileName: string): void;
 }
@@ -22,7 +22,7 @@ export interface IValFSHost
 export class ValFSHost implements IValFSHost {
   constructor(
     protected readonly valFS: ValFS,
-    protected readonly currentDirectory: string
+    protected readonly currentDirectory: string,
   ) {}
 
   useCaseSensitiveFileNames = true;
@@ -31,14 +31,14 @@ export class ValFSHost implements IValFSHost {
     extensions: readonly string[],
     excludes: readonly string[] | undefined,
     includes: readonly string[],
-    depth?: number | undefined
+    depth?: number | undefined,
   ): readonly string[] {
     return this.valFS.readDirectory(
       rootDir,
       extensions,
       excludes,
       includes,
-      depth
+      depth,
     );
   }
 
@@ -49,7 +49,7 @@ export class ValFSHost implements IValFSHost {
   writeFile(
     fileName: string,
     text: string | Buffer,
-    encoding: "binary" | "utf8"
+    encoding: "binary" | "utf8",
   ): void {
     this.valFS.writeFile(fileName, text, encoding);
   }

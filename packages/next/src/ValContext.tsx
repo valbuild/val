@@ -1,5 +1,5 @@
 "use client";
-import { Json, ModuleFilePath } from "@valbuild/core";
+import { Json, ModuleFilePath, ValConfig } from "@valbuild/core";
 import React from "react";
 
 export class ValEvents {
@@ -81,11 +81,13 @@ function createSubscriberId(paths: ModuleFilePath[]): SubscriberId {
 export type ValContext = {
   readonly valEvents?: ValEvents;
   readonly enabled: boolean;
+  readonly config: ValConfig;
 };
 
 export const ValContext = React.createContext<ValContext>({
   valEvents: undefined,
   enabled: false,
+  config: {},
 });
 
 export const useValEvents = () => {

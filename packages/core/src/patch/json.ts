@@ -11,7 +11,7 @@ type JSONOpsResult<T> = result.Result<T, PatchError>;
 
 function parseAndValidateArrayInsertIndex(
   key: string,
-  nodes: ReadonlyJSONValue[]
+  nodes: ReadonlyJSONValue[],
 ): JSONOpsResult<number> {
   if (key === "-") {
     return result.ok(nodes.length);
@@ -21,28 +21,28 @@ function parseAndValidateArrayInsertIndex(
     parseAndValidateArrayIndex(key),
     result.filterOrElse(
       (index: number): boolean => index <= nodes.length,
-      () => new PatchError("Array index out of bounds")
-    )
+      () => new PatchError("Array index out of bounds"),
+    ),
   );
 }
 
 function parseAndValidateArrayInboundsIndex(
   key: string,
-  nodes: ReadonlyJSONValue[]
+  nodes: ReadonlyJSONValue[],
 ): JSONOpsResult<number> {
   return pipe(
     parseAndValidateArrayIndex(key),
     result.filterOrElse(
       (index: number): boolean => index < nodes.length,
-      () => new PatchError("Array index out of bounds")
-    )
+      () => new PatchError("Array index out of bounds"),
+    ),
   );
 }
 
 function replaceInNode(
   node: JSONValue,
   key: string,
-  value: JSONValue
+  value: JSONValue,
 ): JSONOpsResult<JSONValue> {
   if (Array.isArray(node)) {
     return pipe(
@@ -51,7 +51,7 @@ function replaceInNode(
         const replaced = node[index];
         node[index] = value;
         return replaced;
-      })
+      }),
     );
   } else if (typeof node === "object" && node !== null) {
     // Prototype pollution protection
@@ -61,7 +61,7 @@ function replaceInNode(
       return result.ok(replaced);
     } else {
       return result.err(
-        new PatchError("Cannot replace object element which does not exist")
+        new PatchError("Cannot replace object element which does not exist"),
       );
     }
   }
@@ -72,13 +72,13 @@ function replaceInNode(
 function replaceAtPath(
   document: JSONValue,
   path: string[],
-  value: JSONValue
+  value: JSONValue,
 ): JSONOpsResult<[document: JSONValue, replaced: JSONValue]> {
   if (isNotRoot(path)) {
     return pipe(
       getPointerFromPath(document, path),
       result.flatMap(([node, key]: Pointer) => replaceInNode(node, key, value)),
-      result.map((replaced: JSONValue) => [document, replaced])
+      result.map((replaced: JSONValue) => [document, replaced]),
     );
   } else {
     return result.ok([value, document]);
@@ -87,7 +87,7 @@ function replaceAtPath(
 
 function getFromNode(
   node: JSONValue,
-  key: string
+  key: string,
 ): JSONOpsResult<JSONValue | undefined> {
   if (Array.isArray(node)) {
     return pipe(
@@ -98,7 +98,7 @@ function getFromNode(
         } else {
           return result.ok(node[index]);
         }
-      })
+      }),
     );
   } else if (typeof node === "object" && node !== null) {
     // Prototype pollution protection
@@ -115,7 +115,7 @@ function getFromNode(
 type Pointer = [node: JSONValue, key: string];
 function getPointerFromPath(
   node: JSONValue,
-  path: array.NonEmptyArray<string>
+  path: array.NonEmptyArray<string>,
 ): JSONOpsResult<Pointer> {
   let targetNode: JSONValue = node;
   let key: string = path[0];
@@ -126,7 +126,7 @@ function getPointerFromPath(
     }
     if (childNode.value === undefined) {
       return result.err(
-        new PatchError("Path refers to non-existing object/array")
+        new PatchError("Path refers to non-existing object/array"),
       );
     }
     targetNode = childNode.value;
@@ -145,17 +145,17 @@ function getAtPath(node: JSONValue, path: string[]): JSONOpsResult<JSONValue> {
           result.filterOrElse(
             (childNode: JSONValue | undefined): childNode is JSONValue =>
               childNode !== undefined,
-            () => new PatchError("Path refers to non-existing object/array")
-          )
+            () => new PatchError("Path refers to non-existing object/array"),
+          ),
         ),
-      node
-    )
+      node,
+    ),
   );
 }
 
 function removeFromNode(
   node: JSONValue,
-  key: string
+  key: string,
 ): JSONOpsResult<JSONValue> {
   if (Array.isArray(node)) {
     return pipe(
@@ -163,7 +163,7 @@ function removeFromNode(
       result.map((index: number) => {
         const [removed] = node.splice(index, 1);
         return removed;
-      })
+      }),
     );
   } else if (typeof node === "object" && node !== null) {
     // Prototype pollution protection
@@ -179,18 +179,18 @@ function removeFromNode(
 
 function removeAtPath(
   document: JSONValue,
-  path: array.NonEmptyArray<string>
+  path: array.NonEmptyArray<string>,
 ): JSONOpsResult<JSONValue> {
   return pipe(
     getPointerFromPath(document, path),
-    result.flatMap(([node, key]: Pointer) => removeFromNode(node, key))
+    result.flatMap(([node, key]: Pointer) => removeFromNode(node, key)),
   );
 }
 
 function addToNode(
   node: JSONValue,
   key: string,
-  value: JSONValue
+  value: JSONValue,
 ): JSONOpsResult<JSONValue | undefined> {
   if (Array.isArray(node)) {
     return pipe(
@@ -198,7 +198,7 @@ function addToNode(
       result.map((index: number) => {
         node.splice(index, 0, value);
         return undefined;
-      })
+      }),
     );
   } else if (typeof node === "object" && node !== null) {
     let replaced: JSONValue | undefined;
@@ -216,13 +216,13 @@ function addToNode(
 function addAtPath(
   document: JSONValue,
   path: string[],
-  value: JSONValue
+  value: JSONValue,
 ): JSONOpsResult<[document: JSONValue, replaced?: JSONValue]> {
   if (isNotRoot(path)) {
     return pipe(
       getPointerFromPath(document, path),
       result.flatMap(([node, key]: Pointer) => addToNode(node, key, value)),
-      result.map((replaced: JSONValue | undefined) => [document, replaced])
+      result.map((replaced: JSONValue | undefined) => [document, replaced]),
     );
   } else {
     return result.ok([value, document]);
@@ -230,7 +230,7 @@ function addAtPath(
 }
 
 function pickDocument<
-  T extends readonly [document: ReadonlyJSONValue, ...result: unknown[]]
+  T extends readonly [document: ReadonlyJSONValue, ...result: unknown[]],
 >([document]: T): T[0] {
   return document;
 }
@@ -238,67 +238,67 @@ function pickDocument<
 export class JSONOps implements Ops<JSONValue, never> {
   get(
     document: JSONValue,
-    path: string[]
+    path: string[],
   ): result.Result<JSONValue, PatchError> {
     return getAtPath(document, path);
   }
   add(
     document: JSONValue,
     path: string[],
-    value: JSONValue
+    value: JSONValue,
   ): result.Result<JSONValue, PatchError> {
     return pipe(addAtPath(document, path, value), result.map(pickDocument));
   }
   remove(
     document: JSONValue,
-    path: array.NonEmptyArray<string>
+    path: array.NonEmptyArray<string>,
   ): result.Result<JSONValue, PatchError> {
     return pipe(
       removeAtPath(document, path),
-      result.map(() => document)
+      result.map(() => document),
     );
   }
   replace(
     document: JSONValue,
     path: string[],
-    value: JSONValue
+    value: JSONValue,
   ): result.Result<JSONValue, PatchError> {
     return pipe(replaceAtPath(document, path, value), result.map(pickDocument));
   }
   move(
     document: JSONValue,
     from: array.NonEmptyArray<string>,
-    path: string[]
+    path: string[],
   ): result.Result<JSONValue, PatchError> {
     return pipe(
       removeAtPath(document, from),
       result.flatMap((removed: JSONValue) =>
-        addAtPath(document, path, removed)
+        addAtPath(document, path, removed),
       ),
-      result.map(pickDocument)
+      result.map(pickDocument),
     );
   }
   copy(
     document: JSONValue,
     from: string[],
-    path: string[]
+    path: string[],
   ): result.Result<JSONValue, PatchError> {
     return pipe(
       getAtPath(document, from),
       result.flatMap((value: JSONValue) =>
-        addAtPath(document, path, deepClone(value))
+        addAtPath(document, path, deepClone(value)),
       ),
-      result.map(pickDocument)
+      result.map(pickDocument),
     );
   }
   test(
     document: JSONValue,
     path: string[],
-    value: JSONValue
+    value: JSONValue,
   ): result.Result<boolean, PatchError> {
     return pipe(
       getAtPath(document, path),
-      result.map((documentValue: JSONValue) => deepEqual(value, documentValue))
+      result.map((documentValue: JSONValue) => deepEqual(value, documentValue)),
     );
   }
 }

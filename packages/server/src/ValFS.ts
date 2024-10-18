@@ -9,13 +9,13 @@ export interface ValFS {
     extensions: readonly string[],
     excludes: readonly string[] | undefined,
     includes: readonly string[],
-    depth?: number | undefined
+    depth?: number | undefined,
   ): readonly string[];
 
   writeFile(
     filePath: string,
     data: string | Buffer,
-    encoding: "binary" | "utf8"
+    encoding: "binary" | "utf8",
   ): void;
 
   fileExists(filePath: string): boolean;

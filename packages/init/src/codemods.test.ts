@@ -42,7 +42,7 @@ describe("codemods", () => {
       },
       {
         configImportPath: "../val.config",
-      }
+      },
     );
     expect(res).toEqual(`import { ValProvider } from "@valbuild/next";
 import { config } from "../val.config";

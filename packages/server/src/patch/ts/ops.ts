@@ -64,7 +64,7 @@ function createPropertyAssignment(key: string, value: JSONValue) {
     isValidIdentifier(key)
       ? ts.factory.createIdentifier(key)
       : ts.factory.createStringLiteral(key),
-    toExpression(value)
+    toExpression(value),
   );
 }
 
@@ -79,10 +79,10 @@ function createValFileReference(value: FileSource) {
   return ts.factory.createCallExpression(
     ts.factory.createPropertyAccessExpression(
       ts.factory.createIdentifier("c"),
-      ts.factory.createIdentifier("file")
+      ts.factory.createIdentifier("file"),
     ),
     undefined,
-    args
+    args,
   );
 }
 
@@ -98,12 +98,12 @@ function createValRichTextImage(value: FileSource) {
     ts.factory.createPropertyAccessExpression(
       ts.factory.createPropertyAccessExpression(
         ts.factory.createIdentifier("c"),
-        "rt"
+        "rt",
       ),
-      ts.factory.createIdentifier("image")
+      ts.factory.createIdentifier("image"),
     ),
     undefined,
-    args
+    args,
   );
 }
 
@@ -117,12 +117,12 @@ function createValLink(value: LinkSource) {
     ts.factory.createPropertyAccessExpression(
       ts.factory.createPropertyAccessExpression(
         ts.factory.createIdentifier("c"),
-        "rt"
+        "rt",
       ),
-      ts.factory.createIdentifier("link")
+      ts.factory.createIdentifier("link"),
     ),
     undefined,
-    args
+    args,
   );
 }
 
@@ -149,8 +149,8 @@ function toExpression(value: JSONValue): ts.Expression {
     }
     return ts.factory.createObjectLiteralExpression(
       Object.entries(value).map(([key, value]) =>
-        createPropertyAssignment(key, value)
-      )
+        createPropertyAssignment(key, value),
+      ),
     );
   } else {
     return ts.factory.createStringLiteral(value);
@@ -168,26 +168,26 @@ const printer = ts.createPrinter({
 function replaceNodeValue<T extends ts.Node>(
   document: ts.SourceFile,
   node: T,
-  value: JSONValue
+  value: JSONValue,
 ): [document: ts.SourceFile, replaced: T] {
   const replacementText = printer.printNode(
     ts.EmitHint.Unspecified,
     toExpression(value),
-    document
+    document,
   );
   const span = ts.createTextSpanFromBounds(
     node.getStart(document, false),
-    node.end
+    node.end,
   );
   const newText = `${document.text.substring(
     0,
-    span.start
+    span.start,
   )}${replacementText}${document.text.substring(ts.textSpanEnd(span))}`;
 
   return [
     document.update(
       newText,
-      ts.createTextChangeRange(span, replacementText.length)
+      ts.createTextChangeRange(span, replacementText.length),
     ),
     node,
   ];
@@ -228,7 +228,7 @@ function insertAt<T extends ts.Node>(
   document: ts.SourceFile,
   nodes: ts.NodeArray<T>,
   index: number,
-  node: T
+  node: T,
 ): ts.SourceFile {
   let span: ts.TextSpan;
   let replacementText: string;
@@ -237,7 +237,7 @@ function insertAt<T extends ts.Node>(
     replacementText = printer.printNode(
       ts.EmitHint.Unspecified,
       node,
-      document
+      document,
     );
     span = ts.createTextSpanFromBounds(nodes.pos, nodes.end);
   } else if (index === nodes.length) {
@@ -246,7 +246,7 @@ function insertAt<T extends ts.Node>(
     replacementText = `${getSeparator(document, neighbor)}${printer.printNode(
       ts.EmitHint.Unspecified,
       node,
-      document
+      document,
     )}`;
     span = ts.createTextSpan(neighbor.end, 0);
   } else {
@@ -255,26 +255,26 @@ function insertAt<T extends ts.Node>(
     replacementText = `${printer.printNode(
       ts.EmitHint.Unspecified,
       node,
-      document
+      document,
     )}${getSeparator(document, neighbor)}`;
     span = ts.createTextSpan(neighbor.getStart(document, true), 0);
   }
 
   const newText = `${document.text.substring(
     0,
-    span.start
+    span.start,
   )}${replacementText}${document.text.substring(ts.textSpanEnd(span))}`;
 
   return document.update(
     newText,
-    ts.createTextChangeRange(span, replacementText.length)
+    ts.createTextChangeRange(span, replacementText.length),
   );
 }
 
 function removeAt<T extends ts.Node>(
   document: ts.SourceFile,
   nodes: ts.NodeArray<T>,
-  index: number
+  index: number,
 ): [document: ts.SourceFile, removed: T] {
   const node = nodes[index];
   let span: ts.TextSpan;
@@ -290,12 +290,12 @@ function removeAt<T extends ts.Node>(
     const neighbor = nodes[index + 1];
     span = ts.createTextSpanFromBounds(
       node.getStart(document, true),
-      neighbor.getStart(document, true)
+      neighbor.getStart(document, true),
     );
   }
   const newText = `${document.text.substring(
     0,
-    span.start
+    span.start,
   )}${document.text.substring(ts.textSpanEnd(span))}`;
 
   return [document.update(newText, ts.createTextChangeRange(span, 0)), node];
@@ -303,7 +303,7 @@ function removeAt<T extends ts.Node>(
 
 function parseAndValidateArrayInsertIndex(
   key: string,
-  nodes: ReadonlyArray<ts.Expression>
+  nodes: ReadonlyArray<ts.Expression>,
 ): TSOpsResult<number> {
   if (key === "-") {
     // For insertion, all nodes up until the insertion index must be valid
@@ -329,13 +329,13 @@ function parseAndValidateArrayInsertIndex(
       } else {
         return result.ok(index);
       }
-    })
+    }),
   );
 }
 
 function parseAndValidateArrayInboundsIndex(
   key: string,
-  nodes: ReadonlyArray<ts.Expression>
+  nodes: ReadonlyArray<ts.Expression>,
 ): TSOpsResult<number> {
   return pipe(
     parseAndValidateArrayIndex(key),
@@ -351,7 +351,7 @@ function parseAndValidateArrayInboundsIndex(
       } else {
         return result.ok(index);
       }
-    })
+    }),
   );
 }
 
@@ -359,14 +359,14 @@ function replaceInNode(
   document: ts.SourceFile,
   node: ts.Expression,
   key: string,
-  value: JSONValue
+  value: JSONValue,
 ): TSOpsResult<[document: ts.SourceFile, replaced: ts.Expression]> {
   if (ts.isArrayLiteralExpression(node)) {
     return pipe(
       parseAndValidateArrayInboundsIndex(key, node.elements),
       result.map((index: number) =>
-        replaceNodeValue(document, node.elements[index], value)
-      )
+        replaceNodeValue(document, node.elements[index], value),
+      ),
     );
   } else if (ts.isObjectLiteralExpression(node)) {
     return pipe(
@@ -374,27 +374,29 @@ function replaceInNode(
       result.flatMap((assignment): TSOpsResult<ts.PropertyAssignment> => {
         if (!assignment) {
           return result.err(
-            new PatchError("Cannot replace object element which does not exist")
+            new PatchError(
+              "Cannot replace object element which does not exist",
+            ),
           );
         }
         return result.ok(assignment);
       }),
       result.map((assignment: ts.PropertyAssignment) =>
-        replaceNodeValue(document, assignment.initializer, value)
-      )
+        replaceNodeValue(document, assignment.initializer, value),
+      ),
     );
   } else if (isValFileMethodCall(node)) {
     if (key === FILE_REF_PROP) {
       if (typeof value !== "string") {
         return result.err(
           new PatchError(
-            "Cannot replace c.file reference with non-string value"
-          )
+            "Cannot replace c.file reference with non-string value",
+          ),
         );
       }
       return pipe(
         findValFileNodeArg(node),
-        result.map((refNode) => replaceNodeValue(document, refNode, value))
+        result.map((refNode) => replaceNodeValue(document, refNode, value)),
       );
     } else {
       return pipe(
@@ -403,15 +405,15 @@ function replaceInNode(
           if (!metadataArgNode) {
             return result.err(
               new PatchError(
-                "Cannot replace in c.file metadata when it does not exist"
-              )
+                "Cannot replace in c.file metadata when it does not exist",
+              ),
             );
           }
           if (key !== "metadata") {
             return result.err(
               new PatchError(
-                `Cannot replace c.file metadata key ${key} when it does not exist`
-              )
+                `Cannot replace c.file metadata key ${key} when it does not exist`,
+              ),
             );
           }
           return replaceInNode(
@@ -421,15 +423,15 @@ function replaceInNode(
               ts.factory.createPropertyAssignment(key, metadataArgNode),
             ]),
             key,
-            value
+            value,
           );
-        })
+        }),
       );
     }
   } else {
     return result.err(
       shallowValidateExpression(node) ??
-        new PatchError("Cannot replace in non-object/array")
+        new PatchError("Cannot replace in non-object/array"),
     );
   }
 }
@@ -438,14 +440,14 @@ function replaceAtPath(
   document: ts.SourceFile,
   rootNode: ts.Expression,
   path: string[],
-  value: JSONValue
+  value: JSONValue,
 ): TSOpsResult<[document: ts.SourceFile, replaced: ts.Expression]> {
   if (isNotRoot(path)) {
     return pipe(
       getPointerFromPath(rootNode, path),
       result.flatMap(([node, key]: Pointer) =>
-        replaceInNode(document, node, key, value)
-      )
+        replaceInNode(document, node, key, value),
+      ),
     );
   } else {
     return result.ok(replaceNodeValue(document, rootNode, value));
@@ -454,20 +456,20 @@ function replaceAtPath(
 
 export function getFromNode(
   node: ts.Expression,
-  key: string
+  key: string,
 ): TSOpsResult<ts.Expression | undefined> {
   if (ts.isArrayLiteralExpression(node)) {
     return pipe(
       parseAndValidateArrayInboundsIndex(key, node.elements),
-      result.map((index: number) => node.elements[index])
+      result.map((index: number) => node.elements[index]),
     );
   } else if (ts.isObjectLiteralExpression(node)) {
     return pipe(
       findObjectPropertyAssignment(node, key),
       result.map(
         (assignment: ts.PropertyAssignment | undefined) =>
-          assignment?.initializer
-      )
+          assignment?.initializer,
+      ),
     );
   } else if (isValFileMethodCall(node)) {
     if (key === FILE_REF_PROP) {
@@ -477,7 +479,7 @@ export function getFromNode(
   } else {
     return result.err(
       shallowValidateExpression(node) ??
-        new PatchError("Cannot access non-object/array")
+        new PatchError("Cannot access non-object/array"),
     );
   }
 }
@@ -485,7 +487,7 @@ export function getFromNode(
 type Pointer = [node: ts.Expression, key: string];
 function getPointerFromPath(
   node: ts.Expression,
-  path: array.NonEmptyArray<string>
+  path: array.NonEmptyArray<string>,
 ): TSOpsResult<Pointer> {
   let targetNode: ts.Expression = node;
   let key: string = path[0];
@@ -497,8 +499,8 @@ function getPointerFromPath(
     if (childNode.value === undefined) {
       return result.err(
         new PatchError(
-          `Path refers to non-existing object/array: ${path.join("/")}`
-        )
+          `Path refers to non-existing object/array: ${path.join("/")}`,
+        ),
       );
     }
     targetNode = childNode.value;
@@ -509,7 +511,7 @@ function getPointerFromPath(
 
 function getAtPath(
   rootNode: ts.Expression,
-  path: string[]
+  path: string[],
 ): TSOpsResult<ts.Expression> {
   return pipe(
     path,
@@ -519,52 +521,52 @@ function getAtPath(
           getFromNode(node, key),
           result.filterOrElse(
             (
-              childNode: ts.Expression | undefined
+              childNode: ts.Expression | undefined,
             ): childNode is ts.Expression => childNode !== undefined,
             (): PatchError | ValSyntaxErrorTree =>
-              new PatchError("Path refers to non-existing object/array")
-          )
+              new PatchError("Path refers to non-existing object/array"),
+          ),
         ),
-      rootNode
-    )
+      rootNode,
+    ),
   );
 }
 
 function removeFromNode(
   document: ts.SourceFile,
   node: ts.Expression,
-  key: string
+  key: string,
 ): TSOpsResult<[document: ts.SourceFile, removed: ts.Expression]> {
   if (ts.isArrayLiteralExpression(node)) {
     return pipe(
       parseAndValidateArrayInboundsIndex(key, node.elements),
-      result.map((index: number) => removeAt(document, node.elements, index))
+      result.map((index: number) => removeAt(document, node.elements, index)),
     );
   } else if (ts.isObjectLiteralExpression(node)) {
     return pipe(
       findObjectPropertyAssignment(node, key),
       result.flatMap(
         (
-          assignment: ts.PropertyAssignment | undefined
+          assignment: ts.PropertyAssignment | undefined,
         ): TSOpsResult<ts.PropertyAssignment> => {
           if (!assignment) {
             return result.err(
               new PatchError(
-                "Cannot replace object element which does not exist"
-              )
+                "Cannot replace object element which does not exist",
+              ),
             );
           }
           return result.ok(assignment);
-        }
+        },
       ),
       result.map((assignment: ts.PropertyAssignment) => [
         removeAt(
           document,
           node.properties,
-          node.properties.indexOf(assignment)
+          node.properties.indexOf(assignment),
         )[0],
         assignment.initializer,
-      ])
+      ]),
     );
   } else if (isValFileMethodCall(node)) {
     if (key === FILE_REF_PROP) {
@@ -576,18 +578,18 @@ function removeFromNode(
           if (!metadataArgNode) {
             return result.err(
               new PatchError(
-                "Cannot remove from c.file metadata when it does not exist"
-              )
+                "Cannot remove from c.file metadata when it does not exist",
+              ),
             );
           }
           return removeFromNode(document, metadataArgNode, key);
-        })
+        }),
       );
     }
   } else {
     return result.err(
       shallowValidateExpression(node) ??
-        new PatchError("Cannot remove from non-object/array")
+        new PatchError("Cannot remove from non-object/array"),
     );
   }
 }
@@ -595,13 +597,13 @@ function removeFromNode(
 function removeAtPath(
   document: ts.SourceFile,
   rootNode: ts.Expression,
-  path: array.NonEmptyArray<string>
+  path: array.NonEmptyArray<string>,
 ): TSOpsResult<[document: ts.SourceFile, removed: ts.Expression]> {
   return pipe(
     getPointerFromPath(rootNode, path),
     result.flatMap(([node, key]: Pointer) =>
-      removeFromNode(document, node, key)
-    )
+      removeFromNode(document, node, key),
+    ),
   );
 }
 
@@ -619,7 +621,7 @@ export function isValFileValue(value: JSONValue): value is FileSource<{
   );
 }
 function isValRichTextImageValue(
-  value: JSONValue
+  value: JSONValue,
 ): value is FileSource<ImageMetadata> {
   return !!(
     typeof value === "object" &&
@@ -646,14 +648,14 @@ function addToNode(
   document: ts.SourceFile,
   node: ts.Expression,
   key: string,
-  value: JSONValue
+  value: JSONValue,
 ): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Expression]> {
   if (ts.isArrayLiteralExpression(node)) {
     return pipe(
       parseAndValidateArrayInsertIndex(key, node.elements),
       result.map((index: number): [document: ts.SourceFile] => [
         insertAt(document, node.elements, index, toExpression(value)),
-      ])
+      ]),
     );
   } else if (ts.isObjectLiteralExpression(node)) {
     if (key === FILE_REF_PROP) {
@@ -663,7 +665,7 @@ function addToNode(
       findObjectPropertyAssignment(node, key),
       result.map(
         (
-          assignment: ts.PropertyAssignment | undefined
+          assignment: ts.PropertyAssignment | undefined,
         ): [document: ts.SourceFile, replaced?: ts.Expression] => {
           if (!assignment) {
             return [
@@ -671,29 +673,29 @@ function addToNode(
                 document,
                 node.properties,
                 node.properties.length,
-                createPropertyAssignment(key, value)
+                createPropertyAssignment(key, value),
               ),
             ];
           } else {
             return replaceNodeValue(document, assignment.initializer, value);
           }
-        }
-      )
+        },
+      ),
     );
   } else if (isValFileMethodCall(node)) {
     if (key === FILE_REF_PROP) {
       if (typeof value !== "string") {
         return result.err(
           new PatchError(
-            `Cannot add ${FILE_REF_PROP} key to c.file with non-string value`
-          )
+            `Cannot add ${FILE_REF_PROP} key to c.file with non-string value`,
+          ),
         );
       }
       return pipe(
         findValFileNodeArg(node),
         result.map((arg: ts.Expression) =>
-          replaceNodeValue(document, arg, value)
-        )
+          replaceNodeValue(document, arg, value),
+        ),
       );
     } else {
       return pipe(
@@ -702,15 +704,15 @@ function addToNode(
           if (metadataArgNode) {
             return result.err(
               new PatchError(
-                "Cannot add metadata to c.file when it already exists"
-              )
+                "Cannot add metadata to c.file when it already exists",
+              ),
             );
           }
           if (key !== "metadata") {
             return result.err(
               new PatchError(
-                `Cannot add ${key} key to c.file: only metadata is allowed`
-              )
+                `Cannot add ${key} key to c.file: only metadata is allowed`,
+              ),
             );
           }
           return result.ok([
@@ -718,16 +720,16 @@ function addToNode(
               document,
               node.arguments,
               node.arguments.length,
-              toExpression(value)
+              toExpression(value),
             ),
           ]);
-        })
+        }),
       );
     }
   } else {
     return result.err(
       shallowValidateExpression(node) ??
-        new PatchError("Cannot add to non-object/array")
+        new PatchError("Cannot add to non-object/array"),
     );
   }
 }
@@ -736,14 +738,14 @@ function addAtPath(
   document: ts.SourceFile,
   rootNode: ts.Expression,
   path: string[],
-  value: JSONValue
+  value: JSONValue,
 ): TSOpsResult<[document: ts.SourceFile, replaced?: ts.Expression]> {
   if (isNotRoot(path)) {
     return pipe(
       getPointerFromPath(rootNode, path),
       result.flatMap(([node, key]: Pointer) =>
-        addToNode(document, node, key, value)
-      )
+        addToNode(document, node, key, value),
+      ),
     );
   } else {
     return result.ok(replaceNodeValue(document, rootNode, value));
@@ -751,7 +753,7 @@ function addAtPath(
 }
 
 function pickDocument<
-  T extends readonly [document: ts.SourceFile, ...rest: unknown[]]
+  T extends readonly [document: ts.SourceFile, ...rest: unknown[]],
 >([document]: T) {
   return document;
 }
@@ -759,106 +761,106 @@ function pickDocument<
 export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
   constructor(
     private findRoot: (
-      document: ts.SourceFile
-    ) => result.Result<ts.Expression, ValSyntaxErrorTree>
+      document: ts.SourceFile,
+    ) => result.Result<ts.Expression, ValSyntaxErrorTree>,
   ) {}
   get(document: ts.SourceFile, path: string[]): TSOpsResult<JSONValue> {
     return pipe(
       document,
       this.findRoot,
       result.flatMap((rootNode: ts.Expression) => getAtPath(rootNode, path)),
-      result.flatMap(evaluateExpression)
+      result.flatMap(evaluateExpression),
     );
   }
   add(
     document: ts.SourceFile,
     path: string[],
-    value: JSONValue
+    value: JSONValue,
   ): TSOpsResult<ts.SourceFile> {
     return pipe(
       document,
       this.findRoot,
       result.flatMap((rootNode: ts.Expression) =>
-        addAtPath(document, rootNode, path, value)
+        addAtPath(document, rootNode, path, value),
       ),
-      result.map(pickDocument)
+      result.map(pickDocument),
     );
   }
   remove(
     document: ts.SourceFile,
-    path: array.NonEmptyArray<string>
+    path: array.NonEmptyArray<string>,
   ): TSOpsResult<ts.SourceFile> {
     return pipe(
       document,
       this.findRoot,
       result.flatMap((rootNode: ts.Expression) =>
-        removeAtPath(document, rootNode, path)
+        removeAtPath(document, rootNode, path),
       ),
-      result.map(pickDocument)
+      result.map(pickDocument),
     );
   }
   replace(
     document: ts.SourceFile,
     path: string[],
-    value: JSONValue
+    value: JSONValue,
   ): TSOpsResult<ts.SourceFile> {
     return pipe(
       document,
       this.findRoot,
       result.flatMap((rootNode: ts.Expression) =>
-        replaceAtPath(document, rootNode, path, value)
+        replaceAtPath(document, rootNode, path, value),
       ),
-      result.map(pickDocument)
+      result.map(pickDocument),
     );
   }
   move(
     document: ts.SourceFile,
     from: array.NonEmptyArray<string>,
-    path: string[]
+    path: string[],
   ): TSOpsResult<ts.SourceFile> {
     return pipe(
       document,
       this.findRoot,
       result.flatMap((rootNode: ts.Expression) =>
-        removeAtPath(document, rootNode, from)
+        removeAtPath(document, rootNode, from),
       ),
       result.flatMap(
         ([document, removedNode]: [
           doc: ts.SourceFile,
-          removedNode: ts.Expression
+          removedNode: ts.Expression,
         ]) =>
           pipe(
             evaluateExpression(removedNode),
             result.map(
               (
-                removedValue: JSONValue
+                removedValue: JSONValue,
               ): [doc: ts.SourceFile, removedValue: JSONValue] => [
                 document,
                 removedValue,
-              ]
-            )
-          )
+              ],
+            ),
+          ),
       ),
       result.flatMap(
         ([document, removedValue]: [
           document: ts.SourceFile,
-          removedValue: JSONValue
+          removedValue: JSONValue,
         ]) =>
           pipe(
             document,
             this.findRoot,
             result.flatMap((root: ts.Expression) =>
-              addAtPath(document, root, path, removedValue)
-            )
-          )
+              addAtPath(document, root, path, removedValue),
+            ),
+          ),
       ),
-      result.map(pickDocument)
+      result.map(pickDocument),
     );
   }
   copy(
     document: ts.SourceFile,
     from: string[],
-    path: string[]
+    path: string[],
   ): TSOpsResult<ts.SourceFile> {
     return pipe(
       document,
@@ -868,24 +870,24 @@ export class TSOps implements Ops<ts.SourceFile, ValSyntaxErrorTree> {
           getAtPath(rootNode, from),
           result.flatMap(evaluateExpression),
           result.flatMap((value: JSONValue) =>
-            addAtPath(document, rootNode, path, value)
-          )
-        )
+            addAtPath(document, rootNode, path, value),
+          ),
+        ),
       ),
-      result.map(pickDocument)
+      result.map(pickDocument),
     );
   }
   test(
     document: ts.SourceFile,
     path: string[],
-    value: JSONValue
+    value: JSONValue,
   ): TSOpsResult<boolean> {
     return pipe(
       document,
       this.findRoot,
       result.flatMap((rootNode: ts.Expression) => getAtPath(rootNode, path)),
       result.flatMap(evaluateExpression),
-      result.map((documentValue: JSONValue) => deepEqual(value, documentValue))
+      result.map((documentValue: JSONValue) => deepEqual(value, documentValue)),
     );
   }
 }

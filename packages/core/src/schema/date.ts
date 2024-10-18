@@ -28,7 +28,10 @@ export type SerializedDateSchema = {
 };
 
 export class DateSchema<Src extends string | null> extends Schema<Src> {
-  constructor(readonly options?: DateOptions, readonly opt: boolean = false) {
+  constructor(
+    readonly options?: DateOptions,
+    readonly opt: boolean = false,
+  ) {
     super();
   }
 
@@ -127,7 +130,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
 }
 
 export const date = (
-  options?: Record<string, never>
+  options?: Record<string, never>,
 ): DateSchema<RawString> => {
   return new DateSchema(options);
 };

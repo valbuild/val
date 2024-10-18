@@ -6,11 +6,34 @@ import { VAL_CSS_PATH } from "../src/constants";
 import { fallbackRender } from "./fallbackRender";
 import { ValOverlay } from "./components/overlay/ValOverlay";
 import { ValRouter } from "./components/ValRouter";
+import { useEffect, useState } from "react";
+import { ValConfigProvider } from "./components/ValConfigContext";
 
 function Overlay() {
   const host = "/api/val";
   const client = createValClient(host);
-  const cache = new ValCache(client); // TODO: replace this
+
+  const [config, setConfig] = useState({});
+
+  useEffect(() => {
+    const handleConfigEvent = (event: Event) => {
+      if (event instanceof CustomEvent) {
+        if (event.detail.type === "config") {
+          setConfig(event.detail.config);
+        }
+      }
+    };
+
+    window.addEventListener("val-config-event", handleConfigEvent);
+
+    // Send init event here to let the next app know that the overlay is ready for events
+    const event = new CustomEvent("val-overlay-ready");
+    window.dispatchEvent(event);
+
+    return () => {
+      window.removeEventListener("val-config-event", handleConfigEvent);
+    };
+  }, []);
 
   return (
     <ShadowRoot>
@@ -39,22 +62,22 @@ function Overlay() {
         href={`${host || "/api/val"}/static${VAL_CSS_PATH}`}
       />
       <ErrorBoundary fallbackRender={fallbackRender}>
-        <ValRouter overlay>
-          <ValOverlay
-            client={client}
-            cache={cache}
-            className="bg-bg"
-            onSubmit={() => {
-              const event = new CustomEvent("val-event", {
-                detail: {
-                  type: "overlay-submit",
-                  refreshRequired: true,
-                },
-              });
-              window.dispatchEvent(event);
-            }}
-          />
-        </ValRouter>
+        <ValConfigProvider config={config}>
+          <ValRouter overlay>
+            <ValOverlay
+              client={client}
+              onSubmit={() => {
+                const event = new CustomEvent("val-event", {
+                  detail: {
+                    type: "overlay-submit",
+                    refreshRequired: true,
+                  },
+                });
+                window.dispatchEvent(event);
+              }}
+            />
+          </ValRouter>
+        </ValConfigProvider>
       </ErrorBoundary>
     </ShadowRoot>
   );

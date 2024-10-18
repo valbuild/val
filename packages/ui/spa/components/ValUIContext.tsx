@@ -21,37 +21,37 @@ export const ValUIContext = React.createContext<{
 }>({
   get session(): never {
     throw Error(
-      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!"
+      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!",
     );
   },
   get theme(): never {
     throw Error(
-      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!"
+      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!",
     );
   },
   get setTheme(): never {
     throw Error(
-      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!"
+      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!",
     );
   },
   get editMode(): never {
     throw Error(
-      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!"
+      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!",
     );
   },
   get setEditMode(): never {
     throw Error(
-      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!"
+      "ValUIContext not found. Ensure components are wrapped by ValUIProvider!",
     );
   },
   get setWindowSize(): never {
     throw Error(
-      "ValOverlayContext not found. Ensure components are wrapped by ValOverlayProvider!"
+      "ValOverlayContext not found. Ensure components are wrapped by ValOverlayProvider!",
     );
   },
   get windowSize(): never {
     throw Error(
-      "ValOverlayContext not found. Ensure components are wrapped by ValOverlayProvider!"
+      "ValOverlayContext not found. Ensure components are wrapped by ValOverlayProvider!",
     );
   },
 });

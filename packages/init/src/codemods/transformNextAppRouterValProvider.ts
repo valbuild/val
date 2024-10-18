@@ -3,7 +3,7 @@ import j from "jscodeshift";
 export function transformNextAppRouterValProvider(
   fileInfo: j.FileInfo,
   api: j.API,
-  options: j.Options
+  options: j.Options,
 ) {
   if (!options.configImportPath) {
     throw new Error("configImportPath is required");
@@ -15,14 +15,14 @@ export function transformNextAppRouterValProvider(
     .insertBefore(
       j.importDeclaration(
         [j.importSpecifier(j.identifier("ValProvider"))],
-        j.literal("@valbuild/next")
-      )
+        j.literal("@valbuild/next"),
+      ),
     )
     .insertBefore(
       j.importDeclaration(
         [j.importSpecifier(j.identifier("config"))],
-        j.literal(options.configImportPath)
-      )
+        j.literal(options.configImportPath),
+      ),
     );
   root
     .findJSXElements("body")
@@ -66,8 +66,8 @@ export function transformNextAppRouterValProvider(
                 },
                 type: "JSXClosingElement",
               },
-              [j.jsxExpressionContainer(j.identifier("children"))]
-            )
+              [j.jsxExpressionContainer(j.identifier("children"))],
+            ),
           );
         }
       }

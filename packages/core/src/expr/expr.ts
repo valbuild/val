@@ -10,7 +10,7 @@ export class StringLiteral extends Expr {
   public type = "StringLiteral" as const;
   constructor(
     public readonly value: string,
-    span?: [start: number, stop: number]
+    span?: [start: number, stop: number],
   ) {
     super(span);
   }
@@ -24,7 +24,7 @@ export class Sym extends Expr {
   public type = "Sym" as const;
   constructor(
     public readonly value: string,
-    span?: [start: number, stop: number]
+    span?: [start: number, stop: number],
   ) {
     super(span);
   }
@@ -40,7 +40,7 @@ export class StringTemplate extends Expr {
   public type = "StringTemplate" as const;
   constructor(
     public readonly children: readonly Expr[],
-    span?: [number, number]
+    span?: [number, number],
   ) {
     super(span);
   }
@@ -63,7 +63,7 @@ export class Call extends Expr {
   constructor(
     public readonly children: readonly Expr[],
     public readonly isAnon: boolean,
-    span?: [number, number]
+    span?: [number, number],
   ) {
     super(span);
   }
