@@ -8,10 +8,12 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Dispatch, SetStateAction, useEffect, useState } from "react";
 import { AnimateHeight } from "../../ng/components/AnimateHeight";
-import { el } from "date-fns/locale";
-import { prettifyFilename } from "../../utils/prettifyFilename";
+import { SourcePath } from "@valbuild/core";
+import { StringField } from "../../ng/fields/StringField";
+import { Popover, PopoverContent } from "../ui/popover";
+import { set } from "date-fns";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -19,6 +21,10 @@ export type ValOverlayProps = {
   disableOverlay: () => void;
 };
 
+type ValMenuProps = ValOverlayProps & {
+  setMode: Dispatch<SetStateAction<OverlayModes>>;
+  mode: OverlayModes;
+};
 type DropZones =
   | "val-menu-left-top"
   | "val-menu-left-center"
@@ -29,75 +35,107 @@ type DropZones =
   | "val-menu-right-center"
   | "val-menu-right-bottom";
 
+type OverlayModes = "select" | null;
 export function ValOverlay(props: ValOverlayProps) {
-  const [elements, setElements] = useState<HTMLElement[]>([]);
-  const [paths, setPaths] = useState<string[]>([]);
+  const [mode, setMode] = useState<OverlayModes>(null);
+  const [boundingBoxes, setBoundingBoxes] = useState<
+    {
+      top: number;
+      left: number;
+      width: number;
+      height: number;
+      path: SourcePath;
+    }[]
+  >([]);
   useEffect(() => {
-    if (props.draftMode) {
+    if (mode === "select") {
       let timeout: NodeJS.Timeout;
       const updateElements = () => {
-        const newElements: HTMLElement[] = [];
-        const newPaths: string[] = [];
+        const newBoundingBoxes: {
+          top: number;
+          left: number;
+          width: number;
+          height: number;
+          path: SourcePath;
+        }[] = [];
         document.querySelectorAll("[data-val-path]").forEach((el) => {
           const path = el.getAttribute("data-val-path");
           if (!path) {
             return;
           }
-          if (paths.includes(path)) {
-            return;
-          }
-          newPaths.push(path);
-          newElements.push(el as HTMLElement);
+          const rect = el.getBoundingClientRect();
+          newBoundingBoxes.push({
+            top: rect.top + window.scrollY,
+            left: rect.left,
+            width: rect.width,
+            height: rect.height,
+            path: path as SourcePath,
+          });
         });
-        setPaths(newPaths);
-        setElements(newElements);
-        setTimeout(updateElements, 1000);
+        setBoundingBoxes(newBoundingBoxes);
+        timeout = setTimeout(updateElements, 1000);
       };
-      // updateElements();
+      updateElements();
       return () => {
         clearTimeout(timeout);
       };
+    } else {
+      setBoundingBoxes([]);
     }
-  }, [props.draftMode]);
+  }, [mode]);
+
+  const [editPath, setEditPath] = useState<SourcePath | null>(null);
+
   return (
     <>
-      {elements.map((el, i) => {
-        const rect = el?.getBoundingClientRect();
-        const path = el?.getAttribute("data-val-path");
-        if (!rect || !path) {
-          return null;
-        }
-
+      {editPath !== null && <Window path={editPath} />}
+      {boundingBoxes.map((boundingBox, i) => {
         return (
           <div
-            className="absolute border border-fg-brand-primary hover:border-2"
+            className="absolute border border-bg-primary hover:border-2"
             onClickCapture={(ev) => {
               ev.stopPropagation();
-              console.log("clicked", path);
+              console.log("clicked", boundingBox.path);
+              setMode(null);
+              setEditPath(boundingBox.path);
             }}
             key={i}
             style={{
-              top: rect?.top + window.scrollY,
-              left: rect?.left,
-              width: rect?.width,
-              height: rect?.height,
+              top: boundingBox?.top + window.scrollY,
+              left: boundingBox?.left,
+              width: boundingBox?.width,
+              height: boundingBox?.height,
             }}
           >
-            <div
-              className="relative top-[1px] left-[1px] truncate bg-bg-brand-primary text-text-brand-primary"
-              style={{
-                fontSize: `${Math.min(rect.height - 2, 12)}px`,
-                maxHeight: `${Math.min(rect.height - 2, 16)}px`,
-                maxWidth: `${Math.min(rect.width - 2, 300)}px`,
-              }}
-            >
-              {path}
+            <div className="relative top-0 left-0 w-full">
+              <div
+                className="absolute top-[0px] right-[0px] truncate bg-bg-primary text-text-primary"
+                style={{
+                  fontSize: `${Math.min(boundingBox.height - 2, 10)}px`,
+                  maxHeight: `${Math.min(boundingBox.height - 2, 16)}px`,
+                  maxWidth: `${Math.min(boundingBox.width - 2, 300)}px`,
+                }}
+              >
+                {boundingBox.path}
+              </div>
             </div>
           </div>
         );
       })}
-      <DraggableValMenu {...props} />
+      <DraggableValMenu {...props} mode={mode} setMode={setMode} />
     </>
+  );
+}
+
+function Window({ path }: { path: SourcePath }) {
+  return (
+    <Popover>
+      <PopoverContent>
+        <div className="p-4">
+          <StringField path={path} />
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -106,11 +144,13 @@ function ValMenu({
   ghost,
   draftMode,
   setDraftMode,
+  mode,
+  setMode,
   disableOverlay,
 }: {
   dropZone: DropZones;
   ghost?: boolean;
-} & ValOverlayProps) {
+} & ValMenuProps) {
   const dir =
     dropZone === "val-menu-right-center" || dropZone === "val-menu-left-center"
       ? "vertical"
@@ -130,6 +170,15 @@ function ValMenu({
         >
           <MenuButton
             label="Pick content"
+            active={mode === "select"}
+            onClick={() =>
+              setMode((mode) => {
+                if (mode === "select") {
+                  return null;
+                }
+                return "select";
+              })
+            }
             icon={<SquareDashedMousePointer size={16} />}
           />
           <MenuButton label="Search" icon={<Search size={16} />} />
@@ -141,7 +190,8 @@ function ValMenu({
           <div className="pb-1 mt-1 border-t border-border-primary"></div>
           <MenuButton
             label="Publish"
-            icon={<Upload size={16} className="text-fg-brand-primary" />}
+            variant="primary"
+            icon={<Upload size={16} />}
           />
           <MenuButton label="Studio" icon={<PanelsTopLeft size={16} />} />
         </div>
@@ -160,7 +210,9 @@ function ValMenu({
           <MenuButton
             label="Enable draft mode"
             icon={<Edit size={16} />}
-            onClick={() => setDraftMode(true)}
+            onClick={() => {
+              setDraftMode(true);
+            }}
           />
           <MenuButton
             label="Disable Val"
@@ -176,20 +228,32 @@ function ValMenu({
 function MenuButton({
   icon,
   onClick,
+  active,
   label,
+  variant,
 }: {
   icon: React.ReactNode;
   onClick?: () => void;
+  active?: boolean;
   label?: string;
+  variant?: "primary";
 }) {
   return (
-    <button className="p-2" onClick={onClick} aria-label={label} title={label}>
+    <button
+      className={classNames("p-2 rounded-full", {
+        "bg-bg-brand-primary text-text-brand-primary": variant === "primary",
+        "border border-border-primary": !!active,
+      })}
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+    >
       {icon}
     </button>
   );
 }
 
-function DraggableValMenu(props: ValOverlayProps) {
+function DraggableValMenu(props: ValMenuProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [dropZone, setDropZone] = useState<DropZones>("val-menu-right-center");
   const [dragOverDropZone, setDragOverDropZone] = useState<DropZones | null>(
