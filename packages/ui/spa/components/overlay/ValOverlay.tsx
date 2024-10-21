@@ -420,6 +420,13 @@ function ValMenu({
             }}
           />
           <MenuButton
+            label="Studio"
+            icon={<PanelsTopLeft size={16} />}
+            onClick={() => {
+              window.open("/val");
+            }}
+          />
+          <MenuButton
             label="Disable Val"
             icon={<X size={16} />}
             onClick={() => disableOverlay()}
