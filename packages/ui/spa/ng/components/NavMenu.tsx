@@ -58,7 +58,6 @@ function NavContentExplorer({ title }: { title?: string }) {
     return <Loading />;
   }
   const root = remoteSchemaTree.data;
-
   return (
     <div className="px-2">
       {title && <div className="py-2">{title}</div>}
@@ -102,12 +101,15 @@ function sortPathTree(a: PathNode, b: PathNode) {
 }
 
 function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
-  const { navigate } = useNavigation();
+  const { navigate, currentSourcePath } = useNavigation();
+
   const [isOpen, setIsOpen] = useState(true);
   return (
     <div className="w-full">
       <button
-        className="flex justify-between w-full p-2"
+        className={classNames("flex justify-between w-full p-2", {
+          underline: fullPath === currentSourcePath,
+        })}
         onClick={() => {
           if (isDirectory) {
             setIsOpen(!isOpen);
