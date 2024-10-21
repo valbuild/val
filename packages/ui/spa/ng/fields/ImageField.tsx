@@ -1,4 +1,4 @@
-import { SourcePath } from "@valbuild/core";
+import { Internal, SourcePath } from "@valbuild/core";
 import { FieldLoading } from "../components/FieldLoading";
 import { FieldNotFound } from "../components/FieldNotFound";
 import { FieldSchemaError } from "../components/FieldSchemaError";
@@ -9,6 +9,7 @@ import {
   useAddPatch,
 } from "../ValProvider";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
+import { PreviewLoading, PreviewNull } from "../components/Preview";
 
 export function ImageField({ path }: { path: SourcePath }) {
   const type = "image";
@@ -47,9 +48,21 @@ export function ImageField({ path }: { path: SourcePath }) {
     );
   }
   const source = sourceAtPath.data;
+  if (source === undefined) {
+    return <FieldNotFound path={path} type={type} />;
+  }
+  if (source === null) {
+    // TODO: what to do here?
+    return null;
+  }
   return (
     <img
-      src="https://images.unsplash.com/photo-1618005198919-d3d4b5a92ead?q=80&w=4000&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
+      src={
+        Internal.convertFileSource({
+          ...source,
+          _type: "file",
+        }).url
+      }
       draggable={false}
       className="object-contain w-full max-h-[500px] rounded-lg"
       style={{
@@ -60,11 +73,27 @@ export function ImageField({ path }: { path: SourcePath }) {
 }
 
 export function ImagePreview({ path }: { path: SourcePath }) {
+  const sourceAtPath = useShallowSourceAtPath(path, "image");
+  if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
+    return <PreviewLoading path={path} />;
+  }
+  if (sourceAtPath.data === null) {
+    return <PreviewNull path={path} />;
+  }
+  const source = sourceAtPath.data;
   return (
     <img
-      src="https://images.unsplash.com/photo-1618005198919-d3d4b5a92ead?q=80&w=4000&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D"
+      src={
+        Internal.convertFileSource({
+          ...source,
+          _type: "file",
+        }).url
+      }
       draggable={false}
-      className="object-contain max-h-[150px]"
+      className="object-contain max-w-[60px] max-h-[60px] rounded-lg"
+      style={{
+        cursor: "crosshair",
+      }}
     />
   );
 }
