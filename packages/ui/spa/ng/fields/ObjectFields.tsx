@@ -1,4 +1,4 @@
-import { SourcePath } from "@valbuild/core";
+import { SerializedSchema, SourcePath } from "@valbuild/core";
 import { Field } from "../components/Field";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { FieldLoading } from "../components/FieldLoading";
@@ -9,7 +9,6 @@ import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError
 import { AnyField } from "../components/AnyField";
 import { Preview } from "../components/Preview";
 import { FieldSourceError } from "../components/FieldSourceError";
-import { prettifyFilename } from "../../utils/prettifyFilename";
 import { fixCapitalization } from "../../utils/fixCapitalization";
 
 export function ObjectFields({ path }: { path: SourcePath }) {
@@ -82,6 +81,16 @@ export function ObjectPreview({ path }: { path: SourcePath }) {
     );
   }
   const schema = schemaAtPath.data;
+  return <ObjectLikePreview path={path} schema={schema} />;
+}
+
+export function ObjectLikePreview({
+  path,
+  schema,
+}: {
+  path: SourcePath;
+  schema: { items: Record<string, SerializedSchema> };
+}) {
   return (
     <div className="grid grid-cols-[min-content,1fr] text-left gap-2 text-xs">
       {Object.keys(schema.items).map((key) => {
