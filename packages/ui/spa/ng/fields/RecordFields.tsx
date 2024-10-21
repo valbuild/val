@@ -63,9 +63,7 @@ export function RecordFields({ path }: { path: SourcePath }) {
             className="bg-primary-foreground cursor-pointer hover:bg-primary-foreground/50 min-w-[274px]"
           >
             <CardHeader>
-              <CardTitle className="text-md">
-                {fixCapitalization(key)}
-              </CardTitle>
+              <CardTitle className="text-md">{key}</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
               <RecordBadges counts={{}} />
