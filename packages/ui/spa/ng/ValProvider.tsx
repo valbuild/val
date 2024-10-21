@@ -522,6 +522,9 @@ export function useSchemaAtPath(sourcePath: SourcePath) {
         moduleSources,
         moduleSchema,
       );
+      if (schema === undefined) {
+        return { status: "not-found" };
+      }
       return {
         status: "success",
         data: schema,
