@@ -8,6 +8,7 @@ import { NavMenu } from "./components/NavMenu";
 import { PathBar } from "./components/PathBar";
 import { PendingChanges } from "./components/PendingChanges";
 import { Button } from "../components/ui/button";
+import { urlOf } from "@valbuild/shared/internal";
 
 export function Layout() {
   return (
@@ -226,7 +227,17 @@ function HeaderRight() {
   //   publishDisabled = Object.keys(errors.data).length > 0;
   // }
   return (
-    <div className="flex items-center justify-end gap-2 p-4 mb-1 text-sm bg-bg-secondary rounded-3xl">
+    <div className="flex items-center justify-between gap-2 p-4 mb-1 text-sm bg-bg-secondary rounded-3xl">
+      <Button
+        disabled={false}
+        onClick={() => {
+          location.href = urlOf("/api/val/enable", {
+            redirect_to: location.origin,
+          });
+        }}
+      >
+        Visual editing
+      </Button>
       <Button disabled={false}>Publish</Button>
     </div>
   );
