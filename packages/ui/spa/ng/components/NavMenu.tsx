@@ -108,7 +108,7 @@ function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
     <div className="w-full">
       <button
         className={classNames("flex justify-between w-full p-2", {
-          underline: fullPath === currentSourcePath,
+          underline: currentSourcePath.startsWith(fullPath as SourcePath),
         })}
         onClick={() => {
           if (isDirectory) {
