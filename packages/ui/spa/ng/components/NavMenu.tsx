@@ -51,7 +51,8 @@ function useSchemasTree(): Remote<PathNode> {
 function NavContentExplorer({ title }: { title?: string }) {
   const remoteSchemaTree = useSchemasTree();
   if (remoteSchemaTree.status === "error") {
-    throw new Error(remoteSchemaTree.error);
+    console.error(remoteSchemaTree.error);
+    return null;
   }
   if (remoteSchemaTree.status !== "success") {
     return <Loading />;

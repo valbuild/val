@@ -87,14 +87,88 @@ type CookieValue =
     };
 
 export const Api = {
+  "/draft/enable": {
+    GET: {
+      req: {
+        query: {
+          redirect_to: z.string().optional(),
+        },
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.union([
+        z.object({
+          status: z.literal(401),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(302),
+          redirectTo: z.string(),
+        }),
+        z.object({
+          status: z.literal(400),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
+  "/draft/disable": {
+    GET: {
+      req: {
+        query: {
+          redirect_to: z.string().optional(),
+        },
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.union([
+        z.object({
+          status: z.literal(401),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(302),
+          redirectTo: z.string(),
+        }),
+        z.object({
+          status: z.literal(400),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
+  "/draft/stat": {
+    GET: {
+      req: { cookies: { [VAL_SESSION_COOKIE]: z.string().optional() } },
+      res: z.union([
+        z.object({
+          status: z.literal(401),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            draftMode: z.boolean(),
+          }),
+        }),
+      ]),
+    },
+  },
   "/enable": {
     GET: {
       req: {
         query: {
           redirect_to: z.string().optional(),
         },
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },
       res: z.union([
+        z.object({
+          status: z.literal(401),
+          json: GenericError,
+        }),
         z.object({
           status: z.literal(302),
           redirectTo: z.string(),
@@ -117,8 +191,13 @@ export const Api = {
         query: {
           redirect_to: z.string().optional(),
         },
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },
       res: z.union([
+        z.object({
+          status: z.literal(401),
+          json: GenericError,
+        }),
         z.object({
           status: z.literal(302),
           redirectTo: z.string(),

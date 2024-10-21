@@ -9,10 +9,7 @@ export const ValApp = ({}: { config: ValConfig }) => {
   const route = "/api/val";
   return (
     <div>
-      <link
-        rel="stylesheet"
-        href={`${route || "/api/val"}/static${VAL_CSS_PATH}`}
-      />
+      <link rel="stylesheet" href={`${route}/static${VAL_CSS_PATH}`} />
       <Script type="module" src={`${route}/static${VAL_APP_PATH}`} />
       <div id={VAL_APP_ID}></div>
     </div>

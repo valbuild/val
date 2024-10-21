@@ -3,7 +3,7 @@ import { ValStudio } from "./components/studio/ValStudio";
 import { ErrorBoundary } from "react-error-boundary";
 import { ValCache } from "@valbuild/shared/internal";
 import { fallbackRender } from "./fallbackRender";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { ValRouter } from "./components/ValRouter";
 import { createValClient } from "@valbuild/shared/internal";
 
@@ -12,6 +12,21 @@ function App() {
     const client = createValClient("/api/val");
     const cache = new ValCache(client);
     return { client, cache };
+  }, []);
+  useEffect(() => {
+    if (location.search === "?message_onready=true") {
+      const interval = setInterval(() => {
+        window.parent.postMessage(
+          {
+            type: "val-ready",
+          },
+          "*",
+        );
+      });
+      return () => {
+        clearInterval(interval);
+      };
+    }
   }, []);
 
   return (

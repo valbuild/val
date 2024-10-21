@@ -7,6 +7,7 @@ import Script from "next/script";
 import React, { useEffect } from "react";
 import { ValExternalStore, ValOverlayProvider } from "./ValOverlayContext";
 import { SET_AUTO_TAG_JSX_ENABLED } from "@valbuild/react/stega";
+import { createValClient } from "@valbuild/shared/internal";
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
@@ -18,13 +19,14 @@ export const ValNextProvider = (props: {
 }) => {
   // TODO: use config:
   const route = "/api/val";
+  const client = React.useMemo(() => createValClient(route), [route]);
 
   // TODO: move below into react package
   const valStore = React.useMemo(() => new ValExternalStore(), []);
   const [, startTransition] = React.useTransition();
   const router = useRouter();
   const [showOverlay, setShowOverlay] = React.useState<boolean>();
-  const [draftMode, setDraftMode] = React.useState(false);
+  const [draftMode, setDraftMode] = React.useState(true);
   const [spaReady, setSpaReady] = React.useState(false);
 
   React.useEffect(() => {
@@ -75,7 +77,7 @@ export const ValNextProvider = (props: {
       );
     };
   }, []);
-  useEffect(() => {
+  React.useEffect(() => {
     if (spaReady) {
       window.dispatchEvent(
         new CustomEvent("val-overlay-spa", {
@@ -87,6 +89,26 @@ export const ValNextProvider = (props: {
       );
     }
   }, [draftMode, spaReady]);
+  React.useEffect(() => {}, [draftMode, router]);
+
+  const rerenderCounterRef = React.useRef(0);
+  React.useEffect(() => {
+    if (showOverlay) {
+      const interval = setInterval(() => {
+        if (rerenderCounterRef.current > 0) {
+          if (!props.disableRefresh) {
+            startTransition(() => {
+              rerenderCounterRef.current = 0;
+              router.refresh();
+            });
+          }
+        }
+      }, 50);
+      return () => {
+        clearInterval(interval);
+      };
+    }
+  }, [showOverlay]);
 
   React.useEffect(() => {
     if (!showOverlay) {
@@ -102,9 +124,7 @@ export const ValNextProvider = (props: {
               if (typeof moduleFilePath === "string" && source !== undefined) {
                 valStore.update(moduleFilePath as ModuleFilePath, source);
                 if (!props.disableRefresh) {
-                  startTransition(() => {
-                    router.refresh();
-                  });
+                  rerenderCounterRef.current++;
                 }
               } else {
                 console.error("Val: invalid event detail", event.detail);
@@ -132,6 +152,76 @@ export const ValNextProvider = (props: {
       }
     }
   }, [showOverlay, draftMode, props.disableRefresh]);
+
+  const [iframeSrc, setIframeSrc] = React.useState<string | null>(null);
+
+  const [serverSideDraftModeEnabled, setServerSideDraftModeEnabled] =
+    React.useState(false);
+
+  const draftStatIdRef = React.useRef(0);
+  useEffect(() => {
+    if (!showOverlay) {
+      setIframeSrc(null);
+    }
+    const draftStatId = ++draftStatIdRef.current;
+    client("/draft/stat", "GET", {})
+      .then((res) => {
+        if (draftStatIdRef.current !== draftStatId) {
+          return;
+        }
+        if (res.status !== 200) {
+          console.error("Val: could not get draft mode status", res);
+          return;
+        }
+        if (draftMode === res.json.draftMode) {
+          return;
+        }
+        if (draftMode) {
+          setServerSideDraftModeEnabled(true);
+          setIframeSrc(
+            `${route}/draft/enable?redirect_to=${encodeURIComponent(
+              window.location.origin + "/val?message_onready=true",
+            )}`,
+          );
+        } else {
+          setServerSideDraftModeEnabled(true);
+          setIframeSrc(
+            `${route}/draft/disable?redirect_to=${encodeURIComponent(
+              window.location.origin + "/val?message_onready=true",
+            )}`,
+          );
+        }
+      })
+      .catch((err) => {
+        console.error("Val: could not get draft mode status", err);
+      });
+    return () => {
+      draftStatIdRef.current--;
+    };
+  }, [draftMode]);
+
+  React.useEffect(() => {
+    if (serverSideDraftModeEnabled) {
+      const listener = (event: MessageEvent) => {
+        if (
+          event.origin === location.origin &&
+          event.data.type === "val-ready"
+        ) {
+          if (!props.disableRefresh) {
+            startTransition(() => {
+              router.refresh();
+            });
+          }
+          setIframeSrc(null);
+          setServerSideDraftModeEnabled(false);
+        }
+      };
+      window.addEventListener("message", listener);
+      return () => {
+        window.removeEventListener("message", listener);
+      };
+    }
+  }, [serverSideDraftModeEnabled]);
 
   React.useEffect(() => {
     if (process.env["NODE_ENV"] === "development" && showOverlay === false) {
@@ -162,6 +252,8 @@ You are seeing this message because you are in development mode.`,
       );
     }
   }, [showOverlay]);
+
+  console.log(iframeSrc);
   return (
     <ValOverlayProvider draftMode={draftMode} store={valStore}>
       {props.children}
@@ -171,6 +263,19 @@ You are seeing this message because you are in development mode.`,
           {/* TODO: use portal to mount overlay */}
           <div id={VAL_OVERLAY_ID}></div>
         </React.Fragment>
+      )}
+      {iframeSrc && showOverlay && (
+        <iframe
+          style={{
+            top: 0,
+            left: 0,
+            position: "absolute",
+            width: 0,
+            height: 0,
+          }}
+          src={iframeSrc}
+          key={iframeSrc}
+        />
       )}
     </ValOverlayProvider>
   );
