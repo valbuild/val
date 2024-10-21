@@ -6,7 +6,7 @@ import { VAL_CSS_PATH } from "../src/constants";
 import { fallbackRender } from "./fallbackRender";
 import { ValOverlay } from "./components/overlay/ValOverlay";
 import { ValRouter } from "./components/ValRouter";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ValProvider } from "./ng/ValProvider";
 
 function Overlay() {
