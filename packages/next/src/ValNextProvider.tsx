@@ -37,6 +37,10 @@ export const ValNextProvider = (props: {
       console.warn("In message mode");
       return;
     }
+    if (isValStudioPath(location.pathname)) {
+      setShowOverlay(false);
+      return;
+    }
     setShowOverlay(
       document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`),
     );
@@ -245,7 +249,6 @@ export const ValNextProvider = (props: {
     }
     const listener = (event: MessageEvent) => {
       if (event.origin === location.origin && event.data.type === "val-ready") {
-        console.log("got ready");
         setIframeSrc(null);
       }
     };
@@ -291,7 +294,11 @@ export const ValNextProvider = (props: {
 
 function useConsoleLogEnableVal(showOverlay?: boolean) {
   React.useEffect(() => {
-    if (process.env["NODE_ENV"] === "development" && showOverlay === false) {
+    if (
+      process.env["NODE_ENV"] === "development" &&
+      showOverlay === false &&
+      !isValStudioPath(location.pathname)
+    ) {
       console.warn(
         `
 ###########
@@ -319,4 +326,8 @@ You are seeing this message because you are in development mode.`,
       );
     }
   }, [showOverlay]);
+}
+
+function isValStudioPath(pathname: string): boolean {
+  return pathname.startsWith("/val/");
 }
