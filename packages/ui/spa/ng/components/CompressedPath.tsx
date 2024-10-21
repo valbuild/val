@@ -19,6 +19,7 @@ export function CompressedPath({
   return (
     <div title={path} className="w-full">
       <button
+        type="button"
         disabled={disabled}
         className="inline-block text-left truncate"
         onClick={() => {
@@ -45,6 +46,7 @@ export function CompressedPath({
         ))}
       </button>
       <button
+        type="button"
         disabled={disabled}
         className="inline-block text-left truncate"
         onClick={() => {
