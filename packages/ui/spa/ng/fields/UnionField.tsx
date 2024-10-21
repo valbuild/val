@@ -28,6 +28,8 @@ import { AnyField } from "../components/AnyField";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { useEffect, useRef } from "react";
 import { Field } from "../components/Field";
+import { PreviewLoading, PreviewNull } from "../components/Preview";
+import { ObjectLikePreview } from "./ObjectFields";
 
 function isStringUnion(
   schema: SerializedUnionSchema,
@@ -296,5 +298,74 @@ function LoadingSelectContent() {
 }
 
 export function UnionPreview({ path }: { path: SourcePath }) {
-  return <div>{path}</div>;
+  const type = "union";
+  const sourceAtPath = useShallowSourceAtPath(path, type);
+  const schemaAtPath = useSchemaAtPath(path);
+  if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
+    return <PreviewLoading path={path} />;
+  }
+  if (!("data" in schemaAtPath) || schemaAtPath.data === undefined) {
+    return <PreviewLoading path={path} />;
+  }
+  if (sourceAtPath.data === null) {
+    return <PreviewNull path={path} />;
+  }
+  if (schemaAtPath.data.type !== type) {
+    return (
+      <FieldSchemaMismatchError
+        path={path}
+        expectedType={type}
+        actualType={schemaAtPath.data.type}
+      />
+    );
+  }
+  const schema = schemaAtPath.data;
+  if (isStringUnion(schema)) {
+    if (typeof sourceAtPath.data !== "string") {
+      return (
+        <FieldSourceError
+          path={path}
+          error={
+            "Expected source to be a string, but found: " +
+            typeof sourceAtPath.data
+          }
+          type={type}
+        />
+      );
+    }
+    return <div className="truncate">{sourceAtPath.data}</div>;
+  } else {
+    const source = sourceAtPath.data;
+    if (!source) {
+      return <PreviewNull path={path} />;
+    }
+    if (
+      typeof source !== "object" &&
+      !(typeof source === "object" && schema.key in source)
+    ) {
+      return (
+        <FieldSourceError
+          path={path}
+          error={"Expected source to be an object, but found: " + typeof source}
+          type={type}
+        />
+      );
+    }
+    const acutalSchema = schema.items.find((item) => {
+      const keySchema = item.items?.[schema.key];
+      if (keySchema?.type === "literal") {
+        return keySchema.value === source[schema.key];
+      }
+    });
+    if (!acutalSchema) {
+      return (
+        <FieldSourceError
+          path={path}
+          error={"Expected source to have key " + schema.key + " but not found"}
+          type={type}
+        />
+      );
+    }
+    return <ObjectLikePreview path={path} schema={acutalSchema} />;
+  }
 }
