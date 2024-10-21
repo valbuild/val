@@ -70,7 +70,7 @@ function createSubscriberId(paths: ModuleFilePath[]): SubscriberId {
 
 export const ValOverlayContext = React.createContext<{
   readonly store?: ValExternalStore;
-  readonly draftMode: boolean;
+  readonly draftMode: boolean | null;
 }>({
   store: undefined,
   draftMode: false,
@@ -82,7 +82,7 @@ export function ValOverlayProvider({
   children,
 }: {
   store?: ValExternalStore;
-  draftMode: boolean;
+  draftMode: boolean | null;
   children: React.ReactNode;
 }) {
   return (

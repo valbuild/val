@@ -1,5 +1,6 @@
 import classNames from "classnames";
 import {
+  Clock,
   Edit,
   EyeOff,
   PanelsTopLeft,
@@ -8,14 +9,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import {
-  Dispatch,
-  SetStateAction,
-  useEffect,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
+import { Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
 import { AnimateHeight } from "../../ng/components/AnimateHeight";
 import { SourcePath } from "@valbuild/core";
 import { StringField } from "../../ng/fields/StringField";
@@ -24,6 +18,7 @@ import { Button } from "../ui/button";
 
 export type ValOverlayProps = {
   draftMode: boolean;
+  draftModeLoading: boolean;
   setDraftMode: (draftMode: boolean) => void;
   disableOverlay: () => void;
 };
@@ -55,7 +50,7 @@ type EditMode = {
   };
 };
 export function ValOverlay(props: ValOverlayProps) {
-  const [mode, setMode] = useState<OverlayModes>("select");
+  const [mode, setMode] = useState<OverlayModes>(null);
   const [boundingBoxes, setBoundingBoxes] = useState<
     {
       top: number;
@@ -73,7 +68,7 @@ export function ValOverlay(props: ValOverlayProps) {
     };
 
     window.addEventListener("scroll", scrollListener, { passive: false });
-    const scrollEndListener = (ev) => {
+    const scrollEndListener = () => {
       setScrollPos({ x: window.scrollX, y: window.scrollY });
       setIsScrolling(false);
     };
@@ -135,7 +130,7 @@ export function ValOverlay(props: ValOverlayProps) {
         boundingBoxes.map((boundingBox, i) => {
           return (
             <div
-              className="absolute border border-bg-primary hover:border-2"
+              className="absolute border border-bg-primary hover:border-2 z-[8998]"
               onClickCapture={(ev) => {
                 ev.stopPropagation();
                 console.log("clicked", boundingBox.path);
@@ -255,7 +250,7 @@ function Window({
   }, []);
 
   return (
-    <div className="fixed h-[100svh] w-[100svw] top-0 left-0">
+    <div className="fixed h-[100svh] w-[100svw] top-0 left-0 z-[8999]">
       <div
         className="fixed h-[100svh] w-[100svw] top-0 left-0"
         onClick={(ev) => {
@@ -297,14 +292,16 @@ function Window({
           <form
             className="flex flex-col gap-4"
             onSubmit={(ev) => {
-              ev.preventDefault();
+              ev.stopPropagation();
               setMode("select");
               setEditMode(null);
             }}
           >
-            <CompressedPath disabled={isDragging} path={editMode.path} />
+            <CompressedPath disabled={false} path={editMode.path} />
             <StringField path={editMode.path} autoFocus />
-            <Button className="self-end">Done</Button>
+            <Button className="self-end" type="submit">
+              Done
+            </Button>
           </form>
           <div
             ref={ref}
@@ -330,6 +327,7 @@ function ValMenu({
   dropZone,
   ghost,
   draftMode,
+  draftModeLoading,
   setDraftMode,
   mode,
   setMode,
@@ -344,7 +342,7 @@ function ValMenu({
       : "horizontal";
   return (
     <div className="p-4">
-      <AnimateHeight isOpen={draftMode}>
+      <AnimateHeight isOpen={draftMode && !draftModeLoading}>
         <div
           className={classNames(
             "flex relative rounded bg-bg-primary text-text-primary gap-2",
@@ -371,7 +369,14 @@ function ValMenu({
           <MenuButton label="Search" icon={<Search size={16} />} />
           <MenuButton
             label="Disable draft mode"
-            icon={<EyeOff size={16} />}
+            disabled={draftModeLoading}
+            icon={
+              draftModeLoading ? (
+                <Clock size={16} className="animate-spin" />
+              ) : (
+                <EyeOff size={16} />
+              )
+            }
             onClick={() => setDraftMode(false)}
           />
           <div className="pb-1 mt-1 border-t border-border-primary"></div>
@@ -380,10 +385,16 @@ function ValMenu({
             variant="primary"
             icon={<Upload size={16} />}
           />
-          <MenuButton label="Studio" icon={<PanelsTopLeft size={16} />} />
+          <MenuButton
+            label="Studio"
+            icon={<PanelsTopLeft size={16} />}
+            onClick={() => {
+              window.open("/val");
+            }}
+          />
         </div>
       </AnimateHeight>
-      <AnimateHeight isOpen={!draftMode}>
+      <AnimateHeight isOpen={!(draftMode && !draftModeLoading)}>
         <div
           className={classNames(
             "flex relative rounded bg-bg-primary text-text-primary gap-2",
@@ -396,7 +407,14 @@ function ValMenu({
         >
           <MenuButton
             label="Enable draft mode"
-            icon={<Edit size={16} />}
+            disabled={draftModeLoading}
+            icon={
+              draftModeLoading ? (
+                <Clock size={16} className="animate-spin" />
+              ) : (
+                <Edit size={16} />
+              )
+            }
             onClick={() => {
               setDraftMode(true);
             }}
@@ -415,19 +433,22 @@ function ValMenu({
 function MenuButton({
   icon,
   onClick,
+  disabled,
   active,
   label,
   variant,
 }: {
   icon: React.ReactNode;
   onClick?: () => void;
+  disabled?: boolean;
   active?: boolean;
   label?: string;
   variant?: "primary";
 }) {
   return (
     <button
-      className={classNames("p-2 rounded-full", {
+      disabled={disabled}
+      className={classNames("p-2 rounded-full disabled:bg-bg-disabled", {
         "bg-bg-brand-primary text-text-brand-primary": variant === "primary",
         "border border-border-primary": !!active,
       })}

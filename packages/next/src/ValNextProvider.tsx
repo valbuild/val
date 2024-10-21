@@ -23,26 +23,51 @@ export const ValNextProvider = (props: {
 
   // TODO: move below into react package
   const valStore = React.useMemo(() => new ValExternalStore(), []);
-  const [, startTransition] = React.useTransition();
-  const router = useRouter();
   const [showOverlay, setShowOverlay] = React.useState<boolean>();
-  const [draftMode, setDraftMode] = React.useState(true);
+  const [draftMode, setDraftMode] = React.useState<boolean | null>(null);
   const [spaReady, setSpaReady] = React.useState(false);
+  const router = useRouter();
+  const [, startTransition] = React.useTransition();
+  const rerenderCounterRef = React.useRef(0);
+  const [iframeSrc, setIframeSrc] = React.useState<string | null>(null);
 
+  useConsoleLogEnableVal(showOverlay);
   React.useEffect(() => {
+    if (location.search === "?message_onready=true") {
+      console.warn("In message mode");
+      return;
+    }
     setShowOverlay(
       document.cookie.includes(`${Internal.VAL_ENABLE_COOKIE_NAME}=true`),
     );
-    try {
-      setDraftMode(localStorage.getItem("val_draft_mode") === "true");
-    } catch (e) {
-      console.error(
-        "Val: could not ready default draft mode from local storage",
-        e,
-      );
-    }
   }, []);
+
   React.useEffect(() => {
+    if (!showOverlay) {
+      return;
+    }
+    const interval = setInterval(() => {
+      if (rerenderCounterRef.current > 0) {
+        if (!props.disableRefresh) {
+          rerenderCounterRef.current = 0;
+          startTransition(() => {
+            router.refresh();
+          });
+        }
+      }
+    }, 50);
+    return () => {
+      clearInterval(interval);
+    };
+  }, [showOverlay, props.disableRefresh]);
+
+  React.useEffect(() => {
+    if (!showOverlay) {
+      return;
+    }
+    if (draftMode === null) {
+      return;
+    }
     const valProviderOverlayListener = (event: Event) => {
       if (event instanceof CustomEvent) {
         if (!event?.detail.type) {
@@ -55,10 +80,29 @@ export const ValNextProvider = (props: {
           setSpaReady(true);
         } else if (
           event.detail.type === "draftMode" &&
-          typeof event.detail.value === "boolean"
+          (typeof event.detail.value === "boolean" ||
+            event.detail.value === null)
         ) {
-          setDraftMode(event.detail.value);
-          localStorage.setItem("val_draft_mode", event.detail.value.toString());
+          const draftMode = event.detail.value;
+          if (draftMode === true) {
+            setIframeSrc((prev) => {
+              if (prev === null) {
+                return `${route}/draft/enable?redirect_to=${encodeURIComponent(
+                  window.location.origin + "/val?message_onready=true",
+                )}`;
+              }
+              return prev;
+            });
+          } else if (draftMode === false) {
+            setIframeSrc((prev) => {
+              if (prev === null) {
+                return `${route}/draft/disable?redirect_to=${encodeURIComponent(
+                  window.location.origin + "/val?message_onready=true",
+                )}`;
+              }
+              return prev;
+            });
+          }
         } else {
           console.error(
             "Val: invalid event detail (val-overlay-provider)",
@@ -76,39 +120,81 @@ export const ValNextProvider = (props: {
         valProviderOverlayListener,
       );
     };
-  }, []);
-  React.useEffect(() => {
-    if (spaReady) {
+  }, [showOverlay, draftMode]);
+
+  const pollDraftStatIdRef = React.useRef(0);
+  useEffect(() => {
+    // continous polling to check for updates:
+
+    let timeout: NodeJS.Timeout;
+    function pollCurrentDraftMode() {
+      if (!showOverlay) {
+        return;
+      }
+
       window.dispatchEvent(
         new CustomEvent("val-overlay-spa", {
           detail: {
-            type: "draftMode",
-            value: draftMode,
+            type: "draftModeLoading",
+            value: iframeSrc !== null,
           },
         }),
       );
-    }
-  }, [draftMode, spaReady]);
-  React.useEffect(() => {}, [draftMode, router]);
-
-  const rerenderCounterRef = React.useRef(0);
-  React.useEffect(() => {
-    if (showOverlay) {
-      const interval = setInterval(() => {
-        if (rerenderCounterRef.current > 0) {
-          if (!props.disableRefresh) {
-            startTransition(() => {
-              rerenderCounterRef.current = 0;
-              router.refresh();
-            });
+      const pollDraftStatId = ++pollDraftStatIdRef.current;
+      client("/draft/stat", "GET", {})
+        .then((res) => {
+          if (pollDraftStatIdRef.current !== pollDraftStatId) {
+            return;
           }
-        }
-      }, 50);
-      return () => {
-        clearInterval(interval);
-      };
+          if (res.status === null) {
+            // ignore network errors
+            return;
+          }
+          if (res.status !== 200) {
+            console.error("Val: could not get draft mode status", res);
+            return;
+          }
+          setDraftMode((prev) => {
+            if (prev !== res.json.draftMode) {
+              rerenderCounterRef.current++;
+              return res.json.draftMode;
+            }
+            return prev;
+          });
+        })
+        .catch((err) => {
+          console.error("Val: could not get draft mode status", err);
+        })
+        .finally(() => {
+          if (pollDraftStatIdRef.current !== pollDraftStatId) {
+            return;
+          }
+          pollDraftStatIdRef.current--;
+          timeout = setTimeout(
+            pollCurrentDraftMode,
+            iframeSrc === null ? 1000 : 100,
+          );
+        });
     }
-  }, [showOverlay]);
+    pollCurrentDraftMode();
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [showOverlay, iframeSrc]);
+
+  React.useEffect(() => {
+    if (!showOverlay) {
+      return;
+    }
+    window.dispatchEvent(
+      new CustomEvent("val-overlay-spa", {
+        detail: {
+          type: "draftMode",
+          value: draftMode,
+        },
+      }),
+    );
+  }, [showOverlay, draftMode, spaReady]);
 
   React.useEffect(() => {
     if (!showOverlay) {
@@ -153,76 +239,57 @@ export const ValNextProvider = (props: {
     }
   }, [showOverlay, draftMode, props.disableRefresh]);
 
-  const [iframeSrc, setIframeSrc] = React.useState<string | null>(null);
-
-  const [serverSideDraftModeEnabled, setServerSideDraftModeEnabled] =
-    React.useState(false);
-
-  const draftStatIdRef = React.useRef(0);
-  useEffect(() => {
-    if (!showOverlay) {
-      setIframeSrc(null);
-    }
-    const draftStatId = ++draftStatIdRef.current;
-    client("/draft/stat", "GET", {})
-      .then((res) => {
-        if (draftStatIdRef.current !== draftStatId) {
-          return;
-        }
-        if (res.status !== 200) {
-          console.error("Val: could not get draft mode status", res);
-          return;
-        }
-        if (draftMode === res.json.draftMode) {
-          return;
-        }
-        if (draftMode) {
-          setServerSideDraftModeEnabled(true);
-          setIframeSrc(
-            `${route}/draft/enable?redirect_to=${encodeURIComponent(
-              window.location.origin + "/val?message_onready=true",
-            )}`,
-          );
-        } else {
-          setServerSideDraftModeEnabled(true);
-          setIframeSrc(
-            `${route}/draft/disable?redirect_to=${encodeURIComponent(
-              window.location.origin + "/val?message_onready=true",
-            )}`,
-          );
-        }
-      })
-      .catch((err) => {
-        console.error("Val: could not get draft mode status", err);
-      });
-    return () => {
-      draftStatIdRef.current--;
-    };
-  }, [draftMode]);
-
   React.useEffect(() => {
-    if (serverSideDraftModeEnabled) {
-      const listener = (event: MessageEvent) => {
-        if (
-          event.origin === location.origin &&
-          event.data.type === "val-ready"
-        ) {
-          if (!props.disableRefresh) {
-            startTransition(() => {
-              router.refresh();
-            });
-          }
-          setIframeSrc(null);
-          setServerSideDraftModeEnabled(false);
-        }
-      };
-      window.addEventListener("message", listener);
-      return () => {
-        window.removeEventListener("message", listener);
-      };
+    if (!showOverlay) {
+      return;
     }
-  }, [serverSideDraftModeEnabled]);
+    const listener = (event: MessageEvent) => {
+      if (event.origin === location.origin && event.data.type === "val-ready") {
+        console.log("got ready");
+        setIframeSrc(null);
+      }
+    };
+    window.addEventListener("message", listener);
+    return () => {
+      window.removeEventListener("message", listener);
+    };
+  }, [showOverlay]);
 
+  console.log({ showOverlay, draftMode, iframeSrc });
+
+  return (
+    <ValOverlayProvider draftMode={draftMode} store={valStore}>
+      {props.children}
+      {showOverlay && draftMode !== undefined && (
+        <React.Fragment>
+          <Script type="module" src={`${route}/static${VAL_APP_PATH}`} />
+          {/* TODO: use portal to mount overlay */}
+          <div id={VAL_OVERLAY_ID}></div>
+        </React.Fragment>
+      )}
+      {/**
+       * This iframe is used to enable or disable draft mode.
+       * In Next.js applications, the draft mode must be switched on the API side.
+       * We load the App.tsx with a query parameter, that tells us whether or not it is in draft mode.
+       */}
+      {iframeSrc && draftMode !== null && showOverlay && (
+        <iframe
+          style={{
+            top: 0,
+            left: 0,
+            position: "absolute",
+            width: 0,
+            height: 0,
+          }}
+          src={iframeSrc}
+          key={iframeSrc}
+        />
+      )}
+    </ValOverlayProvider>
+  );
+};
+
+function useConsoleLogEnableVal(showOverlay?: boolean) {
   React.useEffect(() => {
     if (process.env["NODE_ENV"] === "development" && showOverlay === false) {
       console.warn(
@@ -252,31 +319,4 @@ You are seeing this message because you are in development mode.`,
       );
     }
   }, [showOverlay]);
-
-  console.log(iframeSrc);
-  return (
-    <ValOverlayProvider draftMode={draftMode} store={valStore}>
-      {props.children}
-      {showOverlay && (
-        <React.Fragment>
-          <Script type="module" src={`${route}/static${VAL_APP_PATH}`} />
-          {/* TODO: use portal to mount overlay */}
-          <div id={VAL_OVERLAY_ID}></div>
-        </React.Fragment>
-      )}
-      {iframeSrc && showOverlay && (
-        <iframe
-          style={{
-            top: 0,
-            left: 0,
-            position: "absolute",
-            width: 0,
-            height: 0,
-          }}
-          src={iframeSrc}
-          key={iframeSrc}
-        />
-      )}
-    </ValOverlayProvider>
-  );
-};
+}
