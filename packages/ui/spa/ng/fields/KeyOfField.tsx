@@ -16,6 +16,7 @@ import {
   SelectValue,
   SelectTrigger,
 } from "../../components/ui/select";
+import { PreviewLoading, PreviewNull } from "../components/Preview";
 
 export function KeyOfField({ path }: { path: SourcePath }) {
   const type = "keyOf";
@@ -157,6 +158,13 @@ function LoadingSelectContent() {
   return <span>Loading...</span>;
 }
 
-export function KeyOfPreview({ source }: { source: any }) {
-  return <pre>{JSON.stringify(source)}</pre>;
+export function KeyOfPreview({ path }: { path: SourcePath }) {
+  const sourceAtPath = useShallowSourceAtPath(path, "keyOf");
+  if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
+    return <PreviewLoading path={path} />;
+  }
+  if (sourceAtPath.data === null) {
+    return <PreviewNull path={path} />;
+  }
+  return <div className="truncate">{sourceAtPath.data}</div>;
 }
