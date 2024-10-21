@@ -8,12 +8,19 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { Dispatch, SetStateAction, useEffect, useState } from "react";
+import {
+  Dispatch,
+  SetStateAction,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { AnimateHeight } from "../../ng/components/AnimateHeight";
 import { SourcePath } from "@valbuild/core";
 import { StringField } from "../../ng/fields/StringField";
-import { Popover, PopoverContent } from "../ui/popover";
-import { set } from "date-fns";
+import { CompressedPath } from "../../ng/components/CompressedPath";
+import { Button } from "../ui/button";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -36,8 +43,19 @@ type DropZones =
   | "val-menu-right-bottom";
 
 type OverlayModes = "select" | null;
+type EditMode = {
+  path: SourcePath;
+  clientY: number;
+  clientX: number;
+  boundingBox: {
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+  };
+};
 export function ValOverlay(props: ValOverlayProps) {
-  const [mode, setMode] = useState<OverlayModes>(null);
+  const [mode, setMode] = useState<OverlayModes>("select");
   const [boundingBoxes, setBoundingBoxes] = useState<
     {
       top: number;
@@ -47,8 +65,27 @@ export function ValOverlay(props: ValOverlayProps) {
       path: SourcePath;
     }[]
   >([]);
+  const [isScrolling, setIsScrolling] = useState(false);
+  const [scrollPos, setScrollPos] = useState({ x: 0, y: 0 });
   useEffect(() => {
-    if (mode === "select") {
+    const scrollListener = () => {
+      setIsScrolling(true);
+    };
+
+    window.addEventListener("scroll", scrollListener, { passive: false });
+    const scrollEndListener = (ev) => {
+      setScrollPos({ x: window.scrollX, y: window.scrollY });
+      setIsScrolling(false);
+    };
+    window.addEventListener("scrollend", scrollEndListener, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", scrollListener);
+      window.removeEventListener("scrollend", scrollEndListener);
+    };
+  }, []);
+  useEffect(() => {
+    if (mode === "select" && !isScrolling) {
       let timeout: NodeJS.Timeout;
       const updateElements = () => {
         const newBoundingBoxes: {
@@ -65,7 +102,7 @@ export function ValOverlay(props: ValOverlayProps) {
           }
           const rect = el.getBoundingClientRect();
           newBoundingBoxes.push({
-            top: rect.top + window.scrollY,
+            top: rect.top,
             left: rect.left,
             width: rect.width,
             height: rect.height,
@@ -82,60 +119,210 @@ export function ValOverlay(props: ValOverlayProps) {
     } else {
       setBoundingBoxes([]);
     }
-  }, [mode]);
+  }, [mode, scrollPos]);
 
-  const [editPath, setEditPath] = useState<SourcePath | null>(null);
-
+  const [editMode, setEditMode] = useState<EditMode | null>(null);
   return (
     <>
-      {editPath !== null && <Window path={editPath} />}
-      {boundingBoxes.map((boundingBox, i) => {
-        return (
-          <div
-            className="absolute border border-bg-primary hover:border-2"
-            onClickCapture={(ev) => {
-              ev.stopPropagation();
-              console.log("clicked", boundingBox.path);
-              setMode(null);
-              setEditPath(boundingBox.path);
-            }}
-            key={i}
-            style={{
-              top: boundingBox?.top + window.scrollY,
-              left: boundingBox?.left,
-              width: boundingBox?.width,
-              height: boundingBox?.height,
-            }}
-          >
-            <div className="relative top-0 left-0 w-full">
-              <div
-                className="absolute top-[0px] right-[0px] truncate bg-bg-primary text-text-primary"
-                style={{
-                  fontSize: `${Math.min(boundingBox.height - 2, 10)}px`,
-                  maxHeight: `${Math.min(boundingBox.height - 2, 16)}px`,
-                  maxWidth: `${Math.min(boundingBox.width - 2, 300)}px`,
-                }}
-              >
-                {boundingBox.path}
+      {editMode !== null && (
+        <Window
+          editMode={editMode}
+          setMode={setMode}
+          setEditMode={setEditMode}
+        />
+      )}
+      {!isScrolling &&
+        boundingBoxes.map((boundingBox, i) => {
+          return (
+            <div
+              className="absolute border border-bg-primary hover:border-2"
+              onClickCapture={(ev) => {
+                ev.stopPropagation();
+                console.log("clicked", boundingBox.path);
+                setMode(null);
+                setEditMode({
+                  path: boundingBox.path,
+                  clientY: ev.clientY,
+                  clientX: ev.clientX,
+                  boundingBox: boundingBox,
+                });
+              }}
+              key={i}
+              style={{
+                display: "block",
+                top: boundingBox?.top + scrollPos.y,
+                left: boundingBox?.left + scrollPos.x,
+                width: boundingBox?.width,
+                height: boundingBox?.height,
+              }}
+            >
+              <div className="relative top-0 left-0 w-full">
+                <div
+                  className="absolute top-[0px] right-[0px] truncate bg-bg-primary text-text-primary"
+                  style={{
+                    fontSize: `${Math.min(boundingBox.height - 2, 10)}px`,
+                    maxHeight: `${Math.min(boundingBox.height - 2, 16)}px`,
+                    maxWidth: `${Math.min(boundingBox.width - 2, 300)}px`,
+                  }}
+                >
+                  {boundingBox.path}
+                </div>
               </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
       <DraggableValMenu {...props} mode={mode} setMode={setMode} />
     </>
   );
 }
 
-function Window({ path }: { path: SourcePath }) {
+function Window({
+  editMode,
+  setMode,
+  setEditMode,
+}: {
+  editMode: EditMode;
+  setMode: Dispatch<SetStateAction<OverlayModes>>;
+  setEditMode: Dispatch<SetStateAction<EditMode | null>>;
+}) {
+  const [windowPos, setWindowPos] = useState({ x: 0, y: 0 });
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const handlePosition = () => {
+      if (ref.current) {
+        const { innerWidth, innerHeight } = window;
+        const { offsetWidth, offsetHeight } = ref.current;
+        let newX = editMode.clientX;
+        let newY = editMode.clientY;
+
+        // Ensure the window stays inside the viewport horizontally
+        if (newX + offsetWidth > innerWidth) {
+          newX = innerWidth - offsetWidth - 10; // Add some padding
+        } else if (newX < 0) {
+          newX = 10; // Add some padding
+        }
+
+        // Try to place it below, otherwise above
+        if (newY + offsetHeight > innerHeight) {
+          newY = editMode.clientY - offsetHeight - 10; // Place above
+        } else {
+          newY = editMode.clientY + 10; // Place below
+        }
+
+        setWindowPos({ x: newX, y: newY });
+      }
+    };
+
+    handlePosition();
+  }, [editMode]);
+  const [isDragging, setIsDragging] = useState(false);
+  useEffect(() => {
+    if (isDragging) {
+      const handleMouseMove = (ev: MouseEvent) => {
+        setWindowPos((pos) => ({
+          x: pos.x + ev.movementX,
+          y: pos.y + ev.movementY,
+        }));
+      };
+      const handleMouseUp = () => {
+        setIsDragging(false);
+      };
+      const handleClick = () => {
+        setIsDragging(false);
+      };
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("mouseup", handleMouseUp);
+      window.addEventListener("click", handleClick);
+      return () => {
+        window.removeEventListener("mousemove", handleMouseMove);
+        window.removeEventListener("mouseup", handleMouseUp);
+        window.removeEventListener("click", handleClick);
+      };
+    }
+  }, [isDragging]);
+  useEffect(() => {
+    const keydownListener = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") {
+        setMode("select");
+        setEditMode(null);
+      }
+    };
+    window.addEventListener("keydown", keydownListener);
+
+    return () => {
+      window.removeEventListener("keydown", keydownListener);
+    };
+  }, []);
+
   return (
-    <Popover>
-      <PopoverContent>
-        <div className="p-4">
-          <StringField path={path} />
+    <div className="fixed h-[100svh] w-[100svw] top-0 left-0">
+      <div
+        className="fixed h-[100svh] w-[100svw] top-0 left-0"
+        onClick={(ev) => {
+          ev.preventDefault();
+          if (!isDragging) {
+            setMode("select");
+            setEditMode(null);
+          }
+        }}
+      ></div>
+      {/**
+       * We place the grab handles around the form, since we couldn't figure out to avoid
+       * having the mouse down behaving weridly if other buttons (navigate to path) where clicked.
+       *
+       * TODO: fix this
+       */}
+      <div
+        className="absolute grid grid-cols-[32px,1fr,32px] rounded bg-bg-primary text-text-primary"
+        style={{
+          top: windowPos.y,
+          left: windowPos.x,
+        }}
+      >
+        <div
+          ref={ref}
+          className="cursor-grab"
+          onMouseDown={() => {
+            setIsDragging(true);
+          }}
+        ></div>
+        <div className="grid grid-rows-[32px,1fr,32px]">
+          <div
+            ref={ref}
+            className="cursor-grab"
+            onMouseDown={() => {
+              setIsDragging(true);
+            }}
+          ></div>
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(ev) => {
+              ev.preventDefault();
+              setMode("select");
+              setEditMode(null);
+            }}
+          >
+            <CompressedPath disabled={isDragging} path={editMode.path} />
+            <StringField path={editMode.path} autoFocus />
+            <Button className="self-end">Done</Button>
+          </form>
+          <div
+            ref={ref}
+            className="cursor-grab"
+            onMouseDown={() => {
+              setIsDragging(true);
+            }}
+          ></div>
         </div>
-      </PopoverContent>
-    </Popover>
+        <div
+          ref={ref}
+          className="cursor-grab"
+          onMouseDown={() => {
+            setIsDragging(true);
+          }}
+        ></div>
+      </div>
+    </div>
   );
 }
 

@@ -12,7 +12,13 @@ import { FieldSourceError } from "../components/FieldSourceError";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../components/Preview";
 
-export function StringField({ path }: { path: SourcePath }) {
+export function StringField({
+  path,
+  autoFocus,
+}: {
+  path: SourcePath;
+  autoFocus?: boolean;
+}) {
   const type = "string";
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -51,6 +57,7 @@ export function StringField({ path }: { path: SourcePath }) {
   const source = sourceAtPath.data;
   return (
     <Input
+      autoFocus={autoFocus}
       defaultValue={source || ""}
       onChange={(ev) => {
         addDebouncedPatch(

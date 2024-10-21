@@ -68,6 +68,7 @@ const addValPathIfFound = (type: any, props: any) => {
           const cleanValue = vercelStegaSplit(value).cleaned;
           if (typeof key === "string" && !Array.isArray(container)) {
             container[key] = cleanValue;
+            valSources.add(valPath);
           }
         }
       }

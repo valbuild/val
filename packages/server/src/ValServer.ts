@@ -241,9 +241,92 @@ export const ValServer = (
   };
 
   return {
-    //#region auth
+    "/draft/enable": {
+      GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
+        const query = req.query;
+        const redirectToRes = getRedirectUrl(
+          query,
+          options.valEnableRedirectUrl,
+        );
+        if (typeof redirectToRes !== "string") {
+          return redirectToRes;
+        }
+        await callbacks.onEnable(true);
+        return {
+          status: 302,
+          redirectTo: redirectToRes,
+        };
+      },
+    },
+    "/draft/disable": {
+      GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
+        const query = req.query;
+        const redirectToRes = getRedirectUrl(
+          query,
+          options.valDisableRedirectUrl,
+        );
+        if (typeof redirectToRes !== "string") {
+          return redirectToRes;
+        }
+        await callbacks.onDisable(true);
+        return {
+          status: 302,
+          redirectTo: redirectToRes,
+        };
+      },
+    },
+    "/draft/stat": {
+      GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
+        return {
+          status: 200,
+          json: {
+            draftMode: await callbacks.isEnabled(),
+          },
+        };
+      },
+    },
     "/enable": {
       GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
         const query = req.query;
         const redirectToRes = getRedirectUrl(
           query,
@@ -265,6 +348,16 @@ export const ValServer = (
 
     "/disable": {
       GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
         const query = req.query;
         const redirectToRes = getRedirectUrl(
           query,
@@ -285,7 +378,7 @@ export const ValServer = (
         };
       },
     },
-
+    //#region auth
     "/authorize": {
       GET: async (req) => {
         const query = req.query;
