@@ -189,26 +189,14 @@ export function ValProvider({
     [],
   );
 
-  const [missingPatchIds, setMissingPatchIds] = useState<PatchId[]>([]);
   const [patchMetadataCache, setPatchMetadataCache] = useState<
     Record<PatchId, Remote<PatchWithMetadata>>
   >({});
+
   useEffect(() => {
-    setMissingPatchIds((prev) => {
-      const missingPatchIds: PatchId[] = [];
-      for (const patchId of patchIds) {
-        if (!prev.includes(patchId)) {
-          missingPatchIds.push(patchId);
-        }
-      }
-      return missingPatchIds;
-    });
-  }, [patchIds]);
-  useEffect(() => {
-    if (missingPatchIds.length === 0) {
-      return;
-    }
-    setMissingPatchIds([]);
+    const missingPatchIds = patchIds.filter(
+      (patchId) => patchMetadataCache[patchId] === undefined,
+    );
     setPatchMetadataCache((prev) => {
       const current: typeof prev = { ...prev };
       for (const patchId of missingPatchIds) {
@@ -218,72 +206,103 @@ export function ValProvider({
       }
       return current;
     });
+    if (
+      // skip if:
+      missingPatchIds.length === 0 && // no patches to fetch
+      Object.keys(patchMetadataCache).length > 0 // AND we have already fetched (some / all) patches
+    ) {
+      return;
+    }
     client("/patches/~", "GET", {
       query: {
-        patch_id: missingPatchIds,
+        patch_id: missingPatchIds, // TODO: there is something wrong with the endpoints query parsing? What we really want is: missingPatchIds.length > 0 ? missingPatchIds : undefined, but that do not work as expected?
         module_file_path: [],
         author: [],
         omit_patch: false,
       },
-    }).then((res) => {
-      if (res.status !== 200) {
+    })
+      .then((res) => {
+        if (res.status !== 200) {
+          setPatchMetadataCache((prev) => {
+            const current: typeof prev = { ...prev };
+            for (const patchId of missingPatchIds) {
+              current[patchId] = {
+                status: "error",
+                error: res.json.message,
+              };
+            }
+            return current;
+          });
+          if (
+            res.status === null &&
+            res.json.type === "network_error" &&
+            res.json.retryable
+          ) {
+            // TODO: Retry later
+            setPatchMetadataCache((prev) => {
+              const current: typeof prev = { ...prev };
+              for (const patchId of missingPatchIds) {
+                current[patchId] = {
+                  status: "error",
+                  error: res.json.message,
+                };
+              }
+              return current;
+            });
+          }
+        } else {
+          setPatchMetadataCache((prev) => {
+            const current: typeof prev = { ...prev };
+            for (const patchIds in res.json.patches) {
+              const patchId = patchIds as PatchId;
+              const patchMetadata = res.json.patches[patchId];
+              if (patchMetadata && patchMetadata.patch) {
+                current[patchId] = {
+                  status: "success",
+                  data: {
+                    author: patchMetadata.authorId,
+                    createdAt: patchMetadata.createdAt,
+                    error: res.json?.errors?.[patchId]?.message || null,
+                    patch: patchMetadata.patch,
+                    moduleFilePath: patchMetadata.path,
+                    patchId,
+                  },
+                };
+              } else if (patchMetadata === undefined) {
+                current[patchId] = {
+                  status: "error",
+                  error:
+                    "Expected patch metadata in response, but there was none: " +
+                    patchId,
+                };
+              } else {
+                current[patchId] = {
+                  status: "error",
+
+                  error:
+                    "Expected patch in response, but there was none: " +
+                    patchId,
+                };
+              }
+            }
+            return current;
+          });
+        }
+      })
+      .catch((e) => {
+        console.error("Error fetching patches", e);
         setPatchMetadataCache((prev) => {
           const current: typeof prev = { ...prev };
           for (const patchId of missingPatchIds) {
             current[patchId] = {
               status: "error",
-              error: res.json.message,
+              error: e.message,
             };
           }
           return current;
         });
-        if (
-          res.status === null &&
-          res.json.type === "network_error" &&
-          res.json.retryable
-        ) {
-          // Retry later
-          setTimeout(() => setMissingPatchIds(missingPatchIds), 1000);
-        }
-      } else {
-        setPatchMetadataCache((prev) => {
-          const current: typeof prev = { ...prev };
-          for (const patchIds in res.json.patches) {
-            const patchId = patchIds as PatchId;
-            const patchMetadata = res.json.patches[patchId];
-            if (patchMetadata && patchMetadata.patch) {
-              current[patchId] = {
-                status: "success",
-                data: {
-                  author: patchMetadata.authorId,
-                  createdAt: patchMetadata.createdAt,
-                  error: res.json?.errors?.[patchId]?.message || null,
-                  patch: patchMetadata.patch,
-                  moduleFilePath: patchMetadata.path,
-                  patchId,
-                },
-              };
-            } else if (patchMetadata === undefined) {
-              current[patchId] = {
-                status: "error",
-                error:
-                  "Expected patch metadata in response, but there was none: " +
-                  patchId,
-              };
-            } else {
-              current[patchId] = {
-                status: "error",
-
-                error:
-                  "Expected patch in response, but there was none: " + patchId,
-              };
-            }
-          }
-          return current;
-        });
-      }
-    });
-  }, [missingPatchIds]);
+      });
+  }, [patchIds]);
 
   return (
     <ValContext.Provider
@@ -348,6 +367,36 @@ export function usePatchesMetadata(): Record<
 > {
   const { patchMetadataCache } = useContext(ValContext);
   return patchMetadataCache;
+}
+
+export function useCurrentPatchIds(): PatchId[] {
+  const { patchIds } = useContext(ValContext);
+  return patchIds;
+}
+
+export function useLoadingStatus():
+  | "loading"
+  | "not-asked"
+  | "error"
+  | "success" {
+  const { sourcesSyncStatus } = useContext(ValContext);
+  return useMemo(() => {
+    if (
+      Object.values(sourcesSyncStatus).some(
+        (status) => status.status === "loading",
+      )
+    ) {
+      return "loading";
+    }
+    if (
+      Object.values(sourcesSyncStatus).some(
+        (status) => status.status === "error",
+      )
+    ) {
+      return "error";
+    }
+    return "success";
+  }, [sourcesSyncStatus]);
 }
 
 export function usePatchSets(): Remote<{
@@ -450,10 +499,11 @@ export function usePatchSets(): Remote<{
     }
     lastPatchSetRef.current = currentPatchSets;
     lastPatchSetPatchIdsRef.current = insertedPatches;
+    const serializedPathSets = currentPatchSets.serialize();
     return {
       status: "success",
       data: {
-        patchSets: currentPatchSets.serialize(),
+        patchSets: serializedPathSets,
         loadingPatches,
         failedPatches,
       },
