@@ -12,9 +12,11 @@ import {
 import { Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
 import { AnimateHeight } from "../../ng/components/AnimateHeight";
 import { SourcePath } from "@valbuild/core";
-import { StringField } from "../../ng/fields/StringField";
 import { CompressedPath } from "../../ng/components/CompressedPath";
 import { Button } from "../ui/button";
+import { AnyField } from "../../ng/components/AnyField";
+import { useSchemaAtPath } from "../../ng/ValProvider";
+import { FieldLoading } from "../../ng/components/FieldLoading";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -298,7 +300,7 @@ function Window({
             }}
           >
             <CompressedPath disabled={false} path={editMode.path} />
-            <StringField path={editMode.path} autoFocus />
+            <WindowField path={editMode.path} />
             <Button className="self-end" type="submit">
               Done
             </Button>
@@ -319,6 +321,24 @@ function Window({
           }}
         ></div>
       </div>
+    </div>
+  );
+}
+
+function WindowField({ path }: { path: SourcePath }) {
+  const schemaAtPath = useSchemaAtPath(path);
+
+  if (!("data" in schemaAtPath) || schemaAtPath.data === undefined) {
+    return (
+      <div className="flex flex-col gap-4">
+        <FieldLoading path={path} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4 max-w-[600px]">
+      <AnyField path={path} schema={schemaAtPath.data} />
     </div>
   );
 }
