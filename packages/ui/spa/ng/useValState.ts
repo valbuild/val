@@ -307,13 +307,8 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
           const currentSource = prev[moduleFilePath];
           if (currentSource) {
             const patchableOps = patch.filter((op) => op.op !== "file");
-            const isReplaceOnly =
-              patchableOps.length === 1 && patchableOps[0].op === "replace";
-            const mustDeepClone = !isReplaceOnly;
             const patchRes = applyPatch(
-              (mustDeepClone
-                ? deepClone(currentSource)
-                : currentSource) as JSONValue,
+              deepClone(currentSource) as JSONValue,
               ops,
               patchableOps,
             );
