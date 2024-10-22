@@ -280,6 +280,12 @@
   body {
     @apply bg-bg-primary text-text-primary;
   }
+
+  ::selection {
+    background-color: var(--bg-brand-solid_hover);
+    color: --var(--text-brand-primary);
+  }
+
 }
 
 @layer components {
