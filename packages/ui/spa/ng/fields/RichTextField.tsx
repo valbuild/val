@@ -19,7 +19,7 @@ import {
 } from "@valbuild/shared/internal";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 import { Operation, Patch } from "@valbuild/core/patch";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 export function RichTextField({ path }: { path: SourcePath }) {
   const type = "richtext";
@@ -29,10 +29,20 @@ export function RichTextField({ path }: { path: SourcePath }) {
     "data" in sourceAtPath
       ? (sourceAtPath.data as RichTextSource<AllRichTextOptions>)
       : undefined;
-  const { state, manager } = useRichTextEditor(
+  const { state, manager, setState } = useRichTextEditor(
     defaultValue && richTextToRemirror(defaultValue),
   );
   const { patchPath, addDebouncedPatch } = useAddPatch(path);
+  const [focus, setFocus] = useState(false);
+  useEffect(() => {
+    if (!focus && defaultValue) {
+      setState(
+        manager.createState({
+          content: richTextToRemirror(defaultValue),
+        }),
+      );
+    }
+  }, [focus, defaultValue, setState, manager]);
 
   if (schemaAtPath.status === "error") {
     return (
@@ -68,11 +78,15 @@ export function RichTextField({ path }: { path: SourcePath }) {
   const schema = schemaAtPath.data;
   return (
     <RichTextEditor
-      options={schema.options}
       state={state}
+      options={schema.options}
+      onFocus={setFocus}
       manager={manager}
-      onChange={(content) => {
-        addDebouncedPatch(() => createRichTextPatch(patchPath, content), path);
+      onChange={(event) => {
+        setState(event.state);
+        addDebouncedPatch(() => {
+          return createRichTextPatch(patchPath, event.state.doc.toJSON());
+        }, path);
       }}
     />
   );

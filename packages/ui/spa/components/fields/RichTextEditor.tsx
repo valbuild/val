@@ -53,6 +53,7 @@ import {
   RemirrorManager,
   AnyExtension,
   EditorState,
+  RemirrorEventListenerProps,
 } from "@remirror/core";
 
 const allExtensions = () => {
@@ -77,25 +78,29 @@ const allExtensions = () => {
 };
 
 export function useRichTextEditor(defaultValue?: RemirrorJSON) {
-  const { manager, state } = useRemirror({
+  const { manager, state, setState } = useRemirror({
     extensions: allExtensions, // TODO: filter on options?
     content: defaultValue,
     selection: "start",
   });
-  return { manager, state };
+  return { manager, state, setState };
 }
 
 export function RichTextEditor<E extends AnyExtension>({
+  initialContent,
   state,
   manager,
   options,
   onChange,
+  onFocus,
   debug,
 }: {
-  state: Readonly<EditorState>;
+  initialContent?: Readonly<EditorState>;
+  state?: Readonly<EditorState>;
   manager: RemirrorManager<E>;
   options?: RichTextOptions;
-  onChange?: (value: ValRemirrorJSON) => void;
+  onChange?: (value: RemirrorEventListenerProps<E>) => void;
+  onFocus?: (focused: boolean) => void;
   debug?: boolean;
 }) {
   const hasOptions =
@@ -111,14 +116,26 @@ export function RichTextEditor<E extends AnyExtension>({
 
   return (
     <div
+      onFocus={() => {
+        if (onFocus) {
+          onFocus(true);
+        }
+      }}
+      onBlur={() => {
+        if (onFocus) {
+          onFocus(false);
+        }
+      }}
       className={classNames(
         "relative text-base val-rich-text-editor focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 border border-input rounded-md",
       )}
     >
       <Remirror
         manager={manager}
-        initialContent={state}
+        initialContent={initialContent}
+        state={state}
         classNames={remirrorClassNames}
+        onChange={onChange}
       >
         <DayPickerProvider
           initialProps={{
@@ -132,7 +149,6 @@ export function RichTextEditor<E extends AnyExtension>({
             setShowToolbar={setShowToolbar}
           />
           <EditorComponent />
-          {onChange && <OnChangeJSON onChange={onChange} />}
         </DayPickerProvider>
       </Remirror>
     </div>
