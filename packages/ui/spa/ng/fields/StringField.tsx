@@ -11,6 +11,7 @@ import { FieldSchemaError } from "../components/FieldSchemaError";
 import { FieldSourceError } from "../components/FieldSourceError";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../components/Preview";
+import { useState } from "react";
 
 export function StringField({
   path,
@@ -23,6 +24,7 @@ export function StringField({
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const { patchPath, addDebouncedPatch } = useAddPatch(path);
+  const [focus, setFocus] = useState(false);
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -58,7 +60,14 @@ export function StringField({
   return (
     <Input
       autoFocus={autoFocus}
+      onFocus={() => {
+        setFocus(true);
+      }}
+      onBlur={() => {
+        setFocus(false);
+      }}
       defaultValue={source || ""}
+      key={focus ? path : source}
       onChange={(ev) => {
         addDebouncedPatch(
           () => [
