@@ -165,10 +165,10 @@
     --fg-warning-primary: var(--colors-warning-yellow-600);
     --fg-warning-secondary: var(--colors-warning-yellow-500);
     --fg-white: var(--colors-base-white);
-    --text-band-primary: var(--colors-brand-purple-900);
-    --text-band-secondary: var(--colors-brand-purple-700);
-    --text-band-tertiary_alt: var(--colors-brand-purple-600);
-    --text-band-tertiary: var(--colors-brand-purple-600);
+    --text-brand-primary: var(--colors-brand-purple-900);
+    --text-brand-secondary: var(--colors-brand-purple-700);
+    --text-brand-tertiary_alt: var(--colors-brand-purple-600);
+    --text-brand-tertiary: var(--colors-brand-purple-600);
     --text-disabled: var(--colors-gray-light-mode-gray-500);
     --text-error-primary: var(--colors-error-red-600);
     --text-placeholder_subtle: var(--colors-gray-light-mode-gray-300);
