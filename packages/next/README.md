@@ -648,7 +648,7 @@ If you need to reference content in another `.val` file you can use the `keyOf` 
 ### KeyOf Schema
 
 ```ts
-import otherVal from "./other.val"; // NOTE: this must be an array or a record
+import otherVal from "./other.val"; // NOTE: this must be a record
 
 s.keyOf(otherVal);
 ```
@@ -659,7 +659,7 @@ s.keyOf(otherVal);
 
 ```tsx
 const article = useVal(articleVal); // s.object({ author: s.keyOf(otherVal) })
-const authors = useVal(otherVal); // s.array(s.object({ name: s.string() }))
+const authors = useVal(otherVal); // s.record(s.object({ name: s.string() }))
 
 const nameOfAuthor = authors[articleVal.author].name;
 ```
