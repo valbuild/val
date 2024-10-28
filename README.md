@@ -9,12 +9,10 @@
 
 # 🐉 HERE BE DRAGONS 🐉
 
-Val is PRE-ALPHA - MOST features are broken and in state of flux.
-
-This is released only for **INTERNAL** **TESTING** PURPOSES.
+Val is ALPHA - MOST features are broken and in state of flux.
 
 # Information
 
-Currently only the next integration is supported.
+Currently only the Next.js integration is implemented.
 
-Head over to the [README](./packages/next/README.md) to learn how to try out Val in your NextJS project.
+Head over to the [README](./packages/next/README.md) to learn how to try out Val in your Next.js project.
