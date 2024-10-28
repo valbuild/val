@@ -1,35 +1,78 @@
 import { SourcePath } from "@valbuild/core";
 import classNames from "classnames";
 import { Tally2, ChevronRight, File } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PathNode, pathTree } from "../../utils/pathTree";
 import { Remote } from "../../utils/Remote";
 import { useSchemas } from "../ValProvider";
 import { AnimateHeight } from "./AnimateHeight";
-import { Divider } from "./Divider";
-import { ScrollArea } from "../../components/ui/scroll-area";
 import { prettifyFilename } from "../../utils/prettifyFilename";
 import { useNavigation } from "../../components/ValRouter";
+import { ScrollArea } from "../../components/ui/scroll-area";
+import { fixCapitalization } from "../../utils/fixCapitalization";
 
-export function NavMenu({ className }: { className?: string }) {
+export function NavMenu() {
+  const [mainImageUrl, setMainImageUrl] = useState<string>("");
+  const [name, setName] = useState<string>("");
+  useEffect(() => {
+    async function loadImage() {
+      const found = false;
+      const tryUrl = async (url: string) => {
+        if (found) {
+          return;
+        }
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            setMainImageUrl(url);
+          }
+        } catch {
+          //
+        }
+      };
+      tryUrl("/favicon.svg");
+      tryUrl("/favicon.png");
+      tryUrl("/apple-touch-icon.png");
+      tryUrl("/favicon.ico");
+      tryUrl("https://valbuild.com/favicon.ico");
+    }
+    loadImage();
+    try {
+      let hostname = new URL(location.origin).hostname;
+      if (hostname !== "localhost") {
+        const parts = hostname.split(".");
+        if (parts.length >= 2) {
+          hostname = parts.slice(1, -1).join(".");
+        }
+        setName(fixCapitalization(hostname));
+      } else {
+        setName("Dev mode");
+      }
+    } catch {
+      setName("Studio");
+    }
+  }, []);
+  const remoteSchemasByModuleFilePath = useSchemas();
+
   return (
-    <nav>
-      <Divider />
-      <ScrollArea className={classNames("", className)}>
-        <NavContentExplorer />
-      </ScrollArea>
-      {/* <Divider /><ScrollArea className="max-h-[max(50vh-84px,100px)] overflow-scroll">
-          <NavSiteMap
-            title="Pages"
-            items={[
-              "/content/projects.val.ts",
-              "/content/employees/employeeList.val.ts",
-              "/content/pages/projects.val.ts",
-              "/content/salary.val.ts",
-              "/content/handbook.val.ts",
-            ]}
-          />
-        </ScrollArea> */}
+    <nav className="flex flex-col gap-1 pl-4">
+      <div className="flex items-center h-16 gap-4 p-4 mt-4 bg-bg-tertiary rounded-3xl">
+        {mainImageUrl ? (
+          <img src={mainImageUrl} alt={""} className="w-4 h-4" />
+        ) : (
+          <div className="w-4 h-4" />
+        )}
+        <span>{name}</span>
+      </div>
+      {"data" in remoteSchemasByModuleFilePath && (
+        <div className="hidden py-4 bg-bg-tertiary rounded-3xl xl:block">
+          <ScrollArea>
+            <div className="max-h-[calc(100svh-32px-64px-32px-16px)]">
+              <NavContentExplorer />
+            </div>
+          </ScrollArea>
+        </div>
+      )}
     </nav>
   );
 }
@@ -59,7 +102,7 @@ function NavContentExplorer({ title }: { title?: string }) {
   }
   const root = remoteSchemaTree.data;
   return (
-    <div className="px-2">
+    <div className="p-4">
       {title && <div className="py-2">{title}</div>}
       <div>
         {root.children.sort(sortPathTree).map((child, i) => (
@@ -72,22 +115,6 @@ function NavContentExplorer({ title }: { title?: string }) {
 
 function Loading() {
   return null;
-}
-
-function NavSiteMap({ items, title }: { title: string; items: string[] }) {
-  const root = useMemo(() => {
-    return pathTree(items);
-  }, [items]);
-  return (
-    <div className="px-2">
-      <div className="py-2">{title}</div>
-      <div>
-        {root.children.sort(sortPathTree).map((child, i) => (
-          <ExplorerNode {...child} name={child.name} key={i} />
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function sortPathTree(a: PathNode, b: PathNode) {

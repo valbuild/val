@@ -15,7 +15,7 @@ import { SourcePath } from "@valbuild/core";
 import { CompressedPath } from "../../ng/components/CompressedPath";
 import { Button } from "../ui/button";
 import { AnyField } from "../../ng/components/AnyField";
-import { useSchemaAtPath } from "../../ng/ValProvider";
+import { useSchemaAtPath, useTheme, useValConfig } from "../../ng/ValProvider";
 import { FieldLoading } from "../../ng/components/FieldLoading";
 
 export type ValOverlayProps = {
@@ -28,6 +28,7 @@ export type ValOverlayProps = {
 type ValMenuProps = ValOverlayProps & {
   setMode: Dispatch<SetStateAction<OverlayModes>>;
   mode: OverlayModes;
+  loading: boolean;
 };
 type DropZones =
   | "val-menu-left-top"
@@ -117,10 +118,24 @@ export function ValOverlay(props: ValOverlayProps) {
       setBoundingBoxes([]);
     }
   }, [mode, scrollPos]);
-
   const [editMode, setEditMode] = useState<EditMode | null>(null);
+  useEffect(() => {
+    if (mode === "select" && editMode === null) {
+      const keyDownListener = (ev: KeyboardEvent) => {
+        if (ev.key === "Escape") {
+          setMode(null);
+        }
+      };
+      window.addEventListener("keydown", keyDownListener);
+      return () => {
+        window.removeEventListener("keydown", keyDownListener);
+      };
+    }
+  }, [mode, editMode]);
+
+  const theme = useTheme();
   return (
-    <>
+    <div {...(theme ? { "data-mode": theme } : {})} id="val-overlay-container">
       {editMode !== null && (
         <Window
           editMode={editMode}
@@ -168,8 +183,13 @@ export function ValOverlay(props: ValOverlayProps) {
             </div>
           );
         })}
-      <DraggableValMenu {...props} mode={mode} setMode={setMode} />
-    </>
+      <DraggableValMenu
+        {...props}
+        mode={mode}
+        setMode={setMode}
+        loading={theme === null}
+      />
+    </div>
   );
 }
 
@@ -338,7 +358,7 @@ function WindowField({ path }: { path: SourcePath }) {
 
   return (
     <div className="flex flex-col gap-4 max-w-[600px]">
-      <AnyField path={path} schema={schemaAtPath.data} />
+      <AnyField path={path} schema={schemaAtPath.data} autoFocus={true} />
     </div>
   );
 }
@@ -352,6 +372,7 @@ function ValMenu({
   mode,
   setMode,
   disableOverlay,
+  loading,
 }: {
   dropZone: DropZones;
   ghost?: boolean;
@@ -360,9 +381,18 @@ function ValMenu({
     dropZone === "val-menu-right-center" || dropZone === "val-menu-left-center"
       ? "vertical"
       : "horizontal";
+
   return (
-    <div className="p-4">
-      <AnimateHeight isOpen={draftMode && !draftModeLoading}>
+    <div className="p-4 right-16">
+      {/* See ValNextProvider: this same snippet is used there  */}
+      {loading && (
+        <div className={getPositionClassName(dropZone) + " p-4"}>
+          <div className="flex items-center justify-center p-2 text-white bg-black rounded backdrop-blur">
+            <Clock className="animate-spin" size={16} />
+          </div>
+        </div>
+      )}
+      <AnimateHeight isOpen={draftMode && !draftModeLoading && !loading}>
         <div
           className={classNames(
             "flex relative rounded bg-bg-primary text-text-primary gap-2",
@@ -414,7 +444,7 @@ function ValMenu({
           />
         </div>
       </AnimateHeight>
-      <AnimateHeight isOpen={!(draftMode && !draftModeLoading)}>
+      <AnimateHeight isOpen={!(draftMode && !draftModeLoading) && !loading}>
         <div
           className={classNames(
             "flex relative rounded bg-bg-primary text-text-primary gap-2",
@@ -489,14 +519,54 @@ function MenuButton({
 }
 
 function DraggableValMenu(props: ValMenuProps) {
+  const defaultDropZone = "val-menu-right-center"; // TODO: get from config
   const [isDragging, setIsDragging] = useState(false);
-  const [dropZone, setDropZone] = useState<DropZones>("val-menu-right-center");
+  const [dropZone, setDropZone] = useState<DropZones | null>();
+  const config = useValConfig();
+  useEffect(() => {
+    try {
+      const storedDropZone =
+        localStorage.getItem(
+          "val-menu-drop-zone-" + (config?.project || "unknown"),
+        ) || localStorage.getItem("val-menu-drop-zone-default");
+      if (storedDropZone) {
+        if (
+          storedDropZone === "val-menu-left-top" ||
+          storedDropZone === "val-menu-left-center" ||
+          storedDropZone === "val-menu-left-bottom" ||
+          storedDropZone === "val-menu-center-top" ||
+          storedDropZone === "val-menu-center-bottom" ||
+          storedDropZone === "val-menu-right-top" ||
+          storedDropZone === "val-menu-right-center" ||
+          storedDropZone === "val-menu-right-bottom"
+        ) {
+          setDropZone(storedDropZone);
+        } else {
+          throw new Error("Invalid drop zone: " + storedDropZone);
+        }
+      } else {
+        setDropZone(defaultDropZone);
+      }
+    } catch (e) {
+      console.error("Error getting drop zone from local storage", e);
+      setDropZone(defaultDropZone);
+    }
+  }, []);
   const [dragOverDropZone, setDragOverDropZone] = useState<DropZones | null>(
     null,
   );
   const onDrop = (id: DropZones) => (event: React.DragEvent) => {
     event.preventDefault();
     setDropZone(id);
+    try {
+      localStorage.setItem(
+        "val-menu-drop-zone-" + (config?.project || "unknown"),
+        id,
+      );
+      localStorage.setItem("val-menu-drop-zone-default", id);
+    } catch (e) {
+      console.error("Error setting drop zone to local storage", e);
+    }
   };
   const onDragOver = (id: DropZones) => (event: React.DragEvent) => {
     event.preventDefault();
@@ -507,7 +577,7 @@ function DraggableValMenu(props: ValMenuProps) {
       {dropZone && (
         <div
           className={classNames(
-            "z-overlay cursor-grab",
+            "z-[8999] cursor-grab",
             getPositionClassName(dropZone),
           )}
           draggable
@@ -600,17 +670,29 @@ function DraggableValMenu(props: ValMenuProps) {
   );
 }
 
-function getPositionClassName(dropZone: DropZones) {
-  return classNames("fixed transform", {
-    "left-0 top-0": dropZone === "val-menu-left-top",
-    "left-0 top-1/2 -translate-y-1/2": dropZone === "val-menu-left-center",
-    "left-0 bottom-0": dropZone === "val-menu-left-bottom",
-    "left-1/2 -translate-x-1/2 top-0": dropZone === "val-menu-center-top",
-    "left-1/2 -translate-x-1/2 bottom-0": dropZone === "val-menu-center-bottom",
-    "right-0 top-0": dropZone === "val-menu-right-top",
-    "right-0 top-1/2 -translate-y-1/2": dropZone === "val-menu-right-center",
-    "right-0 bottom-0": dropZone === "val-menu-right-bottom",
-  });
+// NOTE: This is also used in ValNextProvider to display a loading spinner
+function getPositionClassName(dropZone: string | null) {
+  let className = "fixed transform";
+  if (dropZone === "val-menu-left-top") {
+    className += " left-0 top-0";
+  } else if (dropZone === "val-menu-left-center") {
+    className += " left-0 top-1/2 -translate-y-1/2";
+  } else if (dropZone === "val-menu-left-bottom") {
+    className += " left-0 bottom-0";
+  } else if (dropZone === "val-menu-center-top") {
+    className += " left-1/2 -translate-x-1/2 top-0";
+  } else if (dropZone === "val-menu-center-bottom") {
+    className += " left-1/2 -translate-x-1/2 bottom-0";
+  } else if (dropZone === "val-menu-right-top") {
+    className += " right-0 top-0";
+  } else if (dropZone === "val-menu-right-center") {
+    className += " right-0 top-1/2 -translate-y-1/2";
+  } else if (dropZone === "val-menu-right-bottom") {
+    className += " right-0 bottom-0";
+  } else {
+    className += " right-0 bottom-0";
+  }
+  return className;
 }
 
 const DropZone = ({

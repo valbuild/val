@@ -8,6 +8,7 @@ import { ValOverlay } from "./components/overlay/ValOverlay";
 import { ValRouter } from "./components/ValRouter";
 import { useEffect, useState } from "react";
 import { ValProvider } from "./ng/ValProvider";
+import { Fonts } from "./Fonts";
 
 function Overlay() {
   const host = "/api/val";
@@ -51,56 +52,41 @@ function Overlay() {
     };
   }, []);
   return (
-    <ShadowRoot>
-      {/* TODO: */}
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link
-        rel="preconnect"
-        href="https://fonts.gstatic.com"
-        crossOrigin="anonymous"
-      />
-      <link
-        href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap"
-        rel="stylesheet"
-      />
-      <link
-        href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100;0,300;0,400;0,500;0,700;1,100;1,300;1,400;1,500;1,700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap"
-        rel="stylesheet"
-      />
-      <style>{`
+    <>
+      <Fonts />
+      <ShadowRoot>
+        <style>{`
           #val-overlay-container {
             visibility: hidden;
           }
         `}</style>
-      <link
-        rel="stylesheet"
-        href={`${host || "/api/val"}/static${VAL_CSS_PATH}`}
-      />
-      <ErrorBoundary fallbackRender={fallbackRender}>
-        <ValRouter overlay>
-          <ValProvider client={client} dispatchValEvents={draftMode}>
-            <ValOverlay
-              draftMode={draftMode}
-              draftModeLoading={draftModeLoading}
-              setDraftMode={(value: boolean) => {
-                const event = new CustomEvent("val-overlay-provider", {
-                  detail: {
-                    type: "draftMode",
-                    value,
-                  },
-                });
-                window.dispatchEvent(event);
-              }}
-              disableOverlay={() => {
-                location.href = `${window.location.origin}/api/val/disable?redirect_to=${encodeURIComponent(
-                  window.location.href,
-                )}`;
-              }}
-            />
-          </ValProvider>
-        </ValRouter>
-      </ErrorBoundary>
-    </ShadowRoot>
+        <link rel="stylesheet" href={`${host}/static${VAL_CSS_PATH}`} />
+        <ErrorBoundary fallbackRender={fallbackRender}>
+          <ValRouter overlay>
+            <ValProvider client={client} dispatchValEvents={draftMode}>
+              <ValOverlay
+                draftMode={draftMode}
+                draftModeLoading={draftModeLoading}
+                setDraftMode={(value: boolean) => {
+                  const event = new CustomEvent("val-overlay-provider", {
+                    detail: {
+                      type: "draftMode",
+                      value,
+                    },
+                  });
+                  window.dispatchEvent(event);
+                }}
+                disableOverlay={() => {
+                  location.href = `${window.location.origin}/api/val/disable?redirect_to=${encodeURIComponent(
+                    window.location.href,
+                  )}`;
+                }}
+              />
+            </ValProvider>
+          </ValRouter>
+        </ErrorBoundary>
+      </ShadowRoot>
+    </>
   );
 }
 

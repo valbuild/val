@@ -36,7 +36,7 @@ export function remirrorToRichTextSource(node: RemirrorJSON): {
   const files: Record<string, { value: string; patchPaths: string[][] }> = {};
   const blocks: BlockNode<AllRichTextOptions>[] = [];
   let i = 0;
-  for (const child of node.content) {
+  for (const child of node?.content || []) {
     const block = convertBlock([(i++).toString()], child, files);
     blocks.push(block);
   }

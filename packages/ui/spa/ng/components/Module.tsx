@@ -19,6 +19,9 @@ export function Module({ path }: { path: SourcePath }) {
     return <FieldNotFound path={path} type="module" />;
   }
   const schema = schemaAtPath.data;
-
-  return <AnyField path={path} schema={schema} />;
+  return (
+    <div className="flex flex-col gap-6 py-10">
+      <AnyField path={path} schema={schema} />
+    </div>
+  );
 }

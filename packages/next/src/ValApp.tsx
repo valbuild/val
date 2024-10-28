@@ -35,10 +35,9 @@ export const ValApp = ({}: { config: ValConfig }) => {
     return <div>Val Studio is disabled: in message mode</div>;
   }
   return (
-    <div>
-      <link rel="stylesheet" href={`${route}/static${VAL_CSS_PATH}`} />
+    <>
       <Script type="module" src={`${route}/static${VAL_APP_PATH}`} />
       <div id={VAL_APP_ID}></div>
-    </div>
+    </>
   );
 };

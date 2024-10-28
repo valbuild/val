@@ -51,6 +51,7 @@ export function NumberField({ path }: { path: SourcePath }) {
   const source = sourceAtPath.data;
   return (
     <Input
+      inputMode="numeric"
       value={source || 0}
       onChange={(ev) => {
         const nextNumber = Number(ev.target.value);

@@ -10,16 +10,19 @@ import { RecordFields } from "../fields/RecordFields";
 import { RichTextField } from "../fields/RichTextField";
 import { StringField } from "../fields/StringField";
 import { UnionField } from "../fields/UnionField";
+import { DateField } from "../fields/DateField";
 
 export function AnyField({
   path,
   schema,
+  autoFocus,
 }: {
   path: SourcePath;
   schema: SerializedSchema;
+  autoFocus?: boolean;
 }) {
   if (schema.type === "string") {
-    return <StringField path={path} />;
+    return <StringField path={path} autoFocus={autoFocus} />;
   } else if (schema.type === "number") {
     return <NumberField path={path} />;
   } else if (schema.type === "boolean") {
@@ -37,7 +40,9 @@ export function AnyField({
   } else if (schema.type === "keyOf") {
     return <KeyOfField path={path} />;
   } else if (schema.type === "richtext") {
-    return <RichTextField path={path} />;
+    return <RichTextField path={path} autoFocus={autoFocus} />;
+  } else if (schema.type === "date") {
+    return <DateField path={path} />;
   }
   // TODO: exhaustive check
   return <UnexpectedSchemaType schema={schema} />;
