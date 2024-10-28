@@ -40,13 +40,11 @@
 
 # 🐉 HERE BE DRAGONS 🐉
 
-Val is PRE-ALPHA - MOST features are broken and in state of flux.
-
-This is release is only for **INTERNAL** **TESTING** PURPOSES.
+Val is ALPHA - MOST features are broken and in state of flux.
 
 ## Table of contents
 
-- [Introduction](#introduction)
+- [Introduction](#content-as-code)
 - [Installation](#installation)
 - [Getting started](#getting-started)
 - [Schema types](#schema-types):
@@ -69,8 +67,7 @@ As a CMS, Val is useful because:
 
 - editors can **change content** without having to ask developers to do it for them (and nobody wants that)
 - a **well-documented** way to **structure content**
-- **image** support is built-in
-- **richtext** support is built-in
+- **image**, **richtext**, ... support is built-in
 - built-in **visual editing** which lets editors click-then-edit content (and therefore **code**!) directly in your app
 
   ![Visual editing](https://val.build/docs/images/overlay.png)
@@ -95,15 +92,16 @@ But, with the benefits of **hard-coded** content:
 - **fast** since the content is literally hosted with the application
 - content is **always there** and can never fail (since it is not loaded from somewhere)
 - no need to manage different **environments** containing different versions of content
-- **resolve conflicts** like you normally resolve conflicts: **in git**
+- **resolve conflicts** like you normally resolve conflicts **in git**
 
 Compared to other CMSs, Val has the following advantages:
 
-- **easy** to setup and to _grok_: Val is designed to have a minimum of boilerplate and there's **0** query languages to learn. If you know your way around JSON that's enough (if you don't you might want to learn it)
+- **easy** to setup and to _grok_: Val is designed to have a minimum of boilerplate and there's **0** query languages to learn. If you know your way around JSON that's enough (and if you don't you know JSON, you might want to learn that first)
 - **no signup** required to use it locally
 - **no fees** for content that is in your code: your content is your code, and your code is... yours
 - **minimal** API surface: Val is designed to not "infect" your code base
 - **easy to remove**: since your content is already in your code and Val is designed to have a minimal surface, it's easy to remove if you want to switch
+- eslint rules and [VS Code extension](https://marketplace.visualstudio.com/items?itemName=valbuild.vscode-val-build) for an even **better-than-hard-coded** developer experience
 
 <details>
 <summary>Upcoming feature: <strong>i18n</strong></summary>
@@ -135,9 +133,14 @@ Unless your application fits these requirements, you should have a look elsewher
 
 In addition, if you have a "content model", i.e. content schemas, that rarely change and you plan on using them in a lot of different applications (web, mobile, etc), Val will most likely not be a great fit.
 
-If that is the case, we recommend having a look at [sanity](https://sanity.io) instead (we have no affiliation, but if we didn't have Val we would use Sanity).
+If that is the case, we recommend having a look at [Sanity](https://sanity.io) instead (we have no affiliation, but if we didn't have Val we would use Sanity).
 
-**NOTE**: Our experience is that, however nice it sounds, it is hard to "nail" the content model down. Usually content is derived from what you want to present, not vice-versa. In addition, you should think carefully whether you _really_ want to present the exact same content on all these different surfaces.
+**NOTE**: Our experience is that, however nice it sounds, it is hard to "nail" the content model down. Usually content (on, for example, your landing page) is derived from what you want to present, not vice-versa. In addition, you should think carefully whether you _really_ want to present the exact same content on all these different surfaces.
+
+<details>
+  <summary>Upcoming feature: <strong>external content</strong></summary>
+Val will support external content, i.e. content from other Val projects, CMSs or DBs some time in the future.
+</details>
 
 ## Examples
 
@@ -158,9 +161,9 @@ npm install @valbuild/core@latest @valbuild/next@latest @valbuild/eslint-plugin@
 npx @valbuild/init@latest
 ```
 
-### Add editor support
+### Online mode
 
-To make it possible to do non-local edits, head over to [val.build](https://val.build), sign up and import your repository.
+To make it possible to do online edits directly in your app, head over to [val.build](https://val.build), sign up and import your repository.
 
 **NOTE**: your content is yours. No subscription (or similar) is required to host content from your repository.
 
