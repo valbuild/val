@@ -40,7 +40,7 @@
 
 # 🐉 HERE BE DRAGONS 🐉
 
-Val is ALPHA - the API is considered relatively stable, but the UX is in a state of flux.
+Val for Next.js is currently an alpha version - the API is considered relatively stable, but expect some features to be broken and the UX to be constantely updated.
 
 ## Table of contents
 
