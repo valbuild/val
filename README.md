@@ -7,10 +7,6 @@
   </p>
 </p>
 
-# 🐉 HERE BE DRAGONS 🐉
-
-Val is ALPHA - the API is considered relatively stable, but the UX is in a state of flux.
-
 # Information
 
 Currently only the Next.js integration is implemented.
