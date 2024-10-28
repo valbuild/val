@@ -258,11 +258,88 @@ export const ValNextProvider = (props: {
     };
   }, [showOverlay]);
 
-  console.log({ showOverlay, draftMode, iframeSrc });
+  const [dropZone, setDropZone] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    const storedDropZone = localStorage.getItem("val-menu-drop-zone-default");
+    console.log("storedDropZone", storedDropZone);
+    if (storedDropZone) {
+      setDropZone(storedDropZone);
+    } else {
+      setDropZone("val-menu-right-center");
+    }
+  }, []);
 
+  console.log("dropZone", Date.now(), dropZone);
   return (
     <ValOverlayProvider draftMode={draftMode} store={valStore}>
       {props.children}
+      {!spaReady && showOverlay && dropZone && (
+        <React.Fragment>
+          <style>
+            {`
+${positionStyles}
+.backdrop-blur {
+  backdrop-filter: blur(10px);
+}
+.text-white {
+  color: white;
+}
+.bg-black {
+  background: black;
+}
+.rounded {
+  border-radius: 0.25rem;
+}
+.fixed {
+  position: fixed;
+}
+.bottom-4 {
+  bottom: 1rem;
+}
+.right-12 {
+  right: 3rem;
+}
+.right-16 {
+  right: 4rem;
+}
+.p-4 {
+  padding: 1rem;
+}
+.p-2 {
+  padding: 0.5rem;
+}
+.p-1 {
+  padding: 0.25rem;
+}
+.flex {
+  display: flex;
+}
+.items-center {
+  align-items: center;
+}
+.justify-center {
+  justify-content: center;
+}
+.animate-spin {
+  animation: spin 2s linear infinite;
+}
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}`}
+          </style>
+          {/* This same snippet is used in ValOverlay (ValMenu) - we use this to indicate when val is loading */}
+          <div className={getPositionClassName(dropZone) + " p-4"}>
+            <div className="flex items-center justify-center p-2 text-white bg-black rounded backdrop-blur">
+              <Clock className="animate-spin" size={16} />
+            </div>
+          </div>
+        </React.Fragment>
+      )}
       {showOverlay && draftMode !== undefined && (
         <React.Fragment>
           <Script type="module" src={`${route}/static${VAL_APP_PATH}`} />
@@ -328,6 +405,170 @@ You are seeing this message because you are in development mode.`,
   }, [showOverlay]);
 }
 
+const positionStyles = `
+.left-0 {
+  left: 0;
+}
+.top-0 {
+  top: 0;
+}
+.left-1\\/2 {
+  left: 50%;
+}
+.top-1\\/2 {
+  top: 50%;
+}
+.-translate-y-1\\/2 {
+  transform: translateY(-50%);
+}
+.-translate-x-1\\/2 {
+  transform: translateX(-50%);
+}
+.right-0 {
+  right: 0;
+}
+.bottom-0 {
+  bottom: 0;
+}`;
+// This is a copy of the function from the ValMenu component.
+function getPositionClassName(dropZone: string | null) {
+  let className = "fixed transform";
+  if (dropZone === "val-menu-left-top") {
+    className += " left-0 top-0";
+  } else if (dropZone === "val-menu-left-center") {
+    className += " left-0 top-1/2 -translate-y-1/2";
+  } else if (dropZone === "val-menu-left-bottom") {
+    className += " left-0 bottom-0";
+  } else if (dropZone === "val-menu-center-top") {
+    className += " left-1/2 -translate-x-1/2 top-0";
+  } else if (dropZone === "val-menu-center-bottom") {
+    className += " left-1/2 -translate-x-1/2 bottom-0";
+  } else if (dropZone === "val-menu-right-top") {
+    className += " right-0 top-0";
+  } else if (dropZone === "val-menu-right-center") {
+    className += " right-0 top-1/2 -translate-y-1/2";
+  } else if (dropZone === "val-menu-right-bottom") {
+    className += " right-0 bottom-0";
+  } else {
+    className += " right-0 bottom-0";
+  }
+  return className;
+}
+
 function isValStudioPath(pathname: string): boolean {
-  return pathname.startsWith("/val/");
+  return pathname.startsWith("/val");
+}
+
+// function ValIcon() {
+//   return (
+//     <svg
+//       width="32"
+//       height="32"
+//       viewBox="0 0 105 149"
+//       fill="none"
+//       xmlns="http://www.w3.org/2000/svg"
+//     >
+//       <g filter="url(#filter0_d_14_634)">
+//         <path
+//           d="M21.4768 23.3474C21.4768 22.4628 22.1939 21.7457 23.0785 21.7457H77.1357C78.0203 21.7457 78.7374 22.4628 78.7374 23.3474V125.055C78.7374 125.94 78.0203 126.657 77.1357 126.657H23.0785C22.1939 126.657 21.4768 125.94 21.4768 125.055V23.3474Z"
+//           fill="#38CD98"
+//         />
+//       </g>
+//       <g filter="url(#filter1_i_14_634)">
+//         <circle cx="49.9068" cy="104.233" r="9.61017" fill="#1E1F2A" />
+//       </g>
+//       <defs>
+//         <filter
+//           id="filter0_d_14_634"
+//           x="0.0397091"
+//           y="0.30863"
+//           width="100.135"
+//           height="147.785"
+//           filterUnits="userSpaceOnUse"
+//           colorInterpolationFilters="sRGB"
+//         >
+//           <feFlood floodOpacity="0" result="BackgroundImageFix" />
+//           <feColorMatrix
+//             in="SourceAlpha"
+//             type="matrix"
+//             values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+//             result="hardAlpha"
+//           />
+//           <feOffset />
+//           <feGaussianBlur stdDeviation="10.7185" />
+//           <feComposite in2="hardAlpha" operator="out" />
+//           <feColorMatrix
+//             type="matrix"
+//             values="0 0 0 0 0.219608 0 0 0 0 0.803922 0 0 0 0 0.501961 0 0 0 0.3 0"
+//           />
+//           <feBlend
+//             mode="normal"
+//             in2="BackgroundImageFix"
+//             result="effect1_dropShadow_14_634"
+//           />
+//           <feBlend
+//             mode="normal"
+//             in="SourceGraphic"
+//             in2="effect1_dropShadow_14_634"
+//             result="shape"
+//           />
+//         </filter>
+//         <filter
+//           id="filter1_i_14_634"
+//           x="40.2966"
+//           y="94.6229"
+//           width="19.2205"
+//           height="19.2204"
+//           filterUnits="userSpaceOnUse"
+//           colorInterpolationFilters="sRGB"
+//         >
+//           <feFlood floodOpacity="0" result="BackgroundImageFix" />
+//           <feBlend
+//             mode="normal"
+//             in="SourceGraphic"
+//             in2="BackgroundImageFix"
+//             result="shape"
+//           />
+//           <feColorMatrix
+//             in="SourceAlpha"
+//             type="matrix"
+//             values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+//             result="hardAlpha"
+//           />
+//           <feOffset />
+//           <feGaussianBlur stdDeviation="2.40254" />
+//           <feComposite in2="hardAlpha" operator="arithmetic" k2="-1" k3="1" />
+//           <feColorMatrix
+//             type="matrix"
+//             values="0 0 0 0 0.219608 0 0 0 0 0.803922 0 0 0 0 0.501961 0 0 0 0.3 0"
+//           />
+//           <feBlend
+//             mode="normal"
+//             in2="shape"
+//             result="effect1_innerShadow_14_634"
+//           />
+//         </filter>
+//       </defs>
+//     </svg>
+//   );
+// }
+
+function Clock({ className, size }: { className?: string; size: number }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={"lucide lucide-clock " + className}
+    >
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  );
 }

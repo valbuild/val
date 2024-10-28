@@ -94,6 +94,7 @@ export function RichTextEditor<E extends AnyExtension>({
   onChange,
   onFocus,
   debug,
+  autoFocus,
 }: {
   initialContent?: Readonly<EditorState>;
   state?: Readonly<EditorState>;
@@ -102,6 +103,7 @@ export function RichTextEditor<E extends AnyExtension>({
   onChange?: (value: RemirrorEventListenerProps<E>) => void;
   onFocus?: (focused: boolean) => void;
   debug?: boolean;
+  autoFocus?: boolean;
 }) {
   const hasOptions =
     options && Object.entries(options).some(([, value]) => value);
@@ -116,6 +118,7 @@ export function RichTextEditor<E extends AnyExtension>({
 
   return (
     <div
+      autoFocus={autoFocus}
       onFocus={() => {
         if (onFocus) {
           onFocus(true);
@@ -137,19 +140,13 @@ export function RichTextEditor<E extends AnyExtension>({
         classNames={remirrorClassNames}
         onChange={onChange}
       >
-        <DayPickerProvider
-          initialProps={{
-            mode: "default",
-          }}
-        >
-          <Toolbar
-            hasOptions={hasOptions}
-            options={options}
-            debug={debug}
-            setShowToolbar={setShowToolbar}
-          />
-          <EditorComponent />
-        </DayPickerProvider>
+        <Toolbar
+          hasOptions={hasOptions}
+          options={options}
+          debug={debug}
+          setShowToolbar={setShowToolbar}
+        />
+        <EditorComponent />
       </Remirror>
     </div>
   );

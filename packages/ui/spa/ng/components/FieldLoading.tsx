@@ -5,7 +5,7 @@ export function FieldLoading({}: {
   type?: SerializedSchema["type"] | "module";
 }) {
   return (
-    <div>
+    <div className="pt-6">
       <div>Loading...</div>
     </div>
   );

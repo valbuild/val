@@ -33,6 +33,7 @@ export type ValConfig = {
   };
   gitCommit?: string;
   gitBranch?: string;
+  defaultTheme?: "dark" | "light";
 };
 export type InitVal = {
   c: ContentConstructor;

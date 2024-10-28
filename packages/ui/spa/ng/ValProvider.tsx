@@ -25,25 +25,12 @@ import { Remote } from "../utils/Remote";
 import { isJsonArray } from "../utils/isJsonArray";
 import { PatchSets, SerializedPatchSet } from "../utils/PatchSet";
 import { findFirstNonInsertedIdx } from "../utils/findFirstNonInsertedIdx";
+import { DayPickerProvider } from "react-day-picker";
 
 const ValContext = React.createContext<{
+  theme: Themes | null;
+  setTheme: (theme: Themes | null) => void;
   config: ValConfig | undefined;
-  search:
-    | false
-    | {
-        type?: "error" | "change";
-        sourcePath?: SourcePath;
-        filter?: string;
-      };
-  setSearch: (
-    search:
-      | false
-      | {
-          type?: "error" | "change";
-          sourcePath?: SourcePath;
-          filter?: string;
-        },
-  ) => void;
   addPatch: (moduleFilePath: ModuleFilePath, patch: Patch) => void;
   addDebouncedPatch: (get: () => Patch, path: SourcePath) => void;
   schemas: Remote<Record<ModuleFilePath, SerializedSchema>>;
@@ -77,19 +64,13 @@ const ValContext = React.createContext<{
   patchIds: PatchId[];
   patchMetadataCache: Record<PatchId, Remote<PatchWithMetadata>>;
 }>({
+  get theme(): Themes | null {
+    throw new Error("ValContext not provided");
+  },
+  get setTheme(): React.Dispatch<React.SetStateAction<Themes | null>> {
+    throw new Error("ValContext not provided");
+  },
   get config(): ValConfig | undefined {
-    throw new Error("ValContext not provided");
-  },
-  get search():
-    | false
-    | {
-        type?: "error" | "change";
-        sourcePath?: SourcePath;
-        filter?: string;
-      } {
-    throw new Error("ValContext not provided");
-  },
-  get setSearch(): () => void {
     throw new Error("ValContext not provided");
   },
   get addPatch(): () => void {
@@ -303,18 +284,64 @@ export function ValProvider({
         });
       });
   }, [patchIds]);
+  const config =
+    "data" in stat && stat.data ? (stat.data?.config as ValConfig) : undefined;
+
+  const [theme, setTheme] = useState<Themes | null>(null);
+  useEffect(() => {
+    if (!config) {
+      return;
+    }
+    try {
+      const storedTheme = localStorage.getItem(
+        "val-theme-" + (config.project || "unknown"),
+      );
+      if (storedTheme) {
+        if (storedTheme === "light" || storedTheme === "dark") {
+          setTheme(storedTheme);
+        } else {
+          throw new Error(`Invalid Val theme: ${storedTheme}`);
+        }
+      }
+    } catch (e) {
+      console.error("Error getting theme from local storage", e);
+    }
+  }, [config]);
+  useEffect(() => {
+    console.log("found config theme", config?.defaultTheme, theme);
+    if (config?.defaultTheme && theme === null) {
+      if (config?.defaultTheme === "dark" || config?.defaultTheme === "light") {
+        setTheme(config.defaultTheme);
+      } else {
+        console.warn(`Invalid config default theme: ${config.defaultTheme}`);
+      }
+    } else if (config !== undefined && theme === null) {
+      setTheme("dark");
+    }
+  }, [theme, config?.defaultTheme]);
 
   return (
     <ValContext.Provider
       value={{
-        search: false,
-        setSearch: () => {},
         addPatch,
         addDebouncedPatch,
-        config:
-          "data" in stat && stat.data
-            ? (stat.data?.config as ValConfig)
-            : undefined,
+        theme,
+        setTheme: (theme) => {
+          if (theme === "dark" || theme === "light") {
+            try {
+              localStorage.setItem(
+                "val-theme-" + (config?.project || "unknown"),
+                theme,
+              );
+            } catch (e) {
+              console.error("Error setting theme in local storage", e);
+            }
+            setTheme(theme);
+          } else {
+            console.warn(`Cannot set invalid theme theme: ${theme}`);
+          }
+        },
+        config,
         schemas,
         sources,
         sourcesSyncStatus,
@@ -323,9 +350,21 @@ export function ValProvider({
         patchMetadataCache,
       }}
     >
-      {children}
+      <DayPickerProvider
+        initialProps={{
+          mode: "default",
+        }}
+      >
+        {children}
+      </DayPickerProvider>
     </ValContext.Provider>
   );
+}
+export type Themes = "dark" | "light";
+
+export function useTheme(): Themes | null {
+  const { theme } = useContext(ValContext);
+  return theme;
 }
 
 export function useValConfig() {
@@ -374,11 +413,8 @@ export function useCurrentPatchIds(): PatchId[] {
   return patchIds;
 }
 
-export function useLoadingStatus():
-  | "loading"
-  | "not-asked"
-  | "error"
-  | "success" {
+export type LoadingStatus = "loading" | "not-asked" | "error" | "success";
+export function useLoadingStatus(): LoadingStatus {
   const { sourcesSyncStatus } = useContext(ValContext);
   return useMemo(() => {
     if (

@@ -21,7 +21,13 @@ import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError
 import { Operation, Patch } from "@valbuild/core/patch";
 import { useEffect, useState } from "react";
 
-export function RichTextField({ path }: { path: SourcePath }) {
+export function RichTextField({
+  path,
+  autoFocus,
+}: {
+  path: SourcePath;
+  autoFocus?: boolean;
+}) {
   const type = "richtext";
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -78,15 +84,18 @@ export function RichTextField({ path }: { path: SourcePath }) {
   const schema = schemaAtPath.data;
   return (
     <RichTextEditor
+      autoFocus={autoFocus}
       state={state}
       options={schema.options}
       onFocus={setFocus}
       manager={manager}
       onChange={(event) => {
-        setState(event.state);
-        addDebouncedPatch(() => {
-          return createRichTextPatch(patchPath, event.state.doc.toJSON());
-        }, path);
+        if (focus) {
+          setState(event.state);
+          addDebouncedPatch(() => {
+            return createRichTextPatch(patchPath, event.state.doc.toJSON());
+          }, path);
+        }
       }}
     />
   );

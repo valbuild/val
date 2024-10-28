@@ -15,7 +15,6 @@ function Calendar({
   showOutsideDays = true,
   ...props
 }: CalendarProps) {
-  console.log("captionLayout", captionLayout);
   const hasRange = props.fromDate && props.toDate;
   return (
     <DayPicker
@@ -85,8 +84,8 @@ function Calendar({
                     <ChevronDown className="w-4 h-4" />
                   </Button>
                 </Select.Trigger>
-                <Select.Content className="p-1 bg-popover rounded-md text-popover-foreground z-50">
-                  <Select.Viewport className="max-h-48 overflow-y-auto shadow-lg rounded-md">
+                <Select.Content className="z-50 p-1 rounded-md bg-popover text-popover-foreground">
+                  <Select.Viewport className="overflow-y-auto rounded-md shadow-lg max-h-48">
                     {React.Children.map(children, (child) => {
                       if (React.isValidElement(child)) {
                         const { value, children } = child.props;
@@ -94,7 +93,7 @@ function Calendar({
                           <Select.Item
                             key={value}
                             value={String(value)}
-                            className="cursor-pointer hover:bg-primary hover:text-primary-foreground p-2 rounded-md"
+                            className="p-2 rounded-md cursor-pointer hover:bg-primary hover:text-primary-foreground"
                           >
                             <Select.ItemText>{children}</Select.ItemText>
                           </Select.Item>
