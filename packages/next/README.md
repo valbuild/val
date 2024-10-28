@@ -40,7 +40,7 @@
 
 # 🐉 HERE BE DRAGONS 🐉
 
-Val is ALPHA - MOST features are broken and in state of flux.
+Val is ALPHA - the API is considered relatively stable, but the UX is in a state of flux.
 
 ## Table of contents
 
