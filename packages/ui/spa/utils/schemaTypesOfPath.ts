@@ -78,6 +78,13 @@ export function schemaTypesOfPath(
   }
   if (current) {
     branches.add(current.type);
+    if (current.type === "union") {
+      if (typeof current.key === "string") {
+        branches.add("object");
+      } else {
+        branches.add("string");
+      }
+    }
   }
   return branches;
 }
