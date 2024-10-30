@@ -1,10 +1,4 @@
-import {
-  Internal,
-  Json,
-  ModuleFilePath,
-  PatchId,
-  SerializedSchema,
-} from "@valbuild/core";
+import { ModuleFilePath, PatchId, SerializedSchema } from "@valbuild/core";
 import { Operation } from "@valbuild/core/patch";
 import { schemaTypesOfPath } from "./schemaTypesOfPath";
 
@@ -58,16 +52,17 @@ export class PatchSets {
 
   private insertPath(
     moduleFilePath: ModuleFilePath,
-    patchPath: PatchPath,
+    affectsPatchPath: PatchPath,
     patchId: PatchId,
     createdAt: IsoDateString,
     author: AuthorId | null,
     opType: Operation["op"],
     schemaTypes: SerializedSchema["type"][],
+    opPath: PatchPath,
   ) {
     let newPatchSetPath =
-      patchPath.length > 0
-        ? `${moduleFilePath}?${patchPath.join("/")}`
+      affectsPatchPath.length > 0
+        ? `${moduleFilePath}?${affectsPatchPath.join("/")}`
         : moduleFilePath;
     const pathIndexesThatMustBeMerged: number[] = [];
     // TODO: current implementation is O(n), with startsWith it is: O(n x m) - there's room for optimization (Trie?). Just make sure order is maintained and that insert AND then serialize is what we optimize for because the UX will do an insert, then serialize immediately after
@@ -110,7 +105,7 @@ export class PatchSets {
       if (!this.patchSetMetadata[newPatchSetPath]) {
         this.patchSetMetadata[newPatchSetPath] = {
           moduleFilePath,
-          patchPath: patchPath,
+          patchPath: affectsPatchPath,
           patches: [],
           authors: [],
           opTypes: [],
@@ -147,7 +142,7 @@ export class PatchSets {
     if (!this.patchSetMetadata[newPatchSetPath]) {
       this.patchSetMetadata[newPatchSetPath] = {
         moduleFilePath,
-        patchPath: patchPath,
+        patchPath: affectsPatchPath,
         patches: [],
         authors: [],
         opTypes: [],
@@ -168,7 +163,7 @@ export class PatchSets {
       this.patchSetMetadata[newPatchSetPath].opTypes.unshift(opType);
     }
     this.patchSetMetadata[newPatchSetPath].patches.unshift({
-      patchPath: patchPath,
+      patchPath: opPath,
       patchId,
       author,
       createdAt,
@@ -204,6 +199,7 @@ export class PatchSets {
           author,
           op.op,
           Array.from(schemaTypesAtPath),
+          op.path,
         );
       } else if (
         op.op === "add" ||
@@ -211,6 +207,7 @@ export class PatchSets {
         op.op === "move" ||
         op.op === "copy"
       ) {
+        // This is the default case, were we, to be sure, take the parent of the path and as the patch set
         const path = op.path.slice(0, -1);
         const schemaTypesAtPath = schemaTypesOfPath(schema, path);
         if (schemaTypesAtPath.size === 1 && schemaTypesAtPath.has("array")) {
@@ -223,6 +220,7 @@ export class PatchSets {
             author,
             op.op,
             Array.from(schemaTypesAtPath),
+            op.path,
           );
           if (op.op === "move") {
             const path = op.from.slice(0, -1);
@@ -235,12 +233,16 @@ export class PatchSets {
               author,
               op.op,
               Array.from(schemaTypesAtPath),
+              op.path,
             );
           }
         } else if (
           schemaTypesAtPath.size === 1 &&
           schemaTypesAtPath.has("record")
         ) {
+          // If we know this is a record, we can be more specific and only insert the path that is being modified
+          const path = op.path;
+          const schemaTypesAtPath = schemaTypesOfPath(schema, path);
           this.insertPath(
             moduleFilePath,
             path,
@@ -249,9 +251,10 @@ export class PatchSets {
             author,
             op.op,
             Array.from(schemaTypesAtPath),
+            op.path,
           );
           if (op.op === "move") {
-            const path = op.from.slice(0, -1);
+            const path = op.from;
             const schemaTypesAtPath = schemaTypesOfPath(schema, path);
             this.insertPath(
               moduleFilePath,
@@ -261,6 +264,7 @@ export class PatchSets {
               author,
               op.op,
               Array.from(schemaTypesAtPath),
+              op.path,
             );
           }
         } else if (schemaTypesAtPath.size === 1) {
@@ -273,12 +277,13 @@ export class PatchSets {
           // we cannot really know if this is a record or array so the entire module is the patch set
           this.insertPath(
             moduleFilePath,
-            [],
+            path,
             patchId,
             createdAt,
             author,
             op.op,
             [schema.type],
+            op.path,
           );
         }
       } else {
@@ -296,9 +301,16 @@ export class PatchSets {
         console.error("Could not resolve path while creating patch set", e);
       }
       // "terminate" the entire module file path (i.e. all patches are their own patch set)
-      this.insertPath(moduleFilePath, [], patchId, createdAt, author, op.op, [
-        schema.type,
-      ]);
+      this.insertPath(
+        moduleFilePath,
+        [],
+        patchId,
+        createdAt,
+        author,
+        op.op,
+        [schema.type],
+        op.path,
+      );
     }
   }
 
@@ -307,7 +319,6 @@ export class PatchSets {
   }
 
   serialize(): SerializedPatchSet {
-    console.log("serialize", this.orderedInsertKeys);
     return this.orderedInsertKeys.map((key) => {
       if (key in this.patchSetMetadata) {
         return this.patchSetMetadata[key];
