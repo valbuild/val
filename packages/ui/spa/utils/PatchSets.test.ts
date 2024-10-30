@@ -10,6 +10,7 @@ import { PatchSets } from "./PatchSets";
 
 const { s } = initVal();
 describe("PatchSet", () => {
+  // #region record
   test("record: replace two different", async () => {
     const patchSet = testPatchSet(
       "/content/projects.val.ts" as ModuleFilePath,
@@ -84,7 +85,7 @@ describe("PatchSet", () => {
     expect(patchSet.serialize()).toEqual(expected);
   });
 
-  test("multi module bonanza", async () => {
+  test("record: multi module bonanza", async () => {
     const patchSet = testPatchSet(
       "/content/projects.val.ts" as ModuleFilePath,
       s.record(s.object({ title: s.string(), description: s.string() })),
@@ -240,8 +241,7 @@ describe("PatchSet", () => {
         lastUpdatedBy: "author1",
       },
     ];
-
-    console.log(JSON.stringify(patchSet.serialize(), null, 2));
+    // console.log(JSON.stringify(patchSet.serialize(), null, 2));
     expect(patchSet.serialize()).toEqual(expected);
   });
 
@@ -333,20 +333,20 @@ describe("PatchSet", () => {
     const expected = [
       {
         moduleFilePath: "/content/projects.val.ts",
-        patchPath: [],
+        patchPath: ["Project_B"],
         patches: [
           {
-            patchPath: [],
+            patchPath: ["Project_B"],
             patchId: "456",
             author: "author1",
             createdAt: "2021-01-03T00:00:00Z",
             opType: "add",
-            schemaTypes: ["record"],
+            schemaTypes: ["object"],
           },
         ],
         authors: ["author1"],
         opTypes: ["add"],
-        schemaTypes: ["record"],
+        schemaTypes: ["object"],
         lastUpdated: "2021-01-03T00:00:00Z",
         lastUpdatedBy: "author1",
       },
@@ -391,7 +391,7 @@ describe("PatchSet", () => {
     const expected = [
       {
         moduleFilePath: "/content/projects.val.ts",
-        patchPath: [],
+        patchPath: ["Project_B"],
         patches: [
           {
             patchPath: ["Project_B", "description"],
@@ -402,17 +402,17 @@ describe("PatchSet", () => {
             schemaTypes: ["string"],
           },
           {
-            patchPath: [],
+            patchPath: ["Project_B"],
             patchId: "456",
             author: "author1",
             createdAt: "2021-01-03T00:00:00Z",
             opType: "add",
-            schemaTypes: ["record"],
+            schemaTypes: ["object"],
           },
         ],
         authors: ["author1"],
         opTypes: ["replace", "add"],
-        schemaTypes: ["record"],
+        schemaTypes: ["object"],
         lastUpdated: "2021-01-04T00:00:00Z",
         lastUpdatedBy: "author1",
       },
@@ -469,7 +469,7 @@ describe("PatchSet", () => {
     const expected = [
       {
         moduleFilePath: "/content/projects.val.ts",
-        patchPath: [],
+        patchPath: ["Project_B"],
         patches: [
           {
             patchPath: ["Project_B", "description"],
@@ -480,13 +480,24 @@ describe("PatchSet", () => {
             schemaTypes: ["string"],
           },
           {
-            patchPath: [],
+            patchPath: ["Project_B"],
             patchId: "456",
             author: "author1",
             createdAt: "2021-01-03T00:00:00Z",
             opType: "add",
-            schemaTypes: ["record"],
+            schemaTypes: ["object"],
           },
+        ],
+        authors: ["author1"],
+        opTypes: ["replace", "add"],
+        schemaTypes: ["object"],
+        lastUpdated: "2021-01-04T00:00:00Z",
+        lastUpdatedBy: "author1",
+      },
+      {
+        moduleFilePath: "/content/projects.val.ts",
+        patchPath: ["Project A", "title"],
+        patches: [
           {
             patchPath: ["Project A", "title"],
             patchId: "123",
@@ -497,16 +508,16 @@ describe("PatchSet", () => {
           },
         ],
         authors: ["author1"],
-        opTypes: ["add", "replace"],
-        schemaTypes: ["record"],
-        lastUpdated: "2021-01-04T00:00:00Z",
+        opTypes: ["replace"],
+        schemaTypes: ["string"],
+        lastUpdated: "2021-01-01T00:00:00Z",
         lastUpdatedBy: "author1",
       },
     ];
     expect(patchSet.serialize()).toEqual(expected);
   });
 
-  test("record in object: replace", async () => {
+  test("record in object: replace.", async () => {
     const patchSet = testPatchSet(
       "/content/projects.val.ts" as ModuleFilePath,
       s.object({
@@ -553,7 +564,7 @@ describe("PatchSet", () => {
     expect(patchSet.serialize()).toEqual(expected);
   });
 
-  test("record in object: replace -> add", async () => {
+  test("record in object: replace -> add.", async () => {
     const patchSet = testPatchSet(
       "/content/projects.val.ts" as ModuleFilePath,
       s.object({
@@ -594,16 +605,27 @@ describe("PatchSet", () => {
     const expected = [
       {
         moduleFilePath: "/content/projects.val.ts",
-        patchPath: ["record"],
+        patchPath: ["record", "Project_B"],
         patches: [
           {
-            patchPath: ["record"],
+            patchPath: ["record", "Project_B"],
             patchId: "234",
             author: "author1",
             createdAt: "2021-01-02T00:00:00Z",
             opType: "add",
-            schemaTypes: ["record"],
+            schemaTypes: ["object"],
           },
+        ],
+        authors: ["author1"],
+        opTypes: ["add"],
+        schemaTypes: ["object"],
+        lastUpdated: "2021-01-02T00:00:00Z",
+        lastUpdatedBy: "author1",
+      },
+      {
+        moduleFilePath: "/content/projects.val.ts",
+        patchPath: ["record", "Project A", "title"],
+        patches: [
           {
             patchPath: ["record", "Project A", "title"],
             patchId: "123",
@@ -614,16 +636,16 @@ describe("PatchSet", () => {
           },
         ],
         authors: ["author1"],
-        opTypes: ["add", "replace"],
-        schemaTypes: ["record"],
-        lastUpdated: "2021-01-02T00:00:00Z",
+        opTypes: ["replace"],
+        schemaTypes: ["string"],
+        lastUpdated: "2021-01-01T00:00:00Z",
         lastUpdatedBy: "author1",
       },
     ];
     expect(patchSet.serialize()).toEqual(expected);
   });
 
-  test("record in object: replace -> add -> replace", async () => {
+  test("record in object: replace -> add -> replace.", async () => {
     const patchSet = testPatchSet(
       "/content/projects.val.ts" as ModuleFilePath,
       s.object({
@@ -676,7 +698,7 @@ describe("PatchSet", () => {
     const expected = [
       {
         moduleFilePath: "/content/projects.val.ts",
-        patchPath: ["record"],
+        patchPath: ["record", "Project_B"],
         patches: [
           {
             patchPath: ["record", "Project_B", "title"],
@@ -687,13 +709,24 @@ describe("PatchSet", () => {
             schemaTypes: ["string"],
           },
           {
-            patchPath: ["record"],
+            patchPath: ["record", "Project_B"],
             patchId: "234",
             author: "author1",
             createdAt: "2021-01-02T00:00:00Z",
             opType: "add",
-            schemaTypes: ["record"],
+            schemaTypes: ["object"],
           },
+        ],
+        authors: ["author2", "author1"],
+        opTypes: ["replace", "add"],
+        schemaTypes: ["object"],
+        lastUpdated: "2021-01-03T00:00:00Z",
+        lastUpdatedBy: "author2",
+      },
+      {
+        moduleFilePath: "/content/projects.val.ts",
+        patchPath: ["record", "Project A", "title"],
+        patches: [
           {
             patchPath: ["record", "Project A", "title"],
             patchId: "123",
@@ -703,11 +736,471 @@ describe("PatchSet", () => {
             schemaTypes: ["string"],
           },
         ],
+        authors: ["author1"],
+        opTypes: ["replace"],
+        schemaTypes: ["string"],
+        lastUpdated: "2021-01-01T00:00:00Z",
+        lastUpdatedBy: "author1",
+      },
+    ];
+    expect(patchSet.serialize()).toEqual(expected);
+  });
+
+  // #region array
+  test("array in object: replace -> add -> replace.", async () => {
+    const patchSet = testPatchSet(
+      "/content/projects.val.ts" as ModuleFilePath,
+      s.object({
+        array: s.array(
+          s.object({ title: s.string(), description: s.string() }),
+        ),
+      }),
+      [
+        {
+          patchId: "123" as PatchId,
+          patch: [
+            {
+              op: "replace",
+              path: ["array", "0", "title"],
+              value: "New Title",
+            },
+          ],
+          createdAt: "2021-01-01T00:00:00Z",
+          author: "author1",
+        },
+        {
+          patchId: "234" as PatchId,
+          patch: [
+            {
+              op: "add",
+              path: ["array", "1"],
+              value: {
+                title: "Title",
+                description: "Description",
+              },
+            },
+          ],
+          createdAt: "2021-01-02T00:00:00Z",
+          author: "author1",
+        },
+        {
+          patchId: "345" as PatchId,
+          patch: [
+            {
+              op: "replace",
+              path: ["array", "1", "title"],
+              value: "New Title",
+            },
+          ],
+          createdAt: "2021-01-03T00:00:00Z",
+          author: "author2",
+        },
+      ],
+    );
+    const expected = [
+      {
+        moduleFilePath: "/content/projects.val.ts",
+        patchPath: ["array"],
+        patches: [
+          {
+            patchPath: ["array", "1", "title"],
+            patchId: "345",
+            author: "author2",
+            createdAt: "2021-01-03T00:00:00Z",
+            opType: "replace",
+            schemaTypes: ["string"],
+          },
+          {
+            patchPath: ["array", "1"],
+            patchId: "234",
+            author: "author1",
+            createdAt: "2021-01-02T00:00:00Z",
+            opType: "add",
+            schemaTypes: ["array"],
+          },
+          {
+            patchPath: ["array", "0", "title"],
+            patchId: "123",
+            author: "author1",
+            createdAt: "2021-01-01T00:00:00Z",
+            opType: "replace",
+            schemaTypes: ["string"],
+          },
+        ],
         authors: ["author2", "author1"],
         opTypes: ["add", "replace"],
-        schemaTypes: ["record"],
+        schemaTypes: ["array"],
         lastUpdated: "2021-01-03T00:00:00Z",
         lastUpdatedBy: "author2",
+      },
+    ];
+    expect(patchSet.serialize()).toEqual(expected);
+  });
+
+  // #region union
+  test("union of record in object: replace -> add -> replace.", async () => {
+    const patchSet = testPatchSet(
+      "/content/projects.val.ts" as ModuleFilePath,
+      s.object({
+        record: s.record(
+          s.union(
+            "type",
+            s.object({
+              type: s.literal("blog"),
+              title: s.string(),
+              description: s.string(),
+            }),
+            s.object({
+              type: s.literal("article"),
+              name: s.string(),
+              text: s.string(),
+            }),
+          ),
+        ),
+      }),
+      [
+        {
+          patchId: "123" as PatchId,
+          patch: [
+            {
+              op: "replace",
+              path: ["record", "blog1", "title"],
+              value: "New Blog Title",
+            },
+          ],
+          createdAt: "2021-01-01T00:00:00Z",
+          author: "author1",
+        },
+        {
+          patchId: "234" as PatchId,
+          patch: [
+            {
+              op: "add",
+              path: ["record", "article1"],
+              value: {
+                type: "article",
+                name: "Article Name",
+                text: "Article Text",
+              },
+            },
+          ],
+          createdAt: "2021-01-02T00:00:00Z",
+          author: "author1",
+        },
+        {
+          patchId: "345" as PatchId,
+          patch: [
+            {
+              op: "replace",
+              path: ["record", "article1", "name"],
+              value: "New Article Name",
+            },
+          ],
+          createdAt: "2021-01-03T00:00:00Z",
+          author: "author2",
+        },
+        {
+          patchId: "456" as PatchId,
+          patch: [
+            {
+              op: "replace",
+              path: ["record", "blog1", "title"],
+              value: "New Blog Title 2",
+            },
+          ],
+          createdAt: "2021-01-03T00:00:00Z",
+          author: "author2",
+        },
+      ],
+    );
+    const expected = [
+      {
+        moduleFilePath: "/content/projects.val.ts",
+        patchPath: ["record", "blog1", "title"],
+        patches: [
+          {
+            patchPath: ["record", "blog1", "title"],
+            patchId: "456",
+            author: "author2",
+            createdAt: "2021-01-03T00:00:00Z",
+            opType: "replace",
+            schemaTypes: ["string"],
+          },
+          {
+            patchPath: ["record", "blog1", "title"],
+            patchId: "123",
+            author: "author1",
+            createdAt: "2021-01-01T00:00:00Z",
+            opType: "replace",
+            schemaTypes: ["string"],
+          },
+        ],
+        authors: ["author2", "author1"],
+        opTypes: ["replace"],
+        schemaTypes: ["string"],
+        lastUpdated: "2021-01-03T00:00:00Z",
+        lastUpdatedBy: "author2",
+      },
+      {
+        moduleFilePath: "/content/projects.val.ts",
+        patchPath: ["record", "article1"],
+        patches: [
+          {
+            patchPath: ["record", "article1", "name"],
+            patchId: "345",
+            author: "author2",
+            createdAt: "2021-01-03T00:00:00Z",
+            opType: "replace",
+            schemaTypes: ["string"],
+          },
+          {
+            patchPath: ["record", "article1"],
+            patchId: "234",
+            author: "author1",
+            createdAt: "2021-01-02T00:00:00Z",
+            opType: "add",
+            schemaTypes: ["union", "object"],
+          },
+        ],
+        authors: ["author2", "author1"],
+        opTypes: ["replace", "add"],
+        schemaTypes: ["union", "object"],
+        lastUpdated: "2021-01-03T00:00:00Z",
+        lastUpdatedBy: "author2",
+      },
+    ];
+    expect(patchSet.serialize()).toEqual(expected);
+  });
+
+  test("union in record: deep unions.", async () => {
+    const patchSet = testPatchSet(
+      "/content/projects.val.ts" as ModuleFilePath,
+      s.object({
+        record: s.record(
+          s.union(
+            "type",
+            s.object({
+              type: s.literal("type1"),
+              value: s.union(
+                "sub-type",
+                s.object({
+                  "sub-type": s.literal("sub-type1"),
+                  value: s.string(),
+                }),
+                s.object({
+                  "sub-type": s.literal("sub-type2"),
+                  value: s.number(),
+                }),
+              ),
+            }),
+            s.object({
+              type: s.literal("type1"),
+              value: s.union(
+                "sub-type",
+                s.object({
+                  "sub-type": s.literal("sub-type1"),
+                  value: s.boolean(),
+                }),
+                s.object({
+                  "sub-type": s.literal("sub-type2"),
+                  value: s.object({
+                    "sub-type": s.literal("sub-type3"),
+                    value: s.number(),
+                  }),
+                }),
+              ),
+            }),
+          ),
+        ),
+      }),
+      [
+        {
+          patchId: "123" as PatchId,
+          patch: [
+            {
+              op: "replace",
+              path: ["record", "record1", "value", "value"],
+              value: "test",
+            },
+          ],
+          createdAt: "2021-01-01T00:00:00Z",
+          author: "author1",
+        },
+        {
+          patchId: "234" as PatchId,
+          patch: [
+            {
+              op: "add",
+              path: ["record", "record2"],
+              value: { value: "test" },
+            },
+          ],
+          createdAt: "2021-01-02T00:00:00Z",
+          author: "author1",
+        },
+      ],
+    );
+    const expected = [
+      {
+        moduleFilePath: "/content/projects.val.ts",
+        patchPath: ["record", "record2"],
+        patches: [
+          {
+            patchPath: ["record", "record2"],
+            patchId: "234",
+            author: "author1",
+            createdAt: "2021-01-02T00:00:00Z",
+            opType: "add",
+            schemaTypes: ["union", "object"],
+          },
+        ],
+        authors: ["author1"],
+        opTypes: ["add"],
+        schemaTypes: ["union", "object"],
+        lastUpdated: "2021-01-02T00:00:00Z",
+        lastUpdatedBy: "author1",
+      },
+      {
+        moduleFilePath: "/content/projects.val.ts",
+        patchPath: ["record", "record1", "value", "value"],
+        patches: [
+          {
+            patchPath: ["record", "record1", "value", "value"],
+            patchId: "123",
+            author: "author1",
+            createdAt: "2021-01-01T00:00:00Z",
+            opType: "replace",
+            schemaTypes: ["string", "number", "boolean", "object"],
+          },
+        ],
+        authors: ["author1"],
+        opTypes: ["replace"],
+        schemaTypes: ["string", "number", "boolean", "object"],
+        lastUpdated: "2021-01-01T00:00:00Z",
+        lastUpdatedBy: "author1",
+      },
+    ];
+    expect(patchSet.serialize()).toEqual(expected);
+  });
+
+  test("record in union: deep unions.", async () => {
+    const patchSet = testPatchSet(
+      "/content/projects.val.ts" as ModuleFilePath,
+      s.object({
+        record: s.record(
+          s.union(
+            "type",
+            s.object({
+              type: s.literal("type1"),
+              value: s.record(s.object({ value: s.string() })),
+            }),
+            s.object({
+              type: s.literal("type1"),
+              value: s.union(
+                "sub-type",
+                s.object({
+                  "sub-type": s.literal("sub-type1"),
+                  value: s.boolean(),
+                }),
+                s.object({
+                  "sub-type": s.literal("sub-type2"),
+                  value: s.object({
+                    "sub-type": s.literal("sub-type3"),
+                    value: s.number(),
+                  }),
+                }),
+              ),
+            }),
+          ),
+        ),
+      }),
+      [
+        {
+          patchId: "123" as PatchId,
+          patch: [
+            {
+              op: "replace",
+              path: ["record", "record1", "value", "innerRecord1", "value"],
+              value: "test",
+            },
+          ],
+          createdAt: "2021-01-01T00:00:00Z",
+          author: "author1",
+        },
+        {
+          patchId: "234" as PatchId,
+          patch: [
+            {
+              op: "add",
+              path: ["record", "record2"],
+              value: { value: "test" },
+            },
+          ],
+          createdAt: "2021-01-02T00:00:00Z",
+          author: "author1",
+        },
+        {
+          patchId: "345" as PatchId,
+          patch: [
+            {
+              op: "add",
+              path: ["record", "record1", "value", "innerRecord2"],
+              value: {
+                value: "test",
+              },
+            },
+          ],
+          createdAt: "2021-01-03T00:00:00Z",
+          author: "author2",
+        },
+      ],
+    );
+    const expected = [
+      {
+        moduleFilePath: "/content/projects.val.ts",
+        patchPath: ["record", "record1", "value"],
+        patches: [
+          {
+            patchPath: ["record", "record1", "value", "innerRecord2"],
+            patchId: "345",
+            author: "author2",
+            createdAt: "2021-01-03T00:00:00Z",
+            opType: "add",
+            schemaTypes: ["object"],
+          },
+          {
+            patchPath: ["record", "record1", "value", "innerRecord1", "value"],
+            patchId: "123",
+            author: "author1",
+            createdAt: "2021-01-01T00:00:00Z",
+            opType: "replace",
+            schemaTypes: ["string"],
+          },
+        ],
+        authors: ["author2", "author1"],
+        opTypes: ["add", "replace"],
+        schemaTypes: ["object"],
+        lastUpdated: "2021-01-03T00:00:00Z",
+        lastUpdatedBy: "author2",
+      },
+      {
+        moduleFilePath: "/content/projects.val.ts",
+        patchPath: ["record", "record2"],
+        patches: [
+          {
+            patchPath: ["record", "record2"],
+            patchId: "234",
+            author: "author1",
+            createdAt: "2021-01-02T00:00:00Z",
+            opType: "add",
+            schemaTypes: ["union", "object"],
+          },
+        ],
+        authors: ["author1"],
+        opTypes: ["add"],
+        schemaTypes: ["union", "object"],
+        lastUpdated: "2021-01-02T00:00:00Z",
+        lastUpdatedBy: "author1",
       },
     ];
     expect(patchSet.serialize()).toEqual(expected);
