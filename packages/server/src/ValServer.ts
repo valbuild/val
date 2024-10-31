@@ -8,6 +8,7 @@ import {
   ValidationError,
   SerializedSchema,
   ValConfig,
+  Internal,
 } from "@valbuild/core";
 import {
   Api,
@@ -1126,18 +1127,29 @@ export const ValServer = (
         //     3) the benefit an attacker would get is an image that is not yet published (i.e. most cases: not very interesting)
         // Thus: attack surface + ease of attack + benefit = low probability of attack
         // If we couldn't argue that patch ids are secret enough, then this would be a problem.
+        let cacheControl: string | undefined;
         let fileBuffer;
+        let mimeType: string | undefined;
+        console.log(filePath, query);
         if (query.patch_id) {
           fileBuffer = await serverOps.getBase64EncodedBinaryFileFromPatch(
             filePath,
             query.patch_id as PatchId,
           );
+          mimeType = Internal.filenameToMimeType(filePath);
+          cacheControl = "public, max-age=20000, immutable";
         } else {
           fileBuffer = await serverOps.getBinaryFile(filePath);
         }
         if (fileBuffer) {
           return {
             status: 200,
+            headers: {
+              // TODO: we could use ETag and return 304 instead
+              "Content-Type": mimeType || "application/octet-stream",
+              "Cache-Control":
+                cacheControl || "public, max-age=0, must-revalidate",
+            },
             body: bufferToReadableStream(fileBuffer),
           };
         } else {

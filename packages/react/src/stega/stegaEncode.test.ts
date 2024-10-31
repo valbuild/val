@@ -17,7 +17,7 @@ describe("stega transform", () => {
 
     const valModule = c.define("/test.val.ts", schema, [
       {
-        image: c.file("/public/test1.png", {
+        image: c.file("/public/val/test1.png", {
           sha256: "1231",
           width: 100,
           height: 100,
@@ -28,11 +28,12 @@ describe("stega transform", () => {
         b: true,
       },
       {
-        image: c.file("/public/test2.png", {
+        image: c.file("/public/val/test2.png", {
           sha256: "1232",
           width: 100,
           height: 100,
           mimeType: "image/png",
+          patch_id: "123",
         }),
         text: [{ tag: "p", children: ["Test"] }],
         n: 2,
@@ -57,10 +58,10 @@ describe("stega transform", () => {
     });
     //
     expect(vercelStegaSplit(transformed[0].image.url).cleaned).toStrictEqual(
-      "/api/val/files/public/test1.png?sha256=1231",
+      "/val/test1.png",
     );
     expect(vercelStegaSplit(transformed[1].image.url).cleaned).toStrictEqual(
-      "/api/val/files/public/test2.png?sha256=1232",
+      "/val/test2.png",
     );
 
     expect(transformed[0].text.valPath).toStrictEqual(

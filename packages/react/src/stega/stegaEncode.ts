@@ -334,12 +334,7 @@ export function stegaEncode(
           typeof sourceOrSelector[FILE_REF_PROP] === "string"
         ) {
           const fileSelector = Internal.convertFileSource(sourceOrSelector);
-          let url = fileSelector.url;
-          if (opts.disabled) {
-            url = fileSelector.url;
-          } else {
-            url = "/api/val/files/public" + fileSelector.url;
-          }
+          const url = fileSelector.url;
           return {
             ...fileSelector,
             url: rec(url, recOpts),

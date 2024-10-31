@@ -1,4 +1,4 @@
-export { initVal } from "./initVal";
+export { initVal, type ConfigDirectory } from "./initVal";
 export { modules, type ValModules } from "./modules";
 export type {
   InitVal,
