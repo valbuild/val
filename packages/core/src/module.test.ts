@@ -4,6 +4,7 @@ import {
   splitModulePath,
   splitModuleFilePathAndModulePath,
   parentOfSourcePath,
+  splitJoinedSourcePaths,
 } from "./module";
 import { SelectorOfSchema } from "./schema";
 import { array } from "./schema/array";
@@ -38,6 +39,17 @@ describe("module", () => {
     expect(
       splitModulePath('"foo"."b.ar".1."z\\"oo"' as ModulePath),
     ).toStrictEqual(["foo", "b.ar", "1", 'z"oo']);
+  });
+
+  test("split joined paths", () => {
+    expect(
+      splitJoinedSourcePaths(
+        '/foo.val.ts?p="foo"."bar".1."zoo",/bar.val.ts?p="bar"."zo".1."do"' as ModulePath,
+      ),
+    ).toStrictEqual([
+      '/foo.val.ts?p="foo"."bar".1."zoo"',
+      '/bar.val.ts?p="bar"."zo".1."do"',
+    ]);
   });
 
   test("getSourceAtPath: basic selector", () => {

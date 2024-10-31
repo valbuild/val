@@ -68,6 +68,7 @@ import {
   joinModuleFilePathAndModulePath,
   parentOfSourcePath,
   patchPathToModulePath,
+  splitJoinedSourcePaths,
 } from "./module";
 const ModuleFilePathSep = "?p=";
 export { ModuleFilePathSep };
@@ -165,6 +166,7 @@ const Internal = {
     return splitModulePath(modulePath);
   },
   splitModulePath,
+  splitJoinedSourcePaths,
   parentOfSourcePath,
   patchPathToModulePath,
   VAL_ENABLE_COOKIE_NAME: "val_enable" as const,
