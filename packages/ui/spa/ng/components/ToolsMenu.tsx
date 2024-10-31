@@ -1,7 +1,7 @@
 import { LoadingStatus, useLoadingStatus } from "../ValProvider";
 import { ScrollArea } from "../../components/ui/scroll-area";
 import { useState, useEffect } from "react";
-import { PendingChanges } from "./PendingChanges";
+import { DraftChanges } from "./DraftChanges";
 
 export function ToolsMenu() {
   const loadingStatus = useLoadingStatus();
@@ -29,7 +29,7 @@ export function ToolsMenu() {
         <div className="hidden bg-bg-tertiary rounded-3xl xl:block">
           <ScrollArea>
             <div className="max-h-[calc(100svh-32px-64px-32px-16px)]">
-              <PendingChanges loadingStatus={debouncedLoadingStatus} />
+              <DraftChanges loadingStatus={debouncedLoadingStatus} />
             </div>
           </ScrollArea>
         </div>

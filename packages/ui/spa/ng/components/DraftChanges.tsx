@@ -1,9 +1,8 @@
-import { ModuleFilePath, PatchId } from "@valbuild/core";
+import { ModuleFilePath } from "@valbuild/core";
 import { useState, useEffect, forwardRef, useRef } from "react";
 import {
   LoadingStatus,
   useCurrentPatchIds,
-  useSchemas,
   useSchemaSha,
 } from "../ValProvider";
 import { Checkbox } from "../../components/ui/checkbox";
@@ -13,7 +12,6 @@ import { Clock } from "lucide-react";
 import {
   PatchMetadata,
   PatchSetMetadata,
-  PatchSets,
   SerializedPatchSet,
 } from "../PatchSets";
 import { AnimateHeight } from "./AnimateHeight";
@@ -21,7 +19,7 @@ import { AnimateHeight } from "./AnimateHeight";
 const createPatchWorker = () =>
   new Worker(new URL("../PatchWorker.ts", import.meta.url));
 
-export function PendingChanges({
+export function DraftChanges({
   className,
   loadingStatus,
 }: {
