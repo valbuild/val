@@ -22,27 +22,27 @@ export function AnyField({
   autoFocus?: boolean;
 }) {
   if (schema.type === "string") {
-    return <StringField path={path} autoFocus={autoFocus} />;
+    return <StringField key={path} path={path} autoFocus={autoFocus} />;
   } else if (schema.type === "number") {
-    return <NumberField path={path} />;
+    return <NumberField key={path} path={path} />;
   } else if (schema.type === "boolean") {
-    return <BooleanField path={path} />;
+    return <BooleanField key={path} path={path} />;
   } else if (schema.type === "image") {
-    return <ImageField path={path} />;
+    return <ImageField key={path} path={path} />;
   } else if (schema.type === "object") {
-    return <ObjectFields path={path} />;
+    return <ObjectFields key={path} path={path} />;
   } else if (schema.type === "array") {
-    return <ArrayFields path={path} />;
+    return <ArrayFields key={path} path={path} />;
   } else if (schema.type === "record") {
-    return <RecordFields path={path} />;
+    return <RecordFields key={path} path={path} />;
   } else if (schema.type === "union") {
-    return <UnionField path={path} />;
+    return <UnionField key={path} path={path} />;
   } else if (schema.type === "keyOf") {
-    return <KeyOfField path={path} />;
+    return <KeyOfField key={path} path={path} />;
   } else if (schema.type === "richtext") {
-    return <RichTextField path={path} autoFocus={autoFocus} />;
+    return <RichTextField key={path} path={path} autoFocus={autoFocus} />;
   } else if (schema.type === "date") {
-    return <DateField path={path} />;
+    return <DateField key={path} path={path} />;
   }
   // TODO: exhaustive check
   return <UnexpectedSchemaType schema={schema} />;

@@ -21,7 +21,7 @@ export function Module({ path }: { path: SourcePath }) {
   const schema = schemaAtPath.data;
   return (
     <div className="flex flex-col gap-6 py-10">
-      <AnyField path={path} schema={schema} />
+      <AnyField key={path} path={path} schema={schema} />
     </div>
   );
 }

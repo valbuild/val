@@ -51,7 +51,7 @@ export function ObjectFields({ path }: { path: SourcePath }) {
     const subPath = sourcePathOfItem(path, key);
     return (
       <Field key={subPath} label={key} path={subPath} type={itemSchema.type}>
-        <AnyField path={subPath} schema={itemSchema} />
+        <AnyField key={subPath} path={subPath} schema={itemSchema} />
       </Field>
     );
   });
