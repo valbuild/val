@@ -755,20 +755,20 @@ export class ValOpsFS extends ValOps {
     return fsPath.join(this.getPatchesDir(), patchId);
   }
 
-  private getBinaryFilePath(filename: string, patchId: PatchId) {
+  private getBinaryFilePath(filePath: string, patchId: PatchId) {
     return fsPath.join(
       this.getPatchDir(patchId),
       "files",
-      filename,
-      fsPath.basename(filename),
+      filePath,
+      fsPath.basename(filePath),
     );
   }
 
-  private getBinaryFileMetadataPath(filename: string, patchId: PatchId) {
+  private getBinaryFileMetadataPath(filePath: string, patchId: PatchId) {
     return fsPath.join(
       this.getPatchDir(patchId),
       "files",
-      filename,
+      filePath,
       "metadata.json",
     );
   }
