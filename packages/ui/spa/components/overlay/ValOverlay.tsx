@@ -452,7 +452,7 @@ function ValMenu({
             label="Studio"
             icon={<PanelsTopLeft size={16} />}
             onClick={() => {
-              window.open("/val");
+              window.location.href = window.origin + "/val/~";
             }}
           />
         </div>
@@ -486,7 +486,7 @@ function ValMenu({
             label="Studio"
             icon={<PanelsTopLeft size={16} />}
             onClick={() => {
-              window.open("/val");
+              window.location.href = window.origin + "/val/~";
             }}
           />
           <MenuButton
