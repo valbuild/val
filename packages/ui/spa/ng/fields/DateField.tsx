@@ -42,7 +42,7 @@ export function DateField({ path }: { path: SourcePath }) {
         }
       }
     }
-  }, [sourceAtPath]);
+  }, ["data" in sourceAtPath && sourceAtPath.data]);
 
   if (schemaAtPath.status === "error") {
     return (
