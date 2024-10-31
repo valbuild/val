@@ -30,7 +30,7 @@ export function StringField({
     if (!focus && "data" in sourceAtPath && sourceAtPath.data !== undefined) {
       setCurrentValue(sourceAtPath.data);
     }
-  }, ["data" in sourceAtPath && sourceAtPath.data !== undefined, focus]);
+  }, ["data" in sourceAtPath && sourceAtPath.data, focus]);
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
