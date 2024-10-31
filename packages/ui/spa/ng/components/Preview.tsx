@@ -8,6 +8,7 @@ import { UnionPreview } from "../fields/UnionField";
 import { ObjectPreview } from "../fields/ObjectFields";
 import { ImagePreview } from "../fields/ImageField";
 import { KeyOfPreview } from "../fields/KeyOfField";
+import { DatePreview } from "../fields/DateField";
 
 export function Preview({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
@@ -32,8 +33,11 @@ export function Preview({ path }: { path: SourcePath }) {
     return <ImagePreview path={path} />;
   } else if (type === "keyOf") {
     return <KeyOfPreview path={path} />;
+  } else if (type === "date") {
+    return <DatePreview path={path} />;
   } else {
-    return <div>TODO: preview of {type}</div>;
+    const exhaustiveCheck: never = type;
+    return <div>Cannot preview: {exhaustiveCheck}</div>;
   }
 }
 
