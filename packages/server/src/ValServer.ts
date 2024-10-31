@@ -731,7 +731,7 @@ export const ValServer = (
       },
     },
 
-    //#region tree ops
+    //#region schema
     "/schema": {
       GET: async (req) => {
         const cookies = req.cookies;
@@ -781,6 +781,7 @@ export const ValServer = (
       },
     },
 
+    // #region sources
     "/sources": {
       PUT: async (req) => {
         const query = req.query;
@@ -970,7 +971,7 @@ export const ValServer = (
         }
 
         if (tree.errors && Object.keys(tree.errors).length > 0) {
-          const res: z.infer<Api["/tree/~"]["PUT"]["res"]> = {
+          const res: z.infer<Api["/sources"]["PUT"]["res"]> = {
             status: 400,
             json: {
               type: "patch-error",
@@ -1002,7 +1003,7 @@ export const ValServer = (
           return res;
         }
 
-        const res: z.infer<Api["/tree/~"]["PUT"]["res"]> = {
+        const res: z.infer<Api["/sources"]["PUT"]["res"]> = {
           status: 200,
           json: {
             schemaSha,
