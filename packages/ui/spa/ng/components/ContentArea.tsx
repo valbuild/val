@@ -6,7 +6,7 @@ import { useNavigation } from "../../components/ValRouter";
 export function ContentArea() {
   return (
     <ScrollArea>
-      <div className="max-h-[100svh]">
+      <div className="max-h-[100svh] pt-20 xl:pt-0">
         <SearchBar />
         <SourceFields />
       </div>
@@ -16,8 +16,8 @@ export function ContentArea() {
 
 export function SearchBar() {
   return (
-    <div className="sticky top-0 text-text-primary z-[2] pt-4">
-      <div className="grid grid-cols-[min-content,1fr,min-content] items-center  w-[calc(100%-16px)] ml-2 h-16 p-4 bg-bg-tertiary rounded-3xl">
+    <div className="sticky top-0 text-text-primary z-[2] pt-4 hidden xl:block">
+      <div className="grid grid-cols-[min-content,1fr,min-content] items-center xl:w-[calc(100%-16px)] ml-2 h-16 p-4 bg-bg-tertiary rounded-3xl">
         <Search size={22} />
         <input
           className="w-full h-full px-4 text-lg bg-transparent text-text-primary focus:outline-none"

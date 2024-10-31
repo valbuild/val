@@ -11,7 +11,13 @@ import { useNavigation } from "../../components/ValRouter";
 import { ScrollArea } from "../../components/ui/scroll-area";
 import { fixCapitalization } from "../../utils/fixCapitalization";
 
-export function NavMenu() {
+export function NavMenu({
+  isOpen,
+  setOpen,
+}: {
+  isOpen: boolean;
+  setOpen: (open: boolean) => void;
+}) {
   const config = useValConfig();
   const [mainImageUrl, setMainImageUrl] = useState<string>("");
   const [name, setName] = useState<string>("");
@@ -69,9 +75,26 @@ export function NavMenu() {
           <div className="w-4 h-4" />
         )}
         <span>{name}</span>
+        <button
+          className="block xl:hidden"
+          onClick={() => {
+            setOpen(!isOpen);
+          }}
+        >
+          <ChevronRight
+            className={classNames("transform", {
+              "rotate-90": isOpen,
+            })}
+          />
+        </button>
       </div>
       {"data" in remoteSchemasByModuleFilePath && (
-        <div className="hidden py-4 bg-bg-tertiary rounded-3xl xl:block">
+        <div
+          className={classNames("py-4 bg-bg-tertiary rounded-3xl", {
+            "hidden xl:block": !isOpen,
+            block: isOpen,
+          })}
+        >
           <ScrollArea>
             <div className="max-h-[calc(100svh-32px-64px-32px-16px)]">
               <NavContentExplorer />
