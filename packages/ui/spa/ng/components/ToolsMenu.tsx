@@ -5,6 +5,7 @@ import { DraftChanges } from "./DraftChanges";
 
 export function ToolsMenu() {
   const loadingStatus = useLoadingStatus();
+  // Debounce loading status to avoid flickering...
   const [debouncedLoadingStatus, setDebouncedLoadingStatus] =
     useState(loadingStatus);
   useEffect(() => {
