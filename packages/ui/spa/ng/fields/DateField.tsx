@@ -20,6 +20,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../../components/ui/popover";
+import { PreviewLoading, PreviewNull } from "../components/Preview";
 
 export function DateField({ path }: { path: SourcePath }) {
   const type = "date";
@@ -132,5 +133,20 @@ export function DateField({ path }: { path: SourcePath }) {
         />
       </PopoverContent>
     </Popover>
+  );
+}
+
+export function DatePreview({ path }: { path: SourcePath }) {
+  const sourceAtPath = useShallowSourceAtPath(path, "date");
+  if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
+    return <PreviewLoading path={path} />;
+  }
+  if (sourceAtPath.data === null) {
+    return <PreviewNull path={path} />;
+  }
+  return (
+    <div className="truncate">
+      {new Date(sourceAtPath.data).toLocaleString()}
+    </div>
   );
 }
