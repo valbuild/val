@@ -261,7 +261,6 @@ export const ValNextProvider = (props: {
   const [dropZone, setDropZone] = React.useState<string | null>(null);
   React.useEffect(() => {
     const storedDropZone = localStorage.getItem("val-menu-drop-zone-default");
-    console.log("storedDropZone", storedDropZone);
     if (storedDropZone) {
       setDropZone(storedDropZone);
     } else {
@@ -269,7 +268,6 @@ export const ValNextProvider = (props: {
     }
   }, []);
 
-  console.log("dropZone", Date.now(), dropZone);
   return (
     <ValOverlayProvider draftMode={draftMode} store={valStore}>
       {props.children}
