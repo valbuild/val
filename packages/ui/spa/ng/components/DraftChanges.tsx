@@ -8,13 +8,15 @@ import {
 import { Checkbox } from "../../components/ui/checkbox";
 import classNames from "classnames";
 import { prettifyFilename } from "../../utils/prettifyFilename";
-import { Clock } from "lucide-react";
+import { ChevronDown, Clock } from "lucide-react";
 import {
   PatchMetadata,
   PatchSetMetadata,
   SerializedPatchSet,
 } from "../PatchSets";
 import { AnimateHeight } from "./AnimateHeight";
+import { relativeLocalDate } from "../../utils/relativeLocalDate";
+import { Operation } from "@valbuild/core/patch";
 
 const createPatchWorker = () =>
   new Worker(new URL("../PatchWorker.ts", import.meta.url));
@@ -79,7 +81,7 @@ export function DraftChanges({
           <Checkbox checked="indeterminate" />
         </span>
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-[2px]">
         {patchSets &&
           patchSets.map((patchSet) => {
             return (
@@ -103,6 +105,10 @@ function PatchCard({
   moduleFilePath: ModuleFilePath;
   patchMetadata: PatchMetadata;
 }) {
+  const changeDescription = useChangeDescription(
+    [patchMetadata.opType],
+    patchMetadata.createdAt,
+  );
   return (
     <PatchOrPatchSetCard
       path={moduleFilePath
@@ -110,11 +116,47 @@ function PatchCard({
         .map(prettifyFilename)
         .slice(1)
         .concat(patchMetadata.patchPath)}
-      changeDescription={patchMetadata.opType}
+      changeDescription={changeDescription}
       avatars={[]}
       isOpen={true}
     />
   );
+}
+
+function useChangeDescription(opTypes: string[], lastUpdated: string) {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(new Date());
+    }, 60 * 1000);
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
+  if (opTypes.length > 1) {
+    return "Updated" + " " + relativeLocalDate(now, lastUpdated);
+  }
+  const firstOp = opTypes[0] as Operation["op"];
+  let changeType: string = firstOp;
+  if (firstOp === "add") {
+    changeType = "Added";
+  } else if (firstOp === "remove") {
+    changeType = "Removed";
+  } else if (firstOp === "replace") {
+    changeType = "Replaced";
+  } else if (firstOp === "move") {
+    changeType = "Moved";
+  } else if (firstOp === "copy") {
+    changeType = "Copied";
+  } else if (firstOp === "test") {
+    changeType = "Tested";
+  } else if (firstOp === "file") {
+    changeType = "Updated";
+  } else {
+    const exhaustiveCheck: never = firstOp;
+    console.warn("Unexpected op type: ", exhaustiveCheck);
+  }
+  return changeType + " " + relativeLocalDate(now, lastUpdated);
 }
 
 function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
@@ -128,7 +170,7 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
           setHasBeenSeen(true);
         }
       },
-      { threshold: 0.5 },
+      { threshold: 0 },
     );
     if (ref.current) {
       observer.observe(ref.current);
@@ -137,6 +179,10 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
       observer.disconnect();
     };
   }, []);
+  const changeDescription = useChangeDescription(
+    patchSet.opTypes,
+    patchSet.lastUpdated,
+  );
 
   if (!hasBeenSeen) {
     return <PatchOrPatchSetCard ref={ref} />;
@@ -150,13 +196,7 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
           .slice(1)
           .concat(patchSet.patchPath)}
         avatars={[]}
-        changeDescription={
-          patchSet.opTypes.length > 1
-            ? "changed"
-            : patchSet.opTypes[0] +
-              " " +
-              new Date(patchSet.lastUpdated).toDateString()
-        }
+        changeDescription={changeDescription}
         isOpen={isOpen}
         setOpen={setOpen}
       />
@@ -213,6 +253,7 @@ const PatchOrPatchSetCard = forwardRef<
       >
         <div>
           <span
+            title={path?.join("/") + "/"}
             className={classNames(
               "inline-block w-[calc(320px-24px-8px-16px-24px-48px)] truncate overflow-y-hidden h-6 mr-2 text-left",
               {
@@ -260,8 +301,8 @@ const PatchOrPatchSetCard = forwardRef<
             />
           )}
         </div>
-        <div className="pt-2">
-          <span>
+        <div className="flex items-center justify-between pt-2">
+          <span className="flex-shrink-0">
             {avatars !== undefined && avatars.length > 0 && (
               <span className="flex gap-2 mr-2">
                 {avatars.slice(0, 2).map((avatar) => (
@@ -291,13 +332,19 @@ const PatchOrPatchSetCard = forwardRef<
           </span>
           {isOpen !== undefined && (
             <button
+              className="flex-shrink-0 inline-block"
               onClick={() => {
                 if (setOpen) {
                   setOpen(!isOpen);
                 }
               }}
             >
-              {isOpen ? "Close" : "Open"}
+              <ChevronDown
+                size={16}
+                className={classNames("transform", {
+                  "rotate-180": isOpen,
+                })}
+              />
             </button>
           )}
         </div>
