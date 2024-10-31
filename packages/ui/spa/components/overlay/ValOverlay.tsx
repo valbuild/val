@@ -9,9 +9,16 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
+import {
+  Dispatch,
+  Fragment,
+  SetStateAction,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { AnimateHeight } from "../../ng/components/AnimateHeight";
-import { SourcePath } from "@valbuild/core";
+import { Internal, SourcePath } from "@valbuild/core";
 import { CompressedPath } from "../../ng/components/CompressedPath";
 import { Button } from "../ui/button";
 import { AnyField } from "../../ng/components/AnyField";
@@ -42,7 +49,7 @@ type DropZones =
 
 type OverlayModes = "select" | null;
 type EditMode = {
-  path: SourcePath;
+  joinedPaths: string;
   clientY: number;
   clientX: number;
   boundingBox: {
@@ -60,7 +67,7 @@ export function ValOverlay(props: ValOverlayProps) {
       left: number;
       width: number;
       height: number;
-      path: SourcePath;
+      joinedPaths: string;
     }[]
   >([]);
   const [isScrolling, setIsScrolling] = useState(false);
@@ -91,7 +98,7 @@ export function ValOverlay(props: ValOverlayProps) {
           left: number;
           width: number;
           height: number;
-          path: SourcePath;
+          joinedPaths: string;
         }[] = [];
         document.querySelectorAll("[data-val-path]").forEach((el) => {
           const path = el.getAttribute("data-val-path");
@@ -104,7 +111,7 @@ export function ValOverlay(props: ValOverlayProps) {
             left: rect.left,
             width: rect.width,
             height: rect.height,
-            path: path as SourcePath,
+            joinedPaths: path,
           });
         });
         setBoundingBoxes(newBoundingBoxes);
@@ -150,10 +157,10 @@ export function ValOverlay(props: ValOverlayProps) {
               className="absolute border border-bg-primary hover:border-2 z-[8998]"
               onClickCapture={(ev) => {
                 ev.stopPropagation();
-                console.log("clicked", boundingBox.path);
+                console.log("clicked", boundingBox.joinedPaths);
                 setMode(null);
                 setEditMode({
-                  path: boundingBox.path,
+                  joinedPaths: boundingBox.joinedPaths,
                   clientY: ev.clientY,
                   clientX: ev.clientX,
                   boundingBox: boundingBox,
@@ -177,7 +184,7 @@ export function ValOverlay(props: ValOverlayProps) {
                     maxWidth: `${Math.min(boundingBox.width - 2, 300)}px`,
                   }}
                 >
-                  {boundingBox.path}
+                  {boundingBox.joinedPaths}
                 </div>
               </div>
             </div>
@@ -319,8 +326,14 @@ function Window({
               setEditMode(null);
             }}
           >
-            <CompressedPath disabled={false} path={editMode.path} />
-            <WindowField path={editMode.path} />
+            {Internal.splitJoinedSourcePaths(editMode.joinedPaths).map(
+              (path) => (
+                <Fragment key={path}>
+                  <CompressedPath disabled={false} path={path} />
+                  <WindowField path={path} />
+                </Fragment>
+              ),
+            )}
             <Button className="self-end" type="submit">
               Done
             </Button>
@@ -345,7 +358,7 @@ function Window({
   );
 }
 
-function WindowField({ path }: { path: SourcePath }) {
+function WindowField({ path: path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
 
   if (!("data" in schemaAtPath) || schemaAtPath.data === undefined) {
