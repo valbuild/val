@@ -39,11 +39,7 @@ export function ImageField({ path }: { path: SourcePath }) {
   if (schemaAtPath.status === "loading") {
     return <FieldLoading path={path} type={type} />;
   }
-  if (
-    !("data" in sourceAtPath) ||
-    sourceAtPath.data === undefined ||
-    config === undefined
-  ) {
+  if (config === undefined) {
     return <FieldLoading path={path} type={type} />;
   }
   if (schemaAtPath.data.type !== type) {
@@ -73,19 +69,20 @@ export function ImageField({ path }: { path: SourcePath }) {
           }).url
         }
         draggable={false}
-        className="object-contain w-full max-h-[500px] rounded-lg"
+        className="object-contain w-full max-h-[500px] rounded-t-lg"
         style={{
           cursor: "crosshair",
         }}
       />
       <label
         htmlFor={`img_input:${path}`}
-        className="block px-1 py-2 text-sm text-center rounded-md cursor-pointer bg-primary text-background"
+        className="block px-1 py-2 text-sm text-center rounded-b-lg cursor-pointer bg-bg-secondary text-text-secondary"
       >
         Update
       </label>
       <input
-        // disabled={loading}
+        disabled={sourceAtPath.status === "loading"}
+        hidden
         id={`img_input:${path}`}
         type="file"
         accept={schemaAtPath.data.options?.accept || "image/*"}
