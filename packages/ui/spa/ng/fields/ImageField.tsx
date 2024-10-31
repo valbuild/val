@@ -1,4 +1,4 @@
-import { Internal, SourcePath } from "@valbuild/core";
+import { ImageMetadata, Internal, SourcePath } from "@valbuild/core";
 import { FieldLoading } from "../components/FieldLoading";
 import { FieldNotFound } from "../components/FieldNotFound";
 import { FieldSchemaError } from "../components/FieldSchemaError";
@@ -7,12 +7,16 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
+  useValConfig,
 } from "../ValProvider";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../components/Preview";
+import { readImage } from "../../utils/readImage";
+import { createFilePatch } from "./FileField";
 
 export function ImageField({ path }: { path: SourcePath }) {
   const type = "image";
+  const config = useValConfig();
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const { patchPath, addPatch } = useAddPatch(path);
@@ -35,7 +39,11 @@ export function ImageField({ path }: { path: SourcePath }) {
   if (schemaAtPath.status === "loading") {
     return <FieldLoading path={path} type={type} />;
   }
-  if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
+  if (
+    !("data" in sourceAtPath) ||
+    sourceAtPath.data === undefined ||
+    config === undefined
+  ) {
     return <FieldLoading path={path} type={type} />;
   }
   if (schemaAtPath.data.type !== type) {
@@ -56,19 +64,56 @@ export function ImageField({ path }: { path: SourcePath }) {
     return null;
   }
   return (
-    <img
-      src={
-        Internal.convertFileSource({
-          ...source,
-          _type: "file",
-        }).url
-      }
-      draggable={false}
-      className="object-contain w-full max-h-[500px] rounded-lg"
-      style={{
-        cursor: "crosshair",
-      }}
-    />
+    <div>
+      <img
+        src={
+          Internal.convertFileSource({
+            ...source,
+            _type: "file",
+          }).url
+        }
+        draggable={false}
+        className="object-contain w-full max-h-[500px] rounded-lg"
+        style={{
+          cursor: "crosshair",
+        }}
+      />
+      <label
+        htmlFor={`img_input:${path}`}
+        className="block px-1 py-2 text-sm text-center rounded-md cursor-pointer bg-primary text-background"
+      >
+        Update
+      </label>
+      <input
+        // disabled={loading}
+        id={`img_input:${path}`}
+        type="file"
+        accept={schemaAtPath.data.options?.accept || "image/*"}
+        onChange={(ev) => {
+          readImage(ev).then((res) => {
+            const data = { src: res.src, filename: res.filename };
+            let metadata: ImageMetadata | undefined;
+            if (res.width && res.height && res.mimeType) {
+              metadata = {
+                sha256: res.sha256,
+                width: res.width,
+                height: res.height,
+                mimeType: res.mimeType,
+              };
+            }
+            addPatch(
+              createFilePatch(
+                patchPath,
+                data.src,
+                data.filename ?? null,
+                metadata,
+                config.files?.directory,
+              ),
+            );
+          });
+        }}
+      />
+    </div>
   );
 }
 

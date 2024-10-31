@@ -199,13 +199,15 @@ export function convertFileSource<
     };
   }
 
+  if (src.patch_id) {
+    return {
+      url:
+        "/api/val/files" + src[FILE_REF_PROP] + `?patch_id=${src["patch_id"]}`,
+      metadata: src.metadata,
+    };
+  }
   return {
-    url:
-      src[FILE_REF_PROP].slice("/public".length) +
-      (src.metadata?.sha256 ? `?sha256=${src.metadata?.sha256}` : "") +
-      (src.patch_id
-        ? `${src.metadata?.sha256 ? "&" : "?"}patch_id=${src["patch_id"]}`
-        : ""),
+    url: src[FILE_REF_PROP].slice("/public".length),
     metadata: src.metadata,
   };
 }
