@@ -781,7 +781,7 @@ export const ValServer = (
       },
     },
 
-    "/tree/~": {
+    "/sources": {
       PUT: async (req) => {
         const query = req.query;
         const cookies = req.cookies;

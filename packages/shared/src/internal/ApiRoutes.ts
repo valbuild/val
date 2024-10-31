@@ -499,7 +499,7 @@ export const Api = {
       ]),
     },
   },
-  "/tree/~": {
+  "/sources": {
     PUT: {
       req: {
         path: z.string().optional(),

@@ -86,7 +86,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         currentState[moduleFilePath] = sourceState;
       }
       currentStateRef.current = { ...currentState };
-      client("/tree/~", "PUT", {
+      client("/sources", "PUT", {
         path: path,
         query: {
           validate_sources: true,
@@ -445,7 +445,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
       return current;
     });
     // TODO: add a /patches POST endpoint and use that instead
-    client("/tree/~", "PUT", {
+    client("/sources", "PUT", {
       path: undefined,
       query: {
         validate_sources: true,

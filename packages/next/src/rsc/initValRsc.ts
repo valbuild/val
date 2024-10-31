@@ -89,8 +89,7 @@ const initFetchValStega =
             const allPatches = Object.keys(
               patchesRes.json.patches,
             ) as PatchId[];
-            return client("/tree/~", "PUT", {
-              path: undefined,
+            return client("/sources", "PUT", {
               query: {
                 validate_sources: true,
                 validate_all: false,

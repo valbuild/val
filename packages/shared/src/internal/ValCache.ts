@@ -49,13 +49,13 @@ export class ValCache {
 
     const patches = patchesResponse.json;
     const filteredPatches = Object.keys(patches) as PatchId[];
-    const treeRes = await this.client("/tree/~", "PUT", {
+    const treeRes = await this.client("/sources", "PUT", {
       query: {
         validate_sources: true,
         validate_all: false,
         validate_binary_files: false,
       },
-      path: undefined, // TODO: reload only the paths the requested paths
+      path: undefined,
       body: {
         patchIds: filteredPatches,
       },
@@ -92,7 +92,7 @@ export class ValCache {
     }
     const allPatches = Object.keys(patchesRes.json.patches) as PatchId[];
 
-    const treeRes = await this.client("/tree/~", "PUT", {
+    const treeRes = await this.client("/sources", "PUT", {
       path: undefined,
       query: {
         validate_sources: false,
@@ -148,7 +148,7 @@ export class ValCache {
         schema: this.schema[path],
       });
     }
-    const treeRes = await this.client("/tree/~", "PUT", {
+    const treeRes = await this.client("/sources", "PUT", {
       path,
       body: {},
       query: {
@@ -244,7 +244,7 @@ export class ValCache {
       ValCacheError
     >
   > {
-    const treeRes = await this.client("/tree/~", "PUT", {
+    const treeRes = await this.client("/sources", "PUT", {
       path,
       query: {
         validate_sources: false,

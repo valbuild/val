@@ -50,11 +50,11 @@ describe("ValRouter", () => {
     (res) => res,
   );
 
-  test("smoke test valid route: /tree/~", async () => {
+  test("smoke test valid route: /sources", async () => {
     const serverRes = await onRoute(
       fakeRequest({
         method: "PUT",
-        url: new URL("http://localhost:3000/api/val/tree/~"),
+        url: new URL("http://localhost:3000/api/val/sources"),
         json: {},
         headers: new Headers({
           Cookie: `val_session=${encodeJwt({}, "")}`,
