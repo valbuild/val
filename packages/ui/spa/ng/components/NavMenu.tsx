@@ -4,7 +4,7 @@ import { Tally2, ChevronRight, File } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PathNode, pathTree } from "../../utils/pathTree";
 import { Remote } from "../../utils/Remote";
-import { useSchemas } from "../ValProvider";
+import { useSchemas, useValConfig } from "../ValProvider";
 import { AnimateHeight } from "./AnimateHeight";
 import { prettifyFilename } from "../../utils/prettifyFilename";
 import { useNavigation } from "../../components/ValRouter";
@@ -12,11 +12,12 @@ import { ScrollArea } from "../../components/ui/scroll-area";
 import { fixCapitalization } from "../../utils/fixCapitalization";
 
 export function NavMenu() {
+  const config = useValConfig();
   const [mainImageUrl, setMainImageUrl] = useState<string>("");
   const [name, setName] = useState<string>("");
   useEffect(() => {
     async function loadImage() {
-      const found = false;
+      let found = false;
       const tryUrl = async (url: string) => {
         if (found) {
           return;
@@ -24,34 +25,39 @@ export function NavMenu() {
         try {
           const response = await fetch(url);
           if (response.ok) {
+            found = true;
             setMainImageUrl(url);
           }
         } catch {
           //
         }
       };
-      tryUrl("/favicon.svg");
-      tryUrl("/favicon.png");
-      tryUrl("/apple-touch-icon.png");
-      tryUrl("/favicon.ico");
-      tryUrl("https://valbuild.com/favicon.ico");
+      await tryUrl("/favicon.ico");
+      await tryUrl("/favicon.svg");
+      await tryUrl("/favicon.png");
+      await tryUrl("/apple-touch-icon.png");
+      await tryUrl("https://valbuild.com/favicon.ico");
     }
     loadImage();
-    try {
-      let hostname = new URL(location.origin).hostname;
-      if (hostname !== "localhost") {
-        const parts = hostname.split(".");
-        if (parts.length >= 2) {
-          hostname = parts.slice(1, -1).join(".");
+    if (config?.project) {
+      setName(config.project);
+    } else {
+      try {
+        let hostname = new URL(location.origin).hostname;
+        if (hostname !== "localhost") {
+          const parts = hostname.split(".");
+          if (parts.length >= 2) {
+            hostname = parts.slice(1, -1).join(".");
+          }
+          setName(fixCapitalization(hostname));
+        } else {
+          setName("Dev mode");
         }
-        setName(fixCapitalization(hostname));
-      } else {
-        setName("Dev mode");
+      } catch {
+        setName("Studio");
       }
-    } catch {
-      setName("Studio");
     }
-  }, []);
+  }, [config]);
   const remoteSchemasByModuleFilePath = useSchemas();
 
   return (
