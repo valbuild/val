@@ -1,26 +1,73 @@
-import { Internal, ModuleFilePath, PatchId } from "@valbuild/core";
-import { useState, useEffect, forwardRef, useRef, Fragment } from "react";
-import { LoadingStatus, usePatchesMetadata } from "../ValProvider";
-import { SerializedPatchSet } from "../../utils/PatchSet";
+import { ModuleFilePath, PatchId } from "@valbuild/core";
+import { useState, useEffect, forwardRef, useRef } from "react";
+import {
+  LoadingStatus,
+  useCurrentPatchIds,
+  useSchemas,
+  useSchemaSha,
+} from "../ValProvider";
 import { Checkbox } from "../../components/ui/checkbox";
 import classNames from "classnames";
-import { PatchWithMetadata } from "../useValState";
 import { prettifyFilename } from "../../utils/prettifyFilename";
-import { AnimateHeight } from "./AnimateHeight";
 import { Clock } from "lucide-react";
+import {
+  PatchMetadata,
+  PatchSetMetadata,
+  PatchSets,
+  SerializedPatchSet,
+} from "../PatchSets";
+import { AnimateHeight } from "./AnimateHeight";
+
+const createPatchWorker = () =>
+  new Worker(new URL("../PatchWorker.ts", import.meta.url));
 
 export function PendingChanges({
   className,
-  patchSets,
   loadingStatus,
 }: {
   className?: string;
-  patchSets: SerializedPatchSet;
   loadingStatus: LoadingStatus;
 }) {
+  const host = "/api/val";
+  const schemaSha = useSchemaSha();
+  const patchIds = useCurrentPatchIds();
+  const workerRef = useRef<Worker | null>(null);
+  const [workerError, setWorkerError] = useState<ErrorEvent | null>(null);
+  const [patchSets, setPatchSets] = useState<SerializedPatchSet | null>(null);
+  useEffect(() => {
+    const worker = createPatchWorker();
+    worker.onmessage = (event) => {
+      const data = event.data as {
+        patchSet: SerializedPatchSet;
+        schemaSha: string;
+      };
+      if (schemaSha === data.schemaSha) {
+        setPatchSets(data.patchSet);
+      } else {
+        console.error("Schema mismatch", schemaSha, data.schemaSha);
+      }
+    };
+    worker.onerror = (event) => {
+      console.error("Worker error", event);
+      setWorkerError(event);
+    };
+    workerRef.current = worker;
+    return () => {
+      workerRef.current = null;
+      worker.terminate();
+    };
+  }, [schemaSha]);
+  useEffect(() => {
+    if (workerRef.current) {
+      workerRef.current.postMessage({ patchIds, host, schemaSha });
+    }
+  }, [patchIds, schemaSha]);
+  if (workerError) {
+    return <div>{workerError.message}</div>;
+  }
   return (
     <div className={classNames(className)}>
-      <div className="flex items-center justify-between p-4">
+      <div className="sticky top-0 flex items-center justify-between p-4 rounded-t-3xl bg-bg-tertiary z-5">
         <span className="flex items-center gap-2">
           <span>Draft changes</span>
           {(loadingStatus === "loading" || loadingStatus === "not-asked") && (
@@ -34,131 +81,45 @@ export function PendingChanges({
           <Checkbox checked="indeterminate" />
         </span>
       </div>
-      <div className="flex flex-col gap-1 bg-transparent">
-        {Object.entries(patchSets)
-          .reverse()
-          .map(([moduleFilePath, patchIdsOrPatchSet]) =>
-            Array.isArray(patchIdsOrPatchSet) ? (
-              <PatchIdCard
-                key={moduleFilePath}
-                moduleFilePath={moduleFilePath}
-                patchIds={patchIdsOrPatchSet}
+      <div className="flex flex-col gap-1">
+        {patchSets &&
+          patchSets.map((patchSet) => {
+            return (
+              <PatchSetCard
+                key={
+                  patchSet.moduleFilePath + ":" + patchSet.patchPath.join("/")
+                }
+                patchSet={patchSet}
               />
-            ) : (
-              <PatchSetsCard
-                key={moduleFilePath}
-                moduleFilePath={moduleFilePath}
-                patchSet={patchIdsOrPatchSet}
-              />
-            ),
-          )}
+            );
+          })}
       </div>
     </div>
   );
 }
 
 function PatchCard({
-  patchId,
   moduleFilePath,
+  patchMetadata,
 }: {
-  patchId: PatchId;
-  moduleFilePath: string; //ModuleFilePath;
+  moduleFilePath: ModuleFilePath;
+  patchMetadata: PatchMetadata;
 }) {
-  const allPatchesMetadata = usePatchesMetadata();
-  const [patchMetadata, setPathMetadata] = useState<PatchWithMetadata>();
-  const ref = useRef<HTMLDivElement>(null);
-  const [hasBeenSeen, setHasBeenSeen] = useState(false);
-  useEffect(() => {
-    if (hasBeenSeen && "data" in allPatchesMetadata[patchId]) {
-      setPathMetadata(allPatchesMetadata[patchId].data);
-    }
-  }, [allPatchesMetadata[patchId], hasBeenSeen]);
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          setHasBeenSeen(true);
-        }
-      },
-      { threshold: 0.5 },
-    );
-    if (ref.current) {
-      observer.observe(ref.current);
-    }
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
-
-  if (!patchMetadata) {
-    return <PatchOrPatchSetCard ref={ref} />;
-  }
-  return patchMetadata.patch.map((op, i) => {
-    return (
-      <PatchOrPatchSetCard
-        key={i}
-        avatars={[]}
-        path={moduleFilePath.split("/").slice(1).concat(op.path)}
-        changeDescription={op.op}
-      />
-    );
-  });
-}
-
-function PatchSetsCard({
-  moduleFilePath,
-  patchSet,
-}: {
-  moduleFilePath: string; //ModuleFilePath;
-  patchSet: Record<string, PatchId[]>;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [hasBeenSeen, setHasBeenSeen] = useState(false);
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          setHasBeenSeen(true);
-        }
-      },
-      { threshold: 0.5 },
-    );
-    if (ref.current) {
-      observer.observe(ref.current);
-    }
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
-
-  if (!hasBeenSeen) {
-    return <PatchOrPatchSetCard ref={ref} />;
-  }
   return (
-    <>
-      {Object.entries(patchSet)
-        .reverse()
-        .map(([patchPath, patchIds]) => (
-          <PatchSetCard
-            key={moduleFilePath + "/" + patchPath}
-            moduleFilePath={moduleFilePath}
-            patchPath={patchPath}
-            patchIds={patchIds}
-          />
-        ))}
-    </>
+    <PatchOrPatchSetCard
+      path={moduleFilePath
+        .split("/")
+        .map(prettifyFilename)
+        .slice(1)
+        .concat(patchMetadata.patchPath)}
+      changeDescription={patchMetadata.opType}
+      avatars={[]}
+      isOpen={true}
+    />
   );
 }
 
-function PatchSetCard({
-  moduleFilePath,
-  patchPath,
-  patchIds,
-}: {
-  moduleFilePath: string; //ModuleFilePath;
-  patchPath: string;
-  patchIds: PatchId[];
-}) {
+function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
   const [isOpen, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const [hasBeenSeen, setHasBeenSeen] = useState(false);
@@ -185,61 +146,38 @@ function PatchSetCard({
   return (
     <>
       <PatchOrPatchSetCard
-        path={moduleFilePath
+        path={patchSet.moduleFilePath
           .split("/")
+          .map(prettifyFilename)
           .slice(1)
-          .concat(patchPath.split("/").slice(1))}
+          .concat(patchSet.patchPath)}
         avatars={[]}
-      />
-      {patchIds.map((patchId) => (
-        <PatchCard
-          key={moduleFilePath + ":" + patchId}
-          moduleFilePath={moduleFilePath}
-          patchId={patchId}
-        />
-      ))}
-    </>
-  );
-}
-
-function PatchIdCard({
-  moduleFilePath,
-  patchIds,
-}: {
-  moduleFilePath: string; //ModuleFilePath;
-  patchIds: PatchId[];
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [hasBeenSeen, setHasBeenSeen] = useState(false);
-  useEffect(() => {
-    //
-  }, [hasBeenSeen]);
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          setHasBeenSeen(true);
+        changeDescription={
+          patchSet.opTypes.length > 1
+            ? "changed"
+            : patchSet.opTypes[0] +
+              " " +
+              new Date(patchSet.lastUpdated).toDateString()
         }
-      },
-      { threshold: 0.5 },
-    );
-    if (ref.current) {
-      observer.observe(ref.current);
-    }
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
-
-  if (!hasBeenSeen) {
-    return <PatchOrPatchSetCard ref={ref} />;
-  }
-  return (
-    <PatchOrPatchSetCard
-      path={moduleFilePath.split("/")}
-      avatars={[]}
-      changeDescription={"changed"}
-    />
+        isOpen={isOpen}
+        setOpen={setOpen}
+      />
+      <AnimateHeight isOpen={isOpen}>
+        {patchSet.patches.map((patchMetadata, i) => (
+          <PatchCard
+            key={
+              patchSet.moduleFilePath +
+              ":" +
+              patchSet.patchPath.join("/") +
+              patchMetadata.patchId +
+              i
+            }
+            moduleFilePath={patchSet.moduleFilePath}
+            patchMetadata={patchMetadata}
+          />
+        ))}
+      </AnimateHeight>
+    </>
   );
 }
 
@@ -304,7 +242,7 @@ const PatchOrPatchSetCard = forwardRef<
               //     )}
               //   </Fragment>
               // ))
-              path.join("/")}
+              path.join("/") + "/"}
           </span>
           {isSelected === undefined && (
             <span
@@ -351,15 +289,7 @@ const PatchOrPatchSetCard = forwardRef<
                 })}
               ></span>
             )}
-            <span
-              className={classNames("inline-block pr-2 h-6", {
-                "w-[calc(100%-64px)]":
-                  avatars !== undefined && avatars.length > 0,
-                "w-full": avatars !== undefined && avatars.length === 0,
-                "rounded-3xl bg-bg-disabled animate-pulse":
-                  changeDescription === undefined,
-              })}
-            ></span>
+            {changeDescription && <span>{changeDescription}</span>}
           </span>
           {isOpen !== undefined && (
             <button
@@ -377,13 +307,3 @@ const PatchOrPatchSetCard = forwardRef<
     );
   },
 );
-
-function getPath(moduleFilePath: string, patchPath: string[]) {
-  const res = moduleFilePath
-    .split("/")
-    .slice(1)
-    .concat(patchPath)
-    .map(prettifyFilename);
-  console.log({ res });
-  return res;
-}

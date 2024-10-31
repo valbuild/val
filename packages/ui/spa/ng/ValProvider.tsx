@@ -20,12 +20,10 @@ import {
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { ValClient } from "@valbuild/shared/internal";
-import { PatchWithMetadata, useValState } from "./useValState";
 import { Remote } from "../utils/Remote";
 import { isJsonArray } from "../utils/isJsonArray";
-import { PatchSets, SerializedPatchSet } from "../utils/PatchSet";
-import { findFirstNonInsertedIdx } from "../utils/findFirstNonInsertedIdx";
 import { DayPickerProvider } from "react-day-picker";
+import { useValState } from "./useValState";
 
 const ValContext = React.createContext<{
   theme: Themes | null;
@@ -34,6 +32,7 @@ const ValContext = React.createContext<{
   addPatch: (moduleFilePath: ModuleFilePath, patch: Patch) => void;
   addDebouncedPatch: (get: () => Patch, path: SourcePath) => void;
   schemas: Remote<Record<ModuleFilePath, SerializedSchema>>;
+  schemaSha: string | undefined;
   sources: Record<ModuleFilePath, Json | undefined>;
   sourcesSyncStatus: Record<
     ModuleFilePath,
@@ -62,7 +61,6 @@ const ValContext = React.createContext<{
       }
   >;
   patchIds: PatchId[];
-  patchMetadataCache: Record<PatchId, Remote<PatchWithMetadata>>;
 }>({
   get theme(): Themes | null {
     throw new Error("ValContext not provided");
@@ -80,6 +78,9 @@ const ValContext = React.createContext<{
     throw new Error("ValContext not provided");
   },
   get schemas(): Remote<Record<ModuleFilePath, SerializedSchema>> {
+    throw new Error("ValContext not provided");
+  },
+  get schemaSha(): string | undefined {
     throw new Error("ValContext not provided");
   },
   get sources(): Record<ModuleFilePath, Json | undefined> {
@@ -118,9 +119,6 @@ const ValContext = React.createContext<{
   get patchIds(): PatchId[] {
     throw new Error("ValContext not provided");
   },
-  get patchMetadataCache(): Record<PatchId, Remote<PatchWithMetadata>> {
-    throw new Error("ValContext not provided");
-  },
 });
 
 export function ValProvider({
@@ -135,6 +133,7 @@ export function ValProvider({
   const {
     addPatch,
     schemas,
+    schemaSha,
     stat,
     sources,
     sourcesSyncStatus,
@@ -169,121 +168,6 @@ export function ValProvider({
     },
     [],
   );
-
-  const [patchMetadataCache, setPatchMetadataCache] = useState<
-    Record<PatchId, Remote<PatchWithMetadata>>
-  >({});
-
-  useEffect(() => {
-    const missingPatchIds = patchIds.filter(
-      (patchId) => patchMetadataCache[patchId] === undefined,
-    );
-    setPatchMetadataCache((prev) => {
-      const current: typeof prev = { ...prev };
-      for (const patchId of missingPatchIds) {
-        current[patchId] = {
-          status: "loading",
-        };
-      }
-      return current;
-    });
-    if (
-      // skip if:
-      missingPatchIds.length === 0 && // no patches to fetch
-      Object.keys(patchMetadataCache).length > 0 // AND we have already fetched (some / all) patches
-    ) {
-      return;
-    }
-    client("/patches/~", "GET", {
-      query: {
-        patch_id: missingPatchIds, // TODO: there is something wrong with the endpoints query parsing? What we really want is: missingPatchIds.length > 0 ? missingPatchIds : undefined, but that do not work as expected?
-        module_file_path: [],
-        author: [],
-        omit_patch: false,
-      },
-    })
-      .then((res) => {
-        if (res.status !== 200) {
-          setPatchMetadataCache((prev) => {
-            const current: typeof prev = { ...prev };
-            for (const patchId of missingPatchIds) {
-              current[patchId] = {
-                status: "error",
-                error: res.json.message,
-              };
-            }
-            return current;
-          });
-          if (
-            res.status === null &&
-            res.json.type === "network_error" &&
-            res.json.retryable
-          ) {
-            // TODO: Retry later
-            setPatchMetadataCache((prev) => {
-              const current: typeof prev = { ...prev };
-              for (const patchId of missingPatchIds) {
-                current[patchId] = {
-                  status: "error",
-                  error: res.json.message,
-                };
-              }
-              return current;
-            });
-          }
-        } else {
-          setPatchMetadataCache((prev) => {
-            const current: typeof prev = { ...prev };
-            for (const patchIds in res.json.patches) {
-              const patchId = patchIds as PatchId;
-              const patchMetadata = res.json.patches[patchId];
-              if (patchMetadata && patchMetadata.patch) {
-                current[patchId] = {
-                  status: "success",
-                  data: {
-                    author: patchMetadata.authorId,
-                    createdAt: patchMetadata.createdAt,
-                    error: res.json?.errors?.[patchId]?.message || null,
-                    patch: patchMetadata.patch,
-                    moduleFilePath: patchMetadata.path,
-                    patchId,
-                  },
-                };
-              } else if (patchMetadata === undefined) {
-                current[patchId] = {
-                  status: "error",
-                  error:
-                    "Expected patch metadata in response, but there was none: " +
-                    patchId,
-                };
-              } else {
-                current[patchId] = {
-                  status: "error",
-
-                  error:
-                    "Expected patch in response, but there was none: " +
-                    patchId,
-                };
-              }
-            }
-            return current;
-          });
-        }
-      })
-      .catch((e) => {
-        console.error("Error fetching patches", e);
-        setPatchMetadataCache((prev) => {
-          const current: typeof prev = { ...prev };
-          for (const patchId of missingPatchIds) {
-            current[patchId] = {
-              status: "error",
-              error: e.message,
-            };
-          }
-          return current;
-        });
-      });
-  }, [patchIds]);
   const config =
     "data" in stat && stat.data ? (stat.data?.config as ValConfig) : undefined;
 
@@ -308,7 +192,6 @@ export function ValProvider({
     }
   }, [config]);
   useEffect(() => {
-    console.log("found config theme", config?.defaultTheme, theme);
     if (config?.defaultTheme && theme === null) {
       if (config?.defaultTheme === "dark" || config?.defaultTheme === "light") {
         setTheme(config.defaultTheme);
@@ -343,11 +226,11 @@ export function ValProvider({
         },
         config,
         schemas,
+        schemaSha,
         sources,
         sourcesSyncStatus,
         patchesStatus,
         patchIds,
-        patchMetadataCache,
       }}
     >
       <DayPickerProvider
@@ -395,19 +278,6 @@ export function useAddPatch(sourcePath: SourcePath) {
   return { patchPath, addPatch: addPatchCallback, addDebouncedPatch };
 }
 
-export function usePatchMetadata(patchId: PatchId): Remote<PatchWithMetadata> {
-  const { patchMetadataCache } = useContext(ValContext);
-  return patchMetadataCache[patchId] || { status: "not-asked" };
-}
-
-export function usePatchesMetadata(): Record<
-  PatchId,
-  Remote<PatchWithMetadata>
-> {
-  const { patchMetadataCache } = useContext(ValContext);
-  return patchMetadataCache;
-}
-
 export function useCurrentPatchIds(): PatchId[] {
   const { patchIds } = useContext(ValContext);
   return patchIds;
@@ -433,120 +303,6 @@ export function useLoadingStatus(): LoadingStatus {
     }
     return "success";
   }, [sourcesSyncStatus]);
-}
-
-export function usePatchSets(): Remote<{
-  patchSets: SerializedPatchSet;
-  loadingPatches: PatchId[];
-  failedPatches: {
-    patchId: PatchId;
-    error: string;
-  }[];
-}> {
-  const { patchMetadataCache, patchIds, sources, schemas } =
-    useContext(ValContext);
-  const lastPatchSetRef = useRef<PatchSets>();
-  const lastPatchSetPatchIdsRef = useRef<PatchId[]>();
-  const res = useMemo((): Remote<{
-    patchSets: SerializedPatchSet;
-    loadingPatches: PatchId[];
-    failedPatches: {
-      patchId: PatchId;
-      error: string;
-    }[];
-  }> => {
-    if (patchIds.length === 0) {
-      return {
-        status: "success",
-        data: {
-          patchSets: new PatchSets().serialize(),
-          loadingPatches: [],
-          failedPatches: [],
-        },
-      };
-    }
-    if (schemas.status === "loading" || schemas.status === "not-asked") {
-      return {
-        status: schemas.status,
-      };
-    }
-    if (schemas.status === "error") {
-      return {
-        status: "error",
-        error: schemas.error,
-      };
-    }
-    let currentPatchSets = lastPatchSetRef.current || new PatchSets();
-    // Find first non-inserted patch so we can avoid having to re-insert all patches
-    // NOTE: if sources, patchMetadataCache, or schemas change, we re-insert all patches that were not successfully inserted last time
-    const firstNonInsertedPatchIndex = findFirstNonInsertedIdx(
-      patchIds,
-      lastPatchSetPatchIdsRef.current,
-    );
-    if (firstNonInsertedPatchIndex === 0) {
-      currentPatchSets = new PatchSets();
-    }
-    const insertedPatches: PatchId[] = lastPatchSetPatchIdsRef.current || [];
-    const loadingPatches: PatchId[] = [];
-    const failedPatches: {
-      patchId: PatchId;
-      error: string;
-    }[] = [];
-    for (let i = firstNonInsertedPatchIndex; i < patchIds.length; i++) {
-      const patchId = patchIds[i];
-      const patch = patchMetadataCache[patchId];
-      if (!patch) {
-        continue;
-      }
-      if (patch.status === "loading" || patch.status === "not-asked") {
-        loadingPatches.push(patchId);
-        continue;
-      }
-      if (patch.status === "error") {
-        failedPatches.push({ patchId: patchId, error: patch.error });
-        continue;
-      }
-      const source = sources[patch.data.moduleFilePath];
-      if (source === undefined) {
-        failedPatches.push({
-          patchId: patchId,
-          error: "Source is missing",
-        });
-        continue;
-      }
-      const moduleSchema = schemas.data[patch.data.moduleFilePath];
-      if (moduleSchema === undefined) {
-        failedPatches.push({
-          patchId: patchId,
-          error: "Schema is missing",
-        });
-        continue;
-      }
-      for (const op of patch.data.patch) {
-        currentPatchSets.insert(
-          patch.data.moduleFilePath,
-          source,
-          moduleSchema,
-          op,
-          patchId,
-        );
-      }
-      insertedPatches.push(patchId);
-    }
-    lastPatchSetRef.current = currentPatchSets;
-    lastPatchSetPatchIdsRef.current = insertedPatches;
-    const serializedPathSets = currentPatchSets.serialize();
-    return {
-      status: "success",
-      data: {
-        patchSets: serializedPathSets,
-        loadingPatches,
-        failedPatches,
-      },
-    };
-  }, [patchMetadataCache, patchIds, sources, schemas]);
-
-  return res;
 }
 
 type EnsureAllTypes<T extends Record<SerializedSchema["type"], unknown>> = T;
@@ -635,8 +391,13 @@ export function useSchemaAtPath(sourcePath: SourcePath) {
     schemas,
   ]);
 }
+
 export function useSchemas() {
   return useContext(ValContext).schemas;
+}
+
+export function useSchemaSha() {
+  return useContext(ValContext).schemaSha;
 }
 
 type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =

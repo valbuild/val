@@ -1,11 +1,10 @@
-import { LoadingStatus, useLoadingStatus, usePatchSets } from "../ValProvider";
+import { LoadingStatus, useLoadingStatus } from "../ValProvider";
 import { ScrollArea } from "../../components/ui/scroll-area";
-import { PendingChanges } from "./PendingChanges";
 import { useState, useEffect } from "react";
+import { PendingChanges } from "./PendingChanges";
 
 export function ToolsMenu() {
   const loadingStatus = useLoadingStatus();
-  const remotePatchSets = usePatchSets();
   const [debouncedLoadingStatus, setDebouncedLoadingStatus] =
     useState(loadingStatus);
   useEffect(() => {
@@ -26,14 +25,11 @@ export function ToolsMenu() {
         <ToolsMenuButtons loadingStatus={loadingStatus} />
       </div>
       {debouncedLoadingStatus === "error" && <div className="">Error</div>}
-      {"data" in remotePatchSets && debouncedLoadingStatus !== "not-asked" && (
+      {debouncedLoadingStatus !== "not-asked" && (
         <div className="hidden bg-bg-tertiary rounded-3xl xl:block">
           <ScrollArea>
             <div className="max-h-[calc(100svh-32px-64px-32px-16px)]">
-              <PendingChanges
-                patchSets={remotePatchSets.data.patchSets}
-                loadingStatus={debouncedLoadingStatus}
-              />
+              <PendingChanges loadingStatus={debouncedLoadingStatus} />
             </div>
           </ScrollArea>
         </div>
