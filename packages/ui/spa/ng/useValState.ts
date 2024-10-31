@@ -561,6 +561,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
   return {
     stat,
     schemas,
+    schemaSha,
     sources,
     addPatch,
     requestModule,

@@ -1,20 +1,21 @@
 import { ModuleFilePath, PatchId, SerializedSchema } from "@valbuild/core";
 import { Operation } from "@valbuild/core/patch";
-import { schemaTypesOfPath } from "./schemaTypesOfPath";
+import { schemaTypesOfPath } from "../utils/schemaTypesOfPath";
 
 type AuthorId = string;
 type IsoDateString = string;
-type PatchSetMetadata = {
+export type PatchMetadata = {
+  patchId: PatchId;
+  patchPath: PatchPath;
+  opType: Operation["op"];
+  schemaTypes: Array<SerializedSchema["type"]>;
+  author: AuthorId | null;
+  createdAt: IsoDateString;
+};
+export type PatchSetMetadata = {
   moduleFilePath: ModuleFilePath;
   patchPath: PatchPath;
-  patches: {
-    patchId: PatchId;
-    patchPath: PatchPath;
-    opType: Operation["op"];
-    schemaTypes: Array<SerializedSchema["type"]>;
-    author: AuthorId | null;
-    createdAt: IsoDateString;
-  }[];
+  patches: PatchMetadata[];
   authors: AuthorId[];
   opTypes: Operation["op"][];
   schemaTypes: Array<SerializedSchema["type"]>;
@@ -178,12 +179,29 @@ export class PatchSets {
 
   insert(
     moduleFilePath: ModuleFilePath,
-    schema: SerializedSchema,
+    schema: SerializedSchema | undefined,
     op: Operation,
     patchId: PatchId,
     createdAt: IsoDateString,
     author: AuthorId | null,
   ) {
+    if (this.insertedPatches.has(patchId)) {
+      return;
+    }
+    if (!schema) {
+      this.insertPath(
+        moduleFilePath,
+        [],
+        patchId,
+        createdAt,
+        author,
+        op.op,
+        [],
+        op.path,
+      );
+      return;
+    }
+
     this.insertedPatches.add(patchId);
     if (op.op === "file" || op.op === "test") {
       return;
