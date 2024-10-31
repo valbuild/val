@@ -414,6 +414,11 @@ export function splitModulePath(input: ModulePath) {
   return result;
 }
 
+export function splitJoinedSourcePaths(input: string) {
+  // TODO: This is a very simple implementation that does not handle escaped commas
+  return input.split(",") as SourcePath[];
+}
+
 export function parentOfSourcePath(sourcePath: SourcePath): SourcePath {
   const [moduleFilePath, modulePath] =
     splitModuleFilePathAndModulePath(sourcePath);
