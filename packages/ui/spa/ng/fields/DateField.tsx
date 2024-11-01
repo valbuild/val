@@ -26,7 +26,6 @@ export function DateField({ path }: { path: SourcePath }) {
   const type = "date";
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
-  const now = useMemo(() => new Date(), []);
   const { patchPath, addPatch } = useAddPatch(path);
   const [currentValue, setCurrentValue] = useState<Date | null>(null);
   const [isPopoverOpen, setPopoverOpen] = useState(false);
