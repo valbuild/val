@@ -94,9 +94,11 @@ export function RichTextField({
       onChange={(event) => {
         if (focus) {
           setState(event.state);
-          addDebouncedPatch(() => {
-            return createRichTextPatch(patchPath, event.state.doc.toJSON());
-          }, path);
+          if (!event.state.doc.content.eq(event.previousState.doc.content)) {
+            addDebouncedPatch(() => {
+              return createRichTextPatch(patchPath, event.state.doc.toJSON());
+            }, path);
+          }
         }
       }}
     />
