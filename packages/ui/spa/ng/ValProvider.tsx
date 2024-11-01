@@ -638,7 +638,7 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     if (typeof source !== "object" || !isJsonArray(source)) {
       return {
         status: "error",
-        error: `Expected array, got ${typeof source}`,
+        error: `Expected richtext (i.e. array), got ${typeof source}`,
       };
     }
     return {
