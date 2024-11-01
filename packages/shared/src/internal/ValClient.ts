@@ -95,13 +95,23 @@ export const createValClient = (host: string): ValClient => {
           status: res.status,
           json,
         };
+        if (res.status === 500) {
+          console.log("Server responded with an error", json);
+          return {
+            status: 500,
+            json: {
+              message: json.message,
+              type: "unknown",
+            },
+          } satisfies ClientFetchErrors;
+        }
         const responseResult = apiEndpoint.res?.safeParse(valClientResult);
         if (responseResult && !responseResult.success) {
           return {
             status: null,
             json: {
               message:
-                "Response could not be validated. This could be a result of mismatched Val versions.",
+                "Response could not be validated. This could also be a result of mismatched Val versions.",
               type: "client_side_validation_error",
               details: {
                 validationError: fromZodError(responseResult.error).toString(),

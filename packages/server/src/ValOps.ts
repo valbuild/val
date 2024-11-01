@@ -226,6 +226,18 @@ export abstract class ValOps {
             addModuleError(`source in ${path} is undefined`, moduleIdx, path);
             return;
           }
+          let serializedSchema: SerializedSchema;
+          try {
+            serializedSchema = schema.serialize();
+          } catch (e) {
+            const message = e instanceof Error ? e.message : JSON.stringify(e);
+            addModuleError(
+              `Could not serialize module: '${path}'. Error: ${message}`,
+              moduleIdx,
+              path,
+            );
+            return;
+          }
           const pathM = path as string as ModuleFilePath;
           currentSources[pathM] = source;
           currentSchemas[pathM] = schema;
@@ -234,12 +246,12 @@ export abstract class ValOps {
             baseSha +
               JSON.stringify({
                 path,
-                schema: schema.serialize(),
+                schema: serializedSchema,
                 source,
                 modulesErrors: currentModulesErrors,
               }),
           );
-          schemaSha = this.hash(schemaSha + JSON.stringify(schema.serialize()));
+          schemaSha = this.hash(schemaSha + JSON.stringify(serializedSchema));
         });
       }
       this.sources = currentSources;
