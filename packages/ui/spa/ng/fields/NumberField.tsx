@@ -71,6 +71,11 @@ export function NumberField({ path }: { path: SourcePath }) {
 
 export function NumberPreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "number");
+  if (sourceAtPath.status === "error") {
+    return (
+      <FieldSourceError path={path} error={sourceAtPath.error} type="number" />
+    );
+  }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;
   }

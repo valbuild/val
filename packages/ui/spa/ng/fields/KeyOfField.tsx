@@ -1,4 +1,4 @@
-import { SourcePath } from "@valbuild/core";
+import { Internal, SourcePath } from "@valbuild/core";
 import { FieldLoading } from "../components/FieldLoading";
 import { FieldNotFound } from "../components/FieldNotFound";
 import { FieldSchemaError } from "../components/FieldSchemaError";
@@ -17,9 +17,12 @@ import {
   SelectTrigger,
 } from "../../components/ui/select";
 import { PreviewLoading, PreviewNull } from "../components/Preview";
+import { useNavigation } from "../../components/ValRouter";
+import { ChevronRight } from "lucide-react";
 
 export function KeyOfField({ path }: { path: SourcePath }) {
   const type = "keyOf";
+  const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
   const keyOf =
     "data" in schemaAtPath &&
@@ -122,35 +125,48 @@ export function KeyOfField({ path }: { path: SourcePath }) {
       : undefined;
   const source = sourceAtPath.data;
   return (
-    <Select
-      value={source ?? ""}
-      onValueChange={(value) => {
-        addPatch([
-          {
-            op: "replace",
-            path: patchPath,
-            value: value,
-          },
-        ]);
-      }}
-    >
-      <SelectTrigger>
-        <SelectValue>{source}</SelectValue>
-      </SelectTrigger>
-      <SelectContent className="w-32">
-        {schemaAtPath.status === "loading" ||
-        keyOf == undefined ||
-        keys === undefined ? (
-          <LoadingSelectContent />
-        ) : (
-          keys.map((index) => (
-            <SelectItem key={index} value={index}>
-              {index}
-            </SelectItem>
-          ))
-        )}
-      </SelectContent>
-    </Select>
+    <div className="flex items-center justify-between">
+      <Select
+        value={source ?? ""}
+        onValueChange={(value) => {
+          addPatch([
+            {
+              op: "replace",
+              path: patchPath,
+              value: value,
+            },
+          ]);
+        }}
+      >
+        <SelectTrigger>
+          <SelectValue>{source}</SelectValue>
+        </SelectTrigger>
+        <SelectContent className="w-32">
+          {schemaAtPath.status === "loading" ||
+          keyOf == undefined ||
+          keys === undefined ? (
+            <LoadingSelectContent />
+          ) : (
+            keys.map((index) => (
+              <SelectItem key={index} value={index}>
+                {index}
+              </SelectItem>
+            ))
+          )}
+        </SelectContent>
+      </Select>
+      {source && keyOf?.path && (
+        <button
+          onClick={() => {
+            navigate(
+              Internal.createValPathOfItem(keyOf.path, source) as SourcePath,
+            );
+          }}
+        >
+          <ChevronRight size={16} />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -160,6 +176,11 @@ function LoadingSelectContent() {
 
 export function KeyOfPreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "keyOf");
+  if (sourceAtPath.status === "error") {
+    return (
+      <FieldSourceError path={path} error={sourceAtPath.error} type="keyOf" />
+    );
+  }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;
   }

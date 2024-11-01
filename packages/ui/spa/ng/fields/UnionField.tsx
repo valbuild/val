@@ -301,6 +301,11 @@ export function UnionPreview({ path }: { path: SourcePath }) {
   const type = "union";
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const schemaAtPath = useSchemaAtPath(path);
+  if (sourceAtPath.status === "error") {
+    return (
+      <FieldSourceError path={path} error={sourceAtPath.error} type="union" />
+    );
+  }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;
   }

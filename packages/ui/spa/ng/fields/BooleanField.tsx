@@ -94,6 +94,11 @@ export function BooleanField({ path }: { path: SourcePath }) {
 
 export function BooleanPreview({ path }: { path: SourcePath }): JSX.Element {
   const sourceAtPath = useShallowSourceAtPath(path, "boolean");
+  if (sourceAtPath.status === "error") {
+    return (
+      <FieldSourceError path={path} error={sourceAtPath.error} type="boolean" />
+    );
+  }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;
   } else if (sourceAtPath.data === null) {

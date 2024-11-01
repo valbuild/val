@@ -91,6 +91,11 @@ export function StringField({
 
 export function StringPreview({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, "string");
+  if (sourceAtPath.status === "error") {
+    return (
+      <FieldSourceError path={path} error={sourceAtPath.error} type="string" />
+    );
+  }
   if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
     return <PreviewLoading path={path} />;
   }
