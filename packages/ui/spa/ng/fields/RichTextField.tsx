@@ -131,7 +131,6 @@ function createRichTextPatch(path: string[], content?: RemirrorJSON): Patch {
 }
 
 export function RichTextPreview({ path }: { path: SourcePath }) {
-  console.log({ path });
   const sourceAtPath = useShallowSourceAtPath(path, "richtext");
   if (sourceAtPath.status === "error") {
     return (
