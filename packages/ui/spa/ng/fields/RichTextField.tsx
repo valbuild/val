@@ -7,6 +7,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
+  ShallowSource,
 } from "../ValProvider";
 import {
   RichTextEditor,
@@ -20,6 +21,7 @@ import {
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 import { Operation, Patch } from "@valbuild/core/patch";
 import { useEffect, useState } from "react";
+import { PreviewLoading, PreviewNull } from "../components/Preview";
 
 export function RichTextField({
   path,
@@ -126,4 +128,67 @@ function createRichTextPatch(path: string[], content?: RemirrorJSON): Patch {
       );
     }),
   ];
+}
+
+export function RichTextPreview({ path }: { path: SourcePath }) {
+  console.log({ path });
+  const sourceAtPath = useShallowSourceAtPath(path, "richtext");
+  if (sourceAtPath.status === "error") {
+    return (
+      <FieldSourceError
+        path={path}
+        error={sourceAtPath.error}
+        type="richtext"
+      />
+    );
+  }
+  if (sourceAtPath.status == "not-found") {
+    return <FieldNotFound path={path} type="richtext" />;
+  }
+  if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
+    return <PreviewLoading path={path} />;
+  }
+  if (sourceAtPath.data === null) {
+    return <PreviewNull path={path} />;
+  }
+  const asString = richTextToString(sourceAtPath.data);
+  if (asString.status === "error") {
+    return (
+      <FieldSourceError path={path} error={asString.error} type="richtext" />
+    );
+  }
+  return <div className="truncate">{asString.value}</div>;
+}
+
+function richTextToString(source: ShallowSource["richtext"]):
+  | {
+      status: "error";
+      error: string;
+    }
+  | {
+      status: "ok";
+      value: string;
+    } {
+  let error: string | undefined;
+  function rec(node: unknown): string {
+    if (error) {
+      return error;
+    }
+    if (typeof node === "string") {
+      return node;
+    }
+    if (typeof node === "object" && node) {
+      if ("children" in node && Array.isArray(node.children)) {
+        return node.children.map(rec).join(" ");
+      }
+    }
+    error = "Invalid richtext node: " + JSON.stringify(node);
+    return JSON.stringify(node);
+  }
+  const value = source.map(rec).join(" ");
+  if (error) {
+    return { status: "error", error };
+  } else {
+    return { status: "ok", value };
+  }
 }

@@ -11,6 +11,7 @@ import { KeyOfPreview } from "../fields/KeyOfField";
 import { DatePreview } from "../fields/DateField";
 import { LiteralPreview } from "../fields/LiteralPreview";
 import { RecordPreview } from "../fields/RecordFields";
+import { RichTextPreview } from "../fields/RichTextField";
 
 export function Preview({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
@@ -41,6 +42,8 @@ export function Preview({ path }: { path: SourcePath }) {
     return <LiteralPreview path={path} />;
   } else if (type === "record") {
     return <RecordPreview path={path} />;
+  } else if (type === "richtext") {
+    return <RichTextPreview path={path} />;
   } else {
     const exhaustiveCheck: never = type;
     return <div>Cannot preview: {exhaustiveCheck}</div>;
