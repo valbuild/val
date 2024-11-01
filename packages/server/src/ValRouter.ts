@@ -518,6 +518,14 @@ export function createValApiRouter<Res>(
         query,
         path,
       });
+      if (res.status === 500) {
+        return {
+          status: 500,
+          json: {
+            message: res.json?.message || "Internal Server Error",
+          },
+        };
+      }
       const resDef = apiEndpoint.res;
       if (resDef) {
         const responseResult = resDef.safeParse(res);

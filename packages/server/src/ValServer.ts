@@ -759,7 +759,10 @@ export const ValServer = (
           return {
             status: 500,
             json: {
-              message: "Val is not correctly setup. Check the val.modules file",
+              message: `Got errors while fetching modules: ${moduleErrors
+                .filter((error) => error)
+                .map((error) => error.message)
+                .join(", ")}`,
               details: moduleErrors,
             },
           };
