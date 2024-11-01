@@ -10,6 +10,7 @@ import { ImagePreview } from "../fields/ImageField";
 import { KeyOfPreview } from "../fields/KeyOfField";
 import { DatePreview } from "../fields/DateField";
 import { LiteralPreview } from "../fields/LiteralPreview";
+import { RecordPreview } from "../fields/RecordFields";
 
 export function Preview({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
@@ -38,6 +39,8 @@ export function Preview({ path }: { path: SourcePath }) {
     return <DatePreview path={path} />;
   } else if (type === "literal") {
     return <LiteralPreview path={path} />;
+  } else if (type === "record") {
+    return <RecordPreview path={path} />;
   } else {
     const exhaustiveCheck: never = type;
     return <div>Cannot preview: {exhaustiveCheck}</div>;

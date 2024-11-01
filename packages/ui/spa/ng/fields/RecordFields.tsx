@@ -15,6 +15,7 @@ import { FieldSchemaError } from "../components/FieldSchemaError";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 import { FieldSourceError } from "../components/FieldSourceError";
 import { useNavigation } from "../../components/ValRouter";
+import { PreviewLoading, PreviewNull } from "../components/Preview";
 
 export function RecordFields({ path }: { path: SourcePath }) {
   const type = "record";
@@ -70,6 +71,36 @@ export function RecordFields({ path }: { path: SourcePath }) {
             </CardContent>
           </Card>
         ))}
+    </div>
+  );
+}
+
+export function RecordPreview({ path }: { path: SourcePath }) {
+  const sourceAtPath = useShallowSourceAtPath(path, "record");
+  if (sourceAtPath.status === "error") {
+    return (
+      <FieldSourceError path={path} error={sourceAtPath.error} type="record" />
+    );
+  }
+  if (!("data" in sourceAtPath) || sourceAtPath.data === undefined) {
+    return <PreviewLoading path={path} />;
+  }
+  if (sourceAtPath.data === null) {
+    return <PreviewNull path={path} />;
+  }
+  const keys = Object.keys(sourceAtPath.data);
+  return (
+    <div className="text-left">
+      <span className="text-fg-brand-primary">{keys.length}</span>
+      <span className="mr-1">{` item${keys.length === 1 ? "" : "s"}:`}</span>
+      {keys.map((key, index) => (
+        <>
+          <span key={key} className="text-fg-brand-primary">
+            {key}
+          </span>
+          {index < keys.length - 1 ? ", " : ""}
+        </>
+      ))}
     </div>
   );
 }
