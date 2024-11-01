@@ -48,73 +48,77 @@ export function Field({
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          {"data" in schemaAtPath && !isNullableBoolean && (
-            <Checkbox
-              disabled={loadingStatus === "loading"}
-              checked={source !== null}
-              onCheckedChange={() => {
-                if (source === null) {
-                  addPatch([
-                    {
-                      op: "replace",
-                      path: patchPath,
-                      value: emptyOf({
-                        ...schemaAtPath.data,
-                        opt: false, // empty of nullable is null, so we override
-                      }) as JSONValue,
-                    },
-                  ]);
-                } else {
-                  addPatch([
-                    {
-                      op: "replace",
-                      path: patchPath,
-                      value: null,
-                    },
-                  ]);
+          {"data" in schemaAtPath &&
+            !isNullableBoolean &&
+            schemaAtPath.data.opt && (
+              <Checkbox
+                disabled={loadingStatus === "loading"}
+                checked={source !== null}
+                onCheckedChange={() => {
+                  if (source === null) {
+                    addPatch([
+                      {
+                        op: "replace",
+                        path: patchPath,
+                        value: emptyOf({
+                          ...schemaAtPath.data,
+                          opt: false, // empty of nullable is null, so we override
+                        }) as JSONValue,
+                      },
+                    ]);
+                  } else {
+                    addPatch([
+                      {
+                        op: "replace",
+                        path: patchPath,
+                        value: null,
+                      },
+                    ]);
+                  }
+                }}
+              />
+            )}
+          {"data" in schemaAtPath &&
+            isNullableBoolean &&
+            schemaAtPath.data.opt && (
+              <Checkbox
+                disabled={loadingStatus === "loading"}
+                checked={
+                  source === null
+                    ? "indeterminate"
+                    : typeof source === "boolean"
+                      ? source
+                      : false
                 }
-              }}
-            />
-          )}
-          {isNullableBoolean && (
-            <Checkbox
-              disabled={loadingStatus === "loading"}
-              checked={
-                source === null
-                  ? "indeterminate"
-                  : typeof source === "boolean"
-                    ? source
-                    : false
-              }
-              onCheckedChange={() => {
-                if (source === null) {
-                  addPatch([
-                    {
-                      op: "replace",
-                      path: patchPath,
-                      value: true,
-                    },
-                  ]);
-                } else if (source === true) {
-                  addPatch([
-                    {
-                      op: "replace",
-                      path: patchPath,
-                      value: false,
-                    },
-                  ]);
-                } else {
-                  addPatch([
-                    {
-                      op: "replace",
-                      path: patchPath,
-                      value: null,
-                    },
-                  ]);
-                }
-              }}
-            />
-          )}
+                onCheckedChange={() => {
+                  if (source === null) {
+                    addPatch([
+                      {
+                        op: "replace",
+                        path: patchPath,
+                        value: true,
+                      },
+                    ]);
+                  } else if (source === true) {
+                    addPatch([
+                      {
+                        op: "replace",
+                        path: patchPath,
+                        value: false,
+                      },
+                    ]);
+                  } else {
+                    addPatch([
+                      {
+                        op: "replace",
+                        path: patchPath,
+                        value: null,
+                      },
+                    ]);
+                  }
+                }}
+              />
+            )}
           {typeof label === "string" && <Label>{label}</Label>}
           {label && typeof label !== "string" && label}
         </div>
