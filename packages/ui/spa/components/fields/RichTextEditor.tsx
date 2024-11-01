@@ -130,7 +130,7 @@ export function RichTextEditor<E extends AnyExtension>({
         }
       }}
       className={classNames(
-        "relative text-base val-rich-text-editor focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 border border-input rounded-md",
+        "relative text-base m-1 val-rich-text-editor focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 border border-input rounded-md",
       )}
     >
       <Remirror
