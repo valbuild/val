@@ -31,6 +31,9 @@ const ValContext = React.createContext<{
   config: ValConfig | undefined;
   addPatch: (moduleFilePath: ModuleFilePath, patch: Patch) => void;
   addDebouncedPatch: (get: () => Patch, path: SourcePath) => void;
+  publish: () => void;
+  isPublishing: boolean;
+  publishError: string | null;
   schemas: Remote<Record<ModuleFilePath, SerializedSchema>>;
   schemaSha: string | undefined;
   sources: Record<ModuleFilePath, Json | undefined>;
@@ -75,6 +78,15 @@ const ValContext = React.createContext<{
     throw new Error("ValContext not provided");
   },
   get addDebouncedPatch(): () => void {
+    throw new Error("ValContext not provided");
+  },
+  get publish(): () => void {
+    throw new Error("ValContext not provided");
+  },
+  get isPublishing(): boolean {
+    throw new Error("ValContext not provided");
+  },
+  get publishError(): string | null {
     throw new Error("ValContext not provided");
   },
   get schemas(): Remote<Record<ModuleFilePath, SerializedSchema>> {
@@ -203,6 +215,27 @@ export function ValProvider({
     }
   }, [theme, config?.defaultTheme]);
 
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const publish = useCallback(() => {
+    client("/save", "POST", {
+      body: {
+        patchIds,
+      },
+    })
+      .then((res) => {
+        if (res.status === 200) {
+          setIsPublishing(false);
+          setPublishError(null);
+        } else {
+          setPublishError(res.json.message);
+        }
+      })
+      .catch((err) => {
+        setPublishError(err.message);
+        setIsPublishing(false);
+      });
+  }, [client, patchIds]);
   return (
     <ValContext.Provider
       value={{
@@ -224,6 +257,9 @@ export function ValProvider({
             console.warn(`Cannot set invalid theme theme: ${theme}`);
           }
         },
+        publish,
+        isPublishing,
+        publishError,
         config,
         schemas,
         schemaSha,
@@ -303,6 +339,11 @@ export function useLoadingStatus(): LoadingStatus {
     }
     return "success";
   }, [sourcesSyncStatus]);
+}
+
+export function usePublish() {
+  const { publish, isPublishing, publishError } = useContext(ValContext);
+  return { publish, isPublishing, publishError };
 }
 
 type EnsureAllTypes<T extends Record<SerializedSchema["type"], unknown>> = T;

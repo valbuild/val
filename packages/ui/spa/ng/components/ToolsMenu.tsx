@@ -1,4 +1,4 @@
-import { LoadingStatus, useLoadingStatus } from "../ValProvider";
+import { LoadingStatus, useLoadingStatus, usePublish } from "../ValProvider";
 import { ScrollArea } from "../../components/ui/scroll-area";
 import { useState, useEffect } from "react";
 import { DraftChanges } from "./DraftChanges";
@@ -29,6 +29,8 @@ export function ToolsMenu({
       setDebouncedLoadingStatus(loadingStatus);
     }
   }, [loadingStatus]);
+  const { publishError } = usePublish();
+
   return (
     <nav className="flex flex-col gap-1 pr-4">
       <div className="flex items-center h-16 gap-4 p-4 mt-4 bg-bg-tertiary rounded-3xl">
@@ -38,7 +40,16 @@ export function ToolsMenu({
           setOpen={setOpen}
         />
       </div>
-      {debouncedLoadingStatus === "error" && <div className="">Error</div>}
+      {debouncedLoadingStatus === "error" && (
+        <div className="bg-bg-error-primary text-text-error-primary rounded-3xl">
+          Could not fetch data
+        </div>
+      )}
+      {publishError && (
+        <div className="bg-bg-error-primary text-text-error-primary rounded-3xl">
+          {publishError}
+        </div>
+      )}
       {debouncedLoadingStatus !== "not-asked" && (
         <div
           className={classNames("bg-bg-tertiary rounded-3xl", {
@@ -66,6 +77,7 @@ export function ToolsMenuButtons({
   isOpen: boolean;
   setOpen: (open: boolean) => void;
 }) {
+  const { publish, isPublishing } = usePublish();
   return (
     <div className="flex items-center justify-end w-full gap-4 p-4">
       <button
@@ -89,10 +101,12 @@ export function ToolsMenuButtons({
       </button>
       <button
         className="px-3 py-1 font-bold transition-colors border rounded bg-bg-brand-primary disabled:text-text-disabled disabled:bg-bg-disabled disabled:border-border-disabled disabled:border border-bg-brand-primary text-text-brand-primary"
-        disabled={loadingStatus !== "success"}
+        disabled={loadingStatus !== "success" || isPublishing}
         onClick={() => {
           if (!isOpen) {
             setOpen(true);
+          } else {
+            publish();
           }
         }}
       >
