@@ -20,10 +20,12 @@ import classNames from "classnames";
 import { GripVertical, Trash2 } from "lucide-react";
 import { SourcePath, SerializedArraySchema } from "@valbuild/core";
 import { Preview } from "./Preview";
+import { StringField } from "../fields/StringField";
 
 export function SortableList({
   source,
   path,
+  schema,
   onClick,
   onMove,
   onDelete,
@@ -87,6 +89,7 @@ export function SortableList({
               <SortableItem
                 key={id}
                 id={id}
+                schema={schema}
                 path={path}
                 onClick={onClick}
                 onDelete={(id) => {
@@ -109,12 +112,14 @@ export const LIST_ITEM_MAX_HEIGHT = 170;
 export function SortableItem({
   id,
   path,
+  schema,
   disabled,
   onClick,
   onDelete,
 }: {
   id: number;
   path: SourcePath;
+  schema: SerializedArraySchema;
   disabled?: boolean;
   onClick: (path: SourcePath) => void;
   onDelete: (item: number) => void;
@@ -147,7 +152,7 @@ export function SortableItem({
       <button
         {...attributes}
         {...listeners}
-        className={classNames("pt-4", {
+        className={classNames("pt-2 m-1", {
           "opacity-30": disabled,
         })}
         disabled={disabled}
@@ -158,7 +163,7 @@ export function SortableItem({
         <GripVertical />
       </button>
       <button
-        className="pt-4 font-serif text-accent"
+        className="pt-2 m-1 font-serif text-accent"
         disabled={disabled}
         onClick={() => {
           onClick(path);
@@ -166,25 +171,28 @@ export function SortableItem({
       >
         {formatNumber(id)}
       </button>
-      <button
-        className="relative grid p-4 overflow-hidden text-left border rounded border-border bg-card gap-y-2 grid-cols-subgrid cols-span-1"
-        style={{
-          maxHeight: LIST_ITEM_MAX_HEIGHT,
-        }}
-        ref={ref}
-        disabled={disabled}
-        onClick={() => {
-          onClick(path);
-        }}
-      >
-        <Preview path={path} />
-        {isTruncated && (
-          <div
-            className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"
-            style={{ height: 40 }}
-          ></div>
-        )}
-      </button>
+      {schema?.item?.type === "string" && <StringField path={path} />}
+      {schema?.item?.type !== "string" && (
+        <button
+          className="relative grid p-4 overflow-hidden text-left border rounded border-border bg-card gap-y-2 grid-cols-subgrid cols-span-1"
+          style={{
+            maxHeight: LIST_ITEM_MAX_HEIGHT,
+          }}
+          ref={ref}
+          disabled={disabled}
+          onClick={() => {
+            onClick(path);
+          }}
+        >
+          <Preview path={path} />
+          {isTruncated && (
+            <div
+              className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"
+              style={{ height: 40 }}
+            ></div>
+          )}
+        </button>
+      )}
       <button
         className="pt-4"
         onClick={() => {
