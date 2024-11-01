@@ -167,7 +167,7 @@ export function SortableItem({
         {formatNumber(id)}
       </button>
       <button
-        className="relative grid p-4 overflow-hidden border rounded border-border bg-card gap-y-2 grid-cols-subgrid cols-span-1"
+        className="relative grid p-4 overflow-hidden text-left border rounded border-border bg-card gap-y-2 grid-cols-subgrid cols-span-1"
         style={{
           maxHeight: LIST_ITEM_MAX_HEIGHT,
         }}
