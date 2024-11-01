@@ -12,6 +12,7 @@ import {
   RichTextSchema,
   Schema,
   SelectorSource,
+  SerializedSchema,
   Source,
   SourcePath,
   VAL_EXTENSION,
