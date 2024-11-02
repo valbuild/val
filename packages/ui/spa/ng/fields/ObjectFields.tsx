@@ -114,7 +114,9 @@ function PreviewField({
 }) {
   return (
     <>
-      <span className="flex text-fg-quinary">{fixCapitalization(label)}</span>
+      <span className="flex whitespace-nowrap text-fg-quinary">
+        {fixCapitalization(label)}
+      </span>
       {children}
     </>
   );
