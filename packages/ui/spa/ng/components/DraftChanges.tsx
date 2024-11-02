@@ -1,8 +1,10 @@
-import { ModuleFilePath } from "@valbuild/core";
+import { ModuleFilePath, PatchId } from "@valbuild/core";
 import { useState, useEffect, forwardRef, useRef } from "react";
 import {
   LoadingStatus,
   useCurrentPatchIds,
+  useGetPatches,
+  useSchemas,
   useSchemaSha,
 } from "../ValProvider";
 import { Checkbox } from "../../components/ui/checkbox";
@@ -12,14 +14,13 @@ import { ChevronDown, Clock } from "lucide-react";
 import {
   PatchMetadata,
   PatchSetMetadata,
+  PatchSets,
   SerializedPatchSet,
 } from "../PatchSets";
 import { AnimateHeight } from "./AnimateHeight";
 import { relativeLocalDate } from "../../utils/relativeLocalDate";
 import { Operation } from "@valbuild/core/patch";
-
-const createPatchWorker = () =>
-  new Worker(new URL("../PatchWorker.ts", import.meta.url));
+import { Remote } from "../../utils/Remote";
 
 export function DraftChanges({
   className,
@@ -28,43 +29,112 @@ export function DraftChanges({
   className?: string;
   loadingStatus: LoadingStatus;
 }) {
-  const host = "/api/val";
+  const { getPatches } = useGetPatches();
+  const schemasRes = useSchemas();
   const schemaSha = useSchemaSha();
   const patchIds = useCurrentPatchIds();
-  const workerRef = useRef<Worker | null>(null);
-  const [workerError, setWorkerError] = useState<ErrorEvent | null>(null);
-  const [patchSets, setPatchSets] = useState<SerializedPatchSet | null>(null);
+  const patchSetsSchemaShaRef = useRef<string | null>(null);
+  const patchSetsRef = useRef<PatchSets | null>(null);
+  const [patchSetsError, setPatchSetsError] = useState<string | null>(null);
+  const requestedPatchIdsRef = useRef<PatchId[]>([]);
+  const [serializedPatchSets, setSerializedPatchSets] = useState<
+    Remote<SerializedPatchSet>
+  >({
+    status: "not-asked",
+  });
+  const prevInsertedPatchesRef = useRef<Set<PatchId>>(new Set());
   useEffect(() => {
-    const worker = createPatchWorker();
-    worker.onmessage = (event) => {
-      const data = event.data as {
-        patchSet: SerializedPatchSet;
-        schemaSha: string;
-      };
-      if (schemaSha === data.schemaSha) {
-        setPatchSets(data.patchSet);
-      } else {
-        console.error("Schema mismatch", schemaSha, data.schemaSha);
+    async function load() {
+      if (!schemaSha || !("data" in schemasRes)) {
+        // only error if we somehow lose the schemas
+        if (patchSetsSchemaShaRef.current) {
+          setPatchSetsError(
+            "Something wrong happened while loading patches (schema not found)",
+          );
+        }
+        return;
       }
-    };
-    worker.onerror = (event) => {
-      console.error("Worker error", event);
-      setWorkerError(event);
-    };
-    workerRef.current = worker;
-    return () => {
-      workerRef.current = null;
-      worker.terminate();
-    };
-  }, [schemaSha]);
-  useEffect(() => {
-    if (workerRef.current) {
-      workerRef.current.postMessage({ patchIds, host, schemaSha });
+      if (patchSetsSchemaShaRef.current !== schemaSha) {
+        // Reset if schema changes
+        patchSetsRef.current = new PatchSets();
+      }
+      patchSetsSchemaShaRef.current = schemaSha;
+      if (!patchSetsRef.current) {
+        // Initialize if not already
+        patchSetsRef.current = new PatchSets();
+      }
+      // Only request patches that are not already inserted
+      const requestPatchIds: PatchId[] = [];
+      for (const patchId of patchIds) {
+        if (!prevInsertedPatchesRef.current.has(patchId)) {
+          requestPatchIds.push(patchId);
+        }
+      }
+      // Reset if previous patches are not in the current patchIds
+      for (const patchId of Array.from(
+        // TODO: guessing Array.from(set.values()) is slow for large sets?
+        prevInsertedPatchesRef.current.values(),
+      )) {
+        if (!patchIds.includes(patchId)) {
+          patchSetsRef.current = new PatchSets();
+          break;
+        }
+      }
+      if (patchIds.length > 0 && requestPatchIds.length === 0) {
+        return;
+      }
+      const patchSets = patchSetsRef.current;
+      const schemas = schemasRes.data;
+      requestedPatchIdsRef.current = requestPatchIds;
+      setPatchSetsError(null);
+      const res = await getPatches(
+        patchIds.length === requestPatchIds.length
+          ? [] // all patchIds are requested so avoid sending a large GET request
+          : (requestPatchIds as PatchId[]),
+      );
+      // skip if requested have have changed since the request was made
+      if (
+        requestedPatchIdsRef.current.length !== requestPatchIds.length ||
+        requestedPatchIdsRef.current.some(
+          (id, i) => id !== requestPatchIds[i],
+        ) ||
+        patchSetsSchemaShaRef.current !== schemaSha
+      ) {
+        return;
+      }
+      if (res.status === "ok") {
+        const patches = res.data;
+        for (const [patchIdS, patchMetadata] of Object.entries(patches)) {
+          const patchId = patchIdS as PatchId;
+          if (patchMetadata) {
+            for (const op of patchMetadata.patch || []) {
+              const moduleFilePath = patchMetadata.path;
+              const schema = schemas[moduleFilePath];
+              prevInsertedPatchesRef.current.add(patchId);
+              patchSets.insert(
+                patchMetadata.path,
+                schema,
+                op,
+                patchId,
+                patchMetadata.createdAt,
+                patchMetadata.authorId,
+              );
+            }
+          }
+        }
+        setSerializedPatchSets({
+          status: "success",
+          data: patchSets.serialize(),
+        });
+      } else {
+        setPatchSetsError(res.error);
+      }
     }
-  }, [patchIds, schemaSha]);
-  if (workerError) {
-    return <div>{workerError.message}</div>;
-  }
+    load().catch((err) => {
+      setPatchSetsError(err.message);
+    });
+  }, [patchIds, getPatches, schemasRes, schemaSha]);
+
   return (
     <div className={classNames(className)}>
       <div className="sticky top-0 flex items-center justify-between p-4 rounded-t-3xl bg-bg-tertiary z-5">
@@ -81,9 +151,14 @@ export function DraftChanges({
           <Checkbox checked="indeterminate" />
         </span>
       </div>
+      {patchSetsError !== null && (
+        <div className="p-4 bg-bg-tertiary text-text-error-primary">
+          {patchSetsError}
+        </div>
+      )}
       <div className="flex flex-col gap-[2px]">
-        {patchSets &&
-          patchSets.map((patchSet) => {
+        {"data" in serializedPatchSets &&
+          serializedPatchSets.data.map((patchSet) => {
             return (
               <PatchSetCard
                 key={

@@ -30,6 +30,7 @@ const ValContext = React.createContext<{
   setTheme: (theme: Themes | null) => void;
   config: ValConfig | undefined;
   addPatch: (moduleFilePath: ModuleFilePath, patch: Patch) => void;
+  getPatches: (patchIds: PatchId[]) => Promise<GetPatchRes>;
   addDebouncedPatch: (get: () => Patch, path: SourcePath) => void;
   publish: () => void;
   isPublishing: boolean;
@@ -75,6 +76,9 @@ const ValContext = React.createContext<{
     throw new Error("ValContext not provided");
   },
   get addPatch(): () => void {
+    throw new Error("ValContext not provided");
+  },
+  get getPatches(): () => Promise<GetPatchRes> {
     throw new Error("ValContext not provided");
   },
   get addDebouncedPatch(): () => void {
@@ -236,10 +240,28 @@ export function ValProvider({
         setIsPublishing(false);
       });
   }, [client, patchIds]);
+  const getPatches = useCallback(
+    async (patchIds: PatchId[]): Promise<GetPatchRes> => {
+      const res = await client("/patches/~", "GET", {
+        query: {
+          omit_patch: false,
+          patch_id: patchIds,
+          author: [],
+          module_file_path: [],
+        },
+      });
+      if (res.status === 200) {
+        return { status: "ok", data: res.json.patches } as const;
+      }
+      return { status: "error", error: res.json.message } as const;
+    },
+    [client],
+  );
   return (
     <ValContext.Provider
       value={{
         addPatch,
+        getPatches,
         addDebouncedPatch,
         theme,
         setTheme: (theme) => {
@@ -312,6 +334,12 @@ export function useAddPatch(sourcePath: SourcePath) {
   );
 
   return { patchPath, addPatch: addPatchCallback, addDebouncedPatch };
+}
+
+export function useGetPatches() {
+  const { getPatches } = useContext(ValContext);
+
+  return { getPatches };
 }
 
 export function useCurrentPatchIds(): PatchId[] {
@@ -759,6 +787,34 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
   }
 }
 
+type GetPatchRes =
+  | {
+      status: "ok";
+      data: Partial<
+        Record<
+          PatchId,
+          {
+            path: ModuleFilePath;
+            createdAt: string;
+            authorId: string | null;
+            appliedAt: {
+              baseSha: string;
+              timestamp: string;
+              git?:
+                | {
+                    commitSha: string;
+                  }
+                | undefined;
+            } | null;
+            patch?: Patch | undefined;
+          }
+        >
+      >;
+    }
+  | {
+      status: "error";
+      error: string;
+    };
 function concatModulePath(
   moduleFilePath: ModuleFilePath,
   modulePath: ModulePath,
