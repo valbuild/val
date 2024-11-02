@@ -181,6 +181,8 @@ function richTextToString(source: ShallowSource["richtext"]):
     if (typeof node === "object" && node) {
       if ("children" in node && Array.isArray(node.children)) {
         return node.children.map(rec).join(" ");
+      } else if ("tag" in node && typeof node.tag === "string") {
+        return "";
       }
     }
     error = "Invalid richtext node: " + JSON.stringify(node);
