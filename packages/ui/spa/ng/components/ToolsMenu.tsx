@@ -124,7 +124,7 @@ export function ToolsMenuButtons({
         </button>
         <button
           className="px-3 py-1 font-bold transition-colors border rounded bg-bg-brand-primary disabled:text-text-disabled disabled:bg-bg-disabled disabled:border-border-disabled disabled:border border-bg-brand-primary text-text-brand-primary"
-          disabled={isDisabled}
+          disabled={isOpen && isDisabled}
           onClick={() => {
             if (!isOpen) {
               setOpen(true);
