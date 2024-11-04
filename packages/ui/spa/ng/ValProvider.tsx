@@ -369,6 +369,11 @@ export function useLoadingStatus(): LoadingStatus {
   }, [sourcesSyncStatus]);
 }
 
+export function useSyncStatus() {
+  const { sourcesSyncStatus } = useContext(ValContext);
+  return sourcesSyncStatus;
+}
+
 export function usePublish() {
   const { publish, isPublishing, publishError } = useContext(ValContext);
   return { publish, isPublishing, publishError };
@@ -467,6 +472,10 @@ export function useSchemas() {
 
 export function useSchemaSha() {
   return useContext(ValContext).schemaSha;
+}
+
+export function useGlobalError() {
+  // sync errors, schema errors, patch errors, validation errors
 }
 
 type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =
