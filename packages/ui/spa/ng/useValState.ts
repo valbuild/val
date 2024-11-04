@@ -39,7 +39,15 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
   const [sourcesSyncStatus, setSourcesSyncStatus] = useState<
     Record<
       ModuleFilePath,
-      { status: "loading" } | { status: "error"; errors: string[] }
+      | { status: "loading" }
+      | {
+          status: "error";
+          errors: {
+            message: string;
+            patchId?: PatchId;
+            skipped?: boolean;
+          }[];
+        }
     >
   >({});
   const [patchesStatus, setPatchesStatus] = useState<
@@ -56,7 +64,11 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         }
       | {
           status: "error";
-          errors: string[];
+          errors: {
+            message: string;
+            patchId?: PatchId;
+            skipped?: boolean;
+          }[];
         }
     >
   >({});
@@ -166,7 +178,10 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         >
       >,
       errors?: Partial<
-        Record<ModuleFilePath, { error: { message: string } }[]>
+        Record<
+          ModuleFilePath,
+          { error: { message: string }; patchId?: PatchId; skipped?: boolean }[]
+        >
       >,
     ) => {
       setSources((prev) => {
@@ -179,7 +194,10 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
             if (errors && errors[moduleFilePath]) {
               syncStatus[moduleFilePath] = {
                 status: "error",
-                errors: errors[moduleFilePath].map((e) => e.error.message),
+                errors: errors[moduleFilePath].map((e) => ({
+                  ...e.error,
+                  ...e,
+                })),
               };
             } else {
               delete syncStatus[moduleFilePath];
@@ -359,7 +377,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
                 const current: typeof prev = { ...prev };
                 current[moduleFilePath as unknown as SourcePath] = {
                   status: "error",
-                  errors: [patchRes.error.message],
+                  errors: [patchRes.error],
                 };
                 return current;
               });
@@ -488,7 +506,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
                 if (errors) {
                   current[moduleFilePath as unknown as SourcePath] = {
                     status: "error",
-                    errors: errors.map((e) => e.error.message),
+                    errors: errors.map((e) => ({ ...e.error, ...e.error })),
                   };
                 }
               }
@@ -498,7 +516,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
                 const moduleFilePath = moduleFilePathS as ModuleFilePath;
                 current[moduleFilePath as unknown as SourcePath] = {
                   status: "error",
-                  errors: [res.json.message],
+                  errors: [{ message: res.json.message }],
                 };
               }
             }

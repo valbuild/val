@@ -9,7 +9,9 @@ export function FieldSourceError({
 }) {
   return (
     <div>
-      <div>Source error: {error}</div>
+      <div className="p-4 rounded bg-bg-error-primary text-text-primary">
+        Source error: {error}
+      </div>
     </div>
   );
 }
