@@ -108,6 +108,14 @@ export function Field({
                       value: null,
                     },
                   ]);
+                } else if (source === false) {
+                  addPatch([
+                    {
+                      op: "replace",
+                      path: patchPath,
+                      value: true,
+                    },
+                  ]);
                 } else {
                   addPatch([
                     {
