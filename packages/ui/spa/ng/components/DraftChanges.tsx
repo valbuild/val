@@ -35,10 +35,12 @@ export function DraftChanges({
   const schemasRes = useSchemas();
   const schemaSha = useSchemaSha();
   const patchIds = useCurrentPatchIds();
+  // refs:
   const patchSetsSchemaShaRef = useRef<string | null>(null);
   const patchSetsRef = useRef<PatchSets | null>(null);
-  const [patchSetsError, setPatchSetsError] = useState<string | null>(null);
   const requestedPatchIdsRef = useRef<PatchId[]>([]);
+  // patch set state:
+  const [patchSetsError, setPatchSetsError] = useState<string | null>(null);
   const [serializedPatchSets, setSerializedPatchSets] = useState<
     Remote<SerializedPatchSet>
   >({
@@ -50,11 +52,13 @@ export function DraftChanges({
       if (patchSetsSchemaShaRef.current !== schemaSha) {
         // Reset if schema changes
         patchSetsRef.current = new PatchSets();
+        prevInsertedPatchesRef.current = new Set();
       }
       patchSetsSchemaShaRef.current = schemaSha ?? null;
       if (!patchSetsRef.current) {
         // Initialize if not already
         patchSetsRef.current = new PatchSets();
+        prevInsertedPatchesRef.current = new Set();
       }
       // Only request patches that are not already inserted
       const requestPatchIds: PatchId[] = [];
