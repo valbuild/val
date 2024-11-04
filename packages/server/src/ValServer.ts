@@ -1086,6 +1086,7 @@ export const ValServer = (
         }
         if (serverOps instanceof ValOpsFS) {
           await serverOps.saveFiles(preparedCommit);
+          await serverOps.deletePatches(patchIds);
           return {
             status: 200,
             json: {}, // TODO:
@@ -1099,6 +1100,7 @@ export const ValServer = (
                 " modules changed",
               auth.id as AuthorId,
             );
+            // TODO: serverOps.markApplied(patchIds);
             return {
               status: 200,
               json: {}, // TODO:
