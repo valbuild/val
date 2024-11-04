@@ -98,43 +98,66 @@ export function ToolsMenuButtons({
 }) {
   const { publish, isPublishing } = usePublish();
   const { globalErrors } = useErrors();
+  const isDisabled =
+    loadingStatus !== "success" || isPublishing || globalErrors.length > 0;
   return (
     <div className="flex items-center justify-end w-full gap-4 p-4">
-      <button
-        className="px-3 py-1 font-bold text-bg-brand-primteary"
-        onClick={() => {
-          if (isOpen) {
-            setOpen(false);
-          } else {
+      <div className="xl:hidden">
+        <button
+          className="px-3 py-1 font-bold text-bg-brand-primary"
+          onClick={() => {
+            if (isOpen) {
+              setOpen(false);
+            } else {
+              window.location.href = urlOf("/api/val/enable", {
+                redirect_to: window.origin,
+              });
+            }
+          }}
+        >
+          {!isOpen && <span>Visual editing</span>}
+          {isOpen && (
+            <span>
+              <X />
+            </span>
+          )}
+        </button>
+        <button
+          className="px-3 py-1 font-bold transition-colors border rounded bg-bg-brand-primary disabled:text-text-disabled disabled:bg-bg-disabled disabled:border-border-disabled disabled:border border-bg-brand-primary text-text-brand-primary"
+          disabled={isDisabled}
+          onClick={() => {
+            if (!isOpen) {
+              setOpen(true);
+            } else {
+              publish();
+            }
+          }}
+        >
+          {isOpen && <span>Publish</span>}
+          {!isOpen && <span>Review</span>}
+        </button>
+      </div>
+      <div className="hidden xl:block">
+        <button
+          className="px-3 py-1 font-bold text-bg-brand-primary"
+          onClick={() => {
             window.location.href = urlOf("/api/val/enable", {
               redirect_to: window.origin,
             });
-          }
-        }}
-      >
-        {!isOpen && <span>Visual editing</span>}
-        {isOpen && (
-          <span>
-            <X />
-          </span>
-        )}
-      </button>
-      <button
-        className="px-3 py-1 font-bold transition-colors border rounded bg-bg-brand-primary disabled:text-text-disabled disabled:bg-bg-disabled disabled:border-border-disabled disabled:border border-bg-brand-primary text-text-brand-primary"
-        disabled={
-          loadingStatus !== "success" || isPublishing || globalErrors.length > 0
-        }
-        onClick={() => {
-          if (!isOpen) {
-            setOpen(true);
-          } else {
+          }}
+        >
+          <span>Visual editing</span>
+        </button>
+        <button
+          className="px-3 py-1 font-bold transition-colors border rounded bg-bg-brand-primary disabled:text-text-disabled disabled:bg-bg-disabled disabled:border-border-disabled disabled:border border-bg-brand-primary text-text-brand-primary"
+          disabled={isDisabled}
+          onClick={() => {
             publish();
-          }
-        }}
-      >
-        {isOpen && <span>Publish</span>}
-        {!isOpen && <span>Review</span>}
-      </button>
+          }}
+        >
+          <span>Publish</span>
+        </button>
+      </div>
     </div>
   );
 }
