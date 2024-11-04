@@ -31,6 +31,7 @@ const ValContext = React.createContext<{
   config: ValConfig | undefined;
   addPatch: (moduleFilePath: ModuleFilePath, patch: Patch) => void;
   getPatches: (patchIds: PatchId[]) => Promise<GetPatchRes>;
+  deletePatches: (patchIds: PatchId[]) => Promise<DeletePatchesRes>;
   addDebouncedPatch: (get: () => Patch, path: SourcePath) => void;
   publish: () => void;
   isPublishing: boolean;
@@ -45,7 +46,11 @@ const ValContext = React.createContext<{
       }
     | {
         status: "error";
-        errors: string[];
+        errors: {
+          message: string;
+          patchId?: PatchId;
+          skipped?: boolean;
+        }[];
       }
   >;
   patchesStatus: Record<
@@ -61,7 +66,11 @@ const ValContext = React.createContext<{
       }
     | {
         status: "error";
-        errors: string[];
+        errors: {
+          message: string;
+          patchId?: PatchId;
+          skipped?: boolean;
+        }[];
       }
   >;
   patchIds: PatchId[];
@@ -79,6 +88,9 @@ const ValContext = React.createContext<{
     throw new Error("ValContext not provided");
   },
   get getPatches(): () => Promise<GetPatchRes> {
+    throw new Error("ValContext not provided");
+  },
+  get deletePatches(): () => Promise<DeletePatchesRes> {
     throw new Error("ValContext not provided");
   },
   get addDebouncedPatch(): () => void {
@@ -109,7 +121,11 @@ const ValContext = React.createContext<{
       }
     | {
         status: "error";
-        errors: string[];
+        errors: {
+          message: string;
+          patchId?: PatchId;
+          skipped?: boolean;
+        }[];
       }
   > {
     throw new Error("ValContext not provided");
@@ -127,7 +143,11 @@ const ValContext = React.createContext<{
       }
     | {
         status: "error";
-        errors: string[];
+        errors: {
+          message: string;
+          patchId?: PatchId;
+          skipped?: boolean;
+        }[];
       }
   > {
     throw new Error("ValContext not provided");
@@ -257,11 +277,27 @@ export function ValProvider({
     },
     [client],
   );
+  const deletePatches = useCallback(
+    async (patchIds: PatchId[]): Promise<DeletePatchesRes> => {
+      const res = await client("/patches/~", "DELETE", {
+        query: {
+          id: patchIds,
+        },
+      });
+      if (res.status === 200) {
+        return { status: "ok" };
+      }
+      return { status: "error", error: res.json.message };
+    },
+    [client],
+  );
+
   return (
     <ValContext.Provider
       value={{
         addPatch,
         getPatches,
+        deletePatches,
         addDebouncedPatch,
         theme,
         setTheme: (theme) => {
@@ -334,6 +370,12 @@ export function useAddPatch(sourcePath: SourcePath) {
   );
 
   return { patchPath, addPatch: addPatchCallback, addDebouncedPatch };
+}
+
+export function useDeletePatches() {
+  const { deletePatches } = useContext(ValContext);
+
+  return { deletePatches };
 }
 
 export function useGetPatches() {
@@ -474,8 +516,55 @@ export function useSchemaSha() {
   return useContext(ValContext).schemaSha;
 }
 
-export function useGlobalError() {
+export function useErrors() {
   // sync errors, schema errors, patch errors, validation errors
+  const { sourcesSyncStatus, schemas, patchesStatus } = useContext(ValContext);
+  const globalErrors: string[] = [];
+  const patchErrors: Record<PatchId, string[]> = {};
+  const skippedPatches: Record<PatchId, true> = {};
+  if (schemas.status === "error") {
+    globalErrors.push(schemas.error);
+  }
+
+  for (const [moduleFilePath, value] of Object.entries(sourcesSyncStatus)) {
+    if (value.status === "error") {
+      for (const error of value.errors) {
+        if (error.patchId) {
+          if (error.skipped) {
+            skippedPatches[error.patchId] = true;
+          }
+          if (!patchErrors[error.patchId]) {
+            patchErrors[error.patchId] = [];
+          }
+          patchErrors[error.patchId].push(error.message);
+        } else {
+          globalErrors.push(
+            `Error syncing ${moduleFilePath}: ${error.message}`,
+          );
+        }
+      }
+    }
+  }
+
+  for (const [sourcePath, value] of Object.entries(patchesStatus)) {
+    if (value.status === "error") {
+      for (const error of value.errors) {
+        if (error.patchId) {
+          if (error.skipped) {
+            skippedPatches[error.patchId] = true;
+          }
+          if (!patchErrors[error.patchId]) {
+            patchErrors[error.patchId] = [];
+          }
+          patchErrors[error.patchId].push(error.message);
+        } else {
+          globalErrors.push(`Error patching ${sourcePath}: ${error.message}`);
+        }
+      }
+    }
+  }
+
+  return { globalErrors, patchErrors, skippedPatches };
 }
 
 type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =
@@ -534,7 +623,7 @@ export function useShallowSourceAtPath<
     return {
       status: "error",
       data: "data" in source ? source.data : undefined,
-      error: status.errors.join(", "),
+      error: status.errors.map((error) => error.message).join(", "),
     };
   }
   return source;
@@ -824,6 +913,8 @@ type GetPatchRes =
       status: "error";
       error: string;
     };
+
+type DeletePatchesRes = { status: "ok" } | { status: "error"; error: string };
 function concatModulePath(
   moduleFilePath: ModuleFilePath,
   modulePath: ModulePath,

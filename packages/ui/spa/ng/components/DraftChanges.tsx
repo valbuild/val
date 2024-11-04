@@ -1,8 +1,10 @@
 import { ModuleFilePath, PatchId } from "@valbuild/core";
-import { useState, useEffect, forwardRef, useRef } from "react";
+import { useState, useEffect, forwardRef, useRef, useMemo } from "react";
 import {
   LoadingStatus,
   useCurrentPatchIds,
+  useDeletePatches,
+  useErrors,
   useGetPatches,
   useSchemas,
   useSchemaSha,
@@ -182,6 +184,19 @@ function PatchCard({
     [patchMetadata.opType],
     patchMetadata.createdAt,
   );
+  const { patchErrors, skippedPatches } = useErrors();
+  const [errors, skipped] = useMemo(
+    () =>
+      [
+        patchErrors[patchMetadata.patchId] || [],
+        !!skippedPatches[patchMetadata.patchId],
+      ] as const,
+    [
+      patchMetadata.patchId,
+      patchErrors[patchMetadata.patchId],
+      skippedPatches[patchMetadata.patchId],
+    ],
+  );
   return (
     <PatchOrPatchSetCard
       path={moduleFilePath
@@ -189,9 +204,11 @@ function PatchCard({
         .map(prettifyFilename)
         .slice(1)
         .concat(patchMetadata.patchPath)}
-      changeDescription={changeDescription}
+      changeDescription={skipped ? "Skipped" : changeDescription}
       avatars={[]}
       isOpen={true}
+      errors={errors}
+      skipped={skipped}
     />
   );
 }
@@ -252,6 +269,23 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
       observer.disconnect();
     };
   }, []);
+  const { patchErrors, skippedPatches } = useErrors();
+  const { deletePatches } = useDeletePatches();
+  const patchIds = useMemo(
+    () => patchSet.patches.map((p) => p.patchId),
+    [patchSet.patches],
+  );
+  const errors = useMemo(() => {
+    const errors: string[] = [];
+    for (const patchId of patchIds) {
+      for (const patchError of patchErrors[patchId] || []) {
+        if (!skippedPatches[patchId]) {
+          errors.unshift(patchError);
+        }
+      }
+    }
+    return errors;
+  }, [patchIds, patchErrors, skippedPatches]);
   const changeDescription = useChangeDescription(
     patchSet.opTypes,
     patchSet.lastUpdated,
@@ -272,6 +306,14 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
         changeDescription={changeDescription}
         isOpen={isOpen}
         setOpen={setOpen}
+        errors={errors}
+        onDelete={
+          errors && errors.length > 0
+            ? () => {
+                deletePatches(patchIds);
+              }
+            : undefined
+        }
       />
       <AnimateHeight isOpen={isOpen}>
         {patchSet.patches.map((patchMetadata, i) => (
@@ -302,6 +344,9 @@ const PatchOrPatchSetCard = forwardRef<
     setOpen?: (isOpen: boolean) => void;
     isSelected?: boolean;
     setSelected?: (isSelected: boolean | "indeterminate") => void;
+    errors?: string[];
+    skipped?: boolean;
+    onDelete?: () => void;
   }
 >(
   (
@@ -313,6 +358,9 @@ const PatchOrPatchSetCard = forwardRef<
       setOpen,
       isSelected,
       setSelected,
+      errors,
+      skipped,
+      onDelete,
     },
     ref,
   ) => {
@@ -331,6 +379,7 @@ const PatchOrPatchSetCard = forwardRef<
               "inline-block w-[calc(320px-24px-8px-16px-24px-48px)] truncate overflow-y-hidden h-6 mr-2 text-left",
               {
                 "animate-pulse bg-bg-disabled rounded-3xl": path === undefined,
+                "text-text-disabled": skipped,
               },
             )}
             dir="rtl"
@@ -374,6 +423,19 @@ const PatchOrPatchSetCard = forwardRef<
             />
           )}
         </div>
+        {errors && errors.length > 0 && !skipped && (
+          <div className="p-2 max-w-[240px] rounded bg-bg-error-primary text-text-primary">
+            {errors.slice(0, 1).map((error, i) => (
+              <div key={i} title={error} className="truncate">
+                {error}
+              </div>
+            ))}
+            {errors.length > 1 && (
+              <div className="truncate">+{errors.length - 1} more</div>
+            )}
+          </div>
+        )}
+        {onDelete && <button onClick={onDelete}>Delete</button>}
         <div className="flex items-center justify-between pt-2">
           <span className="flex-shrink-0">
             {avatars !== undefined && avatars.length > 0 && (
@@ -401,7 +463,11 @@ const PatchOrPatchSetCard = forwardRef<
                 })}
               ></span>
             )}
-            {changeDescription && <span>{changeDescription}</span>}
+            {changeDescription && (
+              <span className={classNames({ "text-text-disabled": skipped })}>
+                {changeDescription}
+              </span>
+            )}
           </span>
           {isOpen !== undefined && (
             <button

@@ -1,6 +1,6 @@
 import {
   LoadingStatus,
-  useLoadingStatus,
+  useErrors,
   usePublish,
   useSyncStatus,
 } from "../ValProvider";
@@ -23,24 +23,17 @@ export function ToolsMenu({
   const [debouncedLoadingStatus, setDebouncedLoadingStatus] = useState<
     "loading" | "error" | "success" | "not-asked"
   >("not-asked");
-  const [loadingErrors, setLoadingErrors] = useState<{
-    moduleFilePath: string;
-    errors: string[];
-  } | null>(null);
+  const { globalErrors } = useErrors();
   useEffect(() => {
     let loadingStatus: "loading" | "error" | "success" = "success";
-    for (const [moduleFilePath, value] of Object.entries(syncStatus)) {
+    for (const value of Object.values(syncStatus)) {
       if (value.status === "error") {
         loadingStatus = "error";
-        setLoadingErrors({ moduleFilePath, errors: value.errors });
         break;
       } else if (value.status === "loading") {
         loadingStatus = "loading";
         break;
       }
-    }
-    if (loadingStatus !== "error") {
-      setLoadingErrors(null);
     }
     if (loadingStatus === "success") {
       const timeout = setTimeout(() => {
@@ -64,9 +57,11 @@ export function ToolsMenu({
           setOpen={setOpen}
         />
       </div>
-      {loadingErrors && (
+      {globalErrors.length > 0 && (
         <div className="p-4 bg-bg-error-primary text-text-Wprimary rounded-3xl">
-          {loadingErrors.moduleFilePath}: {loadingErrors.errors[0]}
+          {globalErrors.map((error, index) => (
+            <div key={index}>{error}</div>
+          ))}
         </div>
       )}
       {publishError && (
