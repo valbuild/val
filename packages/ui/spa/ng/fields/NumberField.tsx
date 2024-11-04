@@ -11,6 +11,7 @@ import {
 } from "../ValProvider";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../components/Preview";
+import { ValidationErrors } from "../components/ValidationError";
 
 export function NumberField({ path }: { path: SourcePath }) {
   const type = "number";
@@ -50,22 +51,25 @@ export function NumberField({ path }: { path: SourcePath }) {
   }
   const source = sourceAtPath.data;
   return (
-    <Input
-      inputMode="numeric"
-      value={source || 0}
-      onChange={(ev) => {
-        const nextNumber = Number(ev.target.value);
-        if (!Number.isNaN(nextNumber)) {
-          addPatch([
-            {
-              op: "replace",
-              path: patchPath,
-              value: nextNumber,
-            },
-          ]);
-        }
-      }}
-    />
+    <div>
+      <ValidationErrors path={path} />
+      <Input
+        inputMode="numeric"
+        value={source || 0}
+        onChange={(ev) => {
+          const nextNumber = Number(ev.target.value);
+          if (!Number.isNaN(nextNumber)) {
+            addPatch([
+              {
+                op: "replace",
+                path: patchPath,
+                value: nextNumber,
+              },
+            ]);
+          }
+        }}
+      />
+    </div>
   );
 }
 

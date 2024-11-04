@@ -13,6 +13,7 @@ import { useNavigation } from "../../components/ValRouter";
 import { SortableList } from "../components/SortableList";
 import { array } from "@valbuild/core/fp";
 import { PreviewLoading, PreviewNull } from "../components/Preview";
+import { ValidationErrors } from "../components/ValidationError";
 
 export function ArrayFields({ path }: { path: SourcePath }) {
   const type = "array";
@@ -51,35 +52,38 @@ export function ArrayFields({ path }: { path: SourcePath }) {
   }
   const schema = schemaAtPath.data as SerializedArraySchema;
   return (
-    <SortableList
-      path={path}
-      onClick={(path) => {
-        navigate(path);
-      }}
-      onDelete={async (item) => {
-        addPatch([
-          {
-            op: "remove",
-            path: patchPath.concat(
-              item.toString(),
-            ) as array.NonEmptyArray<string>,
-          },
-        ]);
-      }}
-      onMove={async (from, to) => {
-        addPatch([
-          {
-            op: "move",
-            from: patchPath.concat(
-              from.toString(),
-            ) as array.NonEmptyArray<string>,
-            path: patchPath.concat(to.toString()),
-          },
-        ]);
-      }}
-      schema={schema}
-      source={sourceAtPath.data || []}
-    />
+    <div>
+      <ValidationErrors path={path} />
+      <SortableList
+        path={path}
+        onClick={(path) => {
+          navigate(path);
+        }}
+        onDelete={async (item) => {
+          addPatch([
+            {
+              op: "remove",
+              path: patchPath.concat(
+                item.toString(),
+              ) as array.NonEmptyArray<string>,
+            },
+          ]);
+        }}
+        onMove={async (from, to) => {
+          addPatch([
+            {
+              op: "move",
+              from: patchPath.concat(
+                from.toString(),
+              ) as array.NonEmptyArray<string>,
+              path: patchPath.concat(to.toString()),
+            },
+          ]);
+        }}
+        schema={schema}
+        source={sourceAtPath.data || []}
+      />
+    </div>
   );
 }
 

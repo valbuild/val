@@ -30,6 +30,7 @@ import { useEffect, useRef } from "react";
 import { Field } from "../components/Field";
 import { PreviewLoading, PreviewNull } from "../components/Preview";
 import { ObjectLikePreview } from "./ObjectFields";
+import { ValidationErrors } from "../components/ValidationError";
 
 function isStringUnion(
   schema: SerializedUnionSchema,
@@ -88,19 +89,22 @@ export function UnionField({ path }: { path: SourcePath }) {
       );
     }
     return (
-      <SelectField
-        path={path}
-        source={source}
-        options={schemaAtPath.data.items
-          .concat(schemaAtPath.data.key)
-          .flatMap((item) => {
-            if (item?.type === "literal") {
-              return [item.value];
-            }
-            console.warn("Unexpected item in string union", item);
-            return [];
-          })}
-      />
+      <div>
+        <ValidationErrors path={path} />
+        <SelectField
+          path={path}
+          source={source}
+          options={schemaAtPath.data.items
+            .concat(schemaAtPath.data.key)
+            .flatMap((item) => {
+              if (item?.type === "literal") {
+                return [item.value];
+              }
+              console.warn("Unexpected item in string union", item);
+              return [];
+            })}
+        />
+      </div>
     );
   } else if (!isStringUnion(schemaAtPath.data)) {
     if (typeof source !== "object") {
@@ -121,7 +125,12 @@ export function UnionField({ path }: { path: SourcePath }) {
         />
       );
     }
-    return <ObjectUnionField path={path} schema={schemaAtPath.data} />;
+    return (
+      <div>
+        <ValidationErrors path={path} />
+        <ObjectUnionField path={path} schema={schemaAtPath.data} />
+      </div>
+    );
   }
 }
 

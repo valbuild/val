@@ -10,6 +10,7 @@ import { AnyField } from "../components/AnyField";
 import { Preview } from "../components/Preview";
 import { FieldSourceError } from "../components/FieldSourceError";
 import { fixCapitalization } from "../../utils/fixCapitalization";
+import { ValidationErrors } from "../components/ValidationError";
 
 export function ObjectFields({ path }: { path: SourcePath }) {
   const type = "object";
@@ -47,14 +48,26 @@ export function ObjectFields({ path }: { path: SourcePath }) {
     );
   }
   const schema = schemaAtPath.data;
-  return Object.entries(schema.items).map(([key, itemSchema]) => {
-    const subPath = sourcePathOfItem(path, key);
-    return (
-      <Field key={subPath} label={key} path={subPath} type={itemSchema.type}>
-        <AnyField key={subPath} path={subPath} schema={itemSchema} />
-      </Field>
-    );
-  });
+  return (
+    <div>
+      <ValidationErrors path={path} />
+      <div className="flex flex-col gap-6">
+        {Object.entries(schema.items).map(([key, itemSchema]) => {
+          const subPath = sourcePathOfItem(path, key);
+          return (
+            <Field
+              key={subPath}
+              label={key}
+              path={subPath}
+              type={itemSchema.type}
+            >
+              <AnyField key={subPath} path={subPath} schema={itemSchema} />
+            </Field>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 export function ObjectPreview({ path }: { path: SourcePath }) {

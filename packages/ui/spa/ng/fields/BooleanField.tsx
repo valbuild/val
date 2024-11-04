@@ -12,6 +12,7 @@ import {
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../components/Preview";
 import { Check } from "lucide-react";
+import { ValidationErrors } from "../components/ValidationError";
 
 export function BooleanField({ path }: { path: SourcePath }) {
   const type = "boolean";
@@ -53,42 +54,45 @@ export function BooleanField({ path }: { path: SourcePath }) {
   // null is the "indeterminate" state
   const current = source === null ? "indeterminate" : source;
   return (
-    <Checkbox
-      checked={current}
-      onCheckedChange={() => {
-        let nextValue: boolean | null = false;
-        // If optional/nullable: we cycle like this: true -> indeterminate / null -> false -> true
-        if (schemaAtPath.data.opt) {
-          if (current === true) {
-            nextValue = null;
-          } else if (current === null) {
-            nextValue = false;
-          } else if (current === false) {
-            nextValue = true;
+    <div>
+      <ValidationErrors path={path} />
+      <Checkbox
+        checked={current}
+        onCheckedChange={() => {
+          let nextValue: boolean | null = false;
+          // If optional/nullable: we cycle like this: true -> indeterminate / null -> false -> true
+          if (schemaAtPath.data.opt) {
+            if (current === true) {
+              nextValue = null;
+            } else if (current === null) {
+              nextValue = false;
+            } else if (current === false) {
+              nextValue = true;
+            } else {
+              console.warn("Unexpected value for boolean field", current);
+              nextValue = false;
+            }
           } else {
-            console.warn("Unexpected value for boolean field", current);
-            nextValue = false;
+            if (current === true) {
+              nextValue = false;
+            } else if (current === "indeterminate" || current === false) {
+              // Even if not optional: we accept that the current value is indeterminate
+              nextValue = true;
+            } else {
+              console.warn("Unexpected value for boolean field", current);
+              nextValue = false;
+            }
           }
-        } else {
-          if (current === true) {
-            nextValue = false;
-          } else if (current === "indeterminate" || current === false) {
-            // Even if not optional: we accept that the current value is indeterminate
-            nextValue = true;
-          } else {
-            console.warn("Unexpected value for boolean field", current);
-            nextValue = false;
-          }
-        }
-        addPatch([
-          {
-            op: "replace",
-            path: patchPath,
-            value: nextValue,
-          },
-        ]);
-      }}
-    />
+          addPatch([
+            {
+              op: "replace",
+              path: patchPath,
+              value: nextValue,
+            },
+          ]);
+        }}
+      />
+    </div>
   );
 }
 

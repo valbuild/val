@@ -11,6 +11,7 @@ import type {
   Json,
   SourcePath,
   PatchId,
+  ValidationError,
 } from "@valbuild/core";
 import { ValClient } from "@valbuild/shared/internal";
 import React, {
@@ -76,7 +77,9 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     Record<ModuleFilePath, Json | undefined>
   >({});
   const [stat, setStat] = useStat(client);
-
+  const [validationErrors, setValidationErrors] = useState<
+    Record<SourcePath, ValidationError[]>
+  >({});
   const pendingPatchesRef = useRef<
     Record<ModuleFilePath, { patch: Patch; seqNumber: number }[]>
   >({});
@@ -98,11 +101,12 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         currentState[moduleFilePath] = sourceState;
       }
       currentStateRef.current = { ...currentState };
+      const validateAll = path === undefined;
       client("/sources", "PUT", {
         path: path,
         query: {
           validate_sources: true,
-          validate_all: path === undefined,
+          validate_all: validateAll,
           validate_binary_files: false,
         },
         body: {
@@ -110,6 +114,27 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         },
       })
         .then((res) => {
+          if (res.status === 200) {
+            setValidationErrors((prev) => {
+              const errors: typeof prev = validateAll ? {} : { ...prev };
+              for (const [moduleFilePathS, modules] of Object.entries(
+                res.json.modules || {},
+              )) {
+                const moduleFilePath = moduleFilePathS as ModuleFilePath;
+                if (modules) {
+                  for (const [sourcePathS, validationErrors] of Object.entries(
+                    res.json.modules[moduleFilePath]?.validationErrors || {},
+                  )) {
+                    const sourcePath = sourcePathS as SourcePath;
+                    if (validationErrors) {
+                      errors[sourcePath] = validationErrors;
+                    }
+                  }
+                }
+              }
+              return errors;
+            });
+          }
           for (const moduleFilePathS of requestedSources) {
             const moduleFilePath = moduleFilePathS as ModuleFilePath;
             if (
@@ -585,6 +610,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     requestModule,
     patchesStatus,
     sourcesSyncStatus,
+    validationErrors,
     patchIds: currentPatchIds,
   };
 }

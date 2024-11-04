@@ -9,6 +9,7 @@ import {
   SerializedSchema,
   ValConfig,
   Internal,
+  FileSource,
 } from "@valbuild/core";
 import {
   Api,
@@ -927,9 +928,19 @@ export const ValServer = (
         } else {
           tree = await serverOps.getTree();
         }
+        let sourcesValidation: {
+          errors: Record<
+            ModuleFilePath,
+            {
+              invalidSource?: { message: string };
+              validations: Record<SourcePath, ValidationError[]>;
+            }
+          >;
+          files: Record<SourcePath, FileSource>;
+        } = {};
         if (query.validate_sources || query.validate_binary_files) {
           const schemas = await serverOps.getSchemas();
-          const sourcesValidation = await serverOps.validateSources(
+          sourcesValidation = await serverOps.validateSources(
             schemas,
             tree.sources,
           );
@@ -970,6 +981,8 @@ export const ValServer = (
                       ].map((p) => p.patchId),
                     }
                   : undefined,
+              validationErrors:
+                sourcesValidation.errors[moduleFilePath]?.validations,
             };
           }
         }

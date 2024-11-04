@@ -21,6 +21,7 @@ import {
   PopoverTrigger,
 } from "../../components/ui/popover";
 import { PreviewLoading, PreviewNull } from "../components/Preview";
+import { ValidationErrors } from "../components/ValidationError";
 
 export function DateField({ path }: { path: SourcePath }) {
   const type = "date";
@@ -78,60 +79,65 @@ export function DateField({ path }: { path: SourcePath }) {
 
   const schema = schemaAtPath.data;
   return (
-    <Popover
-      open={isPopoverOpen}
-      onOpenChange={(next) => {
-        setPopoverOpen(next);
-      }}
-    >
-      <PopoverTrigger
-        asChild
-        onClick={() => {
-          setPopoverOpen(true);
+    <div>
+      <ValidationErrors path={path} />
+      <Popover
+        open={isPopoverOpen}
+        onOpenChange={(next) => {
+          setPopoverOpen(next);
         }}
       >
-        <Button
-          variant={"outline"}
-          className={classNames(
-            "w-[280px] justify-start text-left font-normal",
-            !currentValue && "text-muted-foreground",
-          )}
-        >
-          <CalendarIcon className="w-4 h-4 mr-2" />
-          {currentValue ? (
-            format(currentValue, "PPP")
-          ) : (
-            <span>Pick a date</span>
-          )}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-auto p-0">
-        <Calendar
-          mode="single"
-          captionLayout="dropdown-buttons"
-          defaultMonth={currentValue ?? undefined}
-          weekStartsOn={1}
-          fromDate={
-            schema.options?.from ? new Date(schema.options.from) : undefined
-          }
-          toDate={schema.options?.to ? new Date(schema.options.to) : undefined}
-          selected={currentValue || undefined}
-          onSelect={(date) => {
-            if (date) {
-              setCurrentValue(date);
-              addPatch([
-                {
-                  op: "replace",
-                  value: date.toISOString(),
-                  path: patchPath,
-                },
-              ]);
-              setPopoverOpen(false);
-            }
+        <PopoverTrigger
+          asChild
+          onClick={() => {
+            setPopoverOpen(true);
           }}
-        />
-      </PopoverContent>
-    </Popover>
+        >
+          <Button
+            variant={"outline"}
+            className={classNames(
+              "w-[280px] justify-start text-left font-normal",
+              !currentValue && "text-muted-foreground",
+            )}
+          >
+            <CalendarIcon className="w-4 h-4 mr-2" />
+            {currentValue ? (
+              format(currentValue, "PPP")
+            ) : (
+              <span>Pick a date</span>
+            )}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0">
+          <Calendar
+            mode="single"
+            captionLayout="dropdown-buttons"
+            defaultMonth={currentValue ?? undefined}
+            weekStartsOn={1}
+            fromDate={
+              schema.options?.from ? new Date(schema.options.from) : undefined
+            }
+            toDate={
+              schema.options?.to ? new Date(schema.options.to) : undefined
+            }
+            selected={currentValue || undefined}
+            onSelect={(date) => {
+              if (date) {
+                setCurrentValue(date);
+                addPatch([
+                  {
+                    op: "replace",
+                    value: date.toISOString(),
+                    path: patchPath,
+                  },
+                ]);
+                setPopoverOpen(false);
+              }
+            }}
+          />
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 

@@ -12,6 +12,7 @@ import { FieldSourceError } from "../components/FieldSourceError";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../components/Preview";
 import { useEffect, useState } from "react";
+import { ValidationErrors } from "../components/ValidationError";
 
 export function StringField({
   path,
@@ -63,29 +64,32 @@ export function StringField({
     );
   }
   return (
-    <Input
-      autoFocus={autoFocus}
-      onFocus={() => {
-        setFocus(true);
-      }}
-      onBlur={() => {
-        setFocus(false);
-      }}
-      value={currentValue || ""}
-      onChange={(ev) => {
-        setCurrentValue(ev.target.value);
-        addDebouncedPatch(
-          () => [
-            {
-              op: "replace",
-              path: patchPath,
-              value: ev.target.value,
-            },
-          ],
-          path,
-        );
-      }}
-    />
+    <div>
+      <ValidationErrors path={path} />
+      <Input
+        autoFocus={autoFocus}
+        onFocus={() => {
+          setFocus(true);
+        }}
+        onBlur={() => {
+          setFocus(false);
+        }}
+        value={currentValue || ""}
+        onChange={(ev) => {
+          setCurrentValue(ev.target.value);
+          addDebouncedPatch(
+            () => [
+              {
+                op: "replace",
+                path: patchPath,
+                value: ev.target.value,
+              },
+            ],
+            path,
+          );
+        }}
+      />
+    </div>
   );
 }
 

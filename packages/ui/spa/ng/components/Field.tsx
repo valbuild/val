@@ -6,6 +6,7 @@ import { useState } from "react";
 import { AnimateHeight } from "./AnimateHeight";
 import {
   useAddPatch,
+  useErrors,
   useLoadingStatus,
   useSchemaAtPath,
   useShallowSourceAtPath,
@@ -30,6 +31,7 @@ export function Field({
   foldLevel?: "2" | "1";
 }) {
   const loadingStatus = useLoadingStatus();
+  const { validationErrors } = useErrors();
   const { patchPath, addPatch } = useAddPatch(path);
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -46,6 +48,7 @@ export function Field({
     <div
       className={classNames("p-4 border rounded-lg", {
         "bg-bg-tertiary": !transparent,
+        "border-border-error": validationErrors[path]?.length > 0,
       })}
     >
       <div className="flex items-center justify-between">
