@@ -19,6 +19,7 @@ import {
 import { PreviewLoading, PreviewNull } from "../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
 import { ChevronRight } from "lucide-react";
+import { ValidationErrors } from "../components/ValidationError";
 
 export function KeyOfField({ path }: { path: SourcePath }) {
   const type = "keyOf";
@@ -125,47 +126,50 @@ export function KeyOfField({ path }: { path: SourcePath }) {
       : undefined;
   const source = sourceAtPath.data;
   return (
-    <div className="flex items-center justify-between">
-      <Select
-        value={source ?? ""}
-        onValueChange={(value) => {
-          addPatch([
-            {
-              op: "replace",
-              path: patchPath,
-              value: value,
-            },
-          ]);
-        }}
-      >
-        <SelectTrigger>
-          <SelectValue>{source}</SelectValue>
-        </SelectTrigger>
-        <SelectContent className="w-32">
-          {schemaAtPath.status === "loading" ||
-          keyOf == undefined ||
-          keys === undefined ? (
-            <LoadingSelectContent />
-          ) : (
-            keys.map((index) => (
-              <SelectItem key={index} value={index}>
-                {index}
-              </SelectItem>
-            ))
-          )}
-        </SelectContent>
-      </Select>
-      {source && keyOf?.path && (
-        <button
-          onClick={() => {
-            navigate(
-              Internal.createValPathOfItem(keyOf.path, source) as SourcePath,
-            );
+    <div>
+      <ValidationErrors path={path} />
+      <div className="flex items-center justify-between">
+        <Select
+          value={source ?? ""}
+          onValueChange={(value) => {
+            addPatch([
+              {
+                op: "replace",
+                path: patchPath,
+                value: value,
+              },
+            ]);
           }}
         >
-          <ChevronRight size={16} />
-        </button>
-      )}
+          <SelectTrigger>
+            <SelectValue>{source}</SelectValue>
+          </SelectTrigger>
+          <SelectContent className="w-32">
+            {schemaAtPath.status === "loading" ||
+            keyOf == undefined ||
+            keys === undefined ? (
+              <LoadingSelectContent />
+            ) : (
+              keys.map((index) => (
+                <SelectItem key={index} value={index}>
+                  {index}
+                </SelectItem>
+              ))
+            )}
+          </SelectContent>
+        </Select>
+        {source && keyOf?.path && (
+          <button
+            onClick={() => {
+              navigate(
+                Internal.createValPathOfItem(keyOf.path, source) as SourcePath,
+              );
+            }}
+          >
+            <ChevronRight size={16} />
+          </button>
+        )}
+      </div>
     </div>
   );
 }

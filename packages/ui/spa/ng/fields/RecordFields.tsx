@@ -16,6 +16,7 @@ import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError
 import { FieldSourceError } from "../components/FieldSourceError";
 import { useNavigation } from "../../components/ValRouter";
 import { PreviewLoading, PreviewNull } from "../components/Preview";
+import { ValidationErrors } from "../components/ValidationError";
 
 export function RecordFields({ path }: { path: SourcePath }) {
   const type = "record";
@@ -55,22 +56,25 @@ export function RecordFields({ path }: { path: SourcePath }) {
   }
   const source = sourceAtPath.data;
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      {source &&
-        Object.entries(source).map(([key]) => (
-          <Card
-            key={key}
-            onClick={() => navigate(sourcePathOfItem(path, key))}
-            className="bg-primary-foreground cursor-pointer hover:bg-primary-foreground/50 min-w-[274px]"
-          >
-            <CardHeader>
-              <CardTitle className="text-md">{key}</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <RecordBadges counts={{}} />
-            </CardContent>
-          </Card>
-        ))}
+    <div>
+      <ValidationErrors path={path} />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {source &&
+          Object.entries(source).map(([key]) => (
+            <Card
+              key={key}
+              onClick={() => navigate(sourcePathOfItem(path, key))}
+              className="bg-primary-foreground cursor-pointer hover:bg-primary-foreground/50 min-w-[274px]"
+            >
+              <CardHeader>
+                <CardTitle className="text-md">{key}</CardTitle>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <RecordBadges counts={{}} />
+              </CardContent>
+            </Card>
+          ))}
+      </div>
     </div>
   );
 }

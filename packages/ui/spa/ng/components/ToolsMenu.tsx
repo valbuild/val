@@ -97,6 +97,7 @@ export function ToolsMenuButtons({
   setOpen: (open: boolean) => void;
 }) {
   const { publish, isPublishing } = usePublish();
+  const { globalErrors } = useErrors();
   return (
     <div className="flex items-center justify-end w-full gap-4 p-4">
       <button
@@ -120,7 +121,9 @@ export function ToolsMenuButtons({
       </button>
       <button
         className="px-3 py-1 font-bold transition-colors border rounded bg-bg-brand-primary disabled:text-text-disabled disabled:bg-bg-disabled disabled:border-border-disabled disabled:border border-bg-brand-primary text-text-brand-primary"
-        disabled={loadingStatus !== "success" || isPublishing}
+        disabled={
+          loadingStatus !== "success" || isPublishing || globalErrors.length > 0
+        }
         onClick={() => {
           if (!isOpen) {
             setOpen(true);

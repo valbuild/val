@@ -22,6 +22,7 @@ import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError
 import { Operation, Patch } from "@valbuild/core/patch";
 import { useEffect, useState } from "react";
 import { PreviewLoading, PreviewNull } from "../components/Preview";
+import { ValidationErrors } from "../components/ValidationError";
 
 export function RichTextField({
   path,
@@ -85,23 +86,26 @@ export function RichTextField({
   }
   const schema = schemaAtPath.data;
   return (
-    <RichTextEditor
-      autoFocus={autoFocus}
-      state={state}
-      options={schema.options}
-      onFocus={setFocus}
-      manager={manager}
-      onChange={(event) => {
-        if (focus) {
-          setState(event.state);
-          if (!event.state.doc.content.eq(event.previousState.doc.content)) {
-            addDebouncedPatch(() => {
-              return createRichTextPatch(patchPath, event.state.doc.toJSON());
-            }, path);
+    <div>
+      <ValidationErrors path={path} />
+      <RichTextEditor
+        autoFocus={autoFocus}
+        state={state}
+        options={schema.options}
+        onFocus={setFocus}
+        manager={manager}
+        onChange={(event) => {
+          if (focus) {
+            setState(event.state);
+            if (!event.state.doc.content.eq(event.previousState.doc.content)) {
+              addDebouncedPatch(() => {
+                return createRichTextPatch(patchPath, event.state.doc.toJSON());
+              }, path);
+            }
           }
-        }
-      }}
-    />
+        }}
+      />
+    </div>
   );
 }
 

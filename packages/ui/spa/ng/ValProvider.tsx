@@ -17,6 +17,7 @@ import {
   SerializedSchema,
   SourcePath,
   ValConfig,
+  ValidationError,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { ValClient } from "@valbuild/shared/internal";
@@ -39,6 +40,7 @@ const ValContext = React.createContext<{
   schemas: Remote<Record<ModuleFilePath, SerializedSchema>>;
   schemaSha: string | undefined;
   sources: Record<ModuleFilePath, Json | undefined>;
+  validationErrors: Record<SourcePath, ValidationError[]>;
   sourcesSyncStatus: Record<
     ModuleFilePath,
     | {
@@ -114,6 +116,9 @@ const ValContext = React.createContext<{
   get sources(): Record<ModuleFilePath, Json | undefined> {
     throw new Error("ValContext not provided");
   },
+  get validationErrors(): Record<SourcePath, ValidationError[]> {
+    throw new Error("ValContext not provided");
+  },
   get sourcesSyncStatus(): Record<
     ModuleFilePath,
     | {
@@ -172,6 +177,7 @@ export function ValProvider({
     schemaSha,
     stat,
     sources,
+    validationErrors,
     sourcesSyncStatus,
     patchesStatus,
     patchIds,
@@ -322,6 +328,7 @@ export function ValProvider({
         schemas,
         schemaSha,
         sources,
+        validationErrors,
         sourcesSyncStatus,
         patchesStatus,
         patchIds,
@@ -518,7 +525,8 @@ export function useSchemaSha() {
 
 export function useErrors() {
   // sync errors, schema errors, patch errors, validation errors
-  const { sourcesSyncStatus, schemas, patchesStatus } = useContext(ValContext);
+  const { sourcesSyncStatus, schemas, patchesStatus, validationErrors } =
+    useContext(ValContext);
   const globalErrors: string[] = [];
   const patchErrors: Record<PatchId, string[]> = {};
   const skippedPatches: Record<PatchId, true> = {};
@@ -546,7 +554,13 @@ export function useErrors() {
     }
   }
 
-  for (const [sourcePath, value] of Object.entries(patchesStatus)) {
+  for (const [sourcePath, errors] of Object.entries(validationErrors)) {
+    for (const error of errors) {
+      globalErrors.push(`Error validating ${sourcePath}: ${error.message}`);
+    }
+  }
+  for (const [sourcePathS, value] of Object.entries(patchesStatus)) {
+    const sourcePath = sourcePathS as SourcePath;
     if (value.status === "error") {
       for (const error of value.errors) {
         if (error.patchId) {
@@ -564,7 +578,7 @@ export function useErrors() {
     }
   }
 
-  return { globalErrors, patchErrors, skippedPatches };
+  return { globalErrors, patchErrors, skippedPatches, validationErrors };
 }
 
 type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =

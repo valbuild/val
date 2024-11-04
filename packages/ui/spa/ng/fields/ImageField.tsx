@@ -13,6 +13,7 @@ import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError
 import { PreviewLoading, PreviewNull } from "../components/Preview";
 import { readImage } from "../../utils/readImage";
 import { createFilePatch } from "./FileField";
+import { ValidationErrors } from "../components/ValidationError";
 
 export function ImageField({ path }: { path: SourcePath }) {
   const type = "image";
@@ -61,6 +62,7 @@ export function ImageField({ path }: { path: SourcePath }) {
   }
   return (
     <div>
+      <ValidationErrors path={path} />
       <img
         src={
           Internal.convertFileSource({
