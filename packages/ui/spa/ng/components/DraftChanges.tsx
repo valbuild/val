@@ -45,20 +45,11 @@ export function DraftChanges({
   const prevInsertedPatchesRef = useRef<Set<PatchId>>(new Set());
   useEffect(() => {
     async function load() {
-      if (!schemaSha || !("data" in schemasRes)) {
-        // only error if we somehow lose the schemas
-        if (patchSetsSchemaShaRef.current) {
-          setPatchSetsError(
-            "Something wrong happened while loading patches (schema not found)",
-          );
-        }
-        return;
-      }
       if (patchSetsSchemaShaRef.current !== schemaSha) {
         // Reset if schema changes
         patchSetsRef.current = new PatchSets();
       }
-      patchSetsSchemaShaRef.current = schemaSha;
+      patchSetsSchemaShaRef.current = schemaSha ?? null;
       if (!patchSetsRef.current) {
         // Initialize if not already
         patchSetsRef.current = new PatchSets();
@@ -81,6 +72,13 @@ export function DraftChanges({
         }
       }
       if (patchIds.length > 0 && requestPatchIds.length === 0) {
+        return;
+      }
+      if (schemasRes.status === "error") {
+        setPatchSetsError(schemasRes.error);
+        return;
+      }
+      if (!("data" in schemasRes)) {
         return;
       }
       const patchSets = patchSetsRef.current;

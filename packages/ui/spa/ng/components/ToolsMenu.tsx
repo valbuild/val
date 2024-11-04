@@ -1,4 +1,9 @@
-import { LoadingStatus, useLoadingStatus, usePublish } from "../ValProvider";
+import {
+  LoadingStatus,
+  useLoadingStatus,
+  usePublish,
+  useSyncStatus,
+} from "../ValProvider";
 import { ScrollArea } from "../../components/ui/scroll-area";
 import { useState, useEffect } from "react";
 import { DraftChanges } from "./DraftChanges";
@@ -13,11 +18,30 @@ export function ToolsMenu({
   isOpen: boolean;
   setOpen: (open: boolean) => void;
 }) {
-  const loadingStatus = useLoadingStatus();
+  const syncStatus = useSyncStatus();
   // Debounce loading status to avoid flickering...
-  const [debouncedLoadingStatus, setDebouncedLoadingStatus] =
-    useState(loadingStatus);
+  const [debouncedLoadingStatus, setDebouncedLoadingStatus] = useState<
+    "loading" | "error" | "success" | "not-asked"
+  >("not-asked");
+  const [loadingErrors, setLoadingErrors] = useState<{
+    moduleFilePath: string;
+    errors: string[];
+  } | null>(null);
   useEffect(() => {
+    let loadingStatus: "loading" | "error" | "success" = "success";
+    for (const [moduleFilePath, value] of Object.entries(syncStatus)) {
+      if (value.status === "error") {
+        loadingStatus = "error";
+        setLoadingErrors({ moduleFilePath, errors: value.errors });
+        break;
+      } else if (value.status === "loading") {
+        loadingStatus = "loading";
+        break;
+      }
+    }
+    if (loadingStatus !== "error") {
+      setLoadingErrors(null);
+    }
     if (loadingStatus === "success") {
       const timeout = setTimeout(() => {
         setDebouncedLoadingStatus(loadingStatus);
@@ -28,21 +52,21 @@ export function ToolsMenu({
     } else {
       setDebouncedLoadingStatus(loadingStatus);
     }
-  }, [loadingStatus]);
+  }, [syncStatus]);
   const { publishError } = usePublish();
 
   return (
     <nav className="flex flex-col gap-1 pr-4">
       <div className="flex items-center h-16 gap-4 p-4 mt-4 bg-bg-tertiary rounded-3xl">
         <ToolsMenuButtons
-          loadingStatus={loadingStatus}
+          loadingStatus={debouncedLoadingStatus}
           isOpen={isOpen}
           setOpen={setOpen}
         />
       </div>
-      {debouncedLoadingStatus === "error" && (
-        <div className="bg-bg-error-primary text-text-error-primary rounded-3xl">
-          Could not fetch data
+      {loadingErrors && (
+        <div className="p-4 bg-bg-error-primary text-text-Wprimary rounded-3xl">
+          {loadingErrors.moduleFilePath}: {loadingErrors.errors[0]}
         </div>
       )}
       {publishError && (

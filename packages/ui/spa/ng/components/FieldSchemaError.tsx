@@ -9,7 +9,9 @@ export function FieldSchemaError({
 }) {
   return (
     <div>
-      <div>Schema error: {error}</div>
+      <div className="p-4 rounded bg-bg-error-primary text-text-primary">
+        {error}
+      </div>
     </div>
   );
 }
