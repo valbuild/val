@@ -9,7 +9,7 @@ import { FieldLoading } from "./FieldLoading";
 import { FieldNotFound } from "./FieldNotFound";
 import { AnyField } from "./AnyField";
 import { prettifyFilename } from "../../utils/prettifyFilename";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { ChevronRight, Edit } from "lucide-react";
 import { useNavigation } from "../../components/ValRouter";
 import { array } from "@valbuild/core/fp";
@@ -121,6 +121,9 @@ export function Module({ path }: { path: SourcePath }) {
                   navigate(newPath, { replace: true });
                   setEditKeyMode(false);
                 }}
+                onCancel={() => {
+                  setEditKeyMode(false);
+                }}
               />
             )}
           </div>
@@ -136,19 +139,31 @@ function RecordKeyForm({
   path,
   parentPath,
   onComplete,
+  onCancel,
 }: {
   defaultValue: string;
   path: SourcePath;
   parentPath: SourcePath;
   onComplete: (newPath: SourcePath) => void;
+  onCancel: () => void;
 }) {
   const { addPatch } = useAddPatch(path);
   const [moduleFilePath, parentModulePath] =
     Internal.splitModuleFilePathAndModulePath(parentPath);
   const shallowParentSource = useShallowSourceAtPath(parentPath, "record");
   const [key, setKey] = useState(defaultValue); // cannot change - right?
+  useEffect(() => {
+    const keyDownListener = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") {
+        onCancel();
+      }
+    };
+    window.addEventListener("keydown", keyDownListener);
+    return () => {
+      window.removeEventListener("keydown", keyDownListener);
+    };
+  }, []);
   const parentPatchPath = Internal.createPatchPath(parentModulePath);
-
   if (
     !("data" in shallowParentSource) ||
     shallowParentSource.data === undefined ||
@@ -191,6 +206,13 @@ function RecordKeyForm({
         }}
       />
       <Button disabled={disabled}>Save</Button>
+      <Button
+        onClick={() => {
+          onCancel();
+        }}
+      >
+        Discard
+      </Button>
     </form>
   );
 }
