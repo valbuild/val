@@ -7,6 +7,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
+  useValPortal,
 } from "../ValProvider";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 import {
@@ -41,6 +42,7 @@ export function KeyOfField({ path }: { path: SourcePath }) {
   );
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const { patchPath, addPatch } = useAddPatch(path);
+  const portalContainer = useValPortal();
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -144,7 +146,7 @@ export function KeyOfField({ path }: { path: SourcePath }) {
           <SelectTrigger>
             <SelectValue>{source}</SelectValue>
           </SelectTrigger>
-          <SelectContent className="w-32">
+          <SelectContent className="w-32" container={portalContainer}>
             {schemaAtPath.status === "loading" ||
             keyOf == undefined ||
             keys === undefined ? (

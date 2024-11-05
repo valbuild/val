@@ -17,6 +17,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useSourceAtPath,
+  useValPortal,
 } from "../ValProvider";
 import { FieldLoading } from "../components/FieldLoading";
 import { FieldNotFound } from "../components/FieldNotFound";
@@ -272,6 +273,7 @@ function SelectField({
   options?: string[];
 }) {
   const { addPatch, patchPath } = useAddPatch(path);
+  const portalContainer = useValPortal();
   return (
     <Select
       value={source ?? ""}
@@ -288,7 +290,7 @@ function SelectField({
       <SelectTrigger>
         <SelectValue>{source}</SelectValue>
       </SelectTrigger>
-      <SelectContent className="w-32">
+      <SelectContent className="w-32" container={portalContainer}>
         {options == undefined ? (
           <LoadingSelectContent />
         ) : (
