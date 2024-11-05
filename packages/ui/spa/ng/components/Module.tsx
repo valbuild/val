@@ -20,12 +20,6 @@ import { Popover, PopoverContent } from "../../components/ui/popover";
 import { PopoverTrigger } from "@radix-ui/react-popover";
 import { emptyOf } from "../../components/fields/emptyOf";
 import { JSONValue } from "@valbuild/core/patch";
-import {
-  Dialog,
-  DialogContent,
-  DialogTrigger,
-} from "../../components/ui/dialog";
-import { DialogClose } from "@radix-ui/react-dialog";
 
 export function Module({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
@@ -170,21 +164,17 @@ function ChangeRecordPopover({
   const disabled =
     key === defaultValue || key === "" || key in shallowParentSource.data;
   return (
-    <Dialog open={open}>
+    <Popover open={open}>
       <Button asChild>
-        <DialogTrigger
+        <PopoverTrigger
           onClick={() => {
             setOpen(true);
           }}
         >
           <Edit />
-        </DialogTrigger>
+        </PopoverTrigger>
       </Button>
-      <DialogContent
-        container={portalContainer}
-        hideClose
-        className="text-text-primary"
-      >
+      <PopoverContent container={portalContainer} className="text-text-primary">
         <form
           className="flex flex-col gap-2"
           onSubmit={(ev) => {
@@ -225,13 +215,20 @@ function ChangeRecordPopover({
               Update
             </Button>
 
-            <Button variant={"ghost"} type="reset" asChild>
-              <DialogClose>Cancel</DialogClose>
+            <Button
+              variant={"ghost"}
+              type="reset"
+              onClick={() => {
+                setOpen(false);
+                setKey(defaultValue);
+              }}
+            >
+              Cancel
             </Button>
           </div>
         </form>
-      </DialogContent>
-    </Dialog>
+      </PopoverContent>
+    </Popover>
   );
 }
 
