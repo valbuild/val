@@ -108,9 +108,13 @@ export function BooleanPreview({ path }: { path: SourcePath }): JSX.Element {
   } else if (sourceAtPath.data === null) {
     return <PreviewNull path={path} />;
   } else if (sourceAtPath.data === true) {
-    return <Check className="w-4 h-4" />;
+    return (
+      <div className="flex items-center justify-center w-4 h-4 border rounded border-text-primary">
+        <Check className="w-3 h-3" />
+      </div>
+    );
   } else if (sourceAtPath.data === false) {
-    return <div className="w-4 h-4 rounded border-bg-brand-primary" />;
+    return <div className="w-4 h-4 border rounded border-text-primary" />;
   } else {
     console.warn("Unexpected value for boolean field", sourceAtPath.data);
     return <div className="w-4 h-4 rounded border-bg-brand-primary" />;
