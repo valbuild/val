@@ -32,7 +32,7 @@ export function Layout() {
           }}
         />
       </div>
-      <div className="w-[calc(100%-16px*2)] mx-auto xl:w-[calc(100%-320px*2-32px*2)] max-w-[800px] min-h-screen">
+      <div className="w-[calc(100%-16px*2)] mx-auto xl:w-[calc(100%-320px*2-32px*2)] min-h-screen">
         <ContentArea />
       </div>
       <div className="fixed top-0 right-0 mr-auto w-[320px] z-[5]">
