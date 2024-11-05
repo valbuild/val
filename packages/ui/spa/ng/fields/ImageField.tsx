@@ -140,9 +140,6 @@ export function ImagePreview({ path }: { path: SourcePath }) {
       }
       draggable={false}
       className="object-contain max-w-[60px] max-h-[60px] rounded-lg"
-      style={{
-        cursor: "crosshair",
-      }}
     />
   );
 }
