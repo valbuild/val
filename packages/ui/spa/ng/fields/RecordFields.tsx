@@ -6,7 +6,6 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { useSchemaAtPath, useShallowSourceAtPath } from "../ValProvider";
-import { fixCapitalization } from "../../utils/fixCapitalization";
 import { RecordBadges } from "../components/RecordBadges";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { FieldLoading } from "../components/FieldLoading";
