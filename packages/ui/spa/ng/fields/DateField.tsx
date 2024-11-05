@@ -14,6 +14,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
+  useValPortal,
 } from "../ValProvider";
 import {
   Popover,
@@ -30,6 +31,7 @@ export function DateField({ path }: { path: SourcePath }) {
   const { patchPath, addPatch } = useAddPatch(path);
   const [currentValue, setCurrentValue] = useState<Date | null>(null);
   const [isPopoverOpen, setPopoverOpen] = useState(false);
+  const portalContainer = useValPortal();
   useEffect(() => {
     if ("data" in sourceAtPath && sourceAtPath.data !== undefined) {
       if (sourceAtPath.data === null) {
@@ -108,7 +110,7 @@ export function DateField({ path }: { path: SourcePath }) {
             )}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-0">
+        <PopoverContent className="w-auto p-0" container={portalContainer}>
           <Calendar
             mode="single"
             captionLayout="dropdown-buttons"

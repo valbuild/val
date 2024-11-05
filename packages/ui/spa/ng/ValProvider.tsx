@@ -27,6 +27,7 @@ import { DayPickerProvider } from "react-day-picker";
 import { useValState } from "./useValState";
 
 const ValContext = React.createContext<{
+  portalRef: HTMLElement | null;
   theme: Themes | null;
   setTheme: (theme: Themes | null) => void;
   config: ValConfig | undefined;
@@ -77,6 +78,9 @@ const ValContext = React.createContext<{
   >;
   patchIds: PatchId[];
 }>({
+  get portalRef(): HTMLElement | null {
+    throw new Error("ValContext not provided");
+  },
   get theme(): Themes | null {
     throw new Error("ValContext not provided");
   },
@@ -297,10 +301,12 @@ export function ValProvider({
     },
     [client],
   );
+  const portalRef = useRef<HTMLDivElement>(null);
 
   return (
     <ValContext.Provider
       value={{
+        portalRef: portalRef.current,
         addPatch,
         getPatches,
         deletePatches,
@@ -339,11 +345,17 @@ export function ValProvider({
           mode: "default",
         }}
       >
+        <div ref={portalRef}></div>
         {children}
       </DayPickerProvider>
     </ValContext.Provider>
   );
 }
+
+export function useValPortal() {
+  return useContext(ValContext).portalRef;
+}
+
 export type Themes = "dark" | "light";
 
 export function useTheme(): Themes | null {

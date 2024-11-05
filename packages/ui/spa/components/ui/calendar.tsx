@@ -84,7 +84,7 @@ function Calendar({
                     <ChevronDown className="w-4 h-4" />
                   </Button>
                 </Select.Trigger>
-                <Select.Content className="z-50 p-1 rounded-md bg-popover text-popover-foreground">
+                <Select.Content className="z-50 p-1 rounded-md bg-bg-secondary_alt text-text-secondary">
                   <Select.Viewport className="overflow-y-auto rounded-md shadow-lg max-h-48">
                     {React.Children.map(children, (child) => {
                       if (React.isValidElement(child)) {
@@ -93,7 +93,7 @@ function Calendar({
                           <Select.Item
                             key={value}
                             value={String(value)}
-                            className="p-2 rounded-md cursor-pointer hover:bg-primary hover:text-primary-foreground"
+                            className="p-2 rounded-md cursor-pointer hover:bg-bg-secondary_hover hover:text-text-secondary_hover"
                           >
                             <Select.ItemText>{children}</Select.ItemText>
                           </Select.Item>
