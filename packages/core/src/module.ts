@@ -95,6 +95,9 @@ export function joinModuleFilePathAndModulePath(
   moduleFilePath: ModuleFilePath,
   modulePath: ModulePath,
 ): SourcePath {
+  if (modulePath === "") {
+    return moduleFilePath as unknown as SourcePath;
+  }
   return `${moduleFilePath}${ModuleFilePathSep}${modulePath}` as SourcePath;
 }
 
@@ -365,6 +368,11 @@ export function resolvePath<
     schema: resolvedSchema as Sch,
     source: resolvedSource as Src,
   };
+}
+
+export function splitModuleFilePath(input: ModuleFilePath) {
+  const parts = input.split("/").slice(1);
+  return parts;
 }
 
 export function splitModulePath(input: ModulePath) {
