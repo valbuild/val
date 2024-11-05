@@ -14,7 +14,7 @@ import { FieldSchemaError } from "../components/FieldSchemaError";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 import { FieldSourceError } from "../components/FieldSourceError";
 import { useNavigation } from "../../components/ValRouter";
-import { PreviewLoading, PreviewNull } from "../components/Preview";
+import { Preview, PreviewLoading, PreviewNull } from "../components/Preview";
 import { ValidationErrors } from "../components/ValidationError";
 
 export function RecordFields({ path }: { path: SourcePath }) {
@@ -60,18 +60,18 @@ export function RecordFields({ path }: { path: SourcePath }) {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         {source &&
           Object.entries(source).map(([key]) => (
-            <Card
+            <div
               key={key}
               onClick={() => navigate(sourcePathOfItem(path, key))}
-              className="bg-primary-foreground cursor-pointer hover:bg-primary-foreground/50 min-w-[274px]"
+              className="bg-primary-foreground cursor-pointer hover:bg-primary-foreground/50 min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4"
             >
-              <CardHeader>
-                <CardTitle className="text-md">{key}</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-4">
-                <RecordBadges counts={{}} />
-              </CardContent>
-            </Card>
+              <div>
+                <div className="pb-4 font-semibold text-md">{key}</div>
+              </div>
+              <div>
+                <Preview path={sourcePathOfItem(path, key)} />
+              </div>
+            </div>
           ))}
       </div>
     </div>
