@@ -1,6 +1,6 @@
 import { SourcePath } from "@valbuild/core";
 import { StringPreview } from "../fields/StringField";
-import { useSchemaAtPath } from "../ValProvider";
+import { useSchemaAtPath, useShallowSourceAtPath } from "../ValProvider";
 import { ArrayPreview } from "../fields/ArrayFields";
 import { BooleanPreview } from "../fields/BooleanField";
 import { NumberPreview } from "../fields/NumberField";
@@ -15,10 +15,20 @@ import { RichTextPreview } from "../fields/RichTextField";
 
 export function Preview({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
+  const sourceAtPath = useShallowSourceAtPath(
+    path,
+    "data" in schemaAtPath && schemaAtPath.data.type
+      ? schemaAtPath.data.type
+      : undefined,
+  );
+
   if (!("data" in schemaAtPath) || schemaAtPath.data === undefined) {
     return <PreviewLoading path={path} />;
   }
   const type = schemaAtPath.data.type;
+  if ("data" in sourceAtPath && sourceAtPath.data === null) {
+    return <PreviewNull path={path} />;
+  }
 
   if (type === "string") {
     return <StringPreview path={path} />;
