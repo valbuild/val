@@ -51,14 +51,14 @@ export const schema = s.object({
 export type Content = t.inferSchema<typeof schema>;
 export type Image = t.inferSchema<typeof image>;
 export default c.define("/app/content.val.ts", schema, {
-  video: c.file("/public/file_example.webm", {
+  video: c.file("/public/val/file_example.webm", {
     sha256: "9bb98735d0430e5a825173cb7db5e4d5aee32c1c283c3db90f1c9c532f73505e",
     mimeType: "video/webm",
   }),
   hero: {
     title: "Content as code",
     image: {
-      data: c.file("/public/logo_e211b.png", {
+      data: c.file("/public/val/logo_e211b.png", {
         width: 944,
         height: 944,
         sha256:
