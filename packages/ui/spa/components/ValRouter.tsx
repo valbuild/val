@@ -3,7 +3,12 @@ import React, { useCallback, useContext, useEffect, useState } from "react";
 
 const ValRouterContext = React.createContext<{
   hardLink: boolean;
-  navigate: (path: SourcePath | ModuleFilePath) => void;
+  navigate: (
+    path: SourcePath | ModuleFilePath,
+    params?: {
+      replace?: true;
+    },
+  ) => void;
   currentSourcePath: SourcePath;
 }>({
   hardLink: false,
@@ -43,11 +48,15 @@ export function ValRouter({
     };
   }, []);
   const navigate = useCallback(
-    (path: SourcePath | ModuleFilePath) => {
+    (path: SourcePath | ModuleFilePath, params?: { replace?: true }) => {
       const navigateTo = `${VAL_CONTENT_VIEW_ROUTE}${path}`;
       setSourcePath(path as SourcePath);
       if (!overlay) {
-        window.history.pushState(null, "", navigateTo);
+        if (params?.replace) {
+          window.history.replaceState(null, "", navigateTo);
+        } else {
+          window.history.pushState(null, "", navigateTo);
+        }
       } else {
         window.location.href = navigateTo;
       }

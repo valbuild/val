@@ -63,6 +63,7 @@ export {
 import {
   getSource,
   splitModulePath,
+  splitModuleFilePath,
   resolvePath,
   splitModuleFilePathAndModulePath,
   joinModuleFilePathAndModulePath,
@@ -166,6 +167,7 @@ const Internal = {
     return splitModulePath(modulePath);
   },
   splitModulePath,
+  splitModuleFilePath,
   splitJoinedSourcePaths,
   parentOfSourcePath,
   patchPathToModulePath,
