@@ -3,6 +3,7 @@ import {
   useAddPatch,
   useSchemaAtPath,
   useShallowSourceAtPath,
+  useValPortal,
 } from "../ValProvider";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FieldLoading } from "./FieldLoading";
@@ -10,11 +11,21 @@ import { FieldNotFound } from "./FieldNotFound";
 import { AnyField } from "./AnyField";
 import { prettifyFilename } from "../../utils/prettifyFilename";
 import { Fragment, useEffect, useState } from "react";
-import { ChevronRight, Edit } from "lucide-react";
+import { ChevronRight, Edit, Plus } from "lucide-react";
 import { useNavigation } from "../../components/ValRouter";
 import { array } from "@valbuild/core/fp";
 import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
+import { Popover, PopoverContent } from "../../components/ui/popover";
+import { PopoverTrigger } from "@radix-ui/react-popover";
+import { emptyOf } from "../../components/fields/emptyOf";
+import { JSONValue } from "@valbuild/core/patch";
+import {
+  Dialog,
+  DialogContent,
+  DialogTrigger,
+} from "../../components/ui/dialog";
+import { DialogClose } from "@radix-ui/react-dialog";
 
 export function Module({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
@@ -25,10 +36,6 @@ export function Module({ path }: { path: SourcePath }) {
     Internal.splitModulePath(modulePath).slice(0, -1).join(".") as ModulePath,
   );
   const parentSchemaAtPath = useSchemaAtPath(maybeParentPath);
-  const [editKeyMode, setEditKeyMode] = useState(false);
-  useEffect(() => {
-    setEditKeyMode(false);
-  }, [path]);
   const { navigate } = useNavigation();
   if (schemaAtPath.status === "loading") {
     return <FieldLoading path={path} type="module" />;
@@ -60,6 +67,7 @@ export function Module({ path }: { path: SourcePath }) {
   const schema = schemaAtPath.data;
   const isParentRecord =
     maybeParentPath !== path && parentSchemaAtPath.data.type === "record";
+  const isRecord = schema.type === "record";
 
   const parts = splitIntoInitAndLastParts(path);
   const init = parts.slice(0, -1);
@@ -100,35 +108,18 @@ export function Module({ path }: { path: SourcePath }) {
           </div>
         )}
         <div>
-          <div className="flex items-center h-12 gap-2 text-xl">
-            {!editKeyMode && (
-              <>
-                <span>{last.text}</span>
-                {isParentRecord && (
-                  <button
-                    onClick={() => {
-                      setEditKeyMode(true);
-                    }}
-                  >
-                    <Edit />
-                  </button>
-                )}
-              </>
-            )}
-            {editKeyMode && (
-              <RecordKeyForm
-                defaultValue={last.text}
-                path={path}
-                parentPath={maybeParentPath}
-                onComplete={(newPath) => {
-                  navigate(newPath, { replace: true });
-                  setEditKeyMode(false);
-                }}
-                onCancel={() => {
-                  setEditKeyMode(false);
-                }}
-              />
-            )}
+          <div className="flex items-center justify-between h-12 gap-4 text-xl">
+            <span>{last.text}</span>
+            <span className="inline-flex items-center gap-2">
+              {isParentRecord && (
+                <ChangeRecordPopover
+                  defaultValue={last.text}
+                  path={path}
+                  parentPath={maybeParentPath}
+                />
+              )}
+              {isRecord && <AddRecordPopover path={path} />}
+            </span>
           </div>
         </div>
       </div>
@@ -137,28 +128,27 @@ export function Module({ path }: { path: SourcePath }) {
   );
 }
 
-function RecordKeyForm({
+function ChangeRecordPopover({
   defaultValue,
   path,
   parentPath,
-  onComplete,
-  onCancel,
 }: {
   defaultValue: string;
   path: SourcePath;
   parentPath: SourcePath;
-  onComplete: (newPath: SourcePath) => void;
-  onCancel: () => void;
 }) {
-  const { addPatch } = useAddPatch(path);
   const [moduleFilePath, parentModulePath] =
     Internal.splitModuleFilePathAndModulePath(parentPath);
+  const { navigate } = useNavigation();
+  const { addPatch } = useAddPatch(path);
   const shallowParentSource = useShallowSourceAtPath(parentPath, "record");
   const [key, setKey] = useState(defaultValue); // cannot change - right?
+  const [open, setOpen] = useState(false);
+  const portalContainer = useValPortal();
   useEffect(() => {
     const keyDownListener = (ev: KeyboardEvent) => {
       if (ev.key === "Escape") {
-        onCancel();
+        setOpen(false);
       }
     };
     window.addEventListener("keydown", keyDownListener);
@@ -166,6 +156,7 @@ function RecordKeyForm({
       window.removeEventListener("keydown", keyDownListener);
     };
   }, []);
+
   const parentPatchPath = Internal.createPatchPath(parentModulePath);
   if (
     !("data" in shallowParentSource) ||
@@ -179,44 +170,163 @@ function RecordKeyForm({
   const disabled =
     key === defaultValue || key === "" || key in shallowParentSource.data;
   return (
-    <form
-      className="flex items-center gap-2"
-      onSubmit={(ev) => {
-        ev.preventDefault();
-        onComplete(
-          Internal.joinModuleFilePathAndModulePath(
-            moduleFilePath,
-            Internal.patchPathToModulePath(parentPatchPath.concat(key)),
-          ),
-        );
-        addPatch([
-          {
-            op: "move",
-            from: parentPatchPath.concat(
-              defaultValue,
-            ) as array.NonEmptyArray<string>,
-            path: parentPatchPath.concat(key) as array.NonEmptyArray<string>,
-          },
-        ]);
-      }}
-    >
-      <Input
-        className="inline-block max-w-[320px]"
-        type="text"
-        value={key}
-        onChange={(ev) => {
-          setKey(ev.target.value);
-        }}
-      />
-      <Button disabled={disabled}>Save</Button>
-      <Button
-        onClick={() => {
-          onCancel();
-        }}
-      >
-        Discard
+    <Dialog open={open}>
+      <Button asChild>
+        <DialogTrigger
+          onClick={() => {
+            setOpen(true);
+          }}
+        >
+          <Edit />
+        </DialogTrigger>
       </Button>
-    </form>
+      <DialogContent
+        container={portalContainer}
+        hideClose
+        className="text-text-primary"
+      >
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(ev) => {
+            ev.preventDefault();
+            console.log(ev);
+            addPatch([
+              {
+                op: "move",
+                from: parentPatchPath.concat(
+                  defaultValue,
+                ) as array.NonEmptyArray<string>,
+                path: parentPatchPath.concat(
+                  key,
+                ) as array.NonEmptyArray<string>,
+              },
+            ]);
+            navigate(
+              Internal.joinModuleFilePathAndModulePath(
+                moduleFilePath,
+                Internal.patchPathToModulePath(parentPatchPath.concat(key)),
+              ),
+              {
+                replace: true,
+              },
+            );
+            setOpen(false);
+          }}
+        >
+          <Input
+            type="text"
+            value={key}
+            onChange={(ev) => {
+              setKey(ev.target.value);
+            }}
+          />
+          <div className="flex items-center gap-2">
+            <Button disabled={disabled} variant="outline" type="submit">
+              Update
+            </Button>
+
+            <Button variant={"ghost"} type="reset" asChild>
+              <DialogClose>Cancel</DialogClose>
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AddRecordPopover({ path }: { path: SourcePath }) {
+  const shallowSourceAtPath = useShallowSourceAtPath(path, "record");
+  const schemaAtPath = useSchemaAtPath(path);
+  const portalContainer = useValPortal();
+  const { addPatch } = useAddPatch(path);
+  const [key, setKey] = useState("");
+  const { navigate } = useNavigation();
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const keyDownListener = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    window.addEventListener("keydown", keyDownListener);
+    return () => {
+      window.removeEventListener("keydown", keyDownListener);
+    };
+  }, []);
+  if (
+    !("data" in shallowSourceAtPath) ||
+    shallowSourceAtPath.data === undefined ||
+    shallowSourceAtPath.data === null
+  ) {
+    // An actual error message should be shown above
+    console.error("Source not found", shallowSourceAtPath, { path });
+    return null;
+  }
+  if (!("data" in schemaAtPath) || schemaAtPath.data === undefined) {
+    // An actual error message should be shown above
+    console.error("Schema not found", shallowSourceAtPath, { path });
+    return null;
+  }
+  const schema = schemaAtPath.data;
+  if (schema.type !== "record") {
+    // An actual error message should be shown above
+    console.error("Schema is not a record", schemaAtPath, { path });
+    return null;
+  }
+  const disabled = key === "" || key in shallowSourceAtPath.data;
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(path);
+  return (
+    <Popover open={open}>
+      <Button asChild>
+        <PopoverTrigger
+          onClick={() => {
+            setOpen(true);
+          }}
+        >
+          <Plus />
+        </PopoverTrigger>
+      </Button>
+      <PopoverContent container={portalContainer}>
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(ev) => {
+            ev.preventDefault();
+            const newPatchPath =
+              Internal.createPatchPath(modulePath).concat(key);
+            addPatch([
+              {
+                op: "add",
+                path: newPatchPath,
+                value: emptyOf(schema.item) as JSONValue,
+              },
+            ]);
+            navigate(
+              Internal.joinModuleFilePathAndModulePath(
+                moduleFilePath,
+                Internal.patchPathToModulePath(newPatchPath),
+              ) as SourcePath,
+              { replace: true },
+            );
+            setOpen(false);
+          }}
+        >
+          <Input
+            autoFocus
+            value={key}
+            onChange={(ev) => {
+              setKey(ev.target.value);
+            }}
+          />
+          <div>
+            <Button type="submit" disabled={disabled} variant={"outline"}>
+              Add
+            </Button>
+          </div>
+        </form>
+      </PopoverContent>
+    </Popover>
   );
 }
 
