@@ -31,6 +31,7 @@ import { Field } from "../components/Field";
 import { PreviewLoading, PreviewNull } from "../components/Preview";
 import { ObjectLikePreview } from "./ObjectFields";
 import { ValidationErrors } from "../components/ValidationError";
+import { isJsonArray } from "../../utils/isJsonArray";
 
 function isStringUnion(
   schema: SerializedUnionSchema,
@@ -308,7 +309,7 @@ function LoadingSelectContent() {
 
 export function UnionPreview({ path }: { path: SourcePath }) {
   const type = "union";
-  const sourceAtPath = useShallowSourceAtPath(path, type);
+  const sourceAtPath = useSourceAtPath(path);
   const schemaAtPath = useSchemaAtPath(path);
   if (sourceAtPath.status === "error") {
     return (
@@ -367,7 +368,13 @@ export function UnionPreview({ path }: { path: SourcePath }) {
     }
     const acutalSchema = schema.items.find((item) => {
       const keySchema = item.items?.[schema.key];
-      if (keySchema?.type === "literal") {
+      if (
+        keySchema?.type === "literal" &&
+        source !== null &&
+        typeof source === "object" &&
+        schema.key in source &&
+        !isJsonArray(source)
+      ) {
         return keySchema.value === source[schema.key];
       }
     });
@@ -375,7 +382,11 @@ export function UnionPreview({ path }: { path: SourcePath }) {
       return (
         <FieldSourceError
           path={path}
-          error={"Expected source to have key " + schema.key + " but not found"}
+          error={
+            "Expected source to have key " +
+            schema.key +
+            " but it was not found"
+          }
           type={type}
         />
       );
