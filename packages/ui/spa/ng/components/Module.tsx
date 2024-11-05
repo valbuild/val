@@ -26,6 +26,9 @@ export function Module({ path }: { path: SourcePath }) {
   );
   const parentSchemaAtPath = useSchemaAtPath(maybeParentPath);
   const [editKeyMode, setEditKeyMode] = useState(false);
+  useEffect(() => {
+    setEditKeyMode(false);
+  }, [path]);
   const { navigate } = useNavigation();
   if (schemaAtPath.status === "loading") {
     return <FieldLoading path={path} type="module" />;
