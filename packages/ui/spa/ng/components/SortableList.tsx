@@ -206,5 +206,5 @@ export function SortableItem({
 }
 
 function formatNumber(n: number) {
-  return n.toString().padStart(2, "0");
+  return "#" + n.toString();
 }

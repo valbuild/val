@@ -61,7 +61,10 @@ export function Module({ path }: { path: SourcePath }) {
   const schema = schemaAtPath.data;
   const isParentRecord =
     maybeParentPath !== path && parentSchemaAtPath.data.type === "record";
+  const isParentArray =
+    maybeParentPath !== path && parentSchemaAtPath.data.type === "array";
   const isRecord = schema.type === "record";
+  const isArray = schema.type === "array";
 
   const parts = splitIntoInitAndLastParts(path);
   const init = parts.slice(0, -1);
@@ -103,7 +106,8 @@ export function Module({ path }: { path: SourcePath }) {
         )}
         <div>
           <div className="flex items-center justify-between h-12 gap-4 text-xl">
-            <span>{last.text}</span>
+            {!isParentArray && <span>{last.text}</span>}
+            {isParentArray && <span>#{Number(last.text) + 1}</span>}
             <span className="inline-flex items-center gap-2">
               {isParentRecord && (
                 <ChangeRecordPopover
@@ -112,6 +116,7 @@ export function Module({ path }: { path: SourcePath }) {
                   parentPath={maybeParentPath}
                 />
               )}
+              {isArray && <AddArrayButton path={path} />}
               {isRecord && <AddRecordPopover path={path} />}
             </span>
           </div>
@@ -119,6 +124,51 @@ export function Module({ path }: { path: SourcePath }) {
       </div>
       <AnyField key={path} path={path} schema={schema} />
     </div>
+  );
+}
+
+function AddArrayButton({ path }: { path: SourcePath }) {
+  const { navigate } = useNavigation();
+  const { addPatch, patchPath } = useAddPatch(path);
+  const schmeaAtPath = useSchemaAtPath(path);
+  const shallowSourceAtPath = useShallowSourceAtPath(path, "array");
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  if (!("data" in shallowSourceAtPath) || !shallowSourceAtPath.data) {
+    return null;
+  }
+  if (!("data" in schmeaAtPath)) {
+    return null;
+  }
+  const schema = schmeaAtPath.data;
+  if (schema.type !== "array") {
+    console.error("Cannot add to non-array", shallowSourceAtPath, {
+      parentPath: path,
+    });
+    return null;
+  }
+  const highestIndex = shallowSourceAtPath.data.length;
+  return (
+    <Button
+      onClick={() => {
+        const newPatchPath = patchPath.concat(highestIndex.toString());
+        console.log({ newPatchPath });
+        addPatch([
+          {
+            op: "add",
+            path: newPatchPath,
+            value: emptyOf(schema.item) as JSONValue,
+          },
+        ]);
+        navigate(
+          Internal.joinModuleFilePathAndModulePath(
+            moduleFilePath,
+            Internal.patchPathToModulePath(newPatchPath),
+          ),
+        );
+      }}
+    >
+      <Plus />
+    </Button>
   );
 }
 
@@ -304,7 +354,6 @@ function AddRecordPopover({ path }: { path: SourcePath }) {
                 moduleFilePath,
                 Internal.patchPathToModulePath(newPatchPath),
               ) as SourcePath,
-              { replace: true },
             );
             setOpen(false);
           }}
