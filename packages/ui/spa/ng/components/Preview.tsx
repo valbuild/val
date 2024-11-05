@@ -66,7 +66,7 @@ export function PreviewLoading({ path }: { path: SourcePath }) {
 
 export function PreviewNull({ path }: { path: SourcePath }) {
   return (
-    <div key={path + "-null"} className="text-bg-brand-primary">
+    <div key={path + "-null"} className="text-text-quartenary">
       null
     </div>
   );
