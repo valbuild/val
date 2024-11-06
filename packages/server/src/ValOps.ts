@@ -881,6 +881,7 @@ export abstract class ValOps {
   // #region createPatch
   async createPatch(
     path: ModuleFilePath,
+    patchAnalysis: (PatchAnalysis & Patches) | null,
     patch: Patch,
     authorId: AuthorId | null,
   ): Promise<
@@ -895,7 +896,17 @@ export abstract class ValOps {
       }
     | { error: GenericErrorMessage }
   > {
-    const { sources, schemas, moduleErrors } = await this.initTree();
+    const initTree = await this.initTree();
+    const schemas = initTree.schemas;
+    const moduleErrors = initTree.moduleErrors;
+    let sources = initTree.sources;
+    if (patchAnalysis) {
+      const tree = await this.getTree(patchAnalysis);
+      sources = {
+        ...sources,
+        ...tree.sources,
+      };
+    }
     const source = sources[path];
     const schema = schemas[path];
     const moduleError = moduleErrors.find((e) => e.path === path);
