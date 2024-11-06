@@ -14,6 +14,7 @@ import { PreviewLoading, PreviewNull } from "../components/Preview";
 import { readImage } from "../../utils/readImage";
 import { createFilePatch } from "./FileField";
 import { ValidationErrors } from "../components/ValidationError";
+import classNames from "classnames";
 
 export function ImageField({ path }: { path: SourcePath }) {
   const type = "image";
@@ -56,29 +57,32 @@ export function ImageField({ path }: { path: SourcePath }) {
   if (source === undefined) {
     return <FieldNotFound path={path} type={type} />;
   }
-  if (source === null) {
-    // TODO: what to do here?
-    return null;
-  }
   return (
     <div>
       <ValidationErrors path={path} />
-      <img
-        src={
-          Internal.convertFileSource({
-            ...source,
-            _type: "file",
-          }).url
-        }
-        draggable={false}
-        className="object-contain w-full max-h-[500px] rounded-t-lg"
-        style={{
-          cursor: "crosshair",
-        }}
-      />
+      {source && (
+        <img
+          src={
+            Internal.convertFileSource({
+              ...source,
+              _type: "file",
+            }).url
+          }
+          draggable={false}
+          className="object-contain w-full max-h-[500px] rounded-t-lg"
+          style={{
+            cursor: "crosshair",
+          }}
+        />
+      )}
       <label
         htmlFor={`img_input:${path}`}
-        className="block px-1 py-2 text-sm text-center rounded-b-lg cursor-pointer bg-bg-secondary text-text-secondary"
+        className={classNames(
+          "block px-1 py-2 text-sm text-center rounded-b-lg cursor-pointer bg-bg-secondary text-text-secondary",
+          {
+            "rounded-t-lg": !source,
+          },
+        )}
       >
         Update
       </label>
@@ -100,6 +104,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                 mimeType: res.mimeType,
               };
             }
+            console.log("data ", data);
             addPatch(
               createFilePatch(
                 patchPath,

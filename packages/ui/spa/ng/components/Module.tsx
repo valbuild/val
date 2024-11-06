@@ -231,7 +231,6 @@ function ChangeRecordPopover({
           className="flex flex-col gap-2"
           onSubmit={(ev) => {
             ev.preventDefault();
-            console.log(ev);
             addPatch([
               {
                 op: "move",
