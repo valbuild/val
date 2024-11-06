@@ -2,7 +2,7 @@ import { SerializedSchema, SourcePath } from "@valbuild/core";
 import { Label } from "./Label";
 import classNames from "classnames";
 import { ChevronDown, ChevronsDown } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimateHeight } from "./AnimateHeight";
 import {
   useAddPatch,
@@ -37,6 +37,19 @@ export function Field({
   const sourceAtPath = useShallowSourceAtPath(path, type);
 
   const [isExpanded, setIsExpanded] = useState(true);
+  const [showEmptyFileOrImage, setShowEmptyFileOrImage] = useState(false);
+  useEffect(() => {
+    if (
+      "data" in sourceAtPath &&
+      sourceAtPath.data === null &&
+      "data" in schemaAtPath &&
+      !schemaAtPath.data.opt &&
+      (schemaAtPath.data?.type === "image" ||
+        schemaAtPath.data?.type === "file")
+    ) {
+      setShowEmptyFileOrImage(true);
+    }
+  }, [sourceAtPath, schemaAtPath]);
   const source = "data" in sourceAtPath ? sourceAtPath.data : undefined;
   const isBoolean =
     "data" in schemaAtPath && schemaAtPath.data?.type === "boolean";
@@ -56,27 +69,35 @@ export function Field({
           {!isBoolean && "data" in schemaAtPath && schemaAtPath.data.opt && (
             <Checkbox
               disabled={loadingStatus === "loading"}
-              checked={source !== null}
+              checked={source !== null || showEmptyFileOrImage}
               onCheckedChange={() => {
-                if (source === null) {
-                  addPatch([
-                    {
-                      op: "replace",
-                      path: patchPath,
-                      value: emptyOf({
-                        ...schemaAtPath.data,
-                        opt: false, // empty of nullable is null, so we override
-                      }) as JSONValue,
-                    },
-                  ]);
+                if (
+                  (schemaAtPath.data.type === "image" ||
+                    schemaAtPath.data.type === "file") &&
+                  source === null
+                ) {
+                  setShowEmptyFileOrImage(true);
                 } else {
-                  addPatch([
-                    {
-                      op: "replace",
-                      path: patchPath,
-                      value: null,
-                    },
-                  ]);
+                  if (source === null) {
+                    addPatch([
+                      {
+                        op: "replace",
+                        path: patchPath,
+                        value: emptyOf({
+                          ...schemaAtPath.data,
+                          opt: false, // empty of nullable is null, so we override
+                        }) as JSONValue,
+                      },
+                    ]);
+                  } else {
+                    addPatch([
+                      {
+                        op: "replace",
+                        path: patchPath,
+                        value: null,
+                      },
+                    ]);
+                  }
                 }
               }}
             />
@@ -144,8 +165,10 @@ export function Field({
         )}
       </div>
       {!isBoolean && (
-        <AnimateHeight isOpen={isExpanded && source !== null}>
-          {source !== null && (
+        <AnimateHeight
+          isOpen={isExpanded && (source !== null || showEmptyFileOrImage)}
+        >
+          {(source !== null || showEmptyFileOrImage) && (
             <div className="flex flex-col gap-6 pt-6">{children}</div>
           )}
         </AnimateHeight>
