@@ -900,6 +900,9 @@ export abstract class ValOps {
     const schema = schemas[path];
     const moduleError = moduleErrors.find((e) => e.path === path);
     if (moduleError) {
+      console.error(
+        `Cannot patch. Module at path: '${path}' has fatal errors: "${moduleError.message}"`,
+      );
       return {
         error: {
           message:
@@ -909,6 +912,9 @@ export abstract class ValOps {
       };
     }
     if (!source) {
+      console.error(
+        `Cannot patch. Module source at path: '${path}' does not exist`,
+      );
       return {
         error: {
           message: `Cannot patch. Module source at path: '${path}' does not exist`,
@@ -916,6 +922,9 @@ export abstract class ValOps {
       };
     }
     if (!schema) {
+      console.error(
+        `Cannot patch. Module schema at path: '${path}' does not exist`,
+      );
       return {
         error: {
           message: `Cannot patch. Module schema at path: '${path}' does not exist`,
@@ -943,12 +952,18 @@ export abstract class ValOps {
         const { value, filePath } = op;
 
         if (files[filePath]) {
+          console.error(
+            `Cannot have multiple files with same path in same patch. Path: ${filePath}`,
+          );
           files[filePath] = {
             error: new PatchError(
               "Cannot have multiple files with same path in same patch",
             ),
           };
         } else if (typeof value !== "string") {
+          console.error(
+            `Value is not a string. Path: ${filePath}. Value: ${value}`,
+          );
           files[filePath] = { error: new PatchError("Value is not a string") };
         } else {
           const sha256 = Internal.getSHA256Hash(textEncoder.encode(value));
@@ -975,6 +990,9 @@ export abstract class ValOps {
       authorId,
     );
     if (saveRes.error) {
+      console.error(
+        `Could not save source file patch at path: '${path}'. Error: ${saveRes.error.message}`,
+      );
       return { error: saveRes.error };
     }
     const patchId = saveRes.patchId;
@@ -1005,6 +1023,9 @@ export abstract class ValOps {
                       : schemaAtPath.serialize().type;
               } catch (e) {
                 if (e instanceof Error) {
+                  console.error(
+                    `Could not resolve file type at: ${modulePath}. Error: ${e.message}`,
+                  );
                   return {
                     filePath,
                     error: new PatchError(
@@ -1012,6 +1033,9 @@ export abstract class ValOps {
                     ),
                   };
                 }
+                console.error(
+                  `Could not resolve file type at: ${modulePath}. Unknown error.`,
+                );
                 return {
                   filePath,
                   error: new PatchError(
@@ -1020,6 +1044,9 @@ export abstract class ValOps {
                 };
               }
               if (type !== "image" && type !== "file") {
+                console.error(
+                  "Unknown file type (resolved from schema): " + type,
+                );
                 return {
                   filePath,
                   error: new PatchError(
@@ -1030,6 +1057,9 @@ export abstract class ValOps {
 
               const mimeType = getMimeTypeFromBase64(data.value);
               if (!mimeType) {
+                console.error(
+                  "Could not get mimeType from base 64 encoded value",
+                );
                 return {
                   filePath,
                   error: new PatchError(
@@ -1038,9 +1068,11 @@ export abstract class ValOps {
                   ),
                 };
               }
-
               const buffer = bufferFromDataUrl(data.value);
               if (!buffer) {
+                console.error(
+                  "Could not create buffer from base 64 encoded value",
+                );
                 return {
                   filePath,
                   error: new PatchError(
@@ -1054,6 +1086,11 @@ export abstract class ValOps {
                 buffer,
               );
               if (metadataOps.errors) {
+                console.error(
+                  `Could not get metadata. Errors: ${metadataOps.errors
+                    .map((error) => error.message)
+                    .join(", ")}`,
+                );
                 return {
                   filePath,
                   error: new PatchError(
