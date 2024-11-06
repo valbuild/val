@@ -5,7 +5,7 @@ import { useNavigation } from "../../components/ValRouter";
 
 export function ContentArea() {
   return (
-    <ScrollArea>
+    <ScrollArea viewportId="val-content-area">
       <div className="max-h-[100svh] pt-20 xl:pt-0 max-w-[800px] mx-auto">
         <SearchBar />
         <SourceFields />
