@@ -1125,6 +1125,19 @@ export abstract class ValOps {
           },
         ),
       );
+
+    const errors = saveFileRes.filter(
+      (f): f is { filePath: string; error: PatchError } => !!f.error,
+    );
+    if (errors.length > 0) {
+      return {
+        error: {
+          message:
+            "Could not save patch: " +
+            errors.map((e) => e.error.message).join(", "),
+        },
+      };
+    }
     return {
       patchId,
       files: saveFileRes,
