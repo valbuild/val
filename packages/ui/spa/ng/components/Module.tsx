@@ -149,6 +149,7 @@ function AddArrayButton({ path }: { path: SourcePath }) {
   const highestIndex = shallowSourceAtPath.data.length;
   return (
     <Button
+      title="Add"
       onClick={() => {
         const newPatchPath = patchPath.concat(highestIndex.toString());
         console.log({ newPatchPath });
@@ -167,7 +168,7 @@ function AddArrayButton({ path }: { path: SourcePath }) {
         );
       }}
     >
-      <Plus />
+      <Plus size={16} />
     </Button>
   );
 }
@@ -220,8 +221,9 @@ function ChangeRecordPopover({
           onClick={() => {
             setOpen(true);
           }}
+          title="Change name"
         >
-          <Edit />
+          <Edit size={16} />
         </PopoverTrigger>
       </Button>
       <PopoverContent container={portalContainer} className="text-text-primary">
@@ -331,8 +333,9 @@ function AddRecordPopover({ path }: { path: SourcePath }) {
           onClick={() => {
             setOpen(true);
           }}
+          title={"Add"}
         >
-          <Plus />
+          <Plus size={16} />
         </PopoverTrigger>
       </Button>
       <PopoverContent container={portalContainer}>
