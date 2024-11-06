@@ -857,6 +857,8 @@ export const ValServer = (
               message: error.message,
             };
           }
+          // TODO: errors
+          patchAnalysis = serverOps.analyzePatches(patchOps.patches);
           if (body?.addPatches) {
             for (const addPatch of body.addPatches) {
               const newPatchModuleFilePath = addPatch.path;
@@ -864,6 +866,10 @@ export const ValServer = (
               const authorId = "id" in auth ? (auth.id as AuthorId) : null;
               const createPatchRes = await serverOps.createPatch(
                 newPatchModuleFilePath,
+                {
+                  ...patchAnalysis,
+                  ...patchOps,
+                },
                 newPatchOps,
                 authorId,
               );
@@ -877,20 +883,6 @@ export const ValServer = (
                   },
                 };
               }
-              // TODO: evaluate if we need this: seems wrong to delete patches that are not applied
-              // for (const fileRes of createPatchRes.files) {
-              //   if (fileRes.error) {
-              //     // clean up broken patch:
-              //     await this.serverOps.deletePatches([createPatchRes.patchId]);
-              //     return {
-              //       status: 500,
-              //       json: {
-              //         message: "Failed to create patch",
-              //         details: fileRes.error,
-              //       },
-              //     };
-              //   }
-              // }
               if (!newPatchIds) {
                 newPatchIds = [createPatchRes.patchId];
               }
@@ -904,8 +896,6 @@ export const ValServer = (
               };
             }
           }
-          // TODO: errors
-          patchAnalysis = serverOps.analyzePatches(patchOps.patches);
           tree = {
             ...(await serverOps.getTree({
               ...patchAnalysis,
@@ -937,7 +927,10 @@ export const ValServer = (
             }
           >;
           files: Record<SourcePath, FileSource>;
-        } = {};
+        } = {
+          errors: {},
+          files: {},
+        };
         if (query.validate_sources || query.validate_binary_files) {
           const schemas = await serverOps.getSchemas();
           sourcesValidation = await serverOps.validateSources(
