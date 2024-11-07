@@ -292,7 +292,7 @@ export const Api = {
         z.object({
           status: z.literal(200),
           json: z.object({
-            mode: z.literal("local"),
+            mode: z.union([z.literal("local"), z.literal("proxy")]),
             enabled: z.boolean(),
           }),
         }),
