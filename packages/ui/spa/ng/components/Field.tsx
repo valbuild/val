@@ -1,7 +1,7 @@
 import { SerializedSchema, SourcePath } from "@valbuild/core";
 import { Label } from "./Label";
 import classNames from "classnames";
-import { ChevronDown, ChevronsDown } from "lucide-react";
+import { ChevronDown, ChevronsDown, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AnimateHeight } from "./AnimateHeight";
 import {
@@ -15,6 +15,8 @@ import { Checkbox } from "../../components/ui/checkbox";
 import { emptyOf } from "../../components/fields/emptyOf";
 import { JSONValue } from "@valbuild/core/patch";
 import { EmbeddedBooleanField } from "../fields/BooleanField";
+import { Button } from "../../components/ui/button";
+import { ArrayAndRecordTools } from "./ArrayAndRecordTools";
 
 export function Field({
   label,
@@ -54,6 +56,9 @@ export function Field({
   const source = "data" in sourceAtPath ? sourceAtPath.data : undefined;
   const isBoolean =
     "data" in schemaAtPath && schemaAtPath.data?.type === "boolean";
+  const isArray = "data" in schemaAtPath && schemaAtPath.data?.type === "array";
+  const isRecord =
+    "data" in schemaAtPath && schemaAtPath.data?.type === "record";
   const isNullable = "data" in schemaAtPath && schemaAtPath.data?.opt === true;
   return (
     <div
@@ -111,17 +116,22 @@ export function Field({
           {typeof label === "string" && <Label>{label}</Label>}
           {label && typeof label !== "string" && label}
         </div>
-        {source !== null && !isBoolean && (
-          <button
-            onClick={() => setIsExpanded((prev) => !prev)}
-            className={classNames("transform transition-transform", {
-              "rotate-180": isExpanded,
-            })}
-          >
-            {foldLevel === "1" && <ChevronDown size={16} />}
-            {foldLevel === "2" && <ChevronsDown size={16} />}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {source !== null && (
+            <ArrayAndRecordTools path={path} variant={"field"} />
+          )}
+          {source !== null && !isBoolean && (
+            <button
+              onClick={() => setIsExpanded((prev) => !prev)}
+              className={classNames("transform transition-transform", {
+                "rotate-180": isExpanded,
+              })}
+            >
+              {foldLevel === "1" && <ChevronDown size={16} />}
+              {foldLevel === "2" && <ChevronsDown size={16} />}
+            </button>
+          )}
+        </div>
       </div>
       {!isBoolean && (
         <AnimateHeight
