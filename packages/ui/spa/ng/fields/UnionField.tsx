@@ -145,6 +145,7 @@ function ObjectUnionField({
 }) {
   const fullSourceAtPath = useSourceAtPath(path);
   const { addPatch, patchPath } = useAddPatch(path);
+  const portalContainer = useValPortal();
   const keyPath = sourcePathOfItem(path, schema.key);
   const currentSourceKeyRes = useShallowSourceAtPath(keyPath, "literal");
   if (
@@ -226,7 +227,7 @@ function ObjectUnionField({
         <SelectTrigger>
           <SelectValue>{currentSourceKeyRes.data}</SelectValue>
         </SelectTrigger>
-        <SelectContent className="w-32">
+        <SelectContent container={portalContainer} className="w-32">
           {options == undefined ? (
             <LoadingSelectContent />
           ) : (
