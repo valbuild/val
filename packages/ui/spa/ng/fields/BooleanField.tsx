@@ -1,4 +1,4 @@
-import { SourcePath } from "@valbuild/core";
+import { Json, SourcePath } from "@valbuild/core";
 import { Checkbox } from "../../components/ui/checkbox";
 import { FieldLoading } from "../components/FieldLoading";
 import { FieldNotFound } from "../components/FieldNotFound";
@@ -8,6 +8,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
+  ShallowSource,
 } from "../ValProvider";
 import { FieldSchemaMismatchError } from "../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../components/Preview";
@@ -93,6 +94,72 @@ export function BooleanField({ path }: { path: SourcePath }) {
         }}
       />
     </div>
+  );
+}
+
+export function EmbeddedBooleanField({
+  path,
+  source,
+  isNullable,
+  loadingStatus,
+}: {
+  path: SourcePath;
+  source: ShallowSource[keyof ShallowSource] | undefined | null;
+  isNullable: boolean;
+  loadingStatus: "not-asked" | "loading" | "success" | "error";
+}) {
+  const { addPatch, patchPath } = useAddPatch(path);
+  if (typeof source !== "boolean" && source !== null) {
+    return (
+      <FieldSourceError path={path} error={"Expected boolean"} type="boolean" />
+    );
+  }
+  return (
+    <Checkbox
+      disabled={loadingStatus === "loading"}
+      checked={
+        source === null
+          ? "indeterminate"
+          : typeof source === "boolean"
+            ? source
+            : false
+      }
+      onCheckedChange={() => {
+        if (source === null) {
+          addPatch([
+            {
+              op: "replace",
+              path: patchPath,
+              value: true,
+            },
+          ]);
+        } else if (source === false && isNullable) {
+          addPatch([
+            {
+              op: "replace",
+              path: patchPath,
+              value: null,
+            },
+          ]);
+        } else if (source === false) {
+          addPatch([
+            {
+              op: "replace",
+              path: patchPath,
+              value: true,
+            },
+          ]);
+        } else {
+          addPatch([
+            {
+              op: "replace",
+              path: patchPath,
+              value: false,
+            },
+          ]);
+        }
+      }}
+    />
   );
 }
 

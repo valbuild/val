@@ -14,6 +14,7 @@ import {
 import { Checkbox } from "../../components/ui/checkbox";
 import { emptyOf } from "../../components/fields/emptyOf";
 import { JSONValue } from "@valbuild/core/patch";
+import { EmbeddedBooleanField } from "../fields/BooleanField";
 
 export function Field({
   label,
@@ -53,10 +54,7 @@ export function Field({
   const source = "data" in sourceAtPath ? sourceAtPath.data : undefined;
   const isBoolean =
     "data" in schemaAtPath && schemaAtPath.data?.type === "boolean";
-  const isNullableBoolean =
-    "data" in schemaAtPath &&
-    schemaAtPath.data?.opt === true &&
-    schemaAtPath.data?.type === "boolean";
+  const isNullable = "data" in schemaAtPath && schemaAtPath.data?.opt === true;
   return (
     <div
       className={classNames("p-4 border rounded-lg", {
@@ -66,7 +64,7 @@ export function Field({
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
-          {!isBoolean && "data" in schemaAtPath && schemaAtPath.data.opt && (
+          {!isBoolean && isNullable && (
             <Checkbox
               disabled={loadingStatus === "loading"}
               checked={source !== null || showEmptyFileOrImage}
@@ -103,50 +101,11 @@ export function Field({
             />
           )}
           {isBoolean && (
-            <Checkbox
-              disabled={loadingStatus === "loading"}
-              checked={
-                source === null
-                  ? "indeterminate"
-                  : typeof source === "boolean"
-                    ? source
-                    : false
-              }
-              onCheckedChange={() => {
-                if (source === null) {
-                  addPatch([
-                    {
-                      op: "replace",
-                      path: patchPath,
-                      value: true,
-                    },
-                  ]);
-                } else if (source === false && isNullableBoolean) {
-                  addPatch([
-                    {
-                      op: "replace",
-                      path: patchPath,
-                      value: null,
-                    },
-                  ]);
-                } else if (source === false) {
-                  addPatch([
-                    {
-                      op: "replace",
-                      path: patchPath,
-                      value: true,
-                    },
-                  ]);
-                } else {
-                  addPatch([
-                    {
-                      op: "replace",
-                      path: patchPath,
-                      value: false,
-                    },
-                  ]);
-                }
-              }}
+            <EmbeddedBooleanField
+              path={path}
+              isNullable={isNullable}
+              loadingStatus={loadingStatus}
+              source={source}
             />
           )}
           {typeof label === "string" && <Label>{label}</Label>}
