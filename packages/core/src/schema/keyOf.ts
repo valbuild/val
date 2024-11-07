@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from "../schema";
+import { Schema, SchemaAssertResult, SerializedSchema } from "../schema";
 import { ValModuleBrand } from "../module";
 import { GenericSelector, GetSchema } from "../selector";
 import { Source, SourceObject } from "../source";
@@ -30,7 +30,8 @@ type KeyOfSelector<Sel extends GenericSelector<SourceObject>> =
 
 export class KeyOfSchema<
   Sel extends GenericSelector<SourceObject>,
-> extends Schema<KeyOfSelector<Sel>> {
+  Src extends KeyOfSelector<Sel> | null,
+> extends Schema<Src> {
   constructor(
     readonly schema?: SerializedSchema,
     readonly sourcePath?: SourcePath,
@@ -38,7 +39,7 @@ export class KeyOfSchema<
   ) {
     super();
   }
-  validate(path: SourcePath, src: KeyOfSelector<Sel>): ValidationErrors {
+  validate(path: SourcePath, src: Src): ValidationErrors {
     if (this.opt && (src === null || src === undefined)) {
       return false;
     }
@@ -95,13 +96,39 @@ export class KeyOfSchema<
     return false;
   }
 
-  assert(src: KeyOfSelector<Sel>): boolean {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      } as SchemaAssertResult<Src>;
+    }
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Expected 'string', got 'null'`,
+              typeError: true,
+            },
+          ],
+        },
+      };
     }
     const schema = this.schema;
     if (!schema) {
-      return false;
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Neither key nor schema was found. keyOf is missing an argument.`,
+              typeError: true,
+            },
+          ],
+        },
+      };
     }
     const serializedSchema = schema;
 
@@ -110,25 +137,64 @@ export class KeyOfSchema<
         serializedSchema.type === "object" || serializedSchema.type === "record"
       )
     ) {
-      return false;
-    }
-    if (serializedSchema.opt && (src === null || src === undefined)) {
-      return true;
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Schema of first argument must be either: 'array', 'object' or 'record'. Found '${serializedSchema.type}'`,
+              typeError: true,
+            },
+          ],
+        },
+      };
     }
     if (serializedSchema.type === "record" && typeof src !== "string") {
-      return false;
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Value of keyOf (record) must be 'string', got '${typeof src}'`,
+              typeError: true,
+            },
+          ],
+        },
+      };
     }
+    // We check actual value here, since TypeScript also does this. Literals are used in other types (unions),
+    // and there it also makes sense to check the actual string values (i.e. that it is not just a string) since
+    // missing one would lead to a runtime error. At least this is what we are thinking currently.
     if (serializedSchema.type === "object") {
       const keys = Object.keys(serializedSchema.items);
       if (!keys.includes(src as string)) {
-        return false;
+        return {
+          success: false,
+          errors: {
+            [path]: [
+              {
+                message: `Value of keyOf (object) must be: ${keys.join(
+                  ", ",
+                )}. Found: ${src}`,
+                typeError: true,
+              },
+            ],
+          },
+        };
       }
     }
-    return true;
+    return {
+      success: true,
+      data: src,
+    } as SchemaAssertResult<Src>;
   }
 
-  nullable(): Schema<KeyOfSelector<Sel> | null> {
-    return new KeyOfSchema(this.schema, this.sourcePath, true);
+  nullable(): Schema<Src | null> {
+    return new KeyOfSchema(
+      this.schema,
+      this.sourcePath,
+      true,
+    ) as Schema<Src | null>;
   }
 
   serialize(): SerializedSchema {
@@ -174,5 +240,5 @@ export const keyOf = <
   return new KeyOfSchema(
     valModule?.[GetSchema]?.serialize(),
     getValPath(valModule),
-  );
+  ) as Schema<KeyOfSelector<Src>>;
 };

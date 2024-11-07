@@ -1,7 +1,7 @@
 import { Json } from "../Json";
 import { FILE_REF_PROP, FileSource } from "../source/file";
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from ".";
+import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { VAL_EXTENSION } from "../source";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
@@ -155,11 +155,66 @@ export class FileSchema<
     } as ValidationErrors;
   }
 
-  assert(src: Src): boolean {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      } as SchemaAssertResult<Src>;
     }
-    return src?.[FILE_REF_PROP] === "file" && src?.[VAL_EXTENSION] === "file";
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            { message: `Expected 'object', got 'null'`, typeError: true },
+          ],
+        },
+      };
+    }
+    if (typeof src !== "object") {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Expected object, got '${typeof src}'`,
+              typeError: true,
+            },
+          ],
+        },
+      };
+    }
+    if (!(FILE_REF_PROP in src)) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Value of this schema must use: 'c.file' (error type: missing_ref_prop)`,
+              typeError: true,
+            },
+          ],
+        },
+      };
+    }
+    if (!(VAL_EXTENSION in src && src[VAL_EXTENSION] === "file")) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Value of this schema must use: 'c.file' (error type: missing_file_extension)`,
+              typeError: true,
+            },
+          ],
+        },
+      };
+    }
+    return {
+      success: true,
+      data: src,
+    } as SchemaAssertResult<Src>;
   }
 
   nullable(): Schema<Src | null> {
@@ -178,7 +233,7 @@ export class FileSchema<
 export const file = (
   options?: FileOptions,
 ): Schema<FileSource<FileMetadata>> => {
-  return new FileSchema(options);
+  return new FileSchema(options) as Schema<FileSource<FileMetadata>>;
 };
 
 export function convertFileSource<
