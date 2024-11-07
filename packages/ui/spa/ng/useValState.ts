@@ -65,6 +65,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         }
       | {
           status: "error";
+          isAuthenticationError?: boolean;
           errors: {
             message: string;
             patchId?: PatchId;
@@ -663,6 +664,7 @@ type StatState =
   | {
       status: "error";
       data?: StatData;
+      isAuthenticationError?: boolean;
       error: string;
       retries: number;
       wait: number;
@@ -778,7 +780,9 @@ async function execStat(
           });
         }
       } else {
-        setStat((prev) => createError(prev, res.json.message));
+        setStat((prev) =>
+          createError(prev, res.json.message, res.status === 401),
+        );
       }
     })
     .catch((err) => {
@@ -789,7 +793,11 @@ async function execStat(
     });
 }
 
-function createError(stat: StatState, message: string): StatState {
+function createError(
+  stat: StatState,
+  message: string,
+  isAuthenticationError?: boolean,
+): StatState {
   const retries = "retries" in stat ? stat.retries + 1 : 0;
   // a bit of random jitter in the start, but maxes out pretty soon on 5000ms
   const waitMillis =
@@ -803,6 +811,7 @@ function createError(stat: StatState, message: string): StatState {
     data: "data" in stat ? stat.data : undefined,
     retries,
     wait: waitMillis,
+    isAuthenticationError,
   };
 }
 

@@ -30,6 +30,7 @@ const ValContext = React.createContext<{
   portalRef: HTMLElement | null;
   theme: Themes | null;
   setTheme: (theme: Themes | null) => void;
+  isAuthenticationError?: boolean;
   config: ValConfig | undefined;
   addPatch: (moduleFilePath: ModuleFilePath, patch: Patch) => void;
   getPatches: (patchIds: PatchId[]) => Promise<GetPatchRes>;
@@ -85,6 +86,9 @@ const ValContext = React.createContext<{
     throw new Error("ValContext not provided");
   },
   get setTheme(): React.Dispatch<React.SetStateAction<Themes | null>> {
+    throw new Error("ValContext not provided");
+  },
+  get isAuthenticationError(): boolean | undefined {
     throw new Error("ValContext not provided");
   },
   get config(): ValConfig | undefined {
@@ -216,15 +220,16 @@ export function ValProvider({
   );
   const config =
     "data" in stat && stat.data ? (stat.data?.config as ValConfig) : undefined;
+  const configError = "error" in stat ? stat.error : undefined;
 
   const [theme, setTheme] = useState<Themes | null>(null);
   useEffect(() => {
-    if (!config) {
+    if (!config && !configError) {
       return;
     }
     try {
       const storedTheme = localStorage.getItem(
-        "val-theme-" + (config.project || "unknown"),
+        "val-theme-" + (config?.project || "unknown"),
       );
       if (storedTheme) {
         if (storedTheme === "light" || storedTheme === "dark") {
@@ -232,11 +237,13 @@ export function ValProvider({
         } else {
           throw new Error(`Invalid Val theme: ${storedTheme}`);
         }
+      } else if (configError) {
+        setTheme("dark");
       }
     } catch (e) {
       console.error("Error getting theme from local storage", e);
     }
-  }, [config]);
+  }, [config, configError]);
   useEffect(() => {
     if (config?.defaultTheme && theme === null) {
       if (config?.defaultTheme === "dark" || config?.defaultTheme === "light") {
@@ -327,6 +334,8 @@ export function ValProvider({
             console.warn(`Cannot set invalid theme theme: ${theme}`);
           }
         },
+        isAuthenticationError:
+          "error" in stat ? stat.isAuthenticationError : undefined,
         publish,
         isPublishing,
         publishError,
@@ -372,6 +381,11 @@ export function useValConfig() {
     }
   }, [config]);
   return lastConfig.current;
+}
+
+export function useValAuthenticationError() {
+  const { isAuthenticationError } = useContext(ValContext);
+  return isAuthenticationError;
 }
 
 export function useAddPatch(sourcePath: SourcePath) {

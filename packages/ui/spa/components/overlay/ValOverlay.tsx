@@ -3,6 +3,7 @@ import {
   Clock,
   Edit,
   EyeOff,
+  LogIn,
   PanelsTopLeft,
   Search,
   SquareDashedMousePointer,
@@ -22,8 +23,14 @@ import { Internal, SourcePath } from "@valbuild/core";
 import { CompressedPath } from "../../ng/components/CompressedPath";
 import { Button } from "../ui/button";
 import { AnyField } from "../../ng/components/AnyField";
-import { useSchemaAtPath, useTheme, useValConfig } from "../../ng/ValProvider";
+import {
+  useSchemaAtPath,
+  useTheme,
+  useValAuthenticationError,
+  useValConfig,
+} from "../../ng/ValProvider";
 import { FieldLoading } from "../../ng/components/FieldLoading";
+import { urlOf } from "@valbuild/shared/internal";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -394,6 +401,7 @@ function ValMenu({
     dropZone === "val-menu-right-center" || dropZone === "val-menu-left-center"
       ? "vertical"
       : "horizontal";
+  const isAuthenticationError = useValAuthenticationError();
 
   return (
     <div className="p-4 right-16">
@@ -405,7 +413,24 @@ function ValMenu({
           </div>
         </div>
       )}
-      <AnimateHeight isOpen={draftMode && !draftModeLoading && !loading}>
+      {isAuthenticationError && (
+        <div className={getPositionClassName(dropZone) + " p-4"}>
+          <div className="flex items-center justify-center p-2 text-white bg-black rounded backdrop-blur">
+            <a
+              href={urlOf("/api/val/authorize", {
+                redirect_to: window.location.href,
+              })}
+            >
+              <LogIn size={16} />
+            </a>
+          </div>
+        </div>
+      )}
+      <AnimateHeight
+        isOpen={
+          draftMode && !draftModeLoading && !loading && !isAuthenticationError
+        }
+      >
         <div
           className={classNames(
             "flex relative rounded bg-bg-primary text-text-primary gap-2",
@@ -457,7 +482,13 @@ function ValMenu({
           />
         </div>
       </AnimateHeight>
-      <AnimateHeight isOpen={!(draftMode && !draftModeLoading) && !loading}>
+      <AnimateHeight
+        isOpen={
+          !(draftMode && !draftModeLoading) &&
+          !loading &&
+          !isAuthenticationError
+        }
+      >
         <div
           className={classNames(
             "flex relative rounded bg-bg-primary text-text-primary gap-2",
