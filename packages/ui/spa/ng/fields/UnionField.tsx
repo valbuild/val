@@ -182,13 +182,14 @@ function ObjectUnionField({
     if (
       fullSourceAtPath !== undefined &&
       currentSourceKeyRes.data !== undefined &&
-      typeof currentSourceKeyRes.data === "string"
+      typeof currentSourceKeyRes.data === "string" &&
+      fullSourceAtPath.status === "success"
     ) {
       if (!previouslySelectedSources.current[path]) {
         previouslySelectedSources.current[path] = {};
       }
       previouslySelectedSources.current[path][currentSourceKeyRes.data] =
-        fullSourceAtPath;
+        fullSourceAtPath.data;
     }
   }, [fullSourceAtPath, currentSourceKeyRes, path]);
   return (
@@ -214,6 +215,11 @@ function ObjectUnionField({
           const newValue: any =
             previouslySelectedSources.current[path][value] ||
             emptyOf(selectedSchema);
+          console.log({
+            newValue,
+            previouslySelectedSources: previouslySelectedSources.current,
+            emptyOf: emptyOf(selectedSchema),
+          });
           newValue[schema.key] = value;
           addPatch([
             {
