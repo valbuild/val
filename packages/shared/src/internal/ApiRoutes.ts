@@ -174,6 +174,21 @@ export const Api = {
           redirectTo: z.string(),
           cookies: z.object({
             [VAL_ENABLE_COOKIE_NAME]: enableCookieValue,
+            [VAL_STATE_COOKIE]: z.object({
+              value: z.string(),
+              options: z.object({
+                httpOnly: z.literal(true),
+                sameSite: z.literal("lax"),
+                expires: z.instanceof(Date),
+              }),
+            }),
+          }),
+        }),
+        z.object({
+          status: z.literal(302),
+          redirectTo: z.string(),
+          cookies: z.object({
+            [VAL_ENABLE_COOKIE_NAME]: enableCookieValue,
           }),
         }),
         z.object({

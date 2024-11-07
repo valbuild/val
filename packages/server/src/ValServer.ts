@@ -242,6 +242,34 @@ export const ValServer = (
     }
   };
 
+  const authorize = async (redirectTo: string) => {
+    const token = crypto.randomUUID();
+    const redirectUrl = new URL(redirectTo);
+    const appAuthorizeUrl = getAuthorizeUrl(
+      `${redirectUrl.origin}/${options.route}`,
+      token,
+    );
+    await callbacks.onEnable(true);
+    return {
+      cookies: {
+        [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
+        [VAL_STATE_COOKIE]: {
+          value: createStateCookie({
+            redirect_to: redirectTo,
+            token,
+          }),
+          options: {
+            httpOnly: true,
+            sameSite: "lax",
+            expires: new Date(Date.now() + 1000 * 60 * 60), // 1 hour
+          },
+        },
+      } as const,
+      status: 302 as const,
+      redirectTo: appAuthorizeUrl,
+    };
+  };
+
   return {
     "/draft/enable": {
       GET: async (req) => {
@@ -321,7 +349,15 @@ export const ValServer = (
       GET: async (req) => {
         const cookies = req.cookies;
         const auth = getAuth(cookies);
+        const query = req.query;
+        const redirectToRes = getRedirectUrl(
+          query,
+          options.valEnableRedirectUrl,
+        );
         if (auth.error) {
+          if (typeof redirectToRes === "string") {
+            return authorize(redirectToRes);
+          }
           return {
             status: 401,
             json: {
@@ -329,11 +365,6 @@ export const ValServer = (
             },
           };
         }
-        const query = req.query;
-        const redirectToRes = getRedirectUrl(
-          query,
-          options.valEnableRedirectUrl,
-        );
         if (typeof redirectToRes !== "string") {
           return redirectToRes;
         }
@@ -392,31 +423,8 @@ export const ValServer = (
             },
           };
         }
-        const token = crypto.randomUUID();
-        const redirectUrl = new URL(query.redirect_to);
-        const appAuthorizeUrl = getAuthorizeUrl(
-          `${redirectUrl.origin}/${options.route}`,
-          token,
-        );
-        await callbacks.onEnable(true);
-        return {
-          cookies: {
-            [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
-            [VAL_STATE_COOKIE]: {
-              value: createStateCookie({
-                redirect_to: query.redirect_to,
-                token,
-              }),
-              options: {
-                httpOnly: true,
-                sameSite: "lax",
-                expires: new Date(Date.now() + 1000 * 60 * 60), // 1 hour
-              },
-            },
-          },
-          status: 302,
-          redirectTo: appAuthorizeUrl,
-        };
+        const redirectTo = query.redirect_to;
+        return authorize(redirectTo);
       },
     },
 
