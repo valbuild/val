@@ -119,12 +119,14 @@ function AddArrayButton({
             value: emptyOf(schema.item) as JSONValue,
           },
         ]);
-        navigate(
-          Internal.joinModuleFilePathAndModulePath(
-            moduleFilePath,
-            Internal.patchPathToModulePath(newPatchPath),
-          ),
-        );
+        if (schema.item.type !== "string") {
+          navigate(
+            Internal.joinModuleFilePathAndModulePath(
+              moduleFilePath,
+              Internal.patchPathToModulePath(newPatchPath),
+            ),
+          );
+        }
       }}
     >
       <Plus size={getIconSize(variant)} />
