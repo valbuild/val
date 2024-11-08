@@ -595,7 +595,7 @@ export class ValOpsHttp extends ValOps {
     if (!file) {
       return null;
     }
-    return Buffer.from(file.value, "base64");
+    return bufferFromDataUrl(file.value) ?? null;
   }
 
   protected override async getBase64EncodedBinaryFileMetadataFromPatch<
