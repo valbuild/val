@@ -136,11 +136,6 @@ const initFetchValStega =
           })
           .catch((err) => {
             console.error("Val: failed while fetching modules", err);
-            if (process.env.NODE_ENV === "development") {
-              throw Error(
-                "Val: Could not fetch data. This is likely due to a misconfiguration or a bug. Check the console for more details.",
-              );
-            }
             return stegaEncode(selector, {});
           }) as SelectorOf<T> extends GenericSelector<infer S>
           ? Promise<StegaOfSource<S>>
