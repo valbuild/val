@@ -20,6 +20,7 @@ import {
   ValOpsOptions,
   WithGenericError,
   SchemaSha,
+  bufferFromDataUrl,
 } from "./ValOps";
 import { z } from "zod";
 import { fromError } from "zod-validation-error";
