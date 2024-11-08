@@ -433,10 +433,6 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     if (sourceState === undefined) {
       return;
     }
-    // skip if we have pending patches
-    if (Object.keys(pendingPatchesRef.current).length > 0) {
-      return;
-    }
 
     if (requestedSources.length === 0) {
       const staleModules = [];
