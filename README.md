@@ -45,7 +45,6 @@ This version of Val is currently an alpha version - the API can be considered re
 ## Table of contents
 
 - [Introduction](#content-as-code)
-- [Installation](#installation)
 - [Documentation](#documentation)
 
 ## Content as code
@@ -134,23 +133,6 @@ Val will support external content, i.e. content from other Val projects, CMSs or
 ## Examples
 
 Check out this README or the [examples](./examples) directory for examples.
-
-## Installation
-
-**NOTE**: Currently Val only works with Next.js, but support other meta-framework is on the roadmap.
-
-- Make sure you have TypeScript 5+, Next 13.4+ (other meta frameworks will come), React 18.20.+ (other frontend frameworks will come)
-- Install the packages (@valbuild/eslint-plugin is recommended but not required):
-
-```sh
-npm install @valbuild/core@latest @valbuild/next@latest @valbuild/eslint-plugin@latest
-```
-
-- Run the init script:
-
-```sh
-npx @valbuild/init@latest
-```
 
 ## Documentation
 
