@@ -613,9 +613,21 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
 }
 
 const PatchId = z.string().refine((p): p is PatchId => true); // TODO: validate
-const WSMessage = z.object({
-  patches: z.array(PatchId),
-});
+
+const WebSocketServerMessage = z.union([
+  z.object({
+    type: z.literal("patches"),
+    patches: z.array(PatchId),
+  }),
+  z.object({
+    type: z.literal("subscribed"),
+  }),
+  z.object({
+    type: z.literal("error"),
+    message: z.string(),
+    reconnect: z.boolean().optional(),
+  }),
+]);
 const StatData = z.object({
   type: z.union([
     z.literal("did-change"),
@@ -685,8 +697,19 @@ function useStat(client: ValClient) {
   useEffect(() => {
     if (stat.status === "updated-request-again" || stat.status === "error") {
       if (stat.wait === 0) {
+        console.debug(
+          "Executing stat immediately",
+          stat.status,
+          stat.status === "error" ? stat.error : "no error",
+        );
         execStat(client, webSocketRef, statIdRef, stat, setStat);
       } else {
+        console.debug(
+          "Executing stat in ",
+          stat.wait,
+          " status: ",
+          stat.status,
+        );
         const timeout = setTimeout(() => {
           execStat(client, webSocketRef, statIdRef, stat, setStat);
         }, stat.wait);
@@ -699,13 +722,14 @@ function useStat(client: ValClient) {
     setStat({
       status: "initializing",
     });
+    console.debug("Initializing stat");
     execStat(client, webSocketRef, statIdRef, stat, setStat);
   }, [client]);
 
   return [stat, setStat] as const;
 }
 
-const WebSocketStatInterval = 10 * 1000;
+const WebSocketStatInterval = 60 * 1000;
 
 async function execStat(
   client: ValClient,
@@ -744,36 +768,76 @@ async function execStat(
             wait: webSocketRef.current ? WebSocketStatInterval : 0, // why 0 wait unless websocket? If websocket is not used, we are long polling so no point in waiting
           });
         } else if (res.json.type === "use-websocket") {
-          if (webSocketRef.current) {
-            webSocketRef.current.close();
-          }
-          webSocketRef.current = new WebSocket(res.json.url);
-          webSocketRef.current.onmessage = (event) => {
-            const message = WSMessage.parse(event.data);
-            setStat((prev) => {
-              if ("data" in prev && prev.data) {
-                return {
-                  status: "ws-message-received",
-                  data: {
-                    ...prev.data,
-                    patches: message.patches,
-                  },
-                };
-              }
-              return prev;
-            });
-          };
-          webSocketRef.current.onclose = () => {
-            webSocketRef.current = null;
-          };
-          webSocketRef.current.onerror = () => {
-            setStat((prev) => createError(prev, "WebSocket error"));
-          };
-          setStat({
+          setStat((prev) => ({
+            ...prev,
             status: "updated-request-again",
             data: res.json,
             wait: WebSocketStatInterval,
-          });
+          }));
+          if (webSocketRef.current) {
+            console.log("Closing existing WebSocket");
+            webSocketRef.current.close();
+          }
+          const wsUrl = res.json.url;
+          console.debug("Connecting to WebSocket", wsUrl);
+          webSocketRef.current = new WebSocket(wsUrl);
+          const nonce = res.json.nonce;
+          webSocketRef.current.onopen = () => {
+            webSocketRef.current?.send(
+              JSON.stringify({ nonce, type: "subscribe" }),
+            );
+          };
+          webSocketRef.current.onmessage = (event) => {
+            try {
+              const messageRes = WebSocketServerMessage.safeParse(
+                JSON.parse(event.data),
+              );
+              if (!messageRes.success) {
+                console.error(
+                  "Could not parse WebSocket message",
+                  messageRes.error,
+                );
+                return;
+              }
+              const message = messageRes.data;
+              if (message.type === "error") {
+                setStat((prev) => createError(prev, message.message));
+              } else if (message.type === "patches") {
+                setStat((prev) => {
+                  if ("data" in prev && prev.data) {
+                    return {
+                      status: "ws-message-received",
+                      data: {
+                        ...prev.data,
+                        patches: message.patches,
+                      },
+                    };
+                  }
+                  return prev;
+                });
+              } else if (message.type === "subscribed") {
+                console.debug("Subscribed!");
+              } else {
+                const exhaustiveCheck: never = message;
+                console.error("Unknown WebSocket message", exhaustiveCheck);
+              }
+            } catch (e) {
+              console.error("Could not parse WebSocket message", e);
+            }
+          };
+          webSocketRef.current.onclose = () => {
+            console.debug("WebSocket closed");
+            setStat((prev) => createError(prev, "WebSocket closed"));
+          };
+          webSocketRef.current.onerror = () => {
+            console.warn("WebSocket error");
+            setStat((prev) =>
+              createError(
+                prev,
+                `Got an error while syncing with Val (reason: WebSocket error)`,
+              ),
+            );
+          };
         }
       } else {
         setStat((prev) =>

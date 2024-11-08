@@ -632,13 +632,15 @@ export const ValServer = (
             },
           };
         }
-        const currentStat = await serverOps.getStat(
-          req.body as {
-            baseSha: BaseSha;
-            schemaSha: SchemaSha;
-            patches: PatchId[];
-          } | null,
-        );
+        const currentStat = await serverOps.getStat({
+          ...req.body,
+          profileId: "id" in auth ? (auth.id as AuthorId) : undefined,
+        } as {
+          baseSha: BaseSha;
+          schemaSha: SchemaSha;
+          patches: PatchId[];
+          profileId?: AuthorId;
+        } | null);
         if (currentStat.type === "error") {
           return {
             status: 500,
@@ -1161,7 +1163,6 @@ export const ValServer = (
         let cacheControl: string | undefined;
         let fileBuffer;
         let mimeType: string | undefined;
-        console.log(filePath, query);
         if (query.patch_id) {
           fileBuffer = await serverOps.getBase64EncodedBinaryFileFromPatch(
             filePath,

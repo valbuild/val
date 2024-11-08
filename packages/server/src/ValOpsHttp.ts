@@ -176,6 +176,7 @@ export class ValOpsHttp extends ValOps {
       baseSha: BaseSha;
       schemaSha: SchemaSha;
       patches?: PatchId[];
+      profileId?: AuthorId;
     } | null,
   ): Promise<
     | {
@@ -187,6 +188,7 @@ export class ValOpsHttp extends ValOps {
     | {
         type: "use-websocket";
         url: string;
+        nonce: string;
         baseSha: BaseSha;
         schemaSha: SchemaSha;
         commitSha: CommitSha;
@@ -194,11 +196,8 @@ export class ValOpsHttp extends ValOps {
       }
     | { type: "error"; error: GenericErrorMessage }
   > {
-    if (params) {
-      console.error(
-        "Val: Current mode is production, however we got a /stat request with params. This is unexpected. Please report this to the Val team.",
-        params,
-      );
+    if (!params?.profileId) {
+      return { type: "error", error: { message: "No profileId provided" } };
     }
     const currentBaseSha = await this.getBaseSha();
     const currentSchemaSha = await this.getSchemaSha();
@@ -217,14 +216,89 @@ export class ValOpsHttp extends ValOps {
     )) {
       patches.push(patchId as PatchId);
     }
+    const webSocketNonceRes = await this.getWebSocketNonce(params.profileId);
+    if (webSocketNonceRes.status === "error") {
+      return { type: "error", error: webSocketNonceRes.error };
+    }
+    const { nonce, url } = webSocketNonceRes.data;
     return {
       type: "use-websocket",
-      url: `${this.hostUrl.replace(/^http/, "ws")}/v1/${this.project}/stat`,
+      url,
+      nonce,
       baseSha: currentBaseSha,
       schemaSha: currentSchemaSha,
       patches,
       commitSha: this.commitSha as CommitSha,
     };
+  }
+
+  async getWebSocketNonce(profileId: string): Promise<
+    | {
+        status: "success";
+        data: { nonce: string; url: string };
+      }
+    | { status: "error"; error: GenericErrorMessage }
+  > {
+    return fetch(`${this.hostUrl}/v1/${this.project}/websocket/nonces`, {
+      method: "POST",
+      body: JSON.stringify({
+        branch: this.branch,
+        profileId,
+      }),
+      headers: {
+        ...this.authHeaders,
+        "Content-Type": "application/json",
+      },
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          const json = await res.json();
+          if (typeof json.nonce !== "string" || typeof json.url !== "string") {
+            return {
+              status: "error" as const,
+              error: {
+                message: "Invalid nonce response: " + JSON.stringify(json),
+              },
+            };
+          }
+          if (!json.url.startsWith("ws://") && !json.url.startsWith("wss://")) {
+            return {
+              status: "error" as const,
+              error: {
+                message: "Invalid websocket url: " + json.url,
+              },
+            };
+          }
+          return {
+            status: "success" as const,
+            data: { nonce: json.nonce, url: json.url },
+          };
+        }
+        return {
+          status: "error" as const,
+          error: {
+            message:
+              "Could not get nonce. HTTP error: " +
+              res.status +
+              " " +
+              res.statusText,
+          },
+        };
+      })
+      .catch((e) => {
+        console.error(
+          "Could not get nonce (connection error?):",
+          e instanceof Error ? e.message : e.toString(),
+        );
+        return {
+          status: "error" as const,
+          error: {
+            message:
+              "Could not get nonce. Error: " +
+              (e instanceof Error ? e.message : e.toString()),
+          },
+        };
+      });
   }
 
   override async fetchPatches<OmitPatch extends boolean>(filters: {

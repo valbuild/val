@@ -109,6 +109,7 @@ export abstract class ValOps {
       baseSha: BaseSha;
       schemaSha: SchemaSha;
       patches?: PatchId[];
+      profileId?: AuthorId;
       // TODO: deployments: Record<DeploymentId, "deployed" | "deploying" | "failed">
     } | null,
   ): Promise<
@@ -121,6 +122,7 @@ export abstract class ValOps {
     | {
         type: "use-websocket";
         url: string;
+        nonce: string;
         baseSha: BaseSha;
         schemaSha: SchemaSha;
         commitSha: CommitSha;
@@ -486,28 +488,30 @@ export abstract class ValOps {
       }
       for (const [sourcePathS, validationErrors] of Object.entries(res)) {
         const sourcePath = sourcePathS as SourcePath;
-        for (const validationError of validationErrors) {
-          if (isOnlyFileCheckValidationError(validationError)) {
-            if (files[sourcePath]) {
-              throw new Error(
-                "Cannot have multiple files with same path. Path: " +
-                  sourcePath +
-                  "; Module: " +
-                  path,
-              );
+        if (validationErrors) {
+          for (const validationError of validationErrors) {
+            if (isOnlyFileCheckValidationError(validationError)) {
+              if (files[sourcePath]) {
+                throw new Error(
+                  "Cannot have multiple files with same path. Path: " +
+                    sourcePath +
+                    "; Module: " +
+                    path,
+                );
+              }
+              const value = validationError.value;
+              if (isFileSource(value)) {
+                files[sourcePath] = value;
+              }
+            } else {
+              if (!errors[path]) {
+                errors[path] = { validations: {} };
+              }
+              if (!errors[path].validations[sourcePath]) {
+                errors[path].validations[sourcePath] = [];
+              }
+              errors[path].validations[sourcePath].push(validationError);
             }
-            const value = validationError.value;
-            if (isFileSource(value)) {
-              files[sourcePath] = value;
-            }
-          } else {
-            if (!errors[path]) {
-              errors[path] = { validations: {} };
-            }
-            if (!errors[path].validations[sourcePath]) {
-              errors[path].validations[sourcePath] = [];
-            }
-            errors[path].validations[sourcePath].push(validationError);
           }
         }
       }
