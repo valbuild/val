@@ -48,6 +48,7 @@ export class ValOpsFS extends ValOps {
       baseSha: BaseSha;
       schemaSha: SchemaSha;
       patches: PatchId[];
+      profileId?: AuthorId;
     } | null,
   ): Promise<
     | {
@@ -59,6 +60,7 @@ export class ValOpsFS extends ValOps {
     | {
         type: "use-websocket";
         url: string;
+        nonce: string;
         baseSha: BaseSha;
         schemaSha: SchemaSha;
         commitSha: CommitSha;

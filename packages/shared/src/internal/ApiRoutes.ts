@@ -405,6 +405,7 @@ export const Api = {
             z.object({
               type: z.literal("use-websocket"),
               url: z.string(),
+              nonce: z.string(),
               baseSha: z.string(),
               schemaSha: z.string(),
               commitSha: z.string(),
