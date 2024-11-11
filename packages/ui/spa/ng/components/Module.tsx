@@ -17,13 +17,13 @@ export function Module({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
   const { path: maybeParentPath, schema: parentSchema } = useParent(path);
   const { navigate } = useNavigation();
-  if (schemaAtPath.status === "loading") {
-    return <FieldLoading path={path} type="module" />;
-  }
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type="module" />
     );
+  }
+  if (schemaAtPath.status === "loading") {
+    return <FieldLoading path={path} type="module" />;
   }
   if (schemaAtPath.status === "not-found") {
     return <FieldNotFound path={path} type="module" />;

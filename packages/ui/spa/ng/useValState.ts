@@ -299,6 +299,18 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
   }, [schemaSha]);
 
   useEffect(() => {
+    if (
+      stat.status === "error" &&
+      (schemas.status === "loading" || schemas.status === "not-asked")
+    ) {
+      setSchemas({
+        status: "error",
+        error: stat.error,
+      });
+    }
+  }, [stat, schemas]);
+
+  useEffect(() => {
     if (overlayDraftMode) {
       for (const moduleFilePathS in sources) {
         const moduleFilePath = moduleFilePathS as ModuleFilePath;
