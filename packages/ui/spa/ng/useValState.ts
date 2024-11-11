@@ -741,7 +741,7 @@ function useStat(client: ValClient) {
   return [stat, setStat] as const;
 }
 
-const WebSocketStatInterval = 60 * 1000;
+const WebSocketStatInterval = 10 * 1000;
 
 async function execStat(
   client: ValClient,
@@ -837,9 +837,12 @@ async function execStat(
               console.error("Could not parse WebSocket message", e);
             }
           };
+          const currentWebSocket = webSocketRef.current;
           webSocketRef.current.onclose = () => {
-            console.debug("WebSocket closed");
-            setStat((prev) => createError(prev, "WebSocket closed"));
+            if (currentWebSocket === webSocketRef.current) {
+              console.debug("WebSocket closed");
+              setStat((prev) => createError(prev, "WebSocket closed"));
+            }
           };
           webSocketRef.current.onerror = () => {
             console.warn("WebSocket error");
