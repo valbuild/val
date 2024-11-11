@@ -115,6 +115,17 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         },
       })
         .then((res) => {
+          if (res.status === 400 && !("errors" in res.json)) {
+            setSourcesSyncStatus(
+              Object.fromEntries(
+                requestedSources.map((moduleFilePath) => [
+                  moduleFilePath,
+                  { status: "error", errors: [{ message: res.json.message }] },
+                ]),
+              ),
+            );
+            return;
+          }
           if (res.status === 200) {
             setValidationErrors((prev) => {
               const errors: typeof prev = validateAll ? {} : { ...prev };

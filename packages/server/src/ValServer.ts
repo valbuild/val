@@ -866,6 +866,15 @@ export const ValServer = (
             patchIds && patchIds.length > 0
               ? await serverOps.fetchPatches({ patchIds, omitPatch: false })
               : { patches: {} };
+          if (patchOps.error) {
+            return {
+              status: 400,
+              json: {
+                message: "Failed to fetch patches: " + patchOps.error.message,
+                details: [],
+              },
+            };
+          }
           let patchErrors: Record<PatchId, { message: string }> | undefined =
             undefined;
           for (const [patchIdS, error] of Object.entries(
@@ -1009,7 +1018,6 @@ export const ValServer = (
               type: "patch-error",
               schemaSha,
               modules,
-
               errors: Object.fromEntries(
                 Object.entries(tree.errors).map(([key, value]) => [
                   key,
