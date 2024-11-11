@@ -300,8 +300,59 @@ export class ValOpsHttp extends ValOps {
         };
       });
   }
-
   override async fetchPatches<OmitPatch extends boolean>(filters: {
+    authors?: AuthorId[];
+    patchIds?: PatchId[];
+    moduleFilePaths?: ModuleFilePath[];
+    omitPatch: OmitPatch;
+  }): Promise<OmitPatch extends true ? PatchesMetadata : Patches> {
+    // Split patchIds into chunks to avoid too long query strings
+    // NOTE: fetching patches results are cached, so this should reduce the pressure on the server
+    const chunkSize = 100;
+    const patchIds = filters.patchIds || [];
+    const patchIdChunks = [];
+    for (let i = 0; i < patchIds.length; i += chunkSize) {
+      patchIdChunks.push(patchIds.slice(i, i + chunkSize));
+    }
+    let allPatches: Patches["patches"] = {};
+    let allErrors: Patches["errors"] = {};
+    if (patchIds === undefined || patchIds.length === 0) {
+      return this.fetchPatchesInternal({
+        patchIds: patchIds,
+        authors: filters.authors,
+        moduleFilePaths: filters.moduleFilePaths,
+        omitPatch: filters.omitPatch,
+      });
+    }
+
+    for (const res of await Promise.all(
+      patchIdChunks.map((patchIdChunk) =>
+        this.fetchPatchesInternal({
+          patchIds: patchIdChunk,
+          authors: filters.authors,
+          moduleFilePaths: filters.moduleFilePaths,
+          omitPatch: filters.omitPatch,
+        }),
+      ),
+    )) {
+      if ("error" in res) {
+        return res;
+      }
+      allPatches = {
+        ...allPatches,
+        ...(res.patches as Patches["patches"]),
+      };
+      if (res.errors) {
+        allErrors = { ...allErrors, ...res.errors };
+      }
+    }
+    return {
+      patches: allPatches,
+      errors: Object.keys(allErrors).length > 0 ? allErrors : undefined,
+    } as OmitPatch extends true ? PatchesMetadata : Patches;
+  }
+
+  async fetchPatchesInternal<OmitPatch extends boolean>(filters: {
     authors?: AuthorId[];
     patchIds?: PatchId[];
     moduleFilePaths?: ModuleFilePath[];
