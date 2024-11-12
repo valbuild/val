@@ -1096,10 +1096,17 @@ export const ValServer = (
           ...patches,
         });
         if (preparedCommit.hasErrors) {
-          console.error("Failed to create commit", {
-            sourceFilePatchErrors: preparedCommit.sourceFilePatchErrors,
-            binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
-          });
+          console.error(
+            "Failed to create commit",
+            JSON.stringify(
+              {
+                sourceFilePatchErrors: preparedCommit.sourceFilePatchErrors,
+                binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
+              },
+              null,
+              2,
+            ),
+          );
           return {
             status: 400,
             json: {
