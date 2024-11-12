@@ -4,15 +4,11 @@ import { number } from "./number";
 import { record } from "./record";
 
 describe("RecordSchema", () => {
-  test("assert: ", () => {
+  test("assert: basic record", () => {
     const schema = record(number().nullable());
-    const test = schema.assert("foo" as SourcePath, 1);
-    if (test.success) {
-      test.data;
-    }
-    expect(schema.assert("foo" as SourcePath, 1)).toEqual({
+    expect(schema.assert("foo" as SourcePath, { bar: 1 })).toEqual({
       success: true,
-      data: 1,
+      data: { bar: 1 },
     });
   });
 });
