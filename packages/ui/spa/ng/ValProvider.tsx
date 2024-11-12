@@ -39,6 +39,7 @@ const ValContext = React.createContext<{
   publish: () => void;
   isPublishing: boolean;
   publishError: string | null;
+  resetPublishError: () => void;
   schemas: Remote<Record<ModuleFilePath, SerializedSchema>>;
   schemaSha: string | undefined;
   sources: Record<ModuleFilePath, Json | undefined>;
@@ -113,6 +114,9 @@ const ValContext = React.createContext<{
     throw new Error("ValContext not provided");
   },
   get publishError(): string | null {
+    throw new Error("ValContext not provided");
+  },
+  get resetPublishError(): () => void {
     throw new Error("ValContext not provided");
   },
   get schemas(): Remote<Record<ModuleFilePath, SerializedSchema>> {
@@ -259,6 +263,7 @@ export function ValProvider({
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const publish = useCallback(() => {
+    setIsPublishing(true);
     client("/save", "POST", {
       body: {
         patchIds,
@@ -269,7 +274,9 @@ export function ValProvider({
           setIsPublishing(false);
           setPublishError(null);
         } else {
+          console.error("Error publishing", res.json);
           setPublishError(res.json.message);
+          setIsPublishing(false);
         }
       })
       .catch((err) => {
@@ -277,6 +284,9 @@ export function ValProvider({
         setIsPublishing(false);
       });
   }, [client, patchIds]);
+  const resetPublishError = useCallback(() => {
+    setPublishError(null);
+  }, []);
   const getPatches = useCallback(
     async (patchIds: PatchId[]): Promise<GetPatchRes> => {
       const res = await client("/patches/~", "GET", {
@@ -339,6 +349,7 @@ export function ValProvider({
         publish,
         isPublishing,
         publishError,
+        resetPublishError,
         config,
         schemas,
         schemaSha,
@@ -450,8 +461,57 @@ export function useSyncStatus() {
 }
 
 export function usePublish() {
-  const { publish, isPublishing, publishError } = useContext(ValContext);
-  return { publish, isPublishing, publishError };
+  const { publish, isPublishing, publishError, resetPublishError } =
+    useContext(ValContext);
+  const { globalErrors } = useErrors();
+  const debouncedLoadingStatus = useDebouncedLoadingStatus();
+  const publishDisabled =
+    debouncedLoadingStatus !== "success" ||
+    isPublishing ||
+    globalErrors.length > 0;
+  console.log("publishDisabled", publishDisabled, {
+    debouncedLoadingStatus,
+    isPublishing,
+    globalErrors,
+  });
+  return {
+    publish,
+    isPublishing,
+    publishError,
+    resetPublishError,
+    publishDisabled,
+  };
+}
+
+export function useDebouncedLoadingStatus() {
+  const syncStatus = useSyncStatus();
+  // Debounce loading status to avoid flickering...
+  const [debouncedLoadingStatus, setDebouncedLoadingStatus] = useState<
+    "loading" | "error" | "success" | "not-asked"
+  >("not-asked");
+  useEffect(() => {
+    let loadingStatus: "loading" | "error" | "success" = "success";
+    for (const value of Object.values(syncStatus)) {
+      if (value.status === "error") {
+        loadingStatus = "error";
+        break;
+      } else if (value.status === "loading") {
+        loadingStatus = "loading";
+        break;
+      }
+    }
+    if (loadingStatus === "success") {
+      const timeout = setTimeout(() => {
+        setDebouncedLoadingStatus(loadingStatus);
+      }, 100);
+      return () => {
+        clearTimeout(timeout);
+      };
+    } else {
+      setDebouncedLoadingStatus(loadingStatus);
+    }
+  }, [syncStatus]);
+  return debouncedLoadingStatus;
 }
 
 type EnsureAllTypes<T extends Record<SerializedSchema["type"], unknown>> = T;
