@@ -878,11 +878,17 @@ export class ValOpsHttp extends ValOps {
     committer: AuthorId,
     newBranch?: string,
   ): Promise<
-    WithGenericError<{
-      updatedFiles: string[];
-      commit: CommitSha;
-      branch: string;
-    }>
+    | {
+        isNotFastForward?: boolean;
+        updatedFiles: string[];
+        commit: CommitSha;
+        branch: string;
+        error?: undefined;
+      }
+    | {
+        isNotFastForward?: boolean;
+        error: GenericErrorMessage;
+      }
   > {
     try {
       const existingBranch = this.branch;
@@ -919,6 +925,22 @@ export class ValOpsHttp extends ValOps {
             message: `Could not parse commit response. Error: ${fromError(
               parsed.error,
             )}`,
+          },
+        };
+      }
+      if (res.headers.get("Content-Type")?.includes("application/json")) {
+        const json = await res.json();
+        if (json.isNotFastForward) {
+          return {
+            isNotFastForward: true,
+            error: {
+              message: "Could not commit. Not a fast-forward commit",
+            },
+          };
+        }
+        return {
+          error: {
+            message: json.message,
           },
         };
       }

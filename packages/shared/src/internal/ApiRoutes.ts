@@ -642,6 +642,13 @@ export const Api = {
           json: z.object({}), // TODO:
         }),
         z.object({
+          status: z.literal(409),
+          json: z.object({
+            message: z.string(),
+            isNotFastForward: z.literal(true),
+          }),
+        }),
+        z.object({
           status: z.literal(400),
           json: z.object({
             message: z.string(),

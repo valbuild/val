@@ -1136,13 +1136,36 @@ export const ValServer = (
           };
         } else if (serverOps instanceof ValOpsHttp) {
           if (auth.error === undefined && auth.id) {
-            await serverOps.commit(
+            const commitRes = await serverOps.commit(
               preparedCommit,
               "Update content: " +
                 Object.keys(analysis.patchesByModule) +
                 " modules changed",
               auth.id as AuthorId,
             );
+            if (commitRes.error) {
+              console.error("Failed to commit", commitRes.error);
+              if (
+                "isNotFastForward" in commitRes &&
+                commitRes.isNotFastForward
+              ) {
+                return {
+                  status: 409,
+                  json: {
+                    isNotFastForward: true,
+                    message:
+                      "Cannot commit: this is not the latest version of this branch",
+                  },
+                };
+              }
+              return {
+                status: 400,
+                json: {
+                  message: commitRes.error.message,
+                  details: [],
+                },
+              };
+            }
             // TODO: serverOps.markApplied(patchIds);
             return {
               status: 200,
