@@ -767,8 +767,36 @@ export abstract class ValOps {
         const patchRes = applyPatch(tsSourceFile, tsOps, sourceFileOps);
         if (result.isErr(patchRes)) {
           if (Array.isArray(patchRes.error)) {
+            for (const error of patchRes.error) {
+              console.error(
+                "Could not patch",
+                JSON.stringify(
+                  {
+                    path,
+                    patchId,
+                    error,
+                    sourceFileOps,
+                  },
+                  null,
+                  2,
+                ),
+              );
+            }
             errors.push(...patchRes.error);
           } else {
+            console.error(
+              "Could not patch",
+              JSON.stringify(
+                {
+                  path,
+                  patchId,
+                  error: patchRes.error,
+                  sourceFileOps,
+                },
+                null,
+                2,
+              ),
+            );
             errors.push(patchRes.error);
           }
           triedPatches.push(patchId);
