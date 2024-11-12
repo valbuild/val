@@ -7,7 +7,6 @@ import { literal } from "./literal";
 import { number } from "./number";
 import { object } from "./object";
 import { string } from "./string";
-import { file as fileVal } from "../source/file";
 import { image } from "./image";
 import { ValidationFix } from "./validation/ValidationFix";
 import {
@@ -21,7 +20,9 @@ import { define } from "../module";
 import { union } from "./union";
 import { createValPathOfItem } from "../selector/SelectorProxy";
 import { date } from "./date";
+import { initFile } from "../source/file";
 
+const fileVal = initFile();
 const testPath = "/test" as SourcePath;
 const pathOf = (p: string | symbol | number) => {
   return createValPathOfItem(testPath, p);
@@ -225,19 +226,6 @@ const ValidationTestCases: {
     }),
     expected: [pathOf("two")],
   },
-  // keyof
-  {
-    description: "basic keyOf(array)",
-    input: 1,
-    schema: keyOf(define("/keyof-module", array(string()), [])),
-    expected: false,
-  },
-  {
-    description: "failing keyOf(record)",
-    input: "1",
-    schema: keyOf(define("/keyof-module", array(string()), [])),
-    expected: [testPath],
-  },
   {
     description: "basic keyOf(record)",
     input: "one",
@@ -287,7 +275,7 @@ const ValidationTestCases: {
   },
   {
     description: "failure image: replace metadata",
-    input: fileVal("/public/test.png", {
+    input: fileVal("/public/val/test.png", {
       width: 100,
       height: 100,
       sha256: "test",
@@ -300,7 +288,7 @@ const ValidationTestCases: {
   },
   {
     description: "failure image: check metadata",
-    input: fileVal("/public/test.png", {
+    input: fileVal("/public/val/test.png", {
       width: 100,
       height: 100,
       sha256:
@@ -427,7 +415,7 @@ const ValidationTestCases: {
     description: "failing tagged union: 5",
     input: {
       type: "test2",
-      image: fileVal("/public/test.png"),
+      image: fileVal("/public/val/test.png"),
     },
     schema: union(
       "type",

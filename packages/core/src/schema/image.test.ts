@@ -1,7 +1,8 @@
+import { initFile } from "../source/file";
 import { SourcePath } from "../val";
 import { image } from "./image";
-import { file as sourceFile } from "../source/file";
 
+const sourceFile = initFile();
 describe("ImageSchema", () => {
   test("assert: should return success if src is a file", () => {
     const schema = image();
