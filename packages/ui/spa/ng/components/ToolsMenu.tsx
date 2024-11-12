@@ -1,15 +1,15 @@
 import {
   LoadingStatus,
+  useDebouncedLoadingStatus,
   useErrors,
   usePublish,
-  useSyncStatus,
 } from "../ValProvider";
 import { ScrollArea } from "../../components/ui/scroll-area";
-import { useState, useEffect } from "react";
 import { DraftChanges } from "./DraftChanges";
 import { X } from "lucide-react";
 import classNames from "classnames";
 import { urlOf } from "@valbuild/shared/internal";
+import { PublishErrorDialog } from "./PublishErrorDialog";
 
 export function ToolsMenu({
   isOpen,
@@ -18,44 +18,12 @@ export function ToolsMenu({
   isOpen: boolean;
   setOpen: (open: boolean) => void;
 }) {
-  const syncStatus = useSyncStatus();
-  // Debounce loading status to avoid flickering...
-  const [debouncedLoadingStatus, setDebouncedLoadingStatus] = useState<
-    "loading" | "error" | "success" | "not-asked"
-  >("not-asked");
   const { globalErrors } = useErrors();
-  useEffect(() => {
-    let loadingStatus: "loading" | "error" | "success" = "success";
-    for (const value of Object.values(syncStatus)) {
-      if (value.status === "error") {
-        loadingStatus = "error";
-        break;
-      } else if (value.status === "loading") {
-        loadingStatus = "loading";
-        break;
-      }
-    }
-    if (loadingStatus === "success") {
-      const timeout = setTimeout(() => {
-        setDebouncedLoadingStatus(loadingStatus);
-      }, 100);
-      return () => {
-        clearTimeout(timeout);
-      };
-    } else {
-      setDebouncedLoadingStatus(loadingStatus);
-    }
-  }, [syncStatus]);
-  const { publishError } = usePublish();
-
+  const debouncedLoadingStatus = useDebouncedLoadingStatus();
   return (
     <nav className="flex flex-col gap-1 pr-4">
       <div className="flex items-center h-16 gap-4 p-4 mt-4 bg-bg-tertiary rounded-3xl">
-        <ToolsMenuButtons
-          loadingStatus={debouncedLoadingStatus}
-          isOpen={isOpen}
-          setOpen={setOpen}
-        />
+        <ToolsMenuButtons isOpen={isOpen} setOpen={setOpen} />
       </div>
       {globalErrors.length > 0 && (
         <div className="p-4 bg-bg-error-primary text-text-Wprimary rounded-3xl">
@@ -64,11 +32,7 @@ export function ToolsMenu({
           ))}
         </div>
       )}
-      {publishError && (
-        <div className="bg-bg-error-primary text-text-error-primary rounded-3xl">
-          {publishError}
-        </div>
-      )}
+      <PublishErrorDialog />
       {debouncedLoadingStatus !== "not-asked" && (
         <div
           className={classNames("bg-bg-tertiary rounded-3xl", {
@@ -88,18 +52,13 @@ export function ToolsMenu({
 }
 
 export function ToolsMenuButtons({
-  loadingStatus,
   isOpen,
   setOpen,
 }: {
-  loadingStatus: LoadingStatus;
   isOpen: boolean;
   setOpen: (open: boolean) => void;
 }) {
-  const { publish, isPublishing } = usePublish();
-  const { globalErrors } = useErrors();
-  const isDisabled =
-    loadingStatus !== "success" || isPublishing || globalErrors.length > 0;
+  const { publish, publishDisabled } = usePublish();
   return (
     <div className="flex items-center justify-end w-full gap-4 p-4">
       <div className="xl:hidden">
@@ -124,7 +83,7 @@ export function ToolsMenuButtons({
         </button>
         <button
           className="px-3 py-1 font-bold transition-colors border rounded bg-bg-brand-primary disabled:text-text-disabled disabled:bg-bg-disabled disabled:border-border-disabled disabled:border border-bg-brand-primary text-text-brand-primary"
-          disabled={isOpen && isDisabled}
+          disabled={isOpen && publishDisabled}
           onClick={() => {
             if (!isOpen) {
               setOpen(true);
@@ -150,7 +109,7 @@ export function ToolsMenuButtons({
         </button>
         <button
           className="px-3 py-1 font-bold transition-colors border rounded bg-bg-brand-primary disabled:text-text-disabled disabled:bg-bg-disabled disabled:border-border-disabled disabled:border border-bg-brand-primary text-text-brand-primary"
-          disabled={isDisabled}
+          disabled={publishDisabled}
           onClick={() => {
             publish();
           }}

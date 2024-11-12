@@ -24,6 +24,7 @@ import { CompressedPath } from "../../ng/components/CompressedPath";
 import { Button } from "../ui/button";
 import { AnyField } from "../../ng/components/AnyField";
 import {
+  usePublish,
   useSchemaAtPath,
   useTheme,
   useValAuthenticationError,
@@ -31,6 +32,7 @@ import {
 } from "../../ng/ValProvider";
 import { FieldLoading } from "../../ng/components/FieldLoading";
 import { urlOf } from "@valbuild/shared/internal";
+import { PublishErrorDialog } from "../../ng/components/PublishErrorDialog";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -402,7 +404,7 @@ function ValMenu({
       ? "vertical"
       : "horizontal";
   const isAuthenticationError = useValAuthenticationError();
-
+  const { publish, publishDisabled } = usePublish();
   return (
     <div className="p-4 right-16">
       {/* See ValNextProvider: this same snippet is used there  */}
@@ -426,6 +428,7 @@ function ValMenu({
           </div>
         </div>
       )}
+      <PublishErrorDialog />
       <AnimateHeight
         isOpen={
           draftMode && !draftModeLoading && !loading && !isAuthenticationError
@@ -470,7 +473,11 @@ function ValMenu({
           <div className="pb-1 mt-1 border-t border-border-primary"></div>
           <MenuButton
             label="Publish"
+            disabled={publishDisabled}
             variant="primary"
+            onClick={() => {
+              publish();
+            }}
             icon={<Upload size={16} />}
           />
           <MenuButton
