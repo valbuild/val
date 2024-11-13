@@ -186,7 +186,9 @@ export const SerializedKeyOfSchema: z.ZodType<
   });
 });
 
-export const FileOptions = z.record(z.never());
+export const FileOptions = z.object({
+  accept: z.string().optional(),
+});
 export const SerializedFileSchema: z.ZodType<
   SerializedFileSchemaT,
   z.ZodTypeDef,
@@ -212,6 +214,7 @@ export const ImageOptions = z.object({
     .optional(),
   directory: z.string().optional(),
   prefix: z.string().optional(),
+  accept: z.string().optional(),
 });
 export const SerializedImageSchema: z.ZodType<
   SerializedImageSchemaT,

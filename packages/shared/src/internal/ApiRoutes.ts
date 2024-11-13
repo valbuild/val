@@ -506,6 +506,13 @@ export const Api = {
           }),
         }),
         z.object({
+          status: z.literal(500),
+          json: z.object({
+            message: z.string(),
+            details: z.array(GenericError),
+          }),
+        }),
+        z.object({
           status: z.literal(200),
           json: z.object({
             schemaSha: z.string(),

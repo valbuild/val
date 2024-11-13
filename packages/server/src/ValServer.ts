@@ -793,9 +793,22 @@ export const ValServer = (
         const schemaSha = await serverOps.getSchemaSha();
         const schemas = await serverOps.getSchemas();
         const serializedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
-        for (const [moduleFilePathS, schema] of Object.entries(schemas)) {
-          const moduleFilePath = moduleFilePathS as ModuleFilePath;
-          serializedSchemas[moduleFilePath] = schema.serialize();
+        try {
+          for (const [moduleFilePathS, schema] of Object.entries(schemas)) {
+            const moduleFilePath = moduleFilePathS as ModuleFilePath;
+            serializedSchemas[moduleFilePath] = schema.serialize();
+          }
+        } catch (e) {
+          console.error("Val: Failed to serialize schemas", e);
+          return {
+            status: 500,
+            json: {
+              message: "Failed to serialize schemas",
+              details: [
+                { message: e instanceof Error ? e.message : JSON.stringify(e) },
+              ],
+            },
+          };
         }
 
         return {

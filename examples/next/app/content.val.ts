@@ -36,7 +36,7 @@ export const schema = s.object({
    * Reference to other content:
    */
   author: s.keyOf(authorsVal),
-  video: s.file(),
+  video: s.file({ accept: "video/*" }),
   /**
    * Objects:
    */
