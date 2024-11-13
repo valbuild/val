@@ -75,7 +75,7 @@ const ModuleFilePathSep = "?p=";
 export { ModuleFilePathSep };
 import { getSchema } from "./selector";
 import { ModulePath, getValPath, isVal } from "./val";
-import { convertFileSource, FileMetadata } from "./schema/file";
+import { convertFileSource } from "./schema/file";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
 import { getSHA256Hash } from "./getSha256";
@@ -88,7 +88,8 @@ import {
   EXT_TO_MIME_TYPES,
   MIME_TYPES_TO_EXT,
 } from "./mimeType";
-import { ImageMetadata } from "./schema/image";
+import { type ImageMetadata } from "./schema/image";
+import { type FileMetadata } from "./schema/file";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
