@@ -25,7 +25,7 @@ import React, {
 } from "react";
 import { Remote } from "../utils/Remote";
 import { z } from "zod";
-import { mergePatches } from "./mergePatches";
+import { mergePatches } from "../utils/mergePatches";
 
 const ops = new JSONOps();
 export function useValState(client: ValClient, overlayDraftMode: boolean) {

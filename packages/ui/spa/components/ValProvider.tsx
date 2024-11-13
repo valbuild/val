@@ -24,7 +24,7 @@ import { ValClient } from "@valbuild/shared/internal";
 import { Remote } from "../utils/Remote";
 import { isJsonArray } from "../utils/isJsonArray";
 import { DayPickerProvider } from "react-day-picker";
-import { useValState } from "./useValState";
+import { useValState } from "../hooks/useValState";
 
 const ValContext = React.createContext<{
   portalRef: HTMLElement | null;

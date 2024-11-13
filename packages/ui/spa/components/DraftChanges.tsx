@@ -18,7 +18,7 @@ import {
   PatchSetMetadata,
   PatchSets,
   SerializedPatchSet,
-} from "./PatchSets";
+} from "../utils/PatchSets";
 import { AnimateHeight } from "./AnimateHeight";
 import { relativeLocalDate } from "../utils/relativeLocalDate";
 import { Operation } from "@valbuild/core/patch";

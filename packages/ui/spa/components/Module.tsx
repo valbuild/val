@@ -11,7 +11,7 @@ import {
   ArrayAndRecordTools,
   splitIntoInitAndLastParts,
 } from "./ArrayAndRecordTools";
-import { isParentArray, useParent } from "./hooks/useParent";
+import { isParentArray, useParent } from "../hooks/useParent";
 
 export function Module({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);

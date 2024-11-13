@@ -20,7 +20,7 @@ import {
   isParentRecord,
   isRecord,
   useParent,
-} from "./hooks/useParent";
+} from "../hooks/useParent";
 
 type Variant = "module" | "field";
 export function ArrayAndRecordTools({
