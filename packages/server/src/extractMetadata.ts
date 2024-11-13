@@ -1,7 +1,6 @@
 import { FileMetadata, ImageMetadata, Internal } from "@valbuild/core";
 import sizeOf from "image-size";
 
-const textEncoder = new TextEncoder();
 export async function extractImageMetadata(
   filename: string,
   input: Buffer,
