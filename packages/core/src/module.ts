@@ -332,7 +332,7 @@ export function resolvePath<
         );
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const schemaOfUnionKey: any = resolvedSchema.items.find(
+      const schemaOfUnionKey: any = (resolvedSchema.items as any).find(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (child: any) => child?.items?.[key]?.value === keyValue,
       );
