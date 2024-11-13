@@ -297,7 +297,7 @@ function convertImageNode(
     }
     const fileName = Internal.createFilename(
       node.attrs.src,
-      node.attrs.alt || "",
+      node.attrs.fileName || "",
       {
         width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
         height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
@@ -323,7 +323,7 @@ function convertImageNode(
       tag: "img",
       src: {
         [VAL_EXTENSION]: "file" as const,
-        [FILE_REF_PROP]: filePath as `/public/val/${string}`,
+        [FILE_REF_PROP]: filePath as `/public/${string}`,
         metadata: {
           width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
           height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
@@ -338,7 +338,7 @@ function convertImageNode(
       tag: "img" as const,
       src: {
         [VAL_EXTENSION]: "file" as const,
-        [FILE_REF_PROP]: `/public/val${
+        [FILE_REF_PROP]: `${
           node.attrs.src.split("?")[0]
         }` as `/public/${string}`,
         metadata: {

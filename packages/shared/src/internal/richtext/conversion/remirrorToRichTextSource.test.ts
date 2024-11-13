@@ -389,7 +389,7 @@ describe("Remirror to RichTextSource", () => {
             {
               type: "image",
               attrs: {
-                src: "/example.png",
+                src: "/public/val/example.png",
                 alt: "Image",
                 width: 100,
                 height: 10,
@@ -451,7 +451,7 @@ describe("Remirror to RichTextSource", () => {
           children: [
             {
               tag: "img",
-              src: c.file("/public/val/example.png", {
+              src: c.file("/public/val/example_80d58.png", {
                 mimeType: "image/png",
                 width: 100,
                 height: 10,
@@ -461,7 +461,7 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
       files: {
-        "/public/val/example.png": {
+        "/public/val/example_80d58.png": {
           value: smallPngBuffer,
           patchPaths: [["0", "children", "0", "src"]],
         },
@@ -542,7 +542,7 @@ describe("Remirror to RichTextSource", () => {
                   children: [
                     {
                       tag: "img",
-                      src: c.file("/public/val/example.png", {
+                      src: c.file("/public/val/example_80d58.png", {
                         mimeType: "image/png",
                         width: 100,
                         height: 10,
@@ -559,7 +559,7 @@ describe("Remirror to RichTextSource", () => {
           children: [
             {
               tag: "img",
-              src: c.file("/public/val/example.png", {
+              src: c.file("/public/val/example_80d58.png", {
                 mimeType: "image/png",
                 width: 100,
                 height: 10,
@@ -569,7 +569,7 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
       files: {
-        "/public/val/example.png": {
+        "/public/val/example_80d58.png": {
           value: smallPngBuffer,
           patchPaths: [
             [
