@@ -228,7 +228,7 @@ function convertImageNodeToRemirror(
     attrs: {
       height: fileSource.metadata?.height,
       width: fileSource.metadata?.width,
-      src: `/public${fileVal.url}`,
+      src: fileVal.url,
     },
   };
 }
