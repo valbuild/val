@@ -360,7 +360,6 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
     };
-    console.log(JSON.stringify(remirrorToRichTextSource(input), null, 2));
     expect(remirrorToRichTextSource(input)).toEqual({
       blocks: [
         {
@@ -389,7 +388,7 @@ describe("Remirror to RichTextSource", () => {
             {
               type: "image",
               attrs: {
-                src: "/example.png?sha256=1234",
+                src: "/val/example.png", // <- url to existing image
                 alt: "Image",
                 width: 100,
                 height: 10,
@@ -406,12 +405,55 @@ describe("Remirror to RichTextSource", () => {
           children: [
             {
               tag: "img",
-              src: c.file("/public/example.png", {
+              src: c.file("/public/val/example.png", {
                 mimeType: "image/png",
-                sha256: "1234",
                 width: 100,
                 height: 10,
               }),
+            },
+          ],
+        },
+      ],
+      files: {},
+    });
+  });
+
+  test("existing patched image", () => {
+    const { c } = initVal();
+    const input: RemirrorJSON = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "image",
+              attrs: {
+                src: "/api/val/files/public/val/example.png?patch_id=123", // <- url to existing patched images
+                alt: "Image",
+                width: 100,
+                height: 10,
+              },
+            },
+          ],
+        },
+      ],
+    };
+    expect(remirrorToRichTextSource(input)).toEqual({
+      blocks: [
+        {
+          tag: "p",
+          children: [
+            {
+              tag: "img",
+              src: {
+                ...c.file("/public/val/example.png", {
+                  mimeType: "image/png",
+                  width: 100,
+                  height: 10,
+                }),
+                patch_id: "123",
+              },
             },
           ],
         },
@@ -452,10 +494,8 @@ describe("Remirror to RichTextSource", () => {
           children: [
             {
               tag: "img",
-              src: c.file("/public/example.png", {
+              src: c.file("/public/val/example_80d58.png", {
                 mimeType: "image/png",
-                sha256:
-                  "80d58a5b775debc85386b320c347a59ffeeae5eeb3ca30a3a3ca04b5aaed145d",
                 width: 100,
                 height: 10,
               }),
@@ -464,7 +504,7 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
       files: {
-        "/public/example.png": {
+        "/public/val/example_80d58.png": {
           value: smallPngBuffer,
           patchPaths: [["0", "children", "0", "src"]],
         },
@@ -545,10 +585,8 @@ describe("Remirror to RichTextSource", () => {
                   children: [
                     {
                       tag: "img",
-                      src: c.file("/public/example.png", {
+                      src: c.file("/public/val/example_80d58.png", {
                         mimeType: "image/png",
-                        sha256:
-                          "80d58a5b775debc85386b320c347a59ffeeae5eeb3ca30a3a3ca04b5aaed145d",
                         width: 100,
                         height: 10,
                       }),
@@ -564,10 +602,8 @@ describe("Remirror to RichTextSource", () => {
           children: [
             {
               tag: "img",
-              src: c.file("/public/example.png", {
+              src: c.file("/public/val/example_80d58.png", {
                 mimeType: "image/png",
-                sha256:
-                  "80d58a5b775debc85386b320c347a59ffeeae5eeb3ca30a3a3ca04b5aaed145d",
                 width: 100,
                 height: 10,
               }),
@@ -576,7 +612,7 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
       files: {
-        "/public/example.png": {
+        "/public/val/example_80d58.png": {
           value: smallPngBuffer,
           patchPaths: [
             [

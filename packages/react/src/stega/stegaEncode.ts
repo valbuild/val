@@ -258,7 +258,8 @@ export function stegaEncode(
       ) {
         const key = sourceOrSelector[recOpts.schema.key];
         if (key) {
-          const schema = recOpts.schema.items.find((s) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const schema = (recOpts.schema.items as any).find((s: any) => {
             if (isObjectSchema(s) && s.items && s.items[recOpts.schema.key]) {
               const keySchema = s.items[recOpts.schema.key];
               if (isLiteralSchema(keySchema)) {
@@ -295,7 +296,7 @@ export function stegaEncode(
         return rec(sourceOrSelector, {
           path: recOpts.path,
           schema: [recOpts.schema.key]
-            .concat(...recOpts.schema.items)
+            .concat(...(recOpts.schema.items as SerializedLiteralSchema[]))
             .find((s) => {
               if (isLiteralSchema(s)) {
                 return s.value === sourceOrSelector;
@@ -334,12 +335,7 @@ export function stegaEncode(
           typeof sourceOrSelector[FILE_REF_PROP] === "string"
         ) {
           const fileSelector = Internal.convertFileSource(sourceOrSelector);
-          let url = fileSelector.url;
-          if (opts.disabled) {
-            url = fileSelector.url;
-          } else {
-            url = "/api/val/files/public" + fileSelector.url;
-          }
+          const url = fileSelector.url;
           return {
             ...fileSelector,
             url: rec(url, recOpts),
