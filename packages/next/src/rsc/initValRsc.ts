@@ -222,6 +222,7 @@ export function initValRsc(
       },
       ...config,
     },
+    config,
     {
       async isEnabled() {
         return rscNextConfig.draftMode().isEnabled;
