@@ -4,7 +4,7 @@ import {
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
-import { useSchemaAtPath } from "../ValProvider";
+import { useSchemaAtPath } from "../components/ValProvider";
 
 export function useParent(path: SourcePath) {
   const [moduleFilePath, modulePath] =

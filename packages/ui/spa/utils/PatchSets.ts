@@ -1,6 +1,6 @@
 import { ModuleFilePath, PatchId, SerializedSchema } from "@valbuild/core";
 import { Operation } from "@valbuild/core/patch";
-import { schemaTypesOfPath } from "../utils/schemaTypesOfPath";
+import { schemaTypesOfPath } from "./schemaTypesOfPath";
 
 type AuthorId = string;
 type IsoDateString = string;
