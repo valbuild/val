@@ -39,6 +39,7 @@ describe("ValRouter", () => {
       {
         disableCache: true,
       },
+      config,
       {
         async isEnabled() {
           return true;
