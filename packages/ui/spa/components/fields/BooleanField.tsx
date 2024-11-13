@@ -1,5 +1,5 @@
 import { Json, SourcePath } from "@valbuild/core";
-import { Checkbox } from "../../components/ui/checkbox";
+import { Checkbox } from "../designSystem/checkbox";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";

@@ -4,7 +4,7 @@ import {
   useErrors,
   usePublish,
 } from "./ValProvider";
-import { ScrollArea } from "./ui/scroll-area";
+import { ScrollArea } from "./designSystem/scroll-area";
 import { DraftChanges } from "./DraftChanges";
 import { X } from "lucide-react";
 import classNames from "classnames";

@@ -11,7 +11,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "../../components/ui/select";
+} from "../designSystem/select";
 import {
   useAddPatch,
   useSchemaAtPath,

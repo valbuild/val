@@ -4,8 +4,8 @@ import { JSONValue } from "@valbuild/core/patch";
 import { Plus, Trash, Edit } from "lucide-react";
 import { useState, useEffect } from "react";
 import { emptyOf } from "./fields/emptyOf";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
+import { Button } from "./designSystem/button";
+import { Input } from "./designSystem/input";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import {
   useAddPatch,
@@ -14,7 +14,11 @@ import {
   useValPortal,
 } from "./ValProvider";
 import { useNavigation } from "./ValRouter";
-import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "./designSystem/popover";
 import {
   isArray,
   isParentRecord,

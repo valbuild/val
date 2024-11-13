@@ -21,7 +21,7 @@ import {
 import { AnimateHeight } from "./AnimateHeight";
 import { Internal, SourcePath } from "@valbuild/core";
 import { CompressedPath } from "./CompressedPath";
-import { Button } from "./ui/button";
+import { Button } from "./designSystem/button";
 import { AnyField } from "./AnyField";
 import {
   usePublish,

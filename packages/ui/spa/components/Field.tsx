@@ -11,7 +11,7 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
 } from "./ValProvider";
-import { Checkbox } from "./ui/checkbox";
+import { Checkbox } from "./designSystem/checkbox";
 import { JSONValue } from "@valbuild/core/patch";
 import { ArrayAndRecordTools } from "./ArrayAndRecordTools";
 import { emptyOf } from "./fields/emptyOf";

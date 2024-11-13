@@ -1,4 +1,4 @@
-import { ScrollArea } from "./ui/scroll-area";
+import { ScrollArea } from "./designSystem/scroll-area";
 import { Module } from "./Module";
 import { Search } from "lucide-react";
 import { useNavigation } from "./ValRouter";

@@ -30,7 +30,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
-} from "./ui/dropdown-menu";
+} from "./designSystem/dropdown-menu";
 import { Internal, RichTextOptions } from "@valbuild/core";
 import { readImage } from "../utils/readImage";
 import { BoldExtension } from "@remirror/extension-bold";

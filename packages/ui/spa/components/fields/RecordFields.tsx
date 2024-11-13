@@ -1,10 +1,5 @@
 import { SourcePath } from "@valbuild/core";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "../../components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "../designSystem/card";
 import { useSchemaAtPath, useShallowSourceAtPath } from "../ValProvider";
 import { RecordBadges } from "../../components/RecordBadges";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
