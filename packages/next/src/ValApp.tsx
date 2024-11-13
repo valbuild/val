@@ -1,7 +1,7 @@
 "use client";
 
 import { ValConfig } from "@valbuild/core";
-import { VAL_CSS_PATH, VAL_APP_PATH, VAL_APP_ID } from "@valbuild/ui";
+import { VAL_APP_PATH, VAL_APP_ID } from "@valbuild/ui";
 import Script from "next/script";
 import { useEffect, useState } from "react";
 
