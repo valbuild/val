@@ -1,4 +1,4 @@
-import { Json, SourcePath } from "@valbuild/core";
+import { SourcePath } from "@valbuild/core";
 import { Checkbox } from "../designSystem/checkbox";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";

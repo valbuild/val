@@ -1,7 +1,5 @@
 import { SourcePath } from "@valbuild/core";
-import { Card, CardContent, CardHeader, CardTitle } from "../designSystem/card";
 import { useSchemaAtPath, useShallowSourceAtPath } from "../ValProvider";
-import { RecordBadges } from "../../components/RecordBadges";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";

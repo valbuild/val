@@ -55,9 +55,6 @@ export function Field({
   const source = "data" in sourceAtPath ? sourceAtPath.data : undefined;
   const isBoolean =
     "data" in schemaAtPath && schemaAtPath.data?.type === "boolean";
-  const isArray = "data" in schemaAtPath && schemaAtPath.data?.type === "array";
-  const isRecord =
-    "data" in schemaAtPath && schemaAtPath.data?.type === "record";
   const isNullable = "data" in schemaAtPath && schemaAtPath.data?.opt === true;
   return (
     <div

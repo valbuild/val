@@ -1,7 +1,7 @@
 import { SourcePath } from "@valbuild/core";
 import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "../designSystem/button";
 import { Calendar } from "../designSystem/calendar";
 import classNames from "classnames";
