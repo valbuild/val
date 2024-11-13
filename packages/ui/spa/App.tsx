@@ -1,5 +1,5 @@
 "use client";
-import { ValStudio } from "./components/studio/ValStudio";
+import { ValStudio } from "./components/ValStudio";
 import { ErrorBoundary } from "react-error-boundary";
 import { ValCache } from "@valbuild/shared/internal";
 import { fallbackRender } from "./fallbackRender";

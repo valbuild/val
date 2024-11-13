@@ -4,10 +4,10 @@ import { createValClient } from "@valbuild/shared/internal";
 import { ShadowRoot } from "./components/ShadowRoot";
 import { VAL_CSS_PATH } from "../src/constants";
 import { fallbackRender } from "./fallbackRender";
-import { ValOverlay } from "./components/overlay/ValOverlay";
+import { ValOverlay } from "./components/ValOverlay";
 import { ValRouter } from "./components/ValRouter";
 import { useEffect, useState } from "react";
-import { ValProvider } from "./ng/ValProvider";
+import { ValProvider } from "./components/ValProvider";
 import { Fonts } from "./Fonts";
 
 function Overlay() {
