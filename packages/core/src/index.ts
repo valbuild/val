@@ -75,7 +75,7 @@ const ModuleFilePathSep = "?p=";
 export { ModuleFilePathSep };
 import { getSchema } from "./selector";
 import { ModulePath, getValPath, isVal } from "./val";
-import { convertFileSource } from "./schema/file";
+import { convertFileSource, FileMetadata } from "./schema/file";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getVal } from "./future/fetchVal";
 import { getSHA256Hash } from "./getSha256";
@@ -88,6 +88,7 @@ import {
   EXT_TO_MIME_TYPES,
   MIME_TYPES_TO_EXT,
 } from "./mimeType";
+import { ImageMetadata } from "./schema/image";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
@@ -174,7 +175,41 @@ const Internal = {
   VAL_ENABLE_COOKIE_NAME: "val_enable" as const,
   VAL_STATE_COOKIE: "val_state" as const,
   VAL_SESSION_COOKIE: "val_session" as const,
+  createFilename: (
+    data: string | null,
+    filename: string | null,
+    metadata: FileMetadata | ImageMetadata | undefined,
+    sha256: string,
+  ) => {
+    if (!metadata) {
+      return filename;
+    }
+    if (!data) {
+      return filename;
+    }
+    const shaSuffix = sha256.slice(0, 5);
+    const mimeType = Internal.getMimeType(data) ?? "unknown";
+    const newExt = Internal.mimeTypeToFileExt(mimeType) ?? "unknown"; // Don't trust the file extension
+    if (filename) {
+      let cleanFilename =
+        filename.split(".").slice(0, -1).join(".") || filename; // remove extension if it exists
+      const maybeShaSuffixPos = cleanFilename.lastIndexOf("_");
+      const currentShaSuffix = cleanFilename.slice(
+        maybeShaSuffixPos + 1,
+        cleanFilename.length,
+      );
+      if (currentShaSuffix === shaSuffix) {
+        cleanFilename = cleanFilename.slice(0, maybeShaSuffixPos);
+      }
+      const escapedFilename = encodeURIComponent(cleanFilename)
+        .replace(/%[0-9A-Fa-f]{2}/g, "")
+        .toLowerCase();
+      return `${escapedFilename}_${shaSuffix}.${newExt}`;
+    }
+    return `${sha256}.${newExt}`;
+  },
 };
+
 function tryJsonParse(str: string) {
   try {
     return JSON.parse(str);

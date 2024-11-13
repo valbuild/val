@@ -18,7 +18,6 @@ describe("stega transform", () => {
     const valModule = c.define("/test.val.ts", schema, [
       {
         image: c.file("/public/val/test1.png", {
-          sha256: "1231",
           width: 100,
           height: 100,
           mimeType: "image/png",
@@ -29,7 +28,6 @@ describe("stega transform", () => {
       },
       {
         image: c.file("/public/val/test2.png", {
-          sha256: "1232",
           width: 100,
           height: 100,
           mimeType: "image/png",

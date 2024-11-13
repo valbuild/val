@@ -9,7 +9,6 @@ import {
 import { Patch } from "@valbuild/core/patch";
 import { File } from "lucide-react";
 import { ChangeEvent, useState, useEffect } from "react";
-import { createFilename } from "../../../utils/readImage";
 import { OnSubmit, SubmitStatus } from "../SubmitStatus";
 import { FieldContainer } from "../FieldContainer";
 import { FileOptions } from "@valbuild/core/src/schema/file";
@@ -21,9 +20,10 @@ export function createFilePatch(
   data: string | null,
   filename: string | null,
   metadata: FileMetadata | ImageMetadata | undefined,
-  directory: ConfigDirectory = "/public/val"
+  sha256: string,
+  directory: ConfigDirectory = "/public/val",
 ): Patch {
-  const newFilePath = createFilename(data, filename, metadata);
+  const newFilePath = Internal.createFilename(data, filename, metadata, sha256);
   if (!newFilePath || !metadata) {
     return [];
   }
@@ -94,7 +94,7 @@ export function FileField({
   schemaOptions?: FileOptions;
 }) {
   const [data, setData] = useState<{ filename?: string; src: string } | null>(
-    null
+    null,
   );
   const [loading, setLoading] = useState(false);
   const [url, setUrl] = useState<string>();
@@ -146,7 +146,6 @@ export function FileField({
                     let metadata: FileMetadata | undefined;
                     if (res.mimeType) {
                       metadata = {
-                        sha256: res.sha256,
                         mimeType: res.mimeType,
                       };
                     }
@@ -158,9 +157,10 @@ export function FileField({
                           data.src,
                           data.filename ?? null,
                           metadata,
-                          config.files?.directory as ConfigDirectory
-                        )
-                      )
+                          res.sha256,
+                          config.files?.directory as ConfigDirectory,
+                        ),
+                      ),
                     ).finally(() => {
                       setLoading(false);
                     });

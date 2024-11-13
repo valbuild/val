@@ -389,7 +389,7 @@ describe("Remirror to RichTextSource", () => {
             {
               type: "image",
               attrs: {
-                src: "/example.png?sha256=1234",
+                src: "/example.png",
                 alt: "Image",
                 width: 100,
                 height: 10,
@@ -406,9 +406,8 @@ describe("Remirror to RichTextSource", () => {
           children: [
             {
               tag: "img",
-              src: c.file("/public/example.png", {
+              src: c.file("/public/val/example.png", {
                 mimeType: "image/png",
-                sha256: "1234",
                 width: 100,
                 height: 10,
               }),
@@ -452,10 +451,8 @@ describe("Remirror to RichTextSource", () => {
           children: [
             {
               tag: "img",
-              src: c.file("/public/example.png", {
+              src: c.file("/public/val/example.png", {
                 mimeType: "image/png",
-                sha256:
-                  "80d58a5b775debc85386b320c347a59ffeeae5eeb3ca30a3a3ca04b5aaed145d",
                 width: 100,
                 height: 10,
               }),
@@ -464,7 +461,7 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
       files: {
-        "/public/example.png": {
+        "/public/val/example.png": {
           value: smallPngBuffer,
           patchPaths: [["0", "children", "0", "src"]],
         },
@@ -545,10 +542,8 @@ describe("Remirror to RichTextSource", () => {
                   children: [
                     {
                       tag: "img",
-                      src: c.file("/public/example.png", {
+                      src: c.file("/public/val/example.png", {
                         mimeType: "image/png",
-                        sha256:
-                          "80d58a5b775debc85386b320c347a59ffeeae5eeb3ca30a3a3ca04b5aaed145d",
                         width: 100,
                         height: 10,
                       }),
@@ -564,10 +559,8 @@ describe("Remirror to RichTextSource", () => {
           children: [
             {
               tag: "img",
-              src: c.file("/public/example.png", {
+              src: c.file("/public/val/example.png", {
                 mimeType: "image/png",
-                sha256:
-                  "80d58a5b775debc85386b320c347a59ffeeae5eeb3ca30a3a3ca04b5aaed145d",
                 width: 100,
                 height: 10,
               }),
@@ -576,7 +569,7 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
       files: {
-        "/public/example.png": {
+        "/public/val/example.png": {
           value: smallPngBuffer,
           patchPaths: [
             [

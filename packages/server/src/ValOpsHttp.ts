@@ -35,13 +35,11 @@ const AuthorId = z.string().refine((s): s is AuthorId => !!s); // TODO: validate
 const ModuleFilePath = z.string().refine((s): s is ModuleFilePath => !!s); // TODO: validate
 const Metadata = z.union([
   z.object({
-    sha256: z.string(),
     mimeType: z.string(),
     width: z.number(),
     height: z.number(),
   }),
   z.object({
-    sha256: z.string(),
     mimeType: z.string(),
   }),
 ]);
@@ -324,7 +322,6 @@ export class ValOpsHttp extends ValOps {
         omitPatch: filters.omitPatch,
       });
     }
-
     for (const res of await Promise.all(
       patchIdChunks.map((patchIdChunk) =>
         this.fetchPatchesInternal({

@@ -278,7 +278,6 @@ const ValidationTestCases: {
     input: fileVal("/public/val/test.png", {
       width: 100,
       height: 100,
-      sha256: "test",
     }),
     schema: image(),
     expected: [testPath],
@@ -291,8 +290,6 @@ const ValidationTestCases: {
     input: fileVal("/public/val/test.png", {
       width: 100,
       height: 100,
-      sha256:
-        "9e420dc93157ab98338542ba6f1d34fcf829d646aa729a86720fa3f4cb2d0076",
     }),
     schema: image(),
     expected: [testPath],

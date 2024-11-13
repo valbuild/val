@@ -516,7 +516,7 @@ export const schema = s.image();
 export default c.define("/image", schema, c.file("/public/myfile.jpg"));
 ```
 
-**NOTE**: This will not validate, since images requires `width`, `height` and a `sha256` checksum. You can fix validation errors like this by using the CLI or by using the VS Code plugin.
+**NOTE**: This will not validate, since images requires `width`, `height` and `mimeType`. You can fix validation errors like this by using the CLI or by using the VS Code plugin.
 
 ### Rendering images
 

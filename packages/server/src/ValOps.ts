@@ -33,7 +33,6 @@ import { TSOps } from "./patch/ts/ops";
 import { analyzeValModule } from "./patch/ts/valModule";
 import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
-import { getSha256 } from "./extractMetadata";
 import sizeOf from "image-size";
 
 export type BaseSha = string & { readonly _tag: unique symbol };
@@ -1020,9 +1019,7 @@ export abstract class ValOps {
             path: op.path,
             filePath,
             nestedFilePath: op.nestedFilePath,
-            value: {
-              sha256,
-            },
+            value: sha256,
           });
         }
       }
@@ -1097,7 +1094,6 @@ export abstract class ValOps {
                   ),
                 };
               }
-
               const mimeType = getMimeTypeFromBase64(data.value);
               if (!mimeType) {
                 console.error(
@@ -1365,10 +1361,9 @@ export function getFieldsForType<T extends BinaryFileType>(
   type: T,
 ): (keyof MetadataOfType<T> & string)[] {
   if (type === "file") {
-    return ["sha256", "mimeType"] as (keyof MetadataOfType<"file"> & string)[];
+    return ["mimeType"] as (keyof MetadataOfType<"file"> & string)[];
   } else if (type === "image") {
     return [
-      "sha256",
       "mimeType",
       "height",
       "width",
@@ -1383,7 +1378,6 @@ export function createMetadataFromBuffer<T extends BinaryFileType>(
   mimeType: string,
   buffer: Buffer,
 ): OpsMetadata<T> {
-  const sha256 = getSha256(mimeType, buffer);
   const errors = [];
   let availableMetadata: Record<string, string | number | undefined | null>;
   if (type === "image") {
@@ -1399,14 +1393,12 @@ export function createMetadataFromBuffer<T extends BinaryFileType>(
       };
     }
     availableMetadata = {
-      sha256: sha256,
       mimeType,
       height,
       width,
     };
   } else {
     availableMetadata = {
-      sha256: sha256,
       mimeType,
     };
   }
