@@ -1,5 +1,4 @@
 import { SourcePath, SerializedSchema } from "@valbuild/core";
-import { UnexpectedSchemaType } from "./UnexpectedSourceType";
 import { ArrayFields } from "./fields/ArrayFields";
 import { BooleanField } from "./fields/BooleanField";
 import { ImageField } from "./fields/ImageField";
@@ -11,6 +10,8 @@ import { RichTextField } from "./fields/RichTextField";
 import { StringField } from "./fields/StringField";
 import { UnionField } from "./fields/UnionField";
 import { DateField } from "./fields/DateField";
+import { FieldSchemaError } from "./FieldSchemaError";
+import { FileField } from "./fields/FileField";
 
 export function AnyField({
   path,
@@ -43,7 +44,19 @@ export function AnyField({
     return <RichTextField key={path} path={path} autoFocus={autoFocus} />;
   } else if (schema.type === "date") {
     return <DateField key={path} path={path} />;
+  } else if (schema.type === "file") {
+    return <FileField key={path} path={path} />;
+  } else if (schema.type === "literal") {
+    return (
+      <FieldSchemaError path={path} error="Literal fields are not editable" />
+    );
+  } else {
+    const exhaustiveCheck: never = schema;
+    return (
+      <FieldSchemaError
+        path={path}
+        error={"Unexpected field schema: " + JSON.stringify(exhaustiveCheck)}
+      />
+    );
   }
-  // TODO: exhaustive check
-  return <UnexpectedSchemaType schema={schema} />;
 }

@@ -12,6 +12,7 @@ import { DatePreview } from "./fields/DateField";
 import { LiteralPreview } from "./fields/LiteralPreview";
 import { RecordPreview } from "./fields/RecordFields";
 import { RichTextPreview } from "./fields/RichTextField";
+import { FilePreview } from "./fields/FileField";
 
 export function Preview({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
@@ -54,6 +55,8 @@ export function Preview({ path }: { path: SourcePath }) {
     return <RecordPreview path={path} />;
   } else if (type === "richtext") {
     return <RichTextPreview path={path} />;
+  } else if (type === "file") {
+    return <FilePreview path={path} />;
   } else {
     const exhaustiveCheck: never = type;
     return <div>Cannot preview: {exhaustiveCheck}</div>;
