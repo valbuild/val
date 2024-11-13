@@ -332,20 +332,34 @@ function convertImageNode(
       },
     };
   } else if (node.attrs) {
-    const patchId = getParam("patch_id", node.attrs.src);
-    const noParamsSrc = node.attrs.src.split("?")[0];
+    const url = node.attrs.src;
+    const patchId = getParam("patch_id", url);
+    let noParamsUrl = url.split("?")[0];
+    if (patchId) {
+      if (noParamsUrl.startsWith("/api/val/files/public")) {
+        noParamsUrl = noParamsUrl.slice("/api/val/files".length);
+      } else {
+        console.error(
+          "Patched image URL does not start with /api/val/files: " + url,
+        );
+      }
+    } else {
+      if (!noParamsUrl.startsWith("/public")) {
+        noParamsUrl = `/public${noParamsUrl}`;
+      } else {
+        console.error("Unpatched image URL starts with /public: " + url);
+      }
+    }
     const tag: ImageNode<AllRichTextOptions> = {
       tag: "img" as const,
       src: {
         [VAL_EXTENSION]: "file" as const,
-        [FILE_REF_PROP]: `${
-          node.attrs.src.split("?")[0]
-        }` as `/public/${string}`,
+        [FILE_REF_PROP]: noParamsUrl as `/public/${string}`,
         metadata: {
           width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
           height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
           mimeType:
-            (noParamsSrc && Internal.filenameToMimeType(noParamsSrc)) || "",
+            (noParamsUrl && Internal.filenameToMimeType(noParamsUrl)) || "",
         },
         ...(patchId ? { patch_id: patchId } : {}),
       },
