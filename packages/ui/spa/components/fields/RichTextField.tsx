@@ -10,7 +10,6 @@ import {
 } from "@valbuild/shared/internal";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { Operation, Patch } from "@valbuild/core/patch";
-import { useEffect, useState } from "react";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ValidationErrors } from "../../components/ValidationError";
 import {
@@ -35,21 +34,10 @@ export function RichTextField({
     "data" in sourceAtPath
       ? (sourceAtPath.data as RichTextSource<AllRichTextOptions>)
       : undefined;
-  const { state, manager, setState } = useRichTextEditor(
+  const { state, manager } = useRichTextEditor(
     defaultValue && richTextToRemirror(defaultValue),
   );
   const { patchPath, addDebouncedPatch } = useAddPatch(path);
-  const [focus, setFocus] = useState(false);
-  useEffect(() => {
-    if (!focus && defaultValue) {
-      setState(
-        manager.createState({
-          content: richTextToRemirror(defaultValue),
-        }),
-      );
-    }
-  }, [focus, defaultValue, setState, manager]);
-
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -87,19 +75,13 @@ export function RichTextField({
       <ValidationErrors path={path} />
       <RichTextEditor
         autoFocus={autoFocus}
-        state={state}
+        initialContent={state}
         options={schema.options}
-        onFocus={setFocus}
         manager={manager}
         onChange={(event) => {
-          if (focus) {
-            setState(event.state);
-            if (!event.state.doc.content.eq(event.previousState.doc.content)) {
-              addDebouncedPatch(() => {
-                return createRichTextPatch(patchPath, event.state.doc.toJSON());
-              }, path);
-            }
-          }
+          addDebouncedPatch(() => {
+            return createRichTextPatch(patchPath, event.state.doc.toJSON());
+          }, path);
         }}
       />
     </div>
