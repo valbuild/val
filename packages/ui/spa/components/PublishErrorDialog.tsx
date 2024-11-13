@@ -1,5 +1,5 @@
 import { usePublish, useValPortal } from "./ValProvider";
-import { Dialog, DialogContent } from "./ui/dialog";
+import { Dialog, DialogContent } from "./designSystem/dialog";
 
 export function PublishErrorDialog() {
   const { publishError, resetPublishError } = usePublish();

@@ -9,7 +9,7 @@ import {
   useSchemas,
   useSchemaSha,
 } from "./ValProvider";
-import { Checkbox } from "./ui/checkbox";
+import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { ChevronDown, Clock } from "lucide-react";

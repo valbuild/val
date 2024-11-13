@@ -3,7 +3,7 @@ import {
   AccordionItem,
   AccordionContent,
   AccordionTrigger,
-} from "./components/ui/accordion";
+} from "./components/designSystem/accordion";
 import Logo from "./assets/icons/Logo";
 import { X } from "lucide-react";
 

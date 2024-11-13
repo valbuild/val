@@ -16,7 +16,7 @@ import {
   SelectItem,
   SelectValue,
   SelectTrigger,
-} from "../../components/ui/select";
+} from "../designSystem/select";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
 import { ChevronRight } from "lucide-react";

@@ -1,5 +1,5 @@
 import { Binary, Braces, Images, Rows3, SquareCheck, Type } from "lucide-react";
-import { Badge } from "./ui/badge";
+import { Badge } from "./designSystem/badge";
 
 export function RecordBadges({ counts }: { counts: Record<string, number> }) {
   return (

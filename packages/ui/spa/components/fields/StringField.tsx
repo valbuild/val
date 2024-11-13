@@ -1,5 +1,5 @@
 import { SourcePath } from "@valbuild/core";
-import { Input } from "../../components/ui/input";
+import { Input } from "../designSystem/input";
 import {
   useAddPatch,
   useSchemaAtPath,

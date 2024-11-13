@@ -1,5 +1,5 @@
 import { SourcePath } from "@valbuild/core";
-import { Input } from "../../components/ui/input";
+import { Input } from "../designSystem/input";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";

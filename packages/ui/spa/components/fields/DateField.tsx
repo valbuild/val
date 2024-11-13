@@ -2,8 +2,8 @@ import { SourcePath } from "@valbuild/core";
 import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 import { useState, useMemo, useEffect } from "react";
-import { Button } from "../../components/ui/button";
-import { Calendar } from "../../components/ui/calendar";
+import { Button } from "../designSystem/button";
+import { Calendar } from "../designSystem/calendar";
 import classNames from "classnames";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -20,7 +20,7 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-} from "../../components/ui/popover";
+} from "../designSystem/popover";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ValidationErrors } from "../../components/ValidationError";
 

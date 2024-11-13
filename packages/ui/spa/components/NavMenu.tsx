@@ -8,7 +8,7 @@ import { useSchemas, useValConfig } from "./ValProvider";
 import { AnimateHeight } from "./AnimateHeight";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { useNavigation } from "./ValRouter";
-import { ScrollArea } from "./ui/scroll-area";
+import { ScrollArea } from "./designSystem/scroll-area";
 import { fixCapitalization } from "../utils/fixCapitalization";
 
 export function NavMenu({
