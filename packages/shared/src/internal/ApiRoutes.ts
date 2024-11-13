@@ -3,6 +3,7 @@ import {
   type ValidationFix,
   type ModuleFilePath,
   type PatchId,
+  type ValConfig,
 } from "@valbuild/core";
 import {
   VAL_ENABLE_COOKIE_NAME,
@@ -19,6 +20,18 @@ const PatchId = z.string().refine(
 const ModuleFilePath = z.string().refine(
   (_path): _path is ModuleFilePath => true, // TODO:
 );
+
+const ValConfig = z.object({
+  project: z.string().optional(),
+  root: z.string().optional(),
+  files: z
+    .object({
+      directory: z.string(), // TODO: validate that it is prefixed by /public/
+    })
+    .optional(),
+  gitCommit: z.string().optional(),
+  gitBranch: z.string().optional(),
+});
 
 const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("image:add-metadata"),
@@ -74,14 +87,103 @@ type CookieValue =
     };
 
 export const Api = {
+  "/draft/enable": {
+    GET: {
+      req: {
+        query: {
+          redirect_to: z.string().optional(),
+        },
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.union([
+        z.object({
+          status: z.literal(401),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(302),
+          redirectTo: z.string(),
+        }),
+        z.object({
+          status: z.literal(400),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
+  "/draft/disable": {
+    GET: {
+      req: {
+        query: {
+          redirect_to: z.string().optional(),
+        },
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
+      },
+      res: z.union([
+        z.object({
+          status: z.literal(401),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(302),
+          redirectTo: z.string(),
+        }),
+        z.object({
+          status: z.literal(400),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
+  "/draft/stat": {
+    GET: {
+      req: { cookies: { [VAL_SESSION_COOKIE]: z.string().optional() } },
+      res: z.union([
+        z.object({
+          status: z.literal(401),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            draftMode: z.boolean(),
+          }),
+        }),
+      ]),
+    },
+  },
   "/enable": {
     GET: {
       req: {
         query: {
           redirect_to: z.string().optional(),
         },
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },
       res: z.union([
+        z.object({
+          status: z.literal(401),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(302),
+          redirectTo: z.string(),
+          cookies: z.object({
+            [VAL_ENABLE_COOKIE_NAME]: enableCookieValue,
+            [VAL_STATE_COOKIE]: z.object({
+              value: z.string(),
+              options: z.object({
+                httpOnly: z.literal(true),
+                sameSite: z.literal("lax"),
+                expires: z.instanceof(Date),
+              }),
+            }),
+          }),
+        }),
         z.object({
           status: z.literal(302),
           redirectTo: z.string(),
@@ -104,8 +206,13 @@ export const Api = {
         query: {
           redirect_to: z.string().optional(),
         },
+        cookies: { [VAL_SESSION_COOKIE]: z.string().optional() },
       },
       res: z.union([
+        z.object({
+          status: z.literal(401),
+          json: GenericError,
+        }),
         z.object({
           status: z.literal(302),
           redirectTo: z.string(),
@@ -200,7 +307,7 @@ export const Api = {
         z.object({
           status: z.literal(200),
           json: z.object({
-            mode: z.literal("local"),
+            mode: z.union([z.literal("local"), z.literal("proxy")]),
             enabled: z.boolean(),
           }),
         }),
@@ -256,6 +363,58 @@ export const Api = {
           [VAL_STATE_COOKIE]: z.object({ value: z.literal(null) }),
         }),
       }),
+    },
+  },
+  "/stat": {
+    POST: {
+      req: {
+        body: z
+          .object({
+            schemaSha: z.string(),
+            baseSha: z.string(),
+            patches: z.array(z.string()).optional(),
+          })
+          .nullable(),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        z.object({
+          status: z.literal(401),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.union([
+            z.object({
+              type: z.union([
+                z.literal("request-again"),
+                z.literal("no-change"),
+                z.literal("did-change"),
+              ]),
+              baseSha: z.string(),
+              schemaSha: z.string(),
+              patches: z.array(PatchId),
+              config: ValConfig,
+            }),
+            z.object({
+              type: z.literal("use-websocket"),
+              url: z.string(),
+              nonce: z.string(),
+              baseSha: z.string(),
+              schemaSha: z.string(),
+              commitSha: z.string(),
+              patches: z.array(PatchId),
+              config: ValConfig,
+            }),
+          ]),
+        }),
+      ]),
     },
   },
   "/patches/~": {
@@ -347,6 +506,13 @@ export const Api = {
           }),
         }),
         z.object({
+          status: z.literal(500),
+          json: z.object({
+            message: z.string(),
+            details: z.array(GenericError),
+          }),
+        }),
+        z.object({
           status: z.literal(200),
           json: z.object({
             schemaSha: z.string(),
@@ -356,18 +522,20 @@ export const Api = {
       ]),
     },
   },
-  "/tree/~": {
+  "/sources": {
     PUT: {
       req: {
         path: z.string().optional(),
         body: z
           .object({
             patchIds: z.array(PatchId).optional(),
-            addPatch: z
-              .object({
-                path: ModuleFilePath,
-                patch: Patch,
-              })
+            addPatches: z
+              .array(
+                z.object({
+                  path: ModuleFilePath,
+                  patch: Patch,
+                }),
+              )
               .optional(),
           })
           .optional(),
@@ -384,6 +552,10 @@ export const Api = {
         notFoundResponse,
         z.object({
           status: z.literal(401),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(409), // conflict: i.e. not a head of patches
           json: GenericError,
         }),
         z.object({
@@ -405,6 +577,23 @@ export const Api = {
           json: z.object({
             type: z.literal("patch-error"),
             message: z.string(),
+            schemaSha: z.string(),
+            modules: z.record(
+              ModuleFilePath,
+              z.object({
+                source: z.any(), //.optional(), // TODO: Json zod type
+                patches: z
+                  .object({
+                    applied: z.array(PatchId),
+                    skipped: z.array(PatchId).optional(),
+                    errors: z.record(PatchId, GenericError).optional(),
+                  })
+                  .optional(),
+                validationErrors: z
+                  .record(SourcePath, z.array(ValidationError))
+                  .optional(),
+              }),
+            ),
             errors: z.record(
               ModuleFilePath,
               z.array(
@@ -437,7 +626,7 @@ export const Api = {
                   .optional(),
               }),
             ),
-            newPatchId: PatchId.optional(),
+            newPatchIds: z.array(PatchId).optional(),
           }),
         }),
       ]),
@@ -458,6 +647,13 @@ export const Api = {
         z.object({
           status: z.literal(200),
           json: z.object({}), // TODO:
+        }),
+        z.object({
+          status: z.literal(409),
+          json: z.object({
+            message: z.string(),
+            isNotFastForward: z.literal(true),
+          }),
         }),
         z.object({
           status: z.literal(400),
@@ -662,6 +858,7 @@ export type ClientFetchErrors =
       json:
         | {
             type: "network_error";
+            retryable: boolean;
             message: string;
             details: string;
           }

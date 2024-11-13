@@ -21,9 +21,7 @@ export function emptyOf(schema: SerializedSchema): Json {
   } else if (schema.type === "number") {
     return 0;
   } else if (schema.type === "keyOf") {
-    if (schema.values === "number") {
-      return 0; // TODO: figure out this: user code might very well fail in this case
-    } else if (schema.values === "string") {
+    if (schema.values === "string") {
       return ""; // TODO: figure out this: user code might very well fail in this case
     } else {
       return schema.values[0];
@@ -33,7 +31,10 @@ export function emptyOf(schema: SerializedSchema): Json {
   } else if (schema.type === "literal") {
     return schema.value;
   } else if (schema.type === "union") {
-    return emptyOf(schema.items[0]);
+    if (typeof schema.key === "string") {
+      return emptyOf(schema.items[0]);
+    }
+    return schema.key.value;
   } else if (schema.type === "date") {
     return format(new Date(), "yyyy-MM-dd");
   }

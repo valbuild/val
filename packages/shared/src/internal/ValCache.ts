@@ -49,13 +49,13 @@ export class ValCache {
 
     const patches = patchesResponse.json;
     const filteredPatches = Object.keys(patches) as PatchId[];
-    const treeRes = await this.client("/tree/~", "PUT", {
+    const treeRes = await this.client("/sources", "PUT", {
       query: {
         validate_sources: true,
         validate_all: false,
         validate_binary_files: false,
       },
-      path: undefined, // TODO: reload only the paths the requested paths
+      path: undefined,
       body: {
         patchIds: filteredPatches,
       },
@@ -92,7 +92,7 @@ export class ValCache {
     }
     const allPatches = Object.keys(patchesRes.json.patches) as PatchId[];
 
-    const treeRes = await this.client("/tree/~", "PUT", {
+    const treeRes = await this.client("/sources", "PUT", {
       path: undefined,
       query: {
         validate_sources: false,
@@ -148,7 +148,7 @@ export class ValCache {
         schema: this.schema[path],
       });
     }
-    const treeRes = await this.client("/tree/~", "PUT", {
+    const treeRes = await this.client("/sources", "PUT", {
       path,
       body: {},
       query: {
@@ -244,7 +244,7 @@ export class ValCache {
       ValCacheError
     >
   > {
-    const treeRes = await this.client("/tree/~", "PUT", {
+    const treeRes = await this.client("/sources", "PUT", {
       path,
       query: {
         validate_sources: false,
@@ -253,21 +253,24 @@ export class ValCache {
       },
       body: {
         patchIds,
-        addPatch: {
-          path,
-          patch,
-        },
+        addPatches: [
+          {
+            path,
+            patch,
+          },
+        ],
       },
     });
     if (treeRes.status === 200) {
-      const newPatchId = treeRes.json.newPatchId;
-      if (!newPatchId) {
+      const newPatchIds = treeRes.json.newPatchIds;
+      if (!newPatchIds) {
         console.error("Val: could create patch", treeRes);
         return result.err({
           errorType: "other",
           message: "Val: could not create patch",
         });
       }
+      const newPatchId = newPatchIds[0];
       const fetchedSource = treeRes.json?.modules?.[path]?.source;
       if (fetchedSource !== undefined) {
         this.drafts[path] = fetchedSource;

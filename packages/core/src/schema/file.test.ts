@@ -1,6 +1,8 @@
+import { initFile } from "../source/file";
 import { SourcePath } from "../val";
 import { file } from "./file";
-import { file as sourceFile } from "../source/file";
+
+const sourceFile = initFile();
 
 describe("FileSchema", () => {
   test("assert: should return success if src is a file", () => {

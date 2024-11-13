@@ -40,13 +40,10 @@
 
 # 🐉 HERE BE DRAGONS 🐉
 
-Val is PRE-ALPHA - MOST features are broken and in state of flux.
-
-This is release is only for **INTERNAL** **TESTING** PURPOSES.
+This version of Val is currently an alpha version - the API can be considered relatively stable, but expect some features to be broken and the UX to be changing.
 
 ## Table of contents
 
-- [Introduction](#introduction)
 - [Installation](#installation)
 - [Getting started](#getting-started)
 - [Schema types](#schema-types):
@@ -60,88 +57,6 @@ This is release is only for **INTERNAL** **TESTING** PURPOSES.
   - [Rich text](#richtext)
   - [Image](#image)
   - [keyOf](#keyof)
-
-## Content as code
-
-Val is a CMS library where **content** is **TypeScript** / **JavaScript** files stored in your git repo.
-
-As a CMS, Val is useful because:
-
-- editors can **change content** without having to ask developers to do it for them (and nobody wants that)
-- a **well-documented** way to **structure content**
-- **image** support is built-in
-- **richtext** support is built-in
-- built-in **visual editing** which lets editors click-then-edit content (and therefore **code**!) directly in your app
-
-  ![Visual editing](https://val.build/docs/images/overlay.png)
-
-<details>
-<summary>Definition: editor</summary>
-An editor in this context, is a non-technical person that edits content in your application (technical writer, proof-reader, legal, ...).
-</details>
-
-<br />
-
-But, with the benefits of **hard-coded** content:
-
-- works seamlessly **locally** or with git **branches**
-- content is **type-checked** so you can spend less time on figuring out why something isn't working
-  ![Type check error](https://val.build/docs/images/type-check-error.png)
-- content can be refactored (change names, etc) just as if it was hard-coded (because it is)
-  ![Renaming](https://val.build/docs/images/renaming.gif)
-- works as normal with your **favorite IDE** without any plugins: search for content, references to usages, ...
-  ![References](https://val.build/docs/images/references.gif)
-- **no** need for **code-gen** and extra build steps
-- **fast** since the content is literally hosted with the application
-- content is **always there** and can never fail (since it is not loaded from somewhere)
-- no need to manage different **environments** containing different versions of content
-- **resolve conflicts** like you normally resolve conflicts: **in git**
-
-Compared to other CMSs, Val has the following advantages:
-
-- **easy** to setup and to _grok_: Val is designed to have a minimum of boilerplate and there's **0** query languages to learn. If you know your way around JSON that's enough (if you don't you might want to learn it)
-- **no signup** required to use it locally
-- **no fees** for content that is in your code: your content is your code, and your code is... yours
-- **minimal** API surface: Val is designed to not "infect" your code base
-- **easy to remove**: since your content is already in your code and Val is designed to have a minimal surface, it's easy to remove if you want to switch
-
-<details>
-<summary>Upcoming feature: <strong>i18n</strong></summary>
-Val will soon have support for i18n. Follow this repository to get notified when this is the case.
-</details>
-
-<details>
-<summary>Upcoming feature: <strong>remote content</strong></summary>
-Having hard-coded content is great for landing pages, product pages and other pages where the amount of content is manageable.
-
-However, checking in the 10 000th blog entry in git might feel wrong (though we would say it is ok).
-
-Therefore, Val will add `remote content` support which enables you to seamlessly move content to the cloud and back again as desired.
-You code will still be the one truth, but the actual content will be hosted on [val.build](https://val.build).
-
-`.remote()` support will also make it possible to have remote images to avoid having to put them in your repository.
-
-There will also be specific support for remote i18n, which will make it possible to split which languages are defined in code, and which are fetched from remote.
-
-More details on `.remote()` will follow later.
-
-</details>
-
-## When to NOT use Val
-
-Val is designed to work well on a single web-app, and currently only supports Next 13.4+ (more meta-frameworks will supported) and GitHub (more Git providers will follow).
-
-Unless your application fits these requirements, you should have a look elsewhere (at least for now).
-
-In addition, if you have a "content model", i.e. content schemas, that rarely change and you plan on using them in a lot of different applications (web, mobile, etc), Val will most likely not be a great fit.
-
-If that is the case, we recommend having a look at [sanity](https://sanity.io) instead (we have no affiliation, but if we didn't have Val we would use Sanity).
-
-**NOTE**: Our experience is that, however nice it sounds, it is hard to "nail" the content model down. Usually content is derived from what you want to present, not vice-versa. In addition, you should think carefully whether you _really_ want to present the exact same content on all these different surfaces.
-
-## Examples
-
-Check out this README or the [examples](./examples) directory for examples.
 
 ## Installation
 
@@ -158,15 +73,45 @@ npm install @valbuild/core@latest @valbuild/next@latest @valbuild/eslint-plugin@
 npx @valbuild/init@latest
 ```
 
-### Add editor support
+### Online mode
 
-To make it possible to do non-local edits, head over to [val.build](https://val.build), sign up and import your repository.
+To make it possible to do online edits directly in your app, head over to [val.build](https://app.val.build), sign up and import your repository.
 
 **NOTE**: your content is yours. No subscription (or similar) is required to host content from your repository.
 
 If you do not need to edit content online (i.e. not locally), you do not need to sign up.
 
 **WHY**: to update your code, we need to create a commit. This requires a server. We opted to create a service that does this easily, instead of having a self-hosted alternative, since time spent is money used. Also, the company behind [val.build](https://val.build) is the company that funds the development of this software.
+
+#### Online mode configuration
+
+Once you have setup your project in [val.build](https://app.val.build), you must configure your application to use this project.
+
+To do this, you must set the following environment variables:
+
+- `VAL_API_KEY`: you get this in your project configuration page.
+- `VAL_SECRET`: this is a random secret you can generate. It is used for communication between the UX client and your Next.js application.
+
+In addition, you need to set the following properties in the `val.config` file:
+
+- project: This is the fully qualified name of your project. It should look like this: `<team>/<name>`.
+- gitBranch: This is the git branch your application is using. In Vercel you can use: `VERCEL_GIT_COMMIT_REF`.
+- gitCommit: This is the current git commit your application is running on. In Vercel you can use: `VERCEL_GIT_COMMIT_SHA`
+
+Example of `val.config.ts`:
+
+```ts
+import { initVal } from "@valbuild/next";
+
+const { s, c, val, config } = initVal({
+  project: "myteam/myproject",
+  gitBranch: process.env.VERCEL_GIT_COMMIT_REF,
+  gitCommit: process.env.VERCEL_GIT_COMMIT_SHA,
+});
+
+export type { t } from "@valbuild/next";
+export { s, c, val, config };
+```
 
 ## Getting started
 
@@ -571,7 +516,7 @@ export const schema = s.image();
 export default c.define("/image", schema, c.file("/public/myfile.jpg"));
 ```
 
-**NOTE**: This will not validate, since images requires `width`, `height` and a `sha256` checksum. You can fix validation errors like this by using the CLI or by using the VS Code plugin.
+**NOTE**: This will not validate, since images requires `width`, `height` and `mimeType`. You can fix validation errors like this by using the CLI or by using the VS Code plugin.
 
 ### Rendering images
 
@@ -645,7 +590,7 @@ If you need to reference content in another `.val` file you can use the `keyOf` 
 ### KeyOf Schema
 
 ```ts
-import otherVal from "./other.val"; // NOTE: this must be an array or a record
+import otherVal from "./other.val"; // NOTE: this must be a record
 
 s.keyOf(otherVal);
 ```
@@ -656,7 +601,7 @@ s.keyOf(otherVal);
 
 ```tsx
 const article = useVal(articleVal); // s.object({ author: s.keyOf(otherVal) })
-const authors = useVal(otherVal); // s.array(s.object({ name: s.string() }))
+const authors = useVal(otherVal); // s.record(s.object({ name: s.string() }))
 
 const nameOfAuthor = authors[articleVal.author].name;
 ```

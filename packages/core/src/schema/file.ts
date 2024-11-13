@@ -18,7 +18,6 @@ export type SerializedFileSchema = {
 };
 
 export type FileMetadata = {
-  sha256: string;
   mimeType?: string;
 };
 export class FileSchema<
@@ -136,7 +135,7 @@ export class FileSchema<
       return {
         [path]: [
           {
-            message: `Found metadata, but it could not be validated. File metadata must be an object with the required props: width (positive number), height (positive number) and sha256 (string of length 64 of the base16 hash).`, // These validation errors will have to be picked up by logic outside of this package and revalidated. Reasons: 1) we have to read files to verify the metadata, which is handled differently in different runtimes (Browser, QuickJS, Node.js); 2) we want to keep this package dependency free.
+            message: `Found metadata, but it could not be validated. File metadata must be an object with the mimeType.`, // These validation errors will have to be picked up by logic outside of this package and revalidated. Reasons: 1) we have to read files to verify the metadata, which is handled differently in different runtimes (Browser, QuickJS, Node.js); 2) we want to keep this package dependency free.
             value: src,
             fixes: ["file:check-metadata"],
           },
@@ -243,30 +242,23 @@ export function convertFileSource<
 >(src: FileSource<Metadata>): { url: string; metadata?: Metadata } {
   // TODO: /public should be configurable
   if (!src[FILE_REF_PROP].startsWith("/public")) {
-    console.warn(
-      `Val: file (${src[FILE_REF_PROP]}) does not start with "/public"`,
-    );
     return {
-      url: src[FILE_REF_PROP],
+      url:
+        src[FILE_REF_PROP] +
+        (src.patch_id ? `?patch_id=${src["patch_id"]}` : ""),
       metadata: src.metadata,
     };
   }
 
-  if (src["patch_id"]) {
+  if (src.patch_id) {
     return {
       url:
-        src[FILE_REF_PROP].slice("/public".length) +
-        (src.metadata?.sha256 ? `?sha256=${src.metadata?.sha256}` : "") +
-        (src.patch_id
-          ? `${src.metadata?.sha256 ? "&" : "?"}patch_id=${src["patch_id"]}`
-          : ""),
+        "/api/val/files" + src[FILE_REF_PROP] + `?patch_id=${src["patch_id"]}`,
       metadata: src.metadata,
     };
   }
   return {
-    url:
-      src[FILE_REF_PROP].slice("/public".length) +
-      (src.metadata?.sha256 ? `?sha256=${src.metadata?.sha256}` : ""), // we need this to be able to know the sha when converting to and from richtext. If we removed the sha all together we would not have this problem.
+    url: src[FILE_REF_PROP].slice("/public".length),
     metadata: src.metadata,
   };
 }

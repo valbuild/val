@@ -1,27 +1,14 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { SourcePath } from "../val";
 import { number } from "./number";
-import { object } from "./object";
+import { record } from "./record";
 
 describe("RecordSchema", () => {
-  test("assert: should return success if record is object", () => {
-    const schema = object({
-      test: number().nullable(),
-    }).nullable();
-    const src = {
-      test: 1,
-    };
-    expect(schema.assert("foo" as SourcePath, src)).toEqual({
+  test("assert: basic record", () => {
+    const schema = record(number().nullable());
+    expect(schema.assert("foo" as SourcePath, { bar: 1 })).toEqual({
       success: true,
-      data: src,
+      data: { bar: 1 },
     });
-  });
-
-  test("assert: should return errors if record is string", () => {
-    const schema = object({
-      test: number().nullable(),
-    }).nullable();
-    const src = "BOOM";
-    expect(schema.assert("foo" as SourcePath, src).success).toEqual(false);
   });
 });
