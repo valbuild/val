@@ -1,5 +1,6 @@
 import {
   SET_AUTO_TAG_JSX_ENABLED,
+  SET_RSC,
   stegaEncode,
   type StegaOfSource,
 } from "@valbuild/react/stega";
@@ -18,6 +19,7 @@ import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
 import { createValServer, ValServer } from "@valbuild/server";
 import { VERSION } from "../version";
 
+SET_RSC(true);
 const initFetchValStega =
   (
     config: ValConfig,
@@ -96,7 +98,7 @@ const initFetchValStega =
               patchesRes.json.patches,
             ) as PatchId[];
 
-            const treeRes = await valServer["/tree/~"]["PUT"]({
+            const treeRes = await valServer["/sources"]["PUT"]({
               path: "/",
               query: {
                 validate_sources: true,
@@ -134,11 +136,6 @@ const initFetchValStega =
           })
           .catch((err) => {
             console.error("Val: failed while fetching modules", err);
-            if (process.env.NODE_ENV === "development") {
-              throw Error(
-                "Val: Could not fetch data. This is likely due to a misconfiguration or a bug. Check the console for more details.",
-              );
-            }
             return stegaEncode(selector, {});
           }) as SelectorOf<T> extends GenericSelector<infer S>
           ? Promise<StegaOfSource<S>>
@@ -225,6 +222,7 @@ export function initValRsc(
       },
       ...config,
     },
+    config,
     {
       async isEnabled() {
         return rscNextConfig.draftMode().isEnabled;

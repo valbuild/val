@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaAssertResult, SerializedSchema } from "../schema";
 import { ValModuleBrand } from "../module";
-import { GenericSelector, GetSchema, Path } from "../selector";
-import { Source, SourceArray, SourceObject } from "../source";
+import { GenericSelector, GetSchema } from "../selector";
+import { Source, SourceObject } from "../source";
 import { SourcePath, getValPath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 import { RawString } from "./string";
@@ -12,10 +12,10 @@ export type SerializedKeyOfSchema = {
   path: SourcePath;
   schema: SerializedSchema;
   opt: boolean;
-  values: "string" | "number" | string[];
+  values: "string" | string[];
 };
 
-type KeyOfSelector<Sel extends GenericSelector<SourceArray | SourceObject>> =
+type KeyOfSelector<Sel extends GenericSelector<SourceObject>> =
   Sel extends GenericSelector<infer S>
     ? S extends readonly Source[]
       ? number
@@ -29,7 +29,7 @@ type KeyOfSelector<Sel extends GenericSelector<SourceArray | SourceObject>> =
     : never;
 
 export class KeyOfSchema<
-  Sel extends GenericSelector<SourceArray | SourceObject>,
+  Sel extends GenericSelector<SourceObject>,
   Src extends KeyOfSelector<Sel> | null,
 > extends Schema<Src> {
   constructor(
@@ -56,30 +56,19 @@ export class KeyOfSchema<
 
     if (
       !(
-        serializedSchema.type === "array" ||
-        serializedSchema.type === "object" ||
-        serializedSchema.type === "record"
+        serializedSchema.type === "object" || serializedSchema.type === "record"
       )
     ) {
       return {
         [path]: [
           {
-            message: `Schema in keyOf must be an 'array', 'object' or 'record'. Found '${serializedSchema.type}'`,
+            message: `Schema in keyOf must be an 'object' or 'record'. Found '${serializedSchema.type}'`,
           },
         ],
       };
     }
     if (serializedSchema.opt && (src === null || src === undefined)) {
       return false;
-    }
-    if (serializedSchema.type === "array" && typeof src !== "number") {
-      return {
-        [path]: [
-          {
-            message: "Type of value in keyof (array) must be 'number'",
-          },
-        ],
-      };
     }
     if (serializedSchema.type === "record" && typeof src !== "string") {
       return {
@@ -145,9 +134,7 @@ export class KeyOfSchema<
 
     if (
       !(
-        serializedSchema.type === "array" ||
-        serializedSchema.type === "object" ||
-        serializedSchema.type === "record"
+        serializedSchema.type === "object" || serializedSchema.type === "record"
       )
     ) {
       return {
@@ -156,19 +143,6 @@ export class KeyOfSchema<
           [path]: [
             {
               message: `Schema of first argument must be either: 'array', 'object' or 'record'. Found '${serializedSchema.type}'`,
-              typeError: true,
-            },
-          ],
-        },
-      };
-    }
-    if (serializedSchema.type === "array" && typeof src !== "number") {
-      return {
-        success: false,
-        errors: {
-          [path]: [
-            {
-              message: `Value of keyOf (array) must be 'number', got '${typeof src}'`,
               typeError: true,
             },
           ],
@@ -227,7 +201,7 @@ export class KeyOfSchema<
     const path = this.sourcePath;
     if (!path) {
       throw new Error(
-        "Cannot serialize keyOf schema with empty selector. TIP: keyOf must be used with a Val Module.",
+        "Cannot serialize keyOf schema with empty selector. TIP: keyOf must be used with a Val Module of record schema.",
       );
     }
     const serializedSchema = this.schema;
@@ -237,9 +211,6 @@ export class KeyOfSchema<
 
     let values: SerializedKeyOfSchema["values"];
     switch (serializedSchema.type) {
-      case "array":
-        values = "number";
-        break;
       case "record":
         values = "string";
         break;
@@ -262,7 +233,7 @@ export class KeyOfSchema<
 }
 
 export const keyOf = <
-  Src extends GenericSelector<SourceArray | SourceObject> & ValModuleBrand, // ValModuleBrand enforces call site to pass in a val module - selectors are not allowed. The reason is that this should make it easier to patch. We might be able to relax this constraint in the future
+  Src extends GenericSelector<SourceObject> & ValModuleBrand, // ValModuleBrand enforces call site to pass in a val module - selectors are not allowed. The reason is that this should make it easier to patch. We might be able to relax this constraint in the future
 >(
   valModule: Src,
 ): Schema<KeyOfSelector<Src>> => {

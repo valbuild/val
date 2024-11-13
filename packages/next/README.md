@@ -101,15 +101,15 @@ In addition, you need to set the following properties in the `val.config` file:
 Example of `val.config.ts`:
 
 ```ts
-import { initVal } from '@valbuild/next';
+import { initVal } from "@valbuild/next";
 
 const { s, c, val, config } = initVal({
-  project: 'myteam/myproject',
+  project: "myteam/myproject",
   gitBranch: process.env.VERCEL_GIT_COMMIT_REF,
   gitCommit: process.env.VERCEL_GIT_COMMIT_SHA,
 });
 
-export type { t } from '@valbuild/next';
+export type { t } from "@valbuild/next";
 export { s, c, val, config };
 ```
 
@@ -516,7 +516,7 @@ export const schema = s.image();
 export default c.define("/image", schema, c.file("/public/myfile.jpg"));
 ```
 
-**NOTE**: This will not validate, since images requires `width`, `height` and a `sha256` checksum. You can fix validation errors like this by using the CLI or by using the VS Code plugin.
+**NOTE**: This will not validate, since images requires `width`, `height` and `mimeType`. You can fix validation errors like this by using the CLI or by using the VS Code plugin.
 
 ### Rendering images
 

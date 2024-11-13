@@ -4,14 +4,23 @@ import { createValPathOfItem } from "../selector/SelectorProxy";
 import { SelectorSource } from "../selector/index";
 import { SourceObject } from "../source";
 import { SourcePath } from "../val";
-import { LiteralSchema } from "./literal";
+import { LiteralSchema, SerializedLiteralSchema } from "./literal";
 import { ObjectSchema, SerializedObjectSchema } from "./object";
 import { ValidationErrors } from "./validation/ValidationError";
 
-export type SerializedUnionSchema = {
+export type SerializedUnionSchema =
+  | SerializedStringUnionSchema
+  | SerializedObjectUnionSchema;
+export type SerializedStringUnionSchema = {
   type: "union";
-  key: string | SerializedSchema;
-  items: SerializedSchema[];
+  key: SerializedLiteralSchema;
+  items: SerializedLiteralSchema[];
+  opt: boolean;
+};
+export type SerializedObjectUnionSchema = {
+  type: "union";
+  key: string;
+  items: SerializedObjectSchema[];
   opt: boolean;
 };
 
@@ -402,14 +411,14 @@ export class UnionSchema<
         key: this.key,
         items: this.items.map((o) => o.serialize()),
         opt: this.opt,
-      };
+      } as SerializedObjectUnionSchema;
     }
     return {
       type: "union",
       key: this.key.serialize(),
       items: this.items.map((o) => o.serialize()),
       opt: this.opt,
-    };
+    } as SerializedStringUnionSchema;
   }
 
   constructor(

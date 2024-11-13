@@ -26,6 +26,7 @@
     "@valbuild/core": "~0.64.0",
     "@valbuild/shared": "~0.64.0",
     "@valbuild/ui": "~0.64.0",
+    "chokidar": "^4.0.1",
     "image-size": "^1.0.2",
     "minimatch": "^3.0.4",
     "quickjs-emscripten": "^0.21.1",

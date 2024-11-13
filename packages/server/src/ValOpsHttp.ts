@@ -19,6 +19,8 @@ import {
   ValOps,
   ValOpsOptions,
   WithGenericError,
+  SchemaSha,
+  bufferFromDataUrl,
 } from "./ValOps";
 import { z } from "zod";
 import { fromError } from "zod-validation-error";
@@ -33,13 +35,11 @@ const AuthorId = z.string().refine((s): s is AuthorId => !!s); // TODO: validate
 const ModuleFilePath = z.string().refine((s): s is ModuleFilePath => !!s); // TODO: validate
 const Metadata = z.union([
   z.object({
-    sha256: z.string(),
     mimeType: z.string(),
     width: z.number(),
     height: z.number(),
   }),
   z.object({
-    sha256: z.string(),
     mimeType: z.string(),
   }),
 ]);
@@ -146,7 +146,7 @@ export class ValOpsHttp extends ValOps {
   constructor(
     private readonly hostUrl: string,
     private readonly project: string,
-    private readonly commitSha: string,
+    private readonly commitSha: string, // TODO: CommitSha
     private readonly branch: string,
     apiKey: string,
     valModules: ValModules,
@@ -169,7 +169,187 @@ export class ValOpsHttp extends ValOps {
     // TODO: unused for now. Implement or remove
   }
 
+  async getStat(
+    params: {
+      baseSha: BaseSha;
+      schemaSha: SchemaSha;
+      patches?: PatchId[];
+      profileId?: AuthorId;
+    } | null,
+  ): Promise<
+    | {
+        type: "request-again" | "no-change";
+        baseSha: BaseSha;
+        schemaSha: SchemaSha;
+        patches: PatchId[];
+      }
+    | {
+        type: "use-websocket";
+        url: string;
+        nonce: string;
+        baseSha: BaseSha;
+        schemaSha: SchemaSha;
+        commitSha: CommitSha;
+        patches: PatchId[];
+      }
+    | { type: "error"; error: GenericErrorMessage }
+  > {
+    if (!params?.profileId) {
+      return { type: "error", error: { message: "No profileId provided" } };
+    }
+    const currentBaseSha = await this.getBaseSha();
+    const currentSchemaSha = await this.getSchemaSha();
+    const patchData = await this.fetchPatches({
+      omitPatch: true,
+      authors: undefined,
+      patchIds: undefined,
+      moduleFilePaths: undefined,
+    });
+    const patches: PatchId[] = [];
+    // TODO: use proper patch sequences when available:
+    for (const [patchId] of Object.entries(patchData.patches).sort(
+      ([, a], [, b]) => {
+        return a.createdAt.localeCompare(b.createdAt, undefined);
+      },
+    )) {
+      patches.push(patchId as PatchId);
+    }
+    const webSocketNonceRes = await this.getWebSocketNonce(params.profileId);
+    if (webSocketNonceRes.status === "error") {
+      return { type: "error", error: webSocketNonceRes.error };
+    }
+    const { nonce, url } = webSocketNonceRes.data;
+    return {
+      type: "use-websocket",
+      url,
+      nonce,
+      baseSha: currentBaseSha,
+      schemaSha: currentSchemaSha,
+      patches,
+      commitSha: this.commitSha as CommitSha,
+    };
+  }
+
+  async getWebSocketNonce(profileId: string): Promise<
+    | {
+        status: "success";
+        data: { nonce: string; url: string };
+      }
+    | { status: "error"; error: GenericErrorMessage }
+  > {
+    return fetch(`${this.hostUrl}/v1/${this.project}/websocket/nonces`, {
+      method: "POST",
+      body: JSON.stringify({
+        branch: this.branch,
+        profileId,
+      }),
+      headers: {
+        ...this.authHeaders,
+        "Content-Type": "application/json",
+      },
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          const json = await res.json();
+          if (typeof json.nonce !== "string" || typeof json.url !== "string") {
+            return {
+              status: "error" as const,
+              error: {
+                message: "Invalid nonce response: " + JSON.stringify(json),
+              },
+            };
+          }
+          if (!json.url.startsWith("ws://") && !json.url.startsWith("wss://")) {
+            return {
+              status: "error" as const,
+              error: {
+                message: "Invalid websocket url: " + json.url,
+              },
+            };
+          }
+          return {
+            status: "success" as const,
+            data: { nonce: json.nonce, url: json.url },
+          };
+        }
+        return {
+          status: "error" as const,
+          error: {
+            message:
+              "Could not get nonce. HTTP error: " +
+              res.status +
+              " " +
+              res.statusText,
+          },
+        };
+      })
+      .catch((e) => {
+        console.error(
+          "Could not get nonce (connection error?):",
+          e instanceof Error ? e.message : e.toString(),
+        );
+        return {
+          status: "error" as const,
+          error: {
+            message:
+              "Could not get nonce. Error: " +
+              (e instanceof Error ? e.message : e.toString()),
+          },
+        };
+      });
+  }
   override async fetchPatches<OmitPatch extends boolean>(filters: {
+    authors?: AuthorId[];
+    patchIds?: PatchId[];
+    moduleFilePaths?: ModuleFilePath[];
+    omitPatch: OmitPatch;
+  }): Promise<OmitPatch extends true ? PatchesMetadata : Patches> {
+    // Split patchIds into chunks to avoid too long query strings
+    // NOTE: fetching patches results are cached, so this should reduce the pressure on the server
+    const chunkSize = 100;
+    const patchIds = filters.patchIds || [];
+    const patchIdChunks = [];
+    for (let i = 0; i < patchIds.length; i += chunkSize) {
+      patchIdChunks.push(patchIds.slice(i, i + chunkSize));
+    }
+    let allPatches: Patches["patches"] = {};
+    let allErrors: Patches["errors"] = {};
+    if (patchIds === undefined || patchIds.length === 0) {
+      return this.fetchPatchesInternal({
+        patchIds: patchIds,
+        authors: filters.authors,
+        moduleFilePaths: filters.moduleFilePaths,
+        omitPatch: filters.omitPatch,
+      });
+    }
+    for (const res of await Promise.all(
+      patchIdChunks.map((patchIdChunk) =>
+        this.fetchPatchesInternal({
+          patchIds: patchIdChunk,
+          authors: filters.authors,
+          moduleFilePaths: filters.moduleFilePaths,
+          omitPatch: filters.omitPatch,
+        }),
+      ),
+    )) {
+      if ("error" in res) {
+        return res;
+      }
+      allPatches = {
+        ...allPatches,
+        ...(res.patches as Patches["patches"]),
+      };
+      if (res.errors) {
+        allErrors = { ...allErrors, ...res.errors };
+      }
+    }
+    return {
+      patches: allPatches,
+      errors: Object.keys(allErrors).length > 0 ? allErrors : undefined,
+    } as OmitPatch extends true ? PatchesMetadata : Patches;
+  }
+
+  async fetchPatchesInternal<OmitPatch extends boolean>(filters: {
     authors?: AuthorId[];
     patchIds?: PatchId[];
     moduleFilePaths?: ModuleFilePath[];
@@ -538,7 +718,7 @@ export class ValOpsHttp extends ValOps {
     if (!file) {
       return null;
     }
-    return Buffer.from(file.value, "base64");
+    return bufferFromDataUrl(file.value) ?? null;
   }
 
   protected override async getBase64EncodedBinaryFileMetadataFromPatch<
@@ -695,11 +875,17 @@ export class ValOpsHttp extends ValOps {
     committer: AuthorId,
     newBranch?: string,
   ): Promise<
-    WithGenericError<{
-      updatedFiles: string[];
-      commit: CommitSha;
-      branch: string;
-    }>
+    | {
+        isNotFastForward?: boolean;
+        updatedFiles: string[];
+        commit: CommitSha;
+        branch: string;
+        error?: undefined;
+      }
+    | {
+        isNotFastForward?: boolean;
+        error: GenericErrorMessage;
+      }
   > {
     try {
       const existingBranch = this.branch;
@@ -736,6 +922,22 @@ export class ValOpsHttp extends ValOps {
             message: `Could not parse commit response. Error: ${fromError(
               parsed.error,
             )}`,
+          },
+        };
+      }
+      if (res.headers.get("Content-Type")?.includes("application/json")) {
+        const json = await res.json();
+        if (json.isNotFastForward) {
+          return {
+            isNotFastForward: true,
+            error: {
+              message: "Could not commit. Not a fast-forward commit",
+            },
+          };
+        }
+        return {
+          error: {
+            message: json.message,
           },
         };
       }
