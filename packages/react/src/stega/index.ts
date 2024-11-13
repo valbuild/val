@@ -12,10 +12,20 @@ export {
   type RichText,
 } from "./stegaEncode";
 export { stegaDecodeString } from "./stegaDecodeString";
+
+let isRSC = false;
 let autoTagJSXEnabled = false;
 export function IS_AUTO_TAG_JSX_ENABLED() {
   return autoTagJSXEnabled;
 }
 export function SET_AUTO_TAG_JSX_ENABLED(enabled: boolean) {
   autoTagJSXEnabled = enabled;
+}
+
+export function IS_RSC() {
+  return isRSC;
+}
+
+export function SET_RSC(enabled: boolean) {
+  isRSC = enabled;
 }

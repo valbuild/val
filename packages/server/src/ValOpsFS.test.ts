@@ -57,9 +57,7 @@ describe("ValOpsFS", () => {
         }),
         {
           test: "Test 1 2 3",
-          testImage: c.file("/public/test.png", {
-            sha256:
-              "80d58a5b775debc85386b320c347a59ffeeae5eeb3ca30a3a3ca04b5aaed145d",
+          testImage: c.file("/public/val/test.png", {
             height: 12,
             width: 1,
             mimeType: "image/png",
@@ -81,9 +79,7 @@ describe("ValOpsFS", () => {
         }),
         {
           test: "Test 1 2 3",
-          testImage: c.file("/public/test.png", {
-            sha256:
-              "80d58a5b775debc85386b320c347a59ffeeae5eeb3ca30a3a3ca04b5aaed145d",
+          testImage: c.file("/public/val/test.png", {
             height: 1,
             width: 1,
             mimeType: "image/png",
@@ -138,6 +134,7 @@ describe("ValOpsFS", () => {
       {
         formatter: (code, filePath) =>
           synchronizedPrettier.format(code, { filepath: filePath }),
+        config,
       },
     );
 
@@ -145,25 +142,24 @@ describe("ValOpsFS", () => {
     const schemas = await ops.getSchemas();
     const patchRes1 = await ops.createPatch(
       "/test/test1.val.js" as ModuleFilePath,
+      null,
       [
         {
           op: "replace",
           path: ["testImage"],
           value: {
-            _ref: "/public/managed/images/smallest.png",
+            _ref: "/public/val/images/smallest.png",
             _type: "file",
             metadata: {
               width: 8,
               height: 1,
-              sha256:
-                "a30094a4957f7ec5fb432c14eae0a0c178ab37bac55ef06ff8286ff087f01fd3",
               mimeType: "image/png",
             },
           },
         },
         {
           op: "file",
-          filePath: "/public/managed/images/smallest.png",
+          filePath: "/public/val/images/smallest.png",
           path: ["testImage"],
           value: anotherSmallPng,
         },

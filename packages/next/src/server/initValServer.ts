@@ -34,6 +34,7 @@ const initValNextAppRouter = (
         },
         ...config,
       },
+      config,
       {
         async isEnabled() {
           return nextConfig.draftMode().isEnabled;

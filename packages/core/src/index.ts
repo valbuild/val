@@ -1,4 +1,4 @@
-export { initVal } from "./initVal";
+export { initVal, type ConfigDirectory } from "./initVal";
 export { modules, type ValModules } from "./modules";
 export type {
   InitVal,
@@ -62,11 +62,17 @@ export {
 } from "./selector";
 import {
   getSource,
-  parsePath,
+  splitModulePath,
+  splitModuleFilePath,
   resolvePath,
   splitModuleFilePathAndModulePath,
-  ModuleFilePathSep,
+  joinModuleFilePathAndModulePath,
+  parentOfSourcePath,
+  patchPathToModulePath,
+  splitJoinedSourcePaths,
 } from "./module";
+const ModuleFilePathSep = "?p=";
+export { ModuleFilePathSep };
 import { getSchema } from "./selector";
 import { ModulePath, getValPath, isVal } from "./val";
 import { convertFileSource } from "./schema/file";
@@ -82,6 +88,8 @@ import {
   EXT_TO_MIME_TYPES,
   MIME_TYPES_TO_EXT,
 } from "./mimeType";
+import { type ImageMetadata } from "./schema/image";
+import { type FileMetadata } from "./schema/file";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
@@ -96,7 +104,12 @@ export {
   type SerializedRichTextSchema,
   RichTextSchema,
 } from "./schema/richtext";
-export { type SerializedUnionSchema, UnionSchema } from "./schema/union";
+export {
+  type SerializedUnionSchema,
+  UnionSchema,
+  type SerializedStringUnionSchema,
+  type SerializedObjectUnionSchema,
+} from "./schema/union";
 export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
 export { deserializeSchema } from "./schema/deserialize";
 
@@ -127,6 +140,7 @@ const Internal = {
   getSource,
   resolvePath,
   splitModuleFilePathAndModulePath,
+  joinModuleFilePathAndModulePath,
   isVal,
   createValPathOfItem,
   getSHA256Hash,
@@ -152,23 +166,51 @@ const Internal = {
       .map((segment) => segment && tryJsonParse(segment))
       .join("/")}`,
   createPatchPath: (modulePath: ModulePath) => {
-    return parsePath(modulePath);
+    return splitModulePath(modulePath);
   },
-  patchPathToModulePath: (patchPath: string[]): ModulePath => {
-    return patchPath
-      .map((segment) => {
-        // TODO: I am worried that something is lost here: what if the segment is a string that happens to be a parsable as a number? We could make those keys illegal?
-        if (Number.isInteger(Number(segment))) {
-          return segment;
-        }
-        return JSON.stringify(segment);
-      })
-      .join(".") as ModulePath;
-  },
+  splitModulePath,
+  splitModuleFilePath,
+  splitJoinedSourcePaths,
+  parentOfSourcePath,
+  patchPathToModulePath,
   VAL_ENABLE_COOKIE_NAME: "val_enable" as const,
   VAL_STATE_COOKIE: "val_state" as const,
   VAL_SESSION_COOKIE: "val_session" as const,
+  createFilename: (
+    data: string | null,
+    filename: string | null,
+    metadata: FileMetadata | ImageMetadata | undefined,
+    sha256: string,
+  ) => {
+    if (!metadata) {
+      return filename;
+    }
+    if (!data) {
+      return filename;
+    }
+    const shaSuffix = sha256.slice(0, 5);
+    const mimeType = Internal.getMimeType(data) ?? "unknown";
+    const newExt = Internal.mimeTypeToFileExt(mimeType) ?? "unknown"; // Don't trust the file extension
+    if (filename) {
+      let cleanFilename =
+        filename.split(".").slice(0, -1).join(".") || filename; // remove extension if it exists
+      const maybeShaSuffixPos = cleanFilename.lastIndexOf("_");
+      const currentShaSuffix = cleanFilename.slice(
+        maybeShaSuffixPos + 1,
+        cleanFilename.length,
+      );
+      if (currentShaSuffix === shaSuffix) {
+        cleanFilename = cleanFilename.slice(0, maybeShaSuffixPos);
+      }
+      const escapedFilename = encodeURIComponent(cleanFilename)
+        .replace(/%[0-9A-Fa-f]{2}/g, "")
+        .toLowerCase();
+      return `${escapedFilename}_${shaSuffix}.${newExt}`;
+    }
+    return `${sha256}.${newExt}`;
+  },
 };
+
 function tryJsonParse(str: string) {
   try {
     return JSON.parse(str);

@@ -633,7 +633,7 @@ async function plan(
           valUtilsDir,
           analysis.isTypeScript ? "val.rsc.ts" : "val.rsc.js",
         ),
-        source: VAL_RSC(valUtilsImportPath),
+        source: VAL_RSC(valUtilsImportPath, valModulesServerImport),
       };
     } else {
       plan.createValRsc = false;

@@ -36,7 +36,7 @@ export function remirrorToRichTextSource(node: RemirrorJSON): {
   const files: Record<string, { value: string; patchPaths: string[][] }> = {};
   const blocks: BlockNode<AllRichTextOptions>[] = [];
   let i = 0;
-  for (const child of node.content) {
+  for (const child of node?.content || []) {
     const block = convertBlock([(i++).toString()], child, files);
     blocks.push(block);
   }
@@ -295,9 +295,17 @@ function convertImageNode(
         `Could not detect Mime Type for image: ${node.attrs.src}`,
       );
     }
-    const fileExt = Internal.mimeTypeToFileExt(mimeType);
-    const fileName = node.attrs.fileName || `${sha256}.${fileExt}`;
-    const filePath = `/public/${fileName}`;
+    const fileName = Internal.createFilename(
+      node.attrs.src,
+      node.attrs.fileName || "",
+      {
+        width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
+        height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
+        mimeType,
+      },
+      sha256,
+    );
+    const filePath = `/public/val/${fileName}`;
     const existingFilesEntry = files[filePath];
     const thisPath = path
       // file is added as src (see below):
@@ -319,28 +327,39 @@ function convertImageNode(
         metadata: {
           width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
           height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
-          sha256: sha256 || "",
           mimeType,
         },
       },
     };
   } else if (node.attrs) {
-    const sha256 = getParam("sha256", node.attrs.src);
-    const patchId = getParam("patch_id", node.attrs.src);
-    const noParamsSrc = node.attrs.src.split("?")[0];
+    const url = node.attrs.src;
+    const patchId = getParam("patch_id", url);
+    let noParamsUrl = url.split("?")[0];
+    if (patchId) {
+      if (noParamsUrl.startsWith("/api/val/files/public")) {
+        noParamsUrl = noParamsUrl.slice("/api/val/files".length);
+      } else {
+        console.error(
+          "Patched image URL does not start with /api/val/files: " + url,
+        );
+      }
+    } else {
+      if (!noParamsUrl.startsWith("/public")) {
+        noParamsUrl = `/public${noParamsUrl}`;
+      } else {
+        console.error("Unpatched image URL starts with /public: " + url);
+      }
+    }
     const tag: ImageNode<AllRichTextOptions> = {
       tag: "img" as const,
       src: {
         [VAL_EXTENSION]: "file" as const,
-        [FILE_REF_PROP]: `/public${
-          node.attrs.src.split("?")[0]
-        }` as `/public/${string}`,
+        [FILE_REF_PROP]: noParamsUrl as `/public/${string}`,
         metadata: {
           width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
           height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
-          sha256: sha256 || "",
           mimeType:
-            (noParamsSrc && Internal.filenameToMimeType(noParamsSrc)) || "",
+            (noParamsUrl && Internal.filenameToMimeType(noParamsUrl)) || "",
         },
         ...(patchId ? { patch_id: patchId } : {}),
       },

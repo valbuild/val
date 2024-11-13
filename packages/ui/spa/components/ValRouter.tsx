@@ -1,14 +1,25 @@
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
-import React, { useCallback, useContext, useEffect, useState } from "react";
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 const ValRouterContext = React.createContext<{
   hardLink: boolean;
-  useNavigate: () => (path: SourcePath | ModuleFilePath) => void;
-  sourcePath: SourcePath;
+  navigate: (
+    path: SourcePath | ModuleFilePath,
+    params?: {
+      replace?: true;
+    },
+  ) => void;
+  currentSourcePath: SourcePath;
 }>({
   hardLink: false,
-  useNavigate: () => () => {},
-  sourcePath: "" as SourcePath,
+  navigate: () => {},
+  currentSourcePath: "" as SourcePath,
 });
 
 const VAL_CONTENT_VIEW_ROUTE = "/val/~"; // TODO: make route configurable
@@ -23,7 +34,8 @@ export function ValRouter({
   children: React.ReactNode;
   overlay?: boolean;
 }) {
-  const [sourcePath, setSourcePath] = useState("" as SourcePath);
+  const [currentSourcePath, setSourcePath] = useState("" as SourcePath);
+  const historyState = useRef<number[]>([]);
   useEffect(() => {
     const listener = () => {
       const valPathIndex = location.pathname.indexOf(VAL_CONTENT_VIEW_ROUTE);
@@ -34,6 +46,16 @@ export function ValRouter({
         );
         const path = moduleFilePath + (modulePath ? `?p=${modulePath}` : "");
         setSourcePath(path as SourcePath);
+        // reset scroll position
+        const prevScrollPos = historyState.current.pop();
+        setTimeout(() => {
+          const scrollContainer = document
+            .getElementById("val-shadow-root")
+            ?.shadowRoot?.getElementById("val-content-area");
+          if (prevScrollPos) {
+            scrollContainer?.scrollTo(0, prevScrollPos);
+          }
+        }, 50);
       }
     };
     listener();
@@ -42,14 +64,25 @@ export function ValRouter({
       window.removeEventListener("popstate", listener);
     };
   }, []);
-  const useNavigate = useCallback<
-    () => (path: SourcePath | ModuleFilePath) => void
-  >(
-    () => (path) => {
+  const navigate = useCallback(
+    (path: SourcePath | ModuleFilePath, params?: { replace?: true }) => {
       const navigateTo = `${VAL_CONTENT_VIEW_ROUTE}${path}`;
       setSourcePath(path as SourcePath);
       if (!overlay) {
-        window.history.pushState(null, "", navigateTo);
+        const scrollContainer = document
+          .getElementById("val-shadow-root")
+          ?.shadowRoot?.getElementById("val-content-area");
+        const prevScrollPos = scrollContainer?.scrollTop;
+        scrollContainer?.scrollTo(0, 0);
+        if (prevScrollPos !== undefined) {
+          // NOTE: we cannot use history.state since it is overridden by Next.js
+          historyState.current.push(prevScrollPos);
+        }
+        if (params?.replace) {
+          window.history.replaceState(null, "", navigateTo);
+        } else {
+          window.history.pushState(null, "", navigateTo);
+        }
       } else {
         window.location.href = navigateTo;
       }
@@ -60,8 +93,8 @@ export function ValRouter({
     <ValRouterContext.Provider
       value={{
         hardLink: !!overlay,
-        sourcePath,
-        useNavigate,
+        currentSourcePath,
+        navigate,
       }}
     >
       {children}
@@ -69,8 +102,12 @@ export function ValRouter({
   );
 }
 
-export function useNavigate(): (path: SourcePath | ModuleFilePath) => void {
-  return useContext(ValRouterContext).useNavigate();
+export function useNavigation() {
+  const { navigate, currentSourcePath } = useContext(ValRouterContext);
+  return {
+    navigate,
+    currentSourcePath,
+  };
 }
 
 export function useParams(): {
@@ -78,6 +115,6 @@ export function useParams(): {
 } {
   const ctx = useContext(ValRouterContext);
   return {
-    sourcePath: ctx.sourcePath,
+    sourcePath: ctx.currentSourcePath,
   };
 }
