@@ -113,6 +113,7 @@ describe("ValOpsFS", () => {
         root: "/examples/next",
         formatter: (code, filePath) =>
           synchronizedPrettier.format(code, { filepath: filePath }),
+        config,
       },
     );
 
@@ -127,6 +128,7 @@ describe("ValOpsFS", () => {
     const schemas = await ops.getSchemas();
     const patchRes1 = await ops.createPatch(
       "/components/clientContent.val.ts" as ModuleFilePath,
+      null,
       [
         {
           op: "replace",

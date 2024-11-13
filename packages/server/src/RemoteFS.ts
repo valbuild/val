@@ -1,4 +1,4 @@
-import minimatch from "minimatch";
+import { minimatch } from "minimatch";
 import path from "path";
 import { ValFS } from "./ValFS";
 import ts from "typescript";

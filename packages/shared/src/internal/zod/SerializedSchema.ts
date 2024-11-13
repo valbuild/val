@@ -103,12 +103,20 @@ export const SerializedUnionSchema: z.ZodType<
   z.ZodTypeDef,
   unknown
 > = z.lazy(() => {
-  return z.object({
-    type: z.literal("union"),
-    key: z.union([z.string(), SerializedSchema]),
-    items: z.array(SerializedSchema),
-    opt: z.boolean(),
-  });
+  return z.union([
+    z.object({
+      type: z.literal("union"),
+      key: SerializedLiteralSchema,
+      items: z.array(SerializedLiteralSchema),
+      opt: z.boolean(),
+    }),
+    z.object({
+      type: z.literal("union"),
+      key: z.string(),
+      items: z.array(SerializedObjectSchema),
+      opt: z.boolean(),
+    }),
+  ]);
 });
 
 export const RichTextOptions: z.ZodType<
@@ -173,11 +181,7 @@ export const SerializedKeyOfSchema: z.ZodType<
     type: z.literal("keyOf"),
     path: SourcePath,
     schema: SerializedSchema,
-    values: z.union([
-      z.literal("string"),
-      z.literal("number"),
-      z.array(z.string()),
-    ]),
+    values: z.union([z.literal("string"), z.array(z.string())]),
     opt: z.boolean(),
   });
 });

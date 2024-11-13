@@ -253,21 +253,24 @@ export class ValCache {
       },
       body: {
         patchIds,
-        addPatch: {
-          path,
-          patch,
-        },
+        addPatches: [
+          {
+            path,
+            patch,
+          },
+        ],
       },
     });
     if (treeRes.status === 200) {
-      const newPatchId = treeRes.json.newPatchId;
-      if (!newPatchId) {
+      const newPatchIds = treeRes.json.newPatchIds;
+      if (!newPatchIds) {
         console.error("Val: could create patch", treeRes);
         return result.err({
           errorType: "other",
           message: "Val: could not create patch",
         });
       }
+      const newPatchId = newPatchIds[0];
       const fetchedSource = treeRes.json?.modules?.[path]?.source;
       if (fetchedSource !== undefined) {
         this.drafts[path] = fetchedSource;
