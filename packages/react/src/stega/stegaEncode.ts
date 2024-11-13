@@ -295,7 +295,7 @@ export function stegaEncode(
         return rec(sourceOrSelector, {
           path: recOpts.path,
           schema: [recOpts.schema.key]
-            .concat(...recOpts.schema.items)
+            .concat(...(recOpts.schema.items as SerializedLiteralSchema[]))
             .find((s) => {
               if (isLiteralSchema(s)) {
                 return s.value === sourceOrSelector;
