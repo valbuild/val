@@ -37,7 +37,7 @@ describe("schemaTypesOfPath", () => {
     });
     const patchPath = ["test"];
     const res = schemaTypesOfPath(schema.serialize(), patchPath);
-    expect(res).toEqual(new Set(["union"]));
+    expect(res).toEqual(new Set(["string", "union"]));
   });
 
   test("object union: 1", () => {
@@ -66,7 +66,7 @@ describe("schemaTypesOfPath", () => {
     );
     const patchPath = ["inner"];
     const res = schemaTypesOfPath(schema.serialize(), patchPath);
-    expect(res).toEqual(new Set(["union"]));
+    expect(res).toEqual(new Set(["object", "union"]));
   });
 
   test("object union: 3", () => {
