@@ -22,6 +22,11 @@ describe("pathTree", () => {
           isDirectory: true,
           children: [
             {
+              name: "projects.val.ts",
+              fullPath: "/content/projects.val.ts",
+              children: [],
+            },
+            {
               name: "employees",
               fullPath: "/content/employees",
               isDirectory: true,
@@ -32,11 +37,6 @@ describe("pathTree", () => {
                   children: [],
                 },
               ],
-            },
-            {
-              name: "handbook.val.ts",
-              fullPath: "/content/handbook.val.ts",
-              children: [],
             },
             {
               name: "pages",
@@ -51,13 +51,13 @@ describe("pathTree", () => {
               ],
             },
             {
-              name: "projects.val.ts",
-              fullPath: "/content/projects.val.ts",
+              name: "salary.val.ts",
+              fullPath: "/content/salary.val.ts",
               children: [],
             },
             {
-              name: "salary.val.ts",
-              fullPath: "/content/salary.val.ts",
+              name: "handbook.val.ts",
+              fullPath: "/content/handbook.val.ts",
               children: [],
             },
           ],
