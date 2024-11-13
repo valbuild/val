@@ -295,9 +295,17 @@ function convertImageNode(
         `Could not detect Mime Type for image: ${node.attrs.src}`,
       );
     }
-    const fileExt = Internal.mimeTypeToFileExt(mimeType);
-    const fileName = node.attrs.fileName || `${sha256}.${fileExt}`;
-    const filePath = `/public/${fileName}`;
+    const fileName = Internal.createFilename(
+      node.attrs.src,
+      node.attrs.alt || "",
+      {
+        width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
+        height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
+        mimeType,
+      },
+      sha256,
+    );
+    const filePath = `/public/val/${fileName}`;
     const existingFilesEntry = files[filePath];
     const thisPath = path
       // file is added as src (see below):
@@ -315,30 +323,27 @@ function convertImageNode(
       tag: "img",
       src: {
         [VAL_EXTENSION]: "file" as const,
-        [FILE_REF_PROP]: filePath as `/public/${string}`,
+        [FILE_REF_PROP]: filePath as `/public/val/${string}`,
         metadata: {
           width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
           height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
-          sha256: sha256 || "",
           mimeType,
         },
       },
     };
   } else if (node.attrs) {
-    const sha256 = getParam("sha256", node.attrs.src);
     const patchId = getParam("patch_id", node.attrs.src);
     const noParamsSrc = node.attrs.src.split("?")[0];
     const tag: ImageNode<AllRichTextOptions> = {
       tag: "img" as const,
       src: {
         [VAL_EXTENSION]: "file" as const,
-        [FILE_REF_PROP]: `/public${
+        [FILE_REF_PROP]: `/public/val${
           node.attrs.src.split("?")[0]
         }` as `/public/${string}`,
         metadata: {
           width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
           height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
-          sha256: sha256 || "",
           mimeType:
             (noParamsSrc && Internal.filenameToMimeType(noParamsSrc)) || "",
         },

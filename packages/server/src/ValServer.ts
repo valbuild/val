@@ -916,8 +916,9 @@ export const ValServer = (
               }
               if (!newPatchIds) {
                 newPatchIds = [createPatchRes.patchId];
+              } else {
+                newPatchIds.push(createPatchRes.patchId);
               }
-              newPatchIds.push(createPatchRes.patchId);
               patchOps.patches[createPatchRes.patchId] = {
                 path: newPatchModuleFilePath,
                 patch: newPatchOps,
@@ -925,6 +926,13 @@ export const ValServer = (
                 createdAt: createPatchRes.createdAt,
                 appliedAt: null,
               };
+              patchAnalysis.patchesByModule[newPatchModuleFilePath] = [
+                ...(patchAnalysis.patchesByModule[newPatchModuleFilePath] ||
+                  []),
+                {
+                  patchId: createPatchRes.patchId,
+                },
+              ];
             }
           }
           tree = {

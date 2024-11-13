@@ -170,10 +170,9 @@ describe("TSOps", () => {
       value: {
         width: 123,
         height: 456,
-        sha256: "abc",
       },
       expected: result.ok(
-        `{ foo: "bar", image: c.file("/public/val/image.jpg", { width: 123, height: 456, sha256: "abc" }) }`,
+        `{ foo: "bar", image: c.file("/public/val/image.jpg", { width: 123, height: 456 }) }`,
       ),
     },
     {
@@ -424,7 +423,6 @@ describe("TSOps", () => {
       value: {
         width: 123,
         height: 456,
-        sha256: "1234567890abcdef",
       },
       expected: result.err(PatchError),
     },

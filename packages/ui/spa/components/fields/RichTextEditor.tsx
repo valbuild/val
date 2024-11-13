@@ -1,7 +1,6 @@
 import {
   Remirror,
   useRemirror,
-  OnChangeJSON,
   EditorComponent,
   useActive,
   useChainedCommands,
@@ -32,9 +31,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "../ui/dropdown-menu";
-import { DayPickerProvider } from "react-day-picker";
-import { RichTextOptions } from "@valbuild/core";
-import { createFilename, readImage } from "../../utils/readImage";
+import { Internal, RichTextOptions } from "@valbuild/core";
+import { readImage } from "../../utils/readImage";
 import { BoldExtension } from "@remirror/extension-bold";
 import { ItalicExtension } from "@remirror/extension-italic";
 import { StrikeExtension } from "@remirror/extension-strike";
@@ -47,7 +45,6 @@ import {
 } from "@remirror/extension-list";
 import { LinkExtension } from "@remirror/extension-link";
 import { HardBreakExtension } from "@remirror/extension-hard-break";
-import { RemirrorJSON as ValRemirrorJSON } from "@valbuild/shared/internal";
 import {
   RemirrorJSON,
   RemirrorManager,
@@ -357,12 +354,16 @@ const Toolbar = ({
                           width: res.width,
                           height: res.height,
                           fileName:
-                            createFilename(res.src, res.filename ?? null, {
-                              width: res.width,
-                              height: res.height,
-                              sha256: res.sha256,
-                              mimeType: res.mimeType,
-                            }) ?? undefined,
+                            Internal.createFilename(
+                              res.src,
+                              res.filename ?? null,
+                              {
+                                width: res.width,
+                                height: res.height,
+                                mimeType: res.mimeType,
+                              },
+                              res.sha256,
+                            ) ?? undefined,
                         })
                         .focus()
                         .run();

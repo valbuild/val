@@ -290,10 +290,10 @@ export class ValOpsFS extends ValOps {
     const patches: Patches["patches"] = {};
     const errors: NonNullable<Patches["errors"]> = {};
 
-    const edPatchIds = patchJsonFiles
+    const parsedPatchIds = patchJsonFiles
       .map((file) => parseInt(fsPath.basename(fsPath.dirname(file)), 10))
       .sort();
-    for (const patchIdNum of edPatchIds) {
+    for (const patchIdNum of parsedPatchIds) {
       if (Number.isNaN(patchIdNum)) {
         throw new Error(
           "Could not parse patch id from file name. Files found: " +
@@ -361,6 +361,12 @@ export class ValOpsFS extends ValOps {
     const { errors: allErrors, patches: allPatches } = await this.readPatches(
       filters.patchIds,
     );
+    if (allErrors && Object.keys(allErrors).length > 0) {
+      for (const [patchId, error] of Object.entries(allErrors)) {
+        console.error("Error reading patch", patchId, error);
+        errors[patchId as PatchId] = error;
+      }
+    }
     for (const [patchIdS, patch] of Object.entries(allPatches)) {
       const patchId = patchIdS as PatchId;
       if (
@@ -382,10 +388,6 @@ export class ValOpsFS extends ValOps {
         authorId: patch.authorId,
         appliedAt: patch.appliedAt,
       };
-      const error = allErrors && allErrors[patchId];
-      if (error) {
-        errors[patchId] = error;
-      }
     }
     if (errors && Object.keys(errors).length > 0) {
       return { patches, errors } as OmitPatch extends true

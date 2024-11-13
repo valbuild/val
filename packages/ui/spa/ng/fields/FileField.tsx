@@ -4,18 +4,19 @@ import {
   FILE_REF_PROP,
   VAL_EXTENSION,
   ConfigDirectory,
+  Internal,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
-import { createFilename } from "../../utils/readImage";
 
 export function createFilePatch(
   path: string[],
   data: string | null,
   filename: string | null,
+  sha256: string,
   metadata: FileMetadata | ImageMetadata | undefined,
   directory: ConfigDirectory = "/public/val",
 ): Patch {
-  const newFilePath = createFilename(data, filename, metadata);
+  const newFilePath = Internal.createFilename(data, filename, metadata, sha256);
   if (!newFilePath || !metadata) {
     return [];
   }

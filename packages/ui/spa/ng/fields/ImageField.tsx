@@ -98,18 +98,17 @@ export function ImageField({ path }: { path: SourcePath }) {
             let metadata: ImageMetadata | undefined;
             if (res.width && res.height && res.mimeType) {
               metadata = {
-                sha256: res.sha256,
                 width: res.width,
                 height: res.height,
                 mimeType: res.mimeType,
               };
             }
-            console.log("data ", data);
             addPatch(
               createFilePatch(
                 patchPath,
                 data.src,
                 data.filename ?? null,
+                res.sha256,
                 metadata,
                 config.files?.directory,
               ),

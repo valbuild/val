@@ -28,7 +28,6 @@ export default c.define("/components/clientContent.val.ts", schema, {
   text: "Client components works",
   date: "2001-05-08",
   image: c.file("/public/val/logo_e211b.png", {
-    sha256: "e211ba37284a7ed660ecbf4d80c6f9778ddf7a32664353a8ceeec0f33cf2130f",
     width: 944,
     height: 944,
     mimeType: "image/png",
