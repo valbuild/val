@@ -99,6 +99,28 @@ const cases: {
     ],
   },
   {
+    description: "image",
+    input: [
+      {
+        tag: "p",
+        children: [
+          {
+            tag: "img",
+            src: {
+              _ref: "/public/val/test.jpg",
+              _type: "file",
+              metadata: {
+                width: 100,
+                height: 100,
+                mimeType: "image/jpeg",
+              },
+            },
+          },
+        ],
+      },
+    ],
+  },
+  {
     description: "all features",
     input: [
       {
