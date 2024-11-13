@@ -101,15 +101,15 @@ In addition, you need to set the following properties in the `val.config` file:
 Example of `val.config.ts`:
 
 ```ts
-import { initVal } from '@valbuild/next';
+import { initVal } from "@valbuild/next";
 
 const { s, c, val, config } = initVal({
-  project: 'myteam/myproject',
+  project: "myteam/myproject",
   gitBranch: process.env.VERCEL_GIT_COMMIT_REF,
   gitCommit: process.env.VERCEL_GIT_COMMIT_SHA,
 });
 
-export type { t } from '@valbuild/next';
+export type { t } from "@valbuild/next";
 export { s, c, val, config };
 ```
 
