@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useVal } from "../val/client";
 import clientContentVal, { ClientContent } from "./clientContent.val";
 import linksVal from "./links.val";
+import { ValImage } from "@valbuild/next";
 
 export function ClientComponent() {
   const content = useVal(clientContentVal);
@@ -37,6 +38,7 @@ function SubComponent({
           }
         </>
       </h1>
+      <ValImage src={content.image} alt="test" />
       <h2>Example of union schema:</h2>
       <div
         style={{

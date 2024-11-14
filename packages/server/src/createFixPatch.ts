@@ -44,8 +44,7 @@ export async function createFixPatch(
       const imageMetadata = await getImageMetadata();
       if (
         imageMetadata.width === undefined ||
-        imageMetadata.height === undefined ||
-        imageMetadata.sha256 === undefined
+        imageMetadata.height === undefined
       ) {
         remainingErrors.push({
           ...validationError,
@@ -61,9 +60,6 @@ export async function createFixPatch(
           "metadata" in currentValue &&
           currentValue.metadata &&
           typeof currentValue.metadata === "object" &&
-          // sha256 is correct
-          "sha256" in currentValue.metadata &&
-          currentValue.metadata.sha256 === imageMetadata.sha256 &&
           // width is correct
           "width" in currentValue.metadata &&
           currentValue.metadata.width === imageMetadata.width &&
@@ -83,7 +79,6 @@ export async function createFixPatch(
               value: {
                 width: imageMetadata.width,
                 height: imageMetadata.height,
-                sha256: imageMetadata.sha256,
                 mimeType: imageMetadata.mimeType,
               },
             });
@@ -95,22 +90,6 @@ export async function createFixPatch(
               currentValue.metadata &&
               typeof currentValue.metadata === "object"
             ) {
-              if (
-                !("sha256" in currentValue.metadata) ||
-                currentValue.metadata.sha256 !== imageMetadata.sha256
-              ) {
-                remainingErrors.push({
-                  message:
-                    "Image metadata sha256 is incorrect! Found: " +
-                    ("sha256" in currentValue.metadata
-                      ? currentValue.metadata.sha256
-                      : "<empty>") +
-                    ". Expected: " +
-                    imageMetadata.sha256 +
-                    ".",
-                  fixes: undefined,
-                });
-              }
               if (
                 !("width" in currentValue.metadata) ||
                 currentValue.metadata.width !== imageMetadata.width
@@ -172,14 +151,13 @@ export async function createFixPatch(
           value: {
             width: imageMetadata.width,
             height: imageMetadata.height,
-            sha256: imageMetadata.sha256,
             mimeType: imageMetadata.mimeType,
           },
         });
       }
     } else if (fix === "file:add-metadata" || fix === "file:check-metadata") {
       const fileMetadata = await getFileMetadata();
-      if (fileMetadata.sha256 === undefined) {
+      if (fileMetadata === undefined) {
         remainingErrors.push({
           ...validationError,
           message: "Failed to get image metadata",
@@ -194,9 +172,6 @@ export async function createFixPatch(
           "metadata" in currentValue &&
           currentValue.metadata &&
           typeof currentValue.metadata === "object" &&
-          // sha256 is correct
-          "sha256" in currentValue.metadata &&
-          currentValue.metadata.sha256 === fileMetadata.sha256 &&
           // mimeType is correct
           "mimeType" in currentValue.metadata &&
           currentValue.metadata.mimeType === fileMetadata.mimeType;
@@ -208,7 +183,6 @@ export async function createFixPatch(
               op: "replace",
               path: sourceToPatchPath(sourcePath).concat("metadata"),
               value: {
-                sha256: fileMetadata.sha256,
                 ...(fileMetadata.mimeType
                   ? { mimeType: fileMetadata.mimeType }
                   : {}),
@@ -222,22 +196,6 @@ export async function createFixPatch(
               currentValue.metadata &&
               typeof currentValue.metadata === "object"
             ) {
-              if (
-                !("sha256" in currentValue.metadata) ||
-                currentValue.metadata.sha256 !== fileMetadata.sha256
-              ) {
-                remainingErrors.push({
-                  message:
-                    "File metadata sha256 is incorrect! Found: " +
-                    ("sha256" in currentValue.metadata
-                      ? currentValue.metadata.sha256
-                      : "<empty>") +
-                    ". Expected: " +
-                    fileMetadata.sha256 +
-                    ".",
-                  fixes: undefined,
-                });
-              }
               if (
                 !("mimeType" in currentValue.metadata) ||
                 currentValue.metadata.mimeType !== fileMetadata.mimeType
@@ -267,7 +225,6 @@ export async function createFixPatch(
           op: "add",
           path: sourceToPatchPath(sourcePath).concat("metadata"),
           value: {
-            sha256: fileMetadata.sha256,
             ...(fileMetadata.mimeType
               ? { mimeType: fileMetadata.mimeType }
               : {}),

@@ -1,9 +1,11 @@
-import { file } from "../source/file";
 import { result } from "../fp";
+import { initFile } from "../source/file";
 import { remote } from "../source/future/remote";
 import { derefPatch, DerefPatchResult } from "./deref";
 import { JSONOps } from "./json";
 import { PatchError } from "./ops";
+
+const file = initFile();
 
 const ops = new JSONOps();
 describe("deref", () => {

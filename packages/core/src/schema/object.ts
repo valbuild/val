@@ -1,5 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SelectorOfSchema, SerializedSchema } from ".";
+import {
+  AssertError,
+  Schema,
+  SchemaAssertResult,
+  SelectorOfSchema,
+  SerializedSchema,
+} from ".";
 import { SelectorSource } from "../selector";
 import { createValPathOfItem } from "../selector/SelectorProxy";
 import { SourcePath } from "../val";
@@ -32,9 +38,10 @@ type ObjectSchemaSrcOf<Props extends ObjectSchemaProps> = {
   [key in keyof Props]: SelectorOfSchema<Props[key]>;
 };
 
-export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
-  ObjectSchemaSrcOf<Props>
-> {
+export class ObjectSchema<
+  Props extends ObjectSchemaProps,
+  Src extends ObjectSchemaSrcOf<Props> | null,
+> extends Schema<Src> {
   constructor(
     readonly items: Props,
     readonly opt: boolean = false,
@@ -42,12 +49,17 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
     super();
   }
 
-  validate(path: SourcePath, src: ObjectSchemaSrcOf<Props>): ValidationErrors {
+  validate(path: SourcePath, src: Src): ValidationErrors {
     let error: ValidationErrors = false;
 
     // TODO: src should never be undefined
     if (this.opt && (src === null || src === undefined)) {
       return false;
+    }
+    if (src === null) {
+      return {
+        [path]: [{ message: `Expected 'object', got 'null'` }],
+      } as ValidationErrors;
     }
 
     if (typeof src !== "object") {
@@ -87,24 +99,80 @@ export class ObjectSchema<Props extends ObjectSchemaProps> extends Schema<
     return error;
   }
 
-  assert(src: ObjectSchemaSrcOf<Props>): boolean {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      } as SchemaAssertResult<Src>;
     }
-    if (!src) {
-      return false;
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            { message: `Expected 'object', got 'null'`, typeError: true },
+          ],
+        },
+      };
     }
 
-    for (const [key, schema] of Object.entries(this.items)) {
-      if (!schema.assert(src[key])) {
-        return false;
+    if (typeof src !== "object") {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Expected 'object', got '${typeof src}'`,
+              typeError: true,
+            },
+          ],
+        },
+      };
+    } else if (Array.isArray(src)) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            { message: `Expected 'object', got 'array'`, typeError: true },
+          ],
+        },
+      };
+    }
+
+    const errorsAtPath: AssertError[] = [];
+    for (const key of Object.keys(this.items)) {
+      const subPath = createValPathOfItem(path, key);
+      if (!subPath) {
+        errorsAtPath.push({
+          message: `Internal error: could not create path at ${
+            !path && typeof path === "string" ? "<empty string>" : path
+          } at key ${key}`, // Should! never happen
+          internalError: true,
+        });
+      } else if (!(key in src)) {
+        errorsAtPath.push({
+          message: `Expected key '${key}' not found in object`,
+          typeError: true,
+        });
       }
     }
-    return typeof src === "object" && !Array.isArray(src);
+    if (errorsAtPath.length > 0) {
+      return {
+        success: false,
+        errors: {
+          [path]: errorsAtPath,
+        },
+      };
+    }
+    return {
+      success: true,
+      data: src,
+    } as SchemaAssertResult<Src>;
   }
 
-  nullable(): Schema<ObjectSchemaSrcOf<Props> | null> {
-    return new ObjectSchema(this.items, true);
+  nullable(): Schema<Src | null> {
+    return new ObjectSchema(this.items, true) as Schema<Src | null>;
   }
 
   serialize(): SerializedSchema {

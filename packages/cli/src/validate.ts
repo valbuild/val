@@ -19,7 +19,6 @@ export async function validate({
   const eslint = new ESLint({
     cwd: projectRoot,
     ignore: false,
-    useEslintrc: true,
   });
   const service = await createService(projectRoot, {});
 

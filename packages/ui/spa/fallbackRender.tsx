@@ -3,7 +3,7 @@ import {
   AccordionItem,
   AccordionContent,
   AccordionTrigger,
-} from "./components/ui/accordion";
+} from "./components/designSystem/accordion";
 import Logo from "./assets/icons/Logo";
 import { X } from "lucide-react";
 
@@ -11,7 +11,7 @@ import { X } from "lucide-react";
 export function fallbackRender({ error, resetErrorBoundary }: any) {
   console.error(error);
   return (
-    <div className="absolute top-0 left-0 flex items-center justify-center w-screen h-screen bg-card-foreground">
+    <div className="absolute top-0 left-0 flex items-center justify-center w-screen h-screen bg-bg-primary text-text-primary">
       <div className="w-full h-full p-10">
         <div className="w-full h-full p-10 overflow-scroll bg-card text-primary">
           <div className="flex items-center justify-between">
@@ -33,7 +33,7 @@ export function fallbackRender({ error, resetErrorBoundary }: any) {
             >
               <AccordionItem value={"error"}>
                 <AccordionTrigger>Stack trace:</AccordionTrigger>
-                <AccordionContent className="p-4 bg-popover text-popover-foreground">
+                <AccordionContent className="p-4 bg-bg-secondary">
                   {error.stack && <pre>{error.stack}</pre>}
                 </AccordionContent>
               </AccordionItem>

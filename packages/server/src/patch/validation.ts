@@ -135,12 +135,7 @@ const OperationT: z.ZodType<OperationT> = z.discriminatedUnion("op", [
       path: z.array(z.string()),
       filePath: z.string(),
       nestedFilePath: z.array(z.string()).optional(),
-      value: z.union([
-        z.string(),
-        z.object({
-          sha256: z.string(),
-        }),
-      ]),
+      value: z.string(),
     })
     .strict(),
 ]);

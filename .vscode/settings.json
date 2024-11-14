@@ -9,5 +9,5 @@
     "**/Thumbs.db": true,
     "**/node_modules": true
   },
-  "cSpell.words": ["stega"]
+  "cSpell.words": ["flexsearch", "retryable", "stega"]
 }

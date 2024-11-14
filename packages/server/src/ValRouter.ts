@@ -130,10 +130,11 @@ export async function createValServer(
   valModules: ValModules,
   route: string,
   opts: ValApiOptions,
+  config: ValConfig,
   callbacks: ValServerCallbacks,
   formatter?: (code: string, filePath: string) => string | Promise<string>,
 ): Promise<ValServer> {
-  const valServerConfig = await initHandlerOptions(route, opts);
+  const valServerConfig = await initHandlerOptions(route, opts, config);
   return ValServer(
     valModules,
     {
@@ -147,6 +148,7 @@ export async function createValServer(
 async function initHandlerOptions(
   route: string,
   opts: ValApiOptions,
+  config: ValConfig,
 ): Promise<ValServerConfig> {
   const maybeApiKey = opts.apiKey || process.env.VAL_API_KEY;
   const maybeValSecret = opts.valSecret || process.env.VAL_SECRET;
@@ -161,6 +163,7 @@ async function initHandlerOptions(
   const maybeValProject = opts.project || process.env.VAL_PROJECT;
   const valBuildUrl =
     opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://app.val.build";
+
   if (isProxyMode) {
     if (!maybeApiKey || !maybeValSecret) {
       throw new Error(
@@ -206,6 +209,7 @@ async function initHandlerOptions(
       valDisableRedirectUrl,
       valContentUrl,
       valBuildUrl,
+      config,
     };
   } else {
     const cwd = process.cwd();
@@ -221,6 +225,7 @@ async function initHandlerOptions(
       apiKey: maybeApiKey,
       valSecret: maybeValSecret,
       project: maybeValProject,
+      config,
     };
   }
 }
@@ -369,7 +374,6 @@ export function createValApiRouter<Res>(
           }
         }
       }
-
       if (!route) {
         return {
           status: 404,
@@ -425,14 +429,27 @@ export function createValApiRouter<Res>(
           },
         };
       }
-      const bodyRes = reqDefinition.body
-        ? reqDefinition.body.safeParse(await req.json())
-        : ({ success: true, data: {} } as z.SafeParseReturnType<
-            unknown,
-            unknown
-          >);
-      if (!bodyRes.success) {
-        return zodErrorResult(bodyRes.error, "invalid body data");
+      let bodyRes;
+      try {
+        bodyRes = reqDefinition.body
+          ? reqDefinition.body.safeParse(await req.json())
+          : ({ success: true, data: {} } as z.SafeParseReturnType<
+              unknown,
+              unknown
+            >);
+        if (!bodyRes.success) {
+          return zodErrorResult(bodyRes.error, "invalid body data");
+        }
+      } catch (e) {
+        return {
+          status: 400,
+          json: {
+            message: "Could not parse request body",
+            details: {
+              error: JSON.stringify(e),
+            },
+          },
+        };
       }
 
       const cookiesRes = reqDefinition.cookies
@@ -470,7 +487,7 @@ export function createValApiRouter<Res>(
           if (innerType instanceof z.ZodBoolean) {
             innerType = z
               .union([z.literal("true"), z.literal("false")])
-              .transform((arg) => Boolean(arg));
+              .transform((arg) => arg === "true");
           }
           // re-build rules:
           let arrayCompatibleRule = innerType;
@@ -501,6 +518,14 @@ export function createValApiRouter<Res>(
         query,
         path,
       });
+      if (res.status === 500) {
+        return {
+          status: 500,
+          json: {
+            message: res.json?.message || "Internal Server Error",
+          },
+        };
+      }
       const resDef = apiEndpoint.res;
       if (resDef) {
         const responseResult = resDef.safeParse(res);
