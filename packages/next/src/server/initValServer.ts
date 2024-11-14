@@ -37,13 +37,13 @@ const initValNextAppRouter = (
       config,
       {
         async isEnabled() {
-          return nextConfig.draftMode().isEnabled;
+          return (await nextConfig.draftMode()).isEnabled;
         },
         async onEnable() {
-          nextConfig.draftMode().enable();
+          (await nextConfig.draftMode()).enable();
         },
         async onDisable() {
-          nextConfig.draftMode().disable();
+          (await nextConfig.draftMode()).disable();
         },
       },
       nextConfig.formatter,
