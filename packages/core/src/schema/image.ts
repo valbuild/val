@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from ".";
+import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { VAL_EXTENSION } from "../source";
 import { FileSource, FILE_REF_PROP } from "../source/file";
 import { ImageSource } from "../source/image";
@@ -23,7 +23,6 @@ export type SerializedImageSchema = {
 export type ImageMetadata = {
   width: number;
   height: number;
-  sha256: string;
   mimeType: string;
   hotspot?: {
     x: number;
@@ -147,7 +146,7 @@ export class ImageSchema<
       return {
         [path]: [
           {
-            message: `Found metadata, but it could not be validated. Image metadata must be an object with the required props: width (positive number), height (positive number) and sha256 (string of length 64 of the base16 hash).`, // These validation errors will have to be picked up by logic outside of this package and revalidated. Reasons: 1) we have to read files to verify the metadata, which is handled differently in different runtimes (Browser, QuickJS, Node.js); 2) we want to keep this package dependency free.
+            message: `Found metadata, but it could not be validated. Image metadata must be an object with the required props: width (positive number), height (positive number) and the mime type.`, // These validation errors will have to be picked up by logic outside of this package and revalidated. Reasons: 1) we have to read files to verify the metadata, which is handled differently in different runtimes (Browser, QuickJS, Node.js); 2) we want to keep this package dependency free.
             value: src,
             fixes: ["image:replace-metadata"],
           },
@@ -166,11 +165,66 @@ export class ImageSchema<
     } as ValidationErrors;
   }
 
-  assert(src: Src): boolean {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      } as SchemaAssertResult<Src>;
     }
-    return src?.[FILE_REF_PROP] === "image" && src?.[VAL_EXTENSION] === "file";
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            { message: `Expected 'object', got 'null'`, typeError: true },
+          ],
+        },
+      };
+    }
+    if (typeof src !== "object") {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Expected 'object', got '${typeof src}'`,
+              typeError: true,
+            },
+          ],
+        },
+      };
+    }
+    if (!(FILE_REF_PROP in src)) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Value of this schema must use: 'c.image' (error type: missing_ref_prop)`,
+              typeError: true,
+            },
+          ],
+        },
+      };
+    }
+    if (!(VAL_EXTENSION in src && src[VAL_EXTENSION] === "file")) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Value of this schema must use: 'c.image' (error type: missing_file_extension)`,
+              typeError: true,
+            },
+          ],
+        },
+      };
+    }
+    return {
+      success: true,
+      data: src,
+    } as SchemaAssertResult<Src>;
   }
 
   nullable(): Schema<Src | null> {

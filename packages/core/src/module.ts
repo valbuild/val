@@ -26,6 +26,7 @@ import { RecordSchema, SerializedRecordSchema } from "./schema/record";
 import { RawString } from "./schema/string";
 import { ImageSelector } from "./selector/image";
 import { ImageSource } from "./source/image";
+import { ModuleFilePathSep } from ".";
 
 const brand = Symbol("ValModule");
 export type ValModule<T extends SelectorSource> = SelectorOf<T> &
@@ -90,13 +91,21 @@ export function splitModuleFilePathAndModulePath(
   ];
 }
 
-export const ModuleFilePathSep = "?p=";
+export function joinModuleFilePathAndModulePath(
+  moduleFilePath: ModuleFilePath,
+  modulePath: ModulePath,
+): SourcePath {
+  if (modulePath === "") {
+    return moduleFilePath as unknown as SourcePath;
+  }
+  return `${moduleFilePath}${ModuleFilePathSep}${modulePath}` as SourcePath;
+}
 
 export function getSourceAtPath(
   modulePath: ModulePath,
   valModule: ValModule<SelectorSource> | Source,
 ) {
-  const parts = parsePath(modulePath);
+  const parts = splitModulePath(modulePath);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let current: any = valModule;
   for (const part of parts) {
@@ -111,7 +120,10 @@ export function getSourceAtPath(
 function isObjectSchema(
   schema: Schema<SelectorSource> | SerializedSchema,
 ): schema is
-  | ObjectSchema<{ [key: string]: Schema<SelectorSource> }>
+  | ObjectSchema<
+      { [key: string]: Schema<SelectorSource> },
+      { [key: string]: SelectorSource }
+    >
   | SerializedObjectSchema {
   return (
     schema instanceof ObjectSchema ||
@@ -121,7 +133,9 @@ function isObjectSchema(
 
 function isRecordSchema(
   schema: Schema<SelectorSource> | SerializedSchema,
-): schema is RecordSchema<Schema<SelectorSource>> | SerializedRecordSchema {
+): schema is
+  | RecordSchema<Schema<SelectorSource>, Record<string, SelectorSource>>
+  | SerializedRecordSchema {
   return (
     schema instanceof RecordSchema ||
     (typeof schema === "object" && "type" in schema && schema.type === "record")
@@ -130,7 +144,9 @@ function isRecordSchema(
 
 function isArraySchema(
   schema: Schema<SelectorSource> | SerializedSchema,
-): schema is ArraySchema<Schema<SelectorSource>> | SerializedArraySchema {
+): schema is
+  | ArraySchema<Schema<SelectorSource>, SelectorSource[]>
+  | SerializedArraySchema {
   return (
     schema instanceof ArraySchema ||
     (typeof schema === "object" && "type" in schema && schema.type === "array")
@@ -149,7 +165,7 @@ function isArraySchema(
 function isUnionSchema(
   schema: Schema<SelectorSource> | SerializedSchema,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): schema is UnionSchema<string, any> | SerializedUnionSchema {
+): schema is UnionSchema<string, any, any> | SerializedUnionSchema {
   return (
     schema instanceof UnionSchema ||
     (typeof schema === "object" && "type" in schema && schema.type === "union")
@@ -202,7 +218,7 @@ export function resolvePath<
   schema: Sch;
   source: Src;
 } {
-  const parts = parsePath(path);
+  const parts = splitModulePath(path);
   const origParts = [...parts];
   let resolvedSchema: Schema<SelectorSource> | SerializedSchema = schema;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -226,11 +242,6 @@ export function resolvePath<
       ) {
         throw Error(
           `Schema type error: expected source to be type of array, but got ${typeof resolvedSource}`,
-        );
-      }
-      if (resolvedSource[part] === undefined) {
-        throw Error(
-          `Invalid path: array source (length: ${resolvedSource?.length}) did not have index ${part} from path: ${path}`,
         );
       }
       resolvedSource = resolvedSource[part];
@@ -263,12 +274,13 @@ export function resolvePath<
         );
       }
 
-      if (!resolvedSource[part]) {
+      if (resolvedSource !== null && resolvedSource[part] === undefined) {
         throw Error(
           `Invalid path: object source did not have key ${part} from path: ${path}`,
         );
       }
-      resolvedSource = resolvedSource[part];
+      resolvedSource =
+        resolvedSource === null ? resolvedSource : resolvedSource[part];
       resolvedSchema = resolvedSchema.items[part];
       // } else if (isI18nSchema(resolvedSchema)) {
       //   if (!resolvedSchema.locales.includes(part)) {
@@ -319,7 +331,8 @@ export function resolvePath<
           `Invalid path: union source ${resolvedSchema} did not have required key ${key} in path: ${path}`,
         );
       }
-      const schemaOfUnionKey = resolvedSchema.items.find(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const schemaOfUnionKey: any = (resolvedSchema.items as any).find(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (child: any) => child?.items?.[key]?.value === keyValue,
       );
@@ -365,7 +378,12 @@ export function resolvePath<
   };
 }
 
-export function parsePath(input: ModulePath) {
+export function splitModuleFilePath(input: ModuleFilePath) {
+  const parts = input.split("/").slice(1);
+  return parts;
+}
+
+export function splitModulePath(input: ModulePath) {
   const result = [];
   let i = 0;
 
@@ -410,6 +428,36 @@ export function parsePath(input: ModulePath) {
   }
 
   return result;
+}
+
+export function splitJoinedSourcePaths(input: string) {
+  // TODO: This is a very simple implementation that does not handle escaped commas
+  return input.split(",") as SourcePath[];
+}
+
+export function parentOfSourcePath(sourcePath: SourcePath): SourcePath {
+  const [moduleFilePath, modulePath] =
+    splitModuleFilePathAndModulePath(sourcePath);
+  const modulePathParts = splitModulePath(modulePath).slice(0, -1);
+  if (modulePathParts.length > 0) {
+    return joinModuleFilePathAndModulePath(
+      moduleFilePath,
+      patchPathToModulePath(modulePathParts),
+    );
+  }
+  return moduleFilePath as unknown as SourcePath;
+}
+
+export function patchPathToModulePath(patchPath: string[]): ModulePath {
+  return patchPath
+    .map((segment) => {
+      // TODO: I am worried that something is lost here: what if the segment is a string that happens to be a parsable as a number? We could make those keys illegal?
+      if (Number.isInteger(Number(segment))) {
+        return segment;
+      }
+      return JSON.stringify(segment);
+    })
+    .join(".") as ModulePath;
 }
 
 export type SerializedModule = {

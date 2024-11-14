@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from ".";
+import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 
@@ -97,11 +97,30 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     return false;
   }
 
-  assert(src: Src): boolean {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      } as SchemaAssertResult<Src>;
     }
-    return typeof src === "string";
+    if (typeof src === "string") {
+      return {
+        success: true,
+        data: src,
+      } as SchemaAssertResult<Src>;
+    }
+    return {
+      success: false,
+      errors: {
+        [path]: [
+          {
+            message: `Expected 'string', got '${typeof src}'`,
+            typeError: true,
+          },
+        ],
+      },
+    };
   }
 
   nullable(): StringSchema<Src | null> {

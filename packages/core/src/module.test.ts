@@ -1,8 +1,10 @@
 import {
   resolvePath as resolveAtPath,
   getSourceAtPath,
-  parsePath,
+  splitModulePath,
   splitModuleFilePathAndModulePath,
+  parentOfSourcePath,
+  splitJoinedSourcePaths,
 } from "./module";
 import { SelectorOfSchema } from "./schema";
 import { array } from "./schema/array";
@@ -23,25 +25,30 @@ import { literal } from "./schema/literal";
 // };
 describe("module", () => {
   test("parse path", () => {
-    expect(parsePath('"foo"."bar".1."zoo"' as ModulePath)).toStrictEqual([
+    expect(splitModulePath('"foo"."bar".1."zoo"' as ModulePath)).toStrictEqual([
       "foo",
       "bar",
       "1",
       "zoo",
     ]);
 
-    expect(parsePath('"foo"."bar".1."z\\"oo"' as ModulePath)).toStrictEqual([
-      "foo",
-      "bar",
-      "1",
-      'z"oo',
-    ]);
+    expect(
+      splitModulePath('"foo"."bar".1."z\\"oo"' as ModulePath),
+    ).toStrictEqual(["foo", "bar", "1", 'z"oo']);
 
-    expect(parsePath('"foo"."b.ar".1."z\\"oo"' as ModulePath)).toStrictEqual([
-      "foo",
-      "b.ar",
-      "1",
-      'z"oo',
+    expect(
+      splitModulePath('"foo"."b.ar".1."z\\"oo"' as ModulePath),
+    ).toStrictEqual(["foo", "b.ar", "1", 'z"oo']);
+  });
+
+  test("split joined paths", () => {
+    expect(
+      splitJoinedSourcePaths(
+        '/foo.val.ts?p="foo"."bar".1."zoo",/bar.val.ts?p="bar"."zo".1."do"' as ModulePath,
+      ),
+    ).toStrictEqual([
+      '/foo.val.ts?p="foo"."bar".1."zoo"',
+      '/bar.val.ts?p="bar"."zo".1."do"',
     ]);
   });
 
@@ -166,5 +173,21 @@ describe("module", () => {
     );
     expect(res.schema).toStrictEqual(number().serialize());
     expect(res.source).toStrictEqual(1);
+  });
+
+  test("parentOfSourcePath", () => {
+    const base = '/content/test?p="one".2."three"' as SourcePath;
+    expect(parentOfSourcePath(base)).toStrictEqual('/content/test?p="one".2');
+    expect(parentOfSourcePath(parentOfSourcePath(base))).toStrictEqual(
+      '/content/test?p="one"',
+    );
+    expect(
+      parentOfSourcePath(parentOfSourcePath(parentOfSourcePath(base))),
+    ).toStrictEqual("/content/test");
+    expect(
+      parentOfSourcePath(
+        parentOfSourcePath(parentOfSourcePath(parentOfSourcePath(base))),
+      ),
+    ).toStrictEqual("/content/test");
   });
 });

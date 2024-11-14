@@ -70,7 +70,8 @@ export const createValClient = (host: string): ValClient => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: anyReq.body ? JSON.stringify(anyReq.body) : undefined,
+        body:
+          anyReq.body !== undefined ? JSON.stringify(anyReq.body) : undefined,
       }).then(async (res) => {
         const contentTypeHeaders = res.headers.get("content-type");
         if (!contentTypeHeaders?.includes("application/json")) {
@@ -78,8 +79,7 @@ export const createValClient = (host: string): ValClient => {
             status: null,
             json: {
               type: "client_side_validation_error",
-              message:
-                "Invalid content type. This could be a result of mismatched Val versions.",
+              message: `Invalid content type header in response. Could not find application/json in ${Array.from(res.headers.entries())}. This could be a result of mismatched Val versions.`,
               details: {
                 validationError: "Invalid content type",
                 data: {
@@ -95,13 +95,23 @@ export const createValClient = (host: string): ValClient => {
           status: res.status,
           json,
         };
+        if (res.status === 500) {
+          console.log("Server responded with an error", json);
+          return {
+            status: 500,
+            json: {
+              message: json.message,
+              type: "unknown",
+            },
+          } satisfies ClientFetchErrors;
+        }
         const responseResult = apiEndpoint.res?.safeParse(valClientResult);
         if (responseResult && !responseResult.success) {
           return {
             status: null,
             json: {
               message:
-                "Response could not be validated. This could be a result of mismatched Val versions.",
+                "Response could not be validated. This could also be a result of mismatched Val versions.",
               type: "client_side_validation_error",
               details: {
                 validationError: fromZodError(responseResult.error).toString(),
@@ -120,11 +130,32 @@ export const createValClient = (host: string): ValClient => {
       return {
         status: null,
         json: {
-          message: "Failed to fetch data. This is likely a network error.",
+          message: "Failed to fetch data",
           type: "network_error",
+          retryable: isRetryable(e),
           details: e instanceof Error ? e.message : JSON.stringify(e),
         },
       } satisfies ClientFetchErrors;
     }
   };
 };
+
+function isRetryable(error: unknown) {
+  if (error instanceof TypeError) {
+    // TypeError is usually thrown by fetch when the network request fails.
+    return true;
+  }
+  if (error instanceof Error && "code" in error) {
+    const errorCode = (error as { code: string }).code;
+
+    // Network-specific errors (Node.js specific)
+    const retryableErrorCodes = [
+      "ECONNRESET",
+      "ETIMEDOUT",
+      "ENOTFOUND",
+      "EAI_AGAIN",
+    ];
+    return retryableErrorCodes.includes(errorCode);
+  }
+  return false;
+}

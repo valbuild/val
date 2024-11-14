@@ -12,9 +12,11 @@ import {
   RichTextSchema,
   Schema,
   SelectorSource,
+  SerializedSchema,
   Source,
   SourcePath,
   VAL_EXTENSION,
+  ValConfig,
   ValModules,
   ValidationError,
   ValidationErrors,
@@ -33,7 +35,6 @@ import { TSOps } from "./patch/ts/ops";
 import { analyzeValModule } from "./patch/ts/valModule";
 import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
-import { getSha256 } from "./extractMetadata";
 import sizeOf from "image-size";
 import { ParentPatchId } from "@valbuild/core/src/val";
 
@@ -62,6 +63,11 @@ const tsOps = new TSOps((document) => {
 
 export type ValOpsOptions = {
   formatter?: (code: string, filePath: string) => string | Promise<string>;
+  statPollingInterval?: number;
+  statFilePollingInterval?: number;
+  disableFilePolling?: boolean;
+  disableFileWatcher?: boolean;
+  config: ValConfig;
 };
 // #region ValOps
 export abstract class ValOps {
@@ -77,7 +83,7 @@ export abstract class ValOps {
 
   constructor(
     private readonly valModules: ValModules,
-    private readonly options?: ValOpsOptions,
+    protected readonly options?: ValOpsOptions,
   ) {
     this.sources = null;
     this.baseSha = null;
@@ -142,6 +148,43 @@ export abstract class ValOps {
       );
     }
   }
+
+  // #region stat
+  /**
+   * Get the status from Val
+   *
+   * This works differently in ValOpsFS and ValOpsHttp:
+   * - In ValOpsFS (for dev mode) works using long-polling operations since we cannot use WebSockets in the host Next.js server and we do not want to hammer the server with requests (though we could argue that it would be ok in dev, it is not up to our standards as a kick-ass CMS).
+   * - In ValOpsHttp (in production) it returns a WebSocket URL so that the client can connect directly.
+   *
+   * The reason we do not use long polling in production is that Vercel (a very likely host for Next.js), bills by wall time and long polling would therefore be very expensive.
+   */
+  abstract getStat(
+    params: {
+      baseSha: BaseSha;
+      schemaSha: SchemaSha;
+      patches?: PatchId[];
+      profileId?: AuthorId;
+      // TODO: deployments: Record<DeploymentId, "deployed" | "deploying" | "failed">
+    } | null,
+  ): Promise<
+    | {
+        type: "request-again" | "no-change" | "did-change";
+        baseSha: BaseSha;
+        schemaSha: SchemaSha;
+        patches: PatchId[];
+      }
+    | {
+        type: "use-websocket";
+        url: string;
+        nonce: string;
+        baseSha: BaseSha;
+        schemaSha: SchemaSha;
+        commitSha: CommitSha;
+        patches: PatchId[];
+      }
+    | { type: "error"; error: GenericErrorMessage }
+  >;
 
   // #region initTree
   private async initTree(): Promise<{
@@ -241,17 +284,32 @@ export abstract class ValOps {
             addModuleError(`source in ${path} is undefined`, moduleIdx, path);
             return;
           }
+          let serializedSchema: SerializedSchema;
+          try {
+            serializedSchema = schema.serialize();
+          } catch (e) {
+            const message = e instanceof Error ? e.message : JSON.stringify(e);
+            addModuleError(
+              `Could not serialize module: '${path}'. Error: ${message}`,
+              moduleIdx,
+              path,
+            );
+            return;
+          }
           const pathM = path as string as ModuleFilePath;
           currentSources[pathM] = source;
           currentSchemas[pathM] = schema;
           // make sure the checks above is enough that this does not fail - even if val modules are not set up correctly
-          baseSha += this.hash({
-            path,
-            schema: schema.serialize(),
-            source,
-            modulesErrors: currentModulesErrors,
-          });
-          schemaSha += this.hash(schema.serialize());
+          baseSha = this.hash(
+            baseSha +
+              JSON.stringify({
+                path,
+                schema: serializedSchema,
+                source,
+                modulesErrors: currentModulesErrors,
+              }),
+          );
+          schemaSha = this.hash(schemaSha + JSON.stringify(serializedSchema));
         });
       }
       this.sources = currentSources;
@@ -532,28 +590,30 @@ export abstract class ValOps {
       }
       for (const [sourcePathS, validationErrors] of Object.entries(res)) {
         const sourcePath = sourcePathS as SourcePath;
-        for (const validationError of validationErrors) {
-          if (isOnlyFileCheckValidationError(validationError)) {
-            if (files[sourcePath]) {
-              throw new Error(
-                "Cannot have multiple files with same path. Path: " +
-                  sourcePath +
-                  "; Module: " +
-                  path,
-              );
+        if (validationErrors) {
+          for (const validationError of validationErrors) {
+            if (isOnlyFileCheckValidationError(validationError)) {
+              if (files[sourcePath]) {
+                throw new Error(
+                  "Cannot have multiple files with same path. Path: " +
+                    sourcePath +
+                    "; Module: " +
+                    path,
+                );
+              }
+              const value = validationError.value;
+              if (isFileSource(value)) {
+                files[sourcePath] = value;
+              }
+            } else {
+              if (!errors[path]) {
+                errors[path] = { validations: {} };
+              }
+              if (!errors[path].validations[sourcePath]) {
+                errors[path].validations[sourcePath] = [];
+              }
+              errors[path].validations[sourcePath].push(validationError);
             }
-            const value = validationError.value;
-            if (isFileSource(value)) {
-              files[sourcePath] = value;
-            }
-          } else {
-            if (!errors[path]) {
-              errors[path] = { validations: {} };
-            }
-            if (!errors[path].validations[sourcePath]) {
-              errors[path].validations[sourcePath] = [];
-            }
-            errors[path].validations[sourcePath].push(validationError);
           }
         }
       }
@@ -809,8 +869,36 @@ export abstract class ValOps {
         const patchRes = applyPatch(tsSourceFile, tsOps, sourceFileOps);
         if (result.isErr(patchRes)) {
           if (Array.isArray(patchRes.error)) {
+            for (const error of patchRes.error) {
+              console.error(
+                "Could not patch",
+                JSON.stringify(
+                  {
+                    path,
+                    patchId,
+                    error,
+                    sourceFileOps,
+                  },
+                  null,
+                  2,
+                ),
+              );
+            }
             errors.push(...patchRes.error);
           } else {
+            console.error(
+              "Could not patch",
+              JSON.stringify(
+                {
+                  path,
+                  patchId,
+                  error: patchRes.error,
+                  sourceFileOps,
+                },
+                null,
+                2,
+              ),
+            );
             errors.push(patchRes.error);
           }
           triedPatches.push(patchId);
@@ -927,6 +1015,7 @@ export abstract class ValOps {
   // #region createPatch
   async createPatch(
     path: ModuleFilePath,
+    patchAnalysis: (PatchAnalysis & Patches) | null,
     patch: Patch,
     parentRef: ParentRef,
     authorId: AuthorId | null,
@@ -945,11 +1034,24 @@ export abstract class ValOps {
       | { errorType: "patch-id-conflict" }
     >
   > {
-    const { sources, schemas, moduleErrors } = await this.initTree();
+    const initTree = await this.initTree();
+    const schemas = initTree.schemas;
+    const moduleErrors = initTree.moduleErrors;
+    let sources = initTree.sources;
+    if (patchAnalysis) {
+      const tree = await this.getTree(patchAnalysis);
+      sources = {
+        ...sources,
+        ...tree.sources,
+      };
+    }
     const source = sources[path];
     const schema = schemas[path];
     const moduleError = moduleErrors.find((e) => e.path === path);
     if (moduleError) {
+      console.error(
+        `Cannot patch. Module at path: '${path}' has fatal errors: "${moduleError.message}"`,
+      );
       return result.err({
         errorType: "other",
         error: {
@@ -960,6 +1062,9 @@ export abstract class ValOps {
       });
     }
     if (!source) {
+      console.error(
+        `Cannot patch. Module source at path: '${path}' does not exist`,
+      );
       return result.err({
         errorType: "other",
         error: {
@@ -968,6 +1073,9 @@ export abstract class ValOps {
       });
     }
     if (!schema) {
+      console.error(
+        `Cannot patch. Module schema at path: '${path}' does not exist`,
+      );
       return result.err({
         errorType: "other",
         error: {
@@ -996,12 +1104,18 @@ export abstract class ValOps {
         const { value, filePath } = op;
 
         if (files[filePath]) {
+          console.error(
+            `Cannot have multiple files with same path in same patch. Path: ${filePath}`,
+          );
           files[filePath] = {
             error: new PatchError(
               "Cannot have multiple files with same path in same patch",
             ),
           };
         } else if (typeof value !== "string") {
+          console.error(
+            `Value is not a string. Path: ${filePath}. Value: ${value}`,
+          );
           files[filePath] = { error: new PatchError("Value is not a string") };
         } else {
           const sha256 = Internal.getSHA256Hash(textEncoder.encode(value));
@@ -1015,9 +1129,7 @@ export abstract class ValOps {
             path: op.path,
             filePath,
             nestedFilePath: op.nestedFilePath,
-            value: {
-              sha256,
-            },
+            value: sha256,
           });
         }
       }
@@ -1029,6 +1141,9 @@ export abstract class ValOps {
       authorId,
     );
     if (result.isErr(saveRes)) {
+      console.error(
+        `Could not save source file patch at path: '${path}'. Error: ${saveRes.error.errorType}`,
+      );
       if (saveRes.error.errorType === "patch-id-conflict") {
         return result.err({ errorType: "patch-id-conflict" });
       }
@@ -1062,6 +1177,9 @@ export abstract class ValOps {
                       : schemaAtPath.serialize().type;
               } catch (e) {
                 if (e instanceof Error) {
+                  console.error(
+                    `Could not resolve file type at: ${modulePath}. Error: ${e.message}`,
+                  );
                   return {
                     filePath,
                     error: new PatchError(
@@ -1069,6 +1187,9 @@ export abstract class ValOps {
                     ),
                   };
                 }
+                console.error(
+                  `Could not resolve file type at: ${modulePath}. Unknown error.`,
+                );
                 return {
                   filePath,
                   error: new PatchError(
@@ -1077,6 +1198,9 @@ export abstract class ValOps {
                 };
               }
               if (type !== "image" && type !== "file") {
+                console.error(
+                  "Unknown file type (resolved from schema): " + type,
+                );
                 return {
                   filePath,
                   error: new PatchError(
@@ -1084,9 +1208,11 @@ export abstract class ValOps {
                   ),
                 };
               }
-
               const mimeType = getMimeTypeFromBase64(data.value);
               if (!mimeType) {
+                console.error(
+                  "Could not get mimeType from base 64 encoded value",
+                );
                 return {
                   filePath,
                   error: new PatchError(
@@ -1095,9 +1221,11 @@ export abstract class ValOps {
                   ),
                 };
               }
-
               const buffer = bufferFromDataUrl(data.value);
               if (!buffer) {
+                console.error(
+                  "Could not create buffer from base 64 encoded value",
+                );
                 return {
                   filePath,
                   error: new PatchError(
@@ -1111,6 +1239,11 @@ export abstract class ValOps {
                 buffer,
               );
               if (metadataOps.errors) {
+                console.error(
+                  `Could not get metadata. Errors: ${metadataOps.errors
+                    .map((error) => error.message)
+                    .join(", ")}`,
+                );
                 return {
                   filePath,
                   error: new PatchError(
@@ -1146,6 +1279,20 @@ export abstract class ValOps {
           },
         ),
       );
+
+    const errors = saveFileRes.filter(
+      (f): f is { filePath: string; error: PatchError } => !!f.error,
+    );
+    if (errors.length > 0) {
+      return result.err({
+        errorType: "other",
+        error: {
+          message:
+            "Could not save patch: " +
+            errors.map((e) => e.error.message).join(", "),
+        },
+      });
+    }
     return result.ok({
       patchId,
       files: saveFileRes,
@@ -1375,10 +1522,9 @@ export function getFieldsForType<T extends BinaryFileType>(
   type: T,
 ): (keyof MetadataOfType<T> & string)[] {
   if (type === "file") {
-    return ["sha256", "mimeType"] as (keyof MetadataOfType<"file"> & string)[];
+    return ["mimeType"] as (keyof MetadataOfType<"file"> & string)[];
   } else if (type === "image") {
     return [
-      "sha256",
       "mimeType",
       "height",
       "width",
@@ -1393,12 +1539,12 @@ export function createMetadataFromBuffer<T extends BinaryFileType>(
   mimeType: string,
   buffer: Buffer,
 ): OpsMetadata<T> {
-  const sha256 = getSha256(mimeType, buffer);
   const errors = [];
   let availableMetadata: Record<string, string | number | undefined | null>;
   if (type === "image") {
     const { width, height, type } = sizeOf(buffer);
-    const normalizedType = type === "jpg" ? "jpeg" : type;
+    const normalizedType =
+      type === "jpg" ? "jpeg" : type === "svg" ? "svg+xml" : type;
     if (type !== undefined && `image/${normalizedType}` !== mimeType) {
       return {
         errors: [
@@ -1409,14 +1555,12 @@ export function createMetadataFromBuffer<T extends BinaryFileType>(
       };
     }
     availableMetadata = {
-      sha256: sha256,
       mimeType,
       height,
       width,
     };
   } else {
     availableMetadata = {
-      sha256: sha256,
       mimeType,
     };
   }

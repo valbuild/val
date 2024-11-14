@@ -1,7 +1,7 @@
 import { Json } from "../Json";
 import { FILE_REF_PROP, FileSource } from "../source/file";
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SerializedSchema } from ".";
+import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { VAL_EXTENSION } from "../source";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
@@ -18,7 +18,6 @@ export type SerializedFileSchema = {
 };
 
 export type FileMetadata = {
-  sha256: string;
   mimeType?: string;
 };
 export class FileSchema<
@@ -136,7 +135,7 @@ export class FileSchema<
       return {
         [path]: [
           {
-            message: `Found metadata, but it could not be validated. File metadata must be an object with the required props: width (positive number), height (positive number) and sha256 (string of length 64 of the base16 hash).`, // These validation errors will have to be picked up by logic outside of this package and revalidated. Reasons: 1) we have to read files to verify the metadata, which is handled differently in different runtimes (Browser, QuickJS, Node.js); 2) we want to keep this package dependency free.
+            message: `Found metadata, but it could not be validated. File metadata must be an object with the mimeType.`, // These validation errors will have to be picked up by logic outside of this package and revalidated. Reasons: 1) we have to read files to verify the metadata, which is handled differently in different runtimes (Browser, QuickJS, Node.js); 2) we want to keep this package dependency free.
             value: src,
             fixes: ["file:check-metadata"],
           },
@@ -155,11 +154,66 @@ export class FileSchema<
     } as ValidationErrors;
   }
 
-  assert(src: Src): boolean {
-    if (this.opt && (src === null || src === undefined)) {
-      return true;
+  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
+    if (this.opt && src === null) {
+      return {
+        success: true,
+        data: src,
+      } as SchemaAssertResult<Src>;
     }
-    return src?.[FILE_REF_PROP] === "file" && src?.[VAL_EXTENSION] === "file";
+    if (src === null) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            { message: `Expected 'object', got 'null'`, typeError: true },
+          ],
+        },
+      };
+    }
+    if (typeof src !== "object") {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Expected object, got '${typeof src}'`,
+              typeError: true,
+            },
+          ],
+        },
+      };
+    }
+    if (!(FILE_REF_PROP in src)) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Value of this schema must use: 'c.file' (error type: missing_ref_prop)`,
+              typeError: true,
+            },
+          ],
+        },
+      };
+    }
+    if (!(VAL_EXTENSION in src && src[VAL_EXTENSION] === "file")) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Value of this schema must use: 'c.file' (error type: missing_file_extension)`,
+              typeError: true,
+            },
+          ],
+        },
+      };
+    }
+    return {
+      success: true,
+      data: src,
+    } as SchemaAssertResult<Src>;
   }
 
   nullable(): Schema<Src | null> {
@@ -178,7 +232,7 @@ export class FileSchema<
 export const file = (
   options?: FileOptions,
 ): Schema<FileSource<FileMetadata>> => {
-  return new FileSchema(options);
+  return new FileSchema(options) as Schema<FileSource<FileMetadata>>;
 };
 
 export function convertFileSource<
@@ -191,21 +245,20 @@ export function convertFileSource<
     return {
       url:
         src[FILE_REF_PROP] +
-        (src.metadata?.sha256 ? `?sha256=${src.metadata?.sha256}` : "") + // TODO: remove sha256? we do not need anymore
-        (src.patch_id
-          ? `${src.metadata?.sha256 ? "&" : "?"}patch_id=${src["patch_id"]}`
-          : ""),
+        (src.patch_id ? `?patch_id=${src["patch_id"]}` : ""),
       metadata: src.metadata,
     };
   }
 
+  if (src.patch_id) {
+    return {
+      url:
+        "/api/val/files" + src[FILE_REF_PROP] + `?patch_id=${src["patch_id"]}`,
+      metadata: src.metadata,
+    };
+  }
   return {
-    url:
-      src[FILE_REF_PROP].slice("/public".length) +
-      (src.metadata?.sha256 ? `?sha256=${src.metadata?.sha256}` : "") +
-      (src.patch_id
-        ? `${src.metadata?.sha256 ? "&" : "?"}patch_id=${src["patch_id"]}`
-        : ""),
+    url: src[FILE_REF_PROP].slice("/public".length),
     metadata: src.metadata,
   };
 }

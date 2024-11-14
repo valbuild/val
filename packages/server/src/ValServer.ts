@@ -7,6 +7,9 @@ import {
   SourcePath,
   ValidationError,
   SerializedSchema,
+  ValConfig,
+  Internal,
+  FileSource,
 } from "@valbuild/core";
 import {
   Api,
@@ -23,9 +26,11 @@ import { z } from "zod";
 import { ValOpsFS } from "./ValOpsFS";
 import {
   AuthorId,
+  BaseSha,
   GenericErrorMessage,
   PatchAnalysis,
   PatchSourceError,
+  SchemaSha,
   Sources,
 } from "./ValOps";
 import { fromError } from "zod-validation-error";
@@ -41,6 +46,7 @@ export type ValServerOptions = {
   valSecret?: string;
   apiKey?: string;
   project?: string;
+  config: ValConfig;
 };
 
 export type ValServerConfig = ValServerOptions &
@@ -48,6 +54,7 @@ export type ValServerConfig = ValServerOptions &
     | {
         mode: "fs";
         cwd: string;
+        config: ValConfig;
       }
     | {
         mode: "http";
@@ -57,6 +64,7 @@ export type ValServerConfig = ValServerOptions &
         commit: string;
         branch: string;
         root?: string;
+        config: ValConfig;
       }
   );
 
@@ -70,6 +78,7 @@ export const ValServer = (
   if (options.mode === "fs") {
     serverOps = new ValOpsFS(options.cwd, valModules, {
       formatter: options.formatter,
+      config: options.config,
     });
   } else if (options.mode === "http") {
     serverOps = new ValOpsHttp(
@@ -82,6 +91,7 @@ export const ValServer = (
       {
         formatter: options.formatter,
         root: options.root,
+        config: options.config,
       },
     );
   } else {
@@ -233,15 +243,129 @@ export const ValServer = (
     }
   };
 
+  const authorize = async (redirectTo: string) => {
+    const token = crypto.randomUUID();
+    const redirectUrl = new URL(redirectTo);
+    const appAuthorizeUrl = getAuthorizeUrl(
+      `${redirectUrl.origin}/${options.route}`,
+      token,
+    );
+    await callbacks.onEnable(true);
+    return {
+      cookies: {
+        [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
+        [VAL_STATE_COOKIE]: {
+          value: createStateCookie({
+            redirect_to: redirectTo,
+            token,
+          }),
+          options: {
+            httpOnly: true,
+            sameSite: "lax",
+            expires: new Date(Date.now() + 1000 * 60 * 60), // 1 hour
+          },
+        },
+      } as const,
+      status: 302 as const,
+      redirectTo: appAuthorizeUrl,
+    };
+  };
+
   return {
-    //#region auth
-    "/enable": {
+    "/draft/enable": {
       GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
         const query = req.query;
         const redirectToRes = getRedirectUrl(
           query,
           options.valEnableRedirectUrl,
         );
+        if (typeof redirectToRes !== "string") {
+          return redirectToRes;
+        }
+        await callbacks.onEnable(true);
+        return {
+          status: 302,
+          redirectTo: redirectToRes,
+        };
+      },
+    },
+    "/draft/disable": {
+      GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
+        const query = req.query;
+        const redirectToRes = getRedirectUrl(
+          query,
+          options.valDisableRedirectUrl,
+        );
+        if (typeof redirectToRes !== "string") {
+          return redirectToRes;
+        }
+        await callbacks.onDisable(true);
+        return {
+          status: 302,
+          redirectTo: redirectToRes,
+        };
+      },
+    },
+    "/draft/stat": {
+      GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
+        return {
+          status: 200,
+          json: {
+            draftMode: await callbacks.isEnabled(),
+          },
+        };
+      },
+    },
+    "/enable": {
+      GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        const query = req.query;
+        const redirectToRes = getRedirectUrl(
+          query,
+          options.valEnableRedirectUrl,
+        );
+        if (auth.error) {
+          if (typeof redirectToRes === "string") {
+            return authorize(redirectToRes);
+          }
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
         if (typeof redirectToRes !== "string") {
           return redirectToRes;
         }
@@ -258,6 +382,16 @@ export const ValServer = (
 
     "/disable": {
       GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
         const query = req.query;
         const redirectToRes = getRedirectUrl(
           query,
@@ -278,7 +412,7 @@ export const ValServer = (
         };
       },
     },
-
+    //#region auth
     "/authorize": {
       GET: async (req) => {
         const query = req.query;
@@ -290,31 +424,8 @@ export const ValServer = (
             },
           };
         }
-        const token = crypto.randomUUID();
-        const redirectUrl = new URL(query.redirect_to);
-        const appAuthorizeUrl = getAuthorizeUrl(
-          `${redirectUrl.origin}/${options.route}`,
-          token,
-        );
-        await callbacks.onEnable(true);
-        return {
-          cookies: {
-            [VAL_ENABLE_COOKIE_NAME]: ENABLE_COOKIE_VALUE,
-            [VAL_STATE_COOKIE]: {
-              value: createStateCookie({
-                redirect_to: query.redirect_to,
-                token,
-              }),
-              options: {
-                httpOnly: true,
-                sameSite: "lax",
-                expires: new Date(Date.now() + 1000 * 60 * 60), // 1 hour
-              },
-            },
-          },
-          status: 302,
-          redirectTo: appAuthorizeUrl,
-        };
+        const redirectTo = query.redirect_to;
+        return authorize(redirectTo);
       },
     },
 
@@ -501,6 +612,52 @@ export const ValServer = (
       },
     },
 
+    //#region stat
+    "/stat": {
+      POST: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
+        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+          return {
+            status: 401,
+            json: {
+              message: "Unauthorized",
+            },
+          };
+        }
+        const currentStat = await serverOps.getStat({
+          ...req.body,
+          profileId: "id" in auth ? (auth.id as AuthorId) : undefined,
+        } as {
+          baseSha: BaseSha;
+          schemaSha: SchemaSha;
+          patches: PatchId[];
+          profileId?: AuthorId;
+        } | null);
+        if (currentStat.type === "error") {
+          return {
+            status: 500,
+            json: currentStat.error,
+          };
+        }
+        return {
+          status: 200,
+          json: {
+            ...currentStat,
+            config: options.config,
+          },
+        };
+      },
+    },
+
     //#region patches
     "/patches/~": {
       GET: async (req) => {
@@ -616,7 +773,7 @@ export const ValServer = (
       },
     },
 
-    //#region tree ops
+    //#region schema
     "/schema": {
       GET: async (req) => {
         const cookies = req.cookies;
@@ -643,7 +800,10 @@ export const ValServer = (
           return {
             status: 500,
             json: {
-              message: "Val is not correctly setup. Check the val.modules file",
+              message: `Got errors while fetching modules: ${moduleErrors
+                .filter((error) => error)
+                .map((error) => error.message)
+                .join(", ")}`,
               details: moduleErrors,
             },
           };
@@ -651,9 +811,22 @@ export const ValServer = (
         const schemaSha = await serverOps.getSchemaSha();
         const schemas = await serverOps.getSchemas();
         const serializedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
-        for (const [moduleFilePathS, schema] of Object.entries(schemas)) {
-          const moduleFilePath = moduleFilePathS as ModuleFilePath;
-          serializedSchemas[moduleFilePath] = schema.serialize();
+        try {
+          for (const [moduleFilePathS, schema] of Object.entries(schemas)) {
+            const moduleFilePath = moduleFilePathS as ModuleFilePath;
+            serializedSchemas[moduleFilePath] = schema.serialize();
+          }
+        } catch (e) {
+          console.error("Val: Failed to serialize schemas", e);
+          return {
+            status: 500,
+            json: {
+              message: "Failed to serialize schemas",
+              details: [
+                { message: e instanceof Error ? e.message : JSON.stringify(e) },
+              ],
+            },
+          };
         }
 
         return {
@@ -666,7 +839,8 @@ export const ValServer = (
       },
     },
 
-    "/tree/~": {
+    // #region sources
+    "/sources": {
       PUT: async (req) => {
         const query = req.query;
         const cookies = req.cookies;
@@ -712,14 +886,26 @@ export const ValServer = (
           >;
         };
         let patchAnalysis: PatchAnalysis | null = null;
-        let newPatchId: PatchId | undefined = undefined;
-        if ((body?.patchIds && body?.patchIds?.length > 0) || body?.addPatch) {
+        const newPatchIds: PatchId[] | undefined = undefined;
+        if (
+          (body?.patchIds && body?.patchIds?.length > 0) ||
+          body?.addPatches
+        ) {
           // TODO: validate patches_sha
           const patchIds = body?.patchIds;
           const patchOps =
             patchIds && patchIds.length > 0
               ? await serverOps.fetchPatches({ patchIds, omitPatch: false })
               : { patches: {} };
+          if (patchOps.error) {
+            return {
+              status: 400,
+              json: {
+                message: "Failed to fetch patches: " + patchOps.error.message,
+                details: [],
+              },
+            };
+          }
           let patchErrors: Record<PatchId, { message: string }> | undefined =
             undefined;
           for (const [patchIdS, error] of Object.entries(
@@ -780,7 +966,7 @@ export const ValServer = (
             patchOps.patches[newPatchId] = {
               path: newPatchModuleFilePath,
               patch: newPatch,
-              parentRef: body.addPatch.parentRef,
+              parentRef: body.addPatches?.parentRef,
               authorId,
               createdAt: createPatchRes.value.createdAt,
               appliedAt: null,
@@ -810,40 +996,22 @@ export const ValServer = (
         } else {
           tree = await serverOps.getTree();
         }
-        if (tree.errors && Object.keys(tree.errors).length > 0) {
-          console.error("Val: Failed to get tree", JSON.stringify(tree.errors));
-          const res: z.infer<Api["/tree/~"]["PUT"]["res"]> = {
-            status: 400,
-            json: {
-              type: "patch-error",
-              errors: Object.fromEntries(
-                Object.entries(tree.errors).map(([key, value]) => [
-                  key,
-                  value.map((error) => ({
-                    patchId: error.patchId,
-                    skipped: error.skipped,
-                    error: {
-                      message: error.error.message,
-                    },
-                  })),
-                ]),
-              ) as Record<
-                ModuleFilePath,
-                {
-                  patchId: PatchId;
-                  skipped: boolean;
-                  error: { message: string };
-                }[]
-              >,
-              message: "One or more patches failed to be applied",
-            },
-          };
-          return res;
-        }
-
+        let sourcesValidation: {
+          errors: Record<
+            ModuleFilePath,
+            {
+              invalidSource?: { message: string };
+              validations: Record<SourcePath, ValidationError[]>;
+            }
+          >;
+          files: Record<SourcePath, FileSource>;
+        } = {
+          errors: {},
+          files: {},
+        };
         if (query.validate_sources || query.validate_binary_files) {
           const schemas = await serverOps.getSchemas();
-          const sourcesValidation = await serverOps.validateSources(
+          sourcesValidation = await serverOps.validateSources(
             schemas,
             tree.sources,
           );
@@ -884,16 +1052,50 @@ export const ValServer = (
                       ].map((p) => p.patchId),
                     }
                   : undefined,
+              validationErrors:
+                sourcesValidation.errors[moduleFilePath]?.validations,
             };
           }
         }
 
-        const res: z.infer<Api["/tree/~"]["PUT"]["res"]> = {
+        if (tree.errors && Object.keys(tree.errors).length > 0) {
+          const res: z.infer<Api["/sources"]["PUT"]["res"]> = {
+            status: 400,
+            json: {
+              type: "patch-error",
+              schemaSha,
+              modules,
+              errors: Object.fromEntries(
+                Object.entries(tree.errors).map(([key, value]) => [
+                  key,
+                  value.map((error) => ({
+                    patchId: error.patchId,
+                    skipped: error.skipped,
+                    error: {
+                      message: error.error.message,
+                    },
+                  })),
+                ]),
+              ) as Record<
+                ModuleFilePath,
+                {
+                  patchId: PatchId;
+                  skipped: boolean;
+                  error: { message: string };
+                }[]
+              >,
+              message: "One or more patches failed to be applied",
+            },
+          };
+          return res;
+        }
+
+        const res: z.infer<Api["/sources"]["PUT"]["res"]> = {
           status: 200,
           json: {
             schemaSha,
             modules,
-            newPatchId,
+            newPatchIds,
           },
         };
         return res;
@@ -941,10 +1143,17 @@ export const ValServer = (
           ...patches,
         });
         if (preparedCommit.hasErrors) {
-          console.error("Failed to create commit", {
-            sourceFilePatchErrors: preparedCommit.sourceFilePatchErrors,
-            binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
-          });
+          console.error(
+            "Failed to create commit",
+            JSON.stringify(
+              {
+                sourceFilePatchErrors: preparedCommit.sourceFilePatchErrors,
+                binaryFilePatchErrors: preparedCommit.binaryFilePatchErrors,
+              },
+              null,
+              2,
+            ),
+          );
           return {
             status: 400,
             json: {
@@ -967,19 +1176,44 @@ export const ValServer = (
         }
         if (serverOps instanceof ValOpsFS) {
           await serverOps.saveFiles(preparedCommit);
+          await serverOps.deletePatches(patchIds);
           return {
             status: 200,
             json: {}, // TODO:
           };
         } else if (serverOps instanceof ValOpsHttp) {
           if (auth.error === undefined && auth.id) {
-            await serverOps.commit(
+            const commitRes = await serverOps.commit(
               preparedCommit,
               "Update content: " +
                 Object.keys(analysis.patchesByModule) +
                 " modules changed",
               auth.id as AuthorId,
             );
+            if (commitRes.error) {
+              console.error("Failed to commit", commitRes.error);
+              if (
+                "isNotFastForward" in commitRes &&
+                commitRes.isNotFastForward
+              ) {
+                return {
+                  status: 409,
+                  json: {
+                    isNotFastForward: true,
+                    message:
+                      "Cannot commit: this is not the latest version of this branch",
+                  },
+                };
+              }
+              return {
+                status: 400,
+                json: {
+                  message: commitRes.error.message,
+                  details: [],
+                },
+              };
+            }
+            // TODO: serverOps.markApplied(patchIds);
             return {
               status: 200,
               json: {}, // TODO:
@@ -1011,18 +1245,28 @@ export const ValServer = (
         //     3) the benefit an attacker would get is an image that is not yet published (i.e. most cases: not very interesting)
         // Thus: attack surface + ease of attack + benefit = low probability of attack
         // If we couldn't argue that patch ids are secret enough, then this would be a problem.
+        let cacheControl: string | undefined;
         let fileBuffer;
+        let mimeType: string | undefined;
         if (query.patch_id) {
           fileBuffer = await serverOps.getBase64EncodedBinaryFileFromPatch(
             filePath,
             query.patch_id as PatchId,
           );
+          mimeType = Internal.filenameToMimeType(filePath);
+          cacheControl = "public, max-age=20000, immutable";
         } else {
           fileBuffer = await serverOps.getBinaryFile(filePath);
         }
         if (fileBuffer) {
           return {
             status: 200,
+            headers: {
+              // TODO: we could use ETag and return 304 instead
+              "Content-Type": mimeType || "application/octet-stream",
+              "Cache-Control":
+                cacheControl || "public, max-age=0, must-revalidate",
+            },
             body: bufferToReadableStream(fileBuffer),
           };
         } else {

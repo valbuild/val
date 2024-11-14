@@ -1,5 +1,6 @@
 import {
   SET_AUTO_TAG_JSX_ENABLED,
+  SET_RSC,
   stegaEncode,
   type StegaOfSource,
 } from "@valbuild/react/stega";
@@ -18,145 +19,135 @@ import { VAL_SESSION_COOKIE } from "@valbuild/shared/internal";
 import { createValServer, ValServer } from "@valbuild/server";
 import { VERSION } from "../version";
 
+SET_RSC(true);
 const initFetchValStega =
   (
     config: ValConfig,
     valApiEndpoints: string,
     valServerPromise: Promise<ValServer>,
-    isEnabled: () => boolean,
-    getHeaders: () => Headers,
-    getCookies: () => {
+    isEnabled: () => Promise<boolean>,
+    getHeaders: () => Promise<{
+      get(name: string): string | null;
+    }>,
+    getCookies: () => Promise<{
       get(name: string): { name: string; value: string } | undefined;
-    },
+    }>,
   ) =>
   <T extends SelectorSource>(
     selector: T,
-  ): SelectorOf<T> extends GenericSelector<infer S>
-    ? Promise<StegaOfSource<S>>
-    : never => {
-    let enabled = false;
-    try {
-      enabled = isEnabled();
-    } catch (err) {
-      console.error(
-        "Val: could not check if Val is enabled! This might be due to an error to check draftMode. fetchVal can only be used server-side. Use useVal on clients.",
-        err,
-      );
-    }
-    if (enabled) {
-      SET_AUTO_TAG_JSX_ENABLED(true);
-      let headers;
+  ): Promise<
+    SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never
+  > => {
+    const exec = async (): Promise<
+      SelectorOf<T> extends GenericSelector<infer S> ? StegaOfSource<S> : never
+    > => {
+      let enabled = false;
       try {
-        headers = getHeaders();
-        if (!(headers instanceof Headers)) {
-          throw new Error(
-            "Expected an instance of Headers. Check Val rsc config.",
-          );
-        }
+        enabled = await isEnabled();
       } catch (err) {
         console.error(
-          "Val: could not read headers! fetchVal can only be used server-side. Use useVal on clients.",
+          "Val: could not check if Val is enabled! This might be due to an error to check draftMode. fetchVal can only be used server-side. Use useVal on clients.",
           err,
         );
-        headers = null;
       }
-
-      const cookies = (() => {
+      if (enabled) {
+        SET_AUTO_TAG_JSX_ENABLED(true);
+        let headers;
         try {
-          return getCookies();
+          headers = await getHeaders();
+          if (typeof headers.get !== "function") {
+            throw new Error("Invalid headers");
+          }
+        } catch (err) {
+          console.error(
+            "Val: could not read headers! fetchVal can only be used server-side. Use useVal on clients.",
+            err,
+          );
+          headers = null;
+        }
+
+        let cookies: {
+          get(name: string): { name: string; value: string } | undefined;
+        } | null;
+        try {
+          cookies = await getCookies();
         } catch (err) {
           console.error(
             "Val: could not read cookies! fetchVal can only be used server-side. Use useVal on clients.",
             err,
           );
-          return null;
+          cookies = null;
         }
-      })();
 
-      const host: string | null = headers && getHost(headers);
-      if (host && cookies) {
-        return valServerPromise
-          .then(async (valServer) => {
-            const patchesRes = await valServer["/patches/~"]["GET"]({
-              query: {
-                omit_patch: true,
-                author: undefined,
-                patch_id: undefined,
-                module_file_path: undefined,
-              },
-              cookies: {
-                [VAL_SESSION_COOKIE]: cookies.get(VAL_SESSION_COOKIE)?.value,
+        const host: string | null = headers && getHost(headers);
+        if (host && cookies) {
+          const valServer = await valServerPromise;
+          const patchesRes = await valServer["/patches/~"]["GET"]({
+            query: {
+              omit_patch: true,
+              author: undefined,
+              patch_id: undefined,
+              module_file_path: undefined,
+            },
+            cookies: {
+              [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,
+            },
+          });
+          if (patchesRes.status !== 200) {
+            throw Error(JSON.stringify(patchesRes.json, null, 2));
+          }
+          const allPatches = Object.keys(patchesRes.json.patches) as PatchId[];
+
+          const treeRes = await valServer["/sources"]["PUT"]({
+            path: "/",
+            query: {
+              validate_sources: true,
+              validate_all: false,
+              validate_binary_files: false,
+            },
+            body: { patchIds: allPatches },
+            cookies: {
+              [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,
+            },
+          });
+
+          if (treeRes.status === 200) {
+            const { modules } = treeRes.json;
+            return stegaEncode(selector, {
+              disabled: !enabled,
+              getModule: (path) => {
+                const module = modules[path as ModuleFilePath];
+                if (module) {
+                  return module.source;
+                }
               },
             });
-            if (patchesRes.status !== 200) {
-              console.error("Val: could not fetch patches", patchesRes.json);
-              throw Error(JSON.stringify(patchesRes.json, null, 2));
-            }
-            const allPatches = patchesRes.json.patches.map(
-              (patch) => patch.patchId,
-            );
-
-            const treeRes = await valServer["/tree/~"]["PUT"]({
-              path: "/",
-              query: {
-                validate_sources: true,
-                validate_all: false,
-                validate_binary_files: false,
-              },
-              body: { patchIds: allPatches },
-              cookies: {
-                [VAL_SESSION_COOKIE]: cookies.get(VAL_SESSION_COOKIE)?.value,
-              },
-            });
-
-            if (treeRes.status === 200) {
-              const { modules } = treeRes.json;
-              return stegaEncode(selector, {
-                disabled: !enabled,
-                getModule: (path) => {
-                  const module = modules[path as ModuleFilePath];
-                  if (module) {
-                    return module.source;
-                  }
-                },
-              });
+          } else {
+            if (treeRes.status === 401) {
+              console.warn("Val: authentication error: ", treeRes.json.message);
             } else {
-              if (treeRes.status === 401) {
-                console.warn(
-                  "Val: authentication error: ",
-                  treeRes.json.message,
-                );
-              } else {
-                console.error("Val: could not fetch modules", treeRes.json);
-                throw Error(JSON.stringify(treeRes.json, null, 2));
-              }
+              throw Error(JSON.stringify(treeRes.json, null, 2));
             }
-          })
-          .catch((err) => {
-            console.error("Val: failed while fetching modules", err);
-            if (process.env.NODE_ENV === "development") {
-              throw Error(
-                "Val: Could not fetch data. This is likely due to a misconfiguration or a bug. Check the console for more details.",
-              );
-            }
-            return stegaEncode(selector, {});
-          }) as SelectorOf<T> extends GenericSelector<infer S>
-          ? Promise<StegaOfSource<S>>
-          : never;
+          }
+        }
       }
-    }
-    return stegaEncode(selector, {
-      disabled: !enabled,
+      return stegaEncode(selector, {
+        disabled: !enabled,
+      });
+    };
+    return exec().catch((err) => {
+      console.error("Val: failed to fetch ", err);
+      return stegaEncode(selector, {});
     });
   };
 
-function getHost(headers: Headers) {
+function getHost(headers: { get(name: string): string | null } | undefined) {
   // TODO: does NextJs have a way to determine this?
-  const host = headers.get("host");
+  const host = headers?.get("host");
   let proto = "https";
-  if (headers.get("x-forwarded-proto") === "http") {
+  if (headers?.get("x-forwarded-proto") === "http") {
     proto = "http";
-  } else if (headers.get("referer")?.startsWith("http://")) {
+  } else if (headers?.get("referer")?.startsWith("http://")) {
     proto = "http";
   } else if (host?.startsWith("localhost")) {
     proto = "http";
@@ -225,15 +216,16 @@ export function initValRsc(
       },
       ...config,
     },
+    config,
     {
       async isEnabled() {
-        return rscNextConfig.draftMode().isEnabled;
+        return (await rscNextConfig.draftMode()).isEnabled;
       },
       async onEnable() {
-        rscNextConfig.draftMode().enable();
+        (await rscNextConfig.draftMode()).enable();
       },
       async onDisable() {
-        rscNextConfig.draftMode().disable();
+        (await rscNextConfig.draftMode()).disable();
       },
     },
   );
@@ -242,14 +234,14 @@ export function initValRsc(
       config,
       valApiEndpoints, // TODO: get from config
       valServerPromise,
-      () => {
-        return rscNextConfig.draftMode().isEnabled;
+      async () => {
+        return (await rscNextConfig.draftMode()).isEnabled;
       },
-      () => {
-        return rscNextConfig.headers();
+      async () => {
+        return await rscNextConfig.headers();
       },
-      () => {
-        return rscNextConfig.cookies();
+      async () => {
+        return await rscNextConfig.cookies();
       },
     ),
   };

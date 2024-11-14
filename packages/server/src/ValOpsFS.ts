@@ -16,11 +16,14 @@ import {
   createMetadataFromBuffer,
   getFieldsForType,
   SaveSourceFilePatchResult,
+  SchemaSha,
+  CommitSha,
 } from "./ValOps";
 import fsPath from "path";
 import ts from "typescript";
 import { z } from "zod";
 import fs from "fs";
+import nodePath from "path";
 import { fromError } from "zod-validation-error";
 import { Patch, ParentRef } from "./patch/validation";
 import { guessMimeTypeFromPath } from "./ValServer";
@@ -41,6 +44,236 @@ export class ValOpsFS extends ValOps {
 
   override async onInit(): Promise<void> {
     // do nothing
+  }
+
+  async getStat(
+    params: {
+      baseSha: BaseSha;
+      schemaSha: SchemaSha;
+      patches: PatchId[];
+      profileId?: AuthorId;
+    } | null,
+  ): Promise<
+    | {
+        type: "request-again" | "no-change" | "did-change";
+        baseSha: BaseSha;
+        schemaSha: SchemaSha;
+        patches: PatchId[];
+      }
+    | {
+        type: "use-websocket";
+        url: string;
+        nonce: string;
+        baseSha: BaseSha;
+        schemaSha: SchemaSha;
+        commitSha: CommitSha;
+        patches: PatchId[];
+      }
+    | { type: "error"; error: GenericErrorMessage }
+  > {
+    // In ValOpsFS, we don't have a websocket server to listen to file changes so we use long-polling.
+    // If a file that Val depends on changes, we break the connection and tell the client to request again to get the latest values.
+    try {
+      const currentBaseSha = await this.getBaseSha();
+      const currentSchemaSha = await this.getSchemaSha();
+      const moduleFilePaths = Object.keys(await this.getSchemas());
+
+      const patchData = await this.readPatches();
+      const patches: PatchId[] = [];
+      // TODO: use proper patch sequences when available:
+      for (const [patchId] of Object.entries(patchData.patches).sort(
+        ([, a], [, b]) => {
+          return a.createdAt.localeCompare(b.createdAt, undefined);
+        },
+      )) {
+        patches.push(patchId as PatchId);
+      }
+      // something changed: return immediately
+      const didChange =
+        !params ||
+        currentBaseSha !== params.baseSha ||
+        currentSchemaSha !== params.schemaSha ||
+        patches.length !== params.patches.length ||
+        patches.some((p, i) => p !== params.patches[i]);
+      if (didChange) {
+        return {
+          type: "did-change",
+          baseSha: currentBaseSha,
+          schemaSha: currentSchemaSha,
+          patches,
+        };
+      }
+      let fsWatcher: fs.FSWatcher | null = null;
+      let stopPolling = false;
+      const didDirectoryChangeUsingPolling = (
+        dir: string,
+        interval: number,
+        setHandle: (h: NodeJS.Timeout) => void,
+      ): Promise<"request-again"> => {
+        const mtimeInDir: Record<string, number> = {};
+        if (fs.existsSync(dir)) {
+          for (const file of fs.readdirSync(dir)) {
+            mtimeInDir[file] = fs
+              .statSync(nodePath.join(dir, file))
+              .mtime.getTime();
+          }
+        }
+        return new Promise<"request-again">((resolve) => {
+          const go = (resolve: (v: "request-again") => void) => {
+            const start = Date.now();
+            if (fs.existsSync(dir)) {
+              const subDirs = fs.readdirSync(dir);
+              // amount of files changed
+              if (subDirs.length !== Object.keys(mtimeInDir).length) {
+                resolve("request-again");
+              }
+              for (const file of fs.readdirSync(dir)) {
+                const mtime = fs
+                  .statSync(nodePath.join(dir, file))
+                  .mtime.getTime();
+                if (mtime !== mtimeInDir[file]) {
+                  resolve("request-again");
+                }
+              }
+            } else {
+              // dir had files, but now is deleted
+              if (Object.keys(mtimeInDir).length > 0) {
+                resolve("request-again");
+              }
+            }
+            if (Date.now() - start > interval) {
+              console.warn("Val: polling interval of patches exceeded");
+            }
+            if (stopPolling) {
+              return;
+            }
+            setHandle(setTimeout(() => go(resolve), interval));
+          };
+          setHandle(setTimeout(() => go(resolve), interval));
+        });
+      };
+
+      const didFilesChangeUsingPolling = (
+        files: string[],
+        interval: number,
+        setHandle: (h: NodeJS.Timeout) => void,
+      ): Promise<"request-again"> => {
+        const mtimes: Record<string, number> = {};
+        for (const file of files) {
+          if (fs.existsSync(file)) {
+            mtimes[file] = fs.statSync(file).mtime.getTime();
+          } else {
+            mtimes[file] = -1;
+          }
+        }
+        return new Promise<"request-again">((resolve) => {
+          const go = (resolve: (v: "request-again") => void) => {
+            const start = Date.now();
+            for (const file of files) {
+              const mtime = fs.existsSync(file)
+                ? fs.statSync(file).mtime.getTime()
+                : -1;
+              if (mtime !== mtimes[file]) {
+                resolve("request-again");
+              }
+            }
+            if (Date.now() - start > interval) {
+              console.warn("Val: polling interval of files exceeded");
+            }
+            setHandle(setTimeout(() => go(resolve), interval));
+          };
+          if (stopPolling) {
+            return;
+          }
+          setHandle(setTimeout(() => go(resolve), interval));
+        });
+      };
+
+      const statFilePollingInterval =
+        this.options?.statFilePollingInterval || 250; // relatively low interval, but there would typically not be that many files (less than 1000 at the very least) - hopefully if we have customers with more files than that, we also have devs working on Val that easily can fix this :) Besides this is just the default
+      const disableFilePolling = this.options?.disableFilePolling || false;
+      let patchesDirHandle: NodeJS.Timeout;
+      let valFilesIntervalHandle: NodeJS.Timeout;
+      const type = await Promise.race([
+        // we poll the patches directory for changes since fs.watch does not work reliably on all system (in particular on WSL) and just checking the patches dir is relatively cheap
+        disableFilePolling
+          ? new Promise<"request-again">(() => {})
+          : didDirectoryChangeUsingPolling(
+              this.getPatchesDir(),
+              statFilePollingInterval,
+              (handle) => {
+                patchesDirHandle = handle;
+              },
+            ),
+        // we poll the files that Val depends on for changes
+        disableFilePolling
+          ? new Promise<"request-again">(() => {})
+          : didFilesChangeUsingPolling(
+              [
+                nodePath.join(this.rootDir, "val.config.ts"),
+                nodePath.join(this.rootDir, "val.modules.ts"),
+                nodePath.join(this.rootDir, "val.config.js"),
+                nodePath.join(this.rootDir, "val.modules.js"),
+                ...moduleFilePaths.map((p) => nodePath.join(this.rootDir, p)),
+              ],
+              statFilePollingInterval,
+              (handle) => {
+                valFilesIntervalHandle = handle;
+              },
+            ),
+        new Promise<"request-again">((resolve) => {
+          fsWatcher = fs.watch(
+            this.rootDir,
+            {
+              recursive: true,
+            },
+            (eventType, filename) => {
+              if (!filename) {
+                return;
+              }
+              const isChange =
+                filename.startsWith(
+                  this.getPatchesDir().slice(this.rootDir.length + 1),
+                ) ||
+                filename.endsWith(".val.ts") ||
+                filename.endsWith(".val.js") ||
+                filename.endsWith("val.config.ts") ||
+                filename.endsWith("val.config.js") ||
+                filename.endsWith("val.modules.ts") ||
+                filename.endsWith("val.modules.js");
+              if (isChange) {
+                // a file that Val depends on just changed or a patch was created, break connection and request stat again to get the new values
+                resolve("request-again");
+              }
+            },
+          );
+        }),
+        new Promise<"no-change">((resolve) =>
+          setTimeout(
+            () => resolve("no-change"),
+            this.options?.statPollingInterval || 20000,
+          ),
+        ),
+      ]).finally(() => {
+        if (fsWatcher) {
+          fsWatcher.close();
+        }
+        stopPolling = true;
+        clearInterval(patchesDirHandle);
+        clearInterval(valFilesIntervalHandle);
+      });
+      return {
+        type,
+        baseSha: currentBaseSha,
+        schemaSha: currentSchemaSha,
+        patches,
+      };
+    } catch (err) {
+      if (err instanceof Error) {
+        return { type: "error", error: { message: err.message } };
+      }
+      return { type: "error", error: { message: "Unknown error (getStat)" } };
+    }
   }
 
   private async readPatches(includes?: PatchId[]): Promise<Patches> {
@@ -134,6 +367,12 @@ export class ValOpsFS extends ValOps {
     const { errors, patches: allPatches } = await this.readPatches(
       filters.patchIds,
     );
+    if (allErrors && Object.keys(allErrors).length > 0) {
+      for (const [patchId, error] of Object.entries(allErrors)) {
+        console.error("Error reading patch", patchId, error);
+        errors[patchId as PatchId] = error;
+      }
+    }
     for (const [patchIdS, patch] of Object.entries(allPatches)) {
       const patchId = patchIdS as PatchId;
       if (
@@ -259,7 +498,7 @@ export class ValOpsFS extends ValOps {
     parentRef: ParentRef,
     authorId: AuthorId | null,
   ): Promise<SaveSourceFilePatchResult> {
-    let patchDir = this.getParentPatchIdFromParentRef(parentRef);
+    const patchDir = this.getParentPatchIdFromParentRef(parentRef);
     try {
       const patchId = crypto.randomUUID() as PatchId;
       const data: z.infer<typeof FSPatch> = {
@@ -434,7 +673,7 @@ export class ValOpsFS extends ValOps {
   > {
     const deleted: PatchId[] = [];
     let errors: Record<PatchId, GenericErrorMessage> | null = null;
-    let patchDirMapRes = await this.getParentPatchIdFromPatchIdMap();
+    const patchDirMapRes = await this.getParentPatchIdFromPatchIdMap();
     if (result.isErr(patchDirMapRes)) {
       return { error: { message: "Failed to get patch dir map" } };
     }
@@ -636,20 +875,20 @@ export class ValOpsFS extends ValOps {
     return fsPath.join(this.getPatchesDir(), patchDir);
   }
 
-  private getBinaryFilePath(filename: string, patchDir: ParentPatchId) {
+  private getBinaryFilePath(filePath: string, patchDir: ParentPatchId) {
     return fsPath.join(
       this.getFullPatchDir(patchDir),
       "files",
-      filename,
-      fsPath.basename(filename),
+      filePath,
+      fsPath.basename(filePath),
     );
   }
 
-  private getBinaryFileMetadataPath(filename: string, patchDir: ParentPatchId) {
+  private getBinaryFileMetadataPath(filePath: string, patchDir: ParentPatchId) {
     return fsPath.join(
       this.getFullPatchDir(patchDir),
       "files",
-      filename,
+      filePath,
       "metadata.json",
     );
   }
