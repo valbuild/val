@@ -742,12 +742,14 @@ function useStat(client: ValClient) {
   }, [client, stat]);
 
   useEffect(() => {
-    setStat({
-      status: "initializing",
-    });
-    console.debug("Initializing stat");
-    execStat(client, webSocketRef, statIdRef, stat, setStat);
-  }, [client]);
+    if (stat.status === "not-asked") {
+      setStat({
+        status: "initializing",
+      });
+      console.debug("Initializing stat");
+      execStat(client, webSocketRef, statIdRef, stat, setStat);
+    }
+  }, [client, stat.status]);
 
   return [stat, setStat] as const;
 }
