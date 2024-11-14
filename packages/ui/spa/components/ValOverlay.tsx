@@ -79,27 +79,18 @@ export function ValOverlay(props: ValOverlayProps) {
       joinedPaths: string;
     }[]
   >([]);
-  const [isScrolling, setIsScrolling] = useState(false);
   const [scrollPos, setScrollPos] = useState({ x: 0, y: 0 });
   useEffect(() => {
     const scrollListener = () => {
-      setIsScrolling(true);
-    };
-
-    window.addEventListener("scroll", scrollListener, { passive: false });
-    const scrollEndListener = () => {
       setScrollPos({ x: window.scrollX, y: window.scrollY });
-      setIsScrolling(false);
     };
-    window.addEventListener("scrollend", scrollEndListener, { passive: true });
-
+    window.addEventListener("scroll", scrollListener, { passive: false });
     return () => {
       window.removeEventListener("scroll", scrollListener);
-      window.removeEventListener("scrollend", scrollEndListener);
     };
   }, []);
   useEffect(() => {
-    if (mode === "select" && !isScrolling) {
+    if (mode === "select") {
       let timeout: NodeJS.Timeout;
       const updateElements = () => {
         const newBoundingBoxes: {
@@ -159,46 +150,44 @@ export function ValOverlay(props: ValOverlayProps) {
           setEditMode={setEditMode}
         />
       )}
-      {!isScrolling &&
-        boundingBoxes.map((boundingBox, i) => {
-          return (
-            <div
-              className="absolute border border-bg-primary hover:border-2 z-[8998]"
-              onClickCapture={(ev) => {
-                ev.stopPropagation();
-                console.log("clicked", boundingBox.joinedPaths);
-                setMode(null);
-                setEditMode({
-                  joinedPaths: boundingBox.joinedPaths,
-                  clientY: ev.clientY,
-                  clientX: ev.clientX,
-                  boundingBox: boundingBox,
-                });
-              }}
-              key={i}
-              style={{
-                display: "block",
-                top: boundingBox?.top + scrollPos.y,
-                left: boundingBox?.left + scrollPos.x,
-                width: boundingBox?.width,
-                height: boundingBox?.height,
-              }}
-            >
-              <div className="relative top-0 left-0 w-full">
-                <div
-                  className="absolute top-[0px] right-[0px] truncate bg-bg-primary text-text-primary"
-                  style={{
-                    fontSize: `${Math.min(boundingBox.height - 2, 10)}px`,
-                    maxHeight: `${Math.min(boundingBox.height - 2, 16)}px`,
-                    maxWidth: `${Math.min(boundingBox.width - 2, 300)}px`,
-                  }}
-                >
-                  {boundingBox.joinedPaths}
-                </div>
+      {boundingBoxes.map((boundingBox, i) => {
+        return (
+          <div
+            className="absolute top-0 border border-bg-primary hover:border-2 z-[8998]"
+            onClickCapture={(ev) => {
+              ev.stopPropagation();
+              setMode(null);
+              setEditMode({
+                joinedPaths: boundingBox.joinedPaths,
+                clientY: ev.clientY,
+                clientX: ev.clientX,
+                boundingBox: boundingBox,
+              });
+            }}
+            key={i}
+            style={{
+              display: "block",
+              top: boundingBox?.top + scrollPos.y,
+              left: boundingBox?.left + scrollPos.x,
+              width: boundingBox?.width,
+              height: boundingBox?.height,
+            }}
+          >
+            <div className="relative top-0 left-0 w-full">
+              <div
+                className="absolute top-[0px] right-[0px] truncate bg-bg-primary text-text-primary"
+                style={{
+                  fontSize: `${Math.min(boundingBox.height - 2, 10)}px`,
+                  maxHeight: `${Math.min(boundingBox.height - 2, 16)}px`,
+                  maxWidth: `${Math.min(boundingBox.width - 2, 300)}px`,
+                }}
+              >
+                {boundingBox.joinedPaths}
               </div>
             </div>
-          );
-        })}
+          </div>
+        );
+      })}
       <DraggableValMenu
         {...props}
         mode={mode}
