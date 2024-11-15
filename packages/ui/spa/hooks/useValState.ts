@@ -77,7 +77,13 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
   const [sources, setSources] = useState<
     Record<ModuleFilePath, Json | undefined>
   >({});
-  const [stat, setStat] = useStat(client);
+  const [
+    stat,
+    setStat,
+    authenticationState,
+    setAuthenticationLoadingIfNotAuthenticated,
+    setIsAuthenticated,
+  ] = useStat(client);
   const [validationErrors, setValidationErrors] = useState<
     Record<SourcePath, ValidationError[]>
   >({});
@@ -103,6 +109,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
       }
       currentStateRef.current = { ...currentState };
       const validateAll = path === undefined;
+      setAuthenticationLoadingIfNotAuthenticated();
       client("/sources", "PUT", {
         path: path,
         query: {
@@ -115,6 +122,12 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         },
       })
         .then((res) => {
+          if (res.status === 401) {
+            setIsAuthenticated("login-required");
+            return;
+          } else {
+            setIsAuthenticated("authorized");
+          }
           if (res.status === 400 && !("errors" in res.json)) {
             setSourcesSyncStatus(
               Object.fromEntries(
@@ -267,6 +280,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     },
     [],
   );
+
   const schemaSha =
     "data" in stat && stat.data?.schemaSha ? stat.data.schemaSha : undefined;
   useEffect(() => {
@@ -274,7 +288,14 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
       setSchemas({
         status: "loading",
       });
+      setAuthenticationLoadingIfNotAuthenticated();
       client("/schema", "GET", {}).then((res) => {
+        if (res.status === 401) {
+          setIsAuthenticated("login-required");
+          return;
+        } else {
+          setIsAuthenticated("authorized");
+        }
         if (res.status === 200) {
           if (res.json.schemaSha === schemaSha) {
             const schemas: Record<ModuleFilePath, SerializedSchema> = {};
@@ -508,6 +529,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
       return current;
     });
     // TODO: add a /patches POST endpoint and use that instead
+    setAuthenticationLoadingIfNotAuthenticated();
     client("/sources", "PUT", {
       path: undefined,
       query: {
@@ -522,6 +544,12 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
       },
     })
       .then((res) => {
+        if (res.status === 401) {
+          setIsAuthenticated("login-required");
+          return;
+        } else {
+          setIsAuthenticated("authorized");
+        }
         if (res.status === 409) {
           // retry on conflict
         } else if (
@@ -623,6 +651,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
 
   return {
     stat,
+    authenticationState,
     schemas,
     schemaSha,
     sources,
@@ -715,6 +744,11 @@ function useStat(client: ValClient) {
   });
 
   const webSocketRef = useRef<WebSocket | null>(null);
+  const {
+    authenticationState,
+    setAuthenticationLoadingIfNotAuthenticated,
+    setIsAuthenticated,
+  } = useAutentication();
 
   const statIdRef = useRef(0);
   useEffect(() => {
@@ -725,7 +759,15 @@ function useStat(client: ValClient) {
           stat.status,
           stat.status === "error" ? stat.error : "no error",
         );
-        execStat(client, webSocketRef, statIdRef, stat, setStat);
+        execStat(
+          client,
+          webSocketRef,
+          statIdRef,
+          stat,
+          setStat,
+          setAuthenticationLoadingIfNotAuthenticated,
+          setIsAuthenticated,
+        );
       } else {
         console.debug(
           "Executing stat in ",
@@ -734,7 +776,15 @@ function useStat(client: ValClient) {
           stat.status,
         );
         const timeout = setTimeout(() => {
-          execStat(client, webSocketRef, statIdRef, stat, setStat);
+          execStat(
+            client,
+            webSocketRef,
+            statIdRef,
+            stat,
+            setStat,
+            setAuthenticationLoadingIfNotAuthenticated,
+            setIsAuthenticated,
+          );
         }, stat.wait);
         return () => clearTimeout(timeout);
       }
@@ -747,11 +797,25 @@ function useStat(client: ValClient) {
         status: "initializing",
       });
       console.debug("Initializing stat");
-      execStat(client, webSocketRef, statIdRef, stat, setStat);
+      execStat(
+        client,
+        webSocketRef,
+        statIdRef,
+        stat,
+        setStat,
+        setAuthenticationLoadingIfNotAuthenticated,
+        setIsAuthenticated,
+      );
     }
   }, [client, stat.status]);
 
-  return [stat, setStat] as const;
+  return [
+    stat,
+    setStat,
+    authenticationState,
+    setAuthenticationLoadingIfNotAuthenticated,
+    setIsAuthenticated,
+  ] as const;
 }
 
 const WebSocketStatInterval = 10 * 1000;
@@ -762,6 +826,8 @@ async function execStat(
   statIdRef: React.MutableRefObject<number>,
   stat: StatState,
   setStat: Dispatch<SetStateAction<StatState>>,
+  setAuthenticationLoadingIfNotAuthenticated: () => void,
+  setIsAuthenticated: Dispatch<SetStateAction<AuthenticationState>>,
 ) {
   const id = ++statIdRef.current;
   let body = null;
@@ -773,10 +839,17 @@ async function execStat(
     };
   }
 
+  setAuthenticationLoadingIfNotAuthenticated();
   return client("/stat", "POST", {
     body: body,
   })
     .then((res) => {
+      if (res.status === 401) {
+        setIsAuthenticated("login-required");
+        return;
+      } else {
+        setIsAuthenticated("authorized");
+      }
       if (statIdRef.current !== 0 && statIdRef.current !== id) {
         return;
       }
@@ -868,9 +941,7 @@ async function execStat(
           };
         }
       } else {
-        setStat((prev) =>
-          createError(prev, res.json.message, res.status === 401),
-        );
+        setStat((prev) => createError(prev, res.json.message));
       }
     })
     .catch((err) => {
@@ -881,11 +952,7 @@ async function execStat(
     });
 }
 
-function createError(
-  stat: StatState,
-  message: string,
-  isAuthenticationError?: boolean,
-): StatState {
+function createError(stat: StatState, message: string): StatState {
   const retries = "retries" in stat ? stat.retries + 1 : 0;
   // a bit of random jitter in the start, but maxes out pretty soon on 5000ms
   const waitMillis =
@@ -899,7 +966,28 @@ function createError(
     data: "data" in stat ? stat.data : undefined,
     retries,
     wait: waitMillis,
-    isAuthenticationError,
+  };
+}
+
+export type AuthenticationState =
+  | "not-asked"
+  | "loading"
+  | "login-required"
+  | "authorized"
+  | "authentication-error";
+function useAutentication() {
+  const [authenticationState, setIsAuthenticated] =
+    useState<AuthenticationState>("not-asked");
+  const setAuthenticationLoadingIfNotAuthenticated = useCallback(() => {
+    if (authenticationState === "not-asked") {
+      setIsAuthenticated("loading");
+    }
+  }, [authenticationState]);
+
+  return {
+    authenticationState,
+    setIsAuthenticated,
+    setAuthenticationLoadingIfNotAuthenticated,
   };
 }
 

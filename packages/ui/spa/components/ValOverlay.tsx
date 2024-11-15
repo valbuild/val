@@ -24,10 +24,10 @@ import { CompressedPath } from "./CompressedPath";
 import { Button } from "./designSystem/button";
 import { AnyField } from "./AnyField";
 import {
+  useAuthenticationState,
   usePublish,
   useSchemaAtPath,
   useTheme,
-  useValAuthenticationError,
   useValConfig,
 } from "./ValProvider";
 import { FieldLoading } from "./FieldLoading";
@@ -392,7 +392,7 @@ function ValMenu({
     dropZone === "val-menu-right-center" || dropZone === "val-menu-left-center"
       ? "vertical"
       : "horizontal";
-  const isAuthenticationError = useValAuthenticationError();
+  const authenticationState = useAuthenticationState();
   const { publish, publishDisabled } = usePublish();
   return (
     <div className="p-4 right-16">
@@ -404,7 +404,7 @@ function ValMenu({
           </div>
         </div>
       )}
-      {isAuthenticationError && (
+      {authenticationState === "login-required" && (
         <div className={getPositionClassName(dropZone) + " p-4"}>
           <div className="flex items-center justify-center p-2 text-white bg-black rounded backdrop-blur">
             <a
@@ -420,7 +420,10 @@ function ValMenu({
       <PublishErrorDialog />
       <AnimateHeight
         isOpen={
-          draftMode && !draftModeLoading && !loading && !isAuthenticationError
+          draftMode &&
+          !draftModeLoading &&
+          !loading &&
+          authenticationState !== "login-required"
         }
       >
         <div
@@ -482,7 +485,7 @@ function ValMenu({
         isOpen={
           !(draftMode && !draftModeLoading) &&
           !loading &&
-          !isAuthenticationError
+          authenticationState !== "login-required"
         }
       >
         <div

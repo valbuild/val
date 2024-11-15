@@ -24,14 +24,14 @@ import { ValClient } from "@valbuild/shared/internal";
 import { Remote } from "../utils/Remote";
 import { isJsonArray } from "../utils/isJsonArray";
 import { DayPickerProvider } from "react-day-picker";
-import { useValState } from "../hooks/useValState";
+import { AuthenticationState, useValState } from "../hooks/useValState";
 
 const ValContext = React.createContext<{
   portalRef: HTMLElement | null;
   theme: Themes | null;
   setTheme: (theme: Themes | null) => void;
-  isAuthenticationError?: boolean;
   config: ValConfig | undefined;
+  authenticationState: AuthenticationState;
   addPatch: (moduleFilePath: ModuleFilePath, patch: Patch) => void;
   getPatches: (patchIds: PatchId[]) => Promise<GetPatchRes>;
   deletePatches: (patchIds: PatchId[]) => Promise<DeletePatchesRes>;
@@ -89,10 +89,10 @@ const ValContext = React.createContext<{
   get setTheme(): React.Dispatch<React.SetStateAction<Themes | null>> {
     throw new Error("ValContext not provided");
   },
-  get isAuthenticationError(): boolean | undefined {
+  get config(): ValConfig | undefined {
     throw new Error("ValContext not provided");
   },
-  get config(): ValConfig | undefined {
+  get authenticationState(): AuthenticationState {
     throw new Error("ValContext not provided");
   },
   get addPatch(): () => void {
@@ -185,6 +185,7 @@ export function ValProvider({
 }) {
   const {
     addPatch,
+    authenticationState,
     schemas,
     schemaSha,
     stat,
@@ -324,6 +325,7 @@ export function ValProvider({
     <ValContext.Provider
       value={{
         portalRef: portalRef.current,
+        authenticationState,
         addPatch,
         getPatches,
         deletePatches,
@@ -344,8 +346,6 @@ export function ValProvider({
             console.warn(`Cannot set invalid theme theme: ${theme}`);
           }
         },
-        isAuthenticationError:
-          "error" in stat ? stat.isAuthenticationError : undefined,
         publish,
         isPublishing,
         publishError,
@@ -366,6 +366,7 @@ export function ValProvider({
         }}
       >
         <div
+          data-val-portal="true"
           ref={portalRef}
           {...(theme ? { "data-mode": inverseTheme(theme) } : {})}
         ></div>
@@ -401,9 +402,9 @@ export function useValConfig() {
   return lastConfig.current;
 }
 
-export function useValAuthenticationError() {
-  const { isAuthenticationError } = useContext(ValContext);
-  return isAuthenticationError;
+export function useAuthenticationState() {
+  const { authenticationState } = useContext(ValContext);
+  return authenticationState;
 }
 
 export function useAddPatch(sourcePath: SourcePath) {
