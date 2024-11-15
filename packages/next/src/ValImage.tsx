@@ -33,7 +33,7 @@ export function ValImage(props: ValImageProps) {
           objectPosition: `${hotspot.x * 100}% ${hotspot.y * 100}%`,
         }
       : style;
-  const useMetadataDimensions =
+  const preferMetadataDims =
     src.metadata !== undefined && !rest.fill && !width && !height;
   const isUnoptimized =
     rest.unoptimized !== undefined
@@ -56,8 +56,8 @@ export function ValImage(props: ValImageProps) {
       style={imageStyle}
       alt={raw(alt as ValEncodedString)}
       fill={rest.fill}
-      width={useMetadataDimensions ? src.metadata?.width : width}
-      height={useMetadataDimensions ? src.metadata?.height : height}
+      width={preferMetadataDims ? src.metadata?.width : width}
+      height={preferMetadataDims ? src.metadata?.height : height}
       unoptimized={isUnoptimized}
     ></NextImage>
   );
