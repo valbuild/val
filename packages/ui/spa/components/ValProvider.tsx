@@ -538,8 +538,14 @@ export type ShallowSource = EnsureAllTypes<{
   number: number;
   string: string;
   date: string;
-  file: { [FILE_REF_PROP]: string };
-  image: { [FILE_REF_PROP]: string };
+  file: {
+    [FILE_REF_PROP]: string;
+    metadata?: { readonly [key: string]: Json };
+  };
+  image: {
+    [FILE_REF_PROP]: string;
+    metadata?: { readonly [key: string]: Json };
+  };
   literal: string;
   richtext: unknown[];
 }>;
@@ -937,6 +943,17 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
         error: `Expected object with ${FILE_REF_PROP} property, got ${typeof source}`,
       };
     }
+    if (
+      "metadata" in source &&
+      source.metatadata &&
+      typeof source.metatadata !== "object"
+    ) {
+      return {
+        status: "error",
+        error: `Expected metadata of ${type} to be an object, got ${typeof source.metadata}`,
+      };
+    }
+    // TODO: verify that metadata values is of type Json
     return {
       status: "success",
       data: source as ShallowSource[SchemaType],
