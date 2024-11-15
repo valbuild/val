@@ -79,9 +79,11 @@ export function RichTextField({
         options={schema.options}
         manager={manager}
         onChange={(event) => {
-          addDebouncedPatch(() => {
-            return createRichTextPatch(patchPath, event.state.doc.toJSON());
-          }, path);
+          if (!event.state.doc.eq(state.doc)) {
+            addDebouncedPatch(() => {
+              return createRichTextPatch(patchPath, event.state.doc.toJSON());
+            }, path);
+          }
         }}
       />
     </div>
