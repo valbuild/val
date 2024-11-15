@@ -108,6 +108,7 @@ const cases: {
             tag: "img",
             src: {
               _ref: "/public/val/test.jpg",
+              _tag: 'image',
               _type: "file",
               metadata: {
                 width: 100,
@@ -270,6 +271,7 @@ const cases: {
             src: {
               _ref: "/public/val/test.jpg",
               _type: "file",
+              _tag: 'image',
               metadata: {
                 width: 100,
                 height: 100,
