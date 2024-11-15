@@ -365,11 +365,18 @@ export function ValProvider({
           mode: "default",
         }}
       >
-        <div ref={portalRef}></div>
+        <div
+          ref={portalRef}
+          {...(theme ? { "data-mode": inverseTheme(theme) } : {})}
+        ></div>
         {children}
       </DayPickerProvider>
     </ValContext.Provider>
   );
+}
+
+function inverseTheme(theme: Themes): Themes {
+  return theme === "light" ? "dark" : "light";
 }
 
 export function useValPortal() {
