@@ -9,6 +9,9 @@ import {
   isValFileMethodCall,
   findValFileNodeArg,
   findValFileMetadataArg,
+  findValImageNodeArg,
+  isValImageMethodCall,
+  findValImageMetadataArg,
 } from "./syntax";
 import {
   deepEqual,
@@ -22,12 +25,8 @@ import {
   FILE_REF_PROP,
   FILE_REF_SUBTYPE_TAG,
   FileSource,
-  ImageMetadata,
-  RT_IMAGE_TAG,
-  VAL_EXTENSION,
 } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core";
-import { LinkSource } from "@valbuild/core";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
@@ -86,7 +85,7 @@ function createValFileReference(value: FileSource) {
   );
 }
 
-function createValRichTextImage(value: FileSource) {
+function createValImageReference(value: FileSource) {
   const args: ts.Expression[] = [
     ts.factory.createStringLiteral(value[FILE_REF_PROP]),
   ];
@@ -96,30 +95,8 @@ function createValRichTextImage(value: FileSource) {
 
   return ts.factory.createCallExpression(
     ts.factory.createPropertyAccessExpression(
-      ts.factory.createPropertyAccessExpression(
-        ts.factory.createIdentifier("c"),
-        "rt",
-      ),
+      ts.factory.createIdentifier("c"),
       ts.factory.createIdentifier("image"),
-    ),
-    undefined,
-    args,
-  );
-}
-
-function createValLink(value: LinkSource) {
-  const args: ts.Expression[] = [
-    ts.factory.createStringLiteral(value.children[0]),
-    toExpression({ href: value.href }),
-  ];
-
-  return ts.factory.createCallExpression(
-    ts.factory.createPropertyAccessExpression(
-      ts.factory.createPropertyAccessExpression(
-        ts.factory.createIdentifier("c"),
-        "rt",
-      ),
-      ts.factory.createIdentifier("link"),
     ),
     undefined,
     args,
@@ -140,12 +117,10 @@ function toExpression(value: JSONValue): ts.Expression {
     return ts.factory.createArrayLiteralExpression(value.map(toExpression));
   } else if (typeof value === "object") {
     if (isValFileValue(value)) {
-      if (isValRichTextImageValue(value)) {
-        return createValRichTextImage(value);
-      }
       return createValFileReference(value);
-    } else if (isValLinkValue(value)) {
-      return createValLink(value);
+    }
+    if (isValImageValue(value)) {
+      return createValImageReference(value);
     }
     return ts.factory.createObjectLiteralExpression(
       Object.entries(value).map(([key, value]) =>
@@ -428,6 +403,49 @@ function replaceInNode(
         }),
       );
     }
+  } else if (isValImageMethodCall(node)) {
+    if (key === FILE_REF_PROP) {
+      if (typeof value !== "string") {
+        return result.err(
+          new PatchError(
+            "Cannot replace c.image reference with non-string value",
+          ),
+        );
+      }
+      return pipe(
+        findValImageNodeArg(node),
+        result.map((refNode) => replaceNodeValue(document, refNode, value)),
+      );
+    } else {
+      return pipe(
+        findValImageMetadataArg(node),
+        result.flatMap((metadataArgNode) => {
+          if (!metadataArgNode) {
+            return result.err(
+              new PatchError(
+                "Cannot replace in c.image metadata when it does not exist",
+              ),
+            );
+          }
+          if (key !== "metadata") {
+            return result.err(
+              new PatchError(
+                `Cannot replace c.image metadata key ${key} when it does not exist`,
+              ),
+            );
+          }
+          return replaceInNode(
+            document,
+            // TODO: creating a fake object here might not be right - seems to work though
+            ts.factory.createObjectLiteralExpression([
+              ts.factory.createPropertyAssignment(key, metadataArgNode),
+            ]),
+            key,
+            value,
+          );
+        }),
+      );
+    }
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -476,6 +494,11 @@ export function getFromNode(
       return findValFileNodeArg(node);
     }
     return findValFileMetadataArg(node);
+  } else if (isValImageMethodCall(node)) {
+    if (key === FILE_REF_PROP) {
+      return findValImageNodeArg(node);
+    }
+    return findValImageMetadataArg(node);
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -586,6 +609,24 @@ function removeFromNode(
         }),
       );
     }
+  } else if (isValImageMethodCall(node)) {
+    if (key === FILE_REF_PROP) {
+      return result.err(new PatchError("Cannot remove a ref from c.file"));
+    } else {
+      return pipe(
+        findValImageMetadataArg(node),
+        result.flatMap((metadataArgNode) => {
+          if (!metadataArgNode) {
+            return result.err(
+              new PatchError(
+                "Cannot remove from c.image metadata when it does not exist",
+              ),
+            );
+          }
+          return removeFromNode(document, metadataArgNode, key);
+        }),
+      );
+    }
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -617,12 +658,13 @@ export function isValFileValue(value: JSONValue): value is FileSource<{
     // VAL_EXTENSION in value &&
     // value[VAL_EXTENSION] === "file" &&
     FILE_REF_PROP in value &&
-    typeof value[FILE_REF_PROP] === "string"
+    typeof value[FILE_REF_PROP] === "string" &&
+    value[FILE_REF_SUBTYPE_TAG] !== "image"
   );
 }
-function isValRichTextImageValue(
-  value: JSONValue,
-): value is FileSource<ImageMetadata> {
+export function isValImageValue(value: JSONValue): value is FileSource<{
+  [key: string]: JsonPrimitive;
+}> {
   return !!(
     typeof value === "object" &&
     value &&
@@ -631,16 +673,7 @@ function isValRichTextImageValue(
     // value[VAL_EXTENSION] === "file" &&
     FILE_REF_PROP in value &&
     typeof value[FILE_REF_PROP] === "string" &&
-    typeof value[FILE_REF_SUBTYPE_TAG] === "string" &&
-    value[FILE_REF_SUBTYPE_TAG] === RT_IMAGE_TAG
-  );
-}
-function isValLinkValue(value: JSONValue): value is LinkSource {
-  return !!(
-    typeof value === "object" &&
-    value &&
-    VAL_EXTENSION in value &&
-    value[VAL_EXTENSION] === "link"
+    value[FILE_REF_SUBTYPE_TAG] === "image"
   );
 }
 
@@ -712,6 +745,50 @@ function addToNode(
             return result.err(
               new PatchError(
                 `Cannot add ${key} key to c.file: only metadata is allowed`,
+              ),
+            );
+          }
+          return result.ok([
+            insertAt(
+              document,
+              node.arguments,
+              node.arguments.length,
+              toExpression(value),
+            ),
+          ]);
+        }),
+      );
+    }
+  } else if (isValImageMethodCall(node)) {
+    if (key === FILE_REF_PROP) {
+      if (typeof value !== "string") {
+        return result.err(
+          new PatchError(
+            `Cannot add ${FILE_REF_PROP} key to c.image with non-string value`,
+          ),
+        );
+      }
+      return pipe(
+        findValImageNodeArg(node),
+        result.map((arg: ts.Expression) =>
+          replaceNodeValue(document, arg, value),
+        ),
+      );
+    } else {
+      return pipe(
+        findValImageMetadataArg(node),
+        result.flatMap((metadataArgNode) => {
+          if (metadataArgNode) {
+            return result.err(
+              new PatchError(
+                "Cannot add metadata to c.image when it already exists",
+              ),
+            );
+          }
+          if (key !== "metadata") {
+            return result.err(
+              new PatchError(
+                `Cannot add ${key} key to c.image: only metadata is allowed`,
               ),
             );
           }

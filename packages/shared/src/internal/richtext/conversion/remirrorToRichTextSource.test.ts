@@ -212,7 +212,7 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
     };
-    expect(remirrorToRichTextSource(input)).toEqual({
+    expect(remirrorToRichTextSource(input, "/public/val")).toEqual({
       blocks: [
         {
           tag: "h1",
@@ -360,7 +360,7 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
     };
-    expect(remirrorToRichTextSource(input)).toEqual({
+    expect(remirrorToRichTextSource(input, "/public/val")).toEqual({
       blocks: [
         {
           tag: "p",
@@ -398,7 +398,7 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
     };
-    expect(remirrorToRichTextSource(input)).toEqual({
+    expect(remirrorToRichTextSource(input, "/public/val")).toEqual({
       blocks: [
         {
           tag: "p",
@@ -439,7 +439,7 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
     };
-    expect(remirrorToRichTextSource(input)).toEqual({
+    expect(remirrorToRichTextSource(input, "/public/val")).toEqual({
       blocks: [
         {
           tag: "p",
@@ -487,7 +487,7 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
     };
-    expect(remirrorToRichTextSource(input)).toEqual({
+    expect(remirrorToRichTextSource(input, "/public/val")).toEqual({
       blocks: [
         {
           tag: "p",
@@ -571,7 +571,7 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
     };
-    expect(remirrorToRichTextSource(input)).toEqual({
+    expect(remirrorToRichTextSource(input, "/public/val")).toEqual({
       blocks: [
         {
           tag: "ul",

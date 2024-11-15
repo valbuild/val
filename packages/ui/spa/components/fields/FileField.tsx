@@ -6,6 +6,7 @@ import {
   ConfigDirectory,
   Internal,
   SourcePath,
+  FILE_REF_SUBTYPE_TAG,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { FieldLoading } from "../FieldLoading";
@@ -31,6 +32,7 @@ export function createFilePatch(
   filename: string | null,
   sha256: string,
   metadata: FileMetadata | ImageMetadata | undefined,
+  subType: "image" | "file",
   directory: ConfigDirectory = "/public/val",
 ): Patch {
   const newFilePath = Internal.createFilename(data, filename, metadata, sha256);
@@ -42,6 +44,7 @@ export function createFilePatch(
       value: {
         [FILE_REF_PROP]: `${directory}/${newFilePath}`,
         [VAL_EXTENSION]: "file",
+        ...(subType !== "file" ? { [FILE_REF_SUBTYPE_TAG]: subType } : {}),
         metadata,
       },
       op: "replace",
@@ -138,6 +141,7 @@ export function FileField({ path }: { path: SourcePath }) {
                   data.filename ?? null,
                   res.sha256,
                   metadata,
+                  "file",
                   config.files?.directory,
                 ),
               );

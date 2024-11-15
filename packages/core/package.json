@@ -41,7 +41,6 @@
   },
   "devDependencies": {},
   "dependencies": {
-    "marked": "^9.0.3",
     "ts-toolbelt": "^9.6.0"
   },
   "files": [

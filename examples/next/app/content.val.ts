@@ -57,7 +57,7 @@ export default c.define("/app/content.val.ts", schema, {
   hero: {
     title: "Content as code",
     image: {
-      data: c.file("/public/val/logo_e211b.png", {
+      data: c.image("/public/val/logo_e211b.png", {
         width: 944,
         height: 944,
         mimeType: "image/png",
