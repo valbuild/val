@@ -209,25 +209,25 @@ export type StegaOfSource<T extends Source> = Json extends T
   ? Json
   : T extends RichTextSource<infer O>
     ? RichText<O>
-    : T extends FileSource<infer M>
-      ? M extends ImageMetadata
-        ? Image
-        : M extends FileMetadata
+    : T extends ImageSource
+      ? Image
+      : T extends FileSource<infer M>
+        ? M extends FileMetadata
           ? File<M>
           : never
-      : T extends SourceObject
-        ? {
-            [key in keyof T]: StegaOfSource<T[key]>;
-          }
-        : T extends SourceArray
-          ? StegaOfSource<T[number]>[]
-          : T extends RawString
-            ? string
-            : string extends T
-              ? ValEncodedString
-              : T extends JsonPrimitive
-                ? T
-                : never;
+        : T extends SourceObject
+          ? {
+              [key in keyof T]: StegaOfSource<T[key]>;
+            }
+          : T extends SourceArray
+            ? StegaOfSource<T[number]>[]
+            : T extends RawString
+              ? string
+              : string extends T
+                ? ValEncodedString
+                : T extends JsonPrimitive
+                  ? T
+                  : never;
 
 export function stegaEncode(
   input: any,

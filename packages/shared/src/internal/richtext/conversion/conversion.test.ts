@@ -357,7 +357,10 @@ describe("isomorphic richtext <-> conversion", () => {
   test.each(cases)("$description", ({ input }) => {
     const inputSource = input;
 
-    const res = remirrorToRichTextSource(richTextToRemirror(inputSource));
+    const res = remirrorToRichTextSource(
+      richTextToRemirror(inputSource),
+      "/public/val",
+    );
     expect(res.blocks).toStrictEqual(inputSource);
   });
 });

@@ -190,6 +190,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                 data.filename ?? null,
                 res.sha256,
                 metadata,
+                "image",
                 config.files?.directory,
               ),
             );
