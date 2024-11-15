@@ -2,9 +2,10 @@ import { NavMenu } from "./NavMenu";
 import { ToolsMenu } from "./ToolsMenu";
 import { ContentArea } from "./ContentArea";
 import classNames from "classnames";
-import { useTheme } from "./ValProvider";
+import { useAuthenticationState, useTheme } from "./ValProvider";
 import { useEffect, useState } from "react";
 import { useNavigation } from "./ValRouter";
+import { LoginDialog } from "./LoginDialog";
 
 export function Layout() {
   const theme = useTheme();
@@ -18,6 +19,10 @@ export function Layout() {
       setIsNavMenuOpen(false);
     }
   }, [didInitialise, currentSourcePath]);
+  const authenticationState = useAuthenticationState();
+  if (authenticationState === "login-required") {
+    return <LoginDialog />;
+  }
   return (
     <main
       className={classNames("font-sans bg-bg-primary text-text-primary")}

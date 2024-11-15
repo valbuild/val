@@ -154,6 +154,10 @@ export const ValNextProvider = (props: {
             // ignore network errors
             return;
           }
+          if (res.status === 401) {
+            // ignore when not authorized
+            return;
+          }
           if (res.status !== 200) {
             console.error("Val: could not get draft mode status", res);
             return;
