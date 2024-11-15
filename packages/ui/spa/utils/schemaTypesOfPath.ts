@@ -56,6 +56,13 @@ export function schemaTypesOfPath(
       current.type === "literal" ||
       current.type === "richtext"
     ) {
+      if (current.type === "image" || current.type === "file") {
+        // allow changes to metadata
+        if (patchPath[i] === "metadata") {
+          break;
+        }
+      }
+
       if (i !== patchPath.length - 1) {
         throw new Error(
           "Found " +
