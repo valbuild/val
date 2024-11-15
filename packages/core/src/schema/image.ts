@@ -27,8 +27,6 @@ export type ImageMetadata = {
   hotspot?: {
     x: number;
     y: number;
-    height: number;
-    width: number;
   };
 };
 export class ImageSchema<
@@ -143,6 +141,22 @@ export class ImageSchema<
     }
 
     if (src.metadata) {
+      if (src.metadata.hotspot) {
+        if (
+          typeof src.metadata.hotspot !== "object" ||
+          typeof src.metadata.hotspot.x !== "number" ||
+          typeof src.metadata.hotspot.y !== "number"
+        ) {
+          return {
+            [path]: [
+              {
+                message: `Hotspot must be an object with x and y as numbers.`,
+                value: src,
+              },
+            ],
+          } as ValidationErrors;
+        }
+      }
       return {
         [path]: [
           {
