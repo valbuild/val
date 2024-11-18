@@ -405,7 +405,7 @@ describe("Remirror to RichTextSource", () => {
           children: [
             {
               tag: "img",
-              src: c.file("/public/val/example.png", {
+              src: c.image("/public/val/example.png", {
                 mimeType: "image/png",
                 width: 100,
                 height: 10,
@@ -447,7 +447,7 @@ describe("Remirror to RichTextSource", () => {
             {
               tag: "img",
               src: {
-                ...c.file("/public/val/example.png", {
+                ...c.image("/public/val/example.png", {
                   mimeType: "image/png",
                   width: 100,
                   height: 10,
@@ -494,7 +494,7 @@ describe("Remirror to RichTextSource", () => {
           children: [
             {
               tag: "img",
-              src: c.file("/public/val/example_80d58.png", {
+              src: c.image("/public/val/example_80d58.png", {
                 mimeType: "image/png",
                 width: 100,
                 height: 10,
@@ -585,7 +585,7 @@ describe("Remirror to RichTextSource", () => {
                   children: [
                     {
                       tag: "img",
-                      src: c.file("/public/val/example_80d58.png", {
+                      src: c.image("/public/val/example_80d58.png", {
                         mimeType: "image/png",
                         width: 100,
                         height: 10,
@@ -602,7 +602,7 @@ describe("Remirror to RichTextSource", () => {
           children: [
             {
               tag: "img",
-              src: c.file("/public/val/example_80d58.png", {
+              src: c.image("/public/val/example_80d58.png", {
                 mimeType: "image/png",
                 width: 100,
                 height: 10,
