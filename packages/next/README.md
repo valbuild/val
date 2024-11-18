@@ -60,7 +60,7 @@ This version of Val is currently an alpha version - the API can be considered re
 
 ## Installation
 
-- Make sure you have TypeScript 5+, Next 13.4+ (other meta frameworks will come), React 18.20.+ (other frontend frameworks will come)
+- Make sure you have TypeScript 5+, Next 14+ (other meta frameworks will come), React 18.20.+ (other frontend frameworks will come)
 - Install the packages (@valbuild/eslint-plugin is recommended but not required):
 
 ```sh
