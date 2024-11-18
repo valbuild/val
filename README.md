@@ -45,6 +45,7 @@ This version of Val is currently an alpha version - the API can be considered re
 ## Table of contents
 
 - [Introduction](#content-as-code)
+- [Examples](#examples)
 - [Documentation](#documentation)
 
 ## Content as code
@@ -132,8 +133,10 @@ Val will support external content, i.e. content from other Val projects, CMSs or
 
 ## Examples
 
-Check out this README or the [examples](./examples) directory for examples.
+Examples can found [here](./examples).
 
 ## Documentation
 
-Check out the Next.js [README](./packages/next/README.md) for documentation.
+Val currently only support Next.js.
+
+To get started using Next.js, checkout the [README](./packages/next/README.md).
