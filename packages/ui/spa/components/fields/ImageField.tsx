@@ -16,6 +16,7 @@ import { createFilePatch } from "./FileField";
 import { ValidationErrors } from "../../components/ValidationError";
 import classNames from "classnames";
 import { useEffect, useState } from "react";
+import { Input } from "../designSystem/input";
 
 export function ImageField({ path }: { path: SourcePath }) {
   const type = "image";
@@ -101,9 +102,59 @@ export function ImageField({ path }: { path: SourcePath }) {
   if (source === undefined) {
     return <FieldNotFound path={path} type={type} />;
   }
+  console.log(hotspot);
   return (
     <div>
       <ValidationErrors path={path} />
+      {source && (
+        <div className="py-2">
+          <span>Alt text</span>
+          <Input
+            value={
+              source.metadata?.alt
+                ? typeof source.metadata?.alt === "string"
+                  ? source.metadata?.alt
+                  : ""
+                : ""
+            }
+            onChange={(ev) => {
+              const alt = ev.target.value;
+              if (source.metadata && "alt" in source.metadata) {
+                addPatch([
+                  {
+                    op: "replace",
+                    value: alt,
+                    path: patchPath.concat(["metadata", "alt"]),
+                  },
+                ]);
+              } else if (source.metadata && !("alt" in source.metadata)) {
+                addPatch([
+                  {
+                    op: "add",
+                    value: alt,
+                    path: patchPath.concat(["metadata", "alt"]),
+                  },
+                ]);
+              } else if (source.metadata === undefined) {
+                addPatch([
+                  {
+                    op: "add",
+                    value: {
+                      ...(hotspot ? { hotspot } : {}),
+                      alt: alt,
+                    },
+                    path: patchPath.concat(["metadata"]),
+                  },
+                ]);
+              } else {
+                console.warn(
+                  `Expected source.metadata to be an object but got ${typeof source.metadata}`,
+                );
+              }
+            }}
+          />
+        </div>
+      )}
       {source && (
         <div className="relative">
           <img
@@ -133,7 +184,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                     value: hotspot,
                   },
                 ]);
-              } else {
+              } else if (source.metadata) {
                 addPatch([
                   {
                     op: "add",
@@ -141,6 +192,20 @@ export function ImageField({ path }: { path: SourcePath }) {
                     value: hotspot,
                   },
                 ]);
+              } else if (source.metadata === undefined) {
+                addPatch([
+                  {
+                    op: "add",
+                    value: {
+                      ...(hotspot ? { hotspot } : {}),
+                    },
+                    path: patchPath.concat(["metadata"]),
+                  },
+                ]);
+              } else {
+                console.warn(
+                  `Expected source.metadata to be an object but got ${typeof source.metadata}`,
+                );
               }
             }}
           />
