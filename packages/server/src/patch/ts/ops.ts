@@ -108,6 +108,22 @@ function toExpression(value: JSONValue): ts.Expression {
     // TODO: Use configuration/heuristics to determine use of single quote or double quote
     return ts.factory.createStringLiteral(value);
   } else if (typeof value === "number") {
+    // TODO: do we want to do something like this for very large numbers?
+    // if (value > Number.MAX_SAFE_INTEGER) {
+    //   return ts.factory.createBigIntLiteral(`${value}n`);
+    // }
+    // if (value < Number.MIN_SAFE_INTEGER) {
+    //   return ts.factory.createPrefixUnaryExpression(
+    //     ts.SyntaxKind.MinusToken,
+    //     ts.factory.createBigIntLiteral(`${value}n`),
+    //   );
+    // }
+    if (value < 0) {
+      return ts.factory.createPrefixUnaryExpression(
+        ts.SyntaxKind.MinusToken,
+        ts.factory.createNumericLiteral(Math.abs(value)),
+      );
+    }
     return ts.factory.createNumericLiteral(value);
   } else if (typeof value === "boolean") {
     return value ? ts.factory.createTrue() : ts.factory.createFalse();
