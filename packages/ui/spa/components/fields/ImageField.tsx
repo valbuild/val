@@ -122,8 +122,8 @@ export function ImageField({ path }: { path: SourcePath }) {
               const { width, height, left, top } =
                 ev.currentTarget.getBoundingClientRect();
               const hotspot = {
-                x: (ev.clientX - 6 - left) / width,
-                y: (ev.clientY - 6 - top) / height,
+                x: Math.max((ev.clientX - 6 - left) / width, 0),
+                y: Math.max((ev.clientY - 6 - top) / height, 0),
               };
               if (source.metadata && "hotspot" in source.metadata) {
                 addPatch([
