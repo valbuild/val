@@ -45,13 +45,21 @@ const { valNextAppRouter } = initValServer(
 export { valNextAppRouter };
 `;
 
-// TODO: use Val config
+// TODO: use from @valbuild/core
+type ConfigDirectory = `/public/${string}`;
+
+// TODO: use from @valbuild/core
 type ValConfig = {
-  valCloud?: string;
+  project?: string;
+  root?: string;
+  files?: {
+    directory: ConfigDirectory;
+  };
   gitCommit?: string;
   gitBranch?: string;
-  valConfigPath?: string;
+  defaultTheme?: "dark" | "light";
 };
+
 export const VAL_CONFIG = (
   isTypeScript: boolean,
   options: ValConfig,
