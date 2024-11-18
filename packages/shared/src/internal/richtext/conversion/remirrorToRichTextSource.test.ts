@@ -212,7 +212,7 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
     };
-    expect(remirrorToRichTextSource(input)).toEqual({
+    expect(remirrorToRichTextSource(input, "/public/val")).toEqual({
       blocks: [
         {
           tag: "h1",
@@ -360,7 +360,7 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
     };
-    expect(remirrorToRichTextSource(input)).toEqual({
+    expect(remirrorToRichTextSource(input, "/public/val")).toEqual({
       blocks: [
         {
           tag: "p",
@@ -398,14 +398,14 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
     };
-    expect(remirrorToRichTextSource(input)).toEqual({
+    expect(remirrorToRichTextSource(input, "/public/val")).toEqual({
       blocks: [
         {
           tag: "p",
           children: [
             {
               tag: "img",
-              src: c.file("/public/val/example.png", {
+              src: c.image("/public/val/example.png", {
                 mimeType: "image/png",
                 width: 100,
                 height: 10,
@@ -439,7 +439,7 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
     };
-    expect(remirrorToRichTextSource(input)).toEqual({
+    expect(remirrorToRichTextSource(input, "/public/val")).toEqual({
       blocks: [
         {
           tag: "p",
@@ -447,7 +447,7 @@ describe("Remirror to RichTextSource", () => {
             {
               tag: "img",
               src: {
-                ...c.file("/public/val/example.png", {
+                ...c.image("/public/val/example.png", {
                   mimeType: "image/png",
                   width: 100,
                   height: 10,
@@ -487,14 +487,14 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
     };
-    expect(remirrorToRichTextSource(input)).toEqual({
+    expect(remirrorToRichTextSource(input, "/public/val")).toEqual({
       blocks: [
         {
           tag: "p",
           children: [
             {
               tag: "img",
-              src: c.file("/public/val/example_80d58.png", {
+              src: c.image("/public/val/example_80d58.png", {
                 mimeType: "image/png",
                 width: 100,
                 height: 10,
@@ -571,7 +571,7 @@ describe("Remirror to RichTextSource", () => {
         },
       ],
     };
-    expect(remirrorToRichTextSource(input)).toEqual({
+    expect(remirrorToRichTextSource(input, "/public/val")).toEqual({
       blocks: [
         {
           tag: "ul",
@@ -585,7 +585,7 @@ describe("Remirror to RichTextSource", () => {
                   children: [
                     {
                       tag: "img",
-                      src: c.file("/public/val/example_80d58.png", {
+                      src: c.image("/public/val/example_80d58.png", {
                         mimeType: "image/png",
                         width: 100,
                         height: 10,
@@ -602,7 +602,7 @@ describe("Remirror to RichTextSource", () => {
           children: [
             {
               tag: "img",
-              src: c.file("/public/val/example_80d58.png", {
+              src: c.image("/public/val/example_80d58.png", {
                 mimeType: "image/png",
                 width: 100,
                 height: 10,

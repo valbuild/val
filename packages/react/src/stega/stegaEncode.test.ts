@@ -1,5 +1,11 @@
 import { getModuleIds, stegaEncode } from "./stegaEncode";
-import { RawString, Schema, SelectorSource, initVal } from "@valbuild/core";
+import {
+  ImageMetadata,
+  RawString,
+  Schema,
+  SelectorSource,
+  initVal,
+} from "@valbuild/core";
 import { vercelStegaDecode, vercelStegaSplit } from "@vercel/stega";
 
 const { s, c } = initVal();
@@ -17,7 +23,7 @@ describe("stega transform", () => {
 
     const valModule = c.define("/test.val.ts", schema, [
       {
-        image: c.file("/public/val/test1.png", {
+        image: c.image("/public/val/test1.png", {
           width: 100,
           height: 100,
           mimeType: "image/png",
@@ -27,12 +33,12 @@ describe("stega transform", () => {
         b: true,
       },
       {
-        image: c.file("/public/val/test2.png", {
+        image: c.image("/public/val/test2.png", {
           width: 100,
           height: 100,
           mimeType: "image/png",
           patch_id: "123",
-        }),
+        } as ImageMetadata),
         text: [{ tag: "p", children: ["Test"] }],
         n: 2,
         b: false,

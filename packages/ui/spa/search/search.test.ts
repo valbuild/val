@@ -63,7 +63,7 @@ describe("search", () => {
           ],
           testDate: "2021-01-01",
           testFile: c.file("/public/val/content/testFile.pdf"),
-          testImage: c.file("/public/val/content/imageOfPerson.jpg"),
+          testImage: c.image("/public/val/content/imageOfPerson.jpg"),
           testNullable: null,
         },
       ),
