@@ -525,9 +525,9 @@ The `ValImage` component is a wrapper around `next/image` that accepts a Val `Im
 You can use it like this:
 
 ```tsx
-const content = useVal(contentVal);
+const content = useVal(contentVal); // schema of contentVal: s.object({ image: s.image() })
 
-return <ValImage src={content.image} alt={content.alt} />;
+return <ValImage src={content.image} />;
 ```
 
 ### Using images in components
