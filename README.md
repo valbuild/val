@@ -81,7 +81,8 @@ But, with the benefits of **hard-coded** content:
 - **no** need for **code-gen** and extra build steps
 - **fast** since the content is literally hosted with the application
 - content is **always there** and can never fail (since it is not loaded from somewhere)
-- no need to manage different **environments** containing different versions of content
+- no need to manage different **environments** with different versions of content
+- works out of the box with Vercel **preview links**
 - **resolve conflicts** like you normally resolve conflicts **in git**
 
 Compared to other CMSs, Val has the following advantages:
