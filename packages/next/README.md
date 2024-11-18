@@ -241,14 +241,14 @@ import { s } from "./val.config";
 s.boolean(); // <- Schema<boolean>
 ```
 
-## Optional
+## Nullable (Optional)
 
 All schema types can be optional. An optional schema creates a union of the type and `null`.
 
 ```ts
 import { s } from "./val.config";
 
-s.string().optional(); // <- Schema<string | null>
+s.string().nullable(); // <- Schema<string | null>
 ```
 
 ## Array
