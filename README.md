@@ -117,7 +117,7 @@ More details on `.remote()` will follow later.
 
 ## When to NOT use Val
 
-Val is designed to work well on a single web-app, and currently only supports Next 13.4+ (more meta-frameworks will supported) and GitHub (more Git providers will follow).
+Val is designed to work well on a single web-app, and currently only supports Next 14+ (more meta-frameworks will supported) and GitHub (more Git providers will follow).
 
 Unless your application fits these requirements, you should have a look elsewhere (at least for now).
 
