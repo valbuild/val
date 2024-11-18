@@ -5,6 +5,8 @@ import {
   RichTextSource,
   AllRichTextOptions,
   Styles,
+  FILE_REF_SUBTYPE_TAG,
+  ConfigDirectory,
 } from "@valbuild/core";
 import {
   RemirrorBr,
@@ -29,7 +31,10 @@ import {
   UnorderedListNode,
 } from "@valbuild/core";
 
-export function remirrorToRichTextSource(node: RemirrorJSON): {
+export function remirrorToRichTextSource(
+  node: RemirrorJSON,
+  configDirectory: ConfigDirectory,
+): {
   blocks: RichTextSource<AllRichTextOptions>;
   files: Record<string, { value: string; patchPaths: string[][] }>;
 } {
@@ -37,7 +42,12 @@ export function remirrorToRichTextSource(node: RemirrorJSON): {
   const blocks: BlockNode<AllRichTextOptions>[] = [];
   let i = 0;
   for (const child of node?.content || []) {
-    const block = convertBlock([(i++).toString()], child, files);
+    const block = convertBlock(
+      [(i++).toString()],
+      child,
+      files,
+      configDirectory,
+    );
     blocks.push(block);
   }
   return { blocks, files };
@@ -47,6 +57,7 @@ function convertBlock(
   path: string[],
   node: RemirrorJSON["content"][number],
   files: Record<string, { value: string; patchPaths: string[][] }>,
+  configDirectory: ConfigDirectory,
 ): BlockNode<AllRichTextOptions> {
   if (node.type === "heading") {
     const depth = node.attrs?.level || 1;
@@ -61,15 +72,16 @@ function convertBlock(
             path.concat("children", i.toString()),
             child,
             files,
+            configDirectory,
           ),
         ) || [],
     };
   } else if (node.type === "paragraph") {
-    return convertParagraph(path, node, files);
+    return convertParagraph(path, node, files, configDirectory);
   } else if (node.type === "bulletList") {
-    return convertBulletList(path, node, files);
+    return convertBulletList(path, node, files, configDirectory);
   } else if (node.type === "orderedList") {
-    return convertOrderedList(path, node, files);
+    return convertOrderedList(path, node, files, configDirectory);
   } else {
     const exhaustiveCheck: never = node;
     throw new Error(
@@ -84,6 +96,7 @@ function convertHeadingChild(
   path: string[],
   node: RemirrorText | RemirrorBr | RemirrorImage,
   files: Record<string, { value: string; patchPaths: string[][] }>,
+  configDirectory: ConfigDirectory,
 ): HeadingNode<AllRichTextOptions>["children"][number] {
   if (node.type === "text") {
     return convertTextNode(node);
@@ -92,7 +105,7 @@ function convertHeadingChild(
       tag: "br",
     };
   } else if (node.type === "image") {
-    return convertImageNode(path, node, files);
+    return convertImageNode(path, node, files, configDirectory);
   } else {
     const exhaustiveCheck: never = node;
     throw new Error(
@@ -109,6 +122,7 @@ function convertParagraph(
   path: string[],
   child: RemirrorParagraph,
   files: Record<string, { value: string; patchPaths: string[][] }>,
+  configDirectory: ConfigDirectory,
 ): ParagraphNode<AllRichTextOptions> {
   return {
     tag: "p",
@@ -125,6 +139,7 @@ function convertParagraph(
             path.concat("children", i.toString()),
             child,
             files,
+            configDirectory,
           );
         }
         const exhaustiveCheck: never = child;
@@ -198,6 +213,7 @@ function convertListItem(
   path: string[],
   child: RemirrorListItem,
   files: Record<string, { value: string; patchPaths: string[][] }>,
+  configDirectory: ConfigDirectory,
 ): ListItemNode<AllRichTextOptions> {
   return {
     tag: "li",
@@ -209,18 +225,21 @@ function convertListItem(
               path.concat("children", i.toString()),
               child,
               files,
+              configDirectory,
             );
           } else if (child.type === "bulletList") {
             return convertBulletList(
               path.concat("children", i.toString()),
               child,
               files,
+              configDirectory,
             );
           } else if (child.type === "orderedList") {
             return convertOrderedList(
               path.concat("children", i.toString()),
               child,
               files,
+              configDirectory,
             );
           } else {
             const exhaustiveCheck: never = child;
@@ -235,6 +254,7 @@ function convertBulletList(
   path: string[],
   node: RemirrorBulletList,
   files: Record<string, { value: string; patchPaths: string[][] }>,
+  configDirectory: ConfigDirectory,
 ): UnorderedListNode<AllRichTextOptions> {
   return {
     tag: "ul",
@@ -245,6 +265,7 @@ function convertBulletList(
             path.concat("children", i.toString()),
             child,
             files,
+            configDirectory,
           );
         } else {
           const exhaustiveCheck: never = child.type;
@@ -260,6 +281,7 @@ function convertOrderedList(
   path: string[],
   node: RemirrorOrderedList,
   files: Record<string, { value: string; patchPaths: string[][] }>,
+  configDirectory: ConfigDirectory,
 ): OrderedListNode<AllRichTextOptions> {
   return {
     tag: "ol",
@@ -270,6 +292,7 @@ function convertOrderedList(
             path.concat("children", i.toString()),
             child,
             files,
+            configDirectory,
           );
         } else {
           const exhaustiveCheck: never = child.type;
@@ -286,6 +309,7 @@ function convertImageNode(
   path: string[],
   node: RemirrorImage,
   files: Record<string, { value: string; patchPaths: string[][] }>,
+  configDirectory: ConfigDirectory,
 ): ImageNode<AllRichTextOptions> {
   if (node.attrs && node.attrs.src.startsWith("data:")) {
     const sha256 = Internal.getSHA256Hash(textEncoder.encode(node.attrs.src));
@@ -305,7 +329,10 @@ function convertImageNode(
       },
       sha256,
     );
-    const filePath = `/public/val/${fileName}`;
+    const dir = configDirectory?.endsWith("/")
+      ? configDirectory
+      : `${configDirectory}/`;
+    const filePath = `${dir}${fileName}`;
     const existingFilesEntry = files[filePath];
     const thisPath = path
       // file is added as src (see below):
@@ -324,6 +351,7 @@ function convertImageNode(
       src: {
         [VAL_EXTENSION]: "file" as const,
         [FILE_REF_PROP]: filePath as `/public/${string}`,
+        [FILE_REF_SUBTYPE_TAG]: "image" as const,
         metadata: {
           width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
           height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
@@ -355,6 +383,7 @@ function convertImageNode(
       src: {
         [VAL_EXTENSION]: "file" as const,
         [FILE_REF_PROP]: noParamsUrl as `/public/${string}`,
+        [FILE_REF_SUBTYPE_TAG]: "image" as const,
         metadata: {
           width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
           height: typeof node.attrs.height === "number" ? node.attrs.height : 0,

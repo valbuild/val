@@ -8,8 +8,7 @@ export default async function Home() {
     <main className="page content">
       <section className="hero full">
         <ValImage
-          src={page.hero.image.data}
-          alt={page.hero.image.alt}
+          src={page.hero.image}
           sizes={"(max-width: 400px) 200px, (max-width: 768px) 250px, 300px"}
           priority
         ></ValImage>

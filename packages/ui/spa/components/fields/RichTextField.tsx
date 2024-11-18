@@ -1,4 +1,9 @@
-import { AllRichTextOptions, RichTextSource, SourcePath } from "@valbuild/core";
+import {
+  AllRichTextOptions,
+  ConfigDirectory,
+  RichTextSource,
+  SourcePath,
+} from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -17,6 +22,7 @@ import {
   useAddPatch,
   useSchemaAtPath,
   useShallowSourceAtPath,
+  useValConfig,
 } from "../ValProvider";
 import { RichTextEditor, useRichTextEditor } from "../RichTextEditor";
 
@@ -28,6 +34,7 @@ export function RichTextField({
   autoFocus?: boolean;
 }) {
   const type = "richtext";
+  const config = useValConfig();
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const defaultValue =
@@ -81,7 +88,11 @@ export function RichTextField({
         onChange={(event) => {
           if (!event.state.doc.eq(state.doc)) {
             addDebouncedPatch(() => {
-              return createRichTextPatch(patchPath, event.state.doc.toJSON());
+              return createRichTextPatch(
+                patchPath,
+                config?.files?.directory ?? "/public/val",
+                event.state.doc.toJSON(),
+              );
             }, path);
           }
         }}
@@ -90,9 +101,13 @@ export function RichTextField({
   );
 }
 
-function createRichTextPatch(path: string[], content?: RemirrorJSON): Patch {
+function createRichTextPatch(
+  path: string[],
+  configDirectory: ConfigDirectory,
+  content?: RemirrorJSON,
+): Patch {
   const { blocks, files } = content
-    ? remirrorToRichTextSource(content)
+    ? remirrorToRichTextSource(content, configDirectory)
     : {
         blocks: [],
         files: {},
