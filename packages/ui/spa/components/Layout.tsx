@@ -21,11 +21,17 @@ export function Layout() {
   }, [didInitialise, currentSourcePath]);
   const authenticationState = useAuthenticationState();
   if (authenticationState === "login-required") {
-    return <LoginDialog />;
+    return (
+      <div className="min-h-screen bg-bg-primary">
+        <LoginDialog />
+      </div>
+    );
   }
   return (
     <main
-      className={classNames("font-sans bg-bg-primary text-text-primary")}
+      className={classNames(
+        "font-sans bg-bg-primary text-text-primary min-h-screen",
+      )}
       {...(theme ? { "data-mode": theme } : {})}
     >
       <div className="fixed top-0 left-0 ml-auto w-[320px] z-[5]">
