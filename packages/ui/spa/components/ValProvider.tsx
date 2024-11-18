@@ -224,7 +224,7 @@ export function ValProvider({
     [],
   );
   const config =
-    "data" in stat && stat.data ? (stat.data?.config as ValConfig) : undefined;
+    "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
   const configError = "error" in stat ? stat.error : undefined;
 
   const [theme, setTheme] = useState<Themes | null>(null);
@@ -259,7 +259,7 @@ export function ValProvider({
     } else if (config !== undefined && theme === null) {
       setTheme("dark");
     }
-  }, [theme, config?.defaultTheme]);
+  }, [theme, config]);
 
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
