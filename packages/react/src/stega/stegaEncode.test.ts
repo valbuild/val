@@ -1,5 +1,11 @@
 import { getModuleIds, stegaEncode } from "./stegaEncode";
-import { ImageMetadata, RawString, Schema, SelectorSource, initVal } from "@valbuild/core";
+import {
+  ImageMetadata,
+  RawString,
+  Schema,
+  SelectorSource,
+  initVal,
+} from "@valbuild/core";
 import { vercelStegaDecode, vercelStegaSplit } from "@vercel/stega";
 
 const { s, c } = initVal();

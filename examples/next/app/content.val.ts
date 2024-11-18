@@ -60,7 +60,7 @@ export default c.define("/app/content.val.ts", schema, {
       width: 944,
       height: 944,
       mimeType: "image/png",
-      alt: 'Val logo',
+      alt: "Val logo",
     }),
   },
   tags: ["CMS", "react", "github", "NextJS"],
