@@ -58,8 +58,9 @@ As a CMS, Val is useful because:
 - a **well-documented** way to **structure content**
 - **image**, **richtext**, ... support is built-in
 - built-in **visual editing** which lets editors click-then-edit content (and therefore **code**!) directly in your app
-
-  ![Visual editing](https://val.build/docs/images/overlay.png)
+  ![Visual editing](https://val.build/docs/images/visual-editing.png)
+- an embedded studio which lets editors navigate the content structure and make updates there
+  ![Studio](https://val.build/docs/images/studio.png)
 
 <details>
 <summary>Definition: editor</summary>
