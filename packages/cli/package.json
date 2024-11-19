@@ -1,7 +1,7 @@
 {
   "name": "@valbuild/cli",
   "private": false,
-  "version": "0.65.0",
+  "version": "0.67.2",
   "description": "Val CLI tools",
   "bin": {
     "val": "./bin.js"
@@ -18,9 +18,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@valbuild/core": "~0.65.0",
-    "@valbuild/server": "~0.65.0",
-    "@valbuild/eslint-plugin": "~0.65.0",
+    "@valbuild/core": "~0.67.1",
+    "@valbuild/server": "~0.67.1",
+    "@valbuild/eslint-plugin": "~0.67.2",
     "eslint": "^8.31.0",
     "@inquirer/confirm": "^2.0.15",
     "@inquirer/prompts": "^3.0.2",
@@ -32,6 +32,9 @@
     "open": "^9.1.0",
     "picocolors": "^1.0.0",
     "zod": "^3.22.4"
+  },
+  "peerDependencies": {
+    "prettier": "*"
   },
   "preconstruct": {
     "entrypoints": [

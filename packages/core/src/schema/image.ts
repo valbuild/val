@@ -24,11 +24,10 @@ export type ImageMetadata = {
   width: number;
   height: number;
   mimeType: string;
+  alt?: string;
   hotspot?: {
     x: number;
     y: number;
-    height: number;
-    width: number;
   };
 };
 export class ImageSchema<
@@ -74,6 +73,7 @@ export class ImageSchema<
           {
             message: `Image did not have the valid file extension type. Got: ${src[VAL_EXTENSION]}`,
             value: src,
+            fixes: ["image:change-extension", "image:check-metadata"],
           },
         ],
       } as ValidationErrors;
@@ -88,6 +88,7 @@ export class ImageSchema<
           {
             message: `Invalid mime type format. Got: '${mimeType}'`,
             value: src,
+            fixes: ["image:check-metadata"],
           },
         ],
       } as ValidationErrors;
@@ -113,6 +114,7 @@ export class ImageSchema<
             {
               message: `Mime type mismatch. Found '${mimeType}' but schema accepts '${accept}'`,
               value: src,
+              fixes: ["image:check-metadata"],
             },
           ],
         } as ValidationErrors;
@@ -126,6 +128,7 @@ export class ImageSchema<
           {
             message: `Could not determine mime type from file extension. Got: ${src[FILE_REF_PROP]}`,
             value: src,
+            fixes: ["image:check-metadata"],
           },
         ],
       } as ValidationErrors;
@@ -137,18 +140,35 @@ export class ImageSchema<
           {
             message: `Mime type and file extension not matching. Mime type is '${mimeType}' but file extension is '${fileMimeType}'`,
             value: src,
+            fixes: ["image:check-metadata"],
           },
         ],
       } as ValidationErrors;
     }
 
     if (src.metadata) {
+      if (src.metadata.hotspot) {
+        if (
+          typeof src.metadata.hotspot !== "object" ||
+          typeof src.metadata.hotspot.x !== "number" ||
+          typeof src.metadata.hotspot.y !== "number"
+        ) {
+          return {
+            [path]: [
+              {
+                message: `Hotspot must be an object with x and y as numbers.`,
+                value: src,
+              },
+            ],
+          } as ValidationErrors;
+        }
+      }
       return {
         [path]: [
           {
             message: `Found metadata, but it could not be validated. Image metadata must be an object with the required props: width (positive number), height (positive number) and the mime type.`, // These validation errors will have to be picked up by logic outside of this package and revalidated. Reasons: 1) we have to read files to verify the metadata, which is handled differently in different runtimes (Browser, QuickJS, Node.js); 2) we want to keep this package dependency free.
             value: src,
-            fixes: ["image:replace-metadata"],
+            fixes: ["image:check-metadata"],
           },
         ],
       } as ValidationErrors;

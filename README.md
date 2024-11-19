@@ -45,6 +45,7 @@ This version of Val is currently an alpha version - the API can be considered re
 ## Table of contents
 
 - [Introduction](#content-as-code)
+- [Examples](#examples)
 - [Documentation](#documentation)
 
 ## Content as code
@@ -57,8 +58,9 @@ As a CMS, Val is useful because:
 - a **well-documented** way to **structure content**
 - **image**, **richtext**, ... support is built-in
 - built-in **visual editing** which lets editors click-then-edit content (and therefore **code**!) directly in your app
-
-  ![Visual editing](https://val.build/docs/images/overlay.png)
+  ![Visual editing](https://val.build/docs/images/visual-editing.png)
+- an embedded studio which lets editors navigate the content structure and make updates there
+  ![Studio](https://val.build/docs/images/studio.png)
 
 <details>
 <summary>Definition: editor</summary>
@@ -79,7 +81,8 @@ But, with the benefits of **hard-coded** content:
 - **no** need for **code-gen** and extra build steps
 - **fast** since the content is literally hosted with the application
 - content is **always there** and can never fail (since it is not loaded from somewhere)
-- no need to manage different **environments** containing different versions of content
+- no need to manage different **environments** with different versions of content
+- works out of the box with Vercel **preview links**
 - **resolve conflicts** like you normally resolve conflicts **in git**
 
 Compared to other CMSs, Val has the following advantages:
@@ -115,7 +118,7 @@ More details on `.remote()` will follow later.
 
 ## When to NOT use Val
 
-Val is designed to work well on a single web-app, and currently only supports Next 13.4+ (more meta-frameworks will supported) and GitHub (more Git providers will follow).
+Val is designed to work well on a single web-app, and currently only supports Next 14+ (more meta-frameworks will supported) and GitHub (more Git providers will follow).
 
 Unless your application fits these requirements, you should have a look elsewhere (at least for now).
 
@@ -132,8 +135,10 @@ Val will support external content, i.e. content from other Val projects, CMSs or
 
 ## Examples
 
-Check out this README or the [examples](./examples) directory for examples.
+Examples can found [here](./examples).
 
 ## Documentation
 
-Check out the Next.js [README](./packages/next/README.md) for documentation.
+Val currently only support Next.js.
+
+To get started using Next.js, checkout the [README](./packages/next/README.md).

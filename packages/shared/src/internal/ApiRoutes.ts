@@ -40,11 +40,12 @@ const ValConfig = z.object({
 });
 
 const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
+  z.literal("image:change-extension"),
   z.literal("image:add-metadata"),
-  z.literal("image:replace-metadata"),
+  z.literal("image:check-metadata"),
+  z.literal("file:change-extension"),
   z.literal("file:add-metadata"),
   z.literal("file:check-metadata"),
-  z.literal("fix:deprecated-richtext"),
 ]);
 const ValidationError = z.object({
   message: z.string(),

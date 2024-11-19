@@ -786,7 +786,7 @@ export abstract class ValOps {
                 actual: currentValueMetadata[field],
                 expected: fieldMetadata,
               },
-              fixes: ["image:replace-metadata"],
+              fixes: ["image:check-metadata"],
             },
           ];
         }
@@ -1350,7 +1350,7 @@ export abstract class ValOps {
 function isOnlyFileCheckValidationError(validationError: ValidationError) {
   if (
     validationError.fixes?.every(
-      (f) => f === "file:check-metadata" || f === "image:replace-metadata",
+      (f) => f === "file:check-metadata" || f === "image:check-metadata",
     )
   ) {
     return true;

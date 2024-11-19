@@ -9,13 +9,11 @@ export type {
 export { Schema, type SerializedSchema, type SelectorOfSchema } from "./schema";
 export type { ImageMetadata } from "./schema/image";
 export type { FileMetadata } from "./schema/file";
-export type { LinkSource } from "./source/link";
 export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
 export type { RawString } from "./schema/string";
 export type { ImageSource } from "./source/image";
-export { RT_IMAGE_TAG } from "./source/richtext";
 export type {
   AllRichTextOptions,
   Bold,

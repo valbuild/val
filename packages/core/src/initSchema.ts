@@ -24,6 +24,24 @@ export type InitSchema = {
   readonly union: typeof union;
   // readonly oneOf: typeof oneOf;
   readonly richtext: typeof richtext;
+  /**
+   * Define a image source.
+   *
+   * Use c.image to create an image source.
+   *
+   * @example
+   * const schema = s.image();
+   * export default c.define("/example.val.ts", schema, c.image("/public/val/example.png", {
+   *  width: 100,
+   *  height: 100,
+   *  mimeType: "image/png",
+   *  hotspot: {
+   *    x: 0.5,
+   *    y: 0.5
+   *  }
+   * }));
+   *
+   */
   readonly image: typeof image;
   readonly literal: typeof literal;
   readonly keyOf: typeof keyOf;

@@ -100,7 +100,8 @@ function rec(
   } else if (schema.type === "union") {
     if (typeof schema.key === "string") {
       const schemaKey = schema.key;
-      const subSchema = schema.items.find((item) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const subSchema = (schema.items as any[]).find((item) => {
         if (item.type !== "object") {
           throw new Error(
             `Union schema must have sub object of object but has: (${item.type}) for ${path}`,

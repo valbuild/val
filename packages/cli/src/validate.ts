@@ -1,6 +1,13 @@
 import path from "path";
 import { createFixPatch, createService } from "@valbuild/server";
-import { ModuleFilePath, ModulePath, SourcePath } from "@valbuild/core";
+import {
+  FILE_REF_PROP,
+  Internal,
+  ModuleFilePath,
+  ModulePath,
+  SourcePath,
+  ValidationFix,
+} from "@valbuild/core";
 import { glob } from "fast-glob";
 import picocolors from "picocolors";
 import { ESLint } from "eslint";
@@ -21,6 +28,12 @@ export async function validate({
     ignore: false,
   });
   const service = await createService(projectRoot, {});
+  let prettier;
+  try {
+    prettier = (await import("prettier")).default;
+  } catch {
+    console.log("Prettier not found, skipping formatting");
+  }
 
   const valFiles: string[] = await glob("**/*.val.{js,ts}", {
     ignore: ["node_modules/**"],
@@ -66,6 +79,7 @@ export async function validate({
   }
   console.log("Validating...", valFiles.length, "files");
 
+  let didFix = false; // TODO: ugly
   async function validateFile(file: string): Promise<number> {
     const moduleFilePath = `/${file}` as ModuleFilePath; // TODO: check if this always works? (Windows?)
     const start = Date.now();
@@ -103,6 +117,42 @@ export async function validate({
           )) {
             for (const v of validationErrors) {
               if (v.fixes && v.fixes.length > 0) {
+                if (
+                  v.fixes.includes(
+                    "image:replace-metadata" as ValidationFix, // TODO: we can remove this now - we needed before because we changed the name of the fix from replace-metadata to check-metadata
+                  ) ||
+                  v.fixes.includes("image:check-metadata") ||
+                  v.fixes.includes("image:add-metadata") ||
+                  v.fixes.includes("file:check-metadata") ||
+                  v.fixes.includes("file:add-metadata")
+                ) {
+                  const [, modulePath] =
+                    Internal.splitModuleFilePathAndModulePath(
+                      sourcePath as SourcePath,
+                    );
+                  if (valModule.source && valModule.schema) {
+                    const fileSource = Internal.resolvePath(
+                      modulePath,
+                      valModule.source,
+                      valModule.schema,
+                    );
+                    const filePath = path.join(
+                      projectRoot,
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      (fileSource.source as any)?.[FILE_REF_PROP],
+                    );
+                    try {
+                      await fs.access(filePath);
+                    } catch {
+                      console.log(
+                        picocolors.red("✘"),
+                        `File ${filePath} does not exist`,
+                      );
+                      errors += 1;
+                      continue;
+                    }
+                  }
+                }
                 const fixPatch = await createFixPatch(
                   { projectRoot },
                   !!fix,
@@ -111,6 +161,7 @@ export async function validate({
                 );
                 if (fix && fixPatch?.patch && fixPatch?.patch.length > 0) {
                   await service.patch(moduleFilePath, fixPatch.patch);
+                  didFix = true;
                   console.log(
                     picocolors.yellow("⚠"),
                     "Applied fix for",
@@ -157,8 +208,18 @@ export async function validate({
       return errors;
     }
   }
+
   for (const file of valFiles) {
+    didFix = false;
     errors += await validateFile(file);
+    if (prettier && didFix) {
+      const filePath = path.join(projectRoot, file);
+      const fileContent = await fs.readFile(filePath, "utf-8");
+      const formattedContent = await prettier?.format(fileContent, {
+        filepath: filePath,
+      });
+      await fs.writeFile(filePath, formattedContent);
+    }
   }
   if (errors > 0) {
     console.log(
@@ -192,12 +253,15 @@ function logEslintMessage(
     `${filePath}:${eslintMessage.line}:${eslintMessage.column}\n`,
     eslintMessage.message,
   );
-  lineBefore &&
+  if (lineBefore) {
     console.log(
       picocolors.gray("  " + (eslintMessage.line - 1) + " |"),
       lineBefore,
     );
-  line && console.log(picocolors.gray("  " + eslintMessage.line + " |"), line);
+  }
+  if (line) {
+    console.log(picocolors.gray("  " + eslintMessage.line + " |"), line);
+  }
   // adds ^ below the relevant line:
   const amountOfColumns =
     eslintMessage.endColumn &&
@@ -205,7 +269,7 @@ function logEslintMessage(
       ? eslintMessage.endColumn - eslintMessage.column
       : 1;
 
-  line &&
+  if (line) {
     console.log(
       picocolors.gray(
         "  " + " ".repeat(eslintMessage.line.toString().length) + " |",
@@ -217,9 +281,11 @@ function logEslintMessage(
             )
           : ""),
     );
-  lineAfter &&
+  }
+  if (lineAfter) {
     console.log(
       picocolors.gray("  " + (eslintMessage.line + 1) + " |"),
       lineAfter,
     );
+  }
 }

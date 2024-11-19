@@ -908,7 +908,7 @@ class FSOpsHost {
   // TODO: do we want async operations here?
   deleteDir(dir: string) {
     if (this.directoryExists(dir)) {
-      fs.rmdirSync(dir, {
+      fs.rmSync(dir, {
         recursive: true,
       });
     }

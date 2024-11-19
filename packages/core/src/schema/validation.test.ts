@@ -282,7 +282,7 @@ const ValidationTestCases: {
     schema: image(),
     expected: [testPath],
     fixes: {
-      [testPath]: ["image:replace-metadata"],
+      [testPath]: ["image:check-metadata"],
     },
   },
   {
@@ -294,7 +294,7 @@ const ValidationTestCases: {
     schema: image(),
     expected: [testPath],
     fixes: {
-      [testPath]: ["image:replace-metadata"],
+      [testPath]: ["image:check-metadata"],
     },
   },
   // richtext

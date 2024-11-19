@@ -485,7 +485,9 @@ async function plan(
 
   plan.createConfigFile = {
     path: valConfigPath,
-    source: VAL_CONFIG(!!analysis.isTypeScript, {}),
+    source: VAL_CONFIG(!!analysis.isTypeScript, {
+      defaultTheme: "light",
+    }),
   };
 
   {
