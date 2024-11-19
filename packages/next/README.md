@@ -89,7 +89,7 @@ Val content files are _evaluated_ by Val, therefore they have a specific set of 
 
 If you use the eslint plugins these requirements will be enforced. You can also validate val files using the @valbuild/cli: `npx -p @valbuild/cli val validate --fix
 
-### Val content files
+### Val content file example
 
 ```ts
 // ./examples/val/example.val.ts
