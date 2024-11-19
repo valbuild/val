@@ -87,25 +87,9 @@ Val content files are _evaluated_ by Val, therefore they have a specific set of 
 - they must have a default export that is `c.define; and
 - they can only import Val related files and / or types
 
-If you use the eslint plugins these requirements will be enforced. You can also validate val files using the @valbuild/cli: `npx -p @valbuild/cli val validate --fix`
+If you use the eslint plugins these requirements will be enforced. You can also validate val files using the @valbuild/cli: `npx -p @valbuild/cli val validate --fix
 
-### Adding Val content file to val.modules
-
-Once you have created your Val content file, it must be declared in the `val.modules.ts` (or `.js`) file.
-
-Example:
-
-```ts
-import { modules } from "@valbuild/next";
-import { config } from "./val.config";
-
-export default modules(config, [
-  // Add your modules here
-  { def: () => import("./examples/val/example.val") },
-]);
-```
-
-### Example of a `.val.ts` file
+### Val content files
 
 ```ts
 // ./examples/val/example.val.ts
@@ -129,6 +113,21 @@ export const schema = s.object({
 export default c.define("/examples/val/example.val.ts", schema, {
   text: "Basic text content",
 });
+```
+### Adding Val content file to val.modules
+
+Once you have created your Val content file, it must be declared in the `val.modules.ts` (or `.js`) file.
+
+Example:
+
+```ts
+import { modules } from "@valbuild/next";
+import { config } from "./val.config";
+
+export default modules(config, [
+  // Add your modules here
+  { def: () => import("./examples/val/example.val") },
+]);
 ```
 
 ### Using Val in Client Components
