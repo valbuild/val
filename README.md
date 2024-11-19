@@ -87,7 +87,7 @@ But, with the benefits of **hard-coded** content:
 
 Compared to other CMSs, Val has the following advantages:
 
-- **easy** to setup and to _grok_: Val is designed to have a minimum of boilerplate and there's **0** query languages to learn. If you know your way around JSON that's enough (and if you don't you know JSON, you might want to learn that first)
+- **easy** to setup and to _grok_: Val is designed to have a minimum of boilerplate and there's **0** query languages to learn.
 - **no signup** required to use it locally
 - **no fees** for content that is in your code: your content is your code, and your code is... yours
 - **minimal** API surface: Val is designed to not "infect" your code base
