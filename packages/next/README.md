@@ -73,8 +73,6 @@ npm install @valbuild/core@latest @valbuild/next@latest @valbuild/eslint-plugin@
 npx @valbuild/init@latest
 ```
 
-**NOTE** if your Next.js project is using
-
 ## Getting started
 
 ### Create your first Val content file
