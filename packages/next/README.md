@@ -50,7 +50,7 @@ This version of Val is currently an alpha version - the API can be considered re
   - [String](#string)
   - [Number](#number)
   - [Boolean](#boolean)
-  - [Optional](#optional)
+  - [Nullable](#nullable)
   - [Array](#array)
   - [Record](#record)
   - [Object](#object)
@@ -60,7 +60,7 @@ This version of Val is currently an alpha version - the API can be considered re
 
 ## Installation
 
-- Make sure you have TypeScript 5+, Next 14+ (other meta frameworks will come), React 18.20.+ (other frontend frameworks will come)
+- Make sure you have TypeScript 5+, Next 14+, React 18.20.+
 - Install the packages (@valbuild/eslint-plugin is recommended but not required):
 
 ```sh
@@ -73,32 +73,128 @@ npm install @valbuild/core@latest @valbuild/next@latest @valbuild/eslint-plugin@
 npx @valbuild/init@latest
 ```
 
-### Online mode
+**NOTE** if your Next.js project is using
 
-To make it possible to do online edits directly in your app, head over to [val.build](https://app.val.build), sign up and import your repository.
+## Getting started
 
-**NOTE**: your content is yours. No subscription (or similar) is required to host content from your repository.
+### Create your first Val content file
 
-If you do not need to edit content online (i.e. not locally), you do not need to sign up.
+Content in Val is always defined in `.val.ts` (or `.js`) files.
 
-**WHY**: to update your code, we need to create a commit. This requires a server. We opted to create a service that does this easily, instead of having a self-hosted alternative, since time spent is money used. Also, the company behind [val.build](https://val.build) is the company that funds the development of this software.
+**NOTE**: the init script will generate an example Val content file (unless you opt out of it).
 
-#### Online mode configuration
+Val content files are _evaluated_ by Val, therefore they have a specific set of requirements:
 
-Once you have setup your project in [val.build](https://app.val.build), you must configure your application to use this project.
+- they must export a default content definition (`c.define`) where the first argument equals the path of the file relative to the `val.config.ts` file; and
+- they must have a default export that is `c.define; and
+- they can only import Val related files and / or types
 
-To do this, you must set the following environment variables:
+If you use the eslint plugins these requirements will be enforced. You can also validate val files using the @valbuild/cli: `npx -p @valbuild/cli val validate --fix`
 
-- `VAL_API_KEY`: you get this in your project configuration page.
-- `VAL_SECRET`: this is a random secret you can generate. It is used for communication between the UX client and your Next.js application.
+### Adding Val content file to val.modules
 
-In addition, you need to set the following properties in the `val.config` file:
+Once you have created your Val content file, it must be declared in the `val.modules.ts` (or `.js`) file.
 
-- project: This is the fully qualified name of your project. It should look like this: `<team>/<name>`.
-- gitBranch: This is the git branch your application is using. In Vercel you can use: `VERCEL_GIT_COMMIT_REF`.
-- gitCommit: This is the current git commit your application is running on. In Vercel you can use: `VERCEL_GIT_COMMIT_SHA`
+Example:
 
-Example of `val.config.ts`:
+```ts
+import { modules } from "@valbuild/next";
+import { config } from "./val.config";
+
+export default modules(config, [
+  // Add your modules here
+  { def: () => import("./examples/val/example.val") },
+]);
+
+```
+
+### Example of a `.val.ts` file
+
+```ts
+// ./examples/val/example.val.ts
+import {
+  s /* s = schema */,
+  c /* c = content */,
+} from "../../val.config";
+
+/**
+ * This is the schema for the content. It defines the structure of the content and the types of each field.
+ */
+export const schema = s.object({
+  /**
+   * Basic text field
+   */
+  text: s.string(),
+});
+
+/**
+ * This is the content definition. Add your content below.
+ *
+ * NOTE: the first argument is the path of the file.
+ */
+export default c.define("/examples/val/example.val.ts", schema, {
+  text: "Basic text content",
+});
+```
+
+### Using Val in Client Components
+
+In client components you can access your content with the `useVal` hook:
+
+```tsx
+// ./app/page.tsx
+"use client";
+import { useVal } from "../val/val.client";
+import exampleVal from "../examples/val/example.val";
+
+export default function Home() {
+  const { text } = useVal(exampleVal);
+  return <main>{text}</main>;
+}
+```
+
+### Using Val in React Server Components
+
+In React Server components you can access your content with the `fetchVal` function:
+
+```tsx
+// ./app/page.tsx
+"use server";
+import { fetchVal } from "../val/val.rsc";
+import exampleVal from "../examples/val/example.val";
+
+export default async function Home() {
+  const { text } = await fetchVal(exampleVal);
+  return <main>{text}</main>;
+}
+```
+
+# Remote Mode
+
+Enable remote mode to allow editors to update content online (outside of local development) by creating a project at [app.val.build](https://app.val.build).
+
+**NOTE**: Your content remains yours. Hosting content from your repository does not require a subscription. However, to edit content online, a subscription is needed — unless your project is a public repository or qualifies for the free tier. Visit the [pricing page](https://val.build/pricing) for details.
+
+**WHY**: Updating code involves creating a commit, which requires a server. We offer a hosted service for simplicity and efficiency, as self-hosted solutions takes time to setup and maintain. Additionally, the [val.build](https://val.build) team funds the ongoing development of this library.
+
+## Remote Mode Configuration
+
+Once your project is set up in [app.val.build](https://app.val.build), configure your application to use it by setting the following:
+
+### Environment Variables
+
+- **`VAL_API_KEY`**: Obtain this from your project's configuration page.
+- **`VAL_SECRET`**: Generate a random secret to secure communication between the UX client and your Next.js application.
+
+### `val.config` Properties
+
+Set these properties in the `val.config` file:
+
+- **`project`**: The fully qualified name of your project, formatted as `<team>/<name>`.
+- **`gitBranch`**: The Git branch your application uses. For Vercel, use `VERCEL_GIT_COMMIT_REF`.
+- **`gitCommit`**: The current Git commit your application is running on. For Vercel, use `VERCEL_GIT_COMMIT_SHA`.
+
+### Example `val.config.ts`
 
 ```ts
 import { initVal } from "@valbuild/next";
@@ -111,108 +207,6 @@ const { s, c, val, config } = initVal({
 
 export type { t } from "@valbuild/next";
 export { s, c, val, config };
-```
-
-## Getting started
-
-### Create your first Val content file
-
-Content in Val is always defined in `.val.ts` files.
-
-**NOTE**: Val also works with `.js` files.
-
-They must export a default content definition (`c.define`) where the first argument equals the path of the file relative to the `val.config.ts` file.
-
-**NOTE**: `val.ts` files are _evaluated_ by Val, therefore they have a specific set of requirements:
-
-- They must have a default export that is `c.define`, they must have a `export const schema` with the Schema; and
-- they CANNOT import anything other than `val.config` and `@valbuild/core`
-
-### Example of a `.val.ts` file
-
-```ts
-// ./src/app/content.val.ts
-
-import { s, c } from "../../../val.config";
-
-export const schema = s.object({
-  title: s.string().optional(), //  <- NOTE: optional()
-  sections: s.array(
-    s.object({
-      title: s.string(),
-      text: s.richtext({
-        style: {
-          bold: true, // <- Enables bold in richtext
-        },
-      }),
-    }),
-  ),
-});
-
-export default c.define(
-  "/src/app/content", // <- NOTE: this must be the same path as the file
-  schema,
-  {
-    title: "My Page",
-    sections: [
-      {
-        title: "Section 1",
-        text: [
-          {
-            tag: "p",
-            children: [
-              "Val is",
-              { tag: "span", styles: ["bold"], children: ["awesome"] },
-            ],
-          },
-        ],
-      },
-    ],
-  },
-);
-```
-
-### Use your content
-
-In client components you can access your content with the `useVal` hook:
-
-**NOTE**: Support for React Server Components and server side rendering will come soon.
-
-```tsx
-// ./src/app/page.tsx
-"use client";
-import { NextPage } from "next";
-import { useVal } from "./val/val.client";
-import contentVal from "./content.val";
-
-const Page: NextPage = () => {
-  const { title, sections } = useVal(contentVal);
-  return (
-    <main>
-      {title && (
-        <section>
-          <h1>{title}</h1>
-        </section>
-      )}
-      {sections.map((section) => (
-        <section>
-          <h2>{section.title}</h2>
-          <ValRichText
-            theme={{
-              style: {
-                bold: "font-bold",
-              },
-            }}
-          >
-            {section.text}
-          </ValRichText>
-        </section>
-      ))}
-    </main>
-  );
-};
-
-export default Page;
 ```
 
 # Schema types
@@ -241,9 +235,9 @@ import { s } from "./val.config";
 s.boolean(); // <- Schema<boolean>
 ```
 
-## Nullable (Optional)
+## Nullable
 
-All schema types can be optional. An optional schema creates a union of the type and `null`.
+All schema types can be nullable (optional).  A nullable schema creates a union of the type and `null`.
 
 ```ts
 import { s } from "./val.config";
@@ -384,7 +378,7 @@ To add classes to `ValRichText` you can use the theme property:
 </ValRichText>
 ```
 
-**NOTE**: if a theme is defined, you must define a mapping for every tag that the you get. What tags you have is decided based on the `options` defined on the `s.richtext()` schema. For example: `s.richtext({ headings: ["h1"]; bold: true; img: true})` forces you to map the class for at least: `h1`, `bold` and `img`:
+**NOTE**: if a theme is defined, you must define a mapping for every tag that the you get. What tags you have is decided based on the `options` defined on the `s.richtext()` schema. For example: `s.richtext({ style: { bold: true } })` requires that you add a `bold` theme.
 
 ```tsx
 <ValRichText
@@ -394,7 +388,7 @@ To add classes to `ValRichText` you can use the theme property:
     img: null, // either a string or null is required
   }}
 >
-  {content satisfies RichText<{ headings: ["h1"]; bold: true; img: true }>}
+  {content}
 </ValRichText>
 ```
 
@@ -404,7 +398,7 @@ To add classes to `ValRichText` you can use the theme property:
 
 Vals `RichText` type maps RichText 1-to-1 with semantic HTML5.
 
-If you want to customize the type of elements which are rendered, you can use the `transform` property.
+If you want to customize / override the type of elements which are rendered, you can use the `transform` property.
 
 ```tsx
 <ValRichText
@@ -585,7 +579,22 @@ s.union(
 
 ## KeyOf
 
-If you need to reference content in another `.val` file you can use the `keyOf` schema.
+You can use `keyOf` to reference a key in a record of a Val module.
+
+**NOTE**: currently you must reference keys in Val modules, you cannot reference keys of values nested inside a Val module. This is a feature on the roadmap.
+
+```ts
+const schema = s.record(s.object({ nested: s.record(s.string()) }));
+
+export default c.define("/keyof.val.ts", schema, {
+  "you-can-reference-me": { // <- this can be referenced
+    nested: {
+      "but-not-me": ":("  // <- this cannot be referenced
+    }
+  }
+})
+
+```
 
 ### KeyOf Schema
 
