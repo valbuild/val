@@ -1,9 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { AssertError, Schema, SchemaAssertResult, SerializedSchema } from ".";
-import {
-  createValPathOfItem,
-  unsafeCreateSourcePath,
-} from "../selector/SelectorProxy";
+import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
 import { RichTextSource, RichTextOptions } from "../source/richtext";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
@@ -26,18 +23,6 @@ export class RichTextSchema<
   }
 
   validate(path: SourcePath, src: Src): ValidationErrors {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if ((src as any)?.markdownish) {
-      return {
-        [path]: [
-          {
-            message: "Replace markdown with structured format",
-            value: src,
-            fixes: ["fix:deprecated-richtext"],
-          },
-        ],
-      };
-    }
     const assertRes = this.assert(path, src);
     if (!assertRes.success) {
       return {
