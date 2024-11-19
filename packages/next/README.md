@@ -105,17 +105,13 @@ export default modules(config, [
   // Add your modules here
   { def: () => import("./examples/val/example.val") },
 ]);
-
 ```
 
 ### Example of a `.val.ts` file
 
 ```ts
 // ./examples/val/example.val.ts
-import {
-  s /* s = schema */,
-  c /* c = content */,
-} from "../../val.config";
+import { s /* s = schema */, c /* c = content */ } from "../../val.config";
 
 /**
  * This is the schema for the content. It defines the structure of the content and the types of each field.
@@ -237,7 +233,7 @@ s.boolean(); // <- Schema<boolean>
 
 ## Nullable
 
-All schema types can be nullable (optional).  A nullable schema creates a union of the type and `null`.
+All schema types can be nullable (optional). A nullable schema creates a union of the type and `null`.
 
 ```ts
 import { s } from "./val.config";
@@ -587,13 +583,13 @@ You can use `keyOf` to reference a key in a record of a Val module.
 const schema = s.record(s.object({ nested: s.record(s.string()) }));
 
 export default c.define("/keyof.val.ts", schema, {
-  "you-can-reference-me": { // <- this can be referenced
+  "you-can-reference-me": {
+    // <- this can be referenced
     nested: {
-      "but-not-me": ":("  // <- this cannot be referenced
-    }
-  }
-})
-
+      "but-not-me": ":(", // <- this cannot be referenced
+    },
+  },
+});
 ```
 
 ### KeyOf Schema
