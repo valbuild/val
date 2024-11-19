@@ -4,7 +4,7 @@ import {
   SourcePath,
   ValidationError,
 } from "@valbuild/core";
-import { JSONValue, Patch, sourceToPatchPath } from "@valbuild/core/patch";
+import { Patch, sourceToPatchPath } from "@valbuild/core/patch";
 import fs from "fs";
 import { extractFileMetadata, extractImageMetadata } from "./extractMetadata";
 import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
@@ -40,7 +40,7 @@ export async function createFixPatch(
   const remainingErrors: ValidationError[] = [];
   const patch: Patch = [];
   for (const fix of validationError.fixes || []) {
-    if (fix === "image:replace-metadata" || fix === "image:add-metadata") {
+    if (fix === "image:check-metadata" || fix === "image:add-metadata") {
       const imageMetadata = await getImageMetadata();
       if (
         imageMetadata.width === undefined ||
@@ -51,7 +51,7 @@ export async function createFixPatch(
           message: "Failed to get image metadata",
           fixes: undefined,
         });
-      } else if (fix === "image:replace-metadata") {
+      } else if (fix === "image:check-metadata") {
         const currentValue = validationError.value;
         const metadataIsCorrect =
           // metadata is a prop that is an object
@@ -69,7 +69,6 @@ export async function createFixPatch(
           // mimeType is correct
           "mimeType" in currentValue.metadata &&
           currentValue.metadata.mimeType === imageMetadata.mimeType;
-
         // skips if the metadata is already correct
         if (!metadataIsCorrect) {
           if (apply) {
@@ -77,6 +76,8 @@ export async function createFixPatch(
               op: "replace",
               path: sourceToPatchPath(sourcePath).concat("metadata"),
               value: {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ...(currentValue as any).metadata,
                 width: imageMetadata.width,
                 height: imageMetadata.height,
                 mimeType: imageMetadata.mimeType,
@@ -183,6 +184,8 @@ export async function createFixPatch(
               op: "replace",
               path: sourceToPatchPath(sourcePath).concat("metadata"),
               value: {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ...(currentValue as any).metadata,
                 ...(fileMetadata.mimeType
                   ? { mimeType: fileMetadata.mimeType }
                   : {}),
@@ -231,21 +234,6 @@ export async function createFixPatch(
           },
         });
       }
-    } else if (fix === "fix:deprecated-richtext") {
-      if (!validationError.value) {
-        throw Error("Cannot fix richtext without a value");
-      }
-      patch.push({
-        op: "replace",
-        path: sourceToPatchPath(sourcePath),
-        value: validationError.value as JSONValue,
-      });
-    } else {
-      remainingErrors.push({
-        ...validationError,
-        message: `Unknown fix: ${fix}`,
-        fixes: undefined,
-      });
     }
   }
   if (!validationError.fixes || validationError.fixes.length === 0) {
