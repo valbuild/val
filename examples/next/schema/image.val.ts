@@ -1,8 +1,5 @@
 import { s } from "../val.config";
 
-const image = s.object({
-  data: s.image(),
-  alt: s.string(),
-});
+const image = s.image();
 
 export default image;

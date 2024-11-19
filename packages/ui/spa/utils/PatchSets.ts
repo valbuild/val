@@ -285,7 +285,10 @@ export class PatchSets {
               op.path,
             );
           }
-        } else if (schemaTypesAtPath.size === 1) {
+        } else if (
+          schemaTypesAtPath.size === 1 &&
+          !(schemaTypesAtPath.has("image") || schemaTypesAtPath.has("file"))
+        ) {
           throw new Error(
             `Cannot perform op: '${op.op}' on non-array or non-record schema. Type: ${
               schemaTypesAtPath.values().next().value

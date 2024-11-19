@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/core",
-  "version": "0.65.0",
+  "version": "0.67.1",
   "private": false,
   "description": "Val - supercharged hard-coded content",
   "scripts": {
@@ -41,7 +41,6 @@
   },
   "devDependencies": {},
   "dependencies": {
-    "marked": "^9.0.3",
     "ts-toolbelt": "^9.6.0"
   },
   "files": [

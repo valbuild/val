@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/ui",
-  "version": "0.65.0",
+  "version": "0.67.1",
   "sideEffects": false,
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -95,8 +95,8 @@
     "zod": "^3.22.4"
   },
   "peerDependencies": {
-    "react": ">=18.2.0",
-    "react-dom": ">=18.2.0"
+    "react": ">=18.2.0 || ^19.0 || ^19.0.0-rc",
+    "react-dom": ">=18.2.0 || ^19.0 || ^19.0.0-rc"
   },
   "peerDependenciesMeta": {
     "@types/express": {

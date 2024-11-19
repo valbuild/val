@@ -7,6 +7,7 @@ import { decodeValPathOfString } from "./decodeValPathOfString";
 export type ValImageProps = Omit<
   React.ComponentProps<typeof NextImage>,
   | "src"
+  | "alt"
   | "srcset"
   | "layout"
   | "objectFit"
@@ -14,6 +15,7 @@ export type ValImageProps = Omit<
   | "lazyBoundary"
   | "lazyRoot"
 > & {
+  alt?: string;
   src: Image;
   disableHotspot?: boolean;
 };
@@ -33,7 +35,7 @@ export function ValImage(props: ValImageProps) {
           objectPosition: `${hotspot.x * 100}% ${hotspot.y * 100}%`,
         }
       : style;
-  const useMetadataDimensions =
+  const preferMetadataDims =
     src.metadata !== undefined && !rest.fill && !width && !height;
   const isUnoptimized =
     rest.unoptimized !== undefined
@@ -54,10 +56,16 @@ export function ValImage(props: ValImageProps) {
       data-val-attr-alt={maybeValPathOfAlt}
       data-val-attr-src={valPathOfUrl}
       style={imageStyle}
-      alt={raw(alt as ValEncodedString)}
+      alt={
+        alt
+          ? raw(alt as ValEncodedString)
+          : src.metadata?.alt
+            ? raw(src.metadata?.alt as ValEncodedString)
+            : ""
+      }
       fill={rest.fill}
-      width={useMetadataDimensions ? src.metadata?.width : width}
-      height={useMetadataDimensions ? src.metadata?.height : height}
+      width={preferMetadataDims ? src.metadata?.width : width}
+      height={preferMetadataDims ? src.metadata?.height : height}
       unoptimized={isUnoptimized}
     ></NextImage>
   );

@@ -1,9 +1,10 @@
 export const ValidationFix = [
+  "image:change-extension",
   "image:add-metadata",
-  "image:replace-metadata", // TODO: rename to image:check-metadata
+  "image:check-metadata",
+  "file:change-extension",
   "file:add-metadata",
   "file:check-metadata",
-  "fix:deprecated-richtext", // This is a fix for the c.richtext markdown-ish source that we had before. Once the c.richtext is removed, this fix can be removed.
 ] as const;
 
 export type ValidationFix = (typeof ValidationFix)[number];

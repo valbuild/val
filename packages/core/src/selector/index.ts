@@ -11,31 +11,31 @@ import { Schema } from "../schema";
 import type { A } from "ts-toolbelt";
 import { FileSource } from "../source/file";
 import { AllRichTextOptions, RichTextSource } from "../source/richtext";
-import { ImageMetadata } from "../schema/image";
 import { ImageSelector } from "./image";
 import { RichTextSelector } from "./richtext";
+import { ImageSource } from "../source/image";
 
 export type Selector<T extends Source> = Source extends T
   ? GenericSelector<T>
-  : T extends FileSource<infer M>
-    ? M extends ImageMetadata
-      ? ImageSelector
-      : FileSelector<M>
-    : T extends RichTextSource<infer O>
-      ? RichTextSelector<O>
-      : T extends SourceObject
-        ? ObjectSelector<T>
-        : T extends SourceArray
-          ? ArraySelector<T>
-          : T extends string
-            ? StringSelector<T>
-            : T extends number
-              ? NumberSelector<T>
-              : T extends boolean
-                ? BooleanSelector<T>
-                : T extends null
-                  ? PrimitiveSelector<null>
-                  : never;
+  : T extends ImageSource
+    ? ImageSelector
+    : T extends FileSource<infer M>
+      ? FileSelector<M>
+      : T extends RichTextSource<infer O>
+        ? RichTextSelector<O>
+        : T extends SourceObject
+          ? ObjectSelector<T>
+          : T extends SourceArray
+            ? ArraySelector<T>
+            : T extends string
+              ? StringSelector<T>
+              : T extends number
+                ? NumberSelector<T>
+                : T extends boolean
+                  ? BooleanSelector<T>
+                  : T extends null
+                    ? PrimitiveSelector<null>
+                    : never;
 
 export type SelectorSource =
   | SourcePrimitive

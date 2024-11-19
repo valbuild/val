@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/eslint-plugin",
-  "version": "0.65.0",
+  "version": "0.67.2",
   "description": "ESLint rules for val",
   "keywords": [
     "eslint",
@@ -23,7 +23,8 @@
   },
   "license": "MIT",
   "peerDependencies": {
-    "eslint": "6 || 7 || 8"
+    "eslint": "6 || 7 || 8",
+    "typescript": "5"
   },
   "devDependencies": {
     "@types/jest": "^29.5.11",

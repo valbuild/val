@@ -1,9 +1,4 @@
-import { VAL_EXTENSION } from ".";
-import { LinkSource } from "./link";
 import { ImageSource } from "./image";
-import { ImageMetadata } from "../schema/image";
-import { FILE_REF_PROP, FILE_REF_SUBTYPE_TAG, FileSource } from "./file";
-import { parseRichTextSource } from "./parseRichTextSource";
 
 export type RichTextOptions = Partial<{
   style: Partial<{
@@ -223,33 +218,3 @@ export type BlockNode<O extends RichTextOptions> =
  * RichText as defined in a ValModule
  **/
 export type RichTextSource<O extends RichTextOptions> = BlockNode<O>[];
-
-export function richtext<O extends RichTextOptions>(
-  templateStrings: TemplateStringsArray,
-  ...nodes: (ImageSource | LinkSource)[]
-): // eslint-disable-next-line @typescript-eslint/ban-types
-RichTextSource<{}> {
-  return parseRichTextSource({
-    templateStrings: templateStrings as unknown as string[],
-    exprs: nodes as (
-      | (NonNullable<O["inline"]>["img"] extends true ? ImageSource : never)
-      | (NonNullable<O["inline"]>["a"] extends true ? LinkSource : never)
-    )[],
-    // eslint-disable-next-line @typescript-eslint/ban-types
-  }) as RichTextSource<{}>;
-}
-
-export const RT_IMAGE_TAG = "rt_image";
-
-export type RTImageMetadata = ImageMetadata;
-export function image(
-  ref: `/public/${string}`,
-  metadata?: RTImageMetadata,
-): FileSource<RTImageMetadata> {
-  return {
-    [FILE_REF_PROP]: ref,
-    [FILE_REF_SUBTYPE_TAG]: RT_IMAGE_TAG,
-    [VAL_EXTENSION]: "file",
-    metadata,
-  } as FileSource<RTImageMetadata>;
-}

@@ -4,8 +4,7 @@ import { define } from "./module";
 import { InitSchema, initSchema } from "./initSchema";
 import { getValPath as getPath } from "./val";
 import { initFile } from "./source/file";
-import { richtext, image as rtImage } from "./source/richtext";
-import { link } from "./source/link";
+import { initImage } from "./source/image";
 // import { i18n, I18n } from "./source/future/i18n";
 // import { remote } from "./source/future/remote";
 
@@ -13,11 +12,7 @@ export type ContentConstructor = {
   define: typeof define;
   // remote: typeof remote;
   file: ReturnType<typeof initFile>;
-  rt: {
-    image: ReturnType<typeof initFile>;
-    link: typeof link;
-  };
-  richtext: typeof richtext;
+  image: ReturnType<typeof initImage>;
 };
 export type ValConstructor = {
   unstable_getPath: typeof getPath;
@@ -87,11 +82,7 @@ InitVal => {
       define,
       // remote,
       file: initFile(config),
-      richtext,
-      rt: {
-        image: rtImage,
-        link,
-      },
+      image: initImage(config),
     },
     s,
     config,

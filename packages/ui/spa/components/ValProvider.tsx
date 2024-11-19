@@ -24,14 +24,14 @@ import { ValClient } from "@valbuild/shared/internal";
 import { Remote } from "../utils/Remote";
 import { isJsonArray } from "../utils/isJsonArray";
 import { DayPickerProvider } from "react-day-picker";
-import { useValState } from "../hooks/useValState";
+import { AuthenticationState, useValState } from "../hooks/useValState";
 
 const ValContext = React.createContext<{
   portalRef: HTMLElement | null;
   theme: Themes | null;
   setTheme: (theme: Themes | null) => void;
-  isAuthenticationError?: boolean;
   config: ValConfig | undefined;
+  authenticationState: AuthenticationState;
   addPatch: (moduleFilePath: ModuleFilePath, patch: Patch) => void;
   getPatches: (patchIds: PatchId[]) => Promise<GetPatchRes>;
   deletePatches: (patchIds: PatchId[]) => Promise<DeletePatchesRes>;
@@ -89,10 +89,10 @@ const ValContext = React.createContext<{
   get setTheme(): React.Dispatch<React.SetStateAction<Themes | null>> {
     throw new Error("ValContext not provided");
   },
-  get isAuthenticationError(): boolean | undefined {
+  get config(): ValConfig | undefined {
     throw new Error("ValContext not provided");
   },
-  get config(): ValConfig | undefined {
+  get authenticationState(): AuthenticationState {
     throw new Error("ValContext not provided");
   },
   get addPatch(): () => void {
@@ -185,6 +185,7 @@ export function ValProvider({
 }) {
   const {
     addPatch,
+    authenticationState,
     schemas,
     schemaSha,
     stat,
@@ -223,7 +224,7 @@ export function ValProvider({
     [],
   );
   const config =
-    "data" in stat && stat.data ? (stat.data?.config as ValConfig) : undefined;
+    "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
   const configError = "error" in stat ? stat.error : undefined;
 
   const [theme, setTheme] = useState<Themes | null>(null);
@@ -258,7 +259,7 @@ export function ValProvider({
     } else if (config !== undefined && theme === null) {
       setTheme("dark");
     }
-  }, [theme, config?.defaultTheme]);
+  }, [theme, config]);
 
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
@@ -324,6 +325,7 @@ export function ValProvider({
     <ValContext.Provider
       value={{
         portalRef: portalRef.current,
+        authenticationState,
         addPatch,
         getPatches,
         deletePatches,
@@ -344,8 +346,6 @@ export function ValProvider({
             console.warn(`Cannot set invalid theme theme: ${theme}`);
           }
         },
-        isAuthenticationError:
-          "error" in stat ? stat.isAuthenticationError : undefined,
         publish,
         isPublishing,
         publishError,
@@ -365,11 +365,19 @@ export function ValProvider({
           mode: "default",
         }}
       >
-        <div ref={portalRef}></div>
+        <div
+          data-val-portal="true"
+          ref={portalRef}
+          {...(theme ? { "data-mode": inverseTheme(theme) } : {})}
+        ></div>
         {children}
       </DayPickerProvider>
     </ValContext.Provider>
   );
+}
+
+function inverseTheme(theme: Themes): Themes {
+  return theme === "light" ? "dark" : "light";
 }
 
 export function useValPortal() {
@@ -394,9 +402,9 @@ export function useValConfig() {
   return lastConfig.current;
 }
 
-export function useValAuthenticationError() {
-  const { isAuthenticationError } = useContext(ValContext);
-  return isAuthenticationError;
+export function useAuthenticationState() {
+  const { authenticationState } = useContext(ValContext);
+  return authenticationState;
 }
 
 export function useAddPatch(sourcePath: SourcePath) {
@@ -530,8 +538,14 @@ export type ShallowSource = EnsureAllTypes<{
   number: number;
   string: string;
   date: string;
-  file: { [FILE_REF_PROP]: string };
-  image: { [FILE_REF_PROP]: string };
+  file: {
+    [FILE_REF_PROP]: string;
+    metadata?: { readonly [key: string]: Json };
+  };
+  image: {
+    [FILE_REF_PROP]: string;
+    metadata?: { readonly [key: string]: Json };
+  };
   literal: string;
   richtext: unknown[];
 }>;
@@ -929,6 +943,17 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
         error: `Expected object with ${FILE_REF_PROP} property, got ${typeof source}`,
       };
     }
+    if (
+      "metadata" in source &&
+      source.metatadata &&
+      typeof source.metatadata !== "object"
+    ) {
+      return {
+        status: "error",
+        error: `Expected metadata of ${type} to be an object, got ${typeof source.metadata}`,
+      };
+    }
+    // TODO: verify that metadata values is of type Json
     return {
       status: "success",
       data: source as ShallowSource[SchemaType],
