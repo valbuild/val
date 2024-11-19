@@ -244,10 +244,11 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
             if (errors && errors[moduleFilePath]) {
               syncStatus[moduleFilePath] = {
                 status: "error",
-                errors: errors[moduleFilePath].map((e) => ({
-                  ...e.error,
-                  ...e,
-                })),
+                errors:
+                  errors[moduleFilePath]?.map((e) => ({
+                    ...e.error,
+                    ...e,
+                  })) ?? [],
               };
             } else {
               delete syncStatus[moduleFilePath];
@@ -263,7 +264,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
             continue;
           }
           if (newModules[moduleFilePath]?.source) {
-            sources[moduleFilePath] = newModules[moduleFilePath].source;
+            sources[moduleFilePath] = newModules[moduleFilePath]?.source;
           }
         }
         setRequestedSources((prev) => {
@@ -301,8 +302,9 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
             const schemas: Record<ModuleFilePath, SerializedSchema> = {};
             for (const moduleFilePathS in res.json.schemas) {
               const moduleFilePath = moduleFilePathS as ModuleFilePath;
-              if (res.json.schemas[moduleFilePath]) {
-                schemas[moduleFilePath] = res.json.schemas[moduleFilePath];
+              const schema = res.json.schemas[moduleFilePath];
+              if (schema) {
+                schemas[moduleFilePath] = schema;
               }
             }
             setSchemas({
@@ -515,8 +517,9 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
       for (const moduleFilePathS in pendingPatches) {
         const sourcePath = moduleFilePathS as SourcePath;
         let createdAt;
-        if (prev[sourcePath] && "createdAt" in prev[sourcePath]) {
-          createdAt = prev[sourcePath].createdAt;
+        const prevAtSourcePath = prev[sourcePath];
+        if (prevAtSourcePath && "createdAt" in prevAtSourcePath) {
+          createdAt = prevAtSourcePath.createdAt;
         } else {
           createdAt = new Date().toISOString();
         }
