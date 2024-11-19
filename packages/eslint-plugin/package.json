@@ -23,7 +23,8 @@
   },
   "license": "MIT",
   "peerDependencies": {
-    "eslint": "6 || 7 || 8"
+    "eslint": "6 || 7 || 8",
+    "typescript": "5"
   },
   "devDependencies": {
     "@types/jest": "^29.5.11",
