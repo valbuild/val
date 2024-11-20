@@ -110,7 +110,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
       currentStateRef.current = { ...currentState };
       const validateAll = path === undefined;
       setAuthenticationLoadingIfNotAuthenticated();
-      client("/sources", "PUT", {
+      client("/sources/~", "PUT", {
         path: path,
         query: {
           validate_sources: true,
@@ -159,23 +159,37 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
               }
               return errors;
             });
-          }
-          for (const moduleFilePathS of requestedSources) {
-            const moduleFilePath = moduleFilePathS as ModuleFilePath;
-            if (
-              currentState[moduleFilePath] !==
-              currentStateRef.current[moduleFilePath]
-            ) {
-              continue;
-            }
+            for (const moduleFilePathS of requestedSources) {
+              const moduleFilePath = moduleFilePathS as ModuleFilePath;
+              if (
+                currentState[moduleFilePath] !==
+                currentStateRef.current[moduleFilePath]
+              ) {
+                continue;
+              }
 
-            if (res.status === 200) {
               updateSources([moduleFilePath], res.json.modules);
-            } else {
-              const modules = "modules" in res.json ? res.json.modules : {};
-              const errors = "errors" in res.json ? res.json.errors : {};
-              updateSources([moduleFilePath], modules, errors);
             }
+          } else if (res.status === 400) {
+            const errors: Record<
+              ModuleFilePath,
+              {
+                status: "error";
+                errors: {
+                  message: string;
+                  patchId?: PatchId;
+                  skipped?: boolean;
+                }[];
+              }
+            > = {};
+            for (const moduleFilePathS of requestedSources) {
+              const moduleFilePath = moduleFilePathS as ModuleFilePath;
+              errors[moduleFilePath] = {
+                status: "error",
+                errors: [{ message: res.json.message }],
+              };
+            }
+            setSourcesSyncStatus(errors);
           }
         })
         .catch((err) => {
@@ -533,19 +547,23 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     });
     // TODO: add a /patches POST endpoint and use that instead
     setAuthenticationLoadingIfNotAuthenticated();
-    client("/sources", "PUT", {
-      path: undefined,
-      query: {
-        validate_sources: true,
-        validate_all: false,
-        validate_binary_files: false,
-      },
-
+    if (!("data" in stat) || !stat.data) {
+      console.error("Cannot add patches without stat data");
+      return;
+    }
+    client("/patches", "PUT", {
       body: {
-        patchIds: currentPatchIds,
-        addPatches: {
-          ...mergedPatches,
-        },
+        patches: mergedPatches,
+        parentRef:
+          currentPatchIds.length > 0
+            ? {
+                type: "patch",
+                patchId: currentPatchIds[currentPatchIds.length - 1],
+              }
+            : {
+                type: "head",
+                headBaseSha: stat.data.baseSha,
+              },
       },
     })
       .then((res) => {

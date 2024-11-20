@@ -290,7 +290,7 @@ export function ValProvider({
   }, []);
   const getPatches = useCallback(
     async (patchIds: PatchId[]): Promise<GetPatchRes> => {
-      const res = await client("/patches/~", "GET", {
+      const res = await client("/patches", "GET", {
         query: {
           omit_patch: false,
           patch_id: patchIds,
@@ -299,7 +299,11 @@ export function ValProvider({
         },
       });
       if (res.status === 200) {
-        return { status: "ok", data: res.json.patches } as const;
+        const grouped: GroupedPatches = {};
+        for (const patch of res.json.patches) {
+          grouped[patch.patchId] = patch;
+        }
+        return { status: "ok", data: grouped } as const;
       }
       return { status: "error", error: res.json.message } as const;
     },
@@ -307,7 +311,7 @@ export function ValProvider({
   );
   const deletePatches = useCallback(
     async (patchIds: PatchId[]): Promise<DeletePatchesRes> => {
-      const res = await client("/patches/~", "DELETE", {
+      const res = await client("/patches", "DELETE", {
         query: {
           id: patchIds,
         },
@@ -1005,29 +1009,28 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
   }
 }
 
+type GroupedPatches = Record<
+  PatchId,
+  {
+    path: ModuleFilePath;
+    createdAt: string;
+    authorId: string | null;
+    appliedAt: {
+      baseSha: string;
+      timestamp: string;
+      git?:
+        | {
+            commitSha: string;
+          }
+        | undefined;
+    } | null;
+    patch?: Patch | undefined;
+  }
+>;
 type GetPatchRes =
   | {
       status: "ok";
-      data: Partial<
-        Record<
-          PatchId,
-          {
-            path: ModuleFilePath;
-            createdAt: string;
-            authorId: string | null;
-            appliedAt: {
-              baseSha: string;
-              timestamp: string;
-              git?:
-                | {
-                    commitSha: string;
-                  }
-                | undefined;
-            } | null;
-            patch?: Patch | undefined;
-          }
-        >
-      >;
+      data: Partial<GroupedPatches>;
     }
   | {
       status: "error";

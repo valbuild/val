@@ -511,7 +511,7 @@ export class ValOpsFS extends ValOps {
 
       if (writeRes.type === "error") {
         return writeRes.errorType === "dir-already-exists"
-          ? result.err({ errorType: "patch-id-conflict" })
+          ? result.err({ errorType: "patch-head-conflict" })
           : result.err({
               errorType: "other",
               error: writeRes.error,
@@ -930,7 +930,6 @@ class FSOpsHost {
   }
 
   readUtf8File(path: string): string {
-    console.log("Reading file: ", path);
     return fs.readFileSync(path, "utf-8");
   }
 

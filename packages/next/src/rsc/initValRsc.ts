@@ -82,7 +82,7 @@ const initFetchValStega =
         const host: string | null = headers && getHost(headers);
         if (host && cookies) {
           const valServer = await valServerPromise;
-          const patchesRes = await valServer["/patches/~"]["GET"]({
+          const patchesRes = await valServer["/patches"]["GET"]({
             query: {
               omit_patch: true,
               author: undefined,
@@ -98,7 +98,7 @@ const initFetchValStega =
           }
           const allPatches = Object.keys(patchesRes.json.patches) as PatchId[];
 
-          const treeRes = await valServer["/sources"]["PUT"]({
+          const treeRes = await valServer["/sources/~"]["PUT"]({
             path: "/",
             query: {
               validate_sources: true,

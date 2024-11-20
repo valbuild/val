@@ -488,7 +488,7 @@ export class ValOpsHttp extends ValOps {
         }
         if (res.status === 409) {
           return result.err({
-            errorType: "patch-id-conflict",
+            errorType: "patch-head-conflict",
             message: "Conflict: " + (await res.text()),
           });
         }
