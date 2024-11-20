@@ -73,8 +73,6 @@ npm install @valbuild/core@latest @valbuild/next@latest @valbuild/eslint-plugin@
 npx @valbuild/init@latest
 ```
 
-**NOTE** if your Next.js project is using
-
 ## Getting started
 
 ### Create your first Val content file
@@ -83,31 +81,17 @@ Content in Val is always defined in `.val.ts` (or `.js`) files.
 
 **NOTE**: the init script will generate an example Val content file (unless you opt out of it).
 
-Val content files are _evaluated_ by Val, therefore they have a specific set of requirements:
+Val content files are _evaluated_ by Val, therefore they need to abide a set of requirements.
+If you use the eslint plugins these requirements will be enforced. You can also validate val files using the @valbuild/cli: `npx -p @valbuild/cli val validate`.
 
-- they must export a default content definition (`c.define`) where the first argument equals the path of the file relative to the `val.config.ts` file; and
-- they must have a default export that is `c.define; and
-- they can only import Val related files and / or types
+For reference these requirements are:
 
-If you use the eslint plugins these requirements will be enforced. You can also validate val files using the @valbuild/cli: `npx -p @valbuild/cli val validate --fix`
+- they must export a default content definition (`c.define`) where the first argument equals the path of the file relative to the `val.config` file; and
+- they must be declared in the `val.modules` file; and
+- they must have a default export that is `c.define`; and
+- they can only import Val related files or types (using `import type { MyType } from "./otherModule.ts"`)
 
-### Adding Val content file to val.modules
-
-Once you have created your Val content file, it must be declared in the `val.modules.ts` (or `.js`) file.
-
-Example:
-
-```ts
-import { modules } from "@valbuild/next";
-import { config } from "./val.config";
-
-export default modules(config, [
-  // Add your modules here
-  { def: () => import("./examples/val/example.val") },
-]);
-```
-
-### Example of a `.val.ts` file
+### Val content file example
 
 ```ts
 // ./examples/val/example.val.ts
@@ -131,6 +115,22 @@ export const schema = s.object({
 export default c.define("/examples/val/example.val.ts", schema, {
   text: "Basic text content",
 });
+```
+
+### The `val.modules` file
+
+Once you have created your Val content file, it must be declared in the `val.modules.ts` (or `.js`) file in the project root folder.
+
+Example:
+
+```ts
+import { modules } from "@valbuild/next";
+import { config } from "./val.config";
+
+export default modules(config, [
+  // Add your modules here
+  { def: () => import("./examples/val/example.val") },
+]);
 ```
 
 ### Using Val in Client Components
