@@ -5,6 +5,7 @@ import { transform } from "sucrase";
 import synchronizedPrettier from "@prettier/sync";
 import { ValOpsHttp } from "./ValOpsHttp";
 import { AuthorId, CommitSha } from "./ValOps";
+import { result } from "@valbuild/core/fp";
 
 describe("ValOpsFS", () => {
   test("flow", async () => {
@@ -136,9 +137,10 @@ describe("ValOpsFS", () => {
           value: "Http works",
         },
       ],
+      { type: "head", headBaseSha: await ops.getBaseSha() },
       authorId,
     );
-    if (patchRes1.error) {
+    if (result.isErr(patchRes1)) {
       console.log("patch error", patchRes1.error);
       return;
     }

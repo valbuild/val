@@ -13,6 +13,7 @@ import {
 } from "@valbuild/core";
 import {
   Api,
+  PatchRes,
   ServerOf,
   VAL_ENABLE_COOKIE_NAME,
   VAL_SESSION_COOKIE,
@@ -660,7 +661,7 @@ export const ValServer = (
 
     //#region patches
     "/patches/~": {
-      GET: async (req) => {
+      GET: async (req): Promise<z.infer<Api["/patches/~"]["GET"]["res"]>> => {
         // TODO: Fix type error patchId is string somewhere and PatchId somewhere else
         const query = req.query;
         const cookies = req.cookies;
@@ -919,58 +920,60 @@ export const ValServer = (
               message: error.message,
             };
           }
-          if (body?.addPatch) {
-            const newPatchModuleFilePath = body.addPatch.path;
-            const newPatch = body.addPatch.patch;
-            const authorId = "id" in auth ? (auth.id as AuthorId) : null;
-            const createPatchRes = await serverOps.createPatch(
-              newPatchModuleFilePath,
-              newPatch,
-              body.addPatch.parentRef,
-              authorId,
-            );
-            if (result.isErr(createPatchRes)) {
-              if (createPatchRes.error.errorType === "patch-id-conflict") {
+          if (body?.addPatches) {
+            for (const addPatch of body.addPatches) {
+              const newPatchModuleFilePath = addPatch.path;
+              const newPatch = addPatch.patch;
+              const authorId = "id" in auth ? (auth.id as AuthorId) : null;
+              const createPatchRes = await serverOps.createPatch(
+                newPatchModuleFilePath,
+                patchAnalysis,
+                newPatch,
+                addPatch.parentRef,
+                authorId,
+              );
+              if (result.isErr(createPatchRes)) {
+                if (createPatchRes.error.errorType === "patch-id-conflict") {
+                  return {
+                    status: 409,
+                    json: {
+                      message: "Patch id conflict",
+                    },
+                  };
+                }
                 return {
-                  status: 409,
+                  status: 500,
                   json: {
-                    message: "Patch id conflict",
+                    message:
+                      "Failed to create patch: " +
+                      createPatchRes.error.error.message,
+                    details: createPatchRes.error.error,
                   },
                 };
               }
-              return {
-                status: 500,
-                json: {
-                  message:
-                    "Failed to create patch: " +
-                    createPatchRes.error.error.message,
-                  details: createPatchRes.error.error,
-                },
+              // TODO: evaluate if we need this: seems wrong to delete patches that are not applied
+              // for (const fileRes of createPatchRes.files) {
+              //   if (fileRes.error) {
+              //     // clean up broken patch:
+              //     await this.serverOps.deletePatches([createPatchRes.patchId]);
+              //     return {
+              //       status: 500,
+              //       json: {
+              //         message: "Failed to create patch",
+              //         details: fileRes.error,
+              //       },
+              //     };
+              //   }
+              // }
+              patchOps.patches[createPatchRes.value.patchId] = {
+                path: newPatchModuleFilePath,
+                patch: newPatch,
+                parentRef: addPatch.parentRef,
+                authorId,
+                createdAt: createPatchRes.value.createdAt,
+                appliedAt: null,
               };
             }
-            // TODO: evaluate if we need this: seems wrong to delete patches that are not applied
-            // for (const fileRes of createPatchRes.files) {
-            //   if (fileRes.error) {
-            //     // clean up broken patch:
-            //     await this.serverOps.deletePatches([createPatchRes.patchId]);
-            //     return {
-            //       status: 500,
-            //       json: {
-            //         message: "Failed to create patch",
-            //         details: fileRes.error,
-            //       },
-            //     };
-            //   }
-            // }
-            newPatchId = createPatchRes.value.patchId;
-            patchOps.patches[newPatchId] = {
-              path: newPatchModuleFilePath,
-              patch: newPatch,
-              parentRef: body.addPatches?.parentRef,
-              authorId,
-              createdAt: createPatchRes.value.createdAt,
-              appliedAt: null,
-            };
           }
           // TODO: errors
           patchAnalysis = serverOps.analyzePatches(patchOps.patches);

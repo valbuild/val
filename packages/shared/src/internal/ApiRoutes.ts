@@ -2,7 +2,6 @@ import { z } from "zod";
 import {
   type ValidationFix,
   type ModuleFilePath,
-  type PatchId,
   type ValConfig,
 } from "@valbuild/core";
 import {
@@ -10,16 +9,12 @@ import {
   VAL_SESSION_COOKIE,
   VAL_STATE_COOKIE,
 } from "./server/types";
-import { Patch } from "./zod/Patch";
+import { Patch, PatchId } from "./zod/Patch";
 import { SerializedSchema } from "./zod/SerializedSchema";
 import { SourcePath } from "./zod/SourcePath";
 
-const PatchId = z.string().refine(
-  (_id): _id is PatchId => true, // TODO:
-);
-
 const ModuleFilePath = z.string().refine(
-  (_path): _path is ModuleFilePath => true, // TODO:
+  (_path): _path is ModuleFilePath => true, // TODO: validation
 );
 
 const ParentRef = z.union([
@@ -92,6 +87,33 @@ const enableCookieValue = z.object({
     sameSite: z.literal("lax"),
   }),
 });
+
+const PatchRes = z.object({
+  status: z.literal(200),
+  json: z.object({
+    patches: z.array(
+      z.object({
+        path: ModuleFilePath,
+        patch: Patch.optional(),
+        patchId: PatchId,
+        parentRef: ParentRef,
+        createdAt: z.string(),
+        authorId: z.string().nullable(),
+        appliedAt: z
+          .object({
+            baseSha: z.string(),
+            git: z.object({ commitSha: z.string() }).optional(),
+            timestamp: z.string(),
+          })
+          .nullable(),
+      }),
+    ),
+    baseSha: z.string(),
+    error: GenericError.optional(),
+    errors: z.record(PatchId, GenericError).optional(),
+  }),
+});
+export type PatchRes = z.infer<typeof PatchRes>;
 
 type EnableCookieValue = z.infer<typeof enableCookieValue>;
 type CookieValue =
@@ -489,31 +511,7 @@ export const Api = {
             error: GenericError,
           }),
         }),
-        z.object({
-          status: z.literal(200),
-          json: z.object({
-            patches: z.array(
-              z.object({
-                path: ModuleFilePath,
-                patch: Patch.optional(),
-                patchId: PatchId,
-                parentRef: ParentRef,
-                createdAt: z.string(),
-                authorId: z.string().nullable(),
-                appliedAt: z
-                  .object({
-                    baseSha: z.string(),
-                    git: z.object({ commitSha: z.string() }).optional(),
-                    timestamp: z.string(),
-                  })
-                  .nullable(),
-              }),
-            ),
-            baseSha: z.string(),
-            error: GenericError.optional(),
-            errors: z.record(PatchId, GenericError).optional(),
-          }),
-        }),
+        PatchRes,
       ]),
     },
   },
