@@ -81,8 +81,8 @@ Content in Val is always defined in `.val.ts` (or `.js`) files.
 
 **NOTE**: the init script will generate an example Val content file (unless you opt out of it).
 
-Val content files are _evaluated_ by Val, therefore they need to abide a set of requirements. 
-If you use the eslint plugins these requirements will be enforced. You can also validate val files using the @valbuild/cli: `npx -p @valbuild/cli val validate`. 
+Val content files are _evaluated_ by Val, therefore they need to abide a set of requirements.
+If you use the eslint plugins these requirements will be enforced. You can also validate val files using the @valbuild/cli: `npx -p @valbuild/cli val validate`.
 
 For reference these requirements are:
 
