@@ -42,6 +42,7 @@ export {
   type ModulePath,
   type SourcePath,
   type JsonOfSource,
+  type ParentPatchId,
 } from "./val";
 export type { Json, JsonPrimitive, JsonArray, JsonObject } from "./Json";
 export type {
