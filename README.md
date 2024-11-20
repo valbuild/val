@@ -81,13 +81,15 @@ But, with the benefits of **hard-coded** content:
 - **no** need for **code-gen** and extra build steps
 - **fast** since the content is literally hosted with the application
 - content is **always there** and can never fail (since it is not loaded from somewhere)
+- no need to worry about **caching** since content is not fetched from some DB or cloud service
 - no need to manage different **environments** with different versions of content
 - works out of the box with Vercel **preview links**
-- **resolve conflicts** like you normally resolve conflicts **in git**
+- **resolve conflicts** like you normally resolve conflicts: **in git**
 
 Compared to other CMSs, Val has the following advantages:
 
-- **easy** to setup and to _grok_: Val is designed to have a minimum of boilerplate and there's **0** query languages to learn. If you know your way around JSON that's enough (and if you don't you know JSON, you might want to learn that first)
+- **easy** to _grok_: Val is designed to have a minimum of boilerplate and there's **0** query languages to learn
+- Vals abstraction model is based on **JSON** and TypeScript (Record, keyof). What this means is that there is nothing to learn (for you or your future colleagues): no "a collection is..." or a "a document is sort of a..." - just JSON and regular TypeScript types
 - **no signup** required to use it locally
 - **no fees** for content that is in your code: your content is your code, and your code is... yours
 - **minimal** API surface: Val is designed to not "infect" your code base
