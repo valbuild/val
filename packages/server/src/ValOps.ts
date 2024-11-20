@@ -36,7 +36,7 @@ import { analyzeValModule } from "./patch/ts/valModule";
 import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
-import { ParentPatchId } from "@valbuild/core/src/val";
+import { ParentPatchId } from "@valbuild/core";
 
 export type BaseSha = string & { readonly _tag: unique symbol };
 export type SchemaSha = string & { readonly _tag: unique symbol };

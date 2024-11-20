@@ -28,7 +28,7 @@ import { fromError } from "zod-validation-error";
 import { Patch, ParentRef } from "@valbuild/shared/internal";
 import { guessMimeTypeFromPath } from "./ValServer";
 import { result } from "@valbuild/core/fp";
-import { ParentPatchId } from "@valbuild/core/src/val";
+import { ParentPatchId } from "@valbuild/core";
 
 export class ValOpsFS extends ValOps {
   private static readonly VAL_DIR = ".val";
