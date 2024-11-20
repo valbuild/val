@@ -143,7 +143,6 @@ describe("ValOpsFS", () => {
     const schemas = await ops.getSchemas();
     const patchRes1 = await ops.createPatch(
       "/test/test1.val.js" as ModuleFilePath,
-      null,
       [
         {
           op: "replace",
@@ -165,10 +164,9 @@ describe("ValOpsFS", () => {
           value: anotherSmallPng,
         },
       ],
-
       {
         type: "head",
-        headBaseSha: "123",
+        headBaseSha: await ops.getBaseSha(),
       },
       null,
     );
@@ -177,7 +175,7 @@ describe("ValOpsFS", () => {
       return;
     }
     console.log("patchRes1", patchRes1);
-    const t0 = await ops.getTree();
+    const t0 = await ops.getSources();
     // console.log("base tree", JSON.stringify(t0, null, 2));
     // const v0 = await ops.validateSources(schemas, t0.sources);
     // console.log("base source validation", JSON.stringify(v0, null, 2));
@@ -193,7 +191,7 @@ describe("ValOpsFS", () => {
     });
     console.log("patches", patchesRes);
     const patchAnalysis = ops.analyzePatches(patchesRes.patches);
-    const t1 = await ops.getTree({
+    const t1 = await ops.getSources({
       ...patchAnalysis,
       ...patchesRes,
     });
@@ -222,5 +220,36 @@ describe("ValOpsFS", () => {
       "found patches",
       JSON.stringify(await ops.fetchPatches({ omitPatch: false }), null, 2),
     );
+    if (result.isOk(patchRes1)) {
+      await ops.createPatch(
+        "/test/test1.val.js" as ModuleFilePath,
+        [
+          {
+            op: "replace",
+            path: ["testImage"],
+            value: {
+              _ref: "/public/val/images/smallest.png",
+              _type: "file",
+              metadata: {
+                width: 8,
+                height: 1,
+                mimeType: "image/png",
+              },
+            },
+          },
+          {
+            op: "file",
+            filePath: "/public/val/images/smallest.png",
+            path: ["testImage"],
+            value: anotherSmallPng,
+          },
+        ],
+        {
+          type: "patch",
+          patchId: patchRes1.value.patchId,
+        },
+        null,
+      );
+    }
   });
 });

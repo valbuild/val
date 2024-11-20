@@ -187,7 +187,7 @@ export abstract class ValOps {
   >;
 
   // #region initTree
-  private async initTree(): Promise<{
+  private async initSources(): Promise<{
     baseSha: BaseSha;
     schemaSha: SchemaSha;
     sources: Sources;
@@ -328,24 +328,24 @@ export abstract class ValOps {
   }
 
   async init(): Promise<void> {
-    const { baseSha, schemaSha } = await this.initTree();
+    const { baseSha, schemaSha } = await this.initSources();
     await this.onInit(baseSha, schemaSha);
   }
 
   async getBaseSources(): Promise<Sources> {
-    return this.initTree().then((result) => result.sources);
+    return this.initSources().then((result) => result.sources);
   }
   async getSchemas(): Promise<Schemas> {
-    return this.initTree().then((result) => result.schemas);
+    return this.initSources().then((result) => result.schemas);
   }
   async getModuleErrors(): Promise<ModulesError[]> {
-    return this.initTree().then((result) => result.moduleErrors);
+    return this.initSources().then((result) => result.moduleErrors);
   }
   async getBaseSha(): Promise<BaseSha> {
-    return this.initTree().then((result) => result.baseSha);
+    return this.initSources().then((result) => result.baseSha);
   }
   async getSchemaSha(): Promise<SchemaSha> {
-    return this.initTree().then((result) => result.schemaSha);
+    return this.initSources().then((result) => result.schemaSha);
   }
 
   // #region analyzePatches
@@ -353,34 +353,23 @@ export abstract class ValOps {
     const patchesByModule: {
       [path: ModuleFilePath]: {
         patchId: PatchId;
-        createdAt: string;
       }[];
     } = {};
     const fileLastUpdatedByPatchId: Record<string, PatchId> = {};
-    for (const [
-      patchIdS,
-      { path, patch, createdAt: created_at },
-    ] of Object.entries(patchesById)) {
-      const patchId = patchIdS as PatchId;
-      for (const op of patch) {
+    const sortedPatches = this.createPatchChain(patchesById);
+    for (const patch of sortedPatches) {
+      for (const op of patch.patch) {
         if (op.op === "file") {
-          fileLastUpdatedByPatchId[op.filePath] = patchId;
+          const filePath = op.filePath;
+          fileLastUpdatedByPatchId[filePath] = patch.patchId;
         }
+        const path = patch.path;
+        if (!patchesByModule[path]) {
+          patchesByModule[path] = [];
+        }
+        patchesByModule[path].push({ patchId: patch.patchId });
       }
-      if (!patchesByModule[path]) {
-        patchesByModule[path] = [];
-      }
-      patchesByModule[path].push({
-        patchId,
-        createdAt: created_at,
-      });
     }
-    for (const path in patchesByModule) {
-      patchesByModule[path as ModuleFilePath].sort((a, b) =>
-        a.createdAt.localeCompare(b.createdAt),
-      );
-    }
-
     return {
       patchesByModule,
       fileLastUpdatedByPatchId,
@@ -388,15 +377,11 @@ export abstract class ValOps {
   }
 
   // #region createPatchChain
-  async createPatchChain<
-    T extends Patches["patches"] | PatchesMetadata["patches"],
-  >(
+  createPatchChain<T extends Patches["patches"] | PatchesMetadata["patches"]>(
     unsortedPatchRecord: T,
-  ): Promise<
-    T extends Patches["patches"]
-      ? OrderedPatches["patches"]
-      : OrderedPatchesMetadata["patches"]
-  > {
+  ): T extends Patches["patches"]
+    ? OrderedPatches["patches"]
+    : OrderedPatchesMetadata["patches"] {
     // TODO: Error handling
     const nextPatch: Record<PatchId, PatchId | undefined> = {};
     Object.keys(unsortedPatchRecord).forEach((patchId) => {
@@ -435,7 +420,7 @@ export abstract class ValOps {
   }
 
   // #region getTree
-  async getTree(analysis?: PatchAnalysis & Patches): Promise<{
+  async getSources(analysis?: PatchAnalysis & Patches): Promise<{
     sources: Sources;
     errors: Record<
       ModuleFilePath,
@@ -447,10 +432,10 @@ export abstract class ValOps {
     >;
   }> {
     if (!analysis) {
-      const { sources } = await this.initTree();
+      const { sources } = await this.initSources();
       return { sources, errors: {} };
     }
-    const { sources } = await this.initTree();
+    const { sources } = await this.initSources();
 
     const patchedSources: Sources = {};
     const errors: Record<
@@ -1015,7 +1000,6 @@ export abstract class ValOps {
   // #region createPatch
   async createPatch(
     path: ModuleFilePath,
-    patchAnalysis: (PatchAnalysis & Patches) | null,
     patch: Patch,
     parentRef: ParentRef,
     authorId: AuthorId | null,
@@ -1031,15 +1015,22 @@ export abstract class ValOps {
         }[];
       },
       | { errorType: "other"; error: GenericErrorMessage }
-      | { errorType: "patch-id-conflict" }
+      | { errorType: "patch-head-conflict" }
     >
   > {
-    const initTree = await this.initTree();
+    const initTree = await this.initSources();
     const schemas = initTree.schemas;
     const moduleErrors = initTree.moduleErrors;
     let sources = initTree.sources;
-    if (patchAnalysis) {
-      const tree = await this.getTree(patchAnalysis);
+
+    if (parentRef.type !== "head") {
+      // There's room for some optimizations here: we could do this once, then re-use everytime we create a patch, then again we only create one patch at a time
+      const patchOps = await this.fetchPatches({ omitPatch: false });
+      const patchAnalysis = this.analyzePatches(patchOps.patches);
+      const tree = await this.getSources({
+        ...patchAnalysis,
+        ...patchOps,
+      });
       sources = {
         ...sources,
         ...tree.sources,
@@ -1144,8 +1135,8 @@ export abstract class ValOps {
       console.error(
         `Could not save source file patch at path: '${path}'. Error: ${saveRes.error.errorType}`,
       );
-      if (saveRes.error.errorType === "patch-id-conflict") {
-        return result.err({ errorType: "patch-id-conflict" });
+      if (saveRes.error.errorType === "patch-head-conflict") {
+        return result.err({ errorType: "patch-head-conflict" });
       }
       return result.err({ errorType: "other", error: saveRes.error });
     }
@@ -1398,7 +1389,7 @@ export type PatchReadError =
 export type SaveSourceFilePatchResult = result.Result<
   { patchId: PatchId },
   | ({ errorType: "other" } & GenericErrorMessage)
-  | { errorType: "patch-id-conflict" }
+  | { errorType: "patch-head-conflict" }
 >;
 
 export type PatchAnalysis = {

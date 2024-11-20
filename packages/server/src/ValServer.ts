@@ -13,7 +13,8 @@ import {
 } from "@valbuild/core";
 import {
   Api,
-  PatchRes,
+  ParentRef,
+  Patch,
   ServerOf,
   VAL_ENABLE_COOKIE_NAME,
   VAL_SESSION_COOKIE,
@@ -28,11 +29,9 @@ import { ValOpsFS } from "./ValOpsFS";
 import {
   AuthorId,
   BaseSha,
-  GenericErrorMessage,
-  PatchAnalysis,
+  CommitSha,
   PatchSourceError,
   SchemaSha,
-  Sources,
 } from "./ValOps";
 import { fromError } from "zod-validation-error";
 import { ValOpsHttp } from "./ValOpsHttp";
@@ -660,8 +659,81 @@ export const ValServer = (
     },
 
     //#region patches
-    "/patches/~": {
-      GET: async (req): Promise<z.infer<Api["/patches/~"]["GET"]["res"]>> => {
+    "/patches": {
+      PUT: async (req): Promise<z.infer<Api["/patches"]["PUT"]["res"]>> => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
+        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+          return {
+            status: 401,
+            json: {
+              message: "Unauthorized",
+            },
+          };
+        }
+
+        const patches = req.body.patches;
+        const parentRef = req.body.parentRef;
+        const authorId = "id" in auth ? (auth.id as AuthorId) : null;
+        const newPatchIds: PatchId[] = [];
+        for (const patch of patches) {
+          const createPatchRes = await serverOps.createPatch(
+            patch.path,
+            patch.patch,
+            parentRef,
+            authorId,
+          );
+          if (result.isErr(createPatchRes)) {
+            if (createPatchRes.error.errorType === "patch-head-conflict") {
+              return {
+                status: 409,
+                json: {
+                  type: "patch-head-conflict",
+                  message: "Patch id conflict",
+                },
+              };
+            } else {
+              return {
+                status: 400,
+                json: {
+                  type: "patch-error",
+                  message: "Could not create patch",
+                  errors: {
+                    [patch.path]: [
+                      {
+                        error: {
+                          message: createPatchRes.error.error.message,
+                        },
+                      },
+                    ],
+                  },
+                },
+              };
+            }
+          } else {
+            newPatchIds.push(createPatchRes.value.patchId);
+          }
+        }
+        return {
+          status: 200,
+          json: {
+            newPatchIds,
+            parentRef: {
+              type: "patch",
+              patchId: newPatchIds[newPatchIds.length - 1],
+            },
+          },
+        };
+      },
+      GET: async (req): Promise<z.infer<Api["/patches"]["GET"]["res"]>> => {
         // TODO: Fix type error patchId is string somewhere and PatchId somewhere else
         const query = req.query;
         const cookies = req.cookies;
@@ -692,11 +764,6 @@ export const ValServer = (
             | ModuleFilePath[]
             | undefined,
         });
-        console.log(
-          "Fetched patches:",
-          JSON.stringify(fetchedPatches, null, 2),
-        );
-
         if (fetchedPatches.error) {
           // Error is singular
           console.error("Val: Failed to get patches", fetchedPatches.error);
@@ -722,16 +789,35 @@ export const ValServer = (
             },
           };
         }
-        const patches = await serverOps.createPatchChain(
+        const patches: {
+          patchId: PatchId;
+          path: ModuleFilePath;
+          patch: Patch;
+          parentRef: ParentRef;
+          createdAt: string;
+          authorId: AuthorId | null;
+          appliedAt: {
+            baseSha: BaseSha;
+            git?: { commitSha: CommitSha };
+            timestamp: string;
+          } | null;
+        }[] = [];
+        for (const [patchIdS, patchData] of Object.entries(
           fetchedPatches.patches,
-        );
-
+        )) {
+          const patchId = patchIdS as PatchId;
+          patches.push({
+            patchId,
+            ...patchData,
+          });
+        }
+        // TODO: we should sort by parentRef instead:
+        patches.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
         return {
           status: 200,
           json: { patches, baseSha: await serverOps.getBaseSha() },
         };
       },
-
       DELETE: async (req) => {
         const query = req.query;
         const cookies = req.cookies;
@@ -841,12 +927,12 @@ export const ValServer = (
     },
 
     // #region sources
-    "/sources": {
+    "/sources/~": {
       PUT: async (req) => {
         const query = req.query;
         const cookies = req.cookies;
-        const body = req.body;
-        const treePath = req.path || "";
+        // TODO: filter results by moduleFilePath
+        // const moduleFilePath = req.path || "";
         const auth = getAuth(cookies);
         if (auth.error) {
           return {
@@ -875,130 +961,27 @@ export const ValServer = (
             },
           };
         }
-        let tree: {
-          sources: Sources;
-          errors: Record<
-            ModuleFilePath,
-            {
-              patchId: PatchId;
-              skipped: boolean;
-              error: GenericErrorMessage;
-            }[]
-          >;
+        const patchOps = await serverOps.fetchPatches({
+          patchIds: undefined,
+          omitPatch: false,
+        });
+        const patchAnalysis = serverOps.analyzePatches(patchOps.patches);
+        let sourcesRes;
+        sourcesRes = await serverOps.getSources();
+        const onlyPatchedTreeModules = await serverOps.getSources({
+          ...patchAnalysis,
+          ...patchOps,
+        });
+        sourcesRes = {
+          sources: {
+            ...sourcesRes.sources,
+            ...(onlyPatchedTreeModules.sources || {}),
+          },
+          errors: {
+            ...sourcesRes.errors,
+            ...(onlyPatchedTreeModules.errors || {}),
+          },
         };
-        let patchAnalysis: PatchAnalysis | null = null;
-        const newPatchIds: PatchId[] | undefined = undefined;
-        if (
-          (body?.patchIds && body?.patchIds?.length > 0) ||
-          body?.addPatches
-        ) {
-          // TODO: validate patches_sha
-          const patchIds = body?.patchIds;
-          const patchOps =
-            patchIds && patchIds.length > 0
-              ? await serverOps.fetchPatches({ patchIds, omitPatch: false })
-              : { patches: {} };
-          if (patchOps.error) {
-            return {
-              status: 400,
-              json: {
-                message: "Failed to fetch patches: " + patchOps.error.message,
-                details: [],
-              },
-            };
-          }
-          let patchErrors: Record<PatchId, { message: string }> | undefined =
-            undefined;
-          for (const [patchIdS, error] of Object.entries(
-            patchOps.errors || {},
-          )) {
-            const patchId = patchIdS as PatchId;
-            if (!patchErrors) {
-              patchErrors = {};
-            }
-            patchErrors[patchId] = {
-              message: error.message,
-            };
-          }
-          if (body?.addPatches) {
-            for (const addPatch of body.addPatches) {
-              const newPatchModuleFilePath = addPatch.path;
-              const newPatch = addPatch.patch;
-              const authorId = "id" in auth ? (auth.id as AuthorId) : null;
-              const createPatchRes = await serverOps.createPatch(
-                newPatchModuleFilePath,
-                patchAnalysis,
-                newPatch,
-                addPatch.parentRef,
-                authorId,
-              );
-              if (result.isErr(createPatchRes)) {
-                if (createPatchRes.error.errorType === "patch-id-conflict") {
-                  return {
-                    status: 409,
-                    json: {
-                      message: "Patch id conflict",
-                    },
-                  };
-                }
-                return {
-                  status: 500,
-                  json: {
-                    message:
-                      "Failed to create patch: " +
-                      createPatchRes.error.error.message,
-                    details: createPatchRes.error.error,
-                  },
-                };
-              }
-              // TODO: evaluate if we need this: seems wrong to delete patches that are not applied
-              // for (const fileRes of createPatchRes.files) {
-              //   if (fileRes.error) {
-              //     // clean up broken patch:
-              //     await this.serverOps.deletePatches([createPatchRes.patchId]);
-              //     return {
-              //       status: 500,
-              //       json: {
-              //         message: "Failed to create patch",
-              //         details: fileRes.error,
-              //       },
-              //     };
-              //   }
-              // }
-              patchOps.patches[createPatchRes.value.patchId] = {
-                path: newPatchModuleFilePath,
-                patch: newPatch,
-                parentRef: addPatch.parentRef,
-                authorId,
-                createdAt: createPatchRes.value.createdAt,
-                appliedAt: null,
-              };
-            }
-          }
-          // TODO: errors
-          patchAnalysis = serverOps.analyzePatches(patchOps.patches);
-          tree = {
-            ...(await serverOps.getTree({
-              ...patchAnalysis,
-              ...patchOps,
-            })),
-          };
-          if (query.validate_all) {
-            const allTree = await serverOps.getTree();
-            tree = {
-              sources: {
-                ...allTree.sources,
-                ...tree.sources,
-              },
-              errors: {
-                ...allTree.errors,
-                ...tree.errors,
-              },
-            };
-          }
-        } else {
-          tree = await serverOps.getTree();
-        }
         let sourcesValidation: {
           errors: Record<
             ModuleFilePath,
@@ -1016,14 +999,14 @@ export const ValServer = (
           const schemas = await serverOps.getSchemas();
           sourcesValidation = await serverOps.validateSources(
             schemas,
-            tree.sources,
+            sourcesRes.sources,
           );
 
           // TODO: send validation errors
           if (query.validate_binary_files) {
             const binaryFilesValidation = await serverOps.validateFiles(
               schemas,
-              tree.sources,
+              sourcesRes.sources,
               sourcesValidation.files,
             );
           }
@@ -1042,9 +1025,11 @@ export const ValServer = (
             validationErrors?: Record<SourcePath, ValidationError[]>;
           }
         > = {};
-        for (const [moduleFilePathS, module] of Object.entries(tree.sources)) {
+        for (const [moduleFilePathS, module] of Object.entries(
+          sourcesRes.sources,
+        )) {
           const moduleFilePath = moduleFilePathS as ModuleFilePath;
-          if (moduleFilePath.startsWith(treePath)) {
+          if (moduleFilePath.startsWith(moduleFilePath)) {
             modules[moduleFilePath] = {
               source: module,
               patches:
@@ -1061,44 +1046,11 @@ export const ValServer = (
           }
         }
 
-        if (tree.errors && Object.keys(tree.errors).length > 0) {
-          const res: z.infer<Api["/sources"]["PUT"]["res"]> = {
-            status: 400,
-            json: {
-              type: "patch-error",
-              schemaSha,
-              modules,
-              errors: Object.fromEntries(
-                Object.entries(tree.errors).map(([key, value]) => [
-                  key,
-                  value.map((error) => ({
-                    patchId: error.patchId,
-                    skipped: error.skipped,
-                    error: {
-                      message: error.error.message,
-                    },
-                  })),
-                ]),
-              ) as Record<
-                ModuleFilePath,
-                {
-                  patchId: PatchId;
-                  skipped: boolean;
-                  error: { message: string };
-                }[]
-              >,
-              message: "One or more patches failed to be applied",
-            },
-          };
-          return res;
-        }
-
-        const res: z.infer<Api["/sources"]["PUT"]["res"]> = {
+        const res: z.infer<Api["/sources/~"]["PUT"]["res"]> = {
           status: 200,
           json: {
             schemaSha,
             modules,
-            newPatchIds,
           },
         };
         return res;

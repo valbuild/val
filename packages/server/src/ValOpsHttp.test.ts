@@ -145,7 +145,7 @@ describe("ValOpsFS", () => {
       return;
     }
     console.log("patchRes1", JSON.stringify(patchRes1, null, 2));
-    const t0 = await ops.getTree();
+    const t0 = await ops.getSources();
     // console.log("base tree", JSON.stringify(t0, null, 2));
     // const v0 = await ops.validateSources(schemas, t0.sources);
     // console.log("base source validation", JSON.stringify(v0, null, 2));
@@ -159,7 +159,7 @@ describe("ValOpsFS", () => {
     });
     console.log("patches", patchesRes);
     const patchAnalysis = ops.analyzePatches(patchesRes.patches);
-    const t1 = await ops.getTree({
+    const t1 = await ops.getSources({
       ...patchAnalysis,
       ...patchesRes,
     });
