@@ -10,6 +10,5 @@ export type { ValFS } from "./ValFS";
 export { patchSourceFile } from "./patchValFile";
 export { formatSyntaxErrorTree } from "./patch/ts/syntax";
 export { createFixPatch } from "./createFixPatch";
-export { PatchJSON, Patch } from "./patch/validation";
 export * from "./jwt";
 export type { ValServer } from "./ValServer";

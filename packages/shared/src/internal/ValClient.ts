@@ -52,6 +52,10 @@ export const createValClient = (host: string): ValClient => {
     }
     const reqBodyResult = apiEndpoint.req.body?.safeParse(anyReq.body);
     if (reqBodyResult && !reqBodyResult.success) {
+      console.error("Invalid request body", {
+        body: anyReq.body,
+        error: reqBodyResult.error,
+      });
       return {
         status: null,
         json: {

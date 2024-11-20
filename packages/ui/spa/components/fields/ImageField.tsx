@@ -102,7 +102,6 @@ export function ImageField({ path }: { path: SourcePath }) {
   if (source === undefined) {
     return <FieldNotFound path={path} type={type} />;
   }
-  console.log(hotspot);
   return (
     <div>
       <ValidationErrors path={path} />

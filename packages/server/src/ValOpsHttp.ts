@@ -28,7 +28,8 @@ import {
 } from "./ValOps";
 import { z } from "zod";
 import { fromError } from "zod-validation-error";
-import { Patch } from "./patch/validation";
+import { ParentRef, Patch } from "@valbuild/shared/internal";
+import { result } from "@valbuild/core/fp";
 
 const textEncoder = new TextEncoder();
 
@@ -317,7 +318,7 @@ export class ValOpsHttp extends ValOps {
       patchIdChunks.push(patchIds.slice(i, i + chunkSize));
     }
     let allPatches: Patches["patches"] = {};
-    let allErrors: Patches["errors"] = {};
+    let allErrors: Patches["errors"] = [];
     if (patchIds === undefined || patchIds.length === 0) {
       return this.fetchPatchesInternal({
         patchIds: patchIds,
@@ -344,7 +345,7 @@ export class ValOpsHttp extends ValOps {
         ...(res.patches as Patches["patches"]),
       };
       if (res.errors) {
-        allErrors = { ...allErrors, ...res.errors };
+        allErrors = [...allErrors, ...res.errors];
       }
     }
     return {
@@ -401,25 +402,27 @@ export class ValOpsHttp extends ValOps {
           const json = await res.json();
           const parsed = GetPatches.safeParse(json);
           if (parsed.success) {
-            const data = parsed.data;
+            // const data = parsed.data;
             const errors: (OmitPatch extends true
               ? PatchesMetadata
-              : Patches)["errors"] = {};
-            for (const patchesRes of data.patches) {
-              patches[patchesRes.patchId] = {
-                path: patchesRes.path,
-                authorId: patchesRes.authorId,
-                createdAt: patchesRes.createdAt,
-                appliedAt: patchesRes.applied && {
-                  baseSha: patchesRes.applied.baseSha,
-                  timestamp: patchesRes.applied.appliedAt,
-                  git: {
-                    commitSha: patchesRes.applied.commitSha,
-                  },
-                },
-                patch: patchesRes.patch,
-              };
-            }
+              : Patches)["errors"] = [];
+            throw Error("Not implemented");
+            // for (const patchesRes of data.patches) {
+            //   patches[patchesRes.patchId] = {
+            //     path: patchesRes.path,
+            //     parentRef: patchesRes.parentRef,
+            //     authorId: patchesRes.authorId,
+            //     createdAt: patchesRes.createdAt,
+            //     appliedAt: patchesRes.applied && {
+            //       baseSha: patchesRes.applied.baseSha,
+            //       timestamp: patchesRes.applied.appliedAt,
+            //       git: {
+            //         commitSha: patchesRes.applied.commitSha,
+            //       },
+            //     },
+            //     patch: patchesRes.patch,
+            //   };
+            // }
             return {
               patches,
               errors,
@@ -470,48 +473,53 @@ export class ValOpsHttp extends ValOps {
         coreVersion: Internal.VERSION.core,
       }),
     })
-      .then(async (res) => {
+      .then(async (res): Promise<SaveSourceFilePatchResult> => {
         if (res.ok) {
           const parsed = SavePatchResponse.safeParse(await res.json());
           if (parsed.success) {
-            return { patchId: parsed.data.patchId };
+            return result.ok({ patchId: parsed.data.patchId });
           }
-          return {
-            error: {
-              message: `Could not parse save patch response. Error: ${fromError(
-                parsed.error,
-              )}`,
-            },
-          };
+          return result.err({
+            errorType: "other",
+            message: `Could not parse save patch response. Error: ${fromError(
+              parsed.error,
+            )}`,
+          });
         }
-        return {
-          error: {
-            message:
-              "Could not save patch. HTTP error: " +
-              res.status +
-              " " +
-              res.statusText,
-          },
-        };
+        if (res.status === 409) {
+          return result.err({
+            errorType: "patch-id-conflict",
+            message: "Conflict: " + (await res.text()),
+          });
+        }
+        return result.err({
+          errorType: "other",
+          message:
+            "Could not save patch. HTTP error: " +
+            res.status +
+            " " +
+            res.statusText,
+        });
       })
-      .catch((e) => {
-        return {
-          error: {
-            message: `Could save source file patch (connection error?): ${
-              e instanceof Error ? e.message : e.toString()
-            }`,
-          },
-        };
+      .catch((e): SaveSourceFilePatchResult => {
+        return result.err({
+          errorType: "other",
+          message: `Could save source file patch (connection error?): ${
+            e instanceof Error ? e.message : e.toString()
+          }`,
+        });
       });
   }
 
   protected override async saveBase64EncodedBinaryFileFromPatch(
     filePath: string,
+    parentRef: ParentRef,
     patchId: PatchId,
     data: string,
     type: BinaryFileType,
     metadata: MetadataOfType<BinaryFileType>,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
+    throw Error("TODO: implement");
     return fetch(
       `${this.hostUrl}/v1/${this.project}/patches/${patchId}/files`,
       {
@@ -528,34 +536,40 @@ export class ValOpsHttp extends ValOps {
         }),
       },
     )
-      .then(async (res) => {
-        if (res.ok) {
-          const parsed = SavePatchFileResponse.safeParse(await res.json());
-          if (parsed.success) {
+      .then(
+        async (
+          res,
+        ): Promise<
+          WithGenericError<{ patchId: PatchId; filePath: string }>
+        > => {
+          if (res.ok) {
+            const parsed = SavePatchFileResponse.safeParse(await res.json());
+            if (parsed.success) {
+              return {
+                patchId: parsed.data.patchId,
+                filePath: parsed.data.filePath,
+              };
+            }
             return {
-              patchId: parsed.data.patchId,
-              filePath: parsed.data.filePath,
+              error: {
+                message: `Could not parse save patch file response. Error: ${fromError(
+                  parsed.error,
+                )}`,
+              },
             };
           }
           return {
             error: {
-              message: `Could not parse save patch file response. Error: ${fromError(
-                parsed.error,
-              )}`,
+              message:
+                "Could not save patch file. HTTP error: " +
+                res.status +
+                " " +
+                res.statusText,
             },
           };
-        }
-        return {
-          error: {
-            message:
-              "Could not save patch file. HTTP error: " +
-              res.status +
-              " " +
-              res.statusText,
-          },
-        };
-      })
-      .catch((e) => {
+        },
+      )
+      .catch((e): WithGenericError<{ patchId: PatchId; filePath: string }> => {
         return {
           error: {
             message: `Could save source binary file in patch (connection error?): ${e.toString()}`,

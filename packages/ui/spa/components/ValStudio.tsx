@@ -6,7 +6,6 @@ import { Layout } from "./Layout";
 
 interface ValFullscreenProps {
   client: ValClient;
-  cache: ValCache;
 }
 
 export const ValStudio: FC<ValFullscreenProps> = ({ client }) => {

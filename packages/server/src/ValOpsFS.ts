@@ -25,7 +25,7 @@ import { z } from "zod";
 import fs from "fs";
 import nodePath from "path";
 import { fromError } from "zod-validation-error";
-import { Patch, ParentRef } from "./patch/validation";
+import { Patch, ParentRef } from "@valbuild/shared/internal";
 import { guessMimeTypeFromPath } from "./ValServer";
 import { result } from "@valbuild/core/fp";
 import { ParentPatchId } from "@valbuild/core/src/val";
@@ -367,12 +367,6 @@ export class ValOpsFS extends ValOps {
     const { errors, patches: allPatches } = await this.readPatches(
       filters.patchIds,
     );
-    if (allErrors && Object.keys(allErrors).length > 0) {
-      for (const [patchId, error] of Object.entries(allErrors)) {
-        console.error("Error reading patch", patchId, error);
-        errors[patchId as PatchId] = error;
-      }
-    }
     for (const [patchIdS, patch] of Object.entries(allPatches)) {
       const patchId = patchIdS as PatchId;
       if (

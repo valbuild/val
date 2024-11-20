@@ -543,7 +543,9 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
 
       body: {
         patchIds: currentPatchIds,
-        addPatches: mergedPatches,
+        addPatches: {
+          ...mergedPatches,
+        },
       },
     })
       .then((res) => {
