@@ -25,7 +25,7 @@ export type InitSchema = {
   // readonly oneOf: typeof oneOf;
   readonly richtext: typeof richtext;
   /**
-   * Define a image source.
+   * Define an image.
    *
    * Use c.image to create an image source.
    *
