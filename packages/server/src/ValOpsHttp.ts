@@ -761,7 +761,7 @@ export class ValOpsHttp extends ValOps {
     params.set("file_path", filePath);
     try {
       const metadataRes = await fetch(
-        `${this.hostUrl}/v1/${this.project}/patches/${patchId}/metadata?${params}`,
+        `${this.hostUrl}/v1/${this.project}/patches/${patchId}/files?${params}`,
         {
           headers: { ...this.authHeaders, "Content-Type": "application/json" },
         },
