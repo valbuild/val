@@ -129,7 +129,6 @@ describe("ValOpsFS", () => {
     const schemas = await ops.getSchemas();
     const patchRes1 = await ops.createPatch(
       "/components/clientContent.val.ts" as ModuleFilePath,
-      null,
       [
         {
           op: "replace",
