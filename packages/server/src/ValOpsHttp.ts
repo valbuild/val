@@ -277,6 +277,19 @@ export class ValOpsHttp extends ValOps {
             data: { nonce: json.nonce, url: json.url },
           };
         }
+        const contentType = res.headers.get("Content-Type") || "";
+        if (contentType.startsWith("application/json")) {
+          const json = await res.json();
+          return {
+            status: "error" as const,
+            error: {
+              message:
+                "Could not get nonce." +
+                (json.message ||
+                  "Unexpected error (no error message). Status: " + res.status),
+            },
+          };
+        }
         return {
           status: "error" as const,
           error: {
