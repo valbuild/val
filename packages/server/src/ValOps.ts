@@ -1024,7 +1024,7 @@ export abstract class ValOps {
     let sources = initTree.sources;
 
     if (parentRef.type !== "head") {
-      // There's room for some optimizations here: we could do this once, then re-use everytime we create a patch, then again we only create one patch at a time
+      // There's room for some optimizations here: we could do this once, then re-use every time we create a patch, then again we only create one patch at a time
       const patchOps = await this.fetchPatches({ omitPatch: false });
       const patchAnalysis = this.analyzePatches(patchOps.patches);
       const tree = await this.getSources({
