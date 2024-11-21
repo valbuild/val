@@ -13,11 +13,9 @@ import {
   type BaseSha,
   BinaryFileType,
   type CommitSha,
-  PatchesMetadata,
   GenericErrorMessage,
   MetadataOfType,
   OpsMetadata,
-  Patches,
   PreparedCommit,
   ValOps,
   ValOpsOptions,
@@ -25,6 +23,8 @@ import {
   SaveSourceFilePatchResult,
   SchemaSha,
   bufferFromDataUrl,
+  OrderedPatchesMetadata,
+  OrderedPatches,
 } from "./ValOps";
 import { z } from "zod";
 import { fromError } from "zod-validation-error";
@@ -321,7 +321,9 @@ export class ValOpsHttp extends ValOps {
     patchIds?: PatchId[];
     moduleFilePaths?: ModuleFilePath[];
     omitPatch: OmitPatch;
-  }): Promise<OmitPatch extends true ? PatchesMetadata : Patches> {
+  }): Promise<
+    OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches
+  > {
     // Split patchIds into chunks to avoid too long query strings
     // NOTE: fetching patches results are cached, so this should reduce the pressure on the server
     const chunkSize = 100;
@@ -330,8 +332,8 @@ export class ValOpsHttp extends ValOps {
     for (let i = 0; i < patchIds.length; i += chunkSize) {
       patchIdChunks.push(patchIds.slice(i, i + chunkSize));
     }
-    let allPatches: Patches["patches"] = {};
-    let allErrors: Patches["errors"] = [];
+    let allPatches: OrderedPatches["patches"] = [];
+    let allErrors: OrderedPatches["errors"] = [];
     if (patchIds === undefined || patchIds.length === 0) {
       return this.fetchPatchesInternal({
         patchIds: patchIds,
@@ -355,7 +357,7 @@ export class ValOpsHttp extends ValOps {
       }
       allPatches = {
         ...allPatches,
-        ...(res.patches as Patches["patches"]),
+        ...(res.patches as OrderedPatches["patches"]),
       };
       if (res.errors) {
         allErrors = [...allErrors, ...res.errors];
@@ -364,7 +366,7 @@ export class ValOpsHttp extends ValOps {
     return {
       patches: allPatches,
       errors: Object.keys(allErrors).length > 0 ? allErrors : undefined,
-    } as OmitPatch extends true ? PatchesMetadata : Patches;
+    } as OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches;
   }
 
   async fetchPatchesInternal<OmitPatch extends boolean>(filters: {
@@ -372,7 +374,9 @@ export class ValOpsHttp extends ValOps {
     patchIds?: PatchId[];
     moduleFilePaths?: ModuleFilePath[];
     omitPatch: OmitPatch;
-  }): Promise<OmitPatch extends true ? PatchesMetadata : Patches> {
+  }): Promise<
+    OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches
+  > {
     const params: [string, string][] = [];
     params.push(["branch", this.branch]);
     if (filters.patchIds) {
@@ -407,18 +411,20 @@ export class ValOpsHttp extends ValOps {
     ).then(
       async (
         res,
-      ): Promise<OmitPatch extends true ? PatchesMetadata : Patches> => {
+      ): Promise<
+        OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches
+      > => {
         const patches: (OmitPatch extends true
-          ? PatchesMetadata
-          : Patches)["patches"] = {};
+          ? OrderedPatchesMetadata
+          : OrderedPatches)["patches"] = [];
         if (res.ok) {
           const json = await res.json();
           const parsed = GetPatches.safeParse(json);
           if (parsed.success) {
             // const data = parsed.data;
             const errors: (OmitPatch extends true
-              ? PatchesMetadata
-              : Patches)["errors"] = [];
+              ? OrderedPatchesMetadata
+              : OrderedPatches)["errors"] = [];
             throw Error("Not implemented");
             // for (const patchesRes of data.patches) {
             //   patches[patchesRes.patchId] = {
@@ -439,7 +445,9 @@ export class ValOpsHttp extends ValOps {
             return {
               patches,
               errors,
-            } as OmitPatch extends true ? PatchesMetadata : Patches;
+            } as OmitPatch extends true
+              ? OrderedPatchesMetadata
+              : OrderedPatches;
           }
           return {
             patches,
@@ -448,7 +456,7 @@ export class ValOpsHttp extends ValOps {
                 parsed.error,
               )}`,
             },
-          } as OmitPatch extends true ? PatchesMetadata : Patches;
+          } as OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches;
         }
         return {
           patches,
@@ -459,7 +467,7 @@ export class ValOpsHttp extends ValOps {
               " " +
               res.statusText,
           },
-        } as OmitPatch extends true ? PatchesMetadata : Patches;
+        } as OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches;
       },
     );
   }
