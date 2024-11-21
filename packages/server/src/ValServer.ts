@@ -756,7 +756,7 @@ export const ValServer = (
         }
         const omit_patch = query.omit_patch === true;
         const authors = query.author as AuthorId[] | undefined;
-        const fetchedPatches = await serverOps.fetchPatches({
+        const fetchedPatchesRes = await serverOps.fetchPatches({
           authors,
           patchIds: query.patch_id as PatchId[] | undefined,
           omitPatch: omit_patch,
@@ -764,28 +764,28 @@ export const ValServer = (
             | ModuleFilePath[]
             | undefined,
         });
-        if (fetchedPatches.error) {
+        if (fetchedPatchesRes.error) {
           // Error is singular
-          console.error("Val: Failed to get patches", fetchedPatches.error);
+          console.error("Val: Failed to get patches", fetchedPatchesRes.error);
           return {
             status: 500,
             json: {
-              message: fetchedPatches.error.message,
-              error: fetchedPatches.error,
+              message: fetchedPatchesRes.error.message,
+              error: fetchedPatchesRes.error,
             },
           };
         }
         if (
-          fetchedPatches.errors &&
-          Object.keys(fetchedPatches.errors).length > 0
+          fetchedPatchesRes.errors &&
+          Object.keys(fetchedPatchesRes.errors).length > 0
         ) {
           // Errors is plural. Different property than above.
-          console.error("Val: Failed to get patches", fetchedPatches.errors);
+          console.error("Val: Failed to get patches", fetchedPatchesRes.errors);
           return {
             status: 500,
             json: {
               message: "Failed to get patches",
-              patchErrors: fetchedPatches.errors,
+              patchErrors: fetchedPatchesRes.errors,
             },
           };
         }
@@ -803,7 +803,7 @@ export const ValServer = (
           } | null;
         }[] = [];
         for (const [patchIdS, patchData] of Object.entries(
-          fetchedPatches.patches,
+          fetchedPatchesRes.patches,
         )) {
           const patchId = patchIdS as PatchId;
           patches.push({

@@ -24,9 +24,9 @@ import {
 import { pipe, result } from "@valbuild/core/fp";
 import {
   JSONOps,
+  JSONValue,
   ParentRef,
   Patch,
-  PatchBlock,
   PatchError,
   applyPatch,
   deepClone,
@@ -93,13 +93,10 @@ export abstract class ValOps {
   }
 
   private hash(input: string | object): string {
-    let str;
-    if (typeof input === "string") {
-      str = input;
-    } else {
-      str = JSON.stringify(input); // TODO: We should probably use hashObject here
+    if (typeof input === "object") {
+      return this.hashObject(input);
     }
-    return Internal.getSHA256Hash(textEncoder.encode(str));
+    return Internal.getSHA256Hash(textEncoder.encode(input));
   }
 
   private hashObject(obj: object): string {
@@ -349,14 +346,13 @@ export abstract class ValOps {
   }
 
   // #region analyzePatches
-  analyzePatches(patchesById: Patches["patches"]): PatchAnalysis {
+  analyzePatches(sortedPatches: OrderedPatches["patches"]): PatchAnalysis {
     const patchesByModule: {
       [path: ModuleFilePath]: {
         patchId: PatchId;
       }[];
     } = {};
     const fileLastUpdatedByPatchId: Record<string, PatchId> = {};
-    const sortedPatches = this.createPatchChain(patchesById);
     for (const patch of sortedPatches) {
       for (const op of patch.patch) {
         if (op.op === "file") {
@@ -376,51 +372,8 @@ export abstract class ValOps {
     };
   }
 
-  // #region createPatchChain
-  createPatchChain<T extends Patches["patches"] | PatchesMetadata["patches"]>(
-    unsortedPatchRecord: T,
-  ): T extends Patches["patches"]
-    ? OrderedPatches["patches"]
-    : OrderedPatchesMetadata["patches"] {
-    // TODO: Error handling
-    const nextPatch: Record<PatchId, PatchId | undefined> = {};
-    Object.keys(unsortedPatchRecord).forEach((patchId) => {
-      const patch = unsortedPatchRecord[patchId as PatchId];
-      if (patch.parentRef.type === "head") {
-        nextPatch["head" as PatchId] = patchId as PatchId;
-      } else {
-        nextPatch[patch.parentRef.patchId as PatchId] = patchId as PatchId;
-      }
-    });
-    // TODO: These types don't feel great
-    type SortedPatchType = T extends Patches["patches"]
-      ? OrderedPatches["patches"][number]
-      : OrderedPatchesMetadata["patches"][number];
-
-    const sortedPatches: SortedPatchType[] = [];
-
-    let nextPatchId: PatchId | undefined = Object.entries(
-      unsortedPatchRecord,
-    ).find(
-      ([_patchId, patch]) => patch.parentRef.type === "head",
-    )?.[0] as PatchId;
-
-    while (!!nextPatchId && nextPatchId in unsortedPatchRecord) {
-      const patch = unsortedPatchRecord[nextPatchId];
-      sortedPatches.push({
-        ...patch,
-        patchId: nextPatchId,
-      } as SortedPatchType);
-      nextPatchId = nextPatch[nextPatchId];
-    }
-
-    return sortedPatches as unknown as T extends Patches["patches"]
-      ? OrderedPatches["patches"]
-      : OrderedPatchesMetadata["patches"];
-  }
-
   // #region getTree
-  async getSources(analysis?: PatchAnalysis & Patches): Promise<{
+  async getSources(analysis?: PatchAnalysis & OrderedPatches): Promise<{
     sources: Sources;
     errors: Record<
       ModuleFilePath,
@@ -446,79 +399,73 @@ export abstract class ValOps {
         error: GenericErrorMessage;
       }[]
     > = {};
-    for (const [pathS, patches] of Object.entries(analysis.patchesByModule)) {
-      const path = pathS as ModuleFilePath;
+    for (const patchData of analysis.patches) {
+      const path = patchData.path;
       if (!sources[path]) {
         if (!errors[path]) {
           errors[path] = [];
         }
-        errors[path].push(
-          ...patches.map(({ patchId }) => ({
-            patchId,
-            invalidPath: true,
-            skipped: true,
-            error: new PatchError(`Module at path: '${path}' not found`),
-          })),
-        );
+        console.error("Module not found", path);
+        errors[path].push({
+          patchId: patchData.patchId,
+          skipped: true,
+          error: new PatchError(`Module not found`),
+        });
+        continue;
       }
-      patchedSources[path] = sources[path];
-      for (const { patchId } of patches) {
-        if (errors[path]) {
-          errors[path].push({
-            patchId: patchId,
-            skipped: true,
-            error: new PatchError(`Cannot apply patch: previous errors exists`),
-          });
-        } else {
-          const patchData = analysis.patches[patchId];
-          if (!patchData) {
-            errors[path] = [
+      if (!patchedSources[path]) {
+        patchedSources[path] = sources[path];
+      }
+      const patchId = patchData.patchId;
+      if (errors[path]) {
+        console.error(
+          "Cannot apply patch: previous errors exists",
+          path,
+          errors[path],
+        );
+        errors[path].push({
+          patchId: patchId,
+          skipped: true,
+          error: new PatchError(`Cannot apply patch: previous errors exists`),
+        });
+      } else {
+        const applicableOps: Patch = [];
+        const fileFixOps: Record<string, Patch> = {};
+        for (const op of patchData.patch) {
+          if (op.op === "file") {
+            // NOTE: We insert the last patch_id that modify a file
+            // when constructing the url we use the patch id (and the file path)
+            // to fetch the right file
+            // NOTE: overwrite and use last patch_id if multiple patches modify the same file
+            fileFixOps[op.path.join("/")] = [
               {
-                patchId: patchId,
-                skipped: false,
-                error: new PatchError(`Patch not found`),
+                op: "add",
+                path: op.path
+                  .concat(...(op.nestedFilePath || []))
+                  .concat("patch_id"),
+                value: patchId,
               },
             ];
-            continue;
-          }
-          const applicableOps: Patch = [];
-          const fileFixOps: Record<string, Patch> = {};
-          for (const op of patchData.patch) {
-            if (op.op === "file") {
-              // NOTE: We insert the last patch_id that modify a file
-              // when constructing the url we use the patch id (and the file path)
-              // to fetch the right file
-              // NOTE: overwrite and use last patch_id if multiple patches modify the same file
-              fileFixOps[op.path.join("/")] = [
-                {
-                  op: "add",
-                  path: op.path
-                    .concat(...(op.nestedFilePath || []))
-                    .concat("patch_id"),
-                  value: patchId,
-                },
-              ];
-            } else {
-              applicableOps.push(op);
-            }
-          }
-          const patchRes = applyPatch(
-            deepClone(patchedSources[path]), // applyPatch mutates the source. On add operations it will add multiple items? There is something strange going on. DeepClone seems to fix, but is that the right?
-            jsonOps,
-            applicableOps.concat(...Object.values(fileFixOps)),
-          );
-          if (result.isErr(patchRes)) {
-            if (!errors[path]) {
-              errors[path] = [];
-            }
-            errors[path].push({
-              patchId: patchId,
-              skipped: false,
-              error: patchRes.error,
-            });
           } else {
-            patchedSources[path] = patchRes.value;
+            applicableOps.push(op);
           }
+        }
+        const patchRes = applyPatch(
+          deepClone(patchedSources[path]) as JSONValue, // applyPatch mutates the source. On add operations it adds more than once? There is something strange going on... deepClone seems to fix, but is that the right solution?
+          jsonOps,
+          applicableOps.concat(...Object.values(fileFixOps)),
+        );
+        if (result.isErr(patchRes)) {
+          if (!errors[path]) {
+            errors[path] = [];
+          }
+          errors[path].push({
+            patchId: patchId,
+            skipped: false,
+            error: patchRes.error,
+          });
+        } else {
+          patchedSources[path] = patchRes.value;
         }
       }
     }
@@ -799,7 +746,7 @@ export abstract class ValOps {
 
   // #region prepareCommit
   async prepare(
-    patchAnalysis: PatchAnalysis & Patches,
+    patchAnalysis: PatchAnalysis & OrderedPatches,
   ): Promise<PreparedCommit> {
     const { patchesByModule, fileLastUpdatedByPatchId } = patchAnalysis;
     const applySourceFilePatches = async (
@@ -843,13 +790,16 @@ export abstract class ValOps {
       const appliedPatches: PatchId[] = [];
       const triedPatches: PatchId[] = [];
       for (const { patchId } of patches) {
-        const patch = patchAnalysis.patches?.[patchId]?.patch;
-        if (!patch) {
+        const patchData = patchAnalysis.patches.find(
+          (p) => p.patchId === patchId,
+        );
+        if (!patchData) {
           errors.push({
             message: `Analysis required non-existing patch: ${patchId}`,
           });
           break;
         }
+        const patch = patchData.patch;
         const sourceFileOps = patch.filter((op) => op.op !== "file"); // file is not a valid source file op
         const patchRes = applyPatch(tsSourceFile, tsOps, sourceFileOps);
         if (result.isErr(patchRes)) {
@@ -1298,7 +1248,7 @@ export abstract class ValOps {
     patchIds?: PatchId[];
     moduleFilePaths?: ModuleFilePath[];
     omitPatch: OmitPatch;
-  }): Promise<OmitPatch extends true ? PatchesMetadata : Patches>;
+  }): Promise<OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches>;
   protected abstract saveSourceFilePatch(
     path: ModuleFilePath,
     patch: Patch,
@@ -1376,16 +1326,6 @@ export type GenericErrorMessage = {
   details?: unknown;
 };
 
-export type PatchReadError =
-  | {
-      patchId: PatchId;
-      message: string;
-    }
-  | {
-      parentPatchId: ParentPatchId;
-      message: string;
-    };
-
 export type SaveSourceFilePatchResult = result.Result<
   { patchId: PatchId },
   | ({ errorType: "other" } & GenericErrorMessage)
@@ -1452,36 +1392,17 @@ export type PreparedCommit = {
   triedPatches: Record<ModuleFilePath, PatchId[]>;
 };
 
-export type Patches = {
-  patches: Record<
-    PatchId,
-    {
-      path: ModuleFilePath;
-      patch: Patch;
-      parentRef: ParentRef;
-      createdAt: string;
-      authorId: AuthorId | null;
-      appliedAt: {
-        baseSha: BaseSha;
-        git?: { commitSha: CommitSha };
-        timestamp: string;
-      } | null;
-    }
-  >;
-  error?: GenericErrorMessage;
-  errors?: PatchReadError[];
-};
-
 export type PatchErrors = Record<PatchId, GenericErrorMessage>;
 
-export type PatchesMetadata = {
-  patches: Record<
-    PatchId,
-    Omit<Patches["patches"][PatchId], "patch"> & { patch?: undefined }
-  >;
-  error?: GenericErrorMessage;
-  errors?: Patches["errors"];
-};
+export type PatchReadError =
+  | {
+      patchId: PatchId;
+      message: string;
+    }
+  | {
+      parentPatchId: ParentPatchId;
+      message: string;
+    };
 
 export type OrderedPatches = {
   patches: {

@@ -3,11 +3,9 @@ import {
   AuthorId,
   BaseSha,
   BinaryFileType,
-  PatchesMetadata,
   GenericErrorMessage,
   MetadataOfType,
   OpsMetadata,
-  Patches,
   PreparedCommit,
   ValOps,
   ValOpsOptions,
@@ -18,6 +16,9 @@ import {
   SaveSourceFilePatchResult,
   SchemaSha,
   CommitSha,
+  OrderedPatches,
+  OrderedPatchesMetadata,
+  PatchReadError,
 } from "./ValOps";
 import fsPath from "path";
 import ts from "typescript";
@@ -276,7 +277,7 @@ export class ValOpsFS extends ValOps {
     }
   }
 
-  private async readPatches(includes?: PatchId[]): Promise<Patches> {
+  private async readPatches(includes?: PatchId[]): Promise<FSPatches> {
     const patchesCacheDir = this.getPatchesDir();
     let patchJsonFiles: readonly string[] = [];
     if (
@@ -290,8 +291,8 @@ export class ValOpsFS extends ValOps {
         [],
       );
     }
-    const patches: Patches["patches"] = {};
-    const errors: NonNullable<Patches["errors"]> = [];
+    const patches: FSPatches["patches"] = {};
+    const errors: NonNullable<FSPatches["errors"]> = [];
 
     const parsedUnsortedFsPatches = patchJsonFiles
       .map((file) => fsPath.basename(fsPath.dirname(file)) as ParentPatchId)
@@ -360,29 +361,56 @@ export class ValOpsFS extends ValOps {
     patchIds?: PatchId[];
     moduleFilePaths?: ModuleFilePath[];
     omitPatch: OmitPatch;
-  }): Promise<OmitPatch extends true ? PatchesMetadata : Patches> {
+  }): Promise<
+    OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches
+  > {
+    const fetchPatchesRes = await this.fetchPatchesFromFS();
+    const sortedPatches = this.createPatchChain(fetchPatchesRes.patches)
+      .filter((patchData) => {
+        if (
+          filters.authors &&
+          !(
+            patchData.authorId === null ||
+            filters.authors.includes(patchData.authorId)
+          )
+        ) {
+          return false;
+        }
+        if (
+          filters.moduleFilePaths &&
+          !filters.moduleFilePaths.includes(patchData.path)
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .map((patchData) => {
+        if (filters.omitPatch) {
+          return {
+            ...patchData,
+            patch: undefined,
+          };
+        }
+        return patchData;
+      });
+
+    return {
+      patches: sortedPatches,
+      errors: fetchPatchesRes.errors,
+    } as OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches;
+  }
+
+  async fetchPatchesFromFS<OmitPatch extends boolean>(): Promise<
+    OmitPatch extends true ? FSPatchesMetadata : FSPatches
+  > {
     const patches: (OmitPatch extends true
-      ? PatchesMetadata
-      : Patches)["patches"] = {};
-    const { errors, patches: allPatches } = await this.readPatches(
-      filters.patchIds,
-    );
+      ? FSPatchesMetadata
+      : FSPatches)["patches"] = {};
+    const { errors, patches: allPatches } = await this.readPatches();
     for (const [patchIdS, patch] of Object.entries(allPatches)) {
       const patchId = patchIdS as PatchId;
-      if (
-        filters.authors &&
-        !(patch.authorId === null || filters.authors.includes(patch.authorId))
-      ) {
-        continue;
-      }
-      if (
-        filters.moduleFilePaths &&
-        !filters.moduleFilePaths.includes(patch.path)
-      ) {
-        continue;
-      }
       patches[patchId] = {
-        patch: filters.omitPatch ? undefined : patch.patch,
+        patch: patch.patch,
         parentRef: patch.parentRef,
         path: patch.path,
         createdAt: patch.createdAt,
@@ -392,10 +420,55 @@ export class ValOpsFS extends ValOps {
     }
     if (errors && errors.length > 0) {
       return { patches, errors } as OmitPatch extends true
-        ? PatchesMetadata
-        : Patches;
+        ? FSPatchesMetadata
+        : FSPatches;
     }
-    return { patches } as OmitPatch extends true ? PatchesMetadata : Patches;
+    return { patches } as OmitPatch extends true
+      ? FSPatchesMetadata
+      : FSPatches;
+  }
+
+  // #region createPatchChain
+  private createPatchChain<
+    T extends FSPatches["patches"] | FSPatchesMetadata["patches"],
+  >(
+    unsortedPatchRecord: T,
+  ): T extends FSPatches["patches"]
+    ? OrderedPatches["patches"]
+    : OrderedPatchesMetadata["patches"] {
+    // TODO: Error handling
+    const nextPatch: Record<PatchId, PatchId | undefined> = {};
+    Object.keys(unsortedPatchRecord).forEach((patchId) => {
+      const patch = unsortedPatchRecord[patchId as PatchId];
+      if (patch.parentRef.type === "head") {
+        nextPatch["head" as PatchId] = patchId as PatchId;
+      } else {
+        nextPatch[patch.parentRef.patchId as PatchId] = patchId as PatchId;
+      }
+    });
+    // TODO: These types don't feel great
+    type SortedPatchType = T extends FSPatches["patches"]
+      ? OrderedPatches["patches"][number]
+      : OrderedPatchesMetadata["patches"][number];
+
+    const sortedPatches: SortedPatchType[] = [];
+
+    let nextPatchId: PatchId | undefined = Object.entries(
+      unsortedPatchRecord,
+    ).find(([, patch]) => patch.parentRef.type === "head")?.[0] as PatchId;
+
+    while (!!nextPatchId && nextPatchId in unsortedPatchRecord) {
+      const patch = unsortedPatchRecord[nextPatchId];
+      sortedPatches.push({
+        ...patch,
+        patchId: nextPatchId,
+      } as SortedPatchType);
+      nextPatchId = nextPatch[nextPatchId];
+    }
+
+    return sortedPatches as unknown as T extends FSPatches["patches"]
+      ? OrderedPatches["patches"]
+      : OrderedPatchesMetadata["patches"];
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1008,3 +1081,32 @@ const FSPatchBase = z.object({
   baseSha: z.string().refine((p): p is BaseSha => true),
   timestamp: z.string().datetime(),
 });
+
+type FSPatches = {
+  patches: Record<
+    PatchId,
+    {
+      path: ModuleFilePath;
+      patch: Patch;
+      parentRef: ParentRef;
+      createdAt: string;
+      authorId: AuthorId | null;
+      appliedAt: {
+        baseSha: BaseSha;
+        git?: { commitSha: CommitSha };
+        timestamp: string;
+      } | null;
+    }
+  >;
+  error?: GenericErrorMessage;
+  errors?: PatchReadError[];
+};
+
+type FSPatchesMetadata = {
+  patches: Record<
+    PatchId,
+    Omit<FSPatches["patches"][PatchId], "patch"> & { patch?: undefined }
+  >;
+  error?: GenericErrorMessage;
+  errors?: FSPatches["errors"];
+};
