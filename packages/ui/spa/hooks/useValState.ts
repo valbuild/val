@@ -687,7 +687,10 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
   };
 }
 
-const PatchId = z.string().refine((p): p is PatchId => true); // TODO: validate
+const PatchId = z
+  .string()
+  .uuid()
+  .refine((p): p is PatchId => true);
 
 const WebSocketServerMessage = z.union([
   z.object({
