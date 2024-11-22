@@ -540,7 +540,6 @@ export const Api = {
                 path: ModuleFilePath,
                 patch: Patch.optional(),
                 patchId: PatchId,
-                parentRef: ParentRef,
                 createdAt: z.string(),
                 authorId: z.string().nullable(),
                 appliedAt: z
