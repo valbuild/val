@@ -966,8 +966,7 @@ export const ValServer = (
           omitPatch: false,
         });
         const patchAnalysis = serverOps.analyzePatches(patchOps.patches);
-        let sourcesRes;
-        sourcesRes = await serverOps.getSources();
+        let sourcesRes = await serverOps.getSources();
         const onlyPatchedTreeModules = await serverOps.getSources({
           ...patchAnalysis,
           ...patchOps,
@@ -1002,7 +1001,7 @@ export const ValServer = (
             sourcesRes.sources,
           );
 
-          // TODO: send validation errors
+          // TODO: send binary files validation errors
           if (query.validate_binary_files) {
             const binaryFilesValidation = await serverOps.validateFiles(
               schemas,
