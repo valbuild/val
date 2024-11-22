@@ -1083,7 +1083,7 @@ export abstract class ValOps {
     );
     if (result.isErr(saveRes)) {
       console.error(
-        `Could not save source file patch at path: '${path}'. Error: ${saveRes.error.errorType}`,
+        `Could not save source patch at path: '${path}'. Error: ${saveRes.error.errorType === "other" ? saveRes.error.message : saveRes.error.errorType}`,
       );
       if (saveRes.error.errorType === "patch-head-conflict") {
         return result.err({ errorType: "patch-head-conflict" });
