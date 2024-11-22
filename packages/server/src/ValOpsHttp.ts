@@ -198,20 +198,33 @@ export class ValOpsHttp extends ValOps {
     }
     const currentBaseSha = await this.getBaseSha();
     const currentSchemaSha = await this.getSchemaSha();
-    const patchData = await this.fetchPatches({
+    const allPatchData = await this.fetchPatches({
       omitPatch: true,
       authors: undefined,
       patchIds: undefined,
       moduleFilePaths: undefined,
     });
+    // We think these errors will be picked up else where (?), so we only return an error here if there are no patches
+    if (allPatchData.patches.length === 0) {
+      let message;
+      if (allPatchData.error) {
+        message = allPatchData.error.message;
+      } else if (allPatchData.errors && allPatchData.errors.length > 0) {
+        const errors = allPatchData.errors;
+        message = errors.map((error) => error.message).join("");
+      }
+      if (message) {
+        message = `Could not get patches: ${message}`;
+        console.error(message);
+        return {
+          type: "error",
+          error: { message },
+        };
+      }
+    }
     const patches: PatchId[] = [];
-    // TODO: use proper patch sequences when available:
-    for (const [patchId] of Object.entries(patchData.patches).sort(
-      ([, a], [, b]) => {
-        return a.createdAt.localeCompare(b.createdAt, undefined);
-      },
-    )) {
-      patches.push(patchId as PatchId);
+    for (const patchData of allPatchData.patches) {
+      patches.push(patchData.patchId);
     }
     const webSocketNonceRes = await this.getWebSocketNonce(params.profileId);
     if (webSocketNonceRes.status === "error") {
@@ -471,7 +484,6 @@ export class ValOpsHttp extends ValOps {
     parentRef: ParentRefT,
     authorId: AuthorId | null,
   ): Promise<SaveSourceFilePatchResult> {
-    console.log("Saving patch", path, patch, authorId);
     const baseSha = await this.getBaseSha();
     return fetch(`${this.hostUrl}/v1/${this.project}/patches`, {
       method: "POST",
@@ -507,6 +519,13 @@ export class ValOpsHttp extends ValOps {
           return result.err({
             errorType: "patch-head-conflict",
             message: "Conflict: " + (await res.text()),
+          });
+        }
+        if (res.headers.get("Content-Type")?.includes("application/json")) {
+          const json = await res.json();
+          return result.err({
+            errorType: "other",
+            message: json.message || "Unknown error",
           });
         }
         return result.err({
