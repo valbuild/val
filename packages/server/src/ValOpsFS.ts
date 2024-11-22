@@ -446,12 +446,8 @@ export class ValOpsFS extends ValOps {
         nextPatch[patch.parentRef.patchId as PatchId] = patchId as PatchId;
       }
     });
-    // TODO: These types don't feel great
-    type SortedPatchType = T extends FSPatches["patches"]
-      ? OrderedPatches["patches"][number]
-      : OrderedPatchesMetadata["patches"][number];
 
-    const sortedPatches: SortedPatchType[] = [];
+    const sortedPatches = [];
 
     let nextPatchId: PatchId | undefined = Object.entries(
       unsortedPatchRecord,
@@ -461,8 +457,9 @@ export class ValOpsFS extends ValOps {
       const patch = unsortedPatchRecord[nextPatchId];
       sortedPatches.push({
         ...patch,
+        parentRef: undefined,
         patchId: nextPatchId,
-      } as SortedPatchType);
+      });
       nextPatchId = nextPatch[nextPatchId];
     }
 

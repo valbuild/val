@@ -1409,7 +1409,6 @@ export type OrderedPatches = {
     path: ModuleFilePath;
     patchId: PatchId;
     patch: Patch;
-    parentRef: ParentRef;
     createdAt: string;
     authorId: AuthorId | null;
     appliedAt: {

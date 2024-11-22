@@ -59,13 +59,7 @@ const BasePatchResponse = z.object({
   patchId: PatchId,
   authorId: AuthorId.nullable(),
   createdAt: z.string().datetime(),
-  applied: z
-    .object({
-      baseSha: BaseSha,
-      commitSha: CommitSha,
-      appliedAt: z.string().datetime(),
-    })
-    .nullable(),
+  baseSha: z.string(),
 });
 const GetPatches = z.object({
   patches: z.array(
@@ -414,34 +408,33 @@ export class ValOpsHttp extends ValOps {
       ): Promise<
         OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches
       > => {
-        const patches: (OmitPatch extends true
-          ? OrderedPatchesMetadata
-          : OrderedPatches)["patches"] = [];
+        const patches: {
+          path: ModuleFilePath;
+          patchId: PatchId;
+          patch?: Patch;
+          createdAt: string;
+          authorId: AuthorId | null;
+          appliedAt: null;
+        }[] = [];
         if (res.ok) {
           const json = await res.json();
           const parsed = GetPatches.safeParse(json);
           if (parsed.success) {
-            // const data = parsed.data;
             const errors: (OmitPatch extends true
               ? OrderedPatchesMetadata
               : OrderedPatches)["errors"] = [];
-            throw Error("Not implemented");
-            // for (const patchesRes of data.patches) {
-            //   patches[patchesRes.patchId] = {
-            //     path: patchesRes.path,
-            //     parentRef: patchesRes.parentRef,
-            //     authorId: patchesRes.authorId,
-            //     createdAt: patchesRes.createdAt,
-            //     appliedAt: patchesRes.applied && {
-            //       baseSha: patchesRes.applied.baseSha,
-            //       timestamp: patchesRes.applied.appliedAt,
-            //       git: {
-            //         commitSha: patchesRes.applied.commitSha,
-            //       },
-            //     },
-            //     patch: patchesRes.patch,
-            //   };
-            // }
+
+            const data = parsed.data;
+            for (const patchesRes of data.patches) {
+              patches.push({
+                authorId: patchesRes.authorId,
+                createdAt: patchesRes.createdAt,
+                appliedAt: null,
+                patchId: patchesRes.patchId,
+                path: patchesRes.path,
+                patch: filters.omitPatch ? undefined : patchesRes.patch,
+              });
+            }
             return {
               patches,
               errors,
@@ -479,6 +472,7 @@ export class ValOpsHttp extends ValOps {
     authorId: AuthorId | null,
   ): Promise<SaveSourceFilePatchResult> {
     console.log("Saving patch", path, patch, authorId);
+    const baseSha = await this.getBaseSha();
     return fetch(`${this.hostUrl}/v1/${this.project}/patches`, {
       method: "POST",
       headers: {
@@ -489,6 +483,8 @@ export class ValOpsHttp extends ValOps {
         path,
         patch,
         authorId,
+        parentPatchId: parentRef.type === "patch" ? parentRef.patchId : null,
+        baseSha,
         commit: this.commitSha,
         branch: this.branch,
         coreVersion: Internal.VERSION.core,
