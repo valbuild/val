@@ -53,7 +53,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
   >({});
   const [patchesStatus, setPatchesStatus] = useState<
     Record<
-      SourcePath,
+      ModuleFilePath,
       | {
           status: "created-patch";
           createdAt: string;
@@ -167,8 +167,60 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
               ) {
                 continue;
               }
-
-              updateSources([moduleFilePath], res.json.modules);
+              const source = res.json.modules[moduleFilePath]?.source;
+              const skippedPatches =
+                res.json.modules[moduleFilePath]?.patches?.skipped;
+              const patchErrors =
+                res.json.modules[moduleFilePath]?.patches?.errors;
+              if (source) {
+                updateSources([moduleFilePath], res.json.modules);
+              }
+              if (patchErrors || skippedPatches) {
+                setPatchesStatus((prev) => {
+                  const current: typeof prev = { ...prev };
+                  for (const skippedPatch of skippedPatches || []) {
+                    if (
+                      !current[moduleFilePath] ||
+                      current[moduleFilePath].status !== "error"
+                    ) {
+                      current[moduleFilePath] = {
+                        status: "error",
+                        errors: [],
+                      };
+                    }
+                    const currentModule = current[moduleFilePath];
+                    if (currentModule.status === "error") {
+                      currentModule.errors.push({
+                        skipped: true,
+                        patchId: skippedPatch,
+                        message: "Patch skipped",
+                      });
+                    }
+                  }
+                  for (const [patchIdS, data] of Object.entries(
+                    patchErrors || {},
+                  )) {
+                    const patchId = patchIdS as PatchId;
+                    if (
+                      !current[moduleFilePath] ||
+                      current[moduleFilePath].status !== "error"
+                    ) {
+                      current[moduleFilePath] = {
+                        status: "error",
+                        errors: [],
+                      };
+                    }
+                    const currentModule = current[moduleFilePath];
+                    if (currentModule.status === "error" && data) {
+                      currentModule.errors.push({
+                        patchId,
+                        message: data.message,
+                      });
+                    }
+                  }
+                  return current;
+                });
+              }
             }
           } else if (res.status === 400) {
             const errors: Record<
@@ -441,7 +493,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
               };
               setPatchesStatus((prev) => {
                 const current: typeof prev = { ...prev };
-                current[moduleFilePath as unknown as SourcePath] = {
+                current[moduleFilePath] = {
                   status: "created-patch",
                   createdAt: new Date().toISOString(),
                 };
@@ -461,7 +513,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
               console.error("Could not apply patch", patchRes.error);
               setPatchesStatus((prev) => {
                 const current: typeof prev = { ...prev };
-                current[moduleFilePath as unknown as SourcePath] = {
+                current[moduleFilePath] = {
                   status: "error",
                   errors: [patchRes.error],
                 };
@@ -529,15 +581,15 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     setPatchesStatus((prev) => {
       const current: typeof prev = {};
       for (const moduleFilePathS in pendingPatches) {
-        const sourcePath = moduleFilePathS as SourcePath;
+        const moduleFilePath = moduleFilePathS as ModuleFilePath;
         let createdAt;
-        const prevAtSourcePath = prev[sourcePath];
+        const prevAtSourcePath = prev[moduleFilePath];
         if (prevAtSourcePath && "createdAt" in prevAtSourcePath) {
           createdAt = prevAtSourcePath.createdAt;
         } else {
           createdAt = new Date().toISOString();
         }
-        current[sourcePath] = {
+        current[moduleFilePath] = {
           status: "uploading-patch",
           createdAt,
           updatedAt: new Date().toISOString(),
@@ -600,7 +652,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
                 const moduleFilePath = moduleFilePathS as ModuleFilePath;
                 const errors = res.json.errors[moduleFilePath];
                 if (errors) {
-                  current[moduleFilePath as unknown as SourcePath] = {
+                  current[moduleFilePath] = {
                     status: "error",
                     errors: errors.map((e) => ({ ...e.error, ...e.error })),
                   };
@@ -610,7 +662,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
               // we do not know what went wrong
               for (const moduleFilePathS in pendingPatches) {
                 const moduleFilePath = moduleFilePathS as ModuleFilePath;
-                current[moduleFilePath as unknown as SourcePath] = {
+                current[moduleFilePath] = {
                   status: "error",
                   errors: [{ message: res.json.message }],
                 };

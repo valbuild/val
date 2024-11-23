@@ -12,7 +12,7 @@ import {
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
 import { prettifyFilename } from "../utils/prettifyFilename";
-import { ChevronDown, Clock } from "lucide-react";
+import { ChevronDown, Clock, Trash } from "lucide-react";
 import {
   PatchMetadata,
   PatchSetMetadata,
@@ -86,6 +86,14 @@ export function DraftChanges({
       }
       if (!("data" in schemasRes)) {
         return;
+      }
+      // // If we, for example, delete a patch, we need to reset the patchSets (we do not have a .delete method yet)
+      for (const patchId of Array.from(prevInsertedPatchesRef.current)) {
+        if (!patchIds.includes(patchId)) {
+          patchSetsRef.current = new PatchSets();
+          prevInsertedPatchesRef.current = new Set();
+          break;
+        }
       }
       const patchSets = patchSetsRef.current;
       const schemas = schemasRes.data;
@@ -311,13 +319,10 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
         isOpen={isOpen}
         setOpen={setOpen}
         errors={errors}
-        onDelete={
-          errors && errors.length > 0
-            ? () => {
-                deletePatches(patchIds);
-              }
-            : undefined
-        }
+        onDelete={() => {
+          console.log("deletePatches", patchIds);
+          deletePatches(patchIds);
+        }}
       />
       <AnimateHeight isOpen={isOpen}>
         {patchSet.patches.map((patchMetadata, i) => (
@@ -426,6 +431,11 @@ const PatchOrPatchSetCard = forwardRef<
               }}
             />
           )}
+          {onDelete && (
+            <button onClick={onDelete}>
+              <Trash />
+            </button>
+          )}
         </div>
         {errors && errors.length > 0 && !skipped && (
           <div className="p-2 max-w-[240px] rounded bg-bg-error-primary text-text-primary">
@@ -439,7 +449,11 @@ const PatchOrPatchSetCard = forwardRef<
             )}
           </div>
         )}
-        {onDelete && <button onClick={onDelete}>Delete</button>}
+        {(!errors || errors.length === 0) && skipped && (
+          <div className="p-2 max-w-[240px] rounded bg-bg-error-primary text-text-primary">
+            <div className="truncate">Skipped</div>
+          </div>
+        )}
         <div className="flex items-center justify-between pt-2">
           <span className="flex-shrink-0">
             {avatars !== undefined && avatars.length > 0 && (

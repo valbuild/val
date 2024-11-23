@@ -30,6 +30,7 @@ import { Patch, ParentRef } from "@valbuild/shared/internal";
 import { guessMimeTypeFromPath } from "./ValServer";
 import { result } from "@valbuild/core/fp";
 import { ParentPatchId } from "@valbuild/core";
+import { computeChangedPatchParentRefs } from "./computeChangedPatchParentRefs";
 
 export class ValOpsFS extends ValOps {
   private static readonly VAL_DIR = ".val";
@@ -364,8 +365,12 @@ export class ValOpsFS extends ValOps {
   }): Promise<
     OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches
   > {
-    const fetchPatchesRes = await this.fetchPatchesFromFS();
-    const sortedPatches = this.createPatchChain(fetchPatchesRes.patches)
+    const fetchPatchesRes = await this.fetchPatchesFromFS(!!filters.omitPatch);
+    const sortedPatches = (
+      this.createPatchChain(
+        fetchPatchesRes.patches,
+      ) as OrderedPatches["patches"]
+    )
       .filter((patchData) => {
         if (
           filters.authors &&
@@ -400,9 +405,9 @@ export class ValOpsFS extends ValOps {
     } as OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches;
   }
 
-  async fetchPatchesFromFS<OmitPatch extends boolean>(): Promise<
-    OmitPatch extends true ? FSPatchesMetadata : FSPatches
-  > {
+  async fetchPatchesFromFS<OmitPatch extends boolean>(
+    omitPath: OmitPatch,
+  ): Promise<OmitPatch extends true ? FSPatchesMetadata : FSPatches> {
     const patches: (OmitPatch extends true
       ? FSPatchesMetadata
       : FSPatches)["patches"] = {};
@@ -410,7 +415,7 @@ export class ValOpsFS extends ValOps {
     for (const [patchIdS, patch] of Object.entries(allPatches)) {
       const patchId = patchIdS as PatchId;
       patches[patchId] = {
-        patch: patch.patch,
+        patch: omitPath ? undefined : patch.patch,
         parentRef: patch.parentRef,
         path: patch.path,
         createdAt: patch.createdAt,
@@ -454,10 +459,12 @@ export class ValOpsFS extends ValOps {
     ).find(([, patch]) => patch.parentRef.type === "head")?.[0] as PatchId;
 
     while (!!nextPatchId && nextPatchId in unsortedPatchRecord) {
-      const patch = unsortedPatchRecord[nextPatchId];
+      const patch = unsortedPatchRecord[nextPatchId] as Partial<
+        (typeof unsortedPatchRecord)[PatchId]
+      >;
+      delete patch["parentRef"];
       sortedPatches.push({
         ...patch,
-        parentRef: undefined,
         patchId: nextPatchId,
       });
       nextPatchId = nextPatch[nextPatchId];
@@ -564,6 +571,7 @@ export class ValOpsFS extends ValOps {
   ): Promise<SaveSourceFilePatchResult> {
     const patchDir = this.getParentPatchIdFromParentRef(parentRef);
     try {
+      const baseSha = await this.getBaseSha();
       const patchId = crypto.randomUUID() as PatchId;
       const data: z.infer<typeof FSPatch> = {
         patch,
@@ -571,6 +579,7 @@ export class ValOpsFS extends ValOps {
         parentRef,
         path,
         authorId,
+        baseSha,
         coreVersion: Internal.VERSION.core,
         createdAt: new Date().toISOString(),
       };
@@ -741,7 +750,9 @@ export class ValOpsFS extends ValOps {
     if (result.isErr(patchDirMapRes)) {
       return { error: { message: "Failed to get patch dir map" } };
     }
-
+    const currentPatches = this.createPatchChain(
+      (await this.fetchPatchesFromFS(false)).patches,
+    );
     for (const patchId of patchIds) {
       const patchDir = patchDirMapRes.value[patchId];
       if (!patchDir) {
@@ -768,7 +779,24 @@ export class ValOpsFS extends ValOps {
     if (errors) {
       return { deleted, errors };
     }
+    this.updateOrderedPatches(
+      computeChangedPatchParentRefs(currentPatches, patchIds),
+      patchDirMapRes.value,
+    );
     return { deleted };
+  }
+
+  private updateOrderedPatches(
+    updates: {
+      changedPatches: Record<PatchId, ParentRef>;
+    },
+    patchDirMap: Record<PatchId, ParentPatchId | undefined>,
+  ) {
+    // for (const [patchIdS, parentRef] of Object.entries(
+    //   updates.changedPatches,
+    // )) {
+    // }
+    // TODO
   }
 
   async saveFiles(preparedCommit: PreparedCommit): Promise<{
@@ -978,6 +1006,10 @@ class FSOpsHost {
     }
   }
 
+  moveDir(from: string, to: string) {
+    fs.renameSync(from, to);
+  }
+
   directoryExists(path: string): boolean {
     return ts.sys.directoryExists(path);
   }
@@ -1065,6 +1097,7 @@ const FSPatch = z.object({
     ),
   patch: Patch,
   patchId: z.string(),
+  baseSha: z.string(),
   parentRef: ParentRef,
   authorId: z
     .string()

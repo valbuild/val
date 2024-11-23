@@ -425,6 +425,7 @@ export class ValOpsHttp extends ValOps {
           path: ModuleFilePath;
           patchId: PatchId;
           patch?: Patch;
+          baseSha: BaseSha;
           createdAt: string;
           authorId: AuthorId | null;
           appliedAt: null;
@@ -445,6 +446,7 @@ export class ValOpsHttp extends ValOps {
                 appliedAt: null,
                 patchId: patchesRes.patchId,
                 path: patchesRes.path,
+                baseSha: patchesRes.baseSha as BaseSha,
                 patch: filters.omitPatch ? undefined : patchesRes.patch,
               });
             }
