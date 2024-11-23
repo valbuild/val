@@ -965,6 +965,7 @@ export const ValServer = (
           patchIds: undefined,
           omitPatch: false,
         });
+        console.log("patchOps", patchOps);
         const patchAnalysis = serverOps.analyzePatches(patchOps.patches);
         let sourcesRes = await serverOps.getSources();
         const onlyPatchedTreeModules = await serverOps.getSources({
@@ -1029,14 +1030,38 @@ export const ValServer = (
         )) {
           const moduleFilePath = moduleFilePathS as ModuleFilePath;
           if (moduleFilePath.startsWith(moduleFilePath)) {
+            const skippedPatches: PatchId[] = [];
+            const patchErrors: Record<PatchId, { message: string }> = {};
+            const appliedPatches: PatchId[] =
+              patchAnalysis.patchesByModule[moduleFilePath]?.map(
+                (p) => p.patchId,
+              ) || [];
+            for (const { patchId, skipped, error } of sourcesRes.errors?.[
+              moduleFilePath
+            ] || []) {
+              if (skipped) {
+                skippedPatches.push(patchId);
+              } else if (error) {
+                patchErrors[patchId] = { message: error.message };
+              } else {
+                // unsure what makes sense here
+                appliedPatches.push(patchId);
+              }
+            }
             modules[moduleFilePath] = {
               source: module,
               patches:
-                patchAnalysis && patchAnalysis.patchesByModule[moduleFilePath]
+                appliedPatches.length > 0 ||
+                skippedPatches.length > 0 ||
+                Object.keys(patchErrors).length > 0
                   ? {
-                      applied: patchAnalysis.patchesByModule[
-                        moduleFilePath
-                      ].map((p) => p.patchId),
+                      applied: appliedPatches,
+                      skipped:
+                        skippedPatches.length > 0 ? skippedPatches : undefined,
+                      errors:
+                        Object.keys(patchErrors).length > 0
+                          ? patchErrors
+                          : undefined,
                     }
                   : undefined,
               validationErrors:
