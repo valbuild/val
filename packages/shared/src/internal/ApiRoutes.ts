@@ -661,6 +661,34 @@ export const Api = {
       ]),
     },
   },
+  "/profiles": {
+    GET: {
+      req: {
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        notFoundResponse,
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            profiles: z.array(
+              z.object({
+                profileId: z.string(),
+                fullName: z.string(),
+                avatar: z
+                  .object({
+                    url: z.string(),
+                  })
+                  .nullable(),
+              }),
+            ),
+          }),
+        }),
+      ]),
+    },
+  },
   "/save": {
     POST: {
       req: {
@@ -712,15 +740,10 @@ export const Api = {
         },
       },
       res: z.union([
+        notFoundResponse,
         z.object({
           status: z.literal(200),
           body: z.instanceof(ReadableStream),
-        }),
-        z.object({
-          status: z.literal(404),
-          json: z.object({
-            message: z.string(),
-          }),
         }),
       ]),
     },

@@ -998,6 +998,15 @@ export class ValOpsFS extends ValOps {
     );
   }
 
+  // #region profiles
+  override async getProfiles(): Promise<
+    { profileId: string; fullName: string; avatar: { url: string } | null }[]
+  > {
+    throw new Error(
+      "Configuration error:  cannot get profiles in local / development file system mode",
+    );
+  }
+
   // #region fs file path helpers
   private getPatchesDir() {
     return fsPath.join(this.rootDir, ValOpsFS.VAL_DIR, "patches");
