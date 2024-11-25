@@ -700,7 +700,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         console.error("Could not sync patches", err);
         // retry
       });
-  }, [currentPatchIds]);
+  }, [currentPatchIds, stat.status, "data" in stat && stat.data]);
   const timeAtLastSync = useRef(-1);
   const timeSinceLastSourcesUpdateRef = useRef(-1);
   useEffect(() => {
@@ -725,10 +725,10 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         clearTimeout(timeout);
       };
     }
-  }, [sources]);
+  }, [sources, mergeAndSyncPatches]);
 
   useEffect(() => {
-    setInterval(() => {
+    const interval = setInterval(() => {
       const maybeConnectionIssues =
         // it has been N seconds since last sources update
         Date.now() - timeSinceLastSourcesUpdateRef.current > 5000 &&
@@ -738,7 +738,10 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         mergeAndSyncPatches();
       }
     }, 5000);
-  }, []);
+    return () => {
+      clearInterval(interval);
+    };
+  }, [mergeAndSyncPatches]);
   const requestModule = useCallback((moduleFilePath: ModuleFilePath) => {
     setRequestedSources((prev) => {
       if (prev.includes(moduleFilePath)) {
