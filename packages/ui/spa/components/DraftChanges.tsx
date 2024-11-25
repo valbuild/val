@@ -467,7 +467,7 @@ const PatchOrPatchSetCard = forwardRef<
           <span className="flex flex-shrink-0 gap-2">
             {authors !== undefined && authors.length > 0 && (
               <span className="flex gap-1 mr-2">
-                {authors.slice(0, 2).map((author) => {
+                {authors.slice(0, 2).map((author, i) => {
                   if (author.url) {
                     return (
                       <img
@@ -475,7 +475,12 @@ const PatchOrPatchSetCard = forwardRef<
                         src={author.url}
                         alt={author.fullName}
                         title={author.fullName}
-                        className="flex-shrink-0 w-6 h-6 rounded-full"
+                        className={classNames(
+                          "flex-shrink-0 w-6 h-6 rounded-full",
+                          {
+                            "-ml-3": authors.length > 2 && i > 0,
+                          },
+                        )}
                       />
                     );
                   }
@@ -483,7 +488,12 @@ const PatchOrPatchSetCard = forwardRef<
                   return (
                     <span
                       key={author.fullName + author.url}
-                      className="flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full bg-bg-quartenary text-fg-primary"
+                      className={classNames(
+                        "flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full bg-bg-quartenary text-fg-primary",
+                        {
+                          "-ml-3": authors.length > 2 && i > 0,
+                        },
+                      )}
                       aria-label={"Initials for: " + author.fullName}
                       title={author.fullName}
                     >
@@ -492,8 +502,8 @@ const PatchOrPatchSetCard = forwardRef<
                   );
                 })}
                 {authors.length > 2 && (
-                  <span className="w-6 h-6 rounded-full bg-bg-primary text-text-primary">
-                    +{authors.length - 2}
+                  <span className="flex items-center justify-center w-6 h-6 -ml-3 text-xs font-semibold rounded-full bg-bg-quartenary text-fg-primary">
+                    +{2}
                   </span>
                 )}
               </span>
