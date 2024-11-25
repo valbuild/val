@@ -97,6 +97,13 @@ export type PatchId = string & {
   [brand]: "PatchId";
 };
 
+/**
+ * The patchId of the parent patch, or "head" if there is no parent patch.
+ */
+export type ParentPatchId = string & {
+  [brand]: "ParentPatchId";
+};
+
 export function getValPath(
   valOrSelector: Val<Json> | Selector<Source>,
 ): SourcePath | undefined {

@@ -52,6 +52,10 @@ export const createValClient = (host: string): ValClient => {
     }
     const reqBodyResult = apiEndpoint.req.body?.safeParse(anyReq.body);
     if (reqBodyResult && !reqBodyResult.success) {
+      console.error("Invalid request body", {
+        body: anyReq.body,
+        error: reqBodyResult.error,
+      });
       return {
         status: null,
         json: {
@@ -79,7 +83,7 @@ export const createValClient = (host: string): ValClient => {
             status: null,
             json: {
               type: "client_side_validation_error",
-              message: `Invalid content type header in response. Could not find application/json in ${Array.from(res.headers.entries())}. This could be a result of mismatched Val versions.`,
+              message: `Invalid response (expected JSON, but got something else). This could be a result of mismatched Val versions or a transient error.`,
               details: {
                 validationError: "Invalid content type",
                 data: {

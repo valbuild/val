@@ -5,6 +5,7 @@ import { transform } from "sucrase";
 import synchronizedPrettier from "@prettier/sync";
 import { ValOpsHttp } from "./ValOpsHttp";
 import { AuthorId, CommitSha } from "./ValOps";
+import { result } from "@valbuild/core/fp";
 
 describe("ValOpsFS", () => {
   test("flow", async () => {
@@ -128,7 +129,6 @@ describe("ValOpsFS", () => {
     const schemas = await ops.getSchemas();
     const patchRes1 = await ops.createPatch(
       "/components/clientContent.val.ts" as ModuleFilePath,
-      null,
       [
         {
           op: "replace",
@@ -136,14 +136,15 @@ describe("ValOpsFS", () => {
           value: "Http works",
         },
       ],
+      { type: "head", headBaseSha: await ops.getBaseSha() },
       authorId,
     );
-    if (patchRes1.error) {
+    if (result.isErr(patchRes1)) {
       console.log("patch error", patchRes1.error);
       return;
     }
     console.log("patchRes1", JSON.stringify(patchRes1, null, 2));
-    const t0 = await ops.getTree();
+    const t0 = await ops.getSources();
     // console.log("base tree", JSON.stringify(t0, null, 2));
     // const v0 = await ops.validateSources(schemas, t0.sources);
     // console.log("base source validation", JSON.stringify(v0, null, 2));
@@ -157,7 +158,7 @@ describe("ValOpsFS", () => {
     });
     console.log("patches", patchesRes);
     const patchAnalysis = ops.analyzePatches(patchesRes.patches);
-    const t1 = await ops.getTree({
+    const t1 = await ops.getSources({
       ...patchAnalysis,
       ...patchesRes,
     });

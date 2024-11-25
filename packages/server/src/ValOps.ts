@@ -24,6 +24,8 @@ import {
 import { pipe, result } from "@valbuild/core/fp";
 import {
   JSONOps,
+  JSONValue,
+  ParentRef,
   Patch,
   PatchError,
   applyPatch,
@@ -34,6 +36,7 @@ import { analyzeValModule } from "./patch/ts/valModule";
 import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
+import { ParentPatchId } from "@valbuild/core";
 
 export type BaseSha = string & { readonly _tag: unique symbol };
 export type SchemaSha = string & { readonly _tag: unique symbol };
@@ -70,11 +73,11 @@ export type ValOpsOptions = {
 export abstract class ValOps {
   /** Sources from val modules, immutable (without patches or anything)  */
   private sources: Sources | null;
-  /** The sha265 / hash of sources + schema + config */
+  /** The sha256 / hash of sources + schema + config */
   private baseSha: BaseSha | null;
   /** Schema from val modules, immutable  */
   private schemas: Schemas | null;
-  /** The sha265 / hash of schema + config - if this changes users needs to reload */
+  /** The sha256 / hash of schema + config - if this changes users needs to reload */
   private schemaSha: SchemaSha | null;
   private modulesErrors: ModulesError[] | null;
 
@@ -89,8 +92,58 @@ export abstract class ValOps {
     this.modulesErrors = null;
   }
 
-  private hash(input: string): string {
+  private hash(input: string | object): string {
+    if (typeof input === "object") {
+      return this.hashObject(input);
+    }
     return Internal.getSHA256Hash(textEncoder.encode(input));
+  }
+
+  private hashObject(obj: object): string {
+    const collector: string[] = [];
+    this.collectObjectRecursive(obj, collector);
+    return Internal.getSHA256Hash(textEncoder.encode(collector.join("")));
+  }
+
+  private collectObjectRecursive(
+    item: object | string | number,
+    collector: string[],
+  ): void {
+    if (typeof item === "string") {
+      collector.push(`"`, item, `"`);
+      return;
+    } else if (typeof item === "number") {
+      collector.push(item.toString());
+      return;
+    } else if (typeof item === "object") {
+      if (Array.isArray(item)) {
+        collector.push("[");
+        for (let i = 0; i < item.length; i++) {
+          this.collectObjectRecursive(item[i], collector);
+          i !== item.length - 1 && collector.push(",");
+        }
+        collector.push("]");
+      } else {
+        collector.push("{");
+        const keys = Object.keys(item).sort();
+        keys.forEach((key, i) => {
+          collector.push(`"${key}":`);
+          this.collectObjectRecursive(
+            (item as Record<string, string | number | object>)[key],
+            collector,
+          );
+          i !== keys.length - 1 && collector.push(",");
+        });
+        collector.push("}");
+      }
+      return;
+    } else {
+      console.warn(
+        "Unknown type encountered when hashing object",
+        typeof item,
+        item,
+      );
+    }
   }
 
   // #region stat
@@ -131,7 +184,7 @@ export abstract class ValOps {
   >;
 
   // #region initTree
-  private async initTree(): Promise<{
+  private async initSources(): Promise<{
     baseSha: BaseSha;
     schemaSha: SchemaSha;
     sources: Sources;
@@ -272,59 +325,47 @@ export abstract class ValOps {
   }
 
   async init(): Promise<void> {
-    const { baseSha, schemaSha } = await this.initTree();
+    const { baseSha, schemaSha } = await this.initSources();
     await this.onInit(baseSha, schemaSha);
   }
 
   async getBaseSources(): Promise<Sources> {
-    return this.initTree().then((result) => result.sources);
+    return this.initSources().then((result) => result.sources);
   }
   async getSchemas(): Promise<Schemas> {
-    return this.initTree().then((result) => result.schemas);
+    return this.initSources().then((result) => result.schemas);
   }
   async getModuleErrors(): Promise<ModulesError[]> {
-    return this.initTree().then((result) => result.moduleErrors);
+    return this.initSources().then((result) => result.moduleErrors);
   }
   async getBaseSha(): Promise<BaseSha> {
-    return this.initTree().then((result) => result.baseSha);
+    return this.initSources().then((result) => result.baseSha);
   }
   async getSchemaSha(): Promise<SchemaSha> {
-    return this.initTree().then((result) => result.schemaSha);
+    return this.initSources().then((result) => result.schemaSha);
   }
 
   // #region analyzePatches
-  analyzePatches(patchesById: Patches["patches"]): PatchAnalysis {
+  analyzePatches(sortedPatches: OrderedPatches["patches"]): PatchAnalysis {
     const patchesByModule: {
       [path: ModuleFilePath]: {
         patchId: PatchId;
-        createdAt: string;
       }[];
     } = {};
     const fileLastUpdatedByPatchId: Record<string, PatchId> = {};
-    for (const [
-      patchIdS,
-      { path, patch, createdAt: created_at },
-    ] of Object.entries(patchesById)) {
-      const patchId = patchIdS as PatchId;
-      for (const op of patch) {
+    for (const patch of sortedPatches) {
+      for (const op of patch.patch) {
         if (op.op === "file") {
-          fileLastUpdatedByPatchId[op.filePath] = patchId;
+          const filePath = op.filePath;
+          fileLastUpdatedByPatchId[filePath] = patch.patchId;
         }
+        const path = patch.path;
+        if (!patchesByModule[path]) {
+          patchesByModule[path] = [];
+        }
+        patchesByModule[path].push({ patchId: patch.patchId });
       }
-      if (!patchesByModule[path]) {
-        patchesByModule[path] = [];
-      }
-      patchesByModule[path].push({
-        patchId,
-        createdAt: created_at,
-      });
     }
-    for (const path in patchesByModule) {
-      patchesByModule[path as ModuleFilePath].sort((a, b) =>
-        a.createdAt.localeCompare(b.createdAt),
-      );
-    }
-
     return {
       patchesByModule,
       fileLastUpdatedByPatchId,
@@ -332,7 +373,7 @@ export abstract class ValOps {
   }
 
   // #region getTree
-  async getTree(analysis?: PatchAnalysis & Patches): Promise<{
+  async getSources(analysis?: PatchAnalysis & OrderedPatches): Promise<{
     sources: Sources;
     errors: Record<
       ModuleFilePath,
@@ -344,10 +385,10 @@ export abstract class ValOps {
     >;
   }> {
     if (!analysis) {
-      const { sources } = await this.initTree();
+      const { sources } = await this.initSources();
       return { sources, errors: {} };
     }
-    const { sources } = await this.initTree();
+    const { sources } = await this.initSources();
 
     const patchedSources: Sources = {};
     const errors: Record<
@@ -358,79 +399,86 @@ export abstract class ValOps {
         error: GenericErrorMessage;
       }[]
     > = {};
-    for (const [pathS, patches] of Object.entries(analysis.patchesByModule)) {
-      const path = pathS as ModuleFilePath;
+    for (const patchData of analysis.patches) {
+      const path = patchData.path;
       if (!sources[path]) {
         if (!errors[path]) {
           errors[path] = [];
         }
-        errors[path].push(
-          ...patches.map(({ patchId }) => ({
-            patchId,
-            invalidPath: true,
-            skipped: true,
-            error: new PatchError(`Module at path: '${path}' not found`),
-          })),
-        );
+        console.error("Module not found", path);
+        errors[path].push({
+          patchId: patchData.patchId,
+          skipped: true,
+          error: new PatchError(`Module not found`),
+        });
+        continue;
       }
-      patchedSources[path] = sources[path];
-      for (const { patchId } of patches) {
-        if (errors[path]) {
-          errors[path].push({
-            patchId: patchId,
-            skipped: true,
-            error: new PatchError(`Cannot apply patch: previous errors exists`),
-          });
-        } else {
-          const patchData = analysis.patches[patchId];
-          if (!patchData) {
-            errors[path] = [
+      if (!patchedSources[path]) {
+        patchedSources[path] = sources[path];
+      }
+      const patchId = patchData.patchId;
+      if (errors[path]) {
+        console.error(
+          "Cannot apply patch: previous errors exists",
+          path,
+          errors[path],
+        );
+        errors[path].push({
+          patchId: patchId,
+          skipped: true,
+          error: new PatchError(`Cannot apply patch: previous errors exists`),
+        });
+      } else {
+        const applicableOps: Patch = [];
+        const fileFixOps: Record<string, Patch> = {};
+        for (const op of patchData.patch) {
+          if (op.op === "file") {
+            // NOTE: We insert the last patch_id that modify a file
+            // when constructing the url we use the patch id (and the file path)
+            // to fetch the right file
+            // NOTE: overwrite and use last patch_id if multiple patches modify the same file
+            fileFixOps[op.path.join("/")] = [
               {
-                patchId: patchId,
-                skipped: false,
-                error: new PatchError(`Patch not found`),
+                op: "add",
+                path: op.path
+                  .concat(...(op.nestedFilePath || []))
+                  .concat("patch_id"),
+                value: patchId,
               },
             ];
-            continue;
-          }
-          const applicableOps: Patch = [];
-          const fileFixOps: Record<string, Patch> = {};
-          for (const op of patchData.patch) {
-            if (op.op === "file") {
-              // NOTE: We insert the last patch_id that modify a file
-              // when constructing the url we use the patch id (and the file path)
-              // to fetch the right file
-              // NOTE: overwrite and use last patch_id if multiple patches modify the same file
-              fileFixOps[op.path.join("/")] = [
-                {
-                  op: "add",
-                  path: op.path
-                    .concat(...(op.nestedFilePath || []))
-                    .concat("patch_id"),
-                  value: patchId,
-                },
-              ];
-            } else {
-              applicableOps.push(op);
-            }
-          }
-          const patchRes = applyPatch(
-            deepClone(patchedSources[path]), // applyPatch mutates the source. On add operations it will add multiple items? There is something strange going on. DeepClone seems to fix, but is that the right?
-            jsonOps,
-            applicableOps.concat(...Object.values(fileFixOps)),
-          );
-          if (result.isErr(patchRes)) {
-            if (!errors[path]) {
-              errors[path] = [];
-            }
-            errors[path].push({
-              patchId: patchId,
-              skipped: false,
-              error: patchRes.error,
-            });
           } else {
-            patchedSources[path] = patchRes.value;
+            applicableOps.push(op);
           }
+        }
+        const patchRes = applyPatch(
+          deepClone(patchedSources[path]) as JSONValue, // applyPatch mutates the source. On add operations it adds more than once? There is something strange going on... deepClone seems to fix, but is that the right solution?
+          jsonOps,
+          applicableOps.concat(...Object.values(fileFixOps)),
+        );
+        if (result.isErr(patchRes)) {
+          console.error(
+            "Could not apply patch",
+            JSON.stringify(
+              {
+                path,
+                patchId,
+                error: patchRes.error,
+                applicableOps,
+              },
+              null,
+              2,
+            ),
+          );
+          if (!errors[path]) {
+            errors[path] = [];
+          }
+          errors[path].push({
+            patchId: patchId,
+            skipped: false,
+            error: patchRes.error,
+          });
+        } else {
+          patchedSources[path] = patchRes.value;
         }
       }
     }
@@ -711,7 +759,7 @@ export abstract class ValOps {
 
   // #region prepareCommit
   async prepare(
-    patchAnalysis: PatchAnalysis & Patches,
+    patchAnalysis: PatchAnalysis & OrderedPatches,
   ): Promise<PreparedCommit> {
     const { patchesByModule, fileLastUpdatedByPatchId } = patchAnalysis;
     const applySourceFilePatches = async (
@@ -755,13 +803,16 @@ export abstract class ValOps {
       const appliedPatches: PatchId[] = [];
       const triedPatches: PatchId[] = [];
       for (const { patchId } of patches) {
-        const patch = patchAnalysis.patches?.[patchId]?.patch;
-        if (!patch) {
+        const patchData = patchAnalysis.patches.find(
+          (p) => p.patchId === patchId,
+        );
+        if (!patchData) {
           errors.push({
             message: `Analysis required non-existing patch: ${patchId}`,
           });
           break;
         }
+        const patch = patchData.patch;
         const sourceFileOps = patch.filter((op) => op.op !== "file"); // file is not a valid source file op
         const patchRes = applyPatch(tsSourceFile, tsOps, sourceFileOps);
         if (result.isErr(patchRes)) {
@@ -912,11 +963,12 @@ export abstract class ValOps {
   // #region createPatch
   async createPatch(
     path: ModuleFilePath,
-    patchAnalysis: (PatchAnalysis & Patches) | null,
     patch: Patch,
+    parentRef: ParentRef,
     authorId: AuthorId | null,
   ): Promise<
-    | {
+    result.Result<
+      {
         patchId: PatchId;
         error?: undefined;
         createdAt: string;
@@ -924,15 +976,24 @@ export abstract class ValOps {
           filePath: string;
           error?: PatchError;
         }[];
-      }
-    | { error: GenericErrorMessage }
+      },
+      | { errorType: "other"; error: GenericErrorMessage }
+      | { errorType: "patch-head-conflict" }
+    >
   > {
-    const initTree = await this.initTree();
+    const initTree = await this.initSources();
     const schemas = initTree.schemas;
     const moduleErrors = initTree.moduleErrors;
     let sources = initTree.sources;
-    if (patchAnalysis) {
-      const tree = await this.getTree(patchAnalysis);
+
+    if (parentRef.type !== "head") {
+      // There's room for some optimizations here: we could do this once, then re-use every time we create a patch, then again we only create one patch at a time
+      const patchOps = await this.fetchPatches({ omitPatch: false });
+      const patchAnalysis = this.analyzePatches(patchOps.patches);
+      const tree = await this.getSources({
+        ...patchAnalysis,
+        ...patchOps,
+      });
       sources = {
         ...sources,
         ...tree.sources,
@@ -945,33 +1006,36 @@ export abstract class ValOps {
       console.error(
         `Cannot patch. Module at path: '${path}' has fatal errors: "${moduleError.message}"`,
       );
-      return {
+      return result.err({
+        errorType: "other",
         error: {
           message:
             `Cannot patch. Module at path: '${path}' has fatal errors: ` +
             moduleErrors.map((m) => `"${m.message}"`).join(" and "),
         },
-      };
+      });
     }
     if (!source) {
       console.error(
         `Cannot patch. Module source at path: '${path}' does not exist`,
       );
-      return {
+      return result.err({
+        errorType: "other",
         error: {
           message: `Cannot patch. Module source at path: '${path}' does not exist`,
         },
-      };
+      });
     }
     if (!schema) {
       console.error(
         `Cannot patch. Module schema at path: '${path}' does not exist`,
       );
-      return {
+      return result.err({
+        errorType: "other",
         error: {
           message: `Cannot patch. Module schema at path: '${path}' does not exist`,
         },
-      };
+      });
     }
 
     const sourceFileOps: Patch = [];
@@ -1026,16 +1090,20 @@ export abstract class ValOps {
     }
     const saveRes = await this.saveSourceFilePatch(
       path,
-      sourceFileOps,
+      patch,
+      parentRef,
       authorId,
     );
-    if (saveRes.error) {
+    if (result.isErr(saveRes)) {
       console.error(
-        `Could not save source file patch at path: '${path}'. Error: ${saveRes.error.message}`,
+        `Could not save source patch at path: '${path}'. Error: ${saveRes.error.errorType === "other" ? saveRes.error.message : saveRes.error.errorType}`,
       );
-      return { error: saveRes.error };
+      if (saveRes.error.errorType === "patch-head-conflict") {
+        return result.err({ errorType: "patch-head-conflict" });
+      }
+      return result.err({ errorType: "other", error: saveRes.error });
     }
-    const patchId = saveRes.patchId;
+    const patchId = saveRes.value.patchId;
     const saveFileRes: { filePath: string; error?: PatchError }[] =
       await Promise.all(
         Object.entries(files).map(
@@ -1144,6 +1212,7 @@ export abstract class ValOps {
               for (let i = 0; i < MaxRetries; i++) {
                 lastRes = await this.saveBase64EncodedBinaryFileFromPatch(
                   filePath,
+                  parentRef,
                   patchId,
                   data.value,
                   type,
@@ -1169,19 +1238,20 @@ export abstract class ValOps {
       (f): f is { filePath: string; error: PatchError } => !!f.error,
     );
     if (errors.length > 0) {
-      return {
+      return result.err({
+        errorType: "other",
         error: {
           message:
             "Could not save patch: " +
             errors.map((e) => e.error.message).join(", "),
         },
-      };
+      });
     }
-    return {
+    return result.ok({
       patchId,
       files: saveFileRes,
       createdAt: new Date().toISOString(),
-    };
+    });
   }
 
   // #region abstract ops
@@ -1191,17 +1261,19 @@ export abstract class ValOps {
     patchIds?: PatchId[];
     moduleFilePaths?: ModuleFilePath[];
     omitPatch: OmitPatch;
-  }): Promise<OmitPatch extends true ? PatchesMetadata : Patches>;
+  }): Promise<OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches>;
   protected abstract saveSourceFilePatch(
     path: ModuleFilePath,
     patch: Patch,
+    parentRef: ParentRef | null,
     authorId: AuthorId | null,
-  ): Promise<WithGenericError<{ patchId: PatchId }>>;
+  ): Promise<SaveSourceFilePatchResult>;
   protected abstract getSourceFile(
     path: ModuleFilePath,
   ): Promise<WithGenericError<{ data: string }>>;
   protected abstract saveBase64EncodedBinaryFileFromPatch(
     filePath: string,
+    parentRef: ParentRef,
     patchId: PatchId,
     data: string,
     type: "file" | "image",
@@ -1267,6 +1339,12 @@ export type GenericErrorMessage = {
   details?: unknown;
 };
 
+export type SaveSourceFilePatchResult = result.Result<
+  { patchId: PatchId },
+  | ({ errorType: "other" } & GenericErrorMessage)
+  | { errorType: "patch-head-conflict" }
+>;
+
 export type PatchAnalysis = {
   patchesByModule: {
     [path: ModuleFilePath]: {
@@ -1327,34 +1405,42 @@ export type PreparedCommit = {
   triedPatches: Record<ModuleFilePath, PatchId[]>;
 };
 
-export type Patches = {
-  patches: Record<
-    PatchId,
-    {
-      path: ModuleFilePath;
-      patch: Patch;
-      createdAt: string;
-      authorId: AuthorId | null;
-      appliedAt: {
-        baseSha: BaseSha;
-        git?: { commitSha: CommitSha };
-        timestamp: string;
-      } | null;
-    }
-  >;
-  error?: GenericErrorMessage;
-  errors?: Record<PatchId, GenericErrorMessage>;
-};
-
 export type PatchErrors = Record<PatchId, GenericErrorMessage>;
 
-export type PatchesMetadata = {
-  patches: Record<
-    PatchId,
-    Omit<Patches["patches"][PatchId], "patch"> & { patch?: undefined }
-  >;
+export type PatchReadError =
+  | {
+      patchId: PatchId;
+      message: string;
+    }
+  | {
+      parentPatchId: ParentPatchId;
+      message: string;
+    };
+
+export type OrderedPatches = {
+  patches: {
+    path: ModuleFilePath;
+    patchId: PatchId;
+    patch: Patch;
+    createdAt: string;
+    authorId: AuthorId | null;
+    baseSha: BaseSha;
+    appliedAt: {
+      baseSha: BaseSha;
+      git?: { commitSha: CommitSha };
+      timestamp: string;
+    } | null;
+  }[];
   error?: GenericErrorMessage;
-  errors?: Patches["errors"];
+  errors?: PatchReadError[];
+};
+
+export type OrderedPatchesMetadata = {
+  patches: (Omit<OrderedPatches["patches"][number], "patch"> & {
+    patch?: undefined;
+  })[];
+  error?: GenericErrorMessage;
+  errors?: OrderedPatches["errors"];
 };
 
 export function getFieldsForType<T extends BinaryFileType>(

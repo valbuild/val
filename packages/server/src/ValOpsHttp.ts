@@ -4,27 +4,32 @@ import {
   ValModules,
   Internal,
 } from "@valbuild/core";
-import type { Patch as PatchT } from "@valbuild/core/patch";
+import type {
+  Patch as PatchT,
+  ParentRef as ParentRefT,
+} from "@valbuild/core/patch";
 import {
   type AuthorId,
   type BaseSha,
   BinaryFileType,
   type CommitSha,
-  PatchesMetadata,
   GenericErrorMessage,
   MetadataOfType,
   OpsMetadata,
-  Patches,
   PreparedCommit,
   ValOps,
   ValOpsOptions,
   WithGenericError,
+  SaveSourceFilePatchResult,
   SchemaSha,
   bufferFromDataUrl,
+  OrderedPatchesMetadata,
+  OrderedPatches,
 } from "./ValOps";
 import { z } from "zod";
 import { fromError } from "zod-validation-error";
-import { Patch } from "./patch/validation";
+import { ParentRef, Patch } from "@valbuild/shared/internal";
+import { result } from "@valbuild/core/fp";
 
 const textEncoder = new TextEncoder();
 
@@ -54,13 +59,7 @@ const BasePatchResponse = z.object({
   patchId: PatchId,
   authorId: AuthorId.nullable(),
   createdAt: z.string().datetime(),
-  applied: z
-    .object({
-      baseSha: BaseSha,
-      commitSha: CommitSha,
-      appliedAt: z.string().datetime(),
-    })
-    .nullable(),
+  baseSha: z.string(),
 });
 const GetPatches = z.object({
   patches: z.array(
@@ -199,20 +198,33 @@ export class ValOpsHttp extends ValOps {
     }
     const currentBaseSha = await this.getBaseSha();
     const currentSchemaSha = await this.getSchemaSha();
-    const patchData = await this.fetchPatches({
+    const allPatchData = await this.fetchPatches({
       omitPatch: true,
       authors: undefined,
       patchIds: undefined,
       moduleFilePaths: undefined,
     });
+    // We think these errors will be picked up else where (?), so we only return an error here if there are no patches
+    if (allPatchData.patches.length === 0) {
+      let message;
+      if (allPatchData.error) {
+        message = allPatchData.error.message;
+      } else if (allPatchData.errors && allPatchData.errors.length > 0) {
+        const errors = allPatchData.errors;
+        message = errors.map((error) => error.message).join("");
+      }
+      if (message) {
+        message = `Could not get patches: ${message}`;
+        console.error(message);
+        return {
+          type: "error",
+          error: { message },
+        };
+      }
+    }
     const patches: PatchId[] = [];
-    // TODO: use proper patch sequences when available:
-    for (const [patchId] of Object.entries(patchData.patches).sort(
-      ([, a], [, b]) => {
-        return a.createdAt.localeCompare(b.createdAt, undefined);
-      },
-    )) {
-      patches.push(patchId as PatchId);
+    for (const patchData of allPatchData.patches) {
+      patches.push(patchData.patchId);
     }
     const webSocketNonceRes = await this.getWebSocketNonce(params.profileId);
     if (webSocketNonceRes.status === "error") {
@@ -272,6 +284,19 @@ export class ValOpsHttp extends ValOps {
             data: { nonce: json.nonce, url: json.url },
           };
         }
+        const contentType = res.headers.get("Content-Type") || "";
+        if (contentType.startsWith("application/json")) {
+          const json = await res.json();
+          return {
+            status: "error" as const,
+            error: {
+              message:
+                "Could not get nonce." +
+                (json.message ||
+                  "Unexpected error (no error message). Status: " + res.status),
+            },
+          };
+        }
         return {
           status: "error" as const,
           error: {
@@ -303,7 +328,9 @@ export class ValOpsHttp extends ValOps {
     patchIds?: PatchId[];
     moduleFilePaths?: ModuleFilePath[];
     omitPatch: OmitPatch;
-  }): Promise<OmitPatch extends true ? PatchesMetadata : Patches> {
+  }): Promise<
+    OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches
+  > {
     // Split patchIds into chunks to avoid too long query strings
     // NOTE: fetching patches results are cached, so this should reduce the pressure on the server
     const chunkSize = 100;
@@ -312,8 +339,8 @@ export class ValOpsHttp extends ValOps {
     for (let i = 0; i < patchIds.length; i += chunkSize) {
       patchIdChunks.push(patchIds.slice(i, i + chunkSize));
     }
-    let allPatches: Patches["patches"] = {};
-    let allErrors: Patches["errors"] = {};
+    let allPatches: OrderedPatches["patches"] = [];
+    let allErrors: OrderedPatches["errors"] = [];
     if (patchIds === undefined || patchIds.length === 0) {
       return this.fetchPatchesInternal({
         patchIds: patchIds,
@@ -337,16 +364,16 @@ export class ValOpsHttp extends ValOps {
       }
       allPatches = {
         ...allPatches,
-        ...(res.patches as Patches["patches"]),
+        ...(res.patches as OrderedPatches["patches"]),
       };
       if (res.errors) {
-        allErrors = { ...allErrors, ...res.errors };
+        allErrors = [...allErrors, ...res.errors];
       }
     }
     return {
       patches: allPatches,
       errors: Object.keys(allErrors).length > 0 ? allErrors : undefined,
-    } as OmitPatch extends true ? PatchesMetadata : Patches;
+    } as OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches;
   }
 
   async fetchPatchesInternal<OmitPatch extends boolean>(filters: {
@@ -354,7 +381,9 @@ export class ValOpsHttp extends ValOps {
     patchIds?: PatchId[];
     moduleFilePaths?: ModuleFilePath[];
     omitPatch: OmitPatch;
-  }): Promise<OmitPatch extends true ? PatchesMetadata : Patches> {
+  }): Promise<
+    OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches
+  > {
     const params: [string, string][] = [];
     params.push(["branch", this.branch]);
     if (filters.patchIds) {
@@ -389,37 +418,44 @@ export class ValOpsHttp extends ValOps {
     ).then(
       async (
         res,
-      ): Promise<OmitPatch extends true ? PatchesMetadata : Patches> => {
-        const patches: (OmitPatch extends true
-          ? PatchesMetadata
-          : Patches)["patches"] = {};
+      ): Promise<
+        OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches
+      > => {
+        const patches: {
+          path: ModuleFilePath;
+          patchId: PatchId;
+          patch?: Patch;
+          baseSha: BaseSha;
+          createdAt: string;
+          authorId: AuthorId | null;
+          appliedAt: null;
+        }[] = [];
         if (res.ok) {
           const json = await res.json();
           const parsed = GetPatches.safeParse(json);
           if (parsed.success) {
-            const data = parsed.data;
             const errors: (OmitPatch extends true
-              ? PatchesMetadata
-              : Patches)["errors"] = {};
+              ? OrderedPatchesMetadata
+              : OrderedPatches)["errors"] = [];
+
+            const data = parsed.data;
             for (const patchesRes of data.patches) {
-              patches[patchesRes.patchId] = {
-                path: patchesRes.path,
+              patches.push({
                 authorId: patchesRes.authorId,
                 createdAt: patchesRes.createdAt,
-                appliedAt: patchesRes.applied && {
-                  baseSha: patchesRes.applied.baseSha,
-                  timestamp: patchesRes.applied.appliedAt,
-                  git: {
-                    commitSha: patchesRes.applied.commitSha,
-                  },
-                },
-                patch: patchesRes.patch,
-              };
+                appliedAt: null,
+                patchId: patchesRes.patchId,
+                path: patchesRes.path,
+                baseSha: patchesRes.baseSha as BaseSha,
+                patch: filters.omitPatch ? undefined : patchesRes.patch,
+              });
             }
             return {
               patches,
               errors,
-            } as OmitPatch extends true ? PatchesMetadata : Patches;
+            } as OmitPatch extends true
+              ? OrderedPatchesMetadata
+              : OrderedPatches;
           }
           return {
             patches,
@@ -428,7 +464,7 @@ export class ValOpsHttp extends ValOps {
                 parsed.error,
               )}`,
             },
-          } as OmitPatch extends true ? PatchesMetadata : Patches;
+          } as OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches;
         }
         return {
           patches,
@@ -439,7 +475,7 @@ export class ValOpsHttp extends ValOps {
               " " +
               res.statusText,
           },
-        } as OmitPatch extends true ? PatchesMetadata : Patches;
+        } as OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches;
       },
     );
   }
@@ -447,8 +483,10 @@ export class ValOpsHttp extends ValOps {
   protected async saveSourceFilePatch(
     path: ModuleFilePath,
     patch: PatchT,
+    parentRef: ParentRefT,
     authorId: AuthorId | null,
-  ): Promise<WithGenericError<{ patchId: PatchId }>> {
+  ): Promise<SaveSourceFilePatchResult> {
+    const baseSha = await this.getBaseSha();
     return fetch(`${this.hostUrl}/v1/${this.project}/patches`, {
       method: "POST",
       headers: {
@@ -459,53 +497,67 @@ export class ValOpsHttp extends ValOps {
         path,
         patch,
         authorId,
+        parentPatchId: parentRef.type === "patch" ? parentRef.patchId : null,
+        baseSha,
         commit: this.commitSha,
         branch: this.branch,
         coreVersion: Internal.VERSION.core,
       }),
     })
-      .then(async (res) => {
+      .then(async (res): Promise<SaveSourceFilePatchResult> => {
         if (res.ok) {
           const parsed = SavePatchResponse.safeParse(await res.json());
           if (parsed.success) {
-            return { patchId: parsed.data.patchId };
+            return result.ok({ patchId: parsed.data.patchId });
           }
-          return {
-            error: {
-              message: `Could not parse save patch response. Error: ${fromError(
-                parsed.error,
-              )}`,
-            },
-          };
+          return result.err({
+            errorType: "other",
+            message: `Could not parse save patch response. Error: ${fromError(
+              parsed.error,
+            )}`,
+          });
         }
-        return {
-          error: {
-            message:
-              "Could not save patch. HTTP error: " +
-              res.status +
-              " " +
-              res.statusText,
-          },
-        };
+        if (res.status === 409) {
+          return result.err({
+            errorType: "patch-head-conflict",
+            message: "Conflict: " + (await res.text()),
+          });
+        }
+        if (res.headers.get("Content-Type")?.includes("application/json")) {
+          const json = await res.json();
+          return result.err({
+            errorType: "other",
+            message: json.message || "Unknown error",
+          });
+        }
+        return result.err({
+          errorType: "other",
+          message:
+            "Could not save patch. HTTP error: " +
+            res.status +
+            " " +
+            res.statusText,
+        });
       })
-      .catch((e) => {
-        return {
-          error: {
-            message: `Could save source file patch (connection error?): ${
-              e instanceof Error ? e.message : e.toString()
-            }`,
-          },
-        };
+      .catch((e): SaveSourceFilePatchResult => {
+        return result.err({
+          errorType: "other",
+          message: `Could save source file patch (connection error?): ${
+            e instanceof Error ? e.message : e.toString()
+          }`,
+        });
       });
   }
 
   protected override async saveBase64EncodedBinaryFileFromPatch(
     filePath: string,
+    parentRef: ParentRef,
     patchId: PatchId,
     data: string,
     type: BinaryFileType,
     metadata: MetadataOfType<BinaryFileType>,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
+    throw Error("TODO: implement");
     return fetch(
       `${this.hostUrl}/v1/${this.project}/patches/${patchId}/files`,
       {
@@ -522,34 +574,40 @@ export class ValOpsHttp extends ValOps {
         }),
       },
     )
-      .then(async (res) => {
-        if (res.ok) {
-          const parsed = SavePatchFileResponse.safeParse(await res.json());
-          if (parsed.success) {
+      .then(
+        async (
+          res,
+        ): Promise<
+          WithGenericError<{ patchId: PatchId; filePath: string }>
+        > => {
+          if (res.ok) {
+            const parsed = SavePatchFileResponse.safeParse(await res.json());
+            if (parsed.success) {
+              return {
+                patchId: parsed.data.patchId,
+                filePath: parsed.data.filePath,
+              };
+            }
             return {
-              patchId: parsed.data.patchId,
-              filePath: parsed.data.filePath,
+              error: {
+                message: `Could not parse save patch file response. Error: ${fromError(
+                  parsed.error,
+                )}`,
+              },
             };
           }
           return {
             error: {
-              message: `Could not parse save patch file response. Error: ${fromError(
-                parsed.error,
-              )}`,
+              message:
+                "Could not save patch file. HTTP error: " +
+                res.status +
+                " " +
+                res.statusText,
             },
           };
-        }
-        return {
-          error: {
-            message:
-              "Could not save patch file. HTTP error: " +
-              res.status +
-              " " +
-              res.statusText,
-          },
-        };
-      })
-      .catch((e) => {
+        },
+      )
+      .catch((e): WithGenericError<{ patchId: PatchId; filePath: string }> => {
         return {
           error: {
             message: `Could save source binary file in patch (connection error?): ${e.toString()}`,
@@ -728,7 +786,7 @@ export class ValOpsHttp extends ValOps {
     params.set("file_path", filePath);
     try {
       const metadataRes = await fetch(
-        `${this.hostUrl}/v1/${this.project}/patches/${patchId}/metadata?${params}`,
+        `${this.hostUrl}/v1/${this.project}/patches/${patchId}/files?${params}`,
         {
           headers: { ...this.authHeaders, "Content-Type": "application/json" },
         },
