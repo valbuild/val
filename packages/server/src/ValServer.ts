@@ -1080,6 +1080,29 @@ export const ValServer = (
       },
     },
 
+    "/profiles": {
+      GET: async (req) => {
+        // const cookies = req.cookies;
+        // const auth = getAuth(cookies);
+        // if (auth.error) {
+        //   return {
+        //     status: 401,
+        //     json: {
+        //       message: auth.error,
+        //     },
+        //   };
+        // }
+
+        const profiles = await serverOps.getProfiles();
+        return {
+          status: 200,
+          json: {
+            profiles,
+          },
+        };
+      },
+    },
+
     "/save": {
       POST: async (req) => {
         const cookies = req.cookies;

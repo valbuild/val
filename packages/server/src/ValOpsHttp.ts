@@ -138,6 +138,19 @@ const CommitResponse = z.object({
   commit: CommitSha,
   branch: z.string(),
 });
+const ProfilesResponse = z.object({
+  profiles: z.array(
+    z.object({
+      profileId: z.string(),
+      fullName: z.string(),
+      avatar: z
+        .object({
+          url: z.string(),
+        })
+        .nullable(),
+    }),
+  ),
+});
 
 export class ValOpsHttp extends ValOps {
   private readonly authHeaders: { Authorization: string };
@@ -1016,5 +1029,34 @@ export class ValOpsHttp extends ValOps {
         },
       };
     }
+  }
+
+  // #region profiles
+  override async getProfiles(): Promise<
+    { profileId: string; fullName: string; avatar: { url: string } | null }[]
+  > {
+    const res = await fetch(`${this.hostUrl}/v1/${this.project}/profiles`, {
+      headers: {
+        ...this.authHeaders,
+        "Content-Type": "application/json",
+      },
+    });
+    if (res.ok) {
+      const parsed = ProfilesResponse.safeParse(await res.json());
+      if (parsed.error) {
+        console.error("Could not parse profiles response", parsed.error);
+        throw Error(
+          `Could not get profiles from remote server: wrong format. You might need to upgrade Val.`,
+        );
+      }
+      return parsed.data.profiles;
+    }
+    if (res.headers.get("Content-Type")?.includes("application/json")) {
+      const json = await res.json();
+      throw Error(
+        `Could not get profiles (status: ${res.status}): ${"message" in json ? json.message : "Unknown error"}`,
+      );
+    }
+    throw Error(`Could not get profiles. Got status: ${res.status}`);
   }
 }

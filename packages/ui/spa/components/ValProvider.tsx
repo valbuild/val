@@ -83,6 +83,7 @@ const ValContext = React.createContext<{
       }
   >;
   patchIds: PatchId[];
+  profiles: Record<AuthorId, Profile>;
 }>({
   get portalRef(): HTMLElement | null {
     throw new Error("ValContext not provided");
@@ -176,6 +177,9 @@ const ValContext = React.createContext<{
   get patchIds(): PatchId[] {
     throw new Error("ValContext not provided");
   },
+  get profiles(): Record<AuthorId, Profile> {
+    throw new Error("ValContext not provided");
+  },
 });
 
 export function ValProvider({
@@ -200,6 +204,25 @@ export function ValProvider({
     patchesStatus,
     patchIds,
   } = useValState(client, dispatchValEvents);
+  const [profiles, setProfiles] = useState<Record<AuthorId, Profile>>({});
+  useEffect(() => {
+    const load = async () => {
+      const res = await client("/profiles", "GET", {});
+      if (res.status === 200) {
+        const profilesById: Record<AuthorId, Profile> = {};
+        for (const profile of res.json.profiles) {
+          profilesById[profile.profileId] = {
+            fullName: profile.fullName,
+            avatar: profile.avatar,
+          };
+        }
+        setProfiles(profilesById);
+      } else {
+        console.error("Could not get profiles", res.json);
+      }
+    };
+    load();
+  }, ["data" in stat && stat.data && stat.data.baseSha]);
 
   // Global debounce: to avoid canceling patches that are debounced on navigation
   const debouncedPatches = useRef<Record<SourcePath, (() => Patch)[]>>({});
@@ -353,6 +376,7 @@ export function ValProvider({
         sourcesSyncStatus,
         patchesStatus,
         patchIds,
+        profiles,
       }}
     >
       <DayPickerProvider
@@ -669,6 +693,11 @@ export function useErrors() {
   }
 
   return { globalErrors, patchErrors, skippedPatches, validationErrors };
+}
+
+export function useProfilesByAuthorId() {
+  const { profiles } = useContext(ValContext);
+  return profiles;
 }
 
 type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =
@@ -1042,3 +1071,11 @@ function concatModulePath(
     "." +
     JSON.stringify(key)) as SourcePath;
 }
+
+type AuthorId = string;
+export type Profile = {
+  fullName: string;
+  avatar: {
+    url: string;
+  } | null;
+};

@@ -6,6 +6,7 @@ import {
   useDeletePatches,
   useErrors,
   useGetPatches,
+  useProfilesByAuthorId,
   useSchemas,
   useSchemaSha,
 } from "./ValProvider";
@@ -218,7 +219,7 @@ function PatchCard({
         .slice(1)
         .concat(patchMetadata.patchPath)}
       changeDescription={skipped ? "Skipped" : changeDescription}
-      avatars={[]}
+      authors={[]}
       isOpen={true}
       errors={errors}
       skipped={skipped}
@@ -303,6 +304,7 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
     patchSet.opTypes,
     patchSet.lastUpdated,
   );
+  const profilesById = useProfilesByAuthorId();
 
   if (!hasBeenSeen) {
     return <PatchOrPatchSetCard ref={ref} />;
@@ -315,7 +317,14 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
           .map(prettifyFilename)
           .slice(1)
           .concat(patchSet.patchPath)}
-        avatars={[]}
+        authors={patchSet.authors.map((authorId) => {
+          const profile = profilesById[authorId];
+          const url = profile?.avatar?.url ?? null;
+          return {
+            fullName: profile.fullName,
+            url,
+          };
+        })}
         changeDescription={changeDescription}
         isOpen={isOpen}
         setOpen={setOpen}
@@ -348,7 +357,7 @@ const PatchOrPatchSetCard = forwardRef<
   {
     path?: string[];
     changeDescription?: string;
-    avatars?: { url: string; alt: string }[];
+    authors?: { url: string | null; fullName: string }[];
     isOpen?: boolean;
     setOpen?: (isOpen: boolean) => void;
     isSelected?: boolean;
@@ -362,7 +371,7 @@ const PatchOrPatchSetCard = forwardRef<
     {
       path,
       changeDescription,
-      avatars,
+      authors,
       isOpen,
       setOpen,
       isSelected,
@@ -455,29 +464,45 @@ const PatchOrPatchSetCard = forwardRef<
           </div>
         )}
         <div className="flex items-center justify-between pt-2">
-          <span className="flex-shrink-0">
-            {avatars !== undefined && avatars.length > 0 && (
-              <span className="flex gap-2 mr-2">
-                {avatars.slice(0, 2).map((avatar) => (
-                  <img
-                    key={avatar.url}
-                    src={avatar.url}
-                    alt={avatar.alt}
-                    className="flex-shrink-0 w-6 h-6 rounded-full"
-                  />
-                ))}
-                {avatars.length > 2 && (
+          <span className="flex flex-shrink-0 gap-2">
+            {authors !== undefined && authors.length > 0 && (
+              <span className="flex gap-1 mr-2">
+                {authors.slice(0, 2).map((author) => {
+                  if (author.url) {
+                    return (
+                      <img
+                        key={author.url}
+                        src={author.url}
+                        alt={author.fullName}
+                        title={author.fullName}
+                        className="flex-shrink-0 w-6 h-6 rounded-full"
+                      />
+                    );
+                  }
+                  const initials = getInitials(author.fullName);
+                  return (
+                    <span
+                      key={author.fullName + author.url}
+                      className="flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full bg-bg-quartenary text-fg-primary"
+                      aria-label={"Initials for: " + author.fullName}
+                      title={author.fullName}
+                    >
+                      {initials}
+                    </span>
+                  );
+                })}
+                {authors.length > 2 && (
                   <span className="w-6 h-6 rounded-full bg-bg-primary text-text-primary">
-                    +{avatars.length - 2}
+                    +{authors.length - 2}
                   </span>
                 )}
               </span>
             )}
-            {avatars === undefined && (
+            {authors === undefined && (
               <span
                 className={classNames("inline-block w-6 h-6 mr-2", {
                   "bg-bg-disabled animate-pulse rounded-3xl":
-                    avatars === undefined,
+                    authors === undefined,
                 })}
               ></span>
             )}
@@ -509,3 +534,35 @@ const PatchOrPatchSetCard = forwardRef<
     );
   },
 );
+
+// Thanks ChatGPT
+function getInitials(fullName: string): string {
+  if (!fullName || typeof fullName !== "string") {
+    return "";
+  }
+
+  // Normalize the input, trim whitespace, and split by Unicode word boundaries
+  const nameParts = fullName
+    .trim()
+    .normalize("NFC") // Normalize to canonical form
+    .split(/\s+/) // Split by whitespace
+
+    .filter((part) => part.length > 0); // Remove empty strings
+
+  // Handle each part
+  const initials = nameParts.map((part) => {
+    // Special handling for CJK (first character of each part)
+    if (
+      /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(
+        part,
+      )
+    ) {
+      return part[0];
+    }
+    // Latin and other scripts (use first letter)
+    return part[0].toLocaleUpperCase();
+  });
+
+  // Join and return initials
+  return initials.join("");
+}
