@@ -317,13 +317,18 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
           .map(prettifyFilename)
           .slice(1)
           .concat(patchSet.patchPath)}
-        authors={patchSet.authors.map((authorId) => {
+        authors={patchSet.authors.flatMap((authorId) => {
           const profile = profilesById[authorId];
-          const url = profile?.avatar?.url ?? null;
-          return {
-            fullName: profile.fullName,
-            url,
-          };
+          if (profile) {
+            const url = profile?.avatar?.url ?? null;
+            return [
+              {
+                fullName: profile.fullName,
+                url,
+              },
+            ];
+          }
+          return [];
         })}
         changeDescription={changeDescription}
         isOpen={isOpen}

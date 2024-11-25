@@ -1002,9 +1002,8 @@ export class ValOpsFS extends ValOps {
   override async getProfiles(): Promise<
     { profileId: string; fullName: string; avatar: { url: string } | null }[]
   > {
-    throw new Error(
-      "Configuration error:  cannot get profiles in local / development file system mode",
-    );
+    // We do not have profiles in FS mode
+    return [];
   }
 
   // #region fs file path helpers
