@@ -339,8 +339,8 @@ export class ValOpsHttp extends ValOps {
     for (let i = 0; i < patchIds.length; i += chunkSize) {
       patchIdChunks.push(patchIds.slice(i, i + chunkSize));
     }
-    let allPatches: OrderedPatches["patches"] = [];
-    let allErrors: OrderedPatches["errors"] = [];
+    const allPatches: OrderedPatches["patches"] = [];
+    const allErrors: OrderedPatches["errors"] = [];
     if (patchIds === undefined || patchIds.length === 0) {
       return this.fetchPatchesInternal({
         patchIds: patchIds,
@@ -362,12 +362,9 @@ export class ValOpsHttp extends ValOps {
       if ("error" in res) {
         return res;
       }
-      allPatches = {
-        ...allPatches,
-        ...(res.patches as OrderedPatches["patches"]),
-      };
+      allPatches.push(...(res.patches as OrderedPatches["patches"]));
       if (res.errors) {
-        allErrors = [...allErrors, ...res.errors];
+        allErrors.push(...res.errors);
       }
     }
     return {
