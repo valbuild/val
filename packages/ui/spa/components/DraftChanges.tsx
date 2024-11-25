@@ -171,10 +171,12 @@ export function DraftChanges({
       )}
       <div className="flex flex-col gap-[2px]">
         {"data" in serializedPatchSets &&
-          serializedPatchSets.data.map((patchSet, i) => {
+          serializedPatchSets.data.map((patchSet) => {
             return (
               <PatchSetCard
-                key={JSON.stringify(patchSet)}
+                key={
+                  patchSet.moduleFilePath + ":" + patchSet.patchPath.join("/")
+                }
                 patchSet={patchSet}
               />
             );
@@ -325,7 +327,13 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
       <AnimateHeight isOpen={isOpen}>
         {patchSet.patches.map((patchMetadata, i) => (
           <PatchCard
-            key={JSON.stringify(patchMetadata) + patchSet.moduleFilePath}
+            key={
+              patchSet.moduleFilePath +
+              ":" +
+              patchSet.patchPath.join("/") +
+              patchMetadata.patchId +
+              i
+            }
             moduleFilePath={patchSet.moduleFilePath}
             patchMetadata={patchMetadata}
           />
