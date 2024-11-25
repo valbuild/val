@@ -49,8 +49,14 @@ const ValidationError = z.object({
   fixes: z.array(ValidationFixZ).optional(),
 });
 
-const notFoundResponse = z.object({
+const unauthorizedResponse = z.object({
   status: z.literal(401),
+  json: z.object({
+    message: z.string(),
+  }),
+});
+const notFoundResponse = z.object({
+  status: z.literal(404),
   json: z.object({
     message: z.string(),
   }),
@@ -442,7 +448,7 @@ export const Api = {
         },
       },
       res: z.union([
-        notFoundResponse,
+        unauthorizedResponse,
         z.object({
           status: z.literal(500),
           json: z.object({
@@ -472,7 +478,7 @@ export const Api = {
         },
       },
       res: z.union([
-        notFoundResponse,
+        unauthorizedResponse,
         z.object({
           status: z.literal(409), // conflict: i.e. not a head of patches
           json: z.object({
@@ -517,7 +523,7 @@ export const Api = {
         },
       },
       res: z.union([
-        notFoundResponse,
+        unauthorizedResponse,
         z.object({
           status: z.literal(500),
           json: z.object({
@@ -567,7 +573,7 @@ export const Api = {
         },
       },
       res: z.union([
-        notFoundResponse,
+        unauthorizedResponse,
         z.object({
           status: z.literal(500),
           json: z.object({
@@ -611,7 +617,7 @@ export const Api = {
         },
       },
       res: z.union([
-        notFoundResponse,
+        unauthorizedResponse,
         z.object({
           status: z.literal(401),
           json: GenericError,
@@ -668,25 +674,22 @@ export const Api = {
           val_session: z.string().optional(),
         },
       },
-      res: z.union([
-        notFoundResponse,
-        z.object({
-          status: z.literal(200),
-          json: z.object({
-            profiles: z.array(
-              z.object({
-                profileId: z.string(),
-                fullName: z.string(),
-                avatar: z
-                  .object({
-                    url: z.string(),
-                  })
-                  .nullable(),
-              }),
-            ),
-          }),
+      res: z.object({
+        status: z.literal(200),
+        json: z.object({
+          profiles: z.array(
+            z.object({
+              profileId: z.string(),
+              fullName: z.string(),
+              avatar: z
+                .object({
+                  url: z.string(),
+                })
+                .nullable(),
+            }),
+          ),
         }),
-      ]),
+      }),
     },
   },
   "/save": {
@@ -700,7 +703,7 @@ export const Api = {
         },
       },
       res: z.union([
-        notFoundResponse,
+        unauthorizedResponse,
         z.object({
           status: z.literal(200),
           json: z.object({}), // TODO:
@@ -740,6 +743,7 @@ export const Api = {
         },
       },
       res: z.union([
+        unauthorizedResponse,
         notFoundResponse,
         z.object({
           status: z.literal(200),
