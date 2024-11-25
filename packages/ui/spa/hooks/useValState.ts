@@ -13,7 +13,7 @@ import type {
   PatchId,
   ValidationError,
 } from "@valbuild/core";
-import { ValClient } from "@valbuild/shared/internal";
+import { ParentRef, ValClient } from "@valbuild/shared/internal";
 import React, {
   useState,
   useEffect,
@@ -589,6 +589,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     }
   }, [requestedSources, sourceState, currentPatchIds]);
 
+  const retriesOnConflictsByParentPatchRef = useRef<Record<string, number>>({});
   const mergeAndSyncPatches = useCallback(() => {
     const pendingPatches = { ...pendingPatchesRef.current };
     if (Object.keys(pendingPatches).length === 0) {
@@ -627,19 +628,20 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
       console.error("Cannot add patches without stat data");
       return;
     }
+    const parentRef: ParentRef =
+      currentPatchIds.length > 0
+        ? {
+            type: "patch",
+            patchId: currentPatchIds[currentPatchIds.length - 1],
+          }
+        : {
+            type: "head",
+            headBaseSha: stat.data.baseSha,
+          };
     client("/patches", "PUT", {
       body: {
         patches: mergedPatches,
-        parentRef:
-          currentPatchIds.length > 0
-            ? {
-                type: "patch",
-                patchId: currentPatchIds[currentPatchIds.length - 1],
-              }
-            : {
-                type: "head",
-                headBaseSha: stat.data.baseSha,
-              },
+        parentRef,
       },
     })
       .then((res) => {
@@ -649,8 +651,44 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         } else {
           setIsAuthenticated("authorized");
         }
+        const parentPatchRef =
+          parentRef.type === "patch" ? parentRef.patchId : "head";
         if (res.status === 409) {
-          // retry on conflict
+          if (
+            !retriesOnConflictsByParentPatchRef.current[parentPatchRef] ||
+            retriesOnConflictsByParentPatchRef.current[parentPatchRef] <
+              MAX_RETRIES_ON_CONFLICT // max retries on conflicts
+          ) {
+            console.warn(
+              "Conflict! Retrying. Atempts left: ",
+              MAX_RETRIES_ON_CONFLICT -
+                (retriesOnConflictsByParentPatchRef.current[parentPatchRef] ||
+                  1),
+            );
+            // retry on conflict
+            retriesOnConflictsByParentPatchRef.current = {
+              [parentPatchRef]:
+                (retriesOnConflictsByParentPatchRef.current[parentPatchRef] ??
+                  1) + 1,
+            };
+          } else {
+            setSourcesSyncStatus((prev) => {
+              const current: typeof prev = {};
+              for (const moduleFilePathS in pendingPatches) {
+                const moduleFilePath = moduleFilePathS as ModuleFilePath;
+                current[moduleFilePath] = {
+                  status: "error",
+                  errors: [
+                    {
+                      message:
+                        "Cannot apply changes. Val is online, but it could not get the latest set of changes from the server (i.e. there's a conflict). Try reloading.",
+                    },
+                  ],
+                };
+              }
+              return current;
+            });
+          }
         } else if (
           res.status === null &&
           res.json.type === "network_error" &&
@@ -658,6 +696,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         ) {
           // retry on network errors
         } else {
+          retriesOnConflictsByParentPatchRef.current = {};
           for (const moduleFilePathS in pendingPatchesRef.current) {
             const moduleFilePath = moduleFilePathS as ModuleFilePath;
             for (const pendingPatch of pendingPatchesRef.current[
@@ -899,6 +938,7 @@ function useStat(client: ValClient) {
 
   useEffect(() => {
     if (stat.status === "not-asked") {
+      console.log("Setting stat to initializing");
       setStat({
         status: "initializing",
       });
@@ -925,6 +965,7 @@ function useStat(client: ValClient) {
 }
 
 const WebSocketStatInterval = 10 * 1000;
+const MAX_RETRIES_ON_CONFLICT = 10;
 
 async function execStat(
   client: ValClient,
