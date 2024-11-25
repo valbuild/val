@@ -965,7 +965,6 @@ export const ValServer = (
           patchIds: undefined,
           omitPatch: false,
         });
-        console.log("patchOps", patchOps);
         const patchAnalysis = serverOps.analyzePatches(patchOps.patches);
         let sourcesRes = await serverOps.getSources();
         const onlyPatchedTreeModules = await serverOps.getSources({

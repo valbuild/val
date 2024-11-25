@@ -24,7 +24,11 @@ import { ValClient } from "@valbuild/shared/internal";
 import { Remote } from "../utils/Remote";
 import { isJsonArray } from "../utils/isJsonArray";
 import { DayPickerProvider } from "react-day-picker";
-import { AuthenticationState, useValState } from "../hooks/useValState";
+import {
+  AuthenticationState,
+  DeletePatchesRes,
+  useValState,
+} from "../hooks/useValState";
 
 const ValContext = React.createContext<{
   portalRef: HTMLElement | null;
@@ -185,6 +189,7 @@ export function ValProvider({
 }) {
   const {
     addPatch,
+    deletePatches,
     authenticationState,
     schemas,
     schemaSha,
@@ -306,20 +311,6 @@ export function ValProvider({
         return { status: "ok", data: grouped } as const;
       }
       return { status: "error", error: res.json.message } as const;
-    },
-    [client],
-  );
-  const deletePatches = useCallback(
-    async (patchIds: PatchId[]): Promise<DeletePatchesRes> => {
-      const res = await client("/patches", "DELETE", {
-        query: {
-          id: patchIds,
-        },
-      });
-      if (res.status === 200) {
-        return { status: "ok" };
-      }
-      return { status: "error", error: res.json.message };
     },
     [client],
   );
@@ -1037,7 +1028,6 @@ type GetPatchRes =
       error: string;
     };
 
-type DeletePatchesRes = { status: "ok" } | { status: "error"; error: string };
 function concatModulePath(
   moduleFilePath: ModuleFilePath,
   modulePath: ModulePath,
