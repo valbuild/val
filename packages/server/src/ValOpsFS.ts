@@ -329,6 +329,7 @@ export class ValOpsFS extends ValOps {
             patch: Patch;
             patchId: PatchId;
             parentRef: ParentRef;
+            baseSha: BaseSha;
             createdAt: string;
             authorId: AuthorId | null;
             coreVersion: string;
@@ -418,6 +419,7 @@ export class ValOpsFS extends ValOps {
         patch: omitPath ? undefined : patch.patch,
         parentRef: patch.parentRef,
         path: patch.path,
+        baseSha: patch.baseSha,
         createdAt: patch.createdAt,
         authorId: patch.authorId,
         appliedAt: patch.appliedAt,
@@ -745,7 +747,7 @@ export class ValOpsFS extends ValOps {
     | { error: GenericErrorMessage; errors?: undefined; deleted?: undefined }
   > {
     const deleted: PatchId[] = [];
-    let errors: Record<PatchId, GenericErrorMessage> | null = null;
+    const errors: Record<PatchId, GenericErrorMessage> | null = null;
     const patchDirMapRes = await this.getParentPatchIdFromPatchIdMap();
     if (result.isErr(patchDirMapRes)) {
       return { error: { message: "Failed to get patch dir map" } };
@@ -753,36 +755,14 @@ export class ValOpsFS extends ValOps {
     const currentPatches = this.createPatchChain(
       (await this.fetchPatchesFromFS(false)).patches,
     );
-    for (const patchId of patchIds) {
-      const patchDir = patchDirMapRes.value[patchId];
-      if (!patchDir) {
-        if (!errors) {
-          errors = {};
-        }
-        errors[patchId] = {
-          message: "Failed to find PatchDir for PatchId " + patchId,
-        };
-        continue;
-      }
-      try {
-        this.host.deleteDir(this.getFullPatchDir(patchDir));
-        deleted.push(patchId);
-      } catch (err) {
-        if (!errors) {
-          errors = {};
-        }
-        errors[patchId] = {
-          message: err instanceof Error ? err.message : "Unknown error",
-        };
-      }
-    }
-    if (errors) {
-      return { deleted, errors };
-    }
     this.updateOrderedPatches(
       computeChangedPatchParentRefs(currentPatches, patchIds),
       patchDirMapRes.value,
+      patchIds,
     );
+    if (errors) {
+      return { deleted, errors };
+    }
     return { deleted };
   }
 
@@ -791,12 +771,72 @@ export class ValOpsFS extends ValOps {
       changedPatches: Record<PatchId, ParentRef>;
     },
     patchDirMap: Record<PatchId, ParentPatchId | undefined>,
+    deletePatchIds: PatchId[],
   ) {
-    // for (const [patchIdS, parentRef] of Object.entries(
-    //   updates.changedPatches,
-    // )) {
-    // }
-    // TODO
+    for (const patchId of deletePatchIds) {
+      const patchDir = patchDirMap[patchId];
+      if (!patchDir) {
+        console.error(
+          "Could not find patch dir for patch id scheduled for deletion: ",
+          patchId,
+        );
+        continue;
+      }
+      try {
+        this.host.deleteDir(this.getFullPatchDir(patchDir));
+      } catch (err) {
+        console.error("Failed to delete patch dir", err);
+      }
+    }
+    for (const [patchIdS, parentRef] of Object.entries(
+      updates.changedPatches,
+    )) {
+      const prevParentPatchId = patchDirMap[patchIdS as PatchId];
+      if (!prevParentPatchId) {
+        console.error(
+          "Could not find previous parent patch id for deleted patch id: ",
+          patchIdS,
+        );
+        continue;
+      }
+      const newParentPatchId = (
+        parentRef.type === "head" ? "head" : parentRef.patchId
+      ) as ParentPatchId;
+      const currentPatchDataRes = this.parseJsonFile(
+        this.getPatchFilePath(prevParentPatchId),
+        FSPatch,
+      );
+      if (currentPatchDataRes.error) {
+        console.error(
+          "Failed to parse patch file while fixing patch chain after deleted patch",
+          { updates },
+          currentPatchDataRes.error,
+        );
+        continue;
+      }
+      const newPatchData = currentPatchDataRes.data;
+      newPatchData.parentRef = parentRef;
+
+      try {
+        this.host.writeUf8File(
+          this.getPatchFilePath(prevParentPatchId),
+          JSON.stringify(newPatchData),
+        );
+        if (this.host.directoryExists(this.getFullPatchDir(newParentPatchId))) {
+          this.host.deleteDir(this.getFullPatchDir(newParentPatchId));
+        }
+        this.host.moveDir(
+          this.getFullPatchDir(prevParentPatchId),
+          this.getFullPatchDir(newParentPatchId),
+        );
+      } catch (err) {
+        console.error(
+          "Failed fix patch chain after deleted patch",
+          { updates },
+          err,
+        );
+      }
+    }
   }
 
   async saveFiles(preparedCommit: PreparedCommit): Promise<{
@@ -1036,7 +1076,6 @@ class FSOpsHost {
   }
 
   writeUf8File(path: string, data: string): void {
-    console.log("Writing file: ", path);
     fs.mkdirSync(fsPath.dirname(path), { recursive: true });
     fs.writeFileSync(path, data, "utf-8");
   }
@@ -1051,7 +1090,6 @@ class FSOpsHost {
         errorType: "dir-already-exists" | "failed-to-write-file";
         error: unknown;
       } {
-    console.log("Trying to write file: ", path);
     try {
       const parentDir = fsPath.join(fsPath.dirname(path), "../");
       fs.mkdirSync(parentDir, { recursive: true });
@@ -1121,6 +1159,7 @@ type FSPatches = {
       parentRef: ParentRef;
       createdAt: string;
       authorId: AuthorId | null;
+      baseSha: BaseSha;
       appliedAt: {
         baseSha: BaseSha;
         git?: { commitSha: CommitSha };

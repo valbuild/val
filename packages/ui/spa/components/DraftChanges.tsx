@@ -60,6 +60,15 @@ export function DraftChanges({
         patchSetsRef.current = new PatchSets();
         prevInsertedPatchesRef.current = new Set();
       }
+      // If we, for example, delete a patch, we need to reset the patchSets (we do not have a .delete method yet)
+      for (const patchId of Array.from(prevInsertedPatchesRef.current)) {
+        if (!patchIds.includes(patchId)) {
+          patchSetsRef.current = new PatchSets();
+          prevInsertedPatchesRef.current = new Set();
+          requestedPatchIdsRef.current = [];
+          break;
+        }
+      }
       // Only request patches that are not already inserted
       const requestPatchIds: PatchId[] = [];
       for (const patchId of patchIds) {
@@ -86,14 +95,6 @@ export function DraftChanges({
       }
       if (!("data" in schemasRes)) {
         return;
-      }
-      // // If we, for example, delete a patch, we need to reset the patchSets (we do not have a .delete method yet)
-      for (const patchId of Array.from(prevInsertedPatchesRef.current)) {
-        if (!patchIds.includes(patchId)) {
-          patchSetsRef.current = new PatchSets();
-          prevInsertedPatchesRef.current = new Set();
-          break;
-        }
       }
       const patchSets = patchSetsRef.current;
       const schemas = schemasRes.data;
@@ -170,12 +171,10 @@ export function DraftChanges({
       )}
       <div className="flex flex-col gap-[2px]">
         {"data" in serializedPatchSets &&
-          serializedPatchSets.data.map((patchSet) => {
+          serializedPatchSets.data.map((patchSet, i) => {
             return (
               <PatchSetCard
-                key={
-                  patchSet.moduleFilePath + ":" + patchSet.patchPath.join("/")
-                }
+                key={JSON.stringify(patchSet)}
                 patchSet={patchSet}
               />
             );
@@ -320,20 +319,13 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
         setOpen={setOpen}
         errors={errors}
         onDelete={() => {
-          console.log("deletePatches", patchIds);
           deletePatches(patchIds);
         }}
       />
       <AnimateHeight isOpen={isOpen}>
         {patchSet.patches.map((patchMetadata, i) => (
           <PatchCard
-            key={
-              patchSet.moduleFilePath +
-              ":" +
-              patchSet.patchPath.join("/") +
-              patchMetadata.patchId +
-              i
-            }
+            key={JSON.stringify(patchMetadata) + patchSet.moduleFilePath}
             moduleFilePath={patchSet.moduleFilePath}
             patchMetadata={patchMetadata}
           />
@@ -432,8 +424,8 @@ const PatchOrPatchSetCard = forwardRef<
             />
           )}
           {onDelete && (
-            <button onClick={onDelete}>
-              <Trash />
+            <button onClick={onDelete} title="Delete" className="ml-2">
+              <Trash size={16} />
             </button>
           )}
         </div>

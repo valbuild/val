@@ -450,16 +450,6 @@ export abstract class ValOps {
             applicableOps.push(op);
           }
         }
-        // fake error to test - do not commit:
-        console.error("Fake error");
-        if (!errors[path]) {
-          errors[path] = [];
-        }
-        errors[path].push({
-          patchId: patchId,
-          skipped: false,
-          error: new PatchError("Fake error"),
-        });
         const patchRes = applyPatch(
           deepClone(patchedSources[path]) as JSONValue, // applyPatch mutates the source. On add operations it adds more than once? There is something strange going on... deepClone seems to fix, but is that the right solution?
           jsonOps,

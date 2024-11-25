@@ -110,6 +110,14 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
       currentStateRef.current = { ...currentState };
       const validateAll = path === undefined;
       setAuthenticationLoadingIfNotAuthenticated();
+      // reset patches status for the requested sources
+      setPatchesStatus((prev) => {
+        const current: typeof prev = { ...prev };
+        for (const moduleFilePath of requestedSources) {
+          delete current[moduleFilePath];
+        }
+        return current;
+      });
       client("/sources/~", "PUT", {
         path: path,
         query: {
@@ -541,6 +549,22 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     },
     [sources, currentPatchIds, sourceState, overlayDraftMode],
   );
+
+  const deletePatches = useCallback(
+    async (patchIds: PatchId[]): Promise<DeletePatchesRes> => {
+      const res = await client("/patches", "DELETE", {
+        query: {
+          id: patchIds,
+        },
+      });
+      if (res.status === 200) {
+        setRequestedSources([]); // reload all sources
+        return { status: "ok" };
+      }
+      return { status: "error", error: res.json.message };
+    },
+    [client],
+  );
   useEffect(() => {
     if (sourceState === undefined) {
       return;
@@ -731,6 +755,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     schemaSha,
     sources,
     addPatch,
+    deletePatches,
     requestModule,
     patchesStatus,
     sourcesSyncStatus,
@@ -951,7 +976,7 @@ async function execStat(
             wait: WebSocketStatInterval,
           }));
           if (webSocketRef.current) {
-            console.log("Closing existing WebSocket");
+            console.debug("Closing existing WebSocket");
             webSocketRef.current.close();
           }
           const wsUrl = res.json.url;
@@ -1077,6 +1102,10 @@ export type PatchWithMetadata = {
   createdAt: string;
   error: string | null;
 };
+
+export type DeletePatchesRes =
+  | { status: "ok" }
+  | { status: "error"; error: string };
 
 export type Author = {
   id: string;
