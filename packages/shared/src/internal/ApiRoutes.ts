@@ -2,7 +2,6 @@ import { z } from "zod";
 import {
   type ValidationFix,
   type ModuleFilePath,
-  type PatchId,
   type ValConfig,
 } from "@valbuild/core";
 import {
@@ -10,16 +9,18 @@ import {
   VAL_SESSION_COOKIE,
   VAL_STATE_COOKIE,
 } from "./server/types";
-import { Patch } from "./zod/Patch";
+import { Patch, PatchId } from "./zod/Patch";
 import { SerializedSchema } from "./zod/SerializedSchema";
 import { SourcePath } from "./zod/SourcePath";
 
-const PatchId = z.string().refine(
-  (_id): _id is PatchId => true, // TODO:
-);
 const ModuleFilePath = z.string().refine(
-  (_path): _path is ModuleFilePath => true, // TODO:
+  (_path): _path is ModuleFilePath => true, // TODO: validation
 );
+
+const ParentRef = z.union([
+  z.object({ type: z.literal("head"), headBaseSha: z.string() }),
+  z.object({ type: z.literal("patch"), patchId: PatchId }),
+]);
 
 const ValConfig = z.object({
   project: z.string().optional(),
@@ -55,6 +56,18 @@ const notFoundResponse = z.object({
   }),
 });
 const GenericError = z.object({ message: z.string() });
+
+const GenericPatchError = z.union([
+  z.object({
+    patchId: PatchId,
+    message: z.string(),
+  }),
+  z.object({
+    parentPatchId: z.string(),
+    message: z.string(),
+  }),
+]);
+
 const ModulesError = z.object({
   message: z.string(),
   path: ModuleFilePath.optional(),
@@ -418,7 +431,7 @@ export const Api = {
       ]),
     },
   },
-  "/patches/~": {
+  "/patches": {
     DELETE: {
       req: {
         query: {
@@ -434,12 +447,60 @@ export const Api = {
           status: z.literal(500),
           json: z.object({
             message: z.string(),
-            details: z.record(PatchId, GenericError),
+            errors: z.array(GenericPatchError),
           }),
         }),
         z.object({
           status: z.literal(200),
           json: z.array(PatchId),
+        }),
+      ]),
+    },
+    PUT: {
+      req: {
+        body: z.object({
+          parentRef: ParentRef,
+          patches: z.array(
+            z.object({
+              path: ModuleFilePath,
+              patch: Patch,
+            }),
+          ),
+        }),
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        notFoundResponse,
+        z.object({
+          status: z.literal(409), // conflict: i.e. not a head of patches
+          json: z.object({
+            type: z.literal("patch-head-conflict"),
+            message: z.string(),
+          }),
+        }),
+        z.object({
+          status: z.literal(400),
+          json: z.object({
+            type: z.literal("patch-error"),
+            message: z.string(),
+            errors: z.record(
+              ModuleFilePath,
+              z.array(
+                z.object({
+                  error: GenericError,
+                }),
+              ),
+            ),
+          }),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            newPatchIds: z.array(PatchId),
+            parentRef: ParentRef,
+          }),
         }),
       ]),
     },
@@ -461,17 +522,24 @@ export const Api = {
           status: z.literal(500),
           json: z.object({
             message: z.string(),
-            details: z.record(PatchId, GenericError),
+            patchErrors: z.array(GenericPatchError),
+          }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: z.object({
+            message: z.string(),
+            error: GenericError,
           }),
         }),
         z.object({
           status: z.literal(200),
           json: z.object({
-            patches: z.record(
-              PatchId,
+            patches: z.array(
               z.object({
                 path: ModuleFilePath,
                 patch: Patch.optional(),
+                patchId: PatchId,
                 createdAt: z.string(),
                 authorId: z.string().nullable(),
                 appliedAt: z
@@ -483,6 +551,7 @@ export const Api = {
                   .nullable(),
               }),
             ),
+            baseSha: z.string(),
             error: GenericError.optional(),
             errors: z.record(PatchId, GenericError).optional(),
           }),
@@ -523,21 +592,13 @@ export const Api = {
       ]),
     },
   },
-  "/sources": {
+  "/sources/~": {
     PUT: {
       req: {
         path: z.string().optional(),
         body: z
           .object({
             patchIds: z.array(PatchId).optional(),
-            addPatches: z
-              .array(
-                z.object({
-                  path: ModuleFilePath,
-                  patch: Patch,
-                }),
-              )
-              .optional(),
           })
           .optional(),
         query: {
@@ -556,10 +617,6 @@ export const Api = {
           json: GenericError,
         }),
         z.object({
-          status: z.literal(409), // conflict: i.e. not a head of patches
-          json: GenericError,
-        }),
-        z.object({
           status: z.literal(500),
           json: z.object({
             message: z.string(),
@@ -567,44 +624,16 @@ export const Api = {
           }),
         }),
         z.object({
-          status: z.literal(400),
+          status: z.literal(409),
           json: z.object({
             message: z.string(),
-            details: z.array(ModulesError),
           }),
         }),
         z.object({
           status: z.literal(400),
           json: z.object({
-            type: z.literal("patch-error"),
             message: z.string(),
-            schemaSha: z.string(),
-            modules: z.record(
-              ModuleFilePath,
-              z.object({
-                source: z.any(), //.optional(), // TODO: Json zod type
-                patches: z
-                  .object({
-                    applied: z.array(PatchId),
-                    skipped: z.array(PatchId).optional(),
-                    errors: z.record(PatchId, GenericError).optional(),
-                  })
-                  .optional(),
-                validationErrors: z
-                  .record(SourcePath, z.array(ValidationError))
-                  .optional(),
-              }),
-            ),
-            errors: z.record(
-              ModuleFilePath,
-              z.array(
-                z.object({
-                  patchId: PatchId,
-                  skipped: z.boolean(),
-                  error: GenericError,
-                }),
-              ),
-            ),
+            details: z.array(ModulesError),
           }),
         }),
         z.object({
@@ -627,7 +656,6 @@ export const Api = {
                   .optional(),
               }),
             ),
-            newPatchIds: z.array(PatchId).optional(),
           }),
         }),
       ]),

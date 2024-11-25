@@ -12,7 +12,7 @@ import {
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
 import { prettifyFilename } from "../utils/prettifyFilename";
-import { ChevronDown, Clock } from "lucide-react";
+import { ChevronDown, Clock, Trash } from "lucide-react";
 import {
   PatchMetadata,
   PatchSetMetadata,
@@ -59,6 +59,15 @@ export function DraftChanges({
         // Initialize if not already
         patchSetsRef.current = new PatchSets();
         prevInsertedPatchesRef.current = new Set();
+      }
+      // If we, for example, delete a patch, we need to reset the patchSets (we do not have a .delete method yet)
+      for (const patchId of Array.from(prevInsertedPatchesRef.current)) {
+        if (!patchIds.includes(patchId)) {
+          patchSetsRef.current = new PatchSets();
+          prevInsertedPatchesRef.current = new Set();
+          requestedPatchIdsRef.current = [];
+          break;
+        }
       }
       // Only request patches that are not already inserted
       const requestPatchIds: PatchId[] = [];
@@ -311,13 +320,9 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
         isOpen={isOpen}
         setOpen={setOpen}
         errors={errors}
-        onDelete={
-          errors && errors.length > 0
-            ? () => {
-                deletePatches(patchIds);
-              }
-            : undefined
-        }
+        onDelete={() => {
+          deletePatches(patchIds);
+        }}
       />
       <AnimateHeight isOpen={isOpen}>
         {patchSet.patches.map((patchMetadata, i) => (
@@ -426,6 +431,11 @@ const PatchOrPatchSetCard = forwardRef<
               }}
             />
           )}
+          {onDelete && (
+            <button onClick={onDelete} title="Delete" className="ml-2">
+              <Trash size={16} />
+            </button>
+          )}
         </div>
         {errors && errors.length > 0 && !skipped && (
           <div className="p-2 max-w-[240px] rounded bg-bg-error-primary text-text-primary">
@@ -439,7 +449,11 @@ const PatchOrPatchSetCard = forwardRef<
             )}
           </div>
         )}
-        {onDelete && <button onClick={onDelete}>Delete</button>}
+        {(!errors || errors.length === 0) && skipped && (
+          <div className="p-2 max-w-[240px] rounded bg-bg-error-primary text-text-primary">
+            <div className="truncate">Skipped</div>
+          </div>
+        )}
         <div className="flex items-center justify-between pt-2">
           <span className="flex-shrink-0">
             {avatars !== undefined && avatars.length > 0 && (

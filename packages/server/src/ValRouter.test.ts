@@ -51,11 +51,11 @@ describe("ValRouter", () => {
     (res) => res,
   );
 
-  test("smoke test valid route: /sources", async () => {
+  test("smoke test valid route: /sources/~", async () => {
     const serverRes = await onRoute(
       fakeRequest({
         method: "PUT",
-        url: new URL("http://localhost:3000/api/val/sources"),
+        url: new URL("http://localhost:3000/api/val/sources/~"),
         json: {},
         headers: new Headers({
           Cookie: `val_session=${encodeJwt({}, "")}`,
@@ -83,11 +83,11 @@ describe("ValRouter", () => {
     expect("json" in serverRes && serverRes.json).toBeTruthy();
   });
 
-  test("smoke test valid route: /patches/~", async () => {
+  test("smoke test valid route: /patches", async () => {
     const serverRes = await onRoute(
       fakeRequest({
         method: "GET",
-        url: new URL("http://localhost:3000/api/val/patches/~"),
+        url: new URL("http://localhost:3000/api/val/patches"),
       }),
     );
     expect(serverRes).toBeDefined();

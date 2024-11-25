@@ -13,7 +13,7 @@ import type {
   PatchId,
   ValidationError,
 } from "@valbuild/core";
-import { ValClient } from "@valbuild/shared/internal";
+import { ParentRef, ValClient } from "@valbuild/shared/internal";
 import React, {
   useState,
   useEffect,
@@ -53,7 +53,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
   >({});
   const [patchesStatus, setPatchesStatus] = useState<
     Record<
-      SourcePath,
+      ModuleFilePath,
       | {
           status: "created-patch";
           createdAt: string;
@@ -110,7 +110,15 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
       currentStateRef.current = { ...currentState };
       const validateAll = path === undefined;
       setAuthenticationLoadingIfNotAuthenticated();
-      client("/sources", "PUT", {
+      // reset patches status for the requested sources
+      setPatchesStatus((prev) => {
+        const current: typeof prev = { ...prev };
+        for (const moduleFilePath of requestedSources) {
+          delete current[moduleFilePath];
+        }
+        return current;
+      });
+      client("/sources/~", "PUT", {
         path: path,
         query: {
           validate_sources: true,
@@ -159,23 +167,89 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
               }
               return errors;
             });
-          }
-          for (const moduleFilePathS of requestedSources) {
-            const moduleFilePath = moduleFilePathS as ModuleFilePath;
-            if (
-              currentState[moduleFilePath] !==
-              currentStateRef.current[moduleFilePath]
-            ) {
-              continue;
+            for (const moduleFilePathS of requestedSources) {
+              const moduleFilePath = moduleFilePathS as ModuleFilePath;
+              if (
+                currentState[moduleFilePath] !==
+                currentStateRef.current[moduleFilePath]
+              ) {
+                continue;
+              }
+              const source = res.json.modules[moduleFilePath]?.source;
+              const skippedPatches =
+                res.json.modules[moduleFilePath]?.patches?.skipped;
+              const patchErrors =
+                res.json.modules[moduleFilePath]?.patches?.errors;
+              if (source) {
+                updateSources([moduleFilePath], res.json.modules);
+              }
+              if (patchErrors || skippedPatches) {
+                setPatchesStatus((prev) => {
+                  const current: typeof prev = { ...prev };
+                  for (const skippedPatch of skippedPatches || []) {
+                    if (
+                      !current[moduleFilePath] ||
+                      current[moduleFilePath].status !== "error"
+                    ) {
+                      current[moduleFilePath] = {
+                        status: "error",
+                        errors: [],
+                      };
+                    }
+                    const currentModule = current[moduleFilePath];
+                    if (currentModule.status === "error") {
+                      currentModule.errors.push({
+                        skipped: true,
+                        patchId: skippedPatch,
+                        message: "Patch skipped",
+                      });
+                    }
+                  }
+                  for (const [patchIdS, data] of Object.entries(
+                    patchErrors || {},
+                  )) {
+                    const patchId = patchIdS as PatchId;
+                    if (
+                      !current[moduleFilePath] ||
+                      current[moduleFilePath].status !== "error"
+                    ) {
+                      current[moduleFilePath] = {
+                        status: "error",
+                        errors: [],
+                      };
+                    }
+                    const currentModule = current[moduleFilePath];
+                    if (currentModule.status === "error" && data) {
+                      currentModule.errors.push({
+                        patchId,
+                        message: data.message,
+                      });
+                    }
+                  }
+                  return current;
+                });
+              }
             }
-
-            if (res.status === 200) {
-              updateSources([moduleFilePath], res.json.modules);
-            } else {
-              const modules = "modules" in res.json ? res.json.modules : {};
-              const errors = "errors" in res.json ? res.json.errors : {};
-              updateSources([moduleFilePath], modules, errors);
+          } else if (res.status === 400) {
+            const errors: Record<
+              ModuleFilePath,
+              {
+                status: "error";
+                errors: {
+                  message: string;
+                  patchId?: PatchId;
+                  skipped?: boolean;
+                }[];
+              }
+            > = {};
+            for (const moduleFilePathS of requestedSources) {
+              const moduleFilePath = moduleFilePathS as ModuleFilePath;
+              errors[moduleFilePath] = {
+                status: "error",
+                errors: [{ message: res.json.message }],
+              };
             }
+            setSourcesSyncStatus(errors);
           }
         })
         .catch((err) => {
@@ -427,7 +501,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
               };
               setPatchesStatus((prev) => {
                 const current: typeof prev = { ...prev };
-                current[moduleFilePath as unknown as SourcePath] = {
+                current[moduleFilePath] = {
                   status: "created-patch",
                   createdAt: new Date().toISOString(),
                 };
@@ -447,7 +521,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
               console.error("Could not apply patch", patchRes.error);
               setPatchesStatus((prev) => {
                 const current: typeof prev = { ...prev };
-                current[moduleFilePath as unknown as SourcePath] = {
+                current[moduleFilePath] = {
                   status: "error",
                   errors: [patchRes.error],
                 };
@@ -475,6 +549,22 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     },
     [sources, currentPatchIds, sourceState, overlayDraftMode],
   );
+
+  const deletePatches = useCallback(
+    async (patchIds: PatchId[]): Promise<DeletePatchesRes> => {
+      const res = await client("/patches", "DELETE", {
+        query: {
+          id: patchIds,
+        },
+      });
+      if (res.status === 200) {
+        setRequestedSources([]); // reload all sources
+        return { status: "ok" };
+      }
+      return { status: "error", error: res.json.message };
+    },
+    [client],
+  );
   useEffect(() => {
     if (sourceState === undefined) {
       return;
@@ -499,6 +589,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     }
   }, [requestedSources, sourceState, currentPatchIds]);
 
+  const retriesOnConflictsByParentPatchRef = useRef<Record<string, number>>({});
   const mergeAndSyncPatches = useCallback(() => {
     const pendingPatches = { ...pendingPatchesRef.current };
     if (Object.keys(pendingPatches).length === 0) {
@@ -515,15 +606,15 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     setPatchesStatus((prev) => {
       const current: typeof prev = {};
       for (const moduleFilePathS in pendingPatches) {
-        const sourcePath = moduleFilePathS as SourcePath;
+        const moduleFilePath = moduleFilePathS as ModuleFilePath;
         let createdAt;
-        const prevAtSourcePath = prev[sourcePath];
+        const prevAtSourcePath = prev[moduleFilePath];
         if (prevAtSourcePath && "createdAt" in prevAtSourcePath) {
           createdAt = prevAtSourcePath.createdAt;
         } else {
           createdAt = new Date().toISOString();
         }
-        current[sourcePath] = {
+        current[moduleFilePath] = {
           status: "uploading-patch",
           createdAt,
           updatedAt: new Date().toISOString(),
@@ -533,17 +624,24 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     });
     // TODO: add a /patches POST endpoint and use that instead
     setAuthenticationLoadingIfNotAuthenticated();
-    client("/sources", "PUT", {
-      path: undefined,
-      query: {
-        validate_sources: true,
-        validate_all: false,
-        validate_binary_files: false,
-      },
-
+    if (!("data" in stat) || !stat.data) {
+      console.error("Cannot add patches without stat data");
+      return;
+    }
+    const parentRef: ParentRef =
+      currentPatchIds.length > 0
+        ? {
+            type: "patch",
+            patchId: currentPatchIds[currentPatchIds.length - 1],
+          }
+        : {
+            type: "head",
+            headBaseSha: stat.data.baseSha,
+          };
+    client("/patches", "PUT", {
       body: {
-        patchIds: currentPatchIds,
-        addPatches: mergedPatches,
+        patches: mergedPatches,
+        parentRef,
       },
     })
       .then((res) => {
@@ -553,8 +651,44 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         } else {
           setIsAuthenticated("authorized");
         }
+        const parentPatchRef =
+          parentRef.type === "patch" ? parentRef.patchId : "head";
         if (res.status === 409) {
-          // retry on conflict
+          if (
+            !retriesOnConflictsByParentPatchRef.current[parentPatchRef] ||
+            retriesOnConflictsByParentPatchRef.current[parentPatchRef] <
+              MAX_RETRIES_ON_CONFLICT // max retries on conflicts
+          ) {
+            console.warn(
+              "Conflict! Retrying. Atempts left: ",
+              MAX_RETRIES_ON_CONFLICT -
+                (retriesOnConflictsByParentPatchRef.current[parentPatchRef] ||
+                  1),
+            );
+            // retry on conflict
+            retriesOnConflictsByParentPatchRef.current = {
+              [parentPatchRef]:
+                (retriesOnConflictsByParentPatchRef.current[parentPatchRef] ??
+                  1) + 1,
+            };
+          } else {
+            setSourcesSyncStatus((prev) => {
+              const current: typeof prev = {};
+              for (const moduleFilePathS in pendingPatches) {
+                const moduleFilePath = moduleFilePathS as ModuleFilePath;
+                current[moduleFilePath] = {
+                  status: "error",
+                  errors: [
+                    {
+                      message:
+                        "Cannot apply changes. Val is online, but it could not get the latest set of changes from the server (i.e. there's a conflict). Try reloading.",
+                    },
+                  ],
+                };
+              }
+              return current;
+            });
+          }
         } else if (
           res.status === null &&
           res.json.type === "network_error" &&
@@ -562,6 +696,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         ) {
           // retry on network errors
         } else {
+          retriesOnConflictsByParentPatchRef.current = {};
           for (const moduleFilePathS in pendingPatchesRef.current) {
             const moduleFilePath = moduleFilePathS as ModuleFilePath;
             for (const pendingPatch of pendingPatchesRef.current[
@@ -580,7 +715,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
                 const moduleFilePath = moduleFilePathS as ModuleFilePath;
                 const errors = res.json.errors[moduleFilePath];
                 if (errors) {
-                  current[moduleFilePath as unknown as SourcePath] = {
+                  current[moduleFilePath] = {
                     status: "error",
                     errors: errors.map((e) => ({ ...e.error, ...e.error })),
                   };
@@ -590,7 +725,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
               // we do not know what went wrong
               for (const moduleFilePathS in pendingPatches) {
                 const moduleFilePath = moduleFilePathS as ModuleFilePath;
-                current[moduleFilePath as unknown as SourcePath] = {
+                current[moduleFilePath] = {
                   status: "error",
                   errors: [{ message: res.json.message }],
                 };
@@ -604,7 +739,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         console.error("Could not sync patches", err);
         // retry
       });
-  }, [currentPatchIds]);
+  }, [currentPatchIds, stat.status, "data" in stat && stat.data]);
   const timeAtLastSync = useRef(-1);
   const timeSinceLastSourcesUpdateRef = useRef(-1);
   useEffect(() => {
@@ -629,10 +764,10 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         clearTimeout(timeout);
       };
     }
-  }, [sources]);
+  }, [sources, mergeAndSyncPatches]);
 
   useEffect(() => {
-    setInterval(() => {
+    const interval = setInterval(() => {
       const maybeConnectionIssues =
         // it has been N seconds since last sources update
         Date.now() - timeSinceLastSourcesUpdateRef.current > 5000 &&
@@ -642,7 +777,10 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         mergeAndSyncPatches();
       }
     }, 5000);
-  }, []);
+    return () => {
+      clearInterval(interval);
+    };
+  }, [mergeAndSyncPatches]);
   const requestModule = useCallback((moduleFilePath: ModuleFilePath) => {
     setRequestedSources((prev) => {
       if (prev.includes(moduleFilePath)) {
@@ -659,6 +797,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     schemaSha,
     sources,
     addPatch,
+    deletePatches,
     requestModule,
     patchesStatus,
     sourcesSyncStatus,
@@ -667,7 +806,10 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
   };
 }
 
-const PatchId = z.string().refine((p): p is PatchId => true); // TODO: validate
+const PatchId = z
+  .string()
+  .uuid()
+  .refine((p): p is PatchId => true);
 
 const WebSocketServerMessage = z.union([
   z.object({
@@ -796,6 +938,7 @@ function useStat(client: ValClient) {
 
   useEffect(() => {
     if (stat.status === "not-asked") {
+      console.log("Setting stat to initializing");
       setStat({
         status: "initializing",
       });
@@ -822,6 +965,7 @@ function useStat(client: ValClient) {
 }
 
 const WebSocketStatInterval = 10 * 1000;
+const MAX_RETRIES_ON_CONFLICT = 10;
 
 async function execStat(
   client: ValClient,
@@ -876,7 +1020,7 @@ async function execStat(
             wait: WebSocketStatInterval,
           }));
           if (webSocketRef.current) {
-            console.log("Closing existing WebSocket");
+            console.debug("Closing existing WebSocket");
             webSocketRef.current.close();
           }
           const wsUrl = res.json.url;
@@ -1002,6 +1146,10 @@ export type PatchWithMetadata = {
   createdAt: string;
   error: string | null;
 };
+
+export type DeletePatchesRes =
+  | { status: "ok" }
+  | { status: "error"; error: string };
 
 export type Author = {
   id: string;

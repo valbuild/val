@@ -1,9 +1,19 @@
 import { result, pipe } from "../fp";
 import { Ops, PatchError } from "./ops";
 import { Operation, OperationJSON } from "./operation";
+import { PatchId } from "../val";
 
 export type Patch = Operation[];
 export type PatchJSON = OperationJSON[];
+
+export type ParentRef =
+  | { type: "head"; headBaseSha: string }
+  | { type: "patch"; patchId: PatchId };
+
+export type PatchBlock = {
+  patch: Patch;
+  parentRef: ParentRef;
+};
 
 function apply<T, E>(
   document: T,
