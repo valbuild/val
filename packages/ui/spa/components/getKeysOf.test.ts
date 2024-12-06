@@ -161,6 +161,10 @@ describe("getKeysOf", () => {
                     type: s.literal("one"),
                     findThis: s.keyOf(mod1),
                   }),
+                  s.object({
+                    type: s.literal("two"),
+                    doNotBreakHere: s.string(),
+                  }),
                 ),
               ),
             }),
