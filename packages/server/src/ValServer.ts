@@ -116,6 +116,8 @@ export const ValServer = (
     url.searchParams.set("state", token);
     return url.toString();
   };
+  const commit =
+    options.mode === "http" ? (options.commit as CommitSha) : undefined;
 
   const getAppErrorUrl = (error: string): string => {
     if (!options.project) {
@@ -642,6 +644,22 @@ export const ValServer = (
           patches: PatchId[];
           profileId?: AuthorId;
         } | null);
+        if (currentStat.type === "error" && currentStat.networkError) {
+          return {
+            status: 503,
+            json: {
+              message: "Network error",
+            },
+          };
+        }
+        if (currentStat.type === "error" && currentStat.unauthorized) {
+          return {
+            status: 401,
+            json: {
+              message: "Unauthorized",
+            },
+          };
+        }
         if (currentStat.type === "error") {
           return {
             status: 500,
@@ -652,6 +670,12 @@ export const ValServer = (
           status: 200,
           json: {
             ...currentStat,
+            mode:
+              serverOps instanceof ValOpsFS
+                ? "fs"
+                : serverOps instanceof ValOpsHttp
+                  ? "http"
+                  : "unknown",
             config: options.config,
           },
         };
@@ -681,7 +705,7 @@ export const ValServer = (
         }
 
         const patches = req.body.patches;
-        const parentRef = req.body.parentRef;
+        let parentRef = req.body.parentRef;
         const authorId = "id" in auth ? (auth.id as AuthorId) : null;
         const newPatchIds: PatchId[] = [];
         for (const patch of patches) {
@@ -719,6 +743,10 @@ export const ValServer = (
               };
             }
           } else {
+            parentRef = {
+              type: "patch",
+              patchId: createPatchRes.value.patchId,
+            };
             newPatchIds.push(createPatchRes.value.patchId);
           }
         }
@@ -726,10 +754,7 @@ export const ValServer = (
           status: 200,
           json: {
             newPatchIds,
-            parentRef: {
-              type: "patch",
-              patchId: newPatchIds[newPatchIds.length - 1],
-            },
+            parentRef,
           },
         };
       },
@@ -754,15 +779,10 @@ export const ValServer = (
             },
           };
         }
-        const omit_patch = query.omit_patch === true;
-        const authors = query.author as AuthorId[] | undefined;
+        const excludePatchOps = query.exclude_patch_ops === true;
         const fetchedPatchesRes = await serverOps.fetchPatches({
-          authors,
           patchIds: query.patch_id as PatchId[] | undefined,
-          omitPatch: omit_patch,
-          moduleFilePaths: query.module_file_path as
-            | ModuleFilePath[]
-            | undefined,
+          excludePatchOps: excludePatchOps,
         });
         if (fetchedPatchesRes.error) {
           // Error is singular
@@ -796,11 +816,7 @@ export const ValServer = (
           parentRef: ParentRef;
           createdAt: string;
           authorId: AuthorId | null;
-          appliedAt: {
-            baseSha: BaseSha;
-            git?: { commitSha: CommitSha };
-            timestamp: string;
-          } | null;
+          appliedAt: { commitSha: CommitSha } | null;
         }[] = [];
         for (const [patchIdS, patchData] of Object.entries(
           fetchedPatchesRes.patches,
@@ -963,8 +979,17 @@ export const ValServer = (
         }
         const patchOps = await serverOps.fetchPatches({
           patchIds: undefined,
-          omitPatch: false,
+          excludePatchOps: false,
         });
+        // We check authorization here, because it is the first call to the backend
+        if (patchOps.error && patchOps.unauthorized) {
+          return {
+            status: 401,
+            json: {
+              message: "Unauthorized",
+            },
+          };
+        }
         const patchAnalysis = serverOps.analyzePatches(patchOps.patches);
         let sourcesRes = await serverOps.getSources();
         const onlyPatchedTreeModules = await serverOps.getSources({
@@ -1082,17 +1107,16 @@ export const ValServer = (
 
     "/profiles": {
       GET: async (req) => {
-        // const cookies = req.cookies;
-        // const auth = getAuth(cookies);
-        // if (auth.error) {
-        //   return {
-        //     status: 401,
-        //     json: {
-        //       message: auth.error,
-        //     },
-        //   };
-        // }
-
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
         const profiles = await serverOps.getProfiles();
         return {
           status: 200,
@@ -1102,7 +1126,54 @@ export const ValServer = (
         };
       },
     },
+    "/commit-summary": {
+      GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
 
+        const query = req.query;
+        const patchIds = query.patch_id as PatchId[];
+        const patches = await serverOps.fetchPatches({
+          patchIds,
+          excludePatchOps: false,
+        });
+        const analysis = serverOps.analyzePatches(
+          patches.patches,
+          patches.commits,
+          commit,
+        );
+        const preparedCommit = await serverOps.prepare({
+          ...analysis,
+          ...patches,
+        });
+        const res = await serverOps.getCommitSummary(preparedCommit);
+        if (res.error) {
+          console.error("Failed to summarize", res.error);
+          return {
+            status: 400,
+            json: {
+              message: res.error.message,
+            },
+          };
+        }
+        return {
+          status: 200,
+          json: {
+            baseSha: await serverOps.getBaseSha(),
+            patchIds,
+            commitSummary: res.commitSummary,
+          },
+        };
+      },
+    },
     "/save": {
       POST: async (req) => {
         const cookies = req.cookies;
@@ -1136,9 +1207,13 @@ export const ValServer = (
         const { patchIds } = bodyRes.data;
         const patches = await serverOps.fetchPatches({
           patchIds,
-          omitPatch: false,
+          excludePatchOps: false,
         });
-        const analysis = serverOps.analyzePatches(patches.patches);
+        const analysis = serverOps.analyzePatches(
+          patches.patches,
+          patches.commits,
+          commit,
+        );
         const preparedCommit = await serverOps.prepare({
           ...analysis,
           ...patches,
@@ -1184,12 +1259,32 @@ export const ValServer = (
           };
         } else if (serverOps instanceof ValOpsHttp) {
           if (auth.error === undefined && auth.id) {
-            const commitRes = await serverOps.commit(
-              preparedCommit,
+            let message =
+              body.message ||
               "Update content: " +
                 Object.keys(analysis.patchesByModule) +
-                " modules changed",
+                " modules changed";
+            if (!options.config.ai?.commitMessages?.disabled) {
+              const res = await serverOps.getCommitMessage(preparedCommit);
+              console.log({ res });
+              if (res.error) {
+                // ignore
+                console.error(
+                  "Failed to get commit message",
+                  res.error.message,
+                );
+              } else {
+                message = res.commitSummary;
+              }
+            }
+            console.log({
+              message,
+            });
+            const commitRes = await serverOps.commit(
+              preparedCommit,
+              message,
               auth.id as AuthorId,
+              options.config.files?.directory || "/public/val",
             );
             if (commitRes.error) {
               console.error("Failed to commit", commitRes.error);

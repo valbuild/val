@@ -17,9 +17,10 @@ export function CompressedPath({
   const modulePathParts = Internal.splitModulePath(modulePath);
   const { navigate } = useNavigation();
   return (
-    <div title={path} className="w-full">
+    <div className="w-full">
       <button
         type="button"
+        title={moduleFilePath}
         disabled={disabled}
         className="inline-block text-left truncate"
         onClick={() => {
@@ -48,6 +49,10 @@ export function CompressedPath({
       <button
         type="button"
         disabled={disabled}
+        title={Internal.joinModuleFilePathAndModulePath(
+          moduleFilePath,
+          modulePath,
+        )}
         className="inline-block text-left truncate"
         onClick={() => {
           navigate(

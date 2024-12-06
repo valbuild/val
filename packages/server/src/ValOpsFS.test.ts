@@ -182,12 +182,12 @@ describe("ValOpsFS", () => {
     // const fv0 = await ops.validateFiles(schemas, t0.sources, v0.files);
     // console.log("base files validation", JSON.stringify(fv0, null, 2));
     const fp0 = await ops.fetchPatches({
-      omitPatch: false,
+      excludePatchOps: false,
     });
     console.log("found patches", JSON.stringify(fp0, null, 2));
     const patchesRes = await ops.fetchPatches({
       patchIds: Object.keys(fp0.patches) as PatchId[],
-      omitPatch: false,
+      excludePatchOps: false,
     });
     console.log("patches", patchesRes);
     const patchAnalysis = ops.analyzePatches(patchesRes.patches);
@@ -218,7 +218,11 @@ describe("ValOpsFS", () => {
     console.log("save files", JSON.stringify(s1, null, 2));
     console.log(
       "found patches",
-      JSON.stringify(await ops.fetchPatches({ omitPatch: false }), null, 2),
+      JSON.stringify(
+        await ops.fetchPatches({ excludePatchOps: false }),
+        null,
+        2,
+      ),
     );
     if (result.isOk(patchRes1)) {
       await ops.createPatch(

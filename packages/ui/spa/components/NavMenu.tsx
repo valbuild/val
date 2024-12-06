@@ -1,23 +1,34 @@
 import { SourcePath } from "@valbuild/core";
 import classNames from "classnames";
-import { Tally2, ChevronRight, File } from "lucide-react";
+import {
+  Tally2,
+  ChevronRight,
+  File,
+  PanelRightOpen,
+  Ellipsis,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PathNode, pathTree } from "../utils/pathTree";
 import { Remote } from "../utils/Remote";
-import { useSchemas, useValConfig } from "./ValProvider";
+import {
+  useSchemas,
+  useTheme,
+  useValConfig,
+  useValPortal,
+} from "./ValProvider";
 import { AnimateHeight } from "./AnimateHeight";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { useNavigation } from "./ValRouter";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { fixCapitalization } from "../utils/fixCapitalization";
+import { Popover, PopoverContent } from "./designSystem/popover";
+import { PopoverTrigger } from "@radix-ui/react-popover";
+import { Switch } from "./designSystem/switch";
+import { useLayout } from "./Layout";
 
-export function NavMenu({
-  isOpen,
-  setOpen,
-}: {
-  isOpen: boolean;
-  setOpen: (open: boolean) => void;
-}) {
+export const NAV_MENU_MOBILE_BREAKPOINT = 1280; // nav menu behaves a bit differently (closes it self) below this breakpoint.
+
+export function NavMenu() {
   const config = useValConfig();
   const [mainImageUrl, setMainImageUrl] = useState<string>("");
   const [name, setName] = useState<string>("");
@@ -65,36 +76,37 @@ export function NavMenu({
     }
   }, [config]);
   const remoteSchemasByModuleFilePath = useSchemas();
+  const portalContainer = useValPortal();
+  const { theme, setTheme } = useTheme();
+  const { navMenu } = useLayout();
 
   return (
-    <nav className="flex flex-col gap-1 pl-4">
-      <div className="flex items-center h-16 gap-4 p-4 mt-4 bg-bg-tertiary rounded-3xl">
-        {mainImageUrl ? (
-          <img src={mainImageUrl} alt={""} className="w-4 h-4" />
-        ) : (
-          <div className="w-4 h-4" />
-        )}
-        <span>{name}</span>
+    <nav className="relative min-h-[100svh] bg-bg-primary">
+      <div className="flex items-center justify-between h-16 gap-4 p-4 pr-6 border-b border-border-primary">
+        <div className="flex items-center gap-4">
+          {mainImageUrl ? (
+            <img src={mainImageUrl} alt={""} className="w-4 h-4" />
+          ) : (
+            <div className="w-4 h-4" />
+          )}
+          <span className="truncate">{name}</span>
+        </div>
         <button
-          className="block xl:hidden"
+          className="lg:hidden"
           onClick={() => {
-            setOpen(!isOpen);
+            navMenu.setOpen(!navMenu.isOpen);
           }}
         >
-          <ChevronRight
+          <PanelRightOpen
+            size={16}
             className={classNames("transform", {
-              "rotate-90": isOpen,
+              "rotate-180": !navMenu.isOpen,
             })}
           />
         </button>
       </div>
       {"data" in remoteSchemasByModuleFilePath && (
-        <div
-          className={classNames("py-4 bg-bg-tertiary rounded-3xl", {
-            "hidden xl:block": !isOpen,
-            block: isOpen,
-          })}
-        >
+        <div className={classNames("py-4 pl-2", {})}>
           <ScrollArea>
             <div className="max-h-[calc(100svh-32px-64px-32px-16px)]">
               <NavContentExplorer />
@@ -102,6 +114,33 @@ export function NavMenu({
           </ScrollArea>
         </div>
       )}
+      <div className="h-6 p-4" />
+      <div className="absolute bottom-0 left-0 flex items-center justify-between w-full p-4 pr-6 border-t border-border-primary">
+        <span></span>
+        <Popover>
+          <PopoverTrigger>
+            <Ellipsis size={16} />
+          </PopoverTrigger>
+          <PopoverContent container={portalContainer}>
+            <div className="flex items-center justify-between">
+              <span>Dark mode</span>
+              <Switch
+                checked={theme !== "light"}
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                }}
+                onCheckedChange={(checked) => {
+                  if (checked) {
+                    setTheme("dark");
+                  } else {
+                    setTheme("light");
+                  }
+                }}
+              />
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
     </nav>
   );
 }
@@ -131,7 +170,7 @@ function NavContentExplorer({ title }: { title?: string }) {
   }
   const root = remoteSchemaTree.data;
   return (
-    <div className="p-4">
+    <div className="pl-0 pr-4">
       {title && <div className="py-2">{title}</div>}
       <div>
         {root.children.sort(sortPathTree).map((child, i) => (
@@ -158,10 +197,11 @@ function sortPathTree(a: PathNode, b: PathNode) {
 
 function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
   const { navigate, currentSourcePath } = useNavigation();
+  const { navMenu } = useLayout();
 
   const [isOpen, setIsOpen] = useState(true);
   return (
-    <div className="w-full">
+    <div className="w-full text-sm">
       <button
         className={classNames("flex justify-between w-full p-2", {
           underline: currentSourcePath.startsWith(fullPath as SourcePath),
@@ -170,6 +210,9 @@ function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
           if (isDirectory) {
             setIsOpen(!isOpen);
           } else {
+            if (window.innerWidth < NAV_MENU_MOBILE_BREAKPOINT) {
+              navMenu.setOpen(false);
+            }
             navigate(fullPath as SourcePath);
           }
         }}
@@ -179,6 +222,7 @@ function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
           <span>{prettifyFilename(name)}</span>
         </div>
         <ChevronRight
+          size={16}
           className={classNames("transform", {
             "rotate-90": isOpen,
             hidden: !children.length,

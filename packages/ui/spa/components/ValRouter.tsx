@@ -7,8 +7,9 @@ import React, {
   useState,
 } from "react";
 
-const ValRouterContext = React.createContext<{
+type ValRouterContextValue = {
   hardLink: boolean;
+  ready: boolean;
   navigate: (
     path: SourcePath | ModuleFilePath,
     params?: {
@@ -16,11 +17,17 @@ const ValRouterContext = React.createContext<{
     },
   ) => void;
   currentSourcePath: SourcePath;
-}>({
-  hardLink: false,
-  navigate: () => {},
-  currentSourcePath: "" as SourcePath,
-});
+};
+const ValRouterContext = React.createContext<ValRouterContextValue>(
+  new Proxy(
+    {},
+    {
+      get: () => {
+        throw Error("ValRouter context not provided");
+      },
+    },
+  ) as ValRouterContextValue,
+);
 
 const VAL_CONTENT_VIEW_ROUTE = "/val/~"; // TODO: make route configurable
 
@@ -34,6 +41,7 @@ export function ValRouter({
   children: React.ReactNode;
   overlay?: boolean;
 }) {
+  const [ready, setReady] = useState(false);
   const [currentSourcePath, setSourcePath] = useState("" as SourcePath);
   const historyState = useRef<number[]>([]);
   useEffect(() => {
@@ -57,6 +65,7 @@ export function ValRouter({
           }
         }, 50);
       }
+      setReady(true);
     };
     listener();
     window.addEventListener("popstate", listener);
@@ -95,6 +104,7 @@ export function ValRouter({
         hardLink: !!overlay,
         currentSourcePath,
         navigate,
+        ready,
       }}
     >
       {children}
@@ -103,10 +113,11 @@ export function ValRouter({
 }
 
 export function useNavigation() {
-  const { navigate, currentSourcePath } = useContext(ValRouterContext);
+  const { navigate, currentSourcePath, ready } = useContext(ValRouterContext);
   return {
     navigate,
     currentSourcePath,
+    ready,
   };
 }
 
