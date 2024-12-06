@@ -517,8 +517,10 @@ export function useAppliedPatches() {
           setAppliedPatchIds(appliedPatchIds);
         }
       });
+    } else {
+      setAppliedPatchIds(new Set(patchIds));
     }
-  }, [isPublishing, patchIds]);
+  }, [isPublishing, patchIds.join(",")]);
   return appliedPatchIds;
 }
 
