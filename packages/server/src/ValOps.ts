@@ -180,7 +180,12 @@ export abstract class ValOps {
         commitSha: CommitSha;
         patches: PatchId[];
       }
-    | { type: "error"; error: GenericErrorMessage }
+    | {
+        type: "error";
+        error: GenericErrorMessage;
+        unauthorized?: boolean;
+        networkError?: boolean;
+      }
   >;
 
   // #region initTree
@@ -346,7 +351,18 @@ export abstract class ValOps {
   }
 
   // #region analyzePatches
-  analyzePatches(sortedPatches: OrderedPatches["patches"]): PatchAnalysis {
+  analyzePatches(
+    sortedPatches: OrderedPatches["patches"],
+    commits?: {
+      commitSha: CommitSha;
+      clientCommitSha: CommitSha;
+      parentCommitSha: CommitSha;
+      branch: string;
+      creator: AuthorId;
+      createdAt: string;
+    }[],
+    currentCommitSha?: CommitSha,
+  ): PatchAnalysis {
     const patchesByModule: {
       [path: ModuleFilePath]: {
         patchId: PatchId;
@@ -354,6 +370,9 @@ export abstract class ValOps {
     } = {};
     const fileLastUpdatedByPatchId: Record<string, PatchId> = {};
     for (const patch of sortedPatches) {
+      if (patch.appliedAt) {
+        continue;
+      }
       for (const op of patch.patch) {
         if (op.op === "file") {
           const filePath = op.filePath;
@@ -401,7 +420,7 @@ export abstract class ValOps {
     > = {};
     for (const patchData of analysis.patches) {
       const path = patchData.path;
-      if (!sources[path]) {
+      if (sources[path] === undefined) {
         if (!errors[path]) {
           errors[path] = [];
         }
@@ -762,6 +781,9 @@ export abstract class ValOps {
     patchAnalysis: PatchAnalysis & OrderedPatches,
   ): Promise<PreparedCommit> {
     const { patchesByModule, fileLastUpdatedByPatchId } = patchAnalysis;
+    const patchedSourceFiles: Record<ModuleFilePath, string> = {};
+    const previousSourceFiles: Record<ModuleFilePath, string> = {};
+
     const applySourceFilePatches = async (
       path: ModuleFilePath,
       patches: { patchId: PatchId }[],
@@ -795,6 +817,7 @@ export abstract class ValOps {
         };
       }
       const sourceFile = sourceFileRes.data;
+      previousSourceFiles[path] = sourceFile;
       let tsSourceFile = ts.createSourceFile(
         "<val>",
         sourceFile,
@@ -901,7 +924,6 @@ export abstract class ValOps {
     const appliedPatches: Record<ModuleFilePath, PatchId[]> = {};
     const triedPatches: Record<ModuleFilePath, PatchId[]> = {};
     const skippedPatches: Record<ModuleFilePath, PatchId[]> = {};
-    const patchedSourceFiles: Record<ModuleFilePath, string> = {};
 
     //
     const globalAppliedPatches: PatchId[] = [];
@@ -952,6 +974,7 @@ export abstract class ValOps {
       sourceFilePatchErrors,
       binaryFilePatchErrors,
       patchedSourceFiles,
+      previousSourceFiles,
       patchedBinaryFilesDescriptors,
       appliedPatches,
       skippedPatches,
@@ -988,7 +1011,7 @@ export abstract class ValOps {
 
     if (parentRef.type !== "head") {
       // There's room for some optimizations here: we could do this once, then re-use every time we create a patch, then again we only create one patch at a time
-      const patchOps = await this.fetchPatches({ omitPatch: false });
+      const patchOps = await this.fetchPatches({ excludePatchOps: false });
       const patchAnalysis = this.analyzePatches(patchOps.patches);
       const tree = await this.getSources({
         ...patchAnalysis,
@@ -1015,7 +1038,7 @@ export abstract class ValOps {
         },
       });
     }
-    if (!source) {
+    if (source === undefined) {
       console.error(
         `Cannot patch. Module source at path: '${path}' does not exist`,
       );
@@ -1255,13 +1278,23 @@ export abstract class ValOps {
   }
 
   // #region abstract ops
+  abstract getCommitSummary(preparedCommit: PreparedCommit): Promise<
+    | {
+        commitSummary: string | null;
+        error?: undefined;
+      }
+    | {
+        commitSummary?: undefined;
+        error: GenericErrorMessage;
+      }
+  >;
   abstract onInit(baseSha: BaseSha, schemaSha: SchemaSha): Promise<void>;
-  abstract fetchPatches<OmitPatch extends boolean>(filters: {
-    authors?: AuthorId[];
+  abstract fetchPatches<ExcludePatchOps extends boolean>(filters: {
     patchIds?: PatchId[];
-    moduleFilePaths?: ModuleFilePath[];
-    omitPatch: OmitPatch;
-  }): Promise<OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches>;
+    excludePatchOps: ExcludePatchOps;
+  }): Promise<
+    ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches
+  >;
   protected abstract saveSourceFilePatch(
     path: ModuleFilePath,
     patch: Patch,
@@ -1399,6 +1432,10 @@ export type PreparedCommit = {
    */
   patchedSourceFiles: Record<ModuleFilePath, string>;
   /**
+   * Previous source files that were patched
+   */
+  previousSourceFiles: Record<ModuleFilePath, string>;
+  /**
    * The file path and patch id in which they appear of binary files that are ready to be committed / saved
    */
   patchedBinaryFilesDescriptors: Record<string, { patchId: PatchId }>;
@@ -1426,6 +1463,14 @@ export type PatchReadError =
       message: string;
     };
 
+type ValCommit = {
+  commitSha: CommitSha;
+  clientCommitSha: CommitSha;
+  parentCommitSha: CommitSha;
+  branch: string;
+  creator: AuthorId;
+  createdAt: string;
+};
 export type OrderedPatches = {
   patches: {
     path: ModuleFilePath;
@@ -1435,21 +1480,25 @@ export type OrderedPatches = {
     authorId: AuthorId | null;
     baseSha: BaseSha;
     appliedAt: {
-      baseSha: BaseSha;
-      git?: { commitSha: CommitSha };
-      timestamp: string;
+      commitSha: CommitSha;
     } | null;
   }[];
+  commits?: ValCommit[];
   error?: GenericErrorMessage;
   errors?: PatchReadError[];
+  unauthorized?: boolean;
+  networkError?: boolean;
 };
 
 export type OrderedPatchesMetadata = {
   patches: (Omit<OrderedPatches["patches"][number], "patch"> & {
     patch?: undefined;
   })[];
+  commits?: ValCommit[];
   error?: GenericErrorMessage;
   errors?: OrderedPatches["errors"];
+  unauthorized?: boolean;
+  networkError?: boolean;
 };
 
 export function getFieldsForType<T extends BinaryFileType>(

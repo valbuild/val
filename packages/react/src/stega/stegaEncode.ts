@@ -321,8 +321,9 @@ export function stegaEncode(
       if (selectorPath) {
         const newSchema = Internal.getSchema(sourceOrSelector);
         return rec(
-          (opts.getModule && opts.getModule(selectorPath)) ||
-            Internal.getSource(sourceOrSelector),
+          opts.getModule && opts.getModule(selectorPath) !== undefined
+            ? opts.getModule(selectorPath)
+            : Internal.getSource(sourceOrSelector),
           opts.disabled
             ? undefined
             : { path: selectorPath, schema: newSchema?.serialize() },

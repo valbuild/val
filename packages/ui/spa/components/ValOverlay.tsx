@@ -1,11 +1,16 @@
 import classNames from "classnames";
 import {
   Clock,
-  Edit,
+  Ellipsis,
+  Eye,
   EyeOff,
+  Loader2,
   LogIn,
+  PanelBottom,
+  PanelLeft,
+  PanelRight,
+  PanelTop,
   PanelsTopLeft,
-  Search,
   SquareDashedMousePointer,
   Upload,
   X,
@@ -25,14 +30,24 @@ import { Button } from "./designSystem/button";
 import { AnyField } from "./AnyField";
 import {
   useAuthenticationState,
+  useCurrentPatchIds,
+  useDebouncedLoadingStatus,
   usePublish,
   useSchemaAtPath,
   useTheme,
   useValConfig,
+  useValMode,
+  useValPortal,
 } from "./ValProvider";
 import { FieldLoading } from "./FieldLoading";
 import { urlOf } from "@valbuild/shared/internal";
 import { PublishErrorDialog } from "./PublishErrorDialog";
+import { Popover, PopoverContent } from "./designSystem/popover";
+import { PopoverClose, PopoverTrigger } from "@radix-ui/react-popover";
+import { Switch } from "./designSystem/switch";
+import { prettifyFilename } from "../utils/prettifyFilename";
+import { fixCapitalization } from "../utils/fixCapitalization";
+import { DraftChanges } from "./DraftChanges";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -45,6 +60,8 @@ type ValMenuProps = ValOverlayProps & {
   setMode: Dispatch<SetStateAction<OverlayModes>>;
   mode: OverlayModes;
   loading: boolean;
+  setDropZone: (dropZone: DropZones | null) => void;
+  dropZone: DropZones | null;
 };
 type DropZones =
   | "val-menu-left-top"
@@ -140,20 +157,63 @@ export function ValOverlay(props: ValOverlayProps) {
     }
   }, [mode, editMode]);
 
-  const theme = useTheme();
+  const { theme } = useTheme();
+  const [dropZone, setDropZoneRaw] = useState<DropZones | null>(null);
+  const config = useValConfig();
+  const defaultDropZone = "val-menu-right-center"; // TODO: get from config
+  useEffect(() => {
+    try {
+      const storedDropZone =
+        (config &&
+          localStorage.getItem(
+            "val-menu-drop-zone-" + (config?.project || "unknown"),
+          )) ||
+        localStorage.getItem("val-menu-drop-zone-default");
+      if (storedDropZone) {
+        if (
+          storedDropZone === "val-menu-left-top" ||
+          storedDropZone === "val-menu-left-center" ||
+          storedDropZone === "val-menu-left-bottom" ||
+          storedDropZone === "val-menu-center-top" ||
+          storedDropZone === "val-menu-center-bottom" ||
+          storedDropZone === "val-menu-right-top" ||
+          storedDropZone === "val-menu-right-center" ||
+          storedDropZone === "val-menu-right-bottom"
+        ) {
+          setDropZoneRaw(storedDropZone);
+        } else {
+          throw new Error("Invalid drop zone: " + storedDropZone);
+        }
+      } else {
+        setDropZoneRaw(defaultDropZone);
+      }
+    } catch (e) {
+      console.error("Error getting drop zone from local storage", e);
+      setDropZoneRaw(defaultDropZone);
+    }
+  }, [config?.project || "unknown"]);
+  const setDropZone = (dropZone: DropZones | null) => {
+    setDropZoneRaw(dropZone);
+    try {
+      if (dropZone) {
+        localStorage.setItem(
+          "val-menu-drop-zone-" + (config?.project || "unknown"),
+          dropZone,
+        );
+        localStorage.setItem("val-menu-drop-zone-default", dropZone);
+      }
+    } catch (e) {
+      console.error("Error setting drop zone to local storage", e);
+    }
+  };
+
   return (
     <div {...(theme ? { "data-mode": theme } : {})} id="val-overlay-container">
-      {editMode !== null && (
-        <Window
-          editMode={editMode}
-          setMode={setMode}
-          setEditMode={setEditMode}
-        />
-      )}
+      <Window editMode={editMode} setMode={setMode} setEditMode={setEditMode} />
       {boundingBoxes.map((boundingBox, i) => {
         return (
           <div
-            className="absolute top-0 border border-bg-primary hover:border-2 z-[8998]"
+            className="absolute top-0 border border-bg-brand-primary z-[8998] hover:border-2 rounded"
             onClickCapture={(ev) => {
               ev.stopPropagation();
               setMode(null);
@@ -175,25 +235,62 @@ export function ValOverlay(props: ValOverlayProps) {
           >
             <div className="relative top-0 left-0 w-full">
               <div
-                className="absolute top-[0px] right-[0px] truncate bg-bg-primary text-text-primary"
+                className="absolute top-[0px] right-[0px] truncate bg-bg-brand-primary text-text-brand-primary flex gap-2 px-2 rounded-bl hover:opacity-20 cursor-pointer"
                 style={{
                   fontSize: `${Math.min(boundingBox.height - 2, 10)}px`,
                   maxHeight: `${Math.min(boundingBox.height - 2, 16)}px`,
                   maxWidth: `${Math.min(boundingBox.width - 2, 300)}px`,
                 }}
               >
-                {boundingBox.joinedPaths}
+                {Internal.splitJoinedSourcePaths(boundingBox.joinedPaths).map(
+                  (path) => {
+                    const [moduleFilePath, modulePath] =
+                      Internal.splitModuleFilePathAndModulePath(path);
+                    const moduleFilePathParts = moduleFilePath
+                      .split("/")
+                      .slice(1);
+                    const modulePathParts = modulePath
+                      ? Internal.splitModulePath(modulePath)
+                      : [];
+                    return (
+                      <span key={path}>
+                        {moduleFilePathParts.length > 0 && <span>/</span>}
+                        {moduleFilePathParts.length > 0 &&
+                          moduleFilePathParts.map((part, i) => (
+                            <Fragment key={`${part}-${i}`}>
+                              <span>{prettifyFilename(part)}</span>
+                              {i < moduleFilePathParts.length - 1 && (
+                                <span>/</span>
+                              )}
+                            </Fragment>
+                          ))}
+                        {modulePathParts.length > 0 && <span>/</span>}
+                        {modulePathParts.length > 0 &&
+                          modulePathParts.map((part, i) => (
+                            <Fragment key={`${part}-${i}`}>
+                              <span>{fixCapitalization(part)}</span>
+                              {i < modulePathParts.length - 1 && <span>/</span>}
+                            </Fragment>
+                          ))}
+                      </span>
+                    );
+                  },
+                )}
               </div>
             </div>
           </div>
         );
       })}
-      <DraggableValMenu
-        {...props}
-        mode={mode}
-        setMode={setMode}
-        loading={theme === null}
-      />
+      {editMode === null && (
+        <DraggableValMenu
+          {...props}
+          mode={mode}
+          setMode={setMode}
+          loading={theme === null}
+          dropZone={dropZone}
+          setDropZone={setDropZone}
+        />
+      )}
     </div>
   );
 }
@@ -203,61 +300,98 @@ function Window({
   setMode,
   setEditMode,
 }: {
-  editMode: EditMode;
+  editMode: EditMode | null;
   setMode: Dispatch<SetStateAction<OverlayModes>>;
   setEditMode: Dispatch<SetStateAction<EditMode | null>>;
 }) {
-  const [windowPos, setWindowPos] = useState({ x: 0, y: 0 });
+  // place outside viewport initially
+  const [windowPos, setWindowPos] = useState({
+    x: window.innerWidth,
+    y: window.innerHeight,
+  });
+  const [windowInnerWidth, setWindowInnerWidth] = useState(window.innerWidth);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const handlePosition = () => {
-      if (ref.current) {
-        const { innerWidth, innerHeight } = window;
-        const { offsetWidth, offsetHeight } = ref.current;
-        let newX = editMode.clientX;
-        let newY = editMode.clientY;
-
-        // Ensure the window stays inside the viewport horizontally
-        if (newX + offsetWidth > innerWidth) {
-          newX = innerWidth - offsetWidth - 10; // Add some padding
-        } else if (newX < 0) {
-          newX = 10; // Add some padding
-        }
-
-        // Try to place it below, otherwise above
-        if (newY + offsetHeight > innerHeight) {
-          newY = editMode.clientY - offsetHeight - 10; // Place above
-        } else {
-          newY = editMode.clientY + 10; // Place below
-        }
-
-        setWindowPos({ x: newX, y: newY });
+      if (editMode) {
+        setTimeout(() => {
+          if (ref.current) {
+            const { innerWidth, innerHeight } = window;
+            const { offsetWidth, offsetHeight } = ref.current;
+            const height = offsetHeight;
+            const width = offsetWidth;
+            let newX = editMode.clientX;
+            let newY = editMode.clientY;
+            const padding = 80;
+            const overflowX = innerWidth - (editMode.clientX + width);
+            if (overflowX < 0) {
+              newX = newX + (overflowX - padding);
+            }
+            const overflowY = innerHeight - (editMode.clientY + height);
+            if (overflowY < 0) {
+              newY = newY + (overflowY - padding);
+            }
+            setWindowPos({ x: newX, y: newY });
+          }
+        }, 100);
+      } else {
+        setWindowPos({ x: window.innerWidth, y: window.innerHeight });
       }
     };
 
-    handlePosition();
+    if (window.innerWidth < 1024) {
+      setWindowPos({ x: 16, y: 16 });
+    } else {
+      handlePosition();
+    }
   }, [editMode]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowInnerWidth(window.innerWidth);
+      if (windowInnerWidth < 1024) {
+        setWindowPos({ x: 16, y: 16 });
+      }
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
   const [isDragging, setIsDragging] = useState(false);
   useEffect(() => {
     if (isDragging) {
-      const handleMouseMove = (ev: MouseEvent) => {
-        setWindowPos((pos) => ({
-          x: pos.x + ev.movementX,
-          y: pos.y + ev.movementY,
-        }));
+      const handleMove = (ev: MouseEvent | TouchEvent) => {
+        if (ev instanceof MouseEvent) {
+          setWindowPos((pos) => ({
+            x: pos.x + ev.movementX,
+            y: pos.y + ev.movementY,
+          }));
+        } else {
+          const touch = ev.touches[0];
+          setWindowPos(() => ({
+            x: touch.clientX,
+            y: touch.clientY,
+          }));
+        }
       };
-      const handleMouseUp = () => {
+      const handleMoveEnd = () => {
         setIsDragging(false);
       };
       const handleClick = () => {
         setIsDragging(false);
       };
-      window.addEventListener("mousemove", handleMouseMove);
-      window.addEventListener("mouseup", handleMouseUp);
+      window.addEventListener("mousemove", handleMove);
+      window.addEventListener("mouseup", handleMoveEnd);
+      // window.addEventListener("touchmove", handleMove);
+      // window.addEventListener("touchend", handleMoveEnd);
       window.addEventListener("click", handleClick);
       return () => {
-        window.removeEventListener("mousemove", handleMouseMove);
-        window.removeEventListener("mouseup", handleMouseUp);
+        window.removeEventListener("mousemove", handleMove);
+        window.removeEventListener("mouseup", handleMoveEnd);
+        // window.addEventListener("touchend", handleMoveEnd);
         window.removeEventListener("click", handleClick);
       };
     }
@@ -277,9 +411,18 @@ function Window({
   }, []);
 
   return (
-    <div className="fixed h-[100svh] w-[100svw] top-0 left-0 z-[8999]">
+    <div
+      className={classNames("fixed top-0 left-0 z-[8998]", {
+        "opacity-0 w-0 h-0": editMode === null,
+        // 200vw to make sure we can drag the window all the way to the right:
+        "opacity-100 w-[200svw] h-[100svh]": editMode !== null,
+      })}
+    >
       <div
-        className="fixed h-[100svh] w-[100svw] top-0 left-0"
+        className={classNames("fixed top-0 left-0", {
+          "opacity-0 w-0 h-0": editMode === null,
+          "opacity-100 w-[100vw] h-[100svh]": editMode !== null,
+        })}
         onClick={(ev) => {
           ev.preventDefault();
           if (!isDragging) {
@@ -290,20 +433,29 @@ function Window({
       ></div>
       {/**
        * We place the grab handles around the form, since we couldn't figure out to avoid
-       * having the mouse down behaving weridly if other buttons (navigate to path) where clicked.
+       * having the mouse down behaving weirdly if other buttons (navigate to path) where clicked.
        *
        * TODO: fix this
        */}
       <div
-        className="absolute grid grid-cols-[32px,1fr,32px] rounded bg-bg-primary text-text-primary"
+        className={classNames(
+          "absolute grid grid-cols-[32px,1fr,32px] rounded bg-bg-primary text-text-primary cursor-pointer",
+          {
+            "w-[calc(100vw-32px)] h-[calc(100svh-32px)]":
+              windowInnerWidth < 1024,
+          },
+        )}
+        ref={ref}
         style={{
           top: windowPos.y,
           left: windowPos.x,
         }}
       >
         <div
-          ref={ref}
           className="cursor-grab"
+          // onTouchStart={() => {
+          //   setIsDragging(true);
+          // }}
           onMouseDown={() => {
             setIsDragging(true);
           }}
@@ -312,26 +464,33 @@ function Window({
           <div
             ref={ref}
             className="cursor-grab"
+            // onTouchStart={() => {
+            //   setIsDragging(true);
+            // }}
             onMouseDown={() => {
               setIsDragging(true);
             }}
           ></div>
           <form
-            className="flex flex-col gap-4"
+            className="flex flex-col items-start justify-start w-full gap-4 lg:justify-start"
             onSubmit={(ev) => {
+              ev.preventDefault();
               ev.stopPropagation();
               setMode("select");
               setEditMode(null);
             }}
           >
-            {Internal.splitJoinedSourcePaths(editMode.joinedPaths).map(
-              (path) => (
-                <Fragment key={path}>
-                  <CompressedPath disabled={false} path={path} />
-                  <WindowField path={path} />
-                </Fragment>
-              ),
-            )}
+            {editMode &&
+              Internal.splitJoinedSourcePaths(editMode.joinedPaths).map(
+                (path) => (
+                  <Fragment key={path}>
+                    <div>
+                      <CompressedPath disabled={false} path={path} />
+                    </div>
+                    <WindowField path={path} />
+                  </Fragment>
+                ),
+              )}
             <Button className="self-end" type="submit">
               Done
             </Button>
@@ -339,6 +498,9 @@ function Window({
           <div
             ref={ref}
             className="cursor-grab"
+            // onTouchStart={() => {
+            //   setIsDragging(true);
+            // }}
             onMouseDown={() => {
               setIsDragging(true);
             }}
@@ -347,6 +509,9 @@ function Window({
         <div
           ref={ref}
           className="cursor-grab"
+          // onTouchStart={() => {
+          //   setIsDragging(true);
+          // }}
           onMouseDown={() => {
             setIsDragging(true);
           }}
@@ -368,7 +533,7 @@ function WindowField({ path: path }: { path: SourcePath }) {
   }
 
   return (
-    <div className="flex flex-col gap-4 max-w-[600px]">
+    <div className="flex flex-col gap-4 max-w-[600px] w-full">
       <AnyField path={path} schema={schemaAtPath.data} autoFocus={true} />
     </div>
   );
@@ -384,6 +549,7 @@ function ValMenu({
   setMode,
   disableOverlay,
   loading,
+  setDropZone,
 }: {
   dropZone: DropZones;
   ghost?: boolean;
@@ -393,7 +559,45 @@ function ValMenu({
       ? "vertical"
       : "horizontal";
   const authenticationState = useAuthenticationState();
-  const { publish, publishDisabled } = usePublish();
+  const portalContainer = useValPortal();
+  const { theme, setTheme } = useTheme();
+  const debouncedLoadingStatus = useDebouncedLoadingStatus();
+  const [publishPopoverSideOffset, setPublishPopoverSideOffset] = useState(0);
+  const patchIds = useCurrentPatchIds();
+  // TODO: refactor all resize handlers into a hook
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 400) {
+        setPublishPopoverSideOffset(-56);
+      } else {
+        setPublishPopoverSideOffset(32);
+      }
+    };
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+  const { publishDisabled } = usePublish();
+  const publishPopoverSide =
+    dropZone === "val-menu-center-bottom"
+      ? "top"
+      : dropZone === "val-menu-center-top"
+        ? "bottom"
+        : dropZone === "val-menu-right-center"
+          ? "left"
+          : dropZone === "val-menu-left-center"
+            ? "right"
+            : dropZone === "val-menu-left-bottom"
+              ? "top"
+              : dropZone === "val-menu-right-bottom"
+                ? "top"
+                : dropZone === "val-menu-right-top"
+                  ? "bottom"
+                  : dropZone === "val-menu-left-top"
+                    ? "bottom"
+                    : "top";
   return (
     <div className="p-4 right-16">
       {/* See ValNextProvider: this same snippet is used there  */}
@@ -428,7 +632,7 @@ function ValMenu({
       >
         <div
           className={classNames(
-            "flex relative rounded bg-bg-primary text-text-primary gap-2",
+            "flex relative rounded bg-bg-primary border border-border-primary text-text-primary gap-2",
             {
               "flex-col py-4 px-2": dir === "vertical",
               "flex-row px-4 py-2": dir === "horizontal",
@@ -449,9 +653,8 @@ function ValMenu({
             }
             icon={<SquareDashedMousePointer size={16} />}
           />
-          <MenuButton label="Search" icon={<Search size={16} />} />
           <MenuButton
-            label="Disable draft mode"
+            label="Disable preview mode"
             disabled={draftModeLoading}
             icon={
               draftModeLoading ? (
@@ -463,15 +666,49 @@ function ValMenu({
             onClick={() => setDraftMode(false)}
           />
           <div className="pb-1 mt-1 border-t border-border-primary"></div>
-          <MenuButton
-            label="Publish"
-            disabled={publishDisabled}
-            variant="primary"
-            onClick={() => {
-              publish();
-            }}
-            icon={<Upload size={16} />}
-          />
+          <Popover>
+            <PopoverTrigger
+              className={classNames("p-2 rounded-full disabled:bg-bg-disabled")}
+            >
+              <div className="relative">
+                {patchIds.length > 0 && (
+                  <div className="absolute -top-3 -right-3">
+                    <div className="w-4 h-4 text-[9px] leading-4 text-center rounded-full bg-bg-brand-primary">
+                      {patchIds.length > 9 && <span>9+</span>}
+                      {patchIds.length <= 9 && <span>{patchIds.length}</span>}
+                    </div>
+                  </div>
+                )}
+                <Upload size={16} />
+              </div>
+            </PopoverTrigger>
+            <PopoverContent
+              container={portalContainer}
+              align="center"
+              side={publishPopoverSide}
+              sideOffset={publishPopoverSideOffset}
+              className="z-[9000] relative max-w-[352px] w-screen rounded-none sm:rounded flex flex-col items-end"
+            >
+              <div className="absolute sm:hidden top-4 right-4">
+                <PopoverClose>
+                  <X size={16} />
+                </PopoverClose>
+              </div>
+              {!publishDisabled && (
+                <div className="flex items-center justify-between gap-4 px-4 py-4 pt-8 sm:hidden">
+                  <PublishButton />
+                </div>
+              )}
+              <div className="sm:max-h-[min(400px,80svh)] max-h-[calc(100svh-96px-64px)] w-[320px] overflow-scroll">
+                <DraftChanges loadingStatus={debouncedLoadingStatus} />
+              </div>
+              {!publishDisabled && (
+                <div className="hidden py-4 sm:block">
+                  <PublishButton />
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
           <MenuButton
             label="Studio"
             icon={<PanelsTopLeft size={16} />}
@@ -479,6 +716,60 @@ function ValMenu({
               window.location.href = window.origin + "/val/~";
             }}
           />
+          <Popover>
+            <PopoverTrigger
+              className={classNames("p-2 rounded-full disabled:bg-bg-disabled")}
+            >
+              <Ellipsis size={16} />
+            </PopoverTrigger>
+            <PopoverContent container={portalContainer} className="z-[9003]">
+              <div className="grid grid-cols-[1fr,auto] gap-2">
+                <span>Dock to top</span>
+                <button
+                  onClick={() => {
+                    setDropZone("val-menu-center-top");
+                  }}
+                >
+                  <PanelTop size={16} />
+                </button>
+                <span>Dock to right</span>
+                <button
+                  onClick={() => {
+                    setDropZone("val-menu-right-center");
+                  }}
+                >
+                  <PanelRight size={16} />
+                </button>
+                <span>Dock to left</span>
+                <button
+                  onClick={() => {
+                    setDropZone("val-menu-left-center");
+                  }}
+                >
+                  <PanelLeft size={16} />
+                </button>
+                <span>Dock to bottom</span>
+                <button
+                  onClick={() => {
+                    setDropZone("val-menu-center-bottom");
+                  }}
+                >
+                  <PanelBottom size={16} />
+                </button>
+                <span>Dark mode</span>
+                <Switch
+                  checked={theme === "dark"}
+                  onCheckedChange={(checked) => {
+                    if (checked) {
+                      setTheme("dark");
+                    } else {
+                      setTheme("light");
+                    }
+                  }}
+                />
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </AnimateHeight>
       <AnimateHeight
@@ -499,13 +790,13 @@ function ValMenu({
           )}
         >
           <MenuButton
-            label="Enable draft mode"
+            label="Enable preview mode"
             disabled={draftModeLoading}
             icon={
               draftModeLoading ? (
                 <Clock size={16} className="animate-spin" />
               ) : (
-                <Edit size={16} />
+                <Eye size={16} />
               )
             }
             onClick={() => {
@@ -530,6 +821,33 @@ function ValMenu({
   );
 }
 
+function PublishButton() {
+  const { publishDisabled, isPublishing, publish } = usePublish();
+  const valMode = useValMode();
+  return (
+    <Button
+      className="mx-4 "
+      disabled={publishDisabled}
+      onClick={() => {
+        publish();
+      }}
+    >
+      {!isPublishing && (
+        <span className="flex items-center gap-1">
+          <span>{valMode === "fs" ? "Save" : "Publish"}</span>
+          <Upload size={16} />
+        </span>
+      )}
+      {isPublishing && (
+        <span className="flex items-center gap-1">
+          <span>Publishing</span>
+          <Loader2 size={16} className="animate-spin" />
+        </span>
+      )}
+    </Button>
+  );
+}
+
 function MenuButton({
   icon,
   onClick,
@@ -550,7 +868,7 @@ function MenuButton({
       disabled={disabled}
       className={classNames("p-2 rounded-full disabled:bg-bg-disabled", {
         "bg-bg-brand-primary text-text-brand-primary": variant === "primary",
-        "border border-border-primary": !!active,
+        "text-bg-brand-primary": !!active,
       })}
       onClick={onClick}
       aria-label={label}
@@ -562,54 +880,14 @@ function MenuButton({
 }
 
 function DraggableValMenu(props: ValMenuProps) {
-  const defaultDropZone = "val-menu-right-center"; // TODO: get from config
   const [isDragging, setIsDragging] = useState(false);
-  const [dropZone, setDropZone] = useState<DropZones | null>();
-  const config = useValConfig();
-  useEffect(() => {
-    try {
-      const storedDropZone =
-        localStorage.getItem(
-          "val-menu-drop-zone-" + (config?.project || "unknown"),
-        ) || localStorage.getItem("val-menu-drop-zone-default");
-      if (storedDropZone) {
-        if (
-          storedDropZone === "val-menu-left-top" ||
-          storedDropZone === "val-menu-left-center" ||
-          storedDropZone === "val-menu-left-bottom" ||
-          storedDropZone === "val-menu-center-top" ||
-          storedDropZone === "val-menu-center-bottom" ||
-          storedDropZone === "val-menu-right-top" ||
-          storedDropZone === "val-menu-right-center" ||
-          storedDropZone === "val-menu-right-bottom"
-        ) {
-          setDropZone(storedDropZone);
-        } else {
-          throw new Error("Invalid drop zone: " + storedDropZone);
-        }
-      } else {
-        setDropZone(defaultDropZone);
-      }
-    } catch (e) {
-      console.error("Error getting drop zone from local storage", e);
-      setDropZone(defaultDropZone);
-    }
-  }, []);
+  const { dropZone, setDropZone } = props;
   const [dragOverDropZone, setDragOverDropZone] = useState<DropZones | null>(
     null,
   );
   const onDrop = (id: DropZones) => (event: React.DragEvent) => {
     event.preventDefault();
     setDropZone(id);
-    try {
-      localStorage.setItem(
-        "val-menu-drop-zone-" + (config?.project || "unknown"),
-        id,
-      );
-      localStorage.setItem("val-menu-drop-zone-default", id);
-    } catch (e) {
-      console.error("Error setting drop zone to local storage", e);
-    }
   };
   const onDragOver = (id: DropZones) => (event: React.DragEvent) => {
     event.preventDefault();
@@ -631,7 +909,7 @@ function DraggableValMenu(props: ValMenuProps) {
             setIsDragging(false);
           }}
         >
-          <ValMenu dropZone={dropZone} {...props} />
+          <ValMenu {...props} dropZone={dropZone} />
         </div>
       )}
       {isDragging && dropZone && (
@@ -645,7 +923,7 @@ function DraggableValMenu(props: ValMenuProps) {
               onDrop={onDrop(dragOverDropZone)}
               onDragOver={onDragOver(dragOverDropZone)}
             >
-              <ValMenu dropZone={dragOverDropZone} ghost {...props} />
+              <ValMenu ghost {...props} dropZone={dragOverDropZone} />
             </div>
           )}
           <div className="fixed top-0 left-0 grid w-screen h-screen grid-cols-3 grid-rows-3 z-[2]">

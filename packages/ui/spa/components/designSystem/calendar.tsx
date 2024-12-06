@@ -85,7 +85,7 @@ function Calendar({
                   </Button>
                 </Select.Trigger>
                 <Select.Content className="z-50 p-1 rounded-md bg-bg-secondary_alt text-text-secondary">
-                  <Select.Viewport className="overflow-y-auto rounded-md shadow-lg max-h-48">
+                  <Select.Viewport className="pb-4 pr-4 overflow-y-auto rounded-md shadow-lg max-h-48 bg-bg-tertiary text-text-tertiary">
                     {React.Children.map(children, (child) => {
                       if (React.isValidElement(child)) {
                         const { value, children } = child.props;

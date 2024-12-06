@@ -34,7 +34,7 @@ export const ValNextProvider = (props: {
   useConsoleLogEnableVal(showOverlay);
   React.useEffect(() => {
     if (location.search === "?message_onready=true") {
-      console.warn("In message mode");
+      console.warn("Val is verifying draft mode...");
       return;
     }
     if (isValStudioPath(location.pathname)) {
@@ -180,7 +180,7 @@ export const ValNextProvider = (props: {
           pollDraftStatIdRef.current--;
           timeout = setTimeout(
             pollCurrentDraftMode,
-            iframeSrc === null ? 1000 : 100,
+            iframeSrc === null ? 20000 : 100,
           );
         });
     }

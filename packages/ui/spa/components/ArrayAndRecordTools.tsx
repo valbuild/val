@@ -1,16 +1,25 @@
-import { SourcePath, Internal, ModulePath } from "@valbuild/core";
+import {
+  SourcePath,
+  Internal,
+  ModulePath,
+  ModuleFilePath,
+  Json,
+} from "@valbuild/core";
 import { array } from "@valbuild/core/fp";
-import { JSONValue } from "@valbuild/core/patch";
-import { Plus, Trash, Edit } from "lucide-react";
-import { useState, useEffect } from "react";
+import { JSONValue, Patch } from "@valbuild/core/patch";
+import { Plus, Trash, Edit, Workflow } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
 import { emptyOf } from "./fields/emptyOf";
 import { Button } from "./designSystem/button";
 import { Input } from "./designSystem/input";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import {
   useAddPatch,
+  useLoadingStatus,
   useSchemaAtPath,
+  useSchemas,
   useShallowSourceAtPath,
+  useSources,
   useValPortal,
 } from "./ValProvider";
 import { useNavigation } from "./ValRouter";
@@ -25,6 +34,13 @@ import {
   isRecord,
   useParent,
 } from "../hooks/useParent";
+import { getKeysOf } from "./getKeysOf";
+import { CompressedPath } from "./CompressedPath";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "./designSystem/hover-card";
 
 type Variant = "module" | "field";
 export function ArrayAndRecordTools({
@@ -38,20 +54,29 @@ export function ArrayAndRecordTools({
   const { path: maybeParentPath, schema: parentSchemaAtPath } = useParent(path);
   const parts = splitIntoInitAndLastParts(path);
   const last = parts[parts.length - 1];
+  const refs = useKeysOf(
+    maybeParentPath as unknown as ModuleFilePath,
+    isParentRecord(path, maybeParentPath, parentSchemaAtPath)
+      ? last?.part
+      : undefined,
+  );
   return (
     <span className="inline-flex items-center gap-2">
       {isParentRecord(path, maybeParentPath, parentSchemaAtPath) && (
         <>
+          <ReferencesPopover refs={refs} variant={variant} />
           <ChangeRecordPopover
             defaultValue={last.text}
             path={path}
             parentPath={maybeParentPath}
             variant={variant}
+            refs={refs}
           />
           <DeleteRecordButton
             path={path}
             parentPath={maybeParentPath}
             variant={variant}
+            refs={refs}
           />
         </>
       )}
@@ -59,9 +84,56 @@ export function ArrayAndRecordTools({
         <AddArrayButton path={path} variant={variant} />
       )}
       {isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined) && (
-        <AddRecordPopover path={path} variant={variant} />
+        <>
+          <ReferencesPopover refs={refs} variant={variant} />
+          <AddRecordPopover path={path} variant={variant} />
+        </>
       )}
     </span>
+  );
+}
+
+function ReferencesPopover({
+  refs,
+  variant,
+}: {
+  refs: SourcePath[];
+  variant: Variant;
+}) {
+  const portalContainer = useValPortal();
+  if (refs.length === 0) {
+    return null;
+  }
+  return (
+    <Popover>
+      <HoverCard>
+        <HoverCardTrigger>
+          <Button
+            asChild
+            size={getButtonSize(variant)}
+            variant={getButtonVariant(variant)}
+          >
+            <PopoverTrigger>
+              <Workflow size={getIconSize(variant)} />
+            </PopoverTrigger>
+          </Button>
+        </HoverCardTrigger>
+        <HoverCardContent side="top">
+          References to this record
+        </HoverCardContent>
+      </HoverCard>
+      <PopoverContent container={portalContainer}>
+        <div className="text-sm">
+          <ul>
+            {refs.map((ref) => (
+              <li key={ref}>
+                <CompressedPath path={ref} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -138,10 +210,12 @@ function DeleteRecordButton({
   path,
   parentPath,
   variant,
+  refs,
 }: {
   path: SourcePath;
   parentPath: SourcePath;
   variant: Variant;
+  refs: SourcePath[];
 }) {
   const { navigate } = useNavigation();
   const { addPatch, patchPath } = useAddPatch(path);
@@ -156,22 +230,46 @@ function DeleteRecordButton({
     return null;
   }
   return (
-    <Button
-      size={getButtonSize(variant)}
-      variant={getButtonVariant(variant)}
-      title="Delete"
-      onClick={() => {
-        addPatch([
-          {
-            op: "remove",
-            path: patchPath as array.NonEmptyArray<string>,
-          },
-        ]);
-        navigate(parentPath);
-      }}
-    >
-      <Trash size={getIconSize(variant)} />
-    </Button>
+    <HoverCard>
+      <HoverCardTrigger>
+        <Button
+          size={getButtonSize(variant)}
+          variant={getButtonVariant(variant)}
+          disabled={refs.length > 0}
+          onClick={() => {
+            addPatch([
+              {
+                op: "remove",
+                path: patchPath as array.NonEmptyArray<string>,
+              },
+            ]);
+            navigate(parentPath);
+          }}
+        >
+          <Trash size={getIconSize(variant)} />
+        </Button>
+      </HoverCardTrigger>
+      <HoverCardContent side="top">
+        {refs.length > 0 ? (
+          <div>
+            <p>Cannot delete record.</p>
+            <p>
+              You must change the following references{" "}
+              <Workflow size={10} className="inline" /> to be able to delete:
+            </p>
+            <ul>
+              {refs.map((ref) => (
+                <li key={ref}>
+                  <CompressedPath path={ref} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p>Delete record</p>
+        )}
+      </HoverCardContent>
+    </HoverCard>
   );
 }
 
@@ -180,16 +278,18 @@ function ChangeRecordPopover({
   path,
   parentPath,
   variant,
+  refs,
 }: {
   defaultValue: string;
   path: SourcePath;
   parentPath: SourcePath;
   variant: Variant;
+  refs: SourcePath[];
 }) {
   const [moduleFilePath, parentModulePath] =
     Internal.splitModuleFilePathAndModulePath(parentPath);
   const { navigate } = useNavigation();
-  const { addPatch } = useAddPatch(path);
+  const { addPatch, addModuleFilePatch } = useAddPatch(path);
   const shallowParentSource = useShallowSourceAtPath(parentPath, "record");
   const [key, setKey] = useState(defaultValue); // cannot change - right?
   const [open, setOpen] = useState(false);
@@ -220,26 +320,30 @@ function ChangeRecordPopover({
     key === defaultValue || key === "" || key in shallowParentSource.data;
   return (
     <Popover open={open}>
-      <Button
-        asChild
-        size={getButtonSize(variant)}
-        variant={getButtonVariant(variant)}
-      >
-        <PopoverTrigger
-          onClick={() => {
-            setOpen(true);
-          }}
-          title="Change name"
-        >
-          <Edit size={16} />
-        </PopoverTrigger>
-      </Button>
+      <HoverCard>
+        <HoverCardTrigger>
+          <Button
+            asChild
+            size={getButtonSize(variant)}
+            variant={getButtonVariant(variant)}
+          >
+            <PopoverTrigger
+              onClick={() => {
+                setOpen(true);
+              }}
+            >
+              <Edit size={16} />
+            </PopoverTrigger>
+          </Button>
+        </HoverCardTrigger>
+        <HoverCardContent side="top">Change name</HoverCardContent>
+      </HoverCard>
       <PopoverContent container={portalContainer} className="text-text-primary">
         <form
           className="flex flex-col gap-2"
           onSubmit={(ev) => {
             ev.preventDefault();
-            addPatch([
+            const patchOps: Patch = [
               {
                 op: "move",
                 from: parentPatchPath.concat(
@@ -249,7 +353,20 @@ function ChangeRecordPopover({
                   key,
                 ) as array.NonEmptyArray<string>,
               },
-            ]);
+            ];
+            addPatch(patchOps);
+            for (const ref of refs) {
+              const [refModuleFilePath, refModulePath] =
+                Internal.splitModuleFilePathAndModulePath(ref);
+              const refPatchPath = Internal.createPatchPath(refModulePath);
+              addModuleFilePatch(refModuleFilePath, [
+                {
+                  op: "replace",
+                  path: refPatchPath,
+                  value: key,
+                },
+              ]);
+            }
             navigate(
               Internal.joinModuleFilePathAndModulePath(
                 moduleFilePath,
@@ -288,6 +405,35 @@ function ChangeRecordPopover({
       </PopoverContent>
     </Popover>
   );
+}
+
+function useKeysOf(parentPath: ModuleFilePath, keyValue?: string) {
+  const schemas = useSchemas();
+  const loadingStatus = useLoadingStatus();
+  const sources = useSources();
+  const referencingModuleFilePaths = useMemo(() => {
+    if (
+      sources[parentPath] !== undefined &&
+      "data" in schemas &&
+      schemas.data !== undefined &&
+      schemas.data[parentPath] !== undefined
+    ) {
+      return getKeysOf(
+        schemas.data,
+        sources as Record<ModuleFilePath, Json>,
+        parentPath,
+        keyValue,
+      );
+    }
+    return [];
+  }, [
+    loadingStatus,
+    sources,
+    "data" in schemas && schemas.data,
+    parentPath,
+    keyValue,
+  ]);
+  return referencingModuleFilePaths;
 }
 
 function AddRecordPopover({
@@ -349,7 +495,7 @@ function AddRecordPopover({
           onClick={() => {
             setOpen(true);
           }}
-          title={"Add"}
+          title="Add"
         >
           <Plus size={getIconSize(variant)} />
         </PopoverTrigger>
@@ -397,13 +543,14 @@ function AddRecordPopover({
 
 export function splitIntoInitAndLastParts(
   path: SourcePath,
-): { text: string; sourcePath: SourcePath }[] {
+): { text: string; part: string; sourcePath: SourcePath }[] {
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(path);
   const moduleFilePathParts = Internal.splitModuleFilePath(moduleFilePath).map(
     (part) => {
       return {
         text: prettifyFilename(part),
+        part,
         sourcePath: moduleFilePath as unknown as SourcePath,
       };
     },
@@ -415,6 +562,7 @@ export function splitIntoInitAndLastParts(
   const modulePathParts = splittedModulePath.map((part, i) => {
     return {
       text: part,
+      part,
       sourcePath: Internal.joinModuleFilePathAndModulePath(
         moduleFilePath,
         splittedModulePath.slice(0, i + 1).join(".") as ModulePath,

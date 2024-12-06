@@ -1,19 +1,33 @@
 import { ModuleFilePath, PatchId } from "@valbuild/core";
-import { useState, useEffect, forwardRef, useRef, useMemo } from "react";
 import {
+  useState,
+  useEffect,
+  forwardRef,
+  useRef,
+  useMemo,
+  Fragment,
+} from "react";
+import {
+  Deployment,
   LoadingStatus,
+  useAppliedPatches,
   useCurrentPatchIds,
   useDeletePatches,
+  useDeployments,
   useErrors,
   useGetPatches,
   useProfilesByAuthorId,
+  usePublish,
   useSchemas,
   useSchemaSha,
+  useSummary,
+  useValMode,
+  useValPortal,
 } from "./ValProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
 import { prettifyFilename } from "../utils/prettifyFilename";
-import { ChevronDown, Clock, Trash } from "lucide-react";
+import { ChevronDown, Loader2, Sparkles, Undo2, X } from "lucide-react";
 import {
   PatchMetadata,
   PatchSetMetadata,
@@ -24,6 +38,18 @@ import { AnimateHeight } from "./AnimateHeight";
 import { relativeLocalDate } from "../utils/relativeLocalDate";
 import { Operation } from "@valbuild/core/patch";
 import { Remote } from "../utils/Remote";
+import { Button } from "./designSystem/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "./designSystem/popover";
+import { PopoverClose } from "@radix-ui/react-popover";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "./designSystem/hover-card";
 
 export function DraftChanges({
   className,
@@ -36,10 +62,22 @@ export function DraftChanges({
   const schemasRes = useSchemas();
   const schemaSha = useSchemaSha();
   const patchIds = useCurrentPatchIds();
+  const { getCommitSummary } = useSummary();
+  const [summary, setSummary] = useState<
+    Remote<{ title: string; description: string }>
+  >({
+    status: "not-asked",
+  });
+  useEffect(() => {
+    setSummary({ status: "not-asked" });
+  }, [JSON.stringify(patchIds)]);
+  const mode = useValMode();
   // refs:
   const patchSetsSchemaShaRef = useRef<string | null>(null);
   const patchSetsRef = useRef<PatchSets | null>(null);
   const requestedPatchIdsRef = useRef<PatchId[]>([]);
+  const appliedPatchIds = useAppliedPatches();
+  const { publishDisabled } = usePublish();
   // patch set state:
   const [patchSetsError, setPatchSetsError] = useState<string | null>(null);
   const [serializedPatchSets, setSerializedPatchSets] = useState<
@@ -148,22 +186,164 @@ export function DraftChanges({
       setPatchSetsError(err.message);
     });
   }, [patchIds, getPatches, schemasRes, schemaSha]);
+  const portalContainer = useValPortal();
 
+  const { deployments, dismissDeployment } = useDeployments();
+  // TODO: remove test data
+  // const deployments: Deployment[] = [
+  //   {
+  //     deploymentId: "1",
+  //     deploymentState: "success",
+  //     createdAt: new Date().toISOString(),
+  //     updatedAt: new Date().toISOString(),
+  //   },
+  //   {
+  //     deploymentId: "2",
+  //     deploymentState: "pending",
+  //     createdAt: new Date().toISOString(),
+  //     updatedAt: new Date().toISOString(),
+  //   },
+  //   {
+  //     deploymentId: "3",
+  //     deploymentState: "failure",
+  //     createdAt: new Date().toISOString(),
+  //     updatedAt: new Date().toISOString(),
+  //   },
+  // ];
+  const [isDeploymentsExpanded, setIsDeploymentsExpanded] = useState(false);
   return (
-    <div className={classNames(className)}>
-      <div className="sticky top-0 flex items-center justify-between p-4 rounded-t-3xl bg-bg-tertiary z-5">
-        <span className="flex items-center gap-2">
-          <span>Draft changes</span>
-          {(loadingStatus === "loading" || loadingStatus === "not-asked") && (
-            <span>
-              <Clock size={16} className="animate-spin" />
-            </span>
+    <div className={classNames("text-sm", className)}>
+      {deployments.length > 0 && (
+        <div className="p-4 border-b border-border-primary">
+          <div className="flex flex-col gap-2">
+            {deployments
+              .slice() // slice because sort mutates
+              .sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1))
+              .slice(0, isDeploymentsExpanded ? undefined : 2)
+              .map((deployment) => (
+                <DeploymentCard
+                  key={deployment.deploymentId}
+                  deployment={deployment}
+                  onDismiss={() => {
+                    dismissDeployment(deployment.deploymentId);
+                  }}
+                />
+              ))}
+          </div>
+          {deployments.length > 2 && !isDeploymentsExpanded && (
+            <div className="flex items-center justify-center mt-4">
+              <button
+                className="p-2 text-xs border rounded border-border-primary"
+                onClick={() => {
+                  setIsDeploymentsExpanded(true);
+                }}
+              >
+                View all deployments
+              </button>
+            </div>
           )}
-        </span>
-        <span>
-          <span>See all</span>
-          <Checkbox checked="indeterminate" />
-        </span>
+        </div>
+      )}
+      {appliedPatchIds.size > 0 && (
+        <div className="flex items-center gap-2 p-4 border-b border-border-primary">
+          <span className="font-bold">
+            {"Published "}
+            {appliedPatchIds.size}
+            {appliedPatchIds.size === 1 ? " change" : " changes"}
+            {"..."}
+          </span>
+        </div>
+      )}
+      <div className="p-4 z-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="font-bold">
+              {patchIds.length - appliedPatchIds.size <= 0
+                ? "No"
+                : patchIds.length - appliedPatchIds.size === 1
+                  ? "1"
+                  : patchIds.length - appliedPatchIds.size}{" "}
+              change{patchIds.length - appliedPatchIds.size === 1 ? "" : "s"}
+            </span>
+            {(loadingStatus === "loading" || loadingStatus === "not-asked") && (
+              <span>
+                <Loader2 size={16} className="animate-spin" />
+              </span>
+            )}
+          </div>
+          {mode === "http" && (
+            <Popover
+              onOpenChange={(open) => {
+                if (open && !("data" in summary && summary.data)) {
+                  setSummary({ status: "loading" });
+                  getCommitSummary()
+                    .then((res) => {
+                      if (typeof res.commitSummary === "string") {
+                        const lines = res.commitSummary.split("\n");
+                        const title = lines[0];
+                        const description = lines.slice(1).join("\n");
+                        setSummary({
+                          status: "success",
+                          data: {
+                            title,
+                            description,
+                          },
+                        });
+                      } else {
+                        setSummary({
+                          status: "error",
+                          error: "Could not get commit summary string",
+                        });
+                      }
+                    })
+                    .catch((err) => {
+                      setSummary({ status: "error", error: err.message });
+                    });
+                }
+              }}
+            >
+              <PopoverTrigger asChild>
+                <Button
+                  disabled={publishDisabled}
+                  variant="outline"
+                  className="flex items-center gap-2 text-sm"
+                >
+                  <span>Summary</span>
+                  <Sparkles size={14} />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                container={portalContainer}
+                align="end"
+                className="z-[9001] hover:w-[min(100vw,500px)] transition-[width] ease-in-out duration-200 flex flex-col gap-4"
+              >
+                {summary.status === "loading" && (
+                  <div className="p-4 text-center">Generating summary...</div>
+                )}
+                {summary.status === "error" && <div>{summary.error}</div>}
+                {summary.status === "success" && (
+                  <div className="text-sm">
+                    <div className="p-2 mb-2 font-bold">
+                      {summary.data.title}
+                    </div>
+                    <div className="p-2 border rounded border-border-primary">
+                      {summary.data.description.split("\n").map((line, i) => (
+                        <p className="py-1" key={i}>
+                          {line}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <PopoverClose asChild>
+                  <div className="self-end">
+                    <Button>Close</Button>
+                  </div>
+                </PopoverClose>
+              </PopoverContent>
+            </Popover>
+          )}
+        </div>
       </div>
       {patchSetsError !== null && (
         <div className="p-4 bg-bg-tertiary text-text-error-primary">
@@ -178,6 +358,7 @@ export function DraftChanges({
                 key={
                   patchSet.moduleFilePath + ":" + patchSet.patchPath.join("/")
                 }
+                appliedPatchIds={appliedPatchIds}
                 patchSet={patchSet}
               />
             );
@@ -187,17 +368,65 @@ export function DraftChanges({
   );
 }
 
+function DeploymentCard({
+  deployment: { deploymentId, deploymentState, updatedAt },
+  onDismiss,
+}: {
+  deployment: Deployment;
+  onDismiss?: () => void;
+}) {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(new Date());
+    }, 60 * 1000);
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
+  const isFailedOrError =
+    deploymentState === "error" || deploymentState === "failure";
+  return (
+    <div
+      key={deploymentId}
+      className="relative py-4 border-b border-border-primary"
+    >
+      <button
+        className={classNames("absolute top-0 right-0 rounded-full")}
+        onClick={onDismiss}
+      >
+        <X size={16} />
+      </button>
+      <div className="grid grid-cols-[1fr,auto,auto] gap-2 py-2 pr-2">
+        <div className="font-bold">Deployment {deploymentState}</div>
+        <div
+          className={classNames("rounded-full h-3 w-3 mt-1", {
+            "bg-bg-brand-primary animate-pulse":
+              deploymentState === "pending" || deploymentState === "created",
+            "bg-bg-success-primary": deploymentState === "success",
+            "bg-bg-error-solid": isFailedOrError,
+          })}
+        />
+        <div>{relativeLocalDate(now, updatedAt)}</div>
+      </div>
+    </div>
+  );
+}
+
 function PatchCard({
   moduleFilePath,
   patchMetadata,
+  appliedPatchIds,
 }: {
   moduleFilePath: ModuleFilePath;
   patchMetadata: PatchMetadata;
+  appliedPatchIds: Set<PatchId>;
 }) {
   const changeDescription = useChangeDescription(
     [patchMetadata.opType],
     patchMetadata.createdAt,
   );
+  const profilesById = useProfilesByAuthorId();
   const { patchErrors, skippedPatches } = useErrors();
   const [errors, skipped] = useMemo(
     () =>
@@ -211,6 +440,22 @@ function PatchCard({
       skippedPatches[patchMetadata.patchId],
     ],
   );
+  let authors: {
+    url: string | null;
+    fullName: string;
+  }[] = [];
+  if (patchMetadata.author) {
+    const profile = profilesById[patchMetadata.author];
+    if (profile) {
+      const url = profile?.avatar?.url ?? null;
+      authors = [
+        {
+          fullName: profile.fullName,
+          url,
+        },
+      ];
+    }
+  }
   return (
     <PatchOrPatchSetCard
       path={moduleFilePath
@@ -219,10 +464,10 @@ function PatchCard({
         .slice(1)
         .concat(patchMetadata.patchPath)}
       changeDescription={skipped ? "Skipped" : changeDescription}
-      authors={[]}
-      isOpen={true}
+      authors={authors}
       errors={errors}
       skipped={skipped}
+      isApplied={appliedPatchIds.has(patchMetadata.patchId)}
     />
   );
 }
@@ -263,7 +508,13 @@ function useChangeDescription(opTypes: string[], lastUpdated: string) {
   return changeType + " " + relativeLocalDate(now, lastUpdated);
 }
 
-function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
+function PatchSetCard({
+  patchSet,
+  appliedPatchIds,
+}: {
+  patchSet: PatchSetMetadata;
+  appliedPatchIds: Set<PatchId>;
+}) {
   const [isOpen, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const [hasBeenSeen, setHasBeenSeen] = useState(false);
@@ -287,7 +538,9 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
   const { deletePatches } = useDeletePatches();
   const patchIds = useMemo(
     () => patchSet.patches.map((p) => p.patchId),
-    [patchSet.patches],
+    [
+      patchSet.patches.map((p) => p.patchId).join(","), // ugly
+    ],
   );
   const errors = useMemo(() => {
     const errors: string[] = [];
@@ -306,8 +559,11 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
   );
   const profilesById = useProfilesByAuthorId();
 
+  const isApplied = patchSet.patches.every((patch) =>
+    appliedPatchIds.has(patch.patchId),
+  );
   if (!hasBeenSeen) {
-    return <PatchOrPatchSetCard ref={ref} />;
+    return <PatchOrPatchSetCard ref={ref} isApplied={isApplied} />;
   }
   return (
     <>
@@ -317,19 +573,27 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
           .map(prettifyFilename)
           .slice(1)
           .concat(patchSet.patchPath)}
-        authors={patchSet.authors.flatMap((authorId) => {
-          const profile = profilesById[authorId];
-          if (profile) {
-            const url = profile?.avatar?.url ?? null;
-            return [
-              {
-                fullName: profile.fullName,
-                url,
-              },
-            ];
-          }
-          return [];
-        })}
+        isApplied={isApplied}
+        authors={patchSet.authors
+          .reduce((prev, curr) => {
+            if (prev.includes(curr)) {
+              return prev;
+            }
+            return prev.concat(curr);
+          }, [] as string[])
+          .flatMap((authorId) => {
+            const profile = profilesById[authorId];
+            if (profile) {
+              const url = profile?.avatar?.url ?? null;
+              return [
+                {
+                  fullName: profile.fullName,
+                  url,
+                },
+              ];
+            }
+            return [];
+          })}
         changeDescription={changeDescription}
         isOpen={isOpen}
         setOpen={setOpen}
@@ -337,6 +601,7 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
         onDelete={() => {
           deletePatches(patchIds);
         }}
+        amount={new Set(patchIds).size}
       />
       <AnimateHeight isOpen={isOpen}>
         {patchSet.patches.map((patchMetadata, i) => (
@@ -348,6 +613,7 @@ function PatchSetCard({ patchSet }: { patchSet: PatchSetMetadata }) {
               patchMetadata.patchId +
               i
             }
+            appliedPatchIds={appliedPatchIds}
             moduleFilePath={patchSet.moduleFilePath}
             patchMetadata={patchMetadata}
           />
@@ -370,6 +636,8 @@ const PatchOrPatchSetCard = forwardRef<
     errors?: string[];
     skipped?: boolean;
     onDelete?: () => void;
+    amount?: number;
+    isApplied: boolean;
   }
 >(
   (
@@ -384,6 +652,8 @@ const PatchOrPatchSetCard = forwardRef<
       errors,
       skipped,
       onDelete,
+      amount,
+      isApplied,
     },
     ref,
   ) => {
@@ -393,13 +663,14 @@ const PatchOrPatchSetCard = forwardRef<
         className={classNames("p-6", {
           "bg-bg-secondary": !isOpen,
           "bg-bg-quartenary": isOpen,
+          "opacity-50": isApplied,
         })}
       >
-        <div>
+        <div className="relative">
           <span
             title={path?.join("/") + "/"}
             className={classNames(
-              "inline-block w-[calc(320px-24px-8px-16px-24px-48px)] truncate overflow-y-hidden h-6 mr-2 text-left",
+              "inline-block w-[calc(320px-24px-8px-16px-24px-48px)] truncate mr-2 overflow-y-hidden h-6 text-left",
               {
                 "animate-pulse bg-bg-disabled rounded-3xl": path === undefined,
                 "text-text-disabled": skipped,
@@ -435,7 +706,7 @@ const PatchOrPatchSetCard = forwardRef<
               })}
             ></span>
           )}
-          {isSelected !== undefined && (
+          {isSelected !== undefined && !isApplied && (
             <Checkbox
               checked={isSelected}
               onCheckedChange={(checked) => {
@@ -445,14 +716,23 @@ const PatchOrPatchSetCard = forwardRef<
               }}
             />
           )}
-          {onDelete && (
-            <button onClick={onDelete} title="Delete" className="ml-2">
-              <Trash size={16} />
+          {onDelete && !isApplied && (
+            <button
+              onClick={onDelete}
+              title="Revert change"
+              className="relative ml-5"
+            >
+              {amount && (
+                <span className="absolute px-2 text-xs rounded-full -top-6 -right-5 bg-bg-quartenary">
+                  {amount > 10 ? "10+" : amount}
+                </span>
+              )}
+              <Undo2 size={16} className="inline" />
             </button>
           )}
         </div>
         {errors && errors.length > 0 && !skipped && (
-          <div className="p-2 max-w-[240px] rounded bg-bg-error-primary text-text-primary">
+          <div className="p-2 max-w-[240px] bg-bg-error-primary text-text-primary">
             {errors.slice(0, 1).map((error, i) => (
               <div key={i} title={error} className="truncate">
                 {error}
@@ -464,7 +744,7 @@ const PatchOrPatchSetCard = forwardRef<
           </div>
         )}
         {(!errors || errors.length === 0) && skipped && (
-          <div className="p-2 max-w-[240px] rounded bg-bg-error-primary text-text-primary">
+          <div className="p-2 max-w-[240px] bg-bg-error-primary text-text-primary">
             <div className="truncate">Skipped</div>
           </div>
         )}
@@ -475,41 +755,77 @@ const PatchOrPatchSetCard = forwardRef<
                 {authors.slice(0, 2).map((author, i) => {
                   if (author.url) {
                     return (
-                      <img
-                        key={author.url}
-                        src={author.url}
-                        alt={author.fullName}
-                        title={author.fullName}
-                        className={classNames(
-                          "flex-shrink-0 w-6 h-6 rounded-full",
-                          {
-                            "-ml-3": authors.length > 2 && i > 0,
-                          },
-                        )}
-                      />
+                      <HoverCard key={author.url}>
+                        <HoverCardTrigger className="flex-shrink-0 w-6 h-6 ">
+                          <img
+                            src={author.url}
+                            alt={author.fullName}
+                            className={classNames("rounded-full", {
+                              "-ml-3": authors.length > 2 && i > 0,
+                            })}
+                          />
+                        </HoverCardTrigger>
+                        <HoverCardContent>
+                          <div>{author.fullName}</div>
+                        </HoverCardContent>
+                      </HoverCard>
                     );
                   }
                   const initials = getInitials(author.fullName);
                   return (
-                    <span
-                      key={author.fullName + author.url}
-                      className={classNames(
-                        "flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full bg-bg-quartenary text-fg-primary",
-                        {
+                    <HoverCard key={author.fullName + author.url}>
+                      <HoverCardTrigger
+                        className={classNames({
                           "-ml-3": authors.length > 2 && i > 0,
-                        },
-                      )}
-                      aria-label={"Initials for: " + author.fullName}
-                      title={author.fullName}
-                    >
-                      {initials}
-                    </span>
+                        })}
+                      >
+                        <span
+                          className={classNames(
+                            "flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full bg-bg-quartenary text-fg-primary",
+                          )}
+                          aria-label={"Initials for: " + author.fullName}
+                        >
+                          {initials}
+                        </span>
+                      </HoverCardTrigger>
+                      <HoverCardContent>
+                        <div>{author.fullName}</div>
+                      </HoverCardContent>
+                    </HoverCard>
                   );
                 })}
                 {authors.length > 2 && (
-                  <span className="flex items-center justify-center w-6 h-6 -ml-3 text-xs font-semibold rounded-full bg-bg-quartenary text-fg-primary">
-                    +{2}
-                  </span>
+                  <HoverCard>
+                    <HoverCardTrigger
+                      className={classNames({
+                        "-ml-3": authors.length > 2,
+                      })}
+                    >
+                      <span className="flex items-center justify-center w-6 h-6 -ml-3 text-xs font-semibold rounded-full bg-bg-quartenary text-fg-primary">
+                        +{authors.length - 2}
+                      </span>
+                    </HoverCardTrigger>
+                    <HoverCardContent className="grid grid-cols-[auto,1fr] gap-2">
+                      {authors.slice(2).map((author) => {
+                        return (
+                          <Fragment key={author.fullName + author.url}>
+                            {author.url ? (
+                              <img
+                                key={author.url}
+                                src={author.url}
+                                alt={author.fullName}
+                                title={author.fullName}
+                                className={classNames("w-6 h-6 rounded-full")}
+                              />
+                            ) : (
+                              <div />
+                            )}
+                            <div>{author.fullName}</div>
+                          </Fragment>
+                        );
+                      })}
+                    </HoverCardContent>
+                  </HoverCard>
                 )}
               </span>
             )}

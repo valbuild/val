@@ -3,7 +3,8 @@ import {
   DndContext,
   closestCenter,
   KeyboardSensor,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
@@ -52,7 +53,8 @@ export function SortableList({
   }, [source, path]);
 
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(MouseSensor),
+    useSensor(TouchSensor),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     }),
@@ -145,14 +147,15 @@ export function SortableItem({
 
   return (
     <div
+      touch-action="manipulation"
       ref={setNodeRef}
       style={style}
-      className="grid items-start col-span-4 gap-4 grid-cols-subgrid disabled:opacity-55"
+      className="grid items-start col-span-4 gap-2 grid-cols-subgrid disabled:opacity-55"
     >
       <button
         {...attributes}
         {...listeners}
-        className={classNames("pt-2 m-1", {
+        className={classNames("pt-2 my-1", {
           "opacity-30": disabled,
         })}
         disabled={disabled}
@@ -163,7 +166,7 @@ export function SortableItem({
         <GripVertical />
       </button>
       <button
-        className="pt-2 m-1 font-serif text-accent"
+        className="pt-2 my-1 font-serif text-accent"
         disabled={disabled}
         onClick={() => {
           onClick(path);

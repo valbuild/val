@@ -19,7 +19,7 @@ import {
 } from "../designSystem/select";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useNavigation } from "../../components/ValRouter";
-import { ChevronRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { ValidationErrors } from "../../components/ValidationError";
 
 export function KeyOfField({ path }: { path: SourcePath }) {
@@ -130,6 +130,12 @@ export function KeyOfField({ path }: { path: SourcePath }) {
   return (
     <div>
       <ValidationErrors path={path} />
+      {keys && keys.length > 0 && source !== null && !keys.includes(source) && (
+        <div className="flex flex-col gap-2 p-4 rounded bg-bg-error-primary text-text-error-primary">
+          <span>Value must be on of: {keys.join(", ")}</span>
+          <span>NOTE: this is currently not validated on server</span>
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <Select
           value={source ?? ""}
@@ -162,13 +168,15 @@ export function KeyOfField({ path }: { path: SourcePath }) {
         </Select>
         {source && keyOf?.path && (
           <button
+            title="Go to reference"
+            className="px-2"
             onClick={() => {
               navigate(
                 Internal.createValPathOfItem(keyOf.path, source) as SourcePath,
               );
             }}
           >
-            <ChevronRight size={16} />
+            <ArrowRight size={16} />
           </button>
         )}
       </div>

@@ -29,6 +29,11 @@ export type ValConfig = {
   gitCommit?: string;
   gitBranch?: string;
   defaultTheme?: "dark" | "light";
+  ai?: {
+    commitMessages?: {
+      disabled?: boolean;
+    };
+  };
 };
 export type InitVal = {
   c: ContentConstructor;

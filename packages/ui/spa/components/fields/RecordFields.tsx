@@ -50,7 +50,7 @@ export function RecordFields({ path }: { path: SourcePath }) {
   return (
     <div>
       <ValidationErrors path={path} />
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4">
         {source &&
           Object.entries(source).map(([key]) => (
             <div

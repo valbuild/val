@@ -98,7 +98,7 @@ export function DateField({ path }: { path: SourcePath }) {
           <Button
             variant={"outline"}
             className={classNames(
-              "w-[280px] justify-start text-left font-normal",
+              "w-[280px] justify-start text-left font-normal bg-bg-primary",
               !currentValue && "text-muted-foreground",
             )}
           >
@@ -129,7 +129,7 @@ export function DateField({ path }: { path: SourcePath }) {
                 addPatch([
                   {
                     op: "replace",
-                    value: date.toISOString(),
+                    value: date.toISOString().slice(0, 10),
                     path: patchPath,
                   },
                 ]);
