@@ -13,6 +13,8 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useEffect, useState } from "react";
 import { ValidationErrors } from "../../components/ValidationError";
+import { Loader2 } from "lucide-react";
+import classNames from "classnames";
 
 export function StringField({
   path,
@@ -32,6 +34,36 @@ export function StringField({
       setCurrentValue(sourceAtPath.data);
     }
   }, ["data" in sourceAtPath && sourceAtPath.data, focus]);
+  useEffect(() => {
+    // TODO: sometimes characters are missing from patches but we do not really understand why...
+    // This is just a hack to work around the issue. We can remove this once we fix the root cause.
+    // NOTE: we do not think this hack will cause issues, since the current value should always match the actual source
+    if (
+      "data" in sourceAtPath &&
+      sourceAtPath.data !== undefined &&
+      currentValue !== null &&
+      sourceAtPath.data !== currentValue
+    ) {
+      const timeout = setTimeout(() => {
+        console.warn(
+          `Mis-matched strings: '${sourceAtPath.data}' and '${currentValue}'. Patching...`,
+        );
+        addDebouncedPatch(
+          () => [
+            {
+              op: "replace",
+              path: patchPath,
+              value: currentValue,
+            },
+          ],
+          path,
+        );
+      }, 3000);
+      return () => {
+        clearTimeout(timeout);
+      };
+    }
+  }, ["data" in sourceAtPath && sourceAtPath.data, currentValue]);
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -66,29 +98,43 @@ export function StringField({
   return (
     <div>
       <ValidationErrors path={path} />
-      <Input
-        autoFocus={autoFocus}
-        onFocus={() => {
-          setFocus(true);
-        }}
-        onBlur={() => {
-          setFocus(false);
-        }}
-        value={currentValue || ""}
-        onChange={(ev) => {
-          setCurrentValue(ev.target.value);
-          addDebouncedPatch(
-            () => [
-              {
-                op: "replace",
-                path: patchPath,
-                value: ev.target.value,
-              },
-            ],
-            path,
-          );
-        }}
-      />
+      <div className="relative w-full">
+        <Input
+          className="pr-6 sm:pr-8 sm:w-[calc(100%-0.5rem)]"
+          autoFocus={autoFocus}
+          onFocus={() => {
+            setFocus(true);
+          }}
+          onBlur={() => {
+            setFocus(false);
+          }}
+          value={currentValue || ""}
+          onChange={(ev) => {
+            setCurrentValue(ev.target.value);
+            addDebouncedPatch(
+              () => [
+                {
+                  op: "replace",
+                  path: patchPath,
+                  value: ev.target.value,
+                },
+              ],
+              path,
+            );
+          }}
+        />
+        <span
+          className={classNames(
+            "absolute right-0 -translate-x-full top-4 duration-1000",
+            {
+              "opacity-0": sourceAtPath.data === currentValue,
+              "opacity-100": sourceAtPath.data !== currentValue,
+            },
+          )}
+        >
+          <Loader2 className="transition-opacity animate-spin" size={12} />
+        </span>
+      </div>
     </div>
   );
 }

@@ -108,7 +108,7 @@ export function RichTextEditor<E extends AnyExtension>({
   const remirrorClassNames = useMemo(() => {
     return [
       classNames(
-        "p-4 outline-none focus:outline-none appearance-none bg-background rounded-b-md",
+        "p-4 outline-none focus:outline-none appearance-none bg-bg-primary rounded-b-md",
       ),
     ];
   }, [showToolbar]);

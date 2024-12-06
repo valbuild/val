@@ -409,6 +409,10 @@ export const Api = {
           json: GenericError,
         }),
         z.object({
+          status: z.literal(503),
+          json: GenericError,
+        }),
+        z.object({
           status: z.literal(200),
           json: z.union([
             z.object({
@@ -421,6 +425,11 @@ export const Api = {
               schemaSha: z.string(),
               patches: z.array(PatchId),
               config: ValConfig,
+              mode: z.union([
+                z.literal("http"),
+                z.literal("fs"),
+                z.literal("unknown"),
+              ]),
             }),
             z.object({
               type: z.literal("use-websocket"),
@@ -431,6 +440,11 @@ export const Api = {
               commitSha: z.string(),
               patches: z.array(PatchId),
               config: ValConfig,
+              mode: z.union([
+                z.literal("http"),
+                z.literal("fs"),
+                z.literal("unknown"),
+              ]),
             }),
           ]),
         }),
@@ -513,10 +527,8 @@ export const Api = {
     GET: {
       req: {
         query: {
-          author: z.array(z.string()).optional(),
           patch_id: z.array(PatchId).optional(),
-          module_file_path: z.array(ModuleFilePath).optional(),
-          omit_patch: z.boolean().optional(), // TODO: rename! we mean that we are not including the actual patch / operations in the response
+          exclude_patch_ops: z.boolean().optional(),
         },
         cookies: {
           val_session: z.string().optional(),
@@ -548,13 +560,7 @@ export const Api = {
                 patchId: PatchId,
                 createdAt: z.string(),
                 authorId: z.string().nullable(),
-                appliedAt: z
-                  .object({
-                    baseSha: z.string(),
-                    git: z.object({ commitSha: z.string() }).optional(),
-                    timestamp: z.string(),
-                  })
-                  .nullable(),
+                appliedAt: z.object({ commitSha: z.string() }).nullable(),
               }),
             ),
             baseSha: z.string(),
@@ -602,11 +608,6 @@ export const Api = {
     PUT: {
       req: {
         path: z.string().optional(),
-        body: z
-          .object({
-            patchIds: z.array(PatchId).optional(),
-          })
-          .optional(),
         query: {
           validate_all: z.boolean().optional(),
           validate_sources: z.boolean().optional(),
@@ -674,28 +675,61 @@ export const Api = {
           val_session: z.string().optional(),
         },
       },
-      res: z.object({
-        status: z.literal(200),
-        json: z.object({
-          profiles: z.array(
-            z.object({
-              profileId: z.string(),
-              fullName: z.string(),
-              avatar: z
-                .object({
-                  url: z.string(),
-                })
-                .nullable(),
-            }),
-          ),
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            profiles: z.array(
+              z.object({
+                profileId: z.string(),
+                fullName: z.string(),
+                avatar: z
+                  .object({
+                    url: z.string(),
+                  })
+                  .nullable(),
+              }),
+            ),
+          }),
         }),
-      }),
+      ]),
+    },
+  },
+  "/commit-summary": {
+    GET: {
+      req: {
+        query: {
+          patch_id: z.array(PatchId),
+        },
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        unauthorizedResponse,
+        z.object({
+          status: z.literal(400),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            patchIds: z.array(PatchId),
+            baseSha: z.string(),
+            commitSummary: z.string().nullable(),
+          }),
+        }),
+      ]),
     },
   },
   "/save": {
     POST: {
       req: {
         body: z.object({
+          message: z.string().optional(),
           patchIds: z.array(PatchId),
         }),
         cookies: {

@@ -30,7 +30,17 @@ import {
   useValState,
 } from "../hooks/useValState";
 
-const ValContext = React.createContext<{
+type ValContextValue = {
+  mode: "http" | "fs" | "unknown";
+  serviceUnavailable: boolean | undefined;
+  baseSha: string | undefined;
+  getCommitSummary: () => Promise<
+    | { commitSummary: string | null; error?: undefined }
+    | {
+        commitSummary?: undefined;
+        error: string;
+      }
+  >;
   portalRef: HTMLElement | null;
   theme: Themes | null;
   setTheme: (theme: Themes | null) => void;
@@ -84,103 +94,19 @@ const ValContext = React.createContext<{
   >;
   patchIds: PatchId[];
   profiles: Record<AuthorId, Profile>;
-}>({
-  get portalRef(): HTMLElement | null {
-    throw new Error("ValContext not provided");
-  },
-  get theme(): Themes | null {
-    throw new Error("ValContext not provided");
-  },
-  get setTheme(): React.Dispatch<React.SetStateAction<Themes | null>> {
-    throw new Error("ValContext not provided");
-  },
-  get config(): ValConfig | undefined {
-    throw new Error("ValContext not provided");
-  },
-  get authenticationState(): AuthenticationState {
-    throw new Error("ValContext not provided");
-  },
-  get addPatch(): () => void {
-    throw new Error("ValContext not provided");
-  },
-  get getPatches(): () => Promise<GetPatchRes> {
-    throw new Error("ValContext not provided");
-  },
-  get deletePatches(): () => Promise<DeletePatchesRes> {
-    throw new Error("ValContext not provided");
-  },
-  get addDebouncedPatch(): () => void {
-    throw new Error("ValContext not provided");
-  },
-  get publish(): () => void {
-    throw new Error("ValContext not provided");
-  },
-  get isPublishing(): boolean {
-    throw new Error("ValContext not provided");
-  },
-  get publishError(): string | null {
-    throw new Error("ValContext not provided");
-  },
-  get resetPublishError(): () => void {
-    throw new Error("ValContext not provided");
-  },
-  get schemas(): Remote<Record<ModuleFilePath, SerializedSchema>> {
-    throw new Error("ValContext not provided");
-  },
-  get schemaSha(): string | undefined {
-    throw new Error("ValContext not provided");
-  },
-  get sources(): Record<ModuleFilePath, Json | undefined> {
-    throw new Error("ValContext not provided");
-  },
-  get validationErrors(): Record<SourcePath, ValidationError[]> {
-    throw new Error("ValContext not provided");
-  },
-  get sourcesSyncStatus(): Record<
-    ModuleFilePath,
-    | {
-        status: "loading";
-      }
-    | {
-        status: "error";
-        errors: {
-          message: string;
-          patchId?: PatchId;
-          skipped?: boolean;
-        }[];
-      }
-  > {
-    throw new Error("ValContext not provided");
-  },
-  get patchesStatus(): Record<
-    SourcePath,
-    | {
-        status: "created-patch";
-        createdAt: string;
-      }
-    | {
-        status: "uploading-patch";
-        createdAt: string;
-        updatedAt: string;
-      }
-    | {
-        status: "error";
-        errors: {
-          message: string;
-          patchId?: PatchId;
-          skipped?: boolean;
-        }[];
-      }
-  > {
-    throw new Error("ValContext not provided");
-  },
-  get patchIds(): PatchId[] {
-    throw new Error("ValContext not provided");
-  },
-  get profiles(): Record<AuthorId, Profile> {
-    throw new Error("ValContext not provided");
-  },
-});
+  deployments: Deployment[];
+  dismissDeployment: (deploymentId: string) => void;
+};
+const ValContext = React.createContext<ValContextValue>(
+  new Proxy(
+    {},
+    {
+      get: () => {
+        throw new Error("Cannot use ValContext outside of ValProvider");
+      },
+    },
+  ) as ValContextValue,
+);
 
 export function ValProvider({
   children,
@@ -203,6 +129,7 @@ export function ValProvider({
     sourcesSyncStatus,
     patchesStatus,
     patchIds,
+    serviceUnavailable,
   } = useValState(client, dispatchValEvents);
   const [profiles, setProfiles] = useState<Record<AuthorId, Profile>>({});
   useEffect(() => {
@@ -255,11 +182,30 @@ export function ValProvider({
     "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
   const configError = "error" in stat ? stat.error : undefined;
 
+  const [showServiceUnavailable, setShowServiceUnavailable] = useState<
+    boolean | undefined
+  >();
+  useEffect(() => {
+    // only show service unavailable if it is false at init
+    if (
+      showServiceUnavailable === undefined ||
+      showServiceUnavailable === true
+    ) {
+      if (serviceUnavailable) {
+        const timeout = setTimeout(() => {
+          setShowServiceUnavailable(serviceUnavailable);
+        }, 2000);
+        return () => {
+          clearTimeout(timeout);
+        };
+      } else if (!serviceUnavailable) {
+        setShowServiceUnavailable(false);
+      }
+    }
+  }, [serviceUnavailable, showServiceUnavailable]);
+
   const [theme, setTheme] = useState<Themes | null>(null);
   useEffect(() => {
-    if (!config && !configError) {
-      return;
-    }
     try {
       const storedTheme = localStorage.getItem(
         "val-theme-" + (config?.project || "unknown"),
@@ -291,10 +237,16 @@ export function ValProvider({
 
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [currentRequestSummary, setCurrentRequestSummary] = useState<{
+    baseSha: string | undefined;
+    patchIdsString: string;
+    commitSummary: string | null;
+  } | null>(null);
   const publish = useCallback(() => {
     setIsPublishing(true);
     client("/save", "POST", {
       body: {
+        message: currentRequestSummary?.commitSummary ?? undefined,
         patchIds,
       },
     })
@@ -320,10 +272,8 @@ export function ValProvider({
     async (patchIds: PatchId[]): Promise<GetPatchRes> => {
       const res = await client("/patches", "GET", {
         query: {
-          omit_patch: false,
+          exclude_patch_ops: false,
           patch_id: patchIds,
-          author: [],
-          module_file_path: [],
         },
       });
       if (res.status === 200) {
@@ -338,10 +288,89 @@ export function ValProvider({
     [client],
   );
   const portalRef = useRef<HTMLDivElement>(null);
+  const baseSha = "data" in stat && stat.data ? stat.data.baseSha : undefined;
+  const getCommitSummary = useCallback(async () => {
+    const patchIdsString = patchIds.join(",");
+    if (
+      currentRequestSummary &&
+      baseSha === currentRequestSummary.baseSha &&
+      patchIdsString === currentRequestSummary.patchIdsString
+    ) {
+      return {
+        commitSummary: currentRequestSummary.commitSummary,
+      };
+    }
+    const res = await client("/commit-summary", "GET", {
+      query: {
+        patch_id: patchIds,
+      },
+    });
+    if (res.status === 200) {
+      setCurrentRequestSummary({
+        baseSha,
+        patchIdsString,
+        commitSummary: res.json.commitSummary,
+      });
+      return {
+        commitSummary: res.json.commitSummary,
+      };
+    }
+    return { error: res.json.message };
+  }, [client, baseSha, patchIds]);
+
+  const [deployments, setDeployments] = useState<Deployment[]>([]);
+  const dismissedDeploymentsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if ("data" in stat && stat.data) {
+      if (stat.data?.deployments) {
+        setDeployments((prev) => {
+          if (stat.data?.deployments && stat.data?.deployments?.length > 0) {
+            const grouped: Record<string, Deployment> = {};
+            for (const d of stat.data.deployments) {
+              if (dismissedDeploymentsRef.current.has(d.deployment_id)) {
+                continue;
+              }
+              if (!grouped[d.deployment_id]) {
+                grouped[d.deployment_id] = {
+                  deploymentId: d.deployment_id,
+                  deploymentState:
+                    d.deployment_state as Deployment["deploymentState"],
+                  createdAt: d.created_at,
+                  updatedAt: d.updated_at,
+                };
+              }
+              if (d.updated_at > grouped[d.deployment_id].updatedAt) {
+                grouped[d.deployment_id].updatedAt = d.updated_at;
+                grouped[d.deployment_id].deploymentState =
+                  d.deployment_state as Deployment["deploymentState"];
+              }
+            }
+            const newDeployments = Object.values(grouped).sort((a, b) => {
+              return a.updatedAt > b.updatedAt ? -1 : 1;
+            });
+            return newDeployments;
+          }
+          return prev;
+        });
+      }
+    }
+  }, ["data" in stat && stat.data]);
+  const dismissDeployment = useCallback((deploymentId: string) => {
+    setDeployments((prev) => {
+      return prev.filter((d) => d.deploymentId !== deploymentId);
+    });
+    dismissedDeploymentsRef.current.add(deploymentId);
+  }, []);
 
   return (
     <ValContext.Provider
       value={{
+        mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
+        serviceUnavailable: showServiceUnavailable,
+        baseSha,
+        deployments,
+        dismissDeployment,
+        getCommitSummary,
         portalRef: portalRef.current,
         authenticationState,
         addPatch,
@@ -356,6 +385,7 @@ export function ValProvider({
                 "val-theme-" + (config?.project || "unknown"),
                 theme,
               );
+              localStorage.setItem("val-theme-unknown", theme);
             } catch (e) {
               console.error("Error setting theme in local storage", e);
             }
@@ -387,16 +417,12 @@ export function ValProvider({
         <div
           data-val-portal="true"
           ref={portalRef}
-          {...(theme ? { "data-mode": inverseTheme(theme) } : {})}
+          {...(theme ? { "data-mode": theme } : {})}
         ></div>
         {children}
       </DayPickerProvider>
     </ValContext.Provider>
   );
-}
-
-function inverseTheme(theme: Themes): Themes {
-  return theme === "light" ? "dark" : "light";
 }
 
 export function useValPortal() {
@@ -405,9 +431,9 @@ export function useValPortal() {
 
 export type Themes = "dark" | "light";
 
-export function useTheme(): Themes | null {
-  const { theme } = useContext(ValContext);
-  return theme;
+export function useTheme() {
+  const { theme, setTheme } = useContext(ValContext);
+  return { theme, setTheme };
 }
 
 export function useValConfig() {
@@ -426,6 +452,11 @@ export function useAuthenticationState() {
   return authenticationState;
 }
 
+export function useConnectionStatus() {
+  const { serviceUnavailable } = useContext(ValContext);
+  return serviceUnavailable === true ? "service-unavailable" : "connected";
+}
+
 export function useAddPatch(sourcePath: SourcePath) {
   const { addPatch, addDebouncedPatch } = useContext(ValContext);
   const [moduleFilePath, modulePath] =
@@ -440,24 +471,73 @@ export function useAddPatch(sourcePath: SourcePath) {
     [addPatch, sourcePath],
   );
 
-  return { patchPath, addPatch: addPatchCallback, addDebouncedPatch };
+  return {
+    patchPath,
+    addPatch: addPatchCallback,
+    /**
+     * Prefer addPatch. Use addModuleFilePatch only if you need to add a patch to a different module file (should be rare).
+     */
+    addModuleFilePatch: addPatch,
+    addDebouncedPatch,
+  };
 }
 
 export function useDeletePatches() {
   const { deletePatches } = useContext(ValContext);
-
   return { deletePatches };
 }
 
 export function useGetPatches() {
   const { getPatches } = useContext(ValContext);
-
   return { getPatches };
+}
+
+export function useDeployments() {
+  const { deployments, dismissDeployment } = useContext(ValContext);
+  return { deployments, dismissDeployment };
+}
+
+export function useAppliedPatches() {
+  const { getPatches } = useGetPatches();
+  const { isPublishing, patchIds } = useContext(ValContext);
+  const [appliedPatchIds, setAppliedPatchIds] = useState<Set<PatchId>>(
+    new Set(),
+  );
+  useEffect(() => {
+    if (!isPublishing) {
+      getPatches(patchIds).then((res) => {
+        if (res.status === "ok") {
+          const appliedPatchIds = new Set<PatchId>();
+          for (const [patchIdS, patchMetadata] of Object.entries(res.data)) {
+            // TODO: as long as appliedAt is set, I suppose we can assume it is applied for this current commit?
+            if (patchMetadata?.appliedAt) {
+              appliedPatchIds.add(patchIdS as PatchId);
+            }
+          }
+          setAppliedPatchIds(appliedPatchIds);
+        }
+      });
+    }
+  }, [isPublishing, patchIds]);
+  return appliedPatchIds;
 }
 
 export function useCurrentPatchIds(): PatchId[] {
   const { patchIds } = useContext(ValContext);
   return patchIds;
+}
+
+export function useValMode(): "http" | "fs" | "unknown" {
+  const { mode } = useContext(ValContext);
+  return mode;
+}
+
+export function useSummary() {
+  const { getCommitSummary } = useContext(ValContext);
+
+  return {
+    getCommitSummary,
+  };
 }
 
 export type LoadingStatus = "loading" | "not-asked" | "error" | "success";
@@ -490,11 +570,17 @@ export function useSyncStatus() {
 export function usePublish() {
   const { publish, isPublishing, publishError, resetPublishError } =
     useContext(ValContext);
+  const patchIds = useCurrentPatchIds();
   const { globalErrors } = useErrors();
   const debouncedLoadingStatus = useDebouncedLoadingStatus();
+  const appliedPatchIds = useAppliedPatches();
+  const unappliedPatchIds = patchIds.filter(
+    (patchId) => !appliedPatchIds.has(patchId),
+  );
   const publishDisabled =
     debouncedLoadingStatus !== "success" ||
     isPublishing ||
+    unappliedPatchIds.length === 0 ||
     globalErrors.length > 0;
   return {
     publish,
@@ -760,6 +846,14 @@ export function useShallowSourceAtPath<
     };
   }
   return source;
+}
+
+/**
+ * Avoid using this unless necessary. Prefer useSourceAtPath or useShallowSourceAtPath instead.
+ * Reason: principles! Use only what you need...
+ */
+export function useSources() {
+  return useContext(ValContext).sources;
 }
 
 export function useSourceAtPath(sourcePath: SourcePath) {
@@ -1035,16 +1129,10 @@ type GroupedPatches = Record<
     path: ModuleFilePath;
     createdAt: string;
     authorId: string | null;
-    appliedAt: {
-      baseSha: string;
-      timestamp: string;
-      git?:
-        | {
-            commitSha: string;
-          }
-        | undefined;
-    } | null;
     patch?: Patch | undefined;
+    appliedAt: {
+      commitSha: string;
+    } | null;
   }
 >;
 type GetPatchRes =
@@ -1078,4 +1166,11 @@ export type Profile = {
   avatar: {
     url: string;
   } | null;
+};
+
+export type Deployment = {
+  deploymentId: string;
+  deploymentState: "pending" | "success" | "failure" | "error" | "created";
+  createdAt: string;
+  updatedAt: string;
 };

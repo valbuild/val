@@ -1,121 +1,89 @@
 import {
   useDebouncedLoadingStatus,
-  useErrors,
   usePublish,
+  useValMode,
 } from "./ValProvider";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { DraftChanges } from "./DraftChanges";
-import { X } from "lucide-react";
 import classNames from "classnames";
-import { urlOf } from "@valbuild/shared/internal";
 import { PublishErrorDialog } from "./PublishErrorDialog";
+import { Eye, Loader2, PanelRightOpen, Upload } from "lucide-react";
+import { useLayout } from "./Layout";
+import { Button } from "./designSystem/button";
+import { urlOf } from "@valbuild/shared/internal";
 
-export function ToolsMenu({
-  isOpen,
-  setOpen,
-}: {
-  isOpen: boolean;
-  setOpen: (open: boolean) => void;
-}) {
-  const { globalErrors } = useErrors();
+export function ToolsMenu() {
   const debouncedLoadingStatus = useDebouncedLoadingStatus();
   return (
-    <nav className="flex flex-col gap-1 pr-4">
-      <div className="flex items-center h-16 gap-4 p-4 mt-4 bg-bg-tertiary rounded-3xl">
-        <ToolsMenuButtons isOpen={isOpen} setOpen={setOpen} />
+    <div className="min-h-[100svh] bg-bg-primary">
+      <div className="border-b border-border-primary">
+        <ToolsMenuButtons />
       </div>
-      {globalErrors.length > 0 && (
-        <div className="p-4 bg-bg-error-primary text-text-Wprimary rounded-3xl">
-          {globalErrors.map((error, index) => (
-            <div key={index}>{error}</div>
-          ))}
-        </div>
-      )}
       <PublishErrorDialog />
       {debouncedLoadingStatus !== "not-asked" && (
-        <div
-          className={classNames("bg-bg-tertiary rounded-3xl", {
-            "hidden xl:block": !isOpen,
-            block: isOpen,
-          })}
-        >
+        <div className={classNames("", {})}>
           <ScrollArea>
-            <div className="max-h-[calc(100svh-32px-64px-32px-16px)]">
+            <div className="max-h-[calc(100svh-64px)] border-b border-border-primary">
               <DraftChanges loadingStatus={debouncedLoadingStatus} />
             </div>
           </ScrollArea>
         </div>
       )}
-    </nav>
+    </div>
   );
 }
 
-export function ToolsMenuButtons({
-  isOpen,
-  setOpen,
-}: {
-  isOpen: boolean;
-  setOpen: (open: boolean) => void;
-}) {
-  const { publish, publishDisabled } = usePublish();
+export function ToolsMenuButtons() {
+  const { publish, isPublishing, publishDisabled } = usePublish();
+  const mode = useValMode();
+  const { navMenu, toolsMenu } = useLayout();
   return (
-    <div className="flex items-center justify-end w-full gap-4 p-4">
-      <div className="xl:hidden">
+    <div className="flex flex-col">
+      <div className="flex items-center justify-between w-full gap-2 p-4">
         <button
-          className="px-3 py-1 font-bold text-bg-brand-primary"
+          className="lg:hidden"
           onClick={() => {
-            if (isOpen) {
-              setOpen(false);
-            } else {
+            toolsMenu.setOpen(!toolsMenu.isOpen);
+          }}
+        >
+          <PanelRightOpen
+            size={16}
+            className={classNames("transform", {
+              "rotate-180": !navMenu.isOpen,
+            })}
+          />
+        </button>
+        <div className="flex items-center justify-end w-full gap-2">
+          <Button
+            className="flex items-center gap-2"
+            variant={"outline"}
+            onClick={() => {
               window.location.href = urlOf("/api/val/enable", {
                 redirect_to: window.origin,
               });
-            }
-          }}
-        >
-          {!isOpen && <span>Visual editing</span>}
-          {isOpen && (
-            <span>
-              <X />
-            </span>
-          )}
-        </button>
-        <button
-          className="px-3 py-1 font-bold transition-colors border rounded bg-bg-brand-primary disabled:text-text-disabled disabled:bg-bg-disabled disabled:border-border-disabled disabled:border border-bg-brand-primary text-text-brand-primary"
-          disabled={isOpen && publishDisabled}
-          onClick={() => {
-            if (!isOpen) {
-              setOpen(true);
-            } else {
+            }}
+          >
+            <span>Preview</span>
+            <Eye size={16} />
+          </Button>
+          <Button
+            className="flex items-center gap-2"
+            disabled={publishDisabled}
+            onClick={() => {
               publish();
-            }
-          }}
-        >
-          {isOpen && <span>Publish</span>}
-          {!isOpen && <span>Review</span>}
-        </button>
+            }}
+          >
+            <span>{mode === "fs" ? "Save" : "Publish"}</span>
+            <Upload size={16} />
+          </Button>
+        </div>
       </div>
-      <div className="hidden xl:block">
-        <button
-          className="px-3 py-1 font-bold text-bg-brand-primary"
-          onClick={() => {
-            window.location.href = urlOf("/api/val/enable", {
-              redirect_to: window.origin,
-            });
-          }}
-        >
-          <span>Visual editing</span>
-        </button>
-        <button
-          className="px-3 py-1 font-bold transition-colors border rounded bg-bg-brand-primary disabled:text-text-disabled disabled:bg-bg-disabled disabled:border-border-disabled disabled:border border-bg-brand-primary text-text-brand-primary"
-          disabled={publishDisabled}
-          onClick={() => {
-            publish();
-          }}
-        >
-          <span>Publish</span>
-        </button>
-      </div>
+      {isPublishing && (
+        <div className="flex items-center justify-end gap-2 p-4 text-right border-t bg-bg-tertiary text-text-primary border-border-primary">
+          <span>Publishing changes </span>
+          <Loader2 size={16} className="animate-spin" />
+        </div>
+      )}
     </div>
   );
 }

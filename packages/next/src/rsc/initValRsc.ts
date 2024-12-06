@@ -9,7 +9,6 @@ import {
   SelectorOf,
   GenericSelector,
   ModuleFilePath,
-  PatchId,
   ValConfig,
   ValModules,
   Internal,
@@ -82,22 +81,6 @@ const initFetchValStega =
         const host: string | null = headers && getHost(headers);
         if (host && cookies) {
           const valServer = await valServerPromise;
-          const patchesRes = await valServer["/patches"]["GET"]({
-            query: {
-              omit_patch: true,
-              author: undefined,
-              patch_id: undefined,
-              module_file_path: undefined,
-            },
-            cookies: {
-              [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,
-            },
-          });
-          if (patchesRes.status !== 200) {
-            throw Error(JSON.stringify(patchesRes.json, null, 2));
-          }
-          const allPatches = Object.keys(patchesRes.json.patches) as PatchId[];
-
           const treeRes = await valServer["/sources/~"]["PUT"]({
             path: "/",
             query: {
@@ -105,7 +88,6 @@ const initFetchValStega =
               validate_all: false,
               validate_binary_files: false,
             },
-            body: { patchIds: allPatches },
             cookies: {
               [VAL_SESSION_COOKIE]: cookies?.get(VAL_SESSION_COOKIE)?.value,
             },

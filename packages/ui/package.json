@@ -130,5 +130,8 @@
   "files": [
     "dist",
     "server"
-  ]
+  ],
+  "dependencies": {
+    "@radix-ui/react-hover-card": "^1.1.2"
+  }
 }

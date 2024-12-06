@@ -48,6 +48,17 @@ export class ValOpsFS extends ValOps {
     // do nothing
   }
 
+  async getCommitSummary(): Promise<
+    | { commitSummary: string | null; error?: undefined }
+    | { commitSummary?: undefined; error: GenericErrorMessage }
+  > {
+    return {
+      error: {
+        message: "Val is in development / local mode. Cannot generate summary",
+      },
+    };
+  }
+
   async getStat(
     params: {
       baseSha: BaseSha;
@@ -71,7 +82,12 @@ export class ValOpsFS extends ValOps {
         commitSha: CommitSha;
         patches: PatchId[];
       }
-    | { type: "error"; error: GenericErrorMessage }
+    | {
+        type: "error";
+        error: GenericErrorMessage;
+        unauthorized?: boolean;
+        networkError?: boolean;
+      }
   > {
     // In ValOpsFS, we don't have a websocket server to listen to file changes so we use long-polling.
     // If a file that Val depends on changes, we break the connection and tell the client to request again to get the latest values.
@@ -334,13 +350,7 @@ export class ValOpsFS extends ValOps {
             authorId: AuthorId | null;
             coreVersion: string;
           }),
-          appliedAt: parsedBase
-            ? (parsedBase.data as {
-                // parseFile does keep refined types?
-                baseSha: BaseSha;
-                timestamp: string;
-              })
-            : null,
+          appliedAt: null,
         };
       }
     });
@@ -358,65 +368,46 @@ export class ValOpsFS extends ValOps {
     ) as ParentPatchId;
   }
 
-  override async fetchPatches<OmitPatch extends boolean>(filters: {
-    authors?: AuthorId[];
+  override async fetchPatches<ExcludePatchOps extends boolean>(filters: {
     patchIds?: PatchId[];
-    moduleFilePaths?: ModuleFilePath[];
-    omitPatch: OmitPatch;
+    excludePatchOps: ExcludePatchOps;
   }): Promise<
-    OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches
+    ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches
   > {
-    const fetchPatchesRes = await this.fetchPatchesFromFS(!!filters.omitPatch);
+    const fetchPatchesRes = await this.fetchPatchesFromFS(
+      !!filters.excludePatchOps,
+    );
     const sortedPatches = (
       this.createPatchChain(
         fetchPatchesRes.patches,
       ) as OrderedPatches["patches"]
-    )
-      .filter((patchData) => {
-        if (
-          filters.authors &&
-          !(
-            patchData.authorId === null ||
-            filters.authors.includes(patchData.authorId)
-          )
-        ) {
-          return false;
-        }
-        if (
-          filters.moduleFilePaths &&
-          !filters.moduleFilePaths.includes(patchData.path)
-        ) {
-          return false;
-        }
-        return true;
-      })
-      .map((patchData) => {
-        if (filters.omitPatch) {
-          return {
-            ...patchData,
-            patch: undefined,
-          };
-        }
-        return patchData;
-      });
+    ).map((patchData) => {
+      if (filters.excludePatchOps) {
+        return {
+          ...patchData,
+          patch: undefined,
+        };
+      }
+      return patchData;
+    });
 
     return {
       patches: sortedPatches,
       errors: fetchPatchesRes.errors,
-    } as OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches;
+    } as ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches;
   }
 
-  async fetchPatchesFromFS<OmitPatch extends boolean>(
-    omitPath: OmitPatch,
-  ): Promise<OmitPatch extends true ? FSPatchesMetadata : FSPatches> {
-    const patches: (OmitPatch extends true
+  async fetchPatchesFromFS<ExcludePatchOps extends boolean>(
+    excludePatchOps: ExcludePatchOps,
+  ): Promise<ExcludePatchOps extends true ? FSPatchesMetadata : FSPatches> {
+    const patches: (ExcludePatchOps extends true
       ? FSPatchesMetadata
       : FSPatches)["patches"] = {};
     const { errors, patches: allPatches } = await this.readPatches();
     for (const [patchIdS, patch] of Object.entries(allPatches)) {
       const patchId = patchIdS as PatchId;
       patches[patchId] = {
-        patch: omitPath ? undefined : patch.patch,
+        patch: excludePatchOps ? undefined : patch.patch,
         parentRef: patch.parentRef,
         path: patch.path,
         baseSha: patch.baseSha,
@@ -426,11 +417,11 @@ export class ValOpsFS extends ValOps {
       };
     }
     if (errors && errors.length > 0) {
-      return { patches, errors } as OmitPatch extends true
+      return { patches, errors } as ExcludePatchOps extends true
         ? FSPatchesMetadata
         : FSPatches;
     }
-    return { patches } as OmitPatch extends true
+    return { patches } as ExcludePatchOps extends true
       ? FSPatchesMetadata
       : FSPatches;
   }
@@ -1168,11 +1159,7 @@ type FSPatches = {
       createdAt: string;
       authorId: AuthorId | null;
       baseSha: BaseSha;
-      appliedAt: {
-        baseSha: BaseSha;
-        git?: { commitSha: CommitSha };
-        timestamp: string;
-      } | null;
+      appliedAt: null;
     }
   >;
   error?: GenericErrorMessage;

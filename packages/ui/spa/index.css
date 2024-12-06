@@ -109,8 +109,8 @@
 
     --bg-active: var(--colors-gray-light-mode-gray-50);
     --bg-brand-primary_alt: var(--colors-brand-purple-50);
-    --bg-brand-primary: var(--colors-brand-purple-50);
-    --bg-brand-secondary: var(--colors-brand-purple-100);
+    --bg-brand-primary: var(--colors-brand-purple-500);
+    --bg-brand-secondary: var(--colors-brand-purple-600);
     --bg-brand-solid_hover: var(--colors-brand-purple-700);
     --bg-brand-solid: var(--colors-brand-purple-600);
     --bg-disabled_subtle: var(--colors-gray-light-mode-gray-50);
@@ -166,8 +166,8 @@
     --fg-warning-primary: var(--colors-warning-yellow-600);
     --fg-warning-secondary: var(--colors-warning-yellow-500);
     --fg-white: var(--colors-base-white);
-    --text-brand-primary: var(--colors-brand-purple-900);
-    --text-brand-secondary: var(--colors-brand-purple-700);
+    --text-brand-primary: var(--colors-brand-purple-100);
+    --text-brand-secondary: var(--colors-brand-purple-200);
     --text-brand-tertiary_alt: var(--colors-brand-purple-600);
     --text-brand-tertiary: var(--colors-brand-purple-600);
     --text-disabled: var(--colors-gray-light-mode-gray-500);
@@ -201,7 +201,7 @@
     --bg-disabled: var(--colors-gray-dark-mode-gray-800);
     --bg-error-primary: var(--colors-error-red-500);
     --bg-error-secondary: var(--colors-error-red-600);
-    --bg-error-tsolid: var(--colors-error-red-600);
+    --bg-error-solid: var(--colors-error-red-600);
     --bg-overlay: var(--colors-gray-dark-mode-gray-800);
     --bg-primary_hover: var(--colors-gray-dark-mode-gray-800);
     --bg-primary-solid: var(--colors-gray-dark-mode-gray-900);
@@ -255,7 +255,7 @@
     --text-brand-tertiary_alt: var(--colors-gray-dark-mode-gray-50);
     --text-brand-tertiary: var(--colors-gray-dark-mode-gray-400);
     --text-disabled: var(--colors-gray-dark-mode-gray-500);
-    --text-error-primary: var(--colors-error-red-400);
+    --text-error-primary: var(--colors-error-red-50);
     --text-placeholder_subtle: var(--colors-gray-dark-mode-gray-700);
     --text-placeholder: var(--colors-gray-dark-mode-gray-400);
     --text-primary_on-brand: var(--colors-gray-dark-mode-gray-50);
@@ -329,4 +329,8 @@
 
 #val-overlay-container {
   visibility: visible;
+}
+
+#val-app-container {
+  visibility: visible !important;
 }

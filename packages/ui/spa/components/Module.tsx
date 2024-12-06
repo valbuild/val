@@ -35,7 +35,7 @@ export function Module({ path }: { path: SourcePath }) {
   const last = parts[parts.length - 1];
   const showNumber = isParentArray(path, maybeParentPath, parentSchema);
   return (
-    <div className="flex flex-col gap-6 py-10">
+    <div className="flex flex-col gap-6 pt-4 pb-40">
       <div className="flex flex-col gap-2 text-left">
         {parts.length > 1 && (
           <div className="inline-flex items-center text-sm text-text-quartenary">
@@ -70,7 +70,7 @@ export function Module({ path }: { path: SourcePath }) {
           </div>
         )}
         <div>
-          <div className="flex items-center justify-between h-12 gap-4 text-xl">
+          <div className="flex items-center justify-between h-6 gap-4 text-xl">
             {!showNumber && <span>{last.text}</span>}
             {showNumber && <span>#{Number(last.text) + 1}</span>}
             <ArrayAndRecordTools path={path} variant={"module"} />
