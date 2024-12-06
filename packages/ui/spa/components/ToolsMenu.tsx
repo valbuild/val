@@ -14,11 +14,18 @@ import { urlOf } from "@valbuild/shared/internal";
 
 export function ToolsMenu() {
   const debouncedLoadingStatus = useDebouncedLoadingStatus();
+  const { isPublishing } = usePublish();
   return (
     <div className="min-h-[100svh] bg-bg-primary">
       <div className="h-16 border-b border-border-primary">
         <ToolsMenuButtons />
       </div>
+      {isPublishing && (
+        <div className="flex items-center justify-end gap-2 p-4 text-right border-t bg-bg-tertiary text-text-primary border-border-primary">
+          <span>Publishing changes </span>
+          <Loader2 size={16} className="animate-spin" />
+        </div>
+      )}
       <PublishErrorDialog />
       {debouncedLoadingStatus !== "not-asked" && (
         <div className={classNames("", {})}>
@@ -34,7 +41,7 @@ export function ToolsMenu() {
 }
 
 export function ToolsMenuButtons() {
-  const { publish, isPublishing, publishDisabled } = usePublish();
+  const { publish, publishDisabled } = usePublish();
   const mode = useValMode();
   const { navMenu, toolsMenu } = useLayout();
   return (
@@ -78,12 +85,6 @@ export function ToolsMenuButtons() {
           </Button>
         </div>
       </div>
-      {isPublishing && (
-        <div className="flex items-center justify-end gap-2 p-4 text-right border-t bg-bg-tertiary text-text-primary border-border-primary">
-          <span>Publishing changes </span>
-          <Loader2 size={16} className="animate-spin" />
-        </div>
-      )}
     </div>
   );
 }
