@@ -16,7 +16,7 @@ export function ToolsMenu() {
   const debouncedLoadingStatus = useDebouncedLoadingStatus();
   return (
     <div className="min-h-[100svh] bg-bg-primary">
-      <div className="border-b border-border-primary">
+      <div className="h-16 border-b border-border-primary">
         <ToolsMenuButtons />
       </div>
       <PublishErrorDialog />
