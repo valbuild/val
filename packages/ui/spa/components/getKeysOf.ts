@@ -2,6 +2,7 @@ import {
   Json,
   ModuleFilePath,
   ModuleFilePathSep,
+  SerializedObjectSchema,
   SerializedSchema,
   SourcePath,
 } from "@valbuild/core";
@@ -76,8 +77,25 @@ export function getKeysOf(
         }
       }
     } else if (schema.type === "union") {
-      for (const item of schema.items) {
-        go(sourcePath, item, source);
+      // ignore string unions
+      const schemaKey = schema.key;
+      if (typeof schemaKey === "string") {
+        if (isObjectSource(source)) {
+          const itemKey = source[schemaKey];
+          if (typeof itemKey === "string") {
+            const schemaOfItem = (schema.items as SerializedObjectSchema[])
+              .filter((item) => item.type === "object")
+              .find((item) => {
+                const itemKeySchema = item.items[schemaKey];
+                if (itemKeySchema?.type === "literal") {
+                  return itemKeySchema.value === itemKey;
+                }
+              });
+            if (schemaOfItem) {
+              go(sourcePath, schemaOfItem, source);
+            }
+          }
+        }
       }
     } else if (
       schema.type === "string" ||
