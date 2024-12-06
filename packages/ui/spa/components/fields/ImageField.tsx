@@ -219,17 +219,16 @@ export function ImageField({ path }: { path: SourcePath }) {
           )}
         </div>
       )}
-      <label
-        htmlFor={`img_input:${path}`}
-        className={classNames(
-          "block px-1 py-2 text-sm text-center rounded-b-lg cursor-pointer bg-bg-secondary text-text-secondary",
-          {
-            "rounded-t-lg": !source,
-          },
-        )}
-      >
-        Update
-      </label>
+      <div>
+        <label
+          htmlFor={`img_input:${path}`}
+          className={classNames(
+            "block px-1 py-2 mt-4 text-sm text-center rounded-lg cursor-pointer bg-bg-primary text-text-secondary",
+          )}
+        >
+          Update
+        </label>
+      </div>
       <input
         disabled={sourceAtPath.status === "loading"}
         hidden

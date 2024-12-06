@@ -83,7 +83,7 @@ export const createValClient = (host: string): ValClient => {
             status: null,
             json: {
               type: "client_side_validation_error",
-              message: `Invalid response (expected JSON, but got something else). This could be a result of mismatched Val versions or a transient error.`,
+              message: `Invalid response (expected JSON, but got something else). This could be a result of mismatched Val versions or a transient error. ${res.status}`,
               details: {
                 validationError: "Invalid content type",
                 data: {

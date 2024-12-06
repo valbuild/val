@@ -54,27 +54,34 @@ const MetadataRes = z.object({
   type: z.union([z.literal("file"), z.literal("image")]).nullable(),
 });
 
-const BasePatchResponse = z.object({
-  path: ModuleFilePath,
-  patchId: PatchId,
-  authorId: AuthorId.nullable(),
-  createdAt: z.string().datetime(),
-  baseSha: z.string(),
+const SummaryResponse = z.object({
+  commitSummary: z.string().nullable(),
 });
-const GetPatches = z.object({
+const GetApplicablePatches = z.object({
   patches: z.array(
-    z.intersection(
-      z.object({
-        patch: Patch.optional(),
-      }),
-      BasePatchResponse,
-    ),
+    z.object({
+      path: z.string(),
+      patch: Patch.nullable(),
+      patchId: z.string(),
+      authorId: z.string().nullable(),
+      baseSha: z.string(),
+      createdAt: z.string(),
+      applied: z
+        .object({
+          commitSha: z.string(),
+        })
+        .nullable(),
+    }),
   ),
-  errors: z
+  commits: z
     .array(
       z.object({
-        patchId: PatchId.optional(),
-        message: z.string(),
+        commitSha: z.string(),
+        clientCommitSha: z.string(),
+        parentCommitSha: z.string(),
+        branch: z.string(),
+        creator: z.string(),
+        createdAt: z.string(),
       }),
     )
     .optional(),
@@ -156,7 +163,7 @@ export class ValOpsHttp extends ValOps {
   private readonly authHeaders: { Authorization: string };
   private readonly root: string;
   constructor(
-    private readonly hostUrl: string,
+    private readonly contentUrl: string,
     private readonly project: string,
     private readonly commitSha: string, // TODO: CommitSha
     private readonly branch: string,
@@ -179,6 +186,77 @@ export class ValOpsHttp extends ValOps {
   }
   async onInit(): Promise<void> {
     // TODO: unused for now. Implement or remove
+  }
+
+  override async getCommitSummary(preparedCommit: PreparedCommit): Promise<
+    | {
+        commitSummary: string | null;
+        error?: undefined;
+      }
+    | {
+        commitSummary?: undefined;
+        error: GenericErrorMessage;
+      }
+  > {
+    try {
+      const res = await fetch(
+        `${this.contentUrl}/v1/${this.project}/commit-summary`,
+        {
+          method: "POST",
+          headers: {
+            ...this.authHeaders,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            patchedSourceFiles: preparedCommit.patchedSourceFiles,
+            previousSourceFiles: preparedCommit.previousSourceFiles,
+          }),
+        },
+      );
+      if (res.ok) {
+        const json = await res.json();
+        const parsed = SummaryResponse.safeParse(json);
+        if (parsed.success) {
+          return { commitSummary: parsed.data.commitSummary };
+        }
+        console.error(
+          `Could not parse summary response.  Error: ${fromError(parsed.error).toString()}`,
+        );
+        return {
+          error: {
+            message: `Cannot get the summary of your changes. An error has been logged. Possible cause: the current version of Val might be too old. Please try again later or contact the developers on your team.`,
+          },
+        };
+      }
+      if (res.status === 401) {
+        console.error("Unauthorized to get summary");
+        return {
+          error: {
+            message:
+              "Could not get summary. Although your user is authorized, the application has authorization issues. Contact the developers on your team and ask them to verify the api keys.",
+          },
+        };
+      }
+      const unknownErrorMessage = `Could not get summary. HTTP error: ${res.status} ${res.statusText}`;
+      if (res.headers.get("Content-Type")?.includes("application/json")) {
+        const json = await res.json();
+        if (json.message) {
+          console.error("Summary error:", json.message);
+          return { error: { message: json.message } };
+        }
+      }
+      console.error(unknownErrorMessage);
+      return { error: { message: unknownErrorMessage } };
+    } catch (e) {
+      console.error("Could not get summary (connection error?):", e);
+      return {
+        error: {
+          message: `Could not get summary. Error: ${
+            e instanceof Error ? e.message : JSON.stringify(e)
+          }`,
+        },
+      };
+    }
   }
 
   async getStat(
@@ -204,7 +282,12 @@ export class ValOpsHttp extends ValOps {
         commitSha: CommitSha;
         patches: PatchId[];
       }
-    | { type: "error"; error: GenericErrorMessage }
+    | {
+        type: "error";
+        error: GenericErrorMessage;
+        unauthorized?: boolean;
+        networkError?: boolean;
+      }
   > {
     if (!params?.profileId) {
       return { type: "error", error: { message: "No profileId provided" } };
@@ -212,11 +295,23 @@ export class ValOpsHttp extends ValOps {
     const currentBaseSha = await this.getBaseSha();
     const currentSchemaSha = await this.getSchemaSha();
     const allPatchData = await this.fetchPatches({
-      omitPatch: true,
-      authors: undefined,
+      excludePatchOps: true,
       patchIds: undefined,
-      moduleFilePaths: undefined,
     });
+    if (
+      "error" in allPatchData &&
+      allPatchData.error &&
+      allPatchData.unauthorized
+    ) {
+      return { type: "error", error: allPatchData.error, unauthorized: true };
+    }
+    if (
+      "error" in allPatchData &&
+      allPatchData.error &&
+      allPatchData.networkError
+    ) {
+      return { type: "error", error: allPatchData.error, networkError: true };
+    }
     // We think these errors will be picked up else where (?), so we only return an error here if there are no patches
     if (allPatchData.patches.length === 0) {
       let message;
@@ -262,7 +357,7 @@ export class ValOpsHttp extends ValOps {
       }
     | { status: "error"; error: GenericErrorMessage }
   > {
-    return fetch(`${this.hostUrl}/v1/${this.project}/websocket/nonces`, {
+    return fetch(`${this.contentUrl}/v1/${this.project}/websocket/nonces`, {
       method: "POST",
       body: JSON.stringify({
         branch: this.branch,
@@ -336,13 +431,12 @@ export class ValOpsHttp extends ValOps {
         };
       });
   }
-  override async fetchPatches<OmitPatch extends boolean>(filters: {
-    authors?: AuthorId[];
+
+  override async fetchPatches<ExcludePatchOps extends boolean>(filters: {
     patchIds?: PatchId[];
-    moduleFilePaths?: ModuleFilePath[];
-    omitPatch: OmitPatch;
+    excludePatchOps: ExcludePatchOps;
   }): Promise<
-    OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches
+    ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches
   > {
     // Split patchIds into chunks to avoid too long query strings
     // NOTE: fetching patches results are cached, so this should reduce the pressure on the server
@@ -357,18 +451,14 @@ export class ValOpsHttp extends ValOps {
     if (patchIds === undefined || patchIds.length === 0) {
       return this.fetchPatchesInternal({
         patchIds: patchIds,
-        authors: filters.authors,
-        moduleFilePaths: filters.moduleFilePaths,
-        omitPatch: filters.omitPatch,
+        excludePatchOps: filters.excludePatchOps,
       });
     }
     for (const res of await Promise.all(
       patchIdChunks.map((patchIdChunk) =>
         this.fetchPatchesInternal({
           patchIds: patchIdChunk,
-          authors: filters.authors,
-          moduleFilePaths: filters.moduleFilePaths,
-          omitPatch: filters.omitPatch,
+          excludePatchOps: filters.excludePatchOps,
         }),
       ),
     )) {
@@ -383,111 +473,144 @@ export class ValOpsHttp extends ValOps {
     return {
       patches: allPatches,
       errors: Object.keys(allErrors).length > 0 ? allErrors : undefined,
-    } as OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches;
+    } as ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches;
   }
 
-  async fetchPatchesInternal<OmitPatch extends boolean>(filters: {
-    authors?: AuthorId[];
+  async fetchPatchesInternal<ExcludePatchOps extends boolean>(filters: {
     patchIds?: PatchId[];
-    moduleFilePaths?: ModuleFilePath[];
-    omitPatch: OmitPatch;
+    excludePatchOps: ExcludePatchOps;
   }): Promise<
-    OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches
+    ExcludePatchOps extends true ? OrderedPatchesMetadata : OrderedPatches
   > {
     const params: [string, string][] = [];
     params.push(["branch", this.branch]);
+    params.push(["commit", this.commitSha]);
     if (filters.patchIds) {
       for (const patchId of filters.patchIds) {
         params.push(["patch_id", patchId]);
       }
     }
-    if (filters.authors) {
-      for (const author of filters.authors) {
-        params.push(["author_id", author]);
-      }
-    }
-    if (filters.omitPatch) {
-      params.push(["omit_patch", "true"]);
-    }
-    if (filters.moduleFilePaths) {
-      for (const moduleFilePath of filters.moduleFilePaths) {
-        params.push(["module_file_path", moduleFilePath]);
-      }
+    if (filters.excludePatchOps) {
+      params.push(["exclude_patch_ops", "true"]);
     }
     const searchParams = new URLSearchParams(params);
-    return fetch(
-      `${this.hostUrl}/v1/${this.project}/patches${
-        searchParams.size > 0 ? `?${searchParams.toString()}` : ""
-      }`,
-      {
-        headers: {
-          ...this.authHeaders,
-          "Content-Type": "application/json",
+    try {
+      const patchesRes = await fetch(
+        `${this.contentUrl}/v1/${this.project}/applicable/patches${
+          searchParams.size > 0 ? `?${searchParams.toString()}` : ""
+        }`,
+        {
+          headers: this.authHeaders,
         },
-      },
-    ).then(
-      async (
-        res,
-      ): Promise<
-        OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches
-      > => {
-        const patches: {
-          path: ModuleFilePath;
-          patchId: PatchId;
-          patch?: Patch;
-          baseSha: BaseSha;
-          createdAt: string;
-          authorId: AuthorId | null;
-          appliedAt: null;
-        }[] = [];
-        if (res.ok) {
-          const json = await res.json();
-          const parsed = GetPatches.safeParse(json);
-          if (parsed.success) {
-            const errors: (OmitPatch extends true
-              ? OrderedPatchesMetadata
-              : OrderedPatches)["errors"] = [];
-
-            const data = parsed.data;
-            for (const patchesRes of data.patches) {
-              patches.push({
-                authorId: patchesRes.authorId,
-                createdAt: patchesRes.createdAt,
-                appliedAt: null,
-                patchId: patchesRes.patchId,
-                path: patchesRes.path,
-                baseSha: patchesRes.baseSha as BaseSha,
-                patch: filters.omitPatch ? undefined : patchesRes.patch,
+      );
+      const patches: {
+        path: ModuleFilePath;
+        patchId: PatchId;
+        patch?: Patch;
+        baseSha: BaseSha;
+        createdAt: string;
+        authorId: AuthorId | null;
+        appliedAt: {
+          commitSha: CommitSha;
+        } | null;
+      }[] = [];
+      if (patchesRes.ok) {
+        const json = await patchesRes.json();
+        const parsed = GetApplicablePatches.safeParse(json);
+        if (parsed.success) {
+          const errors: (ExcludePatchOps extends true
+            ? OrderedPatchesMetadata
+            : OrderedPatches)["errors"] = [];
+          const data = parsed.data;
+          for (const patchesRes of data.patches) {
+            patches.push({
+              authorId: patchesRes.authorId as AuthorId,
+              createdAt: patchesRes.createdAt,
+              patchId: patchesRes.patchId as PatchId,
+              path: patchesRes.path as ModuleFilePath,
+              baseSha: patchesRes.baseSha as BaseSha,
+              patch: patchesRes.patch as Patch,
+              appliedAt: patchesRes.applied?.commitSha
+                ? {
+                    commitSha: patchesRes.applied.commitSha as CommitSha,
+                  }
+                : null,
+            });
+          }
+          const commits: OrderedPatchesMetadata["commits"] = [];
+          if (data.commits) {
+            for (const commit of data.commits) {
+              commits.push({
+                commitSha: commit.commitSha as CommitSha,
+                clientCommitSha: commit.clientCommitSha as CommitSha,
+                parentCommitSha: commit.parentCommitSha as CommitSha,
+                branch: commit.branch,
+                creator: commit.creator as AuthorId,
+                createdAt: commit.createdAt,
               });
             }
-            return {
-              patches,
-              errors,
-            } as OmitPatch extends true
-              ? OrderedPatchesMetadata
-              : OrderedPatches;
           }
           return {
+            commits,
             patches,
-            error: {
-              message: `Could not parse get patches response. Error: ${fromError(
-                parsed.error,
-              )}`,
-            },
-          } as OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches;
+            errors,
+          } as ExcludePatchOps extends true
+            ? OrderedPatchesMetadata
+            : OrderedPatches;
         }
+        console.error(
+          "Could not parse patches response. Error: " + fromError(parsed.error),
+        );
+        return {
+          patches,
+          error: {
+            message: `The response that Val got from the server was not in the expected format. This might be a transient error or a configuration issue. Please try again later.`,
+          },
+        } as ExcludePatchOps extends true
+          ? OrderedPatchesMetadata
+          : OrderedPatches;
+      }
+      console.error(
+        "Could not get patches. HTTP error: " +
+          patchesRes.status +
+          " " +
+          patchesRes.statusText,
+      );
+      if (patchesRes.status === 401) {
         return {
           patches,
           error: {
             message:
-              "Could not get patches. HTTP error: " +
-              res.status +
-              " " +
-              res.statusText,
+              "Although your user is authorized, the application has authorization issues. Contact the developers on your team and ask them to verify the api keys.",
           },
-        } as OmitPatch extends true ? OrderedPatchesMetadata : OrderedPatches;
-      },
-    );
+        } as ExcludePatchOps extends true
+          ? OrderedPatchesMetadata
+          : OrderedPatches;
+      }
+      return {
+        patches,
+        error: {
+          message:
+            "Could not your changes. It is most likely due to a network issue. Check your network connection and please try again.",
+        },
+      } as ExcludePatchOps extends true
+        ? OrderedPatchesMetadata
+        : OrderedPatches;
+    } catch (err) {
+      console.error(
+        "Could not get patches (connection error):",
+        err instanceof Error ? err.message : JSON.stringify(err),
+      );
+      return {
+        patches: [],
+        networkError: true,
+        error: {
+          message: `Error: ${
+            err instanceof Error ? err.message : JSON.stringify(err)
+          }`,
+        },
+      };
+    }
   }
 
   protected async saveSourceFilePatch(
@@ -497,7 +620,7 @@ export class ValOpsHttp extends ValOps {
     authorId: AuthorId | null,
   ): Promise<SaveSourceFilePatchResult> {
     const baseSha = await this.getBaseSha();
-    return fetch(`${this.hostUrl}/v1/${this.project}/patches`, {
+    return fetch(`${this.contentUrl}/v1/${this.project}/patches`, {
       method: "POST",
       headers: {
         ...this.authHeaders,
@@ -567,9 +690,8 @@ export class ValOpsHttp extends ValOps {
     type: BinaryFileType,
     metadata: MetadataOfType<BinaryFileType>,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
-    throw Error("TODO: implement");
     return fetch(
-      `${this.hostUrl}/v1/${this.project}/patches/${patchId}/files`,
+      `${this.contentUrl}/v1/${this.project}/patches/${patchId}/files`,
       {
         method: "POST",
         headers: {
@@ -678,7 +800,7 @@ export class ValOpsHttp extends ValOps {
       "body_sha", // We use this for cache invalidation
       Internal.getSHA256Hash(textEncoder.encode(stringifiedFiles)),
     );
-    return fetch(`${this.hostUrl}/v1/${this.project}/files?${params}`, {
+    return fetch(`${this.contentUrl}/v1/${this.project}/files?${params}`, {
       method: "PUT", // Yes, PUT is weird. Weirder to have a body in a GET request.
       headers: {
         ...this.authHeaders,
@@ -796,7 +918,7 @@ export class ValOpsHttp extends ValOps {
     params.set("file_path", filePath);
     try {
       const metadataRes = await fetch(
-        `${this.hostUrl}/v1/${this.project}/patches/${patchId}/files?${params}`,
+        `${this.contentUrl}/v1/${this.project}/patches/${patchId}/files?${params}`,
         {
           headers: { ...this.authHeaders, "Content-Type": "application/json" },
         },
@@ -879,7 +1001,7 @@ export class ValOpsHttp extends ValOps {
       }
     | { error: GenericErrorMessage; errors?: undefined; deleted?: undefined }
   > {
-    return fetch(`${this.hostUrl}/v1/${this.project}/patches`, {
+    return fetch(`${this.contentUrl}/v1/${this.project}/patches`, {
       method: "DELETE",
       headers: {
         ...this.authHeaders,
@@ -937,10 +1059,53 @@ export class ValOpsHttp extends ValOps {
       });
   }
 
+  async getCommitMessage(preparedCommit: PreparedCommit): Promise<
+    | {
+        commitSummary: string;
+        error?: undefined;
+      }
+    | {
+        error: GenericErrorMessage;
+      }
+  > {
+    const res = await fetch(
+      `${this.contentUrl}/v1/${this.project}/commit-summary`,
+      {
+        method: "POST",
+        headers: {
+          ...this.authHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          patchedSourceFiles: preparedCommit.patchedSourceFiles,
+          previousSourceFiles: preparedCommit.previousSourceFiles,
+        }),
+      },
+    );
+    if (res.ok) {
+      const json = await res.json();
+      return { commitSummary: json.commitSummary };
+    }
+    if (res.headers.get("Content-Type")?.includes("application/json")) {
+      const json = await res.json();
+      return { error: { message: json.message } };
+    }
+    return {
+      error: {
+        message:
+          "Could not get commit message. HTTP error: " +
+          res.status +
+          " " +
+          res.statusText,
+      },
+    };
+  }
+
   async commit(
     prepared: PreparedCommit,
     message: string,
     committer: AuthorId,
+    filesDirectory: string,
     newBranch?: string,
   ): Promise<
     | {
@@ -957,7 +1122,7 @@ export class ValOpsHttp extends ValOps {
   > {
     try {
       const existingBranch = this.branch;
-      const res = await fetch(`${this.hostUrl}/v1/${this.project}/commit`, {
+      const res = await fetch(`${this.contentUrl}/v1/${this.project}/commit`, {
         method: "POST",
         headers: {
           ...this.authHeaders,
@@ -969,6 +1134,7 @@ export class ValOpsHttp extends ValOps {
           appliedPatches: prepared.appliedPatches,
           commit: this.commitSha,
           root: this.root,
+          filesDirectory,
           baseSha: await this.getBaseSha(),
           committer,
           message,
@@ -1035,7 +1201,7 @@ export class ValOpsHttp extends ValOps {
   override async getProfiles(): Promise<
     { profileId: string; fullName: string; avatar: { url: string } | null }[]
   > {
-    const res = await fetch(`${this.hostUrl}/v1/${this.project}/profiles`, {
+    const res = await fetch(`${this.contentUrl}/v1/${this.project}/profiles`, {
       headers: {
         ...this.authHeaders,
         "Content-Type": "application/json",

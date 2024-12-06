@@ -83,6 +83,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     authenticationState,
     setAuthenticationLoadingIfNotAuthenticated,
     setIsAuthenticated,
+    serviceUnavailable,
   ] = useStat(client);
   const [validationErrors, setValidationErrors] = useState<
     Record<SourcePath, ValidationError[]>
@@ -91,11 +92,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     Record<ModuleFilePath, { patch: Patch; seqNumber: number }[]>
   >({});
   const syncSources = useCallback(
-    (
-      sourceState: string,
-      requestedSources: ModuleFilePath[],
-      patchIds: PatchId[],
-    ) => {
+    (sourceState: string, requestedSources: ModuleFilePath[]) => {
       // Load all sources if we have more than one.
       // We could load more modules individually, but we are uncertain what would perform best.
       // Logically this seems easier should cover the init case and whenever we need to update individual modules (e.g. after patching)
@@ -124,9 +121,6 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
           validate_sources: true,
           validate_all: validateAll,
           validate_binary_files: false,
-        },
-        body: {
-          patchIds: patchIds,
         },
       })
         .then((res) => {
@@ -180,7 +174,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
                 res.json.modules[moduleFilePath]?.patches?.skipped;
               const patchErrors =
                 res.json.modules[moduleFilePath]?.patches?.errors;
-              if (source) {
+              if (source !== undefined) {
                 updateSources([moduleFilePath], res.json.modules);
               }
               if (patchErrors || skippedPatches) {
@@ -337,7 +331,10 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
           if (pendingPatchesRef.current[moduleFilePath]) {
             continue;
           }
-          if (newModules[moduleFilePath]?.source) {
+          if (
+            newModules[moduleFilePath] !== undefined &&
+            newModules[moduleFilePath]?.source !== undefined
+          ) {
             sources[moduleFilePath] = newModules[moduleFilePath]?.source;
           }
         }
@@ -422,7 +419,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     if (overlayDraftMode) {
       for (const moduleFilePathS in sources) {
         const moduleFilePath = moduleFilePathS as ModuleFilePath;
-        if (sources[moduleFilePath]) {
+        if (sources[moduleFilePath] !== undefined) {
           window.dispatchEvent(
             new CustomEvent("val-event", {
               detail: {
@@ -467,9 +464,9 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     (moduleFilePath: ModuleFilePath, patch: Patch) => {
       setSources((prev) => {
         // optimistically update if source is available - source should typically be available
-        if (prev[moduleFilePath]) {
+        if (prev[moduleFilePath] !== undefined) {
           const currentSource = prev[moduleFilePath];
-          if (currentSource) {
+          if (currentSource !== undefined) {
             const patchableOps = patch.filter((op) => op.op !== "file");
             const patchRes = applyPatch(
               deepClone(currentSource) as JSONValue,
@@ -491,7 +488,6 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
                   }),
                 );
               }
-
               pendingPatchesRef.current = {
                 ...pendingPatchesRef.current,
                 [moduleFilePath]: [
@@ -582,14 +578,14 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         }
       }
       if (staleModules.length > 0) {
-        syncSources(sourceState, staleModules, currentPatchIds);
+        syncSources(sourceState, staleModules);
       }
     } else {
-      syncSources(sourceState, requestedSources, currentPatchIds);
+      syncSources(sourceState, requestedSources);
     }
   }, [requestedSources, sourceState, currentPatchIds]);
 
-  const retriesOnConflictsByParentPatchRef = useRef<Record<string, number>>({});
+  const retriesOnConflict = useRef<number | null>(null);
   const mergeAndSyncPatches = useCallback(() => {
     const pendingPatches = { ...pendingPatchesRef.current };
     if (Object.keys(pendingPatches).length === 0) {
@@ -638,6 +634,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
             type: "head",
             headBaseSha: stat.data.baseSha,
           };
+
     client("/patches", "PUT", {
       body: {
         patches: mergedPatches,
@@ -651,27 +648,19 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         } else {
           setIsAuthenticated("authorized");
         }
-        const parentPatchRef =
-          parentRef.type === "patch" ? parentRef.patchId : "head";
         if (res.status === 409) {
           if (
-            !retriesOnConflictsByParentPatchRef.current[parentPatchRef] ||
-            retriesOnConflictsByParentPatchRef.current[parentPatchRef] <
-              MAX_RETRIES_ON_CONFLICT // max retries on conflicts
+            !retriesOnConflict.current ||
+            retriesOnConflict.current < MAX_RETRIES_ON_CONFLICT // max retries on conflicts
           ) {
             console.warn(
-              "Conflict! Retrying. Atempts left: ",
-              MAX_RETRIES_ON_CONFLICT -
-                (retriesOnConflictsByParentPatchRef.current[parentPatchRef] ||
-                  1),
+              "Conflict! Retrying. Attempts left: ",
+              MAX_RETRIES_ON_CONFLICT - (retriesOnConflict.current || 1),
             );
             // retry on conflict
-            retriesOnConflictsByParentPatchRef.current = {
-              [parentPatchRef]:
-                (retriesOnConflictsByParentPatchRef.current[parentPatchRef] ??
-                  1) + 1,
-            };
+            retriesOnConflict.current = (retriesOnConflict.current ?? 1) + 1;
           } else {
+            pendingPatchesRef.current = {}; // reset patches status
             setSourcesSyncStatus((prev) => {
               const current: typeof prev = {};
               for (const moduleFilePathS in pendingPatches) {
@@ -696,7 +685,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
         ) {
           // retry on network errors
         } else {
-          retriesOnConflictsByParentPatchRef.current = {};
+          retriesOnConflict.current = null;
           for (const moduleFilePathS in pendingPatchesRef.current) {
             const moduleFilePath = moduleFilePathS as ModuleFilePath;
             for (const pendingPatch of pendingPatchesRef.current[
@@ -803,6 +792,7 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     sourcesSyncStatus,
     validationErrors,
     patchIds: currentPatchIds,
+    serviceUnavailable,
   };
 }
 
@@ -815,6 +805,15 @@ const WebSocketServerMessage = z.union([
   z.object({
     type: z.literal("patches"),
     patches: z.array(PatchId),
+  }),
+  z.object({
+    type: z.literal("deployment"),
+    deployment: z.object({
+      deployment_id: z.string(),
+      deployment_state: z.string(),
+      created_at: z.string(),
+      updated_at: z.string(),
+    }),
   }),
   z.object({
     type: z.literal("subscribed"),
@@ -843,6 +842,17 @@ const StatData = z.object({
   schemaSha: z.string(),
   baseSha: z.string(),
   patches: z.array(PatchId),
+  deployments: z
+    .array(
+      z.object({
+        deployment_id: z.string(),
+        deployment_state: z.string(),
+        created_at: z.string(),
+        updated_at: z.string(),
+      }),
+    )
+    .optional(),
+  mode: z.union([z.literal("fs"), z.literal("http"), z.literal("unknown")]),
 });
 type StatData = z.infer<typeof StatData>;
 
@@ -893,7 +903,10 @@ function useStat(client: ValClient) {
     authenticationState,
     setAuthenticationLoadingIfNotAuthenticated,
     setIsAuthenticated,
-  } = useAutentication();
+  } = useAuthentication();
+  const [serviceUnavailable, setServiceUnavailable] = useState<
+    boolean | boolean
+  >();
 
   const statIdRef = useRef(0);
   useEffect(() => {
@@ -912,6 +925,7 @@ function useStat(client: ValClient) {
           setStat,
           setAuthenticationLoadingIfNotAuthenticated,
           setIsAuthenticated,
+          setServiceUnavailable,
         );
       } else {
         console.debug(
@@ -929,6 +943,7 @@ function useStat(client: ValClient) {
             setStat,
             setAuthenticationLoadingIfNotAuthenticated,
             setIsAuthenticated,
+            setServiceUnavailable,
           );
         }, stat.wait);
         return () => clearTimeout(timeout);
@@ -938,7 +953,6 @@ function useStat(client: ValClient) {
 
   useEffect(() => {
     if (stat.status === "not-asked") {
-      console.log("Setting stat to initializing");
       setStat({
         status: "initializing",
       });
@@ -951,6 +965,7 @@ function useStat(client: ValClient) {
         setStat,
         setAuthenticationLoadingIfNotAuthenticated,
         setIsAuthenticated,
+        setServiceUnavailable,
       );
     }
   }, [client, stat.status]);
@@ -961,6 +976,7 @@ function useStat(client: ValClient) {
     authenticationState,
     setAuthenticationLoadingIfNotAuthenticated,
     setIsAuthenticated,
+    serviceUnavailable,
   ] as const;
 }
 
@@ -975,6 +991,7 @@ async function execStat(
   setStat: Dispatch<SetStateAction<StatState>>,
   setAuthenticationLoadingIfNotAuthenticated: () => void,
   setIsAuthenticated: Dispatch<SetStateAction<AuthenticationState>>,
+  setServiceUnavailable: Dispatch<SetStateAction<boolean | undefined>>,
 ) {
   const id = ++statIdRef.current;
   let body = null;
@@ -997,6 +1014,17 @@ async function execStat(
       } else {
         setIsAuthenticated("authorized");
       }
+      if (res.status === 503) {
+        setServiceUnavailable(true);
+        setStat((prev) => ({
+          status: "error",
+          error: "Service unavailable",
+          retries: ("retries" in prev ? prev.retries : 0) + 1,
+          wait: 5000,
+        }));
+        return;
+      }
+      setServiceUnavailable(false);
       if (statIdRef.current !== 0 && statIdRef.current !== id) {
         return;
       }
@@ -1062,9 +1090,25 @@ async function execStat(
                 });
               } else if (message.type === "subscribed") {
                 console.debug("Subscribed!");
+              } else if (message.type === "deployment") {
+                console.debug("Deployment", message.deployment);
+                setStat((prev) => {
+                  if ("data" in prev && prev.data) {
+                    return {
+                      status: "ws-message-received",
+                      data: {
+                        ...prev.data,
+                        deployments: (prev.data.deployments || []).concat(
+                          message.deployment,
+                        ),
+                      },
+                    };
+                  }
+                  return prev;
+                });
               } else {
                 const exhaustiveCheck: never = message;
-                console.error("Unknown WebSocket message", exhaustiveCheck);
+                console.warn("Unknown WebSocket message", exhaustiveCheck);
               }
             } catch (e) {
               console.error("Could not parse WebSocket message", e);
@@ -1122,7 +1166,7 @@ export type AuthenticationState =
   | "login-required"
   | "authorized"
   | "authentication-error";
-function useAutentication() {
+function useAuthentication() {
   const [authenticationState, setIsAuthenticated] =
     useState<AuthenticationState>("not-asked");
   const setAuthenticationLoadingIfNotAuthenticated = useCallback(() => {

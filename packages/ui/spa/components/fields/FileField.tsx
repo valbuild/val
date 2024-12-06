@@ -103,12 +103,17 @@ export function FileField({ path }: { path: SourcePath }) {
   return (
     <div>
       <ValidationErrors path={path} />
-      <div className="flex items-center gap-2">
-        <Button asChild>
+      <div className="flex items-center gap-4">
+        <Button
+          asChild
+          variant={"ghost"}
+          className="cursor-pointer bg-bg-primary hover:bg-bg-secondary_alt"
+        >
           <label htmlFor={`img_input:${path}`}>Update</label>
         </Button>
         {source && (
           <a
+            className="flex items-center gap-2"
             href={
               Internal.convertFileSource({
                 ...source,
@@ -116,6 +121,8 @@ export function FileField({ path }: { path: SourcePath }) {
               }).url
             }
           >
+            {" "}
+            <span> Open file</span>
             <SquareArrowOutUpRight />
           </a>
         )}

@@ -17,7 +17,7 @@ export function PublishErrorDialog() {
         container={portalContainer}
         className="bg-bg-primary text-text-primary"
       >
-        <div className="text-xl font-bold bg-bg-error-primary text-text-error-primary">
+        <div className="text-xl font-bold text-text-error-primary">
           Could not publish
         </div>
         <div>{publishError}</div>

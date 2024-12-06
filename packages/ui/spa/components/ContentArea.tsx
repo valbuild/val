@@ -1,16 +1,65 @@
 import { ScrollArea } from "./designSystem/scroll-area";
 import { Module } from "./Module";
-import { Search } from "lucide-react";
+import { PanelRightOpen, Search } from "lucide-react";
 import { useNavigation } from "./ValRouter";
+import { useConnectionStatus } from "./ValProvider";
+import { useLayout } from "./Layout";
+import classNames from "classnames";
 
 export function ContentArea() {
+  const connectionStatus = useConnectionStatus();
   return (
-    <ScrollArea viewportId="val-content-area">
-      <div className="max-h-[100svh] pt-20 xl:pt-0 max-w-[800px] mx-auto">
-        <SearchBar />
-        <SourceFields />
-      </div>
-    </ScrollArea>
+    <>
+      <ContentAreaHeader />
+      <ScrollArea viewportId="val-content-area">
+        <div className="max-h-[calc(100svh-64px)] max-w-[800px] px-4 mx-auto">
+          {connectionStatus === "service-unavailable" ? (
+            <div className="p-8 mt-20 text-center text-text-error-primary bg-bg-error-primary">
+              <p>Could not connect to the content service.</p>
+              <p>Please try again later</p>
+            </div>
+          ) : (
+            <SourceFields />
+          )}
+        </div>
+      </ScrollArea>
+    </>
+  );
+}
+
+function ContentAreaHeader() {
+  const { navMenu, toolsMenu } = useLayout();
+  return (
+    <div className="flex items-center justify-between w-full h-16 px-4 border-b border-border-primary">
+      <button
+        className={classNames({
+          "ml-[calc(320px+0.5rem)] xl:ml-0": navMenu.isOpen,
+          "hidden lg:inline": navMenu.isOpen || toolsMenu.isOpen,
+        })}
+        onClick={() => navMenu.setOpen(!navMenu.isOpen)}
+      >
+        <PanelRightOpen
+          size={16}
+          className={classNames("transform", {
+            "rotate-180": !navMenu.isOpen,
+          })}
+        />
+      </button>
+      <button
+        className={classNames({
+          "mr-[calc(320px+0.5rem)] xl:mr-0": toolsMenu.isOpen,
+          "hidden lg:inline": navMenu.isOpen || toolsMenu.isOpen,
+        })}
+        onClick={() => toolsMenu.setOpen(!toolsMenu.isOpen)}
+      >
+        <PanelRightOpen
+          size={16}
+          className={classNames("transform", {
+            "rotate-180": toolsMenu.isOpen,
+          })}
+        />
+      </button>
+    </div>
   );
 }
 

@@ -120,7 +120,9 @@ describe("ValOpsFS", () => {
 
     // #region test
 
-    const allPatchesOnBranch = await ops.fetchPatches({ omitPatch: false });
+    const allPatchesOnBranch = await ops.fetchPatches({
+      excludePatchOps: false,
+    });
     const cleanupPatches = await ops.deletePatches(
       Object.keys(allPatchesOnBranch.patches) as PatchId[],
     );
@@ -150,11 +152,11 @@ describe("ValOpsFS", () => {
     // console.log("base source validation", JSON.stringify(v0, null, 2));
     // const fv0 = await ops.validateFiles(schemas, t0.sources, v0.files);
     // console.log("base files validation", JSON.stringify(fv0, null, 2));
-    const fp0 = await ops.fetchPatches({ omitPatch: false });
+    const fp0 = await ops.fetchPatches({ excludePatchOps: false });
     console.log("found patches", JSON.stringify(fp0, null, 2));
     const patchesRes = await ops.fetchPatches({
       patchIds: Object.keys(fp0.patches) as PatchId[],
-      omitPatch: false,
+      excludePatchOps: false,
     });
     console.log("patches", patchesRes);
     const patchAnalysis = ops.analyzePatches(patchesRes.patches);
@@ -185,7 +187,11 @@ describe("ValOpsFS", () => {
     console.log("commit", JSON.stringify(c1, null, 2));
     console.log(
       "found patches",
-      JSON.stringify(await ops.fetchPatches({ omitPatch: false }), null, 2),
+      JSON.stringify(
+        await ops.fetchPatches({ excludePatchOps: false }),
+        null,
+        2,
+      ),
     );
   });
 });
