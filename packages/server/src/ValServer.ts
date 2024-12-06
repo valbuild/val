@@ -1266,7 +1266,6 @@ export const ValServer = (
                 " modules changed";
             if (!options.config.ai?.commitMessages?.disabled) {
               const res = await serverOps.getCommitMessage(preparedCommit);
-              console.log({ res });
               if (res.error) {
                 // ignore
                 console.error(
