@@ -13,6 +13,7 @@ import { LiteralPreview } from "./fields/LiteralPreview";
 import { RecordPreview } from "./fields/RecordFields";
 import { RichTextPreview } from "./fields/RichTextField";
 import { FilePreview } from "./fields/FileField";
+import { Loader2 } from "lucide-react";
 
 export function Preview({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
@@ -64,7 +65,11 @@ export function Preview({ path }: { path: SourcePath }) {
 }
 
 export function PreviewLoading({ path }: { path: SourcePath }) {
-  return <div key={path + "-loading"}>Loading...</div>;
+  return (
+    <div key={path + "-loading"}>
+      <Loader2 size={12} className="animate-spin" />
+    </div>
+  );
 }
 
 export function PreviewNull({ path }: { path: SourcePath }) {
