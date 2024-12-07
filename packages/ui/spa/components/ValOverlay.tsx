@@ -413,14 +413,14 @@ function Window({
   return (
     <div
       className={classNames("fixed top-0 left-0 z-[8998]", {
-        "opacity-0 w-0 h-0": editMode === null,
+        hidden: editMode === null,
         // 200vw to make sure we can drag the window all the way to the right:
         "opacity-100 w-[200svw] h-[100svh]": editMode !== null,
       })}
     >
       <div
         className={classNames("fixed top-0 left-0", {
-          "opacity-0 w-0 h-0": editMode === null,
+          hidden: editMode === null,
           "opacity-100 w-[100vw] h-[100svh]": editMode !== null,
         })}
         onClick={(ev) => {
