@@ -187,6 +187,7 @@ Once your project is set up in [app.val.build](https://app.val.build), configure
 Set these properties in the `val.config` file:
 
 - **`project`**: The fully qualified name of your project, formatted as `<team>/<name>`.
+- **`root`**: The path to the `val.config` file. Typically `/`. If the project folder is under `web`, root would be: `/web`.
 - **`gitBranch`**: The Git branch your application uses. For Vercel, use `VERCEL_GIT_COMMIT_REF`.
 - **`gitCommit`**: The current Git commit your application is running on. For Vercel, use `VERCEL_GIT_COMMIT_SHA`.
 
@@ -197,6 +198,7 @@ import { initVal } from "@valbuild/next";
 
 const { s, c, val, config } = initVal({
   project: "myteam/myproject",
+  root: "/", // if monorepo use the relative path starting with /
   gitBranch: process.env.VERCEL_GIT_COMMIT_REF,
   gitCommit: process.env.VERCEL_GIT_COMMIT_SHA,
 });
