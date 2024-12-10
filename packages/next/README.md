@@ -75,6 +75,8 @@ npm install @valbuild/core@latest @valbuild/next@latest @valbuild/eslint-plugin@
 npx @valbuild/init@latest
 ```
 
+See [formatting published content](#formatting-published-content) if you use prettier (or similar) Val to do it as well.
+
 ## Getting started
 
 ### Create your first Val content file
@@ -189,9 +191,9 @@ Once your project is set up in [app.val.build](https://app.val.build), configure
 Set these properties in the `val.config` file:
 
 - **`project`**: The fully qualified name of your project, formatted as `<team>/<name>`.
-- **`root`**: The path to the `val.config` file. Typically `/`. If the project folder is under `web`, root would be: `/web`.
 - **`gitBranch`**: The Git branch your application uses. For Vercel, use `VERCEL_GIT_COMMIT_REF`.
 - **`gitCommit`**: The current Git commit your application is running on. For Vercel, use `VERCEL_GIT_COMMIT_SHA`.
+- **`root`**: Optional. The path to the `val.config` file. Typically empty or undefined. If the project folder is under `web`, root would be: `/web`.
 
 ### Example `val.config.ts`
 
@@ -200,7 +202,7 @@ import { initVal } from "@valbuild/next";
 
 const { s, c, val, config } = initVal({
   project: "myteam/myproject",
-  root: "/", // if monorepo use the relative path starting with /
+  //root: "/subdir", // only required for monorepos. Use the path where val.config is located. The path should start with /
   gitBranch: process.env.VERCEL_GIT_COMMIT_REF,
   gitCommit: process.env.VERCEL_GIT_COMMIT_SHA,
 });
@@ -208,6 +210,71 @@ const { s, c, val, config } = initVal({
 export type { t } from "@valbuild/next";
 export { s, c, val, config };
 ```
+
+# Formatting published content
+
+If you are using `prettier` or another code formatting tool, it is recommended to setup formatting of code after changes have been applied.
+
+## Setting up formatting using Prettier
+
+- Install `prettier` as **RUNTIME** dependency, by moving the `prettier` dependency from `devDependencies` to `dependencies`. The reason you need to do this, is that Val will be using it at runtime in production, and it has to be part of your build for this to work.
+- Optionally create a `.prettierrc.json` file unless you have one already. We recommend doing this, so that you can be sure that formatting is applied consistently in both your development environment and by Val. You can set this to be an empty object, if you are want to keep using `prettier`s defaults:
+
+  ```json
+  {}
+  ```
+
+- Add a formatter to the `/val/val.server`:
+
+  ```ts
+  formatter: (code: string, filePath: string) => {
+    return prettier.format(code, {
+      filepath: filePath,
+      ...prettierOptions, // <- use the same rules as in development
+    } as prettier.Options);
+  },
+  ```
+  
+  Unless you have any modifications in your `val.server` file, the complete file should now look like this:
+
+  ```ts
+  import "server-only";
+  import { initValServer } from "@valbuild/next/server";
+  import { config } from "../val.config";
+  import { draftMode } from "next/headers";
+  import valModules from "../val.modules";
+  import prettier from "prettier";
+  import prettierOptions from "../.prettierrc.json";
+
+  const { valNextAppRouter } = initValServer(
+    valModules,
+    { ...config },
+    {
+      draftMode,
+      formatter: (code: string, filePath: string) => {
+        return prettier.format(code, {
+          filepath: filePath,
+          ...prettierOptions, // <- use the same rules as in development
+        } as prettier.Options);
+      },
+    },
+  );
+
+  export { valNextAppRouter };
+    ```
+  
+You should now be able to hit the save button locally and see prettier rules being applied.
+
+## Other formatters
+
+Val is formatter agnostic, so it is possible to use the same flow as the one described for `prettier` above to any formatter you might want to use.
+
+**NOTE**: this will be applied at runtime in production so you need make sure that the formatting dependencies are in the `dependencies` section of your `package.json`
+
+# Monorepos
+
+Val supports projects that are not under the root path in GitHub, and therefore monorepos.
+To configure your project for monorepos, you can use the `root` parameter described in the [config](#valconfig-properties) section.
 
 # Schema types
 
