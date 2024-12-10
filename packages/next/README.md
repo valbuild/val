@@ -246,7 +246,7 @@ If you are using `prettier` or another code formatting tool, it is recommended t
     } as prettier.Options);
   },
   ```
-  
+
   Unless you have any modifications in your `val.server` file, the complete file should now look like this:
 
   ```ts
@@ -273,8 +273,8 @@ If you are using `prettier` or another code formatting tool, it is recommended t
   );
 
   export { valNextAppRouter };
-    ```
-  
+  ```
+
 You should now be able to hit the save button locally and see prettier rules being applied.
 
 ## Other formatters
