@@ -62,11 +62,17 @@ Join us on [discord](https://discord.gg/cZzqPvaX8k) to get help or give us feedb
 
 ## Installation
 
-- Make sure you have TypeScript 5+, Next 14+, React 18.20.+
-- Install the packages (@valbuild/eslint-plugin is recommended but not required):
+- Make sure your project is using
+- Install the packages:
 
 ```sh
-npm install @valbuild/core@latest @valbuild/next@latest @valbuild/eslint-plugin@latest
+npm install @valbuild/core@latest @valbuild/next@latest
+```
+
+- Optionally, but recommend add the eslint-plugin package:
+
+```sh
+npm install -D  @valbuild/eslint-plugin@latest
 ```
 
 - Run the init script:
@@ -75,7 +81,13 @@ npm install @valbuild/core@latest @valbuild/next@latest @valbuild/eslint-plugin@
 npx @valbuild/init@latest
 ```
 
-See [formatting published content](#formatting-published-content) if you use prettier (or similar) Val to do it as well.
+If you do not wish to use the init script, or having issues with it, checkout the [manual configuration guide](./MANUAL_CONFIGURATION.md).
+
+## Additional setup
+
+- If you have a monorepo, or have a project where the project is located in a subdirectory relative to the github repository see the [monorepos](#monorepos) section
+- See [formatting published content](#formatting-published-content) if you use prettier (or similar) Val to do it as well.
+- If you want editors to update content in production, read up on how to setup [remote mode](#remote-mode).
 
 ## Getting started
 
