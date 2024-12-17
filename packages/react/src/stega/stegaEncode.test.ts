@@ -76,6 +76,21 @@ describe("stega transform", () => {
     );
   });
 
+  test("basic with remote image", () => {
+    const schema = s.array(s.image().remote());
+    const transformed = stegaEncode(
+      c.define("/test1.val.ts", schema, [
+        c.remote("remote://valbuild/examples-next/public/val/test2.png", {
+          width: 100,
+          height: 100,
+          mimeType: "image/png",
+        }),
+      ]),
+      {},
+    );
+    console.log(transformed);
+  });
+
   test("get modules", () => {
     const schema = s.array(s.string());
 
