@@ -6,6 +6,7 @@ import { ImageSource } from "../source/image";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 import { Internal } from "..";
+import { RemoteSource } from "../source/remote";
 
 export type ImageOptions = {
   ext?: ["jpg"] | ["webp"];
@@ -18,6 +19,7 @@ export type SerializedImageSchema = {
   type: "image";
   options?: ImageOptions;
   opt: boolean;
+  remote?: boolean;
 };
 
 export type ImageMetadata = {
@@ -31,13 +33,21 @@ export type ImageMetadata = {
   };
 };
 export class ImageSchema<
-  Src extends FileSource<ImageMetadata | undefined> | null,
+  Src extends
+    | FileSource<ImageMetadata | undefined>
+    | RemoteSource<ImageMetadata | undefined>
+    | null,
 > extends Schema<Src> {
   constructor(
     readonly options?: ImageOptions,
     readonly opt: boolean = false,
+    protected readonly isRemote: boolean = false,
   ) {
     super();
+  }
+
+  remote(): ImageSchema<Src | RemoteSource<ImageMetadata | undefined>> {
+    return new ImageSchema(this.options, this.opt, true);
   }
 
   validate(path: SourcePath, src: Src): ValidationErrors {
@@ -256,10 +266,11 @@ export class ImageSchema<
       type: "image",
       options: this.options,
       opt: this.opt,
+      remote: this.isRemote,
     };
   }
 }
 
-export const image = (options?: ImageOptions): Schema<ImageSource> => {
+export const image = (options?: ImageOptions): ImageSchema<ImageSource> => {
   return new ImageSchema(options);
 };
