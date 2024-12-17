@@ -18,7 +18,7 @@ export type ValConstructor = {
   unstable_getPath: typeof getPath;
 };
 
-export type ConfigDirectory = `/public/${string}`;
+export type ConfigDirectory = `/public/val`;
 
 export type ValConfig = {
   project?: string;
