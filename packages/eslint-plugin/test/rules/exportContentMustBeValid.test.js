@@ -4,14 +4,6 @@ import path from "path";
 
 const rule = valRules["export-content-must-be-valid"];
 
-RuleTester.setDefaultConfig({
-  parserOptions: {
-    ecmaVersion: 2018,
-    sourceType: "module",
-    ecmaFeatures: {},
-  },
-});
-
 const ruleTester = new RuleTester();
 
 ruleTester.run("export-content-must-be-valid", rule, {
