@@ -4,16 +4,6 @@ import path from "path";
 
 const rule = valRules["no-illegal-module-paths"];
 
-RuleTester.setDefaultConfig({
-  parserOptions: {
-    ecmaVersion: 2018,
-    sourceType: "module",
-    ecmaFeatures: {
-      jsx: true,
-    },
-  },
-});
-
 const ruleTester = new RuleTester();
 
 ruleTester.run("no-illegal-module-paths", rule, {

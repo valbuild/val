@@ -10,6 +10,8 @@ function initESLint(fixtureConfigName) {
   return new ESLint({
     cwd: path.resolve(__dirname, "../fixtures/"),
     ignore: false,
+    // This no longer works with Eslint 9
+    // Consider fixing this (or removing this test)
     overrideConfigFile: path.resolve(
       __dirname,
       "../fixtures/",

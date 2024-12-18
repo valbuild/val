@@ -4,15 +4,6 @@ import path from "path";
 
 const rule = valRules["no-illegal-imports"];
 
-RuleTester.setDefaultConfig({
-  parserOptions: {
-    ecmaVersion: 2018,
-    sourceType: "module",
-
-    ecmaFeatures: {},
-  },
-});
-
 const ruleTester = new RuleTester();
 
 ruleTester.run("no-illegal-imports", rule, {

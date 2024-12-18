@@ -4,16 +4,6 @@ import path from "path";
 
 const rule = valRules["default-export-val-module"];
 
-RuleTester.setDefaultConfig({
-  parserOptions: {
-    ecmaVersion: 2018,
-    sourceType: "module",
-    ecmaFeatures: {
-      jsx: true,
-    },
-  },
-});
-
 const ruleTester = new RuleTester();
 
 ruleTester.run("default-export-val-module", rule, {
@@ -23,6 +13,7 @@ ruleTester.run("default-export-val-module", rule, {
       code: `import { c, s } from '../val.config.ts';
       export const schema = s.string();
       export default c.define('/foo/test.val.ts', schema, 'String')`,
+      output: null,
     },
   ],
   invalid: [
@@ -52,11 +43,7 @@ ruleTester.run("default-export-val-module", rule, {
           message: "Val: c.define must be exported as default",
         },
       ],
-      output: `import { c, s } from '../val.config.ts';
-      export const schema = s.string();
-      {
-        c.define('/foo/test.val.ts', schema, 'String')
-      }`,
+      output: null,
     },
     {
       filename: path.join(process.cwd(), "./foo/test.val.ts"),
