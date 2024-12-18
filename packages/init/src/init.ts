@@ -19,6 +19,7 @@ import {
   VAL_SERVER,
 } from "./templates";
 import * as logger from "./logger";
+import { addEslintPluginToEslintMjs } from "./codemods";
 
 const MIN_VAL_VERSION = packageJson.version;
 const MIN_NEXT_VERSION = "13.4.0";
@@ -92,6 +93,8 @@ type Analysis = Partial<{
   eslintRcJsonText: string;
   eslintRcJsPath: string;
   eslintRcJsText: string;
+  eslintRcMjsPath: string;
+  eslintRcMjsText: string;
   valEslintVersion: string;
   isValEslintRulesConfigured: boolean;
 
@@ -189,6 +192,20 @@ const analyze = async (root: string, files: string[]): Promise<Analysis> => {
       analysis.isValEslintRulesConfigured = analysis.eslintRcJsText.includes(
         "plugin:@valbuild/recommended",
       );
+    }
+  }
+  analysis.eslintRcMjsPath = files.find((file) =>
+    file.endsWith("eslint.config.mjs"),
+  );
+  if (analysis.eslintRcMjsPath) {
+    analysis.eslintRcMjsText = fs.readFileSync(
+      analysis.eslintRcMjsPath,
+      "utf8",
+    );
+    if (analysis.eslintRcMjsText) {
+      // TODO: Evaluate and extract config?
+      analysis.isValEslintRulesConfigured =
+        analysis.eslintRcMjsText.includes("@valbuild");
     }
   }
   analysis.eslintRcJsonPath =
@@ -718,9 +735,11 @@ async function plan(
       logger.warn("  @valbuild/eslint-plugin rules: already configured");
     } else {
       if (analysis.eslintRcJsPath) {
-        logger.warn(
-          'Cannot patch eslint: found .eslintrc.js but can only patch JSON files (at the moment).\nAdd the following to your eslint config:\n\n  "extends": ["plugin:@valbuild/recommended"]\n',
-        );
+        await confirm({
+          message:
+            ' Cannot patch eslint: found .eslintrc.js but can only patch JSON files (at the moment).\nAdd the following to your eslint config:\n\n  "extends": ["plugin:@valbuild/recommended"]\n\n',
+          default: true,
+        });
       } else if (analysis.eslintRcJsonPath) {
         const answer = !defaultAnswers
           ? await confirm({
@@ -750,6 +769,67 @@ async function plan(
             path: analysis.eslintRcJsonPath,
             source: JSON.stringify(parsedEslint, null, 2) + "\n",
           };
+        }
+      } else if (analysis.eslintRcMjsPath) {
+        if (analysis.eslintRcMjsText) {
+          const res = addEslintPluginToEslintMjs(
+            {
+              path: analysis.eslintRcMjsPath,
+              source: analysis.eslintRcMjsText,
+            },
+            {
+              j: jcs,
+              jscodeshift: jcs.withParser("tsx"),
+              stats: () => {},
+              report: () => {},
+            },
+            {
+              configImportPath: path
+                .relative(path.dirname(analysis.eslintRcMjsPath), valConfigPath)
+                .replace(".js", "")
+                .replace(".ts", ""),
+            },
+          );
+
+          const diff = diffLines(analysis.eslintRcMjsText, res, {});
+
+          let s = "";
+          diff.forEach((part) => {
+            if (part.added) {
+              s += chalk.green(part.value);
+            } else if (part.removed) {
+              s += chalk.red(part.value);
+            } else {
+              s += part.value;
+            }
+          });
+          const answer = !defaultAnswers
+            ? await confirm({
+                message: `Automatically patch ${analysis.eslintRcMjsPath} file?`,
+                default: true,
+              })
+            : true;
+          if (answer) {
+            const answer = !defaultAnswers
+              ? await confirm({
+                  message: `Do you accept the following patch:\n${s}\n`,
+                  default: true,
+                })
+              : true;
+            if (!answer) {
+              logger.warn(NO_PATCH_WARNING);
+              plan.updateEslint = false;
+            } else {
+              plan.updateEslint = {
+                path: analysis.eslintRcMjsPath,
+                source: res,
+              };
+            }
+          } else {
+            logger.warn(NO_PATCH_WARNING);
+          }
+        } else {
+          logger.warn(NO_PATCH_WARNING);
         }
       } else {
         logger.warn("Cannot patch eslint: failed to find eslint config file");
