@@ -23,7 +23,7 @@
   },
   "license": "MIT",
   "peerDependencies": {
-    "eslint": "6 || 7 || 8",
+    "eslint": "6 || 7 || 8 || 9",
     "typescript": "5"
   },
   "devDependencies": {
