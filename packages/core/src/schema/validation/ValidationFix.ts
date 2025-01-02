@@ -2,6 +2,7 @@ export const ValidationFix = [
   "image:change-extension",
   "image:add-metadata",
   "image:check-metadata",
+  "image:upload-remote",
   "file:change-extension",
   "file:add-metadata",
   "file:check-metadata",
