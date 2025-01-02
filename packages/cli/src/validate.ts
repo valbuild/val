@@ -248,11 +248,13 @@ export async function validate({
                 } else {
                   console.log(
                     picocolors.red("✘"),
-                    "Found error in",
-                    `${sourcePath}:`,
-                    v.message,
+                    "Unknown fix",
+                    v.fixes,
+                    "for",
+                    sourcePath,
                   );
                   errors += 1;
+                  continue;
                 }
                 const fixPatch = await createFixPatch(
                   { projectRoot },
