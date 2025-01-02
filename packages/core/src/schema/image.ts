@@ -64,6 +64,17 @@ export class ImageSchema<
         ],
       } as ValidationErrors;
     }
+    if (this.isRemote && src[VAL_EXTENSION] !== "remote") {
+      return {
+        [path]: [
+          {
+            message: `Expected a remote image, but got a local image.`,
+            value: src,
+            fixes: ["image:upload-remote"],
+          },
+        ],
+      } as ValidationErrors;
+    }
     if (typeof src[FILE_REF_PROP] !== "string") {
       return {
         [path]: [

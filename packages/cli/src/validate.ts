@@ -244,6 +244,35 @@ export async function validate({
                       "Found error in",
                       `${sourcePath}`,
                     );
+                } else if (v.fixes.includes("image:upload-remote")) {
+                  const [, modulePath] =
+                    Internal.splitModuleFilePathAndModulePath(
+                      sourcePath as SourcePath,
+                    );
+                  if (valModule.source && valModule.schema) {
+                    const fileSource = Internal.resolvePath(
+                      modulePath,
+                      valModule.source,
+                      valModule.schema,
+                    );
+                    const filePath = path.join(
+                      projectRoot,
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      (fileSource.source as any)?.[FILE_REF_PROP],
+                    );
+                    try {
+                      await fs.access(filePath);
+                    } catch {
+                      console.log(
+                        picocolors.red("✘"),
+                        `File ${filePath} does not exist`,
+                      );
+                      errors += 1;
+                      continue;
+                    }
+                    console.log("TODO: check if logged in to project");
+                    console.log("TODO: upload remote file");
+                    throw Error("Not implemented");
                   }
                 } else {
                   console.log(
