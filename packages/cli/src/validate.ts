@@ -152,6 +152,16 @@ export async function validate({
                       continue;
                     }
                   }
+                } else {
+                  console.log(
+                    picocolors.red("✘"),
+                    "Unknown fix",
+                    v.fixes,
+                    "for",
+                    sourcePath,
+                  );
+                  errors += 1;
+                  continue;
                 }
                 const fixPatch = await createFixPatch(
                   { projectRoot },
