@@ -6,8 +6,8 @@ import { FILE_REF_PROP } from "./file";
  * A remote source represents data that is not stored locally.
  */
 export type RemoteSource<
-  Metadata extends Record<string, string | number> | undefined =
-    | Record<string, string | number>
+  Metadata extends Record<string, unknown> | undefined =
+    | Record<string, unknown>
     | undefined,
 > = {
   readonly [FILE_REF_PROP]: string;
