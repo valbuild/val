@@ -1,6 +1,7 @@
 import pc from "picocolors";
 import fs from "fs";
 import path from "path";
+import { getPersonalAccessTokenPath } from "./utils/personalAccessTokens";
 
 const host = process.env.VAL_BUILD_URL || "https://app.val.build";
 
@@ -35,11 +36,7 @@ export async function login(options: { root?: string }) {
     const result = await pollForConfirmation(token);
 
     // Step 3: Save the token
-    const filePath = path.join(
-      options.root ? path.resolve(options.root) : process.cwd(),
-      ".val",
-      "pat.json",
-    );
+    const filePath = getPersonalAccessTokenPath(options.root || process.cwd());
     saveToken(result, filePath);
   } catch (error) {
     console.error(
