@@ -12,6 +12,9 @@ import {
   findValImageNodeArg,
   isValImageMethodCall,
   findValImageMetadataArg,
+  isValRemoteMethodCall,
+  findValRemoteNodeArg,
+  findValRemoteMetadataArg,
 } from "./syntax";
 import {
   deepEqual,
@@ -25,8 +28,10 @@ import {
   FILE_REF_PROP,
   FILE_REF_SUBTYPE_TAG,
   FileSource,
+  VAL_EXTENSION,
 } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core";
+import { RemoteSource } from "@valbuild/core/src/source/remote";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
@@ -103,6 +108,24 @@ function createValImageReference(value: FileSource) {
   );
 }
 
+function createValRemoteReference(value: RemoteSource) {
+  const args: ts.Expression[] = [
+    ts.factory.createStringLiteral(value[FILE_REF_PROP]),
+  ];
+  if (value.metadata) {
+    args.push(toExpression(value.metadata as JSONValue));
+  }
+
+  return ts.factory.createCallExpression(
+    ts.factory.createPropertyAccessExpression(
+      ts.factory.createIdentifier("c"),
+      ts.factory.createIdentifier("remote"),
+    ),
+    undefined,
+    args,
+  );
+}
+
 function toExpression(value: JSONValue): ts.Expression {
   if (typeof value === "string") {
     // TODO: Use configuration/heuristics to determine use of single quote or double quote
@@ -137,6 +160,10 @@ function toExpression(value: JSONValue): ts.Expression {
     }
     if (isValImageValue(value)) {
       return createValImageReference(value);
+    }
+    if (isValRemoteValue(value)) {
+      console.log({ value });
+      return createValRemoteReference(value);
     }
     return ts.factory.createObjectLiteralExpression(
       Object.entries(value).map(([key, value]) =>
@@ -462,6 +489,49 @@ function replaceInNode(
         }),
       );
     }
+  } else if (isValRemoteMethodCall(node)) {
+    if (key === FILE_REF_PROP) {
+      if (typeof value !== "string") {
+        return result.err(
+          new PatchError(
+            "Cannot replace c.image reference with non-string value",
+          ),
+        );
+      }
+      return pipe(
+        findValRemoteNodeArg(node),
+        result.map((refNode) => replaceNodeValue(document, refNode, value)),
+      );
+    } else {
+      return pipe(
+        findValRemoteMetadataArg(node),
+        result.flatMap((metadataArgNode) => {
+          if (!metadataArgNode) {
+            return result.err(
+              new PatchError(
+                "Cannot replace in c.remote metadata when it does not exist",
+              ),
+            );
+          }
+          if (key !== "metadata") {
+            return result.err(
+              new PatchError(
+                `Cannot replace c.remote metadata key ${key} when it does not exist`,
+              ),
+            );
+          }
+          return replaceInNode(
+            document,
+            // TODO: creating a fake object here might not be right - seems to work though
+            ts.factory.createObjectLiteralExpression([
+              ts.factory.createPropertyAssignment(key, metadataArgNode),
+            ]),
+            key,
+            value,
+          );
+        }),
+      );
+    }
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -515,6 +585,11 @@ export function getFromNode(
       return findValImageNodeArg(node);
     }
     return findValImageMetadataArg(node);
+  } else if (isValRemoteMethodCall(node)) {
+    if (key === FILE_REF_PROP) {
+      return findValRemoteNodeArg(node);
+    }
+    return findValRemoteMetadataArg(node);
   } else {
     return result.err(
       shallowValidateExpression(node) ??
@@ -627,7 +702,7 @@ function removeFromNode(
     }
   } else if (isValImageMethodCall(node)) {
     if (key === FILE_REF_PROP) {
-      return result.err(new PatchError("Cannot remove a ref from c.file"));
+      return result.err(new PatchError("Cannot remove a ref from c.image"));
     } else {
       return pipe(
         findValImageMetadataArg(node),
@@ -636,6 +711,24 @@ function removeFromNode(
             return result.err(
               new PatchError(
                 "Cannot remove from c.image metadata when it does not exist",
+              ),
+            );
+          }
+          return removeFromNode(document, metadataArgNode, key);
+        }),
+      );
+    }
+  } else if (isValRemoteMethodCall(node)) {
+    if (key === FILE_REF_PROP) {
+      return result.err(new PatchError("Cannot remove a ref from c.remote"));
+    } else {
+      return pipe(
+        findValRemoteMetadataArg(node),
+        result.flatMap((metadataArgNode) => {
+          if (!metadataArgNode) {
+            return result.err(
+              new PatchError(
+                "Cannot remove from c.remote metadata when it does not exist",
               ),
             );
           }
@@ -670,9 +763,8 @@ export function isValFileValue(value: JSONValue): value is FileSource<{
   return !!(
     typeof value === "object" &&
     value &&
-    // TODO: replace the below with this:
-    // VAL_EXTENSION in value &&
-    // value[VAL_EXTENSION] === "file" &&
+    VAL_EXTENSION in value &&
+    value[VAL_EXTENSION] === "file" &&
     FILE_REF_PROP in value &&
     typeof value[FILE_REF_PROP] === "string" &&
     value[FILE_REF_SUBTYPE_TAG] !== "image"
@@ -684,12 +776,23 @@ export function isValImageValue(value: JSONValue): value is FileSource<{
   return !!(
     typeof value === "object" &&
     value &&
-    // TODO: replace the below with this:
-    // VAL_EXTENSION in value &&
-    // value[VAL_EXTENSION] === "file" &&
+    VAL_EXTENSION in value &&
+    value[VAL_EXTENSION] === "file" &&
     FILE_REF_PROP in value &&
     typeof value[FILE_REF_PROP] === "string" &&
     value[FILE_REF_SUBTYPE_TAG] === "image"
+  );
+}
+export function isValRemoteValue(value: JSONValue): value is RemoteSource<{
+  [key: string]: JsonPrimitive;
+}> {
+  return !!(
+    typeof value === "object" &&
+    value &&
+    VAL_EXTENSION in value &&
+    value[VAL_EXTENSION] === "remote" &&
+    FILE_REF_PROP in value &&
+    typeof value[FILE_REF_PROP] === "string"
   );
 }
 
@@ -805,6 +908,50 @@ function addToNode(
             return result.err(
               new PatchError(
                 `Cannot add ${key} key to c.image: only metadata is allowed`,
+              ),
+            );
+          }
+          return result.ok([
+            insertAt(
+              document,
+              node.arguments,
+              node.arguments.length,
+              toExpression(value),
+            ),
+          ]);
+        }),
+      );
+    }
+  } else if (isValRemoteMethodCall(node)) {
+    if (key === FILE_REF_PROP) {
+      if (typeof value !== "string") {
+        return result.err(
+          new PatchError(
+            `Cannot add ${FILE_REF_PROP} key to c.remote with non-string value`,
+          ),
+        );
+      }
+      return pipe(
+        findValRemoteNodeArg(node),
+        result.map((arg: ts.Expression) =>
+          replaceNodeValue(document, arg, value),
+        ),
+      );
+    } else {
+      return pipe(
+        findValRemoteMetadataArg(node),
+        result.flatMap((metadataArgNode) => {
+          if (metadataArgNode) {
+            return result.err(
+              new PatchError(
+                "Cannot add metadata to c.remote when it already exists",
+              ),
+            );
+          }
+          if (key !== "metadata") {
+            return result.err(
+              new PatchError(
+                `Cannot add ${key} key to c.remote: only metadata is allowed`,
               ),
             );
           }
