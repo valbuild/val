@@ -12,6 +12,7 @@ export type { FileMetadata } from "./schema/file";
 export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
+export type { RemoteSource, RemoteRef } from "./source/remote";
 export type { RawString } from "./schema/string";
 export type { ImageSource } from "./source/image";
 export type {
@@ -89,6 +90,7 @@ import {
 } from "./mimeType";
 import { type ImageMetadata } from "./schema/image";
 import { type FileMetadata } from "./schema/file";
+import { isFile } from "./source/file";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
@@ -141,6 +143,7 @@ const Internal = {
   splitModuleFilePathAndModulePath,
   joinModuleFilePathAndModulePath,
   isVal,
+  isFile,
   createValPathOfItem,
   getSHA256Hash,
   initSchema,

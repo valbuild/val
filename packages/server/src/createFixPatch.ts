@@ -4,7 +4,7 @@ import {
   SourcePath,
   ValidationError,
 } from "@valbuild/core";
-import { Patch, sourceToPatchPath } from "@valbuild/core/patch";
+import { JSONValue, Patch, sourceToPatchPath } from "@valbuild/core/patch";
 import fs from "fs";
 import { extractFileMetadata, extractImageMetadata } from "./extractMetadata";
 import { getValidationErrorFileRef } from "./getValidationErrorFileRef";
@@ -16,32 +16,21 @@ export async function createFixPatch(
   apply: boolean,
   sourcePath: SourcePath,
   validationError: ValidationError,
+  remoteFiles: {
+    [sourcePath: SourcePath]: {
+      uri: string;
+      metadata?: Record<string, unknown>;
+    };
+  },
 ): Promise<{ patch: Patch; remainingErrors: ValidationError[] } | undefined> {
-  async function getImageMetadata(): Promise<ImageMetadata> {
-    const fileRef = getValidationErrorFileRef(validationError);
-    if (!fileRef) {
-      // TODO:
-      throw Error("Cannot fix image without a file reference");
-    }
-    const filename = path.join(config.projectRoot, fileRef);
-    const buffer = fs.readFileSync(filename);
-    return extractImageMetadata(filename, buffer);
-  }
-  async function getFileMetadata(): Promise<FileMetadata> {
-    const fileRef = getValidationErrorFileRef(validationError);
-    if (!fileRef) {
-      // TODO:
-      throw Error("Cannot fix file without a file reference");
-    }
-    const filename = path.join(config.projectRoot, fileRef);
-    const buffer = fs.readFileSync(filename);
-    return extractFileMetadata(fileRef, buffer);
-  }
   const remainingErrors: ValidationError[] = [];
   const patch: Patch = [];
   for (const fix of validationError.fixes || []) {
     if (fix === "image:check-metadata" || fix === "image:add-metadata") {
-      const imageMetadata = await getImageMetadata();
+      const imageMetadata = await getImageMetadata(
+        config.projectRoot,
+        validationError,
+      );
       if (
         imageMetadata.width === undefined ||
         imageMetadata.height === undefined
@@ -157,7 +146,10 @@ export async function createFixPatch(
         });
       }
     } else if (fix === "file:add-metadata" || fix === "file:check-metadata") {
-      const fileMetadata = await getFileMetadata();
+      const fileMetadata = await getFileMetadata(
+        config.projectRoot,
+        validationError,
+      );
       if (fileMetadata === undefined) {
         remainingErrors.push({
           ...validationError,
@@ -234,6 +226,26 @@ export async function createFixPatch(
           },
         });
       }
+    } else if (fix === "image:upload-remote") {
+      const remoteFile = remoteFiles[sourcePath];
+      if (!remoteFile) {
+        remainingErrors.push({
+          ...validationError,
+          message:
+            "Cannot fix local to remote image: remote image was not uploaded",
+          fixes: undefined,
+        });
+      } else {
+        patch.push({
+          op: "replace",
+          value: {
+            _type: "remote",
+            _ref: remoteFile.uri,
+            metadata: remoteFile.metadata as JSONValue,
+          },
+          path: sourceToPatchPath(sourcePath),
+        });
+      }
     }
   }
   if (!validationError.fixes || validationError.fixes.length === 0) {
@@ -243,4 +255,32 @@ export async function createFixPatch(
     patch,
     remainingErrors,
   };
+}
+
+export async function getImageMetadata(
+  projectRoot: string,
+  validationError: ValidationError,
+): Promise<ImageMetadata> {
+  const fileRef = getValidationErrorFileRef(validationError);
+  if (!fileRef) {
+    // TODO:
+    throw Error("Cannot fix image without a file reference");
+  }
+  const filename = path.join(projectRoot, fileRef);
+  const buffer = fs.readFileSync(filename);
+  return extractImageMetadata(filename, buffer);
+}
+
+export async function getFileMetadata(
+  projectRoot: string,
+  validationError: ValidationError,
+): Promise<FileMetadata> {
+  const fileRef = getValidationErrorFileRef(validationError);
+  if (!fileRef) {
+    // TODO:
+    throw Error("Cannot fix file without a file reference");
+  }
+  const filename = path.join(projectRoot, fileRef);
+  const buffer = fs.readFileSync(filename);
+  return extractFileMetadata(fileRef, buffer);
 }
