@@ -162,7 +162,6 @@ function toExpression(value: JSONValue): ts.Expression {
       return createValImageReference(value);
     }
     if (isValRemoteValue(value)) {
-      console.log({ value });
       return createValRemoteReference(value);
     }
     return ts.factory.createObjectLiteralExpression(

@@ -31,4 +31,5 @@ export const initRemote = (config?: ValConfig) => {
   return remote;
 };
 
-type RemoteRef = `remote://${string}/${string}/${string}`;
+export type RemoteRef =
+  `${string}/file/p/${string}/v/${string}/h/${string}/f/${string}/p/public/val/${string}`;
