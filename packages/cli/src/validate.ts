@@ -146,7 +146,7 @@ export async function validate({
     const eslintResult = eslintResultsByFile?.[file];
     const remoteFiles: Record<
       SourcePath,
-      { uri: string; metadata?: Record<string, unknown> }
+      { ref: string; metadata?: Record<string, unknown> }
     > = {};
     eslintResult?.messages.forEach((m) => {
       // display surrounding code
@@ -441,7 +441,7 @@ export async function validate({
                       `Uploaded remote file ${filePath}`,
                     );
                     remoteFiles[sourcePath as SourcePath] = {
-                      uri: remoteFileUpload.uri,
+                      ref: remoteFileUpload.ref,
                       metadata: fileSourceMetadata,
                     };
                   }
