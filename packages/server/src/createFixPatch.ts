@@ -18,7 +18,7 @@ export async function createFixPatch(
   validationError: ValidationError,
   remoteFiles: {
     [sourcePath: SourcePath]: {
-      uri: string;
+      ref: string;
       metadata?: Record<string, unknown>;
     };
   },
@@ -240,7 +240,7 @@ export async function createFixPatch(
           op: "replace",
           value: {
             _type: "remote",
-            _ref: remoteFile.uri,
+            _ref: remoteFile.ref,
             metadata: remoteFile.metadata as JSONValue,
           },
           path: sourceToPatchPath(sourcePath),
