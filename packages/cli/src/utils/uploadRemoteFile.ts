@@ -29,7 +29,7 @@ export async function uploadRemoteFile(
   const text = await fs.readFile(filePath, "utf-8");
   const fileHash = Internal.getSHA256Hash(textEncoder.encode(text)).slice(
     0,
-    10,
+    12, // 12 hex characters = 6 bytes = 48 bits = 2^48 = 281474976710656 possibilities or 1 in 281474976710656 or using birthday problem estimate with 10K files: p = (k, n) => (k*k)/(2x2**n) and p(10_000,12*4) = 1.7763568394002505e-7 chance of collision which should be good enough
   );
   const relativeFilePath = path
     .relative(root, filePath)
@@ -97,5 +97,5 @@ export function getValidationHash(
     textEncoder.encode(
       getValidationBasis(coreVersion, schema, fileExt, metadata, fileHash),
     ),
-  ).slice(0, 8);
+  ).slice(0, 6); // we do not need a lot of bits for the validation hash, since it is only used to identify the validation basis
 }
