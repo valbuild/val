@@ -7,7 +7,6 @@ import {
 import { promises as fs } from "fs";
 import path from "path";
 import { getVersions } from "../getVersions";
-import { optional } from "zod";
 
 const textEncoder = new TextEncoder();
 export async function uploadRemoteFile(
@@ -20,7 +19,7 @@ export async function uploadRemoteFile(
 ): Promise<
   | {
       success: true;
-      uri: string;
+      ref: string;
     }
   | {
       success: false;
@@ -46,11 +45,11 @@ export async function uploadRemoteFile(
     fileHash,
   );
   // NOTE: the core version is part of the validation hash, but it is also in the uri to make it easier to understand which version the remote file was validated against.
-  const uri: RemoteRef = `https://remote.val.build/file/p/${publicProjectId}/v/${coreVersion}/h/${validationHash}/f/${fileHash}/p/${relativeFilePath as `public/val/${string}`}`;
-  console.error("FAKE UPLOAD", uri);
+  const ref: RemoteRef = `https://remote.val.build/file/p/${publicProjectId}/v/${coreVersion}/h/${validationHash}/f/${fileHash}/p/${relativeFilePath as `public/val/${string}`}`;
+  console.error("FAKE UPLOAD", ref);
   return {
     success: true,
-    uri,
+    ref,
   };
 }
 
