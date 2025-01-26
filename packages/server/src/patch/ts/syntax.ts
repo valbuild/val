@@ -7,6 +7,7 @@ import {
   FILE_REF_PROP,
   FILE_REF_SUBTYPE_TAG,
 } from "@valbuild/core";
+import { RemoteSource } from "@valbuild/core/src/source/remote";
 
 export class ValSyntaxError {
   constructor(
@@ -136,9 +137,13 @@ export function shallowValidateExpression(
     ts.isArrayLiteralExpression(value) ||
     ts.isObjectLiteralExpression(value) ||
     isValFileMethodCall(value) ||
-    isValImageMethodCall(value)
+    isValImageMethodCall(value) ||
+    isValRemoteMethodCall(value)
     ? undefined
-    : new ValSyntaxError("Expression must be a literal or call c.file", value);
+    : new ValSyntaxError(
+        "Expression must be a literal or call c.file / c.image / c.remote",
+        value,
+      );
 }
 
 /**
@@ -198,7 +203,7 @@ export function deepValidateExpression(
       if (!ts.isStringLiteralLike(value.arguments[0])) {
         return result.err(
           new ValSyntaxError(
-            "First argument of c.file must be a string literal",
+            "First argument of c.image must be a string literal",
             value.arguments[0],
           ),
         );
@@ -208,7 +213,29 @@ export function deepValidateExpression(
       if (!ts.isObjectLiteralExpression(value.arguments[1])) {
         return result.err(
           new ValSyntaxError(
-            "Second argument of c.file must be an object literal",
+            "Second argument of c.image must be an object literal",
+            value.arguments[1],
+          ),
+        );
+      }
+    }
+    return result.voidOk;
+  } else if (isValRemoteMethodCall(value)) {
+    if (value.arguments.length >= 1) {
+      if (!ts.isStringLiteralLike(value.arguments[0])) {
+        return result.err(
+          new ValSyntaxError(
+            "First argument of c.remote must be a string literal",
+            value.arguments[0],
+          ),
+        );
+      }
+    }
+    if (value.arguments.length === 2) {
+      if (!ts.isObjectLiteralExpression(value.arguments[1])) {
+        return result.err(
+          new ValSyntaxError(
+            "Second argument of c.remote must be an object literal",
             value.arguments[1],
           ),
         );
@@ -217,7 +244,10 @@ export function deepValidateExpression(
     return result.voidOk;
   } else {
     return result.err(
-      new ValSyntaxError("Expression must be a literal or call c.file", value),
+      new ValSyntaxError(
+        "Expression must be a literal or call c.file / c.image / c.remote",
+        value,
+      ),
     );
   }
 }
@@ -313,9 +343,36 @@ export function evaluateExpression(
         }
       }),
     );
+  } else if (isValRemoteMethodCall(value)) {
+    return pipe(
+      findValRemoteNodeArg(value),
+      result.flatMap((ref) => {
+        if (value.arguments.length === 2) {
+          return pipe(
+            evaluateExpression(value.arguments[1]),
+            result.map(
+              (metadata) =>
+                ({
+                  [FILE_REF_PROP]: ref.text,
+                  _type: "remote",
+                  metadata,
+                }) as RemoteSource<{ [key: string]: JsonPrimitive }>,
+            ),
+          );
+        } else {
+          return result.ok({
+            [FILE_REF_PROP]: ref.text,
+            _type: "remote",
+          } as RemoteSource<{ [key: string]: JsonPrimitive }>);
+        }
+      }),
+    );
   } else {
     return result.err(
-      new ValSyntaxError("Expression must be a literal or call c.file", value),
+      new ValSyntaxError(
+        "Expression must be a literal or call c.file / c.image / c.remote",
+        value,
+      ),
     );
   }
 }
@@ -365,6 +422,17 @@ export function isValImageMethodCall(
     node.expression.name.text === "image"
   );
 }
+export function isValRemoteMethodCall(
+  node: ts.Expression,
+): node is ts.CallExpression {
+  return (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    ts.isIdentifier(node.expression.expression) &&
+    node.expression.expression.text === "c" &&
+    node.expression.name.text === "remote"
+  );
+}
 
 export function findValFileNodeArg(
   node: ts.CallExpression,
@@ -384,6 +452,31 @@ export function findValFileNodeArg(
     return result.err(
       new ValSyntaxError(
         `Invalid c.file() call: ref must be a string literal`,
+        node,
+      ),
+    );
+  }
+  const refNode = node.arguments[0];
+  return result.ok(refNode);
+}
+export function findValRemoteNodeArg(
+  node: ts.CallExpression,
+): result.Result<ts.StringLiteral, ValSyntaxErrorTree> {
+  if (node.arguments.length === 0) {
+    return result.err(
+      new ValSyntaxError(`Invalid c.remote() call: missing ref argument`, node),
+    );
+  } else if (node.arguments.length > 2) {
+    return result.err(
+      new ValSyntaxError(
+        `Invalid c.remote() call: too many arguments ${node.arguments.length}}`,
+        node,
+      ),
+    );
+  } else if (!ts.isStringLiteral(node.arguments[0])) {
+    return result.err(
+      new ValSyntaxError(
+        `Invalid c.remote() call: ref must be a string literal`,
         node,
       ),
     );
@@ -463,6 +556,33 @@ export function findValImageMetadataArg(
       return result.err(
         new ValSyntaxError(
           `Invalid c.image() call: metadata must be a object literal`,
+          node,
+        ),
+      );
+    }
+    return result.ok(node.arguments[1]);
+  }
+  return result.ok(undefined);
+}
+export function findValRemoteMetadataArg(
+  node: ts.CallExpression,
+): result.Result<ts.ObjectLiteralExpression | undefined, ValSyntaxErrorTree> {
+  if (node.arguments.length === 0) {
+    return result.err(
+      new ValSyntaxError(`Invalid c.remote() call: missing ref argument`, node),
+    );
+  } else if (node.arguments.length > 2) {
+    return result.err(
+      new ValSyntaxError(
+        `Invalid c.remote() call: too many arguments ${node.arguments.length}}`,
+        node,
+      ),
+    );
+  } else if (node.arguments.length === 2) {
+    if (!ts.isObjectLiteralExpression(node.arguments[1])) {
+      return result.err(
+        new ValSyntaxError(
+          `Invalid c.remote() call: metadata must be a object literal`,
           node,
         ),
       );
