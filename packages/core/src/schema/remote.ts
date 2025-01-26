@@ -1,7 +1,7 @@
 import { FILE_REF_PROP } from "../source/file";
 import { RemoteSource } from "../source/remote";
 
-const REMOTE_HOST =
+export const VAL_REMOTE_HOST =
   process.env["VAL_REMOTE_HOST"] || "https://remote.val.build";
 
 export function convertRemoteSource<
@@ -21,14 +21,14 @@ export function convertRemoteSource<
   if (src.patch_id) {
     return {
       url:
-        REMOTE_HOST +
+        VAL_REMOTE_HOST +
         src[FILE_REF_PROP].slice("remote://".length) +
         `?patch_id=${src["patch_id"]}`,
       metadata: src.metadata,
     };
   }
   return {
-    url: REMOTE_HOST + src[FILE_REF_PROP].slice("remote://".length),
+    url: VAL_REMOTE_HOST + src[FILE_REF_PROP].slice("remote://".length),
     metadata: src.metadata,
   };
 }

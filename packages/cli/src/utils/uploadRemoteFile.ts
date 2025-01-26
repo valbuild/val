@@ -3,6 +3,7 @@ import {
   RemoteRef,
   SerializedFileSchema,
   SerializedImageSchema,
+  VAL_REMOTE_HOST,
 } from "@valbuild/core";
 import { promises as fs } from "fs";
 import path from "path";
@@ -34,7 +35,10 @@ export async function uploadRemoteFile(
   const relativeFilePath = path
     .relative(root, filePath)
     .split(path.sep)
-    .join("/");
+    .join("/") as `public/val/${string}`;
+  if (!relativeFilePath.startsWith("public/val/")) {
+    throw new Error(`Invalid file path: ${relativeFilePath}`);
+  }
   const fileExt = path.extname(filePath).slice(1);
   const coreVersion = (await getVersions()).coreVersion || "unknown";
   const validationHash = getValidationHash(
@@ -45,7 +49,7 @@ export async function uploadRemoteFile(
     fileHash,
   );
   // NOTE: the core version is part of the validation hash, but it is also in the uri to make it easier to understand which version the remote file was validated against.
-  const ref: RemoteRef = `https://remote.val.build/file/p/${publicProjectId}/v/${coreVersion}/h/${validationHash}/f/${fileHash}/p/${relativeFilePath as `public/val/${string}`}`;
+  const ref: RemoteRef = `${VAL_REMOTE_HOST}/file/p/${publicProjectId}/v/${coreVersion}/h/${validationHash}/f/${fileHash}/p/${relativeFilePath}`;
   console.error("FAKE UPLOAD", ref);
   return {
     success: true,
@@ -97,5 +101,5 @@ export function getValidationHash(
     textEncoder.encode(
       getValidationBasis(coreVersion, schema, fileExt, metadata, fileHash),
     ),
-  ).slice(0, 6); // we do not need a lot of bits for the validation hash, since it is only used to identify the validation basis
+  ).slice(0, 4); // we do not need a lot of bits for the validation hash, since it is only used to identify the validation basis
 }
