@@ -13,6 +13,7 @@ export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
 export type { RemoteSource, RemoteRef } from "./source/remote";
+export { VAL_REMOTE_HOST } from "./schema/remote";
 export type { RawString } from "./schema/string";
 export type { ImageSource } from "./source/image";
 export type {
