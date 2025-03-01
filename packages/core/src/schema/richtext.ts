@@ -122,28 +122,28 @@ export class RichTextSchema<
         };
       }
       if (node.tag === "h1" && !this.options.block?.h1) {
-        addError(path, `'h' block is not enabled`, false);
+        addError(path, `'h' block is not valid`, false);
       }
       if (node.tag === "h2" && !this.options.block?.h2) {
-        addError(path, `'h2' block is not enabled`, false);
+        addError(path, `'h2' block is not valid`, false);
       }
       if (node.tag === "h3" && !this.options.block?.h3) {
-        addError(path, `'h3' block is not enabled`, false);
+        addError(path, `'h3' block is not valid`, false);
       }
       if (node.tag === "h4" && !this.options.block?.h4) {
-        addError(path, `'h4' block is not enabled`, false);
+        addError(path, `'h4' block is not valid`, false);
       }
       if (node.tag === "h5" && !this.options.block?.h5) {
-        addError(path, `'h5' block is not enabled`, false);
+        addError(path, `'h5' block is not valid`, false);
       }
       if (node.tag === "h6" && !this.options.block?.h6) {
-        addError(path, `'h6' block is not enabled`, false);
+        addError(path, `'h6' block is not valid`, false);
       }
       if (node.tag === "ol" && !this.options.block?.ol) {
-        addError(path, `'ol' block is not enabled`, false);
+        addError(path, `'ol' block is not valid`, false);
       }
       if (node.tag === "ul" && !this.options.block?.ul) {
-        addError(path, `'ul' block is not enabled`, false);
+        addError(path, `'ul' block is not valid`, false);
       }
       if (
         node.tag === "li" &&
@@ -152,15 +152,15 @@ export class RichTextSchema<
       ) {
         addError(
           path,
-          `'li' tag is invalid since neither 'ul' nor 'ol' block is not enabled`,
+          `'li' tag is invalid since neither 'ul' nor 'ol' block is not valid`,
           false,
         );
       }
       if (node.tag === "a" && !this.options.inline?.a) {
-        addError(path, `'a' inline is not enabled`, false);
+        addError(path, `'a' inline is not valid`, false);
       }
       if (node.tag === "img" && !this.options.inline?.img) {
-        addError(path, `'img' inline is not enabled`, false);
+        addError(path, `'img' inline is not valid`, false);
       }
       if ("styles" in node && node.tag !== "span") {
         return {
@@ -199,15 +199,15 @@ export class RichTextSchema<
             };
           }
           if (style === "bold" && !this.options.style?.bold) {
-            addError(currentStylePath, `Style 'bold' is not enabled`, false);
+            addError(currentStylePath, `Style 'bold' is not valid`, false);
           }
           if (style === "italic" && !this.options.style?.italic) {
-            addError(currentStylePath, `Style 'italic' is not enabled`, false);
+            addError(currentStylePath, `Style 'italic' is not valid`, false);
           }
           if (style === "lineThrough" && !this.options.style?.lineThrough) {
             addError(
               currentStylePath,
-              `Style 'lineThrough' is not enabled`,
+              `Style 'lineThrough' is not valid`,
               false,
             );
           }
