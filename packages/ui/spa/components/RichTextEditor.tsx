@@ -295,47 +295,63 @@ const Toolbar = ({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            <ToolbarButton
-              icon={<Bold size={18} />}
-              stroke={3}
-              isOption={options?.style?.bold}
-              isActive={active.bold()}
-              onToggle={() => chain.toggleBold().focus().run()}
-            />
-            <ToolbarButton
-              icon={<Strikethrough size={18} />}
-              stroke={3}
-              isOption={options?.style?.lineThrough}
-              isActive={active.strike()}
-              onToggle={() => chain.toggleStrike().focus().run()}
-            />
-            <ToolbarButton
-              icon={<Italic size={18} />}
-              stroke={3}
-              isOption={options?.style?.italic}
-              isActive={active.italic()}
-              onToggle={() => chain.toggleItalic().focus().run()}
-            />
-            <ToolbarButton
-              icon={<List size={18} />}
-              stroke={3}
-              isActive={active.bulletList()}
-              onToggle={() => chain.toggleBulletList().focus().run()}
-            />
-            <ToolbarButton
-              icon={<ListOrdered size={18} />}
-              stroke={3}
-              isActive={active.orderedList()}
-              onToggle={() => chain.toggleOrderedList().focus().run()}
-            />
-            <ToolbarButton
-              icon={<Link size={18} />}
-              stroke={3}
-              isActive={active.link()}
-              onToggle={() =>
-                chain.selectMark("link").updateLink({ href: "" }).focus().run()
-              }
-            />
+            {(options?.style?.bold || active.bold()) && (
+              <ToolbarButton
+                icon={<Bold size={18} />}
+                stroke={3}
+                isOption={options?.style?.bold}
+                isActive={options?.style?.bold || active.bold()}
+                onToggle={() => chain.toggleBold().focus().run()}
+              />
+            )}
+            {(options?.style?.lineThrough || active.strike()) && (
+              <ToolbarButton
+                icon={<Strikethrough size={18} />}
+                stroke={3}
+                isOption={options?.style?.lineThrough}
+                isActive={options?.style?.lineThrough || active.strike()}
+                onToggle={() => chain.toggleStrike().focus().run()}
+              />
+            )}
+            {(options?.style?.italic || active.italic()) && (
+              <ToolbarButton
+                icon={<Italic size={18} />}
+                stroke={3}
+                isOption={options?.style?.italic}
+                isActive={options?.style?.italic || active.italic()}
+                onToggle={() => chain.toggleItalic().focus().run()}
+              />
+            )}
+            {(options?.block?.ul || active.bulletList()) && (
+              <ToolbarButton
+                icon={<List size={18} />}
+                stroke={3}
+                isActive={options?.block?.ul || active.bulletList()}
+                onToggle={() => chain.toggleBulletList().focus().run()}
+              />
+            )}
+            {(options?.block?.ol || active.orderedList()) && (
+              <ToolbarButton
+                icon={<ListOrdered size={18} />}
+                stroke={3}
+                isActive={options?.block?.ol || active.orderedList()}
+                onToggle={() => chain.toggleOrderedList().focus().run()}
+              />
+            )}
+            {(options?.inline?.a || active.link()) && (
+              <ToolbarButton
+                icon={<Link size={18} />}
+                stroke={3}
+                isActive={options?.inline?.a || active.link()}
+                onToggle={() =>
+                  chain
+                    .selectMark("link")
+                    .updateLink({ href: "" })
+                    .focus()
+                    .run()
+                }
+              />
+            )}
             {(options?.inline?.img || active.image()) && (
               <label
                 className="cursor-pointer"
