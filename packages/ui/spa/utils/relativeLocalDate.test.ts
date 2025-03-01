@@ -34,7 +34,7 @@ describe("relativeLocalDate", () => {
   });
 
   test("should return 'Xm ago' when the difference is more than a month", () => {
-    const now = new Date();
+    const now = new Date(2024, 2, 1); // NOTE: we can't use the current Date since it will fail every march since february is not 30 days and we use 30 days to approximate a month
     const date = new Date(
       now.getFullYear(),
       now.getMonth() - 2,
