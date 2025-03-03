@@ -195,8 +195,8 @@ Once your project is set up in [app.val.build](https://app.val.build), configure
 
 ### Environment Variables
 
-- **`VAL_API_KEY`**: Obtain this from your project's configuration page.
-- **`VAL_SECRET`**: Generate a random secret to secure communication between the UX client and your Next.js application.
+- **`VAL_API_KEY`**: This is the API key used to authenticate server side API requests. You can find it under Settings in your project on [app.val.build](https://app.val.build).
+- **`VAL_SECRET`**: In addition to the VAL_API_KEY, you need to generate a random secret to secure communication between the UX client and your Next.js application. You can use any random string for this, but if you have openssl installed you can run the following command: `openssl rand -hex 16`
 
 ### `val.config` Properties
 
