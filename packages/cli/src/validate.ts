@@ -152,6 +152,14 @@ export async function validate({
                       continue;
                     }
                   }
+                } else {
+                  console.log(
+                    picocolors.red("✘"),
+                    "Found error in",
+                    `${sourcePath}:`,
+                    v.message,
+                  );
+                  errors += 1;
                 }
                 const fixPatch = await createFixPatch(
                   { projectRoot },
