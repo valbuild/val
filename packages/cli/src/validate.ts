@@ -28,6 +28,48 @@ export async function validate({
     ignore: false,
   });
   const service = await createService(projectRoot, {});
+  const checkKeyIsValid = async (
+    key: string,
+    sourcePath: string,
+  ): Promise<{ error: false } | { error: true; message: string }> => {
+    const [moduleFilePath, modulePath] =
+      Internal.splitModuleFilePathAndModulePath(sourcePath as SourcePath);
+    const keyOfModule = await service.get(moduleFilePath, modulePath, {
+      source: true,
+      schema: false,
+      validate: false,
+    });
+
+    const keyOfModuleSource = keyOfModule.source;
+    const keyOfModuleSchema = keyOfModule.schema;
+    if (keyOfModuleSchema && keyOfModuleSchema.type !== "record") {
+      return {
+        error: true,
+        message: `Expected key at ${sourcePath} to be of type 'record'`,
+      };
+    }
+    if (
+      keyOfModuleSource &&
+      typeof keyOfModuleSource === "object" &&
+      key in keyOfModuleSource
+    ) {
+      return { error: false };
+    }
+    if (!keyOfModuleSource || typeof keyOfModuleSource !== "object") {
+      return {
+        error: true,
+        message: `Expected ${sourcePath} to be a truthy object`,
+      };
+    }
+    const alternatives = findSimilar(key, Object.keys(keyOfModuleSource));
+    return {
+      error: true,
+      message: `Key '${key}' does not exist in ${sourcePath}. Closest match: '${alternatives[0].target}'. Other similar: ${alternatives
+        .slice(1, 4)
+        .map((a) => `'${a.target}'`)
+        .join(", ")}${alternatives.length > 4 ? ", ..." : ""}`,
+    };
+  };
   let prettier;
   try {
     prettier = (await import("prettier")).default;
@@ -152,6 +194,57 @@ export async function validate({
                       continue;
                     }
                   }
+                } else if (v.fixes.includes("keyof:check-keys")) {
+                  const prevErrors = errors;
+                  if (
+                    v.value &&
+                    typeof v.value === "object" &&
+                    "key" in v.value &&
+                    "sourcePath" in v.value
+                  ) {
+                    const { key, sourcePath } = v.value;
+                    if (typeof key !== "string") {
+                      console.log(
+                        picocolors.red("✘"),
+                        "Unexpected error in",
+                        `${sourcePath}:`,
+                        v.message,
+                        " (Expected value property 'key' to be a string - this is likely a bug in Val)",
+                      );
+                      errors += 1;
+                    } else if (typeof sourcePath !== "string") {
+                      console.log(
+                        picocolors.red("✘"),
+                        "Unexpected error in",
+                        `${sourcePath}:`,
+                        v.message,
+                        " (Expected value property 'sourcePath' to be a string - this is likely a bug in Val)",
+                      );
+                      errors += 1;
+                    } else {
+                      const res = await checkKeyIsValid(key, sourcePath);
+                      if (res.error) {
+                        console.log(picocolors.red("✘"), res.message);
+                        errors += 1;
+                      }
+                    }
+                  } else {
+                    console.log(
+                      picocolors.red("✘"),
+                      "Unexpected error in",
+                      `${sourcePath}:`,
+                      v.message,
+                      " (Expected value to be an object with 'key' and 'sourcePath' properties - this is likely a bug in Val)",
+                    );
+                    errors += 1;
+                  }
+                  if (prevErrors < errors) {
+                    console.log(
+                      picocolors.red("✘"),
+                      "Found error in",
+                      `${sourcePath}`,
+                    );
+                  }
                 } else {
                   console.log(
                     picocolors.red("✘"),
@@ -217,7 +310,7 @@ export async function validate({
     }
   }
 
-  for (const file of valFiles) {
+  for (const file of valFiles.sort()) {
     didFix = false;
     errors += await validateFile(file);
     if (prettier && didFix) {
@@ -296,4 +389,34 @@ function logEslintMessage(
       lineAfter,
     );
   }
+}
+
+// GPT generated levenshtein distance algorithm:
+const levenshtein = (a: string, b: string): number => {
+  const [m, n] = [a.length, b.length];
+  if (!m || !n) return Math.max(m, n);
+
+  const dp = Array.from({ length: m + 1 }, (_, i) => i);
+
+  for (let j = 1; j <= n; j++) {
+    let prev = dp[0];
+    dp[0] = j;
+
+    for (let i = 1; i <= m; i++) {
+      const temp = dp[i];
+      dp[i] =
+        a[i - 1] === b[j - 1]
+          ? prev
+          : Math.min(prev + 1, dp[i - 1] + 1, dp[i] + 1);
+      prev = temp;
+    }
+  }
+
+  return dp[m];
+};
+
+function findSimilar(key: string, targets: string[]) {
+  return targets
+    .map((target) => ({ target, distance: levenshtein(key, target) }))
+    .sort((a, b) => a.distance - b.distance);
 }

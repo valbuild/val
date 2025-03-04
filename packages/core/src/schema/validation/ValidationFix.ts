@@ -5,6 +5,7 @@ export const ValidationFix = [
   "file:change-extension",
   "file:add-metadata",
   "file:check-metadata",
+  "keyof:check-keys",
 ] as const;
 
 export type ValidationFix = (typeof ValidationFix)[number];

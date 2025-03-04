@@ -93,6 +93,29 @@ export class KeyOfSchema<
         };
       }
     }
+    if (serializedSchema.type === "record") {
+      if (typeof src !== "string") {
+        return {
+          [path]: [
+            {
+              message: `Value of keyOf (record) must be 'string'. Found: ${typeof src}`,
+            },
+          ],
+        };
+      }
+      return {
+        [path]: [
+          {
+            fixes: ["keyof:check-keys"],
+            message: `Cannot validate keyOf (record) at runtime. This error must be picked up by: keyof:check-keys`,
+            value: {
+              key: src,
+              sourcePath: this.sourcePath,
+            },
+          },
+        ],
+      };
+    }
     return false;
   }
 
