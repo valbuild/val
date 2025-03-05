@@ -31,9 +31,13 @@ export function getKeysOf(
   const results: SourcePath[] = [];
   const go = (
     sourcePath: SourcePath,
-    schema: SerializedSchema,
+    schema: SerializedSchema | undefined,
     source: Json,
   ) => {
+    if (schema === undefined) {
+      console.error(`Schema not found for ${sourcePath}`);
+      return;
+    }
     if (schema.type === "keyOf") {
       if (schema.path === parentSourcePath) {
         if (keyOfRecord) {
