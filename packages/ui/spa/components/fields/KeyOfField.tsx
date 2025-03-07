@@ -132,8 +132,7 @@ export function KeyOfField({ path }: { path: SourcePath }) {
       <ValidationErrors path={path} />
       {keys && keys.length > 0 && source !== null && !keys.includes(source) && (
         <div className="flex flex-col gap-2 p-4 rounded bg-bg-error-primary text-text-error-primary">
-          <span>Value must be on of: {keys.join(", ")}</span>
-          <span>NOTE: this is currently not validated on server</span>
+          <span>Value must be one of: {keys.join(", ")}</span>
         </div>
       )}
       <div className="flex items-center justify-between">
