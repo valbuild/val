@@ -229,8 +229,11 @@ const ValidationTestCases: {
   {
     description: "basic keyOf(record)",
     input: "one",
-    schema: keyOf(define("/keyof-module", record(string()), {})),
-    expected: false,
+    schema: keyOf(define("/keyof-module", record(string()), { one: "" })),
+    expected: [testPath],
+    fixes: {
+      [testPath]: ["keyof:check-keys"],
+    },
   },
   {
     description: "failing keyOf(record)",
@@ -473,6 +476,7 @@ describe("validation", () => {
     'validate ($description): "$expected"',
     ({ input, schema, expected, fixes }) => {
       const result = schema.validate(testPath, input);
+      console.log(JSON.stringify({ result }, null, 2));
       if (result) {
         expect(Object.keys(result)).toStrictEqual(expected);
         if (fixes) {
