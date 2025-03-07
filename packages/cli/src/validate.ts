@@ -64,7 +64,7 @@ export async function validate({
     const alternatives = findSimilar(key, Object.keys(keyOfModuleSource));
     return {
       error: true,
-      message: `Key '${key}' does not exist in ${sourcePath}. Closest match: '${alternatives[0].target}'. Other similar: ${alternatives
+      message: `Key '${key}' does not exist in ${sourcePath}. Closest match: '${alternatives[0].target}'. Other similar: ${alternatives
         .slice(1, 4)
         .map((a) => `'${a.target}'`)
         .join(", ")}${alternatives.length > 4 ? ", ..." : ""}`,
