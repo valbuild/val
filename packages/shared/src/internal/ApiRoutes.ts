@@ -659,7 +659,7 @@ export const Api = {
                   })
                   .optional(),
                 validationErrors: z
-                  .record(SourcePath, z.array(ValidationError))
+                  .record(z.string(), z.array(ValidationError))
                   .optional(),
               }),
             ),
