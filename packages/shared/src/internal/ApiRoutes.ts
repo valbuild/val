@@ -11,7 +11,6 @@ import {
 } from "./server/types";
 import { Patch, PatchId } from "./zod/Patch";
 import { SerializedSchema } from "./zod/SerializedSchema";
-import { SourcePath } from "./zod/SourcePath";
 
 const ModuleFilePath = z.string().refine(
   (_path): _path is ModuleFilePath => true, // TODO: validation
