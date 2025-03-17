@@ -40,7 +40,7 @@ export function ValidationErrors({ path }: { path: SourcePath }) {
       >
         <AccordionTrigger className="p-4">
           <div className="flex justify-between w-full">
-            <span className="truncate">Multiple validation Errors</span>
+            <span className="truncate">Multiple validation errors</span>
             <span className="pr-4">({errors.length})</span>
           </div>
         </AccordionTrigger>
