@@ -90,7 +90,7 @@ export function ToolsMenu() {
                       <div>
                         Cannot {mode === "fs" ? "save" : "publish"} now.
                       </div>
-                      <div>Fix errors the following errors:</div>
+                      <div>Found errors in modules</div>
                     </div>
                   </AccordionTrigger>
                   <AccordionContent>
