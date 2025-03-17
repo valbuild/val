@@ -559,13 +559,24 @@ export function splitIntoInitAndLastParts(
     return moduleFilePathParts;
   }
   const splittedModulePath = Internal.splitModulePath(modulePath);
+
   const modulePathParts = splittedModulePath.map((part, i) => {
+    const modulePathPart = splittedModulePath
+      .slice(0, i + 1)
+      .map((part) => {
+        // TODO: we should use the schema to determine if the part is a number
+        if (Number.isNaN(Number(part))) {
+          return JSON.stringify(part);
+        }
+        return part;
+      })
+      .join(".") as ModulePath;
     return {
       text: part,
       part,
       sourcePath: Internal.joinModuleFilePathAndModulePath(
         moduleFilePath,
-        splittedModulePath.slice(0, i + 1).join(".") as ModulePath,
+        modulePathPart,
       ),
     };
   });
