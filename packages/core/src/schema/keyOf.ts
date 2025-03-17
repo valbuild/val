@@ -107,7 +107,7 @@ export class KeyOfSchema<
         [path]: [
           {
             fixes: ["keyof:check-keys"],
-            message: `Cannot validate keyOf (record) at runtime. This error must be picked up by: keyof:check-keys`,
+            message: `Did not validate keyOf (record). This error (keyof:check-keys) should typically be processed by Val internally. Seeing this error most likely means you have a Val version mismatch.`,
             value: {
               key: src,
               sourcePath: this.sourcePath,
