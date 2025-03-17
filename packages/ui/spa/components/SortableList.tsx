@@ -22,6 +22,9 @@ import { GripVertical, Trash2 } from "lucide-react";
 import { SourcePath, SerializedArraySchema } from "@valbuild/core";
 import { Preview } from "./Preview";
 import { StringField } from "./fields/StringField";
+import { isParentError } from "../utils/isParentError";
+import { ErrorIndicator } from "./ErrorIndicator";
+import { useErrors } from "./ValProvider";
 
 export function SortableList({
   source,
@@ -140,6 +143,7 @@ export function SortableItem({
   }, [id, path]);
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: id, disabled: disabled === true });
+  const { validationErrors } = useErrors();
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -197,11 +201,16 @@ export function SortableItem({
         </button>
       )}
       <button
-        className="pt-4"
+        className="flex items-center pt-4 gap-x-2"
         onClick={() => {
           onDelete(id);
         }}
       >
+        {isParentError(path, validationErrors) ? (
+          <ErrorIndicator />
+        ) : (
+          <div className="w-2 h-2" />
+        )}
         <Trash2 className="w-4 h-4 mr-2" />
       </button>
     </div>

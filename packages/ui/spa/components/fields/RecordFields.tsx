@@ -1,5 +1,9 @@
 import { SourcePath } from "@valbuild/core";
-import { useSchemaAtPath, useShallowSourceAtPath } from "../ValProvider";
+import {
+  useErrors,
+  useSchemaAtPath,
+  useShallowSourceAtPath,
+} from "../ValProvider";
 import { sourcePathOfItem } from "../../utils/sourcePathOfItem";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -9,9 +13,12 @@ import { FieldSourceError } from "../../components/FieldSourceError";
 import { useNavigation } from "../../components/ValRouter";
 import { Preview, PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ValidationErrors } from "../../components/ValidationError";
+import { isParentError } from "../../utils/isParentError";
+import { ErrorIndicator } from "../ErrorIndicator";
 
 export function RecordFields({ path }: { path: SourcePath }) {
   const type = "record";
+  const { validationErrors } = useErrors();
   const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -58,8 +65,12 @@ export function RecordFields({ path }: { path: SourcePath }) {
               onClick={() => navigate(sourcePathOfItem(path, key))}
               className="bg-primary-foreground cursor-pointer hover:bg-primary-foreground/50 min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4"
             >
-              <div>
+              <div className="flex items-start justify-between">
                 <div className="pb-4 font-semibold text-md">{key}</div>
+                {isParentError(
+                  sourcePathOfItem(path, key),
+                  validationErrors,
+                ) && <ErrorIndicator />}
               </div>
               <div>
                 <Preview path={sourcePathOfItem(path, key)} />
