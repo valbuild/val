@@ -13,7 +13,7 @@ export function CompressedPath({
 }) {
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(path);
-  const moduleFilePathParts = moduleFilePath.split("/"); // TODO: create a function to split module file paths properly
+  const moduleFilePathParts = Internal.splitModuleFilePath(moduleFilePath);
   const modulePathParts = Internal.splitModulePath(modulePath);
   const { navigate } = useNavigation();
   return (
