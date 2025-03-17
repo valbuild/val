@@ -1,5 +1,6 @@
 import {
   useDebouncedLoadingStatus,
+  useErrors,
   usePublish,
   useValMode,
 } from "./ValProvider";
@@ -11,10 +12,20 @@ import { Eye, Loader2, PanelRightOpen, Upload } from "lucide-react";
 import { useLayout } from "./Layout";
 import { Button } from "./designSystem/button";
 import { urlOf } from "@valbuild/shared/internal";
+import {
+  AccordionContent,
+  AccordionTrigger,
+  Accordion,
+  AccordionItem,
+} from "./designSystem/accordion";
+import { useState } from "react";
+import { cn } from "./designSystem/cn";
 
 export function ToolsMenu() {
   const debouncedLoadingStatus = useDebouncedLoadingStatus();
   const { isPublishing } = usePublish();
+  const { globalErrors } = useErrors();
+  const mode = useValMode();
   return (
     <div className="min-h-[100svh] bg-bg-primary">
       <div className="h-16 border-b border-border-primary">
@@ -26,16 +37,58 @@ export function ToolsMenu() {
           <Loader2 size={16} className="animate-spin" />
         </div>
       )}
-      <PublishErrorDialog />
-      {debouncedLoadingStatus !== "not-asked" && (
-        <div className={classNames("", {})}>
-          <ScrollArea>
-            <div className="max-h-[calc(100svh-64px)] border-b border-border-primary">
-              <DraftChanges loadingStatus={debouncedLoadingStatus} />
+      <ScrollArea>
+        <div className="max-h-[calc(100svh-64px)]">
+          <PublishErrorDialog />
+          {globalErrors && globalErrors.length > 0 && (
+            <Accordion type="single" collapsible>
+              <AccordionItem value="global-errors">
+                <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-text-error-primary">
+                  Cannot {mode === "fs" ? "save" : "publish"} now. There are{" "}
+                  {globalErrors?.length} validation errors.
+                </AccordionTrigger>
+                <AccordionContent>
+                  <ScrollArea>
+                    <div className="max-h-[calc(100svh-128px)] max-w-[320px]">
+                      {globalErrors?.map((error, i) => {
+                        return <ShortenedErrorMessage key={i} error={error} />;
+                      })}
+                    </div>
+                  </ScrollArea>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          )}
+          {debouncedLoadingStatus !== "not-asked" && (
+            <div className={classNames("", {})}>
+              <ScrollArea>
+                <div className="max-h-[calc(100svh-128px)] border-b border-border-primary">
+                  <DraftChanges loadingStatus={debouncedLoadingStatus} />
+                </div>
+              </ScrollArea>
             </div>
-          </ScrollArea>
+          )}
         </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
+function ShortenedErrorMessage({ error }: { error: string }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div
+      className={cn(
+        "px-1 py-2 bg-bg-error-primary text-text-error-primary border-b border-border-error",
+        {
+          truncate: !isExpanded,
+          "whitespace-normal": isExpanded,
+        },
       )}
+      onClick={() => setIsExpanded(!isExpanded)}
+    >
+      {error}
     </div>
   );
 }
