@@ -30,17 +30,19 @@ export function ValidationErrors({ path }: { path: SourcePath }) {
     return (
       <div className="p-4 font-normal rounded bg-bg-error-primary text-text-primary">
         <div>{errors[0].message}</div>
-        <div className="pl-4 font-thin">
-          at{" "}
-          <span
-            className="underline cursor-pointer"
-            onClick={() => {
-              navigation.navigate(errors[0].path as SourcePath);
-            }}
-          >
-            {errors[0].path}
-          </span>
-        </div>
+        {path !== errors[0].path && (
+          <div className="pl-4 font-thin">
+            at{" "}
+            <span
+              className="underline cursor-pointer"
+              onClick={() => {
+                navigation.navigate(errors[0].path as SourcePath);
+              }}
+            >
+              {errors[0].path}
+            </span>
+          </div>
+        )}
       </div>
     );
   }
@@ -60,17 +62,19 @@ export function ValidationErrors({ path }: { path: SourcePath }) {
           {errors.map((error) => (
             <div key={error.path} className="px-4">
               <div>{error.message}</div>
-              <div className="pl-4 font-thin">
-                at{" "}
-                <span
-                  className="underline cursor-pointer"
-                  onClick={() => {
-                    navigation.navigate(error.path as SourcePath);
-                  }}
-                >
-                  {error.path}
-                </span>
-              </div>
+              {path !== error.path && (
+                <div className="pl-4 font-thin">
+                  at
+                  <span
+                    className="underline cursor-pointer"
+                    onClick={() => {
+                      navigation.navigate(error.path as SourcePath);
+                    }}
+                  >
+                    {error.path}
+                  </span>
+                </div>
+              )}
             </div>
           ))}
         </AccordionContent>
