@@ -218,5 +218,9 @@ export function SortableItem({
 }
 
 function formatNumber(n: number) {
-  return "#" + n.toString();
+  return (
+    "#" +
+    // DnD kit is 1-based
+    (n - 1).toString()
+  );
 }
