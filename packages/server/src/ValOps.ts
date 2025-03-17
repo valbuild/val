@@ -519,6 +519,40 @@ export abstract class ValOps {
     >;
     files: Record<SourcePath, FileSource>;
   }> {
+    const checkKeyIsValid = async (
+      key: string,
+      sourcePath: string,
+    ): Promise<{ error: false } | { error: true; message: string }> => {
+      const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
+        sourcePath as SourcePath,
+      );
+      const keyOfModuleSource = sources[moduleFilePath];
+      const keyOfModuleSchema = schemas[moduleFilePath]?.serialize();
+      if (keyOfModuleSchema && keyOfModuleSchema.type !== "record") {
+        return {
+          error: true,
+          message: `Expected key at ${sourcePath} to be of type 'record'`,
+        };
+      }
+      if (
+        keyOfModuleSource &&
+        typeof keyOfModuleSource === "object" &&
+        key in keyOfModuleSource
+      ) {
+        return { error: false };
+      }
+      if (!keyOfModuleSource || typeof keyOfModuleSource !== "object") {
+        return {
+          error: true,
+          message: `Expected ${sourcePath} to be a truthy object`,
+        };
+      }
+      return {
+        error: true,
+        message: `Key '${key}' does not exist in ${sourcePath}.`,
+      };
+    };
+
     const errors: Record<
       ModuleFilePath,
       {
@@ -554,6 +588,16 @@ export abstract class ValOps {
       }
       for (const [sourcePathS, validationErrors] of Object.entries(res)) {
         const sourcePath = sourcePathS as SourcePath;
+        const addError = (validationError: ValidationError) => {
+          if (!errors[path]) {
+            errors[path] = { validations: {} };
+          }
+          if (!errors[path].validations[sourcePath]) {
+            errors[path].validations[sourcePath] = [];
+          }
+          errors[path].validations[sourcePath].push(validationError);
+        };
+
         if (validationErrors) {
           for (const validationError of validationErrors) {
             if (isOnlyFileCheckValidationError(validationError)) {
@@ -569,14 +613,54 @@ export abstract class ValOps {
               if (isFileSource(value)) {
                 files[sourcePath] = value;
               }
+            } else if (validationError.fixes?.includes("keyof:check-keys")) {
+              const TYPE_ERROR_MESSAGE = `This is most likely a Val version mismatch or Val bug.`;
+              if (!validationError.value) {
+                addError({
+                  message: `Could not find a value for keyOf at ${sourcePath}. ${TYPE_ERROR_MESSAGE}`,
+                  // Not sure this is a type error, but it shouldn't happen in a normally functioning Val system
+                  typeError: true,
+                });
+              } else {
+                if (typeof validationError.value !== "object") {
+                  addError({
+                    message: `Expected keyOf validation error to have a 'value' property of type 'object'. Found: ${typeof validationError.value}. ${TYPE_ERROR_MESSAGE}`,
+                    // Not sure this is a type error, but it shouldn't happen in a normally functioning Val system
+                    typeError: true,
+                  });
+                } else {
+                  const key =
+                    "key" in validationError.value && validationError.value.key;
+                  const validationErrorSourcePath =
+                    "sourcePath" in validationError.value &&
+                    validationError.value.sourcePath;
+                  if (typeof key !== "string") {
+                    addError({
+                      message: `Expected keyOf validation error 'value' to have property 'key' of type 'string'. Found: ${typeof key}. ${TYPE_ERROR_MESSAGE}`,
+                      // Not sure this is a type error, but it shouldn't happen in a normally functioning Val system
+                      typeError: true,
+                    });
+                  } else if (typeof validationErrorSourcePath !== "string") {
+                    addError({
+                      message: `Expected keyOf validation error 'value' to have property 'sourcePath' of type 'string'. Found: ${typeof validationErrorSourcePath}. ${TYPE_ERROR_MESSAGE}`,
+                      // Not sure this is a type error, but it shouldn't happen in a normally functioning Val system
+                      typeError: true,
+                    });
+                  } else {
+                    const res = await checkKeyIsValid(
+                      key,
+                      validationErrorSourcePath,
+                    );
+                    if (res.error) {
+                      addError({
+                        message: res.message,
+                      });
+                    }
+                  }
+                }
+              }
             } else {
-              if (!errors[path]) {
-                errors[path] = { validations: {} };
-              }
-              if (!errors[path].validations[sourcePath]) {
-                errors[path].validations[sourcePath] = [];
-              }
-              errors[path].validations[sourcePath].push(validationError);
+              addError(validationError);
             }
           }
         }
