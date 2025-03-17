@@ -541,9 +541,7 @@ function AddRecordPopover({
   );
 }
 
-export function splitIntoInitAndLastParts(
-  path: SourcePath,
-): { text: string; part: string; sourcePath: SourcePath }[] {
+export function splitIntoInitAndLastParts(path: SourcePath) {
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(path);
   const moduleFilePathParts = Internal.splitModuleFilePath(moduleFilePath).map(
@@ -560,25 +558,29 @@ export function splitIntoInitAndLastParts(
   }
   const splittedModulePath = Internal.splitModulePath(modulePath);
 
-  const modulePathParts = splittedModulePath.map((part, i) => {
-    const modulePathPart = splittedModulePath
-      .slice(0, i + 1)
-      .map((part) => {
-        // TODO: we should use the schema to determine if the part is a number
-        if (Number.isNaN(Number(part))) {
-          return JSON.stringify(part);
-        }
-        return part;
-      })
-      .join(".") as ModulePath;
-    return {
-      text: part,
-      part,
+  const modulePathParts: {
+    text: string;
+    part: string;
+    sourcePath: SourcePath;
+  }[] = [];
+  let lastPart = "";
+  for (let i = 0; i < splittedModulePath.length - 1; i++) {
+    let modulePathPart =
+      (lastPart ? lastPart + "." : "") + JSON.stringify(splittedModulePath[i]);
+    if (!modulePath.startsWith(modulePathPart)) {
+      // This happens if the current element is a number
+      // It is a sneaky / clever (but not smart?) way to build the sourcePath without actually figuring out the schema types
+      modulePathPart = (lastPart ? lastPart + "." : "") + splittedModulePath[i];
+    }
+    lastPart = modulePathPart;
+    modulePathParts.push({
+      text: splittedModulePath[i],
+      part: splittedModulePath[i],
       sourcePath: Internal.joinModuleFilePathAndModulePath(
         moduleFilePath,
-        modulePathPart,
+        modulePathPart as ModulePath,
       ),
-    };
-  });
+    });
+  }
   return moduleFilePathParts.concat(modulePathParts);
 }
