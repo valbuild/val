@@ -557,14 +557,13 @@ export function splitIntoInitAndLastParts(path: SourcePath) {
     return moduleFilePathParts;
   }
   const splittedModulePath = Internal.splitModulePath(modulePath);
-
   const modulePathParts: {
     text: string;
     part: string;
     sourcePath: SourcePath;
   }[] = [];
   let lastPart = "";
-  for (let i = 0; i < splittedModulePath.length - 1; i++) {
+  for (let i = 0; i < splittedModulePath.length; i++) {
     let modulePathPart =
       (lastPart ? lastPart + "." : "") + JSON.stringify(splittedModulePath[i]);
     if (!modulePath.startsWith(modulePathPart)) {
