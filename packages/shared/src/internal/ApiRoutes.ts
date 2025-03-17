@@ -40,6 +40,7 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("file:change-extension"),
   z.literal("file:add-metadata"),
   z.literal("file:check-metadata"),
+  z.literal("keyof:check-keys"),
 ]);
 const ValidationError = z.object({
   message: z.string(),
