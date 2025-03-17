@@ -18,14 +18,29 @@ import {
   Accordion,
   AccordionItem,
 } from "./designSystem/accordion";
-import { useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { cn } from "./designSystem/cn";
+import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
+import { prettifyFilename } from "../utils/prettifyFilename";
+import { useNavigation } from "./ValRouter";
 
 export function ToolsMenu() {
   const debouncedLoadingStatus = useDebouncedLoadingStatus();
   const { isPublishing } = usePublish();
-  const { globalErrors } = useErrors();
+  const { globalErrors, validationErrors } = useErrors();
   const mode = useValMode();
+  const [errorModules, sumValidationErrors] = useMemo(() => {
+    const modulesWithErrors = new Set<ModuleFilePath>();
+    let sumValidationErrors = 0;
+    for (const sourcePath in validationErrors) {
+      const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
+        sourcePath as SourcePath,
+      );
+      modulesWithErrors.add(moduleFilePath);
+      sumValidationErrors += 1;
+    }
+    return [Array.from(modulesWithErrors).sort(), sumValidationErrors];
+  }, [validationErrors]);
   return (
     <div className="min-h-[100svh] bg-bg-primary">
       <div className="h-16 border-b border-border-primary">
@@ -40,25 +55,56 @@ export function ToolsMenu() {
       <ScrollArea>
         <div className="max-h-[calc(100svh-64px)]">
           <PublishErrorDialog />
-          {globalErrors && globalErrors.length > 0 && (
-            <Accordion type="single" collapsible>
-              <AccordionItem value="global-errors">
-                <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-text-error-primary">
-                  Cannot {mode === "fs" ? "save" : "publish"} now (
-                  {globalErrors?.length} errors)
-                </AccordionTrigger>
-                <AccordionContent>
-                  <ScrollArea>
-                    <div className="max-h-[calc(100svh-128px)] max-w-[320px]">
-                      {globalErrors?.map((error, i) => {
-                        return <ShortenedErrorMessage key={i} error={error} />;
-                      })}
+          {globalErrors &&
+            globalErrors.length > 0 &&
+            globalErrors.length !== sumValidationErrors && (
+              <Accordion type="single" collapsible>
+                <AccordionItem value="global-errors">
+                  <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-text-error-primary">
+                    Cannot {mode === "fs" ? "save" : "publish"} now. Found
+                    {globalErrors?.length} errors in all.{" "}
+                    {globalErrors.length - sumValidationErrors} were
+                    non-validation errors. A developer might need to fix these
+                    issues.
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <ScrollArea>
+                      <div className="max-h-[calc(100svh-128px)] max-w-[320px]">
+                        {globalErrors?.map((error, i) => {
+                          return (
+                            <ShortenedErrorMessage key={i} error={error} />
+                          );
+                        })}
+                      </div>
+                    </ScrollArea>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            )}
+          {globalErrors?.length === sumValidationErrors &&
+            errorModules.length > 0 && (
+              <Accordion type="single" collapsible>
+                <AccordionItem value="global-errors">
+                  <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-text-error-primary">
+                    <div>
+                      <div>
+                        Cannot {mode === "fs" ? "save" : "publish"} now.
+                      </div>
+                      <div>Fix errors the following errors:</div>
                     </div>
-                  </ScrollArea>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-          )}
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <ScrollArea>
+                      <div className="max-h-[calc(100svh-128px)] max-w-[320px]">
+                        {errorModules?.map((error, i) => {
+                          return <ModuleError key={i} moduleFilePath={error} />;
+                        })}
+                      </div>
+                    </ScrollArea>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            )}
           {debouncedLoadingStatus !== "not-asked" && (
             <div className={classNames("", {})}>
               <ScrollArea>
@@ -70,6 +116,34 @@ export function ToolsMenu() {
           )}
         </div>
       </ScrollArea>
+    </div>
+  );
+}
+
+function ModuleError({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
+  const moduleFilePathParts = Internal.splitModuleFilePath(moduleFilePath);
+  const navigation = useNavigation();
+  return (
+    <div className="px-4 py-2 border-b bg-bg-error-primary text-text-error-primary border-border-error">
+      <button
+        className="underline cursor-pointer"
+        onClick={() => {
+          navigation.navigate(moduleFilePath);
+        }}
+      >
+        {moduleFilePathParts.map((part, i) => (
+          <Fragment key={i}>
+            <span
+              className={cn("text-text-brand-secondary", {
+                "ml-1": i > 0,
+              })}
+            >
+              /
+            </span>
+            <span>{prettifyFilename(part)}</span>
+          </Fragment>
+        ))}
+      </button>
     </div>
   );
 }
