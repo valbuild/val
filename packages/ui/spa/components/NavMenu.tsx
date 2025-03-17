@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PathNode, pathTree } from "../utils/pathTree";
 import { Remote } from "../utils/Remote";
 import {
+  useErrors,
   useSchemas,
   useTheme,
   useValConfig,
@@ -198,12 +199,32 @@ function sortPathTree(a: PathNode, b: PathNode) {
 function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
   const { navigate, currentSourcePath } = useNavigation();
   const { navMenu } = useLayout();
-
   const [isOpen, setIsOpen] = useState(true);
+  const { validationErrors } = useErrors();
+  const nodeErrors = useMemo(() => {
+    let hasErrors = false;
+    for (const errorPath in validationErrors) {
+      if (errorPath.startsWith(fullPath)) {
+        hasErrors = true;
+        break;
+      }
+    }
+    return hasErrors;
+  }, [validationErrors, fullPath]);
+  const showErrorIndicator = useMemo(() => {
+    if (isDirectory) {
+      if (!isOpen) {
+        return nodeErrors;
+      }
+    } else if (!isDirectory) {
+      return nodeErrors;
+    }
+    return false;
+  }, [nodeErrors, isOpen, isDirectory]);
   return (
     <div className="w-full text-sm">
       <button
-        className={classNames("flex justify-between w-full p-2", {
+        className={classNames("relative flex justify-between w-full p-2", {
           underline: currentSourcePath.startsWith(fullPath as SourcePath),
         })}
         onClick={() => {
@@ -220,6 +241,9 @@ function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
         <div className="flex items-center pr-2">
           {isDirectory ? <Tally2 /> : <File className="pr-2" />}
           <span>{prettifyFilename(name)}</span>
+          {showErrorIndicator && (
+            <div className="w-2 h-2 ml-2 rounded-full bg-bg-error-primary"></div>
+          )}
         </div>
         <ChevronRight
           size={16}
