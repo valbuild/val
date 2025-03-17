@@ -256,6 +256,19 @@ export class RichTextSchema<
         data: src,
       } as SchemaAssertResult<Src>;
     }
+    if (src === null && !this.opt) {
+      return {
+        success: false,
+        errors: {
+          [path]: [
+            {
+              message: `Expected 'array', got 'null'`,
+              typeError: true,
+            },
+          ],
+        },
+      };
+    }
     if (!Array.isArray(src)) {
       return {
         success: false,
