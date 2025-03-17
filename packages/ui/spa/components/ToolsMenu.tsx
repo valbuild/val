@@ -44,8 +44,8 @@ export function ToolsMenu() {
             <Accordion type="single" collapsible>
               <AccordionItem value="global-errors">
                 <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-text-error-primary">
-                  Cannot {mode === "fs" ? "save" : "publish"} now. There are{" "}
-                  {globalErrors?.length} validation errors.
+                  Cannot {mode === "fs" ? "save" : "publish"} now (
+                  {globalErrors?.length} errors)
                 </AccordionTrigger>
                 <AccordionContent>
                   <ScrollArea>
