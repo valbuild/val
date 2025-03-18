@@ -60,6 +60,77 @@ describe("RichTextSchema", () => {
     );
   });
 
+  test("validate: basic green max / min length test", () => {
+    const schema = richtext({
+      style: {
+        bold: true,
+      },
+      block: {
+        h1: true,
+        ul: true,
+      },
+      inline: {
+        a: true,
+      },
+    })
+      .minLength(1)
+      .maxLength(100);
+    expectedErrorAtPaths(
+      schema.validate(
+        "/richtext.val.ts" as SourcePath,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        testValidateInput as any,
+      ),
+      [],
+    );
+  });
+
+  test("validate: basic red min length test", () => {
+    const schema = richtext({
+      style: {
+        bold: true,
+      },
+      block: {
+        h1: true,
+        ul: true,
+      },
+      inline: {
+        a: true,
+      },
+    }).minLength(100);
+    expectedErrorAtPaths(
+      schema.validate(
+        "/richtext.val.ts" as SourcePath,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        testValidateInput as any,
+      ),
+      ["/richtext.val.ts"],
+    );
+  });
+
+  test("validate: basic red max length test", () => {
+    const schema = richtext({
+      style: {
+        bold: true,
+      },
+      block: {
+        h1: true,
+        ul: true,
+      },
+      inline: {
+        a: true,
+      },
+    }).maxLength(10);
+    expectedErrorAtPaths(
+      schema.validate(
+        "/richtext.val.ts" as SourcePath,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        testValidateInput as any,
+      ),
+      ["/richtext.val.ts"],
+    );
+  });
+
   test("validate: basic red test", () => {
     const schema = richtext();
     expectedErrorAtPaths(
@@ -69,6 +140,25 @@ describe("RichTextSchema", () => {
         testValidateInput as any,
       ),
       [
+        "/richtext.val.ts?p=0",
+        "/richtext.val.ts?p=2",
+        '/richtext.val.ts?p=2."children".0',
+        '/richtext.val.ts?p=2."children".0."children".0."children".0."styles".0',
+        '/richtext.val.ts?p=3."children".0',
+      ],
+    );
+  });
+
+  test("validate: red test with maxLength", () => {
+    const schema = richtext().maxLength(10);
+    expectedErrorAtPaths(
+      schema.validate(
+        "/richtext.val.ts" as SourcePath,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        testValidateInput as any,
+      ),
+      [
+        "/richtext.val.ts",
         "/richtext.val.ts?p=0",
         "/richtext.val.ts?p=2",
         '/richtext.val.ts?p=2."children".0',
