@@ -126,25 +126,25 @@ const ValidationTestCases: {
   {
     description: "failing max length",
     input: "three",
-    schema: string().max(3),
+    schema: string().maxLength(3),
     expected: [testPath],
   },
   {
     description: "basic max length",
     input: "two",
-    schema: string().max(3),
+    schema: string().maxLength(3),
     expected: false,
   },
   {
     description: "failing min length",
     input: "a",
-    schema: string().min(3),
+    schema: string().minLength(3),
     expected: [testPath],
   },
   {
     description: "basic min length",
     input: "two",
-    schema: string().min(3),
+    schema: string().minLength(3),
     expected: false,
   },
   {
@@ -372,7 +372,7 @@ const ValidationTestCases: {
         items: union(
           "test",
           object({ test: literal("subItem1"), text1: string() }),
-          object({ test: literal("subItem2"), text2: string().min(2) }),
+          object({ test: literal("subItem2"), text2: string().minLength(2) }),
         ),
       }),
     ),
