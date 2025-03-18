@@ -7,7 +7,7 @@ import {
   FILE_REF_PROP,
   FILE_REF_SUBTYPE_TAG,
 } from "@valbuild/core";
-import { RemoteSource } from "@valbuild/core/src/source/remote";
+import { RemoteSource } from "@valbuild/core";
 
 export class ValSyntaxError {
   constructor(
