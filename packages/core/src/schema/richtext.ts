@@ -8,10 +8,14 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 
+type ValidationOptions = {
+  maxLength?: number;
+  minLength?: number;
+};
 export type SerializedRichTextSchema = {
   type: "richtext";
   opt: boolean;
-  options?: RichTextOptions;
+  options?: RichTextOptions & ValidationOptions;
 };
 
 export class RichTextSchema<
@@ -19,10 +23,30 @@ export class RichTextSchema<
   Src extends RichTextSource<O> | null,
 > extends Schema<Src> {
   constructor(
-    readonly options: O,
+    readonly options: O & ValidationOptions,
     readonly opt: boolean = false,
   ) {
     super();
+  }
+
+  maxLength(max: number): RichTextSchema<O, Src> {
+    return new RichTextSchema(
+      {
+        ...this.options,
+        maxLength: max,
+      },
+      this.opt,
+    );
+  }
+
+  minLength(min: number): RichTextSchema<O, Src> {
+    return new RichTextSchema(
+      {
+        ...this.options,
+        minLength: min,
+      },
+      this.opt,
+    );
   }
 
   validate(path: SourcePath, src: Src): ValidationErrors {
@@ -48,7 +72,7 @@ export class RichTextSchema<
     }
 
     const current = {};
-    const typeErrorRes = this.recursiveValidate(path, nodes, current);
+    const typeErrorRes = this.internalValidate(path, nodes, current);
     if (typeErrorRes) {
       return typeErrorRes;
     }
@@ -58,193 +82,243 @@ export class RichTextSchema<
     return false;
   }
 
-  private recursiveValidate(
+  private internalValidate(
     rootPath: SourcePath,
     nodes: unknown[],
     current: Record<SourcePath, ValidationError[]>,
   ): ValidationErrors {
-    const addError = (
-      path: SourcePath,
-      message: string,
-      typeError: boolean,
-    ) => {
-      if (!current[path]) {
-        current[path] = [];
-      }
-      current[path].push({
-        message,
-        typeError,
-      });
-    };
-    for (const node of nodes) {
-      const path = unsafeCreateSourcePath(rootPath, nodes.indexOf(node));
-      if (typeof node === "string") {
-        continue;
-      }
-      if (typeof node !== "object") {
-        return {
-          [path]: [
-            {
-              message: `Expected nodes of type 'object' or 'string', got '${typeof node}'`,
-              typeError: true,
-            },
-          ],
-        };
-      }
-      if (node === null) {
-        return {
-          [path]: [
-            {
-              message: `Expected nodes of type 'object' or 'string', got 'null'`,
-              typeError: true,
-            },
-          ],
-        };
-      }
-      if (!("tag" in node)) {
-        return {
-          [path]: [
-            {
-              message: `Expected node to either have 'tag' or be of type 'string'`,
-              typeError: true,
-            },
-          ],
-        };
-      }
-      if (typeof node.tag !== "string") {
-        return {
-          [path]: [
-            {
-              message: `Expected 'string', got '${typeof node.tag}'`,
-              typeError: true,
-            },
-          ],
-        };
-      }
-      if (node.tag === "h1" && !this.options.block?.h1) {
-        addError(path, `'h' block is not valid`, false);
-      }
-      if (node.tag === "h2" && !this.options.block?.h2) {
-        addError(path, `'h2' block is not valid`, false);
-      }
-      if (node.tag === "h3" && !this.options.block?.h3) {
-        addError(path, `'h3' block is not valid`, false);
-      }
-      if (node.tag === "h4" && !this.options.block?.h4) {
-        addError(path, `'h4' block is not valid`, false);
-      }
-      if (node.tag === "h5" && !this.options.block?.h5) {
-        addError(path, `'h5' block is not valid`, false);
-      }
-      if (node.tag === "h6" && !this.options.block?.h6) {
-        addError(path, `'h6' block is not valid`, false);
-      }
-      if (node.tag === "ol" && !this.options.block?.ol) {
-        addError(path, `'ol' block is not valid`, false);
-      }
-      if (node.tag === "ul" && !this.options.block?.ul) {
-        addError(path, `'ul' block is not valid`, false);
-      }
-      if (
-        node.tag === "li" &&
-        !this.options.block?.ul &&
-        !this.options.block?.ol
-      ) {
-        addError(
-          path,
-          `'li' tag is invalid since neither 'ul' nor 'ol' block is not valid`,
-          false,
-        );
-      }
-      if (node.tag === "a" && !this.options.inline?.a) {
-        addError(path, `'a' inline is not valid`, false);
-      }
-      if (node.tag === "img" && !this.options.inline?.img) {
-        addError(path, `'img' inline is not valid`, false);
-      }
-      if ("styles" in node && node.tag !== "span") {
-        return {
-          [path]: [
-            {
-              message: `Cannot have styles on '${node.tag}'. This is only allowed on 'span'`,
-              typeError: true,
-            },
-          ],
-        };
-      }
-      if ("styles" in node) {
-        if (!Array.isArray(node.styles)) {
+    let length = 0;
+    const recurse = (
+      rootPath: SourcePath,
+      nodes: unknown[],
+      current: Record<SourcePath, ValidationError[]>,
+    ): ValidationErrors => {
+      const addError = (
+        path: SourcePath,
+        message: string,
+        typeError: boolean,
+      ) => {
+        if (!current[path]) {
+          current[path] = [];
+        }
+        current[path].push({
+          message,
+          typeError,
+        });
+      };
+      for (const node of nodes) {
+        const path = unsafeCreateSourcePath(rootPath, nodes.indexOf(node));
+        if (typeof node === "string") {
+          length += node.length;
+          continue;
+        }
+        if (typeof node !== "object") {
           return {
             [path]: [
               {
-                message: `Expected 'array', got '${typeof node.styles}'`,
+                message: `Expected nodes of type 'object' or 'string', got '${typeof node}'`,
                 typeError: true,
               },
             ],
           };
         }
-
-        const stylesPath = unsafeCreateSourcePath(path, "styles");
-        for (let i = 0; i < node.styles.length; i++) {
-          const style = node.styles[i];
-          const currentStylePath = unsafeCreateSourcePath(stylesPath, i);
-          if (typeof style !== "string") {
-            return {
-              [currentStylePath]: [
-                {
-                  message: `Expected 'string', got '${typeof style}'`,
-                  typeError: true,
-                },
-              ],
-            };
-          }
-          if (style === "bold" && !this.options.style?.bold) {
-            addError(currentStylePath, `Style 'bold' is not valid`, false);
-          }
-          if (style === "italic" && !this.options.style?.italic) {
-            addError(currentStylePath, `Style 'italic' is not valid`, false);
-          }
-          if (style === "lineThrough" && !this.options.style?.lineThrough) {
-            addError(
-              currentStylePath,
-              `Style 'lineThrough' is not valid`,
-              false,
-            );
-          }
-        }
-      }
-      if ("children" in node) {
-        if (!Array.isArray(node.children)) {
+        if (node === null) {
           return {
             [path]: [
               {
-                message: `Expected 'array', got '${typeof node.children}'`,
+                message: `Expected nodes of type 'object' or 'string', got 'null'`,
                 typeError: true,
               },
             ],
           };
         }
-        const children = node.children;
-        for (let i = 0; i < children.length; i++) {
-          const child = children[i];
-          if (typeof child === "object") {
-            const childPath = unsafeCreateSourcePath(path, "children");
-            const res = this.recursiveValidate(childPath, [child], current);
-            if (res) {
-              return res;
-            }
-          } else if (typeof child !== "string") {
+        if (!("tag" in node)) {
+          return {
+            [path]: [
+              {
+                message: `Expected node to either have 'tag' or be of type 'string'`,
+                typeError: true,
+              },
+            ],
+          };
+        }
+        if (typeof node.tag !== "string") {
+          return {
+            [path]: [
+              {
+                message: `Expected 'string', got '${typeof node.tag}'`,
+                typeError: true,
+              },
+            ],
+          };
+        }
+        if (node.tag === "h1" && !this.options.block?.h1) {
+          addError(path, `'h' block is not valid`, false);
+        }
+        if (node.tag === "h2" && !this.options.block?.h2) {
+          addError(path, `'h2' block is not valid`, false);
+        }
+        if (node.tag === "h3" && !this.options.block?.h3) {
+          addError(path, `'h3' block is not valid`, false);
+        }
+        if (node.tag === "h4" && !this.options.block?.h4) {
+          addError(path, `'h4' block is not valid`, false);
+        }
+        if (node.tag === "h5" && !this.options.block?.h5) {
+          addError(path, `'h5' block is not valid`, false);
+        }
+        if (node.tag === "h6" && !this.options.block?.h6) {
+          addError(path, `'h6' block is not valid`, false);
+        }
+        if (node.tag === "ol" && !this.options.block?.ol) {
+          addError(path, `'ol' block is not valid`, false);
+        }
+        if (node.tag === "ul" && !this.options.block?.ul) {
+          addError(path, `'ul' block is not valid`, false);
+        }
+        if (
+          node.tag === "li" &&
+          !this.options.block?.ul &&
+          !this.options.block?.ol
+        ) {
+          addError(
+            path,
+            `'li' tag is invalid since neither 'ul' nor 'ol' block is not valid`,
+            false,
+          );
+        }
+        if (node.tag === "a" && !this.options.inline?.a) {
+          addError(path, `'a' inline is not valid`, false);
+        }
+        if (node.tag === "img" && !this.options.inline?.img) {
+          addError(path, `'img' inline is not valid`, false);
+        }
+        if ("styles" in node && node.tag !== "span") {
+          return {
+            [path]: [
+              {
+                message: `Cannot have styles on '${node.tag}'. This is only allowed on 'span'`,
+                typeError: true,
+              },
+            ],
+          };
+        }
+        if ("styles" in node) {
+          if (!Array.isArray(node.styles)) {
             return {
               [path]: [
                 {
-                  message: `Expected 'object' or 'string', got '${typeof child}'`,
+                  message: `Expected 'array', got '${typeof node.styles}'`,
                   typeError: true,
                 },
               ],
             };
           }
+
+          const stylesPath = unsafeCreateSourcePath(path, "styles");
+          for (let i = 0; i < node.styles.length; i++) {
+            const style = node.styles[i];
+            const currentStylePath = unsafeCreateSourcePath(stylesPath, i);
+            if (typeof style !== "string") {
+              return {
+                [currentStylePath]: [
+                  {
+                    message: `Expected 'string', got '${typeof style}'`,
+                    typeError: true,
+                  },
+                ],
+              };
+            }
+            if (style === "bold" && !this.options.style?.bold) {
+              addError(currentStylePath, `Style 'bold' is not valid`, false);
+            }
+            if (style === "italic" && !this.options.style?.italic) {
+              addError(currentStylePath, `Style 'italic' is not valid`, false);
+            }
+            if (style === "lineThrough" && !this.options.style?.lineThrough) {
+              addError(
+                currentStylePath,
+                `Style 'lineThrough' is not valid`,
+                false,
+              );
+            }
+          }
+        }
+        if ("children" in node) {
+          if (!Array.isArray(node.children)) {
+            return {
+              [path]: [
+                {
+                  message: `Expected 'array', got '${typeof node.children}'`,
+                  typeError: true,
+                },
+              ],
+            };
+          }
+          const children = node.children;
+          for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (typeof child === "object") {
+              const childPath = unsafeCreateSourcePath(path, "children");
+              const res = recurse(childPath, [child], current);
+              if (res) {
+                return res;
+              }
+            } else if (typeof child === "string") {
+              length += child.length;
+              continue;
+            } else {
+              return {
+                [path]: [
+                  {
+                    message: `Expected 'object' or 'string', got '${typeof child}'`,
+                    typeError: true,
+                  },
+                ],
+              };
+            }
+          }
         }
       }
+      return false;
+    };
+
+    const results = recurse(rootPath, nodes, current);
+    const lengthErrors = [];
+    if (this.options.maxLength && length > this.options.maxLength) {
+      lengthErrors.push({
+        message: `Maximum length of ${this.options.maxLength} exceeded (current length: ${length})`,
+        typeError: false,
+      });
+    }
+    if (this.options.minLength && length < this.options.minLength) {
+      lengthErrors.push({
+        message: `Minimum length of ${this.options.minLength} not met (current length: ${length})`,
+        typeError: false,
+      });
+    }
+    if (results) {
+      if (lengthErrors.length > 0) {
+        if (!results[rootPath]) {
+          results[rootPath] = [];
+        }
+        results[rootPath].push(...lengthErrors);
+      }
+      return results;
+    }
+    if (Object.keys(current).length > 0) {
+      if (lengthErrors.length > 0) {
+        if (!current[rootPath]) {
+          current[rootPath] = [];
+        }
+        current[rootPath].push(...lengthErrors);
+      }
+      return current;
+    }
+    if (lengthErrors.length > 0) {
+      return {
+        [rootPath]: lengthErrors,
+      };
     }
     return false;
   }
@@ -421,6 +495,6 @@ export class RichTextSchema<
 
 export const richtext = <O extends RichTextOptions>(
   options?: O,
-): Schema<RichTextSource<O>> => {
+): RichTextSchema<O, RichTextSource<O>> => {
   return new RichTextSchema<O, RichTextSource<O>>(options ?? ({} as O));
 };
