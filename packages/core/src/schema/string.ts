@@ -35,7 +35,14 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     super();
   }
 
+  /**
+   * @deprecated Use `minLength` instead
+   */
   min(minLength: number): StringSchema<Src> {
+    return this.minLength(minLength);
+  }
+
+  minLength(minLength: number): StringSchema<Src> {
     return new StringSchema<Src>(
       { ...this.options, minLength },
       this.opt,
@@ -43,7 +50,14 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
+  /**
+   * @deprecated Use `maxLength` instead
+   */
   max(maxLength: number): StringSchema<Src> {
+    return this.maxLength(maxLength);
+  }
+
+  maxLength(maxLength: number): StringSchema<Src> {
     return new StringSchema<Src>(
       { ...this.options, maxLength },
       this.opt,
