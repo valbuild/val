@@ -208,7 +208,6 @@ export async function validate({
                     }
                   }
                 } else if (v.fixes.includes("keyof:check-keys")) {
-                  const prevErrors = errors;
                   if (
                     v.value &&
                     typeof v.value === "object" &&
@@ -251,12 +250,6 @@ export async function validate({
                     );
                     errors += 1;
                   }
-                  if (prevErrors < errors) {
-                    console.log(
-                      picocolors.red("✘"),
-                      "Found error in",
-                      `${sourcePath}`,
-                    );
                 } else if (v.fixes.includes("image:upload-remote")) {
                   const [, modulePath] =
                     Internal.splitModuleFilePathAndModulePath(
@@ -507,6 +500,13 @@ export async function validate({
           picocolors.green("✔"),
           moduleFilePath,
           "is valid (" + (Date.now() - start) + "ms)",
+        );
+      }
+      if (errors > 0) {
+        console.log(
+          picocolors.red("✘"),
+          `${`/${file}`} contains ${errors} error${errors > 1 ? "s" : ""}`,
+          " (" + (Date.now() - start) + "ms)",
         );
       }
       return errors;
