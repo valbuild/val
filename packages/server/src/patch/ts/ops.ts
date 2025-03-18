@@ -31,7 +31,7 @@ import {
   VAL_EXTENSION,
 } from "@valbuild/core";
 import { JsonPrimitive } from "@valbuild/core";
-import { RemoteSource } from "@valbuild/core/src/source/remote";
+import { RemoteSource } from "@valbuild/core";
 
 type TSOpsResult<T> = result.Result<T, PatchError | ValSyntaxErrorTree>;
 
