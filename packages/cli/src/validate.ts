@@ -251,6 +251,14 @@ export async function validate({
                     errors += 1;
                   }
                 } else if (v.fixes.includes("image:upload-remote")) {
+                  if (!fix) {
+                    console.log(
+                      picocolors.red("✘"),
+                      `Remote file ${sourcePath} needs to be uploaded (use --fix to upload)`,
+                    );
+                    errors += 1;
+                    continue;
+                  }
                   const [, modulePath] =
                     Internal.splitModuleFilePathAndModulePath(
                       sourcePath as SourcePath,
