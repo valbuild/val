@@ -18,6 +18,16 @@ export async function login(options: { root?: string }) {
     });
     let token;
     let url;
+    if (!response.headers.get("content-type")?.includes("application/json")) {
+      const text = await response.text();
+      console.error(
+        pc.red(
+          "Unexpected failure while trying to login (content type was not JSON). Server response:",
+        ),
+        text || "<empty>",
+      );
+      process.exit(1);
+    }
     const json = await response.json();
     if (json) {
       token = json.nonce;
@@ -40,7 +50,9 @@ export async function login(options: { root?: string }) {
     saveToken(result, filePath);
   } catch (error) {
     console.error(
-      pc.red("An error occurred during the login process:"),
+      pc.red(
+        "An error occurred during the login process. Check your internet connection. Details:",
+      ),
       error instanceof Error ? error.message : JSON.stringify(error, null, 2),
     );
     process.exit(1);
