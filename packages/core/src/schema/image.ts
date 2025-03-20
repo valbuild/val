@@ -75,6 +75,29 @@ export class ImageSchema<
         ],
       } as ValidationErrors;
     }
+    if (this.isRemote && src[VAL_EXTENSION] === "remote") {
+      return {
+        [path]: [
+          {
+            message: `Remote image was not uploaded.`,
+            value: src,
+            fixes: ["image:check-remote"],
+          },
+        ],
+      } as ValidationErrors;
+    }
+    if (!this.isRemote && src[VAL_EXTENSION] === "remote") {
+      return {
+        [path]: [
+          {
+            message: `Expected locale image, but found remote.`,
+            value: src,
+            fixes: ["image:download-remote"],
+          },
+        ],
+      } as ValidationErrors;
+    }
+
     if (typeof src[FILE_REF_PROP] !== "string") {
       return {
         [path]: [

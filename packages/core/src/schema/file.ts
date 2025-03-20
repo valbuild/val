@@ -5,7 +5,7 @@ import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { VAL_EXTENSION } from "../source";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
-import { Internal } from "..";
+import { Internal, RemoteSource } from "..";
 
 export type FileOptions = {
   accept?: string;
@@ -21,13 +21,21 @@ export type FileMetadata = {
   mimeType?: string;
 };
 export class FileSchema<
-  Src extends FileSource<FileMetadata | undefined> | null,
+  Src extends
+    | FileSource<FileMetadata | undefined>
+    | RemoteSource<FileMetadata | undefined>
+    | null,
 > extends Schema<Src> {
   constructor(
     readonly options?: FileOptions,
     readonly opt: boolean = false,
+    protected readonly isRemote: boolean = false,
   ) {
     super();
+  }
+
+  remote(): FileSchema<Src | RemoteSource<FileMetadata | undefined>> {
+    return new FileSchema(this.options, this.opt, true);
   }
 
   validate(path: SourcePath, src: Src): ValidationErrors {
@@ -52,6 +60,39 @@ export class FileSchema<
               FILE_REF_PROP
             ]}`,
             value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
+    if (this.isRemote && src[VAL_EXTENSION] !== "remote") {
+      return {
+        [path]: [
+          {
+            message: `Expected a remote file, but got a local file.`,
+            value: src,
+            fixes: ["file:upload-remote"],
+          },
+        ],
+      } as ValidationErrors;
+    }
+    if (this.isRemote && src[VAL_EXTENSION] === "remote") {
+      return {
+        [path]: [
+          {
+            message: `Remote file was not uploaded.`,
+            value: src,
+            fixes: ["file:check-remote"],
+          },
+        ],
+      } as ValidationErrors;
+    }
+    if (!this.isRemote && src[VAL_EXTENSION] === "remote") {
+      return {
+        [path]: [
+          {
+            message: `Expected locale file, but found remote.`,
+            value: src,
+            fixes: ["file:download-remote"],
           },
         ],
       } as ValidationErrors;
@@ -236,8 +277,8 @@ export class FileSchema<
 
 export const file = (
   options?: FileOptions,
-): Schema<FileSource<FileMetadata>> => {
-  return new FileSchema(options) as Schema<FileSource<FileMetadata>>;
+): FileSchema<FileSource<FileMetadata>> => {
+  return new FileSchema(options);
 };
 
 export function convertFileSource<
