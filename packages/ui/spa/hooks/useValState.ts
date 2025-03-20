@@ -770,14 +770,6 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
       clearInterval(interval);
     };
   }, [mergeAndSyncPatches]);
-  const requestModule = useCallback((moduleFilePath: ModuleFilePath) => {
-    setRequestedSources((prev) => {
-      if (prev.includes(moduleFilePath)) {
-        return prev;
-      }
-      return [...prev, moduleFilePath];
-    });
-  }, []);
 
   return {
     stat,
@@ -787,7 +779,6 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
     sources,
     addPatch,
     deletePatches,
-    requestModule,
     patchesStatus,
     sourcesSyncStatus,
     validationErrors,
