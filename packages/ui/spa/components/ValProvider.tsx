@@ -24,11 +24,8 @@ import { ValClient } from "@valbuild/shared/internal";
 import { Remote } from "../utils/Remote";
 import { isJsonArray } from "../utils/isJsonArray";
 import { DayPickerProvider } from "react-day-picker";
-import {
-  AuthenticationState,
-  DeletePatchesRes,
-  useValState,
-} from "../hooks/useValState";
+import { DeletePatchesRes, useValState } from "../hooks/useValState";
+import { AuthenticationState } from "spa/hooks/useStatus";
 
 type ValContextValue = {
   mode: "http" | "fs" | "unknown";
