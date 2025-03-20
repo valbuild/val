@@ -92,6 +92,13 @@ import {
 import { type ImageMetadata } from "./schema/image";
 import { type FileMetadata } from "./schema/file";
 import { isFile } from "./source/file";
+import { createRemoteRef } from "./source/remote";
+import {
+  getValidationBasis,
+  getValidationHash,
+} from "./remote/validationBasis";
+import { getFileHash } from "./remote/fileHash";
+import { splitRemoteRef } from "./remote/splitRemoteRef";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
@@ -143,6 +150,13 @@ const Internal = {
   resolvePath,
   splitModuleFilePathAndModulePath,
   joinModuleFilePathAndModulePath,
+  remote: {
+    createRemoteRef,
+    getValidationBasis,
+    getValidationHash,
+    getFileHash,
+    splitRemoteRef,
+  },
   isVal,
   isFile,
   createValPathOfItem,

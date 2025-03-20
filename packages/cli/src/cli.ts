@@ -125,7 +125,7 @@ void main().catch((err) => {
 });
 
 async function versions() {
-  const foundVersions = await getVersions();
+  const foundVersions = getVersions();
   console.log(`${chalk.cyan("@valbuild/core")}: ${foundVersions.coreVersion}`);
   console.log(`${chalk.cyan("@valbuild/next")}: ${foundVersions.nextVersion}`);
 }

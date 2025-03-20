@@ -1,8 +1,8 @@
-export const getVersions = async (): Promise<{
+export const getVersions = (): {
   coreVersion?: string;
   nextVersion?: string;
-}> => {
-  const coreVersion = await (() => {
+} => {
+  const coreVersion = (() => {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
       return require("@valbuild/core")?.Internal?.VERSION?.core;
@@ -10,7 +10,7 @@ export const getVersions = async (): Promise<{
       return null;
     }
   })();
-  const nextVersion = await (() => {
+  const nextVersion = (() => {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
       return require("@valbuild/next")?.Internal?.VERSION?.next;

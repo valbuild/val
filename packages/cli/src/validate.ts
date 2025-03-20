@@ -18,8 +18,12 @@ import {
   getPersonalAccessTokenPath,
   parsePersonalAccessTokenFile,
 } from "./utils/personalAccessTokens";
-import { uploadRemoteFile } from "./utils/uploadRemoteFile";
+import {
+  getRemoteFileBuckets,
+  uploadRemoteFile,
+} from "./utils/uploadRemoteFile";
 import { getPublicProjectId } from "./utils/getPublicProjectId";
+import { checkRemoteRef } from "./utils/checkRemoteRef";
 
 export async function validate({
   root,
@@ -148,6 +152,8 @@ export async function validate({
       SourcePath,
       { ref: string; metadata?: Record<string, unknown> }
     > = {};
+    let remoteFileBuckets: string[] | null = null;
+    let remoteFilesCounter = 0;
     eslintResult?.messages.forEach((m) => {
       // display surrounding code
       logEslintMessage(fileContent, moduleFilePath, m);
@@ -165,6 +171,7 @@ export async function validate({
           (prev, m) => (m.severity >= 2 ? prev + 1 : prev),
           0,
         ) || 0;
+      let fixedErrors = 0;
       if (valModule.errors) {
         if (valModule.errors.validation) {
           for (const [sourcePath, validationErrors] of Object.entries(
@@ -250,7 +257,10 @@ export async function validate({
                     );
                     errors += 1;
                   }
-                } else if (v.fixes.includes("image:upload-remote")) {
+                } else if (
+                  v.fixes.includes("image:upload-remote") ||
+                  v.fixes.includes("file:upload-remote")
+                ) {
                   if (!fix) {
                     console.log(
                       picocolors.red("✘"),
@@ -418,9 +428,28 @@ export async function validate({
                         `The schema is the remote is neither image nor file: ${sourcePath}`,
                       );
                     }
-
+                    if (remoteFileBuckets === null) {
+                      remoteFileBuckets = await getRemoteFileBuckets(
+                        publicProjectId,
+                        pat,
+                      );
+                    }
+                    remoteFilesCounter += 1;
+                    const bucket =
+                      remoteFileBuckets[
+                        remoteFilesCounter % remoteFileBuckets.length
+                      ];
+                    if (!bucket) {
+                      console.log(
+                        picocolors.red("✘"),
+                        `Internal error: could not allocate a bucket for the remote file located at ${sourcePath}`,
+                      );
+                      errors += 1;
+                      continue;
+                    }
                     const remoteFileUpload = await uploadRemoteFile(
                       publicProjectId,
+                      bucket,
                       projectRoot,
                       filePath,
                       resolveRemoteFileSchema as
@@ -446,6 +475,28 @@ export async function validate({
                       metadata: fileSourceMetadata,
                     };
                   }
+                } else if (
+                  v.fixes.includes("image:download-remote") ||
+                  v.fixes.includes("file:download-remote")
+                ) {
+                  if (fix) {
+                    console.log(
+                      picocolors.yellow("⚠"),
+                      `Downloading remote file in ${sourcePath}...`,
+                    );
+                  } else {
+                    console.log(
+                      picocolors.red("✘"),
+                      `Remote file ${sourcePath} needs to be downloaded (use --fix to download)`,
+                    );
+                    errors += 1;
+                    continue;
+                  }
+                } else if (
+                  v.fixes.includes("image:check-remote") ||
+                  v.fixes.includes("file:check-remote")
+                ) {
+                  // skip
                 } else {
                   console.log(
                     picocolors.red("✘"),
@@ -463,10 +514,13 @@ export async function validate({
                   sourcePath as SourcePath,
                   v,
                   remoteFiles,
+                  valModule.source,
+                  valModule.schema,
                 );
                 if (fix && fixPatch?.patch && fixPatch?.patch.length > 0) {
                   await service.patch(moduleFilePath, fixPatch.patch);
                   didFix = true;
+                  fixedErrors += 1;
                   console.log(
                     picocolors.yellow("⚠"),
                     "Applied fix for",
@@ -476,8 +530,10 @@ export async function validate({
                 fixPatch?.remainingErrors?.forEach((e) => {
                   errors += 1;
                   console.log(
-                    v.fixes ? picocolors.yellow("⚠") : picocolors.red("✘"),
-                    `Found ${v.fixes ? "fixable " : ""}error in`,
+                    e.fixes && e.fixes.length
+                      ? picocolors.yellow("⚠")
+                      : picocolors.red("✘"),
+                    `Got ${e.fixes && e.fixes.length ? "fixable " : ""}error in`,
                     `${sourcePath}:`,
                     e.message,
                   );
@@ -486,13 +542,23 @@ export async function validate({
                 errors += 1;
                 console.log(
                   picocolors.red("✘"),
-                  "Found error in",
+                  "Got error in",
                   `${sourcePath}:`,
                   v.message,
                 );
               }
             }
           }
+        }
+        if (
+          fixedErrors === errors &&
+          (!valModule.errors.fatal || valModule.errors.fatal.length == 0)
+        ) {
+          console.log(
+            picocolors.green("✔"),
+            moduleFilePath,
+            "is valid (" + (Date.now() - start) + "ms)",
+          );
         }
         for (const fatalError of valModule.errors.fatal || []) {
           errors += 1;
@@ -536,9 +602,9 @@ export async function validate({
   if (errors > 0) {
     console.log(
       picocolors.red("✘"),
-      "Found",
+      "Got",
       errors,
-      "validation error" + (errors > 1 ? "s" : ""),
+      "error" + (errors > 1 ? "s" : ""),
     );
     process.exit(1);
   } else {

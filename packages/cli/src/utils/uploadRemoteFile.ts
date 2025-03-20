@@ -1,17 +1,36 @@
 import {
   Internal,
-  RemoteRef,
   SerializedFileSchema,
   SerializedImageSchema,
   VAL_REMOTE_HOST,
 } from "@valbuild/core";
 import { promises as fs } from "fs";
 import path from "path";
-import { getVersions } from "../getVersions";
+import { getFileExt } from "./getFileExt";
+
+export async function getRemoteFileBuckets(
+  publicProjectId: string,
+  pat: string,
+) {
+  const res = await fetch(
+    `${VAL_REMOTE_HOST}/file/p/${publicProjectId}/buckets`,
+    {
+      headers: {
+        "x-val-pat": pat,
+      },
+    },
+  );
+  if (!res.ok) {
+    throw new Error(`Failed to get remote file buckets: ${res.statusText}`);
+  }
+  const json = (await res.json()) as { bucket: string }[];
+  return json.map((b) => b.bucket);
+}
 
 const textEncoder = new TextEncoder();
 export async function uploadRemoteFile(
   publicProjectId: string,
+  bucket: string,
   root: string,
   filePath: string,
   schema: SerializedImageSchema | SerializedFileSchema,
@@ -27,79 +46,76 @@ export async function uploadRemoteFile(
       error: string;
     }
 > {
-  const text = await fs.readFile(filePath, "utf-8");
-  const fileHash = Internal.getSHA256Hash(textEncoder.encode(text)).slice(
-    0,
-    12, // 12 hex characters = 6 bytes = 48 bits = 2^48 = 281474976710656 possibilities or 1 in 281474976710656 or using birthday problem estimate with 10K files: p = (k, n) => (k*k)/(2x2**n) and p(10_000,12*4) = 1.7763568394002505e-7 chance of collision which should be good enough
-  );
+  const fileBuffer = await fs.readFile(filePath);
   const relativeFilePath = path
     .relative(root, filePath)
     .split(path.sep)
     .join("/") as `public/val/${string}`;
   if (!relativeFilePath.startsWith("public/val/")) {
-    throw new Error(`Invalid file path: ${relativeFilePath}`);
+    return {
+      success: false,
+      error: `File path must be within the public/val/ directory (e.g. public/val/path/to/file.txt). Got: ${relativeFilePath}`,
+    };
   }
-  const fileExt = path.extname(filePath).slice(1);
-  const coreVersion = (await getVersions()).coreVersion || "unknown";
-  const validationHash = getValidationHash(
-    coreVersion || "unknown",
-    schema,
-    fileExt,
-    metadata,
+  const fileHash = Internal.remote.getFileHash(fileBuffer);
+  const coreVersion = Internal.VERSION.core || "unknown";
+  const ref = Internal.remote.createRemoteRef({
+    publicProjectId,
+    coreVersion,
+    bucket,
+    validationHash: Internal.remote.getValidationHash(
+      coreVersion,
+      schema,
+      getFileExt(relativeFilePath),
+      metadata,
+      fileHash,
+      textEncoder,
+    ),
     fileHash,
-  );
-  // NOTE: the core version is part of the validation hash, but it is also in the uri to make it easier to understand which version the remote file was validated against.
-  const ref: RemoteRef = `${VAL_REMOTE_HOST}/file/p/${publicProjectId}/v/${coreVersion}/h/${validationHash}/f/${fileHash}/p/${relativeFilePath}`;
-  console.error("FAKE UPLOAD", ref);
+    filePath: relativeFilePath,
+  });
+  const res = await fetch(ref, {
+    method: "PUT",
+    headers:
+      typeof metadata?.mimeType === "string"
+        ? {
+            "x-val-pat": pat,
+            "content-type": metadata.mimeType,
+          }
+        : {
+            "x-val-pat": pat,
+          },
+    body: fileBuffer,
+  });
+  if (!res.ok) {
+    if (res.status === 409) {
+      // File already exists
+      return {
+        success: true,
+        ref,
+      };
+    }
+    if (res.headers.get("content-type")?.includes("application/json")) {
+      const json = await res.json();
+      if (json.message) {
+        return {
+          success: false,
+          error: `${ref}. Failed to upload file: ${json.message}.`,
+        };
+      } else {
+        return {
+          success: false,
+          error: `${ref}. Failed to upload file: ${JSON.stringify(json)}.`,
+        };
+      }
+    }
+    return {
+      success: false,
+      error: `${ref}. Failed to upload file: ${await res.text()}.`,
+    };
+  }
   return {
     success: true,
     ref,
   };
-}
-
-/**
- * If the validation basis changes, we need to re-validate the remote content.
- *
- * NOTE: We do not care if the file path is different as long as the extension is the same.
- *       This way we can rename a file, without having to re-validate it.
- *       The version is outside of the validation hash, so that it is possible to manually fix the version without having to re-validate.
- */
-function getValidationBasis(
-  coreVersion: string,
-  schema: SerializedImageSchema | SerializedFileSchema,
-  fileExt: string,
-  metadata: Record<string, unknown> | undefined,
-  fileHash: string,
-) {
-  const metadataValidationBasis = `${metadata?.width}${metadata?.height}${metadata?.mimeType}`;
-  const schemaValidationBasis = {
-    type: schema.type,
-    opt: schema.opt,
-    options: {
-      ...schema.options,
-      // Ignore options that are does not affect the validation basis below:
-      // Currently we do not have any options that can be ignored.
-    },
-  };
-  return (
-    coreVersion +
-    JSON.stringify(schemaValidationBasis) +
-    fileExt +
-    metadataValidationBasis +
-    fileHash
-  );
-}
-
-export function getValidationHash(
-  coreVersion: string,
-  schema: SerializedImageSchema | SerializedFileSchema,
-  fileExt: string,
-  metadata: Record<string, unknown> | undefined,
-  fileHash: string,
-) {
-  return Internal.getSHA256Hash(
-    textEncoder.encode(
-      getValidationBasis(coreVersion, schema, fileExt, metadata, fileHash),
-    ),
-  ).slice(0, 4); // we do not need a lot of bits for the validation hash, since it is only used to identify the validation basis
 }
