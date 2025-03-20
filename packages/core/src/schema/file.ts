@@ -79,7 +79,7 @@ export class FileSchema<
       return {
         [path]: [
           {
-            message: `Remote file was not uploaded.`,
+            message: `Remote file was not checked.`,
             value: src,
             fixes: ["file:check-remote"],
           },

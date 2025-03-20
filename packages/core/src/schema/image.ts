@@ -79,7 +79,7 @@ export class ImageSchema<
       return {
         [path]: [
           {
-            message: `Remote image was not uploaded.`,
+            message: `Remote image was not checked.`,
             value: src,
             fixes: ["image:check-remote"],
           },
