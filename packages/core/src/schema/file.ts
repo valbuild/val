@@ -14,6 +14,7 @@ export type FileOptions = {
 export type SerializedFileSchema = {
   type: "file";
   options?: FileOptions;
+  remote?: boolean;
   opt: boolean;
 };
 
@@ -271,6 +272,7 @@ export class FileSchema<
       type: "file",
       options: this.options,
       opt: this.opt,
+      remote: this.isRemote,
     };
   }
 }
