@@ -32,6 +32,7 @@ import {
   useAuthenticationState,
   useCurrentPatchIds,
   useDebouncedLoadingStatus,
+  useErrors,
   usePublish,
   useSchemaAtPath,
   useTheme,
@@ -48,6 +49,8 @@ import { Switch } from "./designSystem/switch";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { fixCapitalization } from "../utils/fixCapitalization";
 import { DraftChanges } from "./DraftChanges";
+import { HoverCard } from "./designSystem/hover-card";
+import { HoverCardContent, HoverCardTrigger } from "@radix-ui/react-hover-card";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -564,6 +567,9 @@ function ValMenu({
   const debouncedLoadingStatus = useDebouncedLoadingStatus();
   const [publishPopoverSideOffset, setPublishPopoverSideOffset] = useState(0);
   const patchIds = useCurrentPatchIds();
+  const { validationErrors } = useErrors();
+  const validationErrorCount = Object.keys(validationErrors).length;
+  const valMode = useValMode();
   // TODO: refactor all resize handlers into a hook
   useEffect(() => {
     const handleResize = () => {
@@ -668,19 +674,59 @@ function ValMenu({
           <div className="pb-1 mt-1 border-t border-border-primary"></div>
           <Popover>
             <PopoverTrigger
+              disabled={publishDisabled}
               className={classNames("p-2 rounded-full disabled:bg-bg-disabled")}
             >
-              <div className="relative">
-                {patchIds.length > 0 && (
-                  <div className="absolute -top-3 -right-3">
-                    <div className="w-4 h-4 text-[9px] leading-4 text-center rounded-full bg-bg-brand-primary">
-                      {patchIds.length > 9 && <span>9+</span>}
-                      {patchIds.length <= 9 && <span>{patchIds.length}</span>}
-                    </div>
+              <HoverCard>
+                <HoverCardTrigger>
+                  <div className="relative">
+                    {patchIds.length > 0 && (
+                      <div className="absolute -top-3 -right-3">
+                        <div
+                          className={classNames(
+                            "w-4 h-4 text-[9px] leading-4 text-center rounded-full",
+                            {
+                              "bg-bg-brand-primary": validationErrorCount === 0,
+                              "bg-bg-error-primary text-text-error-primary":
+                                validationErrorCount > 0,
+                            },
+                          )}
+                        >
+                          {validationErrorCount === 0 &&
+                            patchIds.length > 9 && <span>9+</span>}
+                          {validationErrorCount === 0 &&
+                            patchIds.length <= 9 && (
+                              <span>{patchIds.length}</span>
+                            )}
+                          {validationErrorCount > 9 && <span>9+</span>}
+                          {validationErrorCount <= 9 &&
+                            validationErrorCount > 0 && (
+                              <span>{validationErrorCount}</span>
+                            )}
+                        </div>
+                      </div>
+                    )}
+                    <Upload size={16} />
                   </div>
-                )}
-                <Upload size={16} />
-              </div>
+                </HoverCardTrigger>
+                <HoverCardContent>
+                  <div className="p-2 rounded bg-bg-primary text-text-primary">
+                    {validationErrorCount > 0 && (
+                      <div className="text-text-error-primary">
+                        Cannot {valMode === "fs" ? "save" : "publish"} due to{" "}
+                        {validationErrorCount} validation error
+                        {validationErrorCount > 1 && "s"}
+                      </div>
+                    )}
+                    {patchIds.length > 0 && validationErrorCount == 0 && (
+                      <div>
+                        {patchIds.length} patch
+                        {patchIds.length > 1 && "es"} ready to publish
+                      </div>
+                    )}
+                  </div>
+                </HoverCardContent>
+              </HoverCard>
             </PopoverTrigger>
             <PopoverContent
               container={portalContainer}
