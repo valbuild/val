@@ -9,6 +9,7 @@ import {
   Internal,
   ModuleFilePath,
   PatchId,
+  RemoteSource,
   RichTextSchema,
   Schema,
   SelectorSource,
@@ -382,7 +383,9 @@ export abstract class ValOps {
         if (!patchesByModule[path]) {
           patchesByModule[path] = [];
         }
-        patchesByModule[path].push({ patchId: patch.patchId });
+        patchesByModule[path].push({
+          patchId: patch.patchId,
+        });
       }
     }
     return {
@@ -518,6 +521,7 @@ export abstract class ValOps {
       }
     >;
     files: Record<SourcePath, FileSource>;
+    remoteFiles: Record<SourcePath, RemoteSource>;
   }> {
     const checkKeyIsValid = async (
       key: string,
@@ -561,6 +565,7 @@ export abstract class ValOps {
       }
     > = {};
     const files: Record<SourcePath, FileSource> = {};
+    const remoteFiles: Record<SourcePath, RemoteSource> = {};
     const entries = Object.entries(schemas);
     const modulePathsToValidate =
       patchesByModule && Object.keys(patchesByModule);
@@ -613,6 +618,11 @@ export abstract class ValOps {
               if (isFileSource(value)) {
                 files[sourcePath] = value;
               }
+            } else if (
+              validationError.fixes?.includes("image:check-remote") ||
+              validationError.fixes?.includes("file:check-remote")
+            ) {
+              remoteFiles[sourcePath] = validationError.value as RemoteSource;
             } else if (validationError.fixes?.includes("keyof:check-keys")) {
               const TYPE_ERROR_MESSAGE = `This is most likely a Val version mismatch or Val bug.`;
               if (!validationError.value) {
@@ -666,7 +676,16 @@ export abstract class ValOps {
         }
       }
     }
-    return { errors, files };
+    return { errors, files, remoteFiles };
+  }
+
+  async validateRemoteFiles(
+    schemas: Schemas,
+    sources: Sources,
+    remoteFiles: Record<SourcePath, RemoteSource>,
+  ): Promise<Record<SourcePath, ValidationError[]>> {
+    // TODO: Implement
+    return {};
   }
 
   // #region validateFiles
@@ -1030,6 +1049,7 @@ export abstract class ValOps {
       string,
       {
         patchId: PatchId;
+        remote: boolean;
       }
     > = {};
     const binaryFilePatchErrors: Record<string, { message: string }> = {};
@@ -1042,6 +1062,7 @@ export abstract class ValOps {
             // or is that the case? We are picking the latest file by path so, that should be enough?
             patchedBinaryFilesDescriptors[filePath] = {
               patchId,
+              remote,
             };
           } else {
             hasErrors = true;
@@ -1191,6 +1212,7 @@ export abstract class ValOps {
             filePath,
             nestedFilePath: op.nestedFilePath,
             value: sha256,
+            remote: op.remote,
           });
         }
       }
@@ -1395,6 +1417,7 @@ export abstract class ValOps {
     data: string,
     type: "file" | "image",
     metadata: MetadataOfType<"file" | "image">,
+    remote: boolean,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>>;
   abstract getBase64EncodedBinaryFileFromPatch(
     filePath: string,
@@ -1522,7 +1545,10 @@ export type PreparedCommit = {
   /**
    * The file path and patch id in which they appear of binary files that are ready to be committed / saved
    */
-  patchedBinaryFilesDescriptors: Record<string, { patchId: PatchId }>;
+  patchedBinaryFilesDescriptors: Record<
+    string,
+    { patchId: PatchId; remote: boolean }
+  >;
   /**
    * Source file patches that were successfully applied to get to this result
    */

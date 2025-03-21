@@ -99,6 +99,7 @@ import {
 } from "./remote/validationBasis";
 import { getFileHash } from "./remote/fileHash";
 import { splitRemoteRef } from "./remote/splitRemoteRef";
+import { convertRemoteSource } from "./schema/remote";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
@@ -143,6 +144,7 @@ const Internal = {
     })(),
   },
   convertFileSource,
+  convertRemoteSource,
   getSchema,
   getValPath,
   getVal,

@@ -10,6 +10,7 @@ import {
   ValConfig,
   Internal,
   FileSource,
+  RemoteSource,
 } from "@valbuild/core";
 import {
   Api,
@@ -24,7 +25,7 @@ import {
   ValServerErrorStatus,
 } from "@valbuild/shared/internal";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
-import { z } from "zod";
+import { optional, z } from "zod";
 import { ValOpsFS } from "./ValOpsFS";
 import {
   AuthorId,
@@ -36,6 +37,13 @@ import {
 import { fromError } from "zod-validation-error";
 import { ValOpsHttp } from "./ValOpsHttp";
 import { result } from "@valbuild/core/fp";
+import { getPublicProjectId } from "./getPublicProjectId";
+import { getRemoteFileBuckets } from "./getRemoteFileBuckets";
+import {
+  getPersonalAccessTokenPath,
+  parsePersonalAccessTokenFile,
+} from "./personalAccessTokens";
+import path from "path";
 
 export type ValServerOptions = {
   route: string;
@@ -614,6 +622,146 @@ export const ValServer = (
       },
     },
 
+    "/remote/settings": {
+      GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              errorCode: "unauthorized",
+              message: auth.error,
+            },
+          };
+        }
+        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+          return {
+            status: 401,
+            json: {
+              errorCode: "unauthorized",
+              message: "Unauthorized",
+            },
+          };
+        }
+
+        if (!options.project) {
+          return {
+            status: 400,
+            json: {
+              errorCode: "project-not-configured",
+              message:
+                "Project is not configured. Update your val.config file with a valid remote project",
+            },
+          };
+        }
+        let remoteFileAuth: { apiKey: string } | { pat: string } | null = null;
+        if (serverOps instanceof ValOpsHttp && options.apiKey) {
+          remoteFileAuth = {
+            apiKey: options.apiKey,
+          };
+        } else if (!(serverOps instanceof ValOpsHttp)) {
+          if (options.apiKey) {
+            remoteFileAuth = {
+              apiKey: options.apiKey,
+            };
+          } else {
+            const projectRootDir = options.config.root;
+            if (!projectRootDir) {
+              return {
+                status: 400,
+                json: {
+                  errorCode: "project-not-configured",
+                  message: "Root directory was empty",
+                },
+              };
+            }
+            const fs = await import("fs");
+            const patPath = getPersonalAccessTokenPath(
+              path.join(process.cwd()),
+            );
+            let patFile;
+
+            try {
+              patFile = await fs.promises.readFile(patPath, "utf-8");
+            } catch (err) {
+              return {
+                status: 400,
+                json: {
+                  errorCode: "pat-error",
+                  message: "Could not read personal access token file",
+                },
+              };
+            }
+            const patRes = parsePersonalAccessTokenFile(patFile);
+            if (patRes.success) {
+              remoteFileAuth = {
+                pat: patRes.data.pat,
+              };
+            } else {
+              return {
+                status: 400,
+                json: {
+                  errorCode: "pat-error",
+                  message: "Could not parse personal access token file",
+                },
+              };
+            }
+          }
+        }
+        if (!remoteFileAuth) {
+          return {
+            status: 400,
+            json: {
+              errorCode: "project-not-configured",
+              message: "Remote file auth is not configured",
+            },
+          };
+        }
+
+        const publicProjectIdRes = await getPublicProjectId(
+          options.project,
+          remoteFileAuth,
+        );
+        if (!publicProjectIdRes.success) {
+          return {
+            status: 400,
+            json: {
+              errorCode: "error-could-not-get-public-project-id",
+              message:
+                "Could not get public project id: " +
+                publicProjectIdRes.message,
+            },
+          };
+        }
+
+        const remoteFileBucketsRes = await getRemoteFileBuckets(
+          publicProjectIdRes.data.publicProjectId,
+          remoteFileAuth,
+        );
+
+        if (!remoteFileBucketsRes.success) {
+          return {
+            status: 400,
+            json: {
+              errorCode: "error-could-not-get-buckets",
+              message:
+                "Could not get public project id: " +
+                remoteFileBucketsRes.message,
+            },
+          };
+        }
+        return {
+          status: 200,
+          json: {
+            publicProjectId: publicProjectIdRes.data.publicProjectId,
+            remoteFileBuckets: remoteFileBucketsRes.data,
+            coreVersion: Internal.VERSION.core || "unknown",
+          },
+        };
+      },
+    },
+
     //#region stat
     "/stat": {
       POST: async (req) => {
@@ -1015,9 +1163,11 @@ export const ValServer = (
             }
           >;
           files: Record<SourcePath, FileSource>;
+          remoteFiles: Record<SourcePath, RemoteSource>;
         } = {
           errors: {},
           files: {},
+          remoteFiles: {},
         };
         if (query.validate_sources || query.validate_binary_files) {
           const schemas = await serverOps.getSchemas();
@@ -1032,6 +1182,12 @@ export const ValServer = (
               schemas,
               sourcesRes.sources,
               sourcesValidation.files,
+            );
+            // TODO : actually do something with this
+            await serverOps.validateRemoteFiles(
+              schemas,
+              sourcesRes.sources,
+              sourcesValidation.remoteFiles,
             );
           }
         }

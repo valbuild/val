@@ -93,6 +93,29 @@ type ValContextValue = {
   profiles: Record<AuthorId, Profile>;
   deployments: Deployment[];
   dismissDeployment: (deploymentId: string) => void;
+  remoteFiles:
+    | {
+        status: "ready";
+        publicProjectId: string;
+        coreVersion: string;
+        buckets: string[];
+      }
+    | {
+        status: "loading" | "not-asked";
+      }
+    | {
+        status: "inactive";
+        reason:
+          | "unknown-error"
+          | "project-not-configured"
+          | "api-key-missing"
+          | "pat-error"
+          | "error-could-not-get-public-project-id"
+          | "error-could-not-get-buckets"
+          | "no-internet-connection"
+          | "unauthorized-personal-access-token-error"
+          | "unauthorized";
+      };
 };
 const ValContext = React.createContext<ValContextValue>(
   new Proxy(
@@ -359,6 +382,50 @@ export function ValProvider({
     dismissedDeploymentsRef.current.add(deploymentId);
   }, []);
 
+  const [remoteFiles, setRemoteFiles] = useState<
+    ValContextValue["remoteFiles"]
+  >({
+    status: "not-asked",
+  });
+  useEffect(() => {
+    let retries = 0;
+    function loadRemoteSettings() {
+      retries++;
+      if (remoteFiles.status !== "ready" && retries < 10) {
+        client("/remote/settings", "GET", {})
+          .then((res) => {
+            if (res.status === 200) {
+              setRemoteFiles({
+                status: "ready",
+                coreVersion: res.json.coreVersion,
+                buckets: res.json.remoteFileBuckets.map(
+                  (bucket) => bucket.bucket,
+                ),
+                publicProjectId: res.json.publicProjectId,
+              });
+            } else {
+              if ("errorCode" in res.json && res.json.errorCode) {
+                setRemoteFiles({
+                  status: "inactive",
+                  reason: res.json.errorCode,
+                });
+              } else {
+                setRemoteFiles({ status: "inactive", reason: "unknown-error" });
+              }
+              setTimeout(loadRemoteSettings, 5000);
+            }
+          })
+          .catch((err) => {
+            console.error("Error getting remote settings", err);
+            setRemoteFiles({ status: "inactive", reason: "unknown-error" });
+            setTimeout(loadRemoteSettings, 5000);
+          });
+      }
+    }
+    setRemoteFiles({ status: "loading" });
+    loadRemoteSettings();
+  }, []);
+
   return (
     <ValContext.Provider
       value={{
@@ -404,6 +471,7 @@ export function ValProvider({
         patchesStatus,
         patchIds,
         profiles,
+        remoteFiles,
       }}
     >
       <DayPickerProvider
@@ -442,6 +510,34 @@ export function useValConfig() {
     }
   }, [config]);
   return lastConfig.current;
+}
+
+export function useRemoteFiles() {
+  const { remoteFiles } = useContext(ValContext);
+  return remoteFiles;
+}
+
+export function useCurrentRemoteFileBucket() {
+  const { remoteFiles } = useContext(ValContext);
+  const [currentBucket, setCurrentBucket] = useState<string | null>(null);
+
+  function getRandomInt(max: number) {
+    return Math.floor(Math.random() * max);
+  }
+
+  useEffect(() => {
+    if (
+      remoteFiles.status === "ready" &&
+      remoteFiles.buckets.length > 0 &&
+      currentBucket === null
+    ) {
+      // Ideally we do round robin, but for now, we just pick a random bucket
+      setCurrentBucket(
+        remoteFiles.buckets[getRandomInt(remoteFiles.buckets.length)],
+      );
+    }
+  }, [remoteFiles]);
+  return currentBucket;
 }
 
 export function useAuthenticationState() {

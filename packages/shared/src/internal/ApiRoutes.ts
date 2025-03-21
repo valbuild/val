@@ -391,6 +391,56 @@ export const Api = {
       }),
     },
   },
+  "/remote/settings": {
+    GET: {
+      req: {
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            publicProjectId: z.string(),
+            coreVersion: z.string(),
+            remoteFileBuckets: z.array(
+              z.object({
+                bucket: z.string(),
+              }),
+            ),
+          }),
+        }),
+        z.object({
+          status: z.literal(400),
+          json: z.object({
+            errorCode: z.union([
+              z.literal("project-not-configured"),
+              z.literal("error-could-not-get-public-project-id"),
+              z.literal("error-could-not-get-buckets"),
+              z.literal("project-not-configured"),
+              z.literal("pat-error"),
+              z.literal("api-key-missing"),
+            ]),
+            message: z.string(),
+          }),
+        }),
+        z.object({
+          status: z.literal(401),
+          json: z.object({
+            errorCode: z.literal("unauthorized").optional(),
+            message: z.string(),
+          }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
   "/stat": {
     POST: {
       req: {

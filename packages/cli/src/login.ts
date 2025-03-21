@@ -1,7 +1,7 @@
 import pc from "picocolors";
 import fs from "fs";
 import path from "path";
-import { getPersonalAccessTokenPath } from "./utils/personalAccessTokens";
+import { getPersonalAccessTokenPath } from "@valbuild/server";
 
 const host = process.env.VAL_BUILD_URL || "https://app.val.build";
 

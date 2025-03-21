@@ -2,30 +2,10 @@ import {
   Internal,
   SerializedFileSchema,
   SerializedImageSchema,
-  VAL_REMOTE_HOST,
 } from "@valbuild/core";
 import { promises as fs } from "fs";
 import path from "path";
 import { getFileExt } from "./getFileExt";
-
-export async function getRemoteFileBuckets(
-  publicProjectId: string,
-  pat: string,
-) {
-  const res = await fetch(
-    `${VAL_REMOTE_HOST}/file/p/${publicProjectId}/buckets`,
-    {
-      headers: {
-        "x-val-pat": pat,
-      },
-    },
-  );
-  if (!res.ok) {
-    throw new Error(`Failed to get remote file buckets: ${res.statusText}`);
-  }
-  const json = (await res.json()) as { bucket: string }[];
-  return json.map((b) => b.bucket);
-}
 
 const textEncoder = new TextEncoder();
 export async function uploadRemoteFile(
