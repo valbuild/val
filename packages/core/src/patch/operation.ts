@@ -87,4 +87,6 @@ export type Operation =
       /** files can be nested within an object (for richtext), in order to find the actual file element this path can be used (we use this to add the patch_id on files) */
       nestedFilePath?: string[];
       value: JSONValue;
+      /** true if this is a remote file */
+      remote: boolean;
     };

@@ -12,6 +12,8 @@ export type { FileMetadata } from "./schema/file";
 export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
+export type { RemoteSource, RemoteRef } from "./source/remote";
+export { VAL_REMOTE_HOST } from "./schema/remote";
 export type { RawString } from "./schema/string";
 export type { ImageSource } from "./source/image";
 export type {
@@ -89,6 +91,15 @@ import {
 } from "./mimeType";
 import { type ImageMetadata } from "./schema/image";
 import { type FileMetadata } from "./schema/file";
+import { isFile } from "./source/file";
+import { createRemoteRef } from "./source/remote";
+import {
+  getValidationBasis,
+  getValidationHash,
+} from "./remote/validationBasis";
+import { getFileHash } from "./remote/fileHash";
+import { splitRemoteRef } from "./remote/splitRemoteRef";
+import { convertRemoteSource } from "./schema/remote";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
@@ -133,6 +144,7 @@ const Internal = {
     })(),
   },
   convertFileSource,
+  convertRemoteSource,
   getSchema,
   getValPath,
   getVal,
@@ -140,7 +152,15 @@ const Internal = {
   resolvePath,
   splitModuleFilePathAndModulePath,
   joinModuleFilePathAndModulePath,
+  remote: {
+    createRemoteRef,
+    getValidationBasis,
+    getValidationHash,
+    getFileHash,
+    splitRemoteRef,
+  },
   isVal,
+  isFile,
   createValPathOfItem,
   getSHA256Hash,
   initSchema,

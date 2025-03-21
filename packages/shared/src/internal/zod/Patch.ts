@@ -78,6 +78,7 @@ const OperationJSONT: z.ZodType<OperationJSONT> = z.discriminatedUnion("op", [
       path: z.string(),
       filePath: z.string(),
       value: z.string(),
+      remote: z.boolean(),
     })
     .strict(),
 ]);
@@ -137,6 +138,7 @@ const OperationT: z.ZodType<OperationT> = z.discriminatedUnion("op", [
       filePath: z.string(),
       nestedFilePath: z.array(z.string()).optional(),
       value: z.string(),
+      remote: z.boolean(),
     })
     .strict(),
 ]);

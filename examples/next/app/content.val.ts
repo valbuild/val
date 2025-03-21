@@ -42,7 +42,7 @@ export const schema = s.object({
    */
   hero: s.object({
     title: s.string(),
-    image,
+    image: s.image().remote(),
   }),
   // Boolean:
   featured: s.boolean(),

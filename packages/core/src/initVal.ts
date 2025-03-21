@@ -5,6 +5,7 @@ import { InitSchema, initSchema } from "./initSchema";
 import { getValPath as getPath } from "./val";
 import { initFile } from "./source/file";
 import { initImage } from "./source/image";
+import { initRemote } from "./source/remote";
 // import { i18n, I18n } from "./source/future/i18n";
 // import { remote } from "./source/future/remote";
 
@@ -13,12 +14,13 @@ export type ContentConstructor = {
   // remote: typeof remote;
   file: ReturnType<typeof initFile>;
   image: ReturnType<typeof initImage>;
+  remote: ReturnType<typeof initRemote>;
 };
 export type ValConstructor = {
   unstable_getPath: typeof getPath;
 };
 
-export type ConfigDirectory = `/public/${string}`;
+export type ConfigDirectory = `/public/val`;
 
 export type ValConfig = {
   project?: string;
@@ -85,7 +87,7 @@ InitVal => {
     },
     c: {
       define,
-      // remote,
+      remote: initRemote(config),
       file: initFile(config),
       image: initImage(config),
     },

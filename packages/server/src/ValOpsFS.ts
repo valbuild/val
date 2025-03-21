@@ -644,9 +644,10 @@ export class ValOpsFS extends ValOps {
     data: string,
     _type: BinaryFileType,
     metadata: MetadataOfType<BinaryFileType>,
+    remote: boolean,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
     const patchDir = this.getParentPatchIdFromParentRef(parentRef);
-    const patchFilePath = this.getBinaryFilePath(filePath, patchDir);
+    const patchFilePath = this.getBinaryFilePath(filePath, patchDir, remote);
     const metadataFilePath = this.getBinaryFileMetadataPath(filePath, patchDir);
     try {
       const buffer = bufferFromDataUrl(data);
@@ -862,7 +863,7 @@ export class ValOpsFS extends ValOps {
     }
     const patchIdToPatchDirMap = patchIdToPatchDirMapRes.value;
 
-    for (const [filePath, { patchId }] of Object.entries(
+    for (const [filePath, { patchId, remote }] of Object.entries(
       preparedCommit.patchedBinaryFilesDescriptors,
     )) {
       const absPath = fsPath.join(this.rootDir, ...filePath.split("/"));
@@ -875,7 +876,10 @@ export class ValOpsFS extends ValOps {
           };
           continue;
         }
-        this.host.copyFile(this.getBinaryFilePath(filePath, patchDir), absPath);
+        this.host.copyFile(
+          this.getBinaryFilePath(filePath, patchDir, remote),
+          absPath,
+        );
         updatedFiles.push(absPath);
       } catch (err) {
         errors[absPath] = {
@@ -1006,7 +1010,24 @@ export class ValOpsFS extends ValOps {
     return fsPath.join(this.getPatchesDir(), patchDir);
   }
 
-  private getBinaryFilePath(filePath: string, patchDir: ParentPatchId) {
+  private getBinaryFilePath(
+    filePath: string,
+    patchDir: ParentPatchId,
+    remote: boolean,
+  ) {
+    if (remote) {
+      const res = Internal.remote.splitRemoteRef(filePath);
+      if (res.status === "error") {
+        throw new Error("Failed to split remote ref");
+      }
+      const actualPatchPath = res.filePath;
+      return fsPath.join(
+        this.getFullPatchDir(patchDir),
+        "files",
+        actualPatchPath,
+        fsPath.basename(actualPatchPath),
+      );
+    }
     return fsPath.join(
       this.getFullPatchDir(patchDir),
       "files",
