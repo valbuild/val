@@ -689,6 +689,7 @@ export class ValOpsHttp extends ValOps {
     data: string,
     type: BinaryFileType,
     metadata: MetadataOfType<BinaryFileType>,
+    remote: boolean,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
     return fetch(
       `${this.contentUrl}/v1/${this.project}/patches/${patchId}/files`,

@@ -1,5 +1,12 @@
 import path from "path";
-import { createFixPatch, createService } from "@valbuild/server";
+import {
+  createFixPatch,
+  createService,
+  getPublicProjectId,
+  getPersonalAccessTokenPath,
+  parsePersonalAccessTokenFile,
+  getRemoteFileBuckets,
+} from "@valbuild/server";
 import {
   FILE_REF_PROP,
   Internal,
@@ -14,16 +21,7 @@ import { glob } from "fast-glob";
 import picocolors from "picocolors";
 import { ESLint } from "eslint";
 import fs from "fs/promises";
-import {
-  getPersonalAccessTokenPath,
-  parsePersonalAccessTokenFile,
-} from "./utils/personalAccessTokens";
-import {
-  getRemoteFileBuckets,
-  uploadRemoteFile,
-} from "./utils/uploadRemoteFile";
-import { getPublicProjectId } from "./utils/getPublicProjectId";
-import { checkRemoteRef } from "./utils/checkRemoteRef";
+import { uploadRemoteFile } from "./utils/uploadRemoteFile";
 
 export async function validate({
   root,
@@ -382,12 +380,12 @@ export async function validate({
                       }
                       const publicProjectIdRes = await getPublicProjectId(
                         projectName,
-                        pat,
+                        { pat },
                       );
                       if (!publicProjectIdRes.success) {
                         console.log(
                           picocolors.red("✘"),
-                          `Could not get public project id: ${publicProjectIdRes.error}.`,
+                          `Could not get public project id: ${publicProjectIdRes.message}.`,
                         );
                         errors += 1;
                         continue;
@@ -429,10 +427,17 @@ export async function validate({
                       );
                     }
                     if (remoteFileBuckets === null) {
-                      remoteFileBuckets = await getRemoteFileBuckets(
+                      const bucketRes = await getRemoteFileBuckets(
                         publicProjectId,
-                        pat,
+                        { pat },
                       );
+                      if (bucketRes.success) {
+                        remoteFileBuckets = bucketRes.data.map((b) => b.bucket);
+                      } else {
+                        throw new Error(
+                          `Could not get remote file buckets for project ${publicProjectId}: ${bucketRes.message}`,
+                        );
+                      }
                     }
                     remoteFilesCounter += 1;
                     const bucket =

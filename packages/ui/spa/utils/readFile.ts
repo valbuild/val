@@ -1,12 +1,11 @@
 import { Internal } from "@valbuild/core";
 import { ChangeEvent } from "react";
-
-const textEncoder = new TextEncoder();
+import { Buffer } from "buffer";
 
 export function readFile(ev: ChangeEvent<HTMLInputElement>) {
   return new Promise<{
     src: string;
-    sha256: string;
+    fileHash: string;
     mimeType?: string;
     fileExt?: string;
     filename?: string;
@@ -16,12 +15,13 @@ export function readFile(ev: ChangeEvent<HTMLInputElement>) {
     reader.addEventListener("load", () => {
       const result = reader.result;
       if (typeof result === "string") {
-        const sha256 = Internal.getSHA256Hash(textEncoder.encode(result));
+        const binaryData = Buffer.from(result.split(",")[1], "base64");
+        const fileHash = Internal.getSHA256Hash(binaryData);
         const mimeType = Internal.getMimeType(result);
         resolve({
           src: result,
           filename: uploadedFile?.name,
-          sha256,
+          fileHash,
           mimeType,
           fileExt: mimeType && Internal.mimeTypeToFileExt(mimeType),
         });

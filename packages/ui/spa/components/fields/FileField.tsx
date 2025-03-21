@@ -7,6 +7,8 @@ import {
   Internal,
   SourcePath,
   FILE_REF_SUBTYPE_TAG,
+  SerializedImageSchema,
+  SerializedFileSchema,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { FieldLoading } from "../FieldLoading";
@@ -20,30 +22,68 @@ import {
   useSchemaAtPath,
   useShallowSourceAtPath,
   useAddPatch,
+  useCurrentRemoteFileBucket,
+  useRemoteFiles,
 } from "../ValProvider";
 import { PreviewLoading, PreviewNull } from "../Preview";
 import { File, SquareArrowOutUpRight } from "lucide-react";
 import { readFile } from "../../utils/readFile";
 import { Button } from "../designSystem/button";
+import { useState } from "react";
+import { getFileExt } from "../../utils/getFileExt";
 
-export function createFilePatch(
+const textEncoder = new TextEncoder();
+export async function createFilePatch(
   path: string[],
   data: string | null,
   filename: string | null,
-  sha256: string,
+  fileHash: string,
   metadata: FileMetadata | ImageMetadata | undefined,
   subType: "image" | "file",
+  remote: {
+    publicProjectId: string;
+    coreVersion: string;
+    bucket: string;
+    schema: SerializedImageSchema | SerializedFileSchema;
+  } | null,
   directory: ConfigDirectory = "/public/val",
-): Patch {
-  const newFilePath = Internal.createFilename(data, filename, metadata, sha256);
+): Promise<Patch> {
+  const newFilePath = Internal.createFilename(
+    data,
+    filename,
+    metadata,
+    fileHash,
+  );
   if (!newFilePath || !metadata) {
     return [];
   }
+
+  const filePath = `${directory}/${newFilePath}`;
+  const ref = remote
+    ? Internal.remote.createRemoteRef({
+        publicProjectId: remote.publicProjectId,
+        coreVersion: remote.coreVersion,
+        bucket: remote.bucket,
+        validationHash: Internal.remote.getValidationHash(
+          remote.coreVersion,
+          remote.schema,
+          getFileExt(newFilePath),
+          metadata,
+          fileHash,
+          textEncoder,
+        ),
+        fileHash,
+        filePath: `${directory.slice(1) as `public/val`}/${newFilePath}`,
+      })
+    : filePath;
+
+  console.log("ref", ref);
+
   return [
     {
       value: {
-        [FILE_REF_PROP]: `${directory}/${newFilePath}`,
-        [VAL_EXTENSION]: "file",
+        [FILE_REF_PROP]: ref,
+        [VAL_EXTENSION]: remote ? "remote" : "file",
         ...(subType !== "file" ? { [FILE_REF_SUBTYPE_TAG]: subType } : {}),
         metadata,
       },
@@ -54,7 +94,8 @@ export function createFilePatch(
       value: data,
       op: "file",
       path,
-      filePath: `${directory}/${newFilePath}`,
+      filePath: ref,
+      remote: remote !== null,
     },
   ];
 }
@@ -62,9 +103,12 @@ export function createFilePatch(
 export function FileField({ path }: { path: SourcePath }) {
   const type = "file";
   const config = useValConfig();
+  const currentRemoteFileBucket = useCurrentRemoteFileBucket();
+  const remoteFiles = useRemoteFiles();
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const { patchPath, addPatch } = useAddPatch(path);
+  const [error, setError] = useState<string | null>(null);
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -100,9 +144,30 @@ export function FileField({ path }: { path: SourcePath }) {
   if (source === undefined) {
     return <FieldNotFound path={path} type={type} />;
   }
+  const remoteFileUploadDisabled =
+    schemaAtPath.data.type === "file" &&
+    schemaAtPath.data.remote &&
+    remoteFiles.status !== "ready";
+  const disabled = remoteFileUploadDisabled;
+  const remoteData =
+    schemaAtPath.data.remote &&
+    remoteFiles.status === "ready" &&
+    currentRemoteFileBucket
+      ? {
+          publicProjectId: remoteFiles.publicProjectId,
+          coreVersion: remoteFiles.coreVersion,
+          bucket: currentRemoteFileBucket,
+          schema: schemaAtPath.data,
+        }
+      : null;
   return (
     <div>
       <ValidationErrors path={path} />
+      {error && (
+        <div className="p-4 rounded bg-bg-error-primary text-text-error-primary">
+          {error}
+        </div>
+      )}
       <div className="flex items-center gap-4">
         <Button
           asChild
@@ -115,10 +180,15 @@ export function FileField({ path }: { path: SourcePath }) {
           <a
             className="flex items-center gap-2"
             href={
-              Internal.convertFileSource({
-                ...source,
-                _type: "file",
-              }).url
+              VAL_EXTENSION in source && source[VAL_EXTENSION] === "remote"
+                ? Internal.convertRemoteSource({
+                    ...source,
+                    [VAL_EXTENSION]: "remote",
+                  }).url
+                : Internal.convertFileSource({
+                    ...source,
+                    [VAL_EXTENSION]: "file",
+                  }).url
             }
           >
             {" "}
@@ -127,7 +197,7 @@ export function FileField({ path }: { path: SourcePath }) {
           </a>
         )}
         <input
-          disabled={sourceAtPath.status === "loading"}
+          disabled={disabled}
           hidden
           id={`img_input:${path}`}
           type="file"
@@ -141,17 +211,22 @@ export function FileField({ path }: { path: SourcePath }) {
                   mimeType: res.mimeType,
                 };
               }
-              addPatch(
-                createFilePatch(
-                  patchPath,
-                  data.src,
-                  data.filename ?? null,
-                  res.sha256,
-                  metadata,
-                  "file",
-                  config.files?.directory,
-                ),
-              );
+              setError(null);
+              createFilePatch(
+                patchPath,
+                data.src,
+                data.filename ?? null,
+                res.fileHash,
+                metadata,
+                "file",
+                remoteData,
+                config.files?.directory,
+              )
+                .then(addPatch)
+                .catch((err) => {
+                  console.error("Failed to create file patch", err);
+                  setError("Could not upload file. Please try again later");
+                });
             });
           }}
         />

@@ -104,8 +104,9 @@ export const createValClient = (host: string): ValClient => {
           return {
             status: 500,
             json: {
-              message: json.message,
               type: "unknown",
+              message: json.message,
+              ...json,
             },
           } satisfies ClientFetchErrors;
         }

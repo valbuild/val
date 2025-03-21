@@ -378,7 +378,7 @@ const Toolbar = ({
                                 height: res.height,
                                 mimeType: res.mimeType,
                               },
-                              res.sha256,
+                              res.fileHash,
                             ) ?? undefined,
                         })
                         .focus()
