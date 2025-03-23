@@ -854,6 +854,7 @@ export class ValOpsFS extends ValOps {
           apiKey: string;
         }
       | { pat: string },
+    testMode?: "test-skip-remote",
   ): Promise<{
     updatedFiles: string[];
     uploadedRemoteRefs: string[];
@@ -897,20 +898,11 @@ export class ValOpsFS extends ValOps {
         };
         continue;
       }
-      console.log("Uploading remote file", ref, fileBuffer);
-      if (
-        process.env.NODE_ENV === "production" &&
-        "pat" in auth &&
-        auth.pat === "test!"
-      ) {
-        throw new Error("Found test pat in production");
-      }
-      if ("pat" in auth && auth.pat === "test!") {
-        console.log(
-          "Test personal access token (PAT) detected. Skipping file upload",
-        );
+      if (testMode === "test-skip-remote") {
+        console.log("Skip remote flag enabled. Skipping file upload", ref);
         continue;
       }
+      console.log("Uploading remote file", ref);
       const res = await uploadRemoteRef(fileBuffer, ref, auth);
       if (!res.success) {
         console.error("Failed to upload remote file", ref, res.error);
