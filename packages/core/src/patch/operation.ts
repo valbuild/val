@@ -39,6 +39,7 @@ export type OperationJSON =
       path: string;
       filePath: string;
       value: JSONValue;
+      remote: boolean;
     };
 
 /**

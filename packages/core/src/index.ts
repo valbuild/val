@@ -97,7 +97,7 @@ import {
   getValidationBasis,
   getValidationHash,
 } from "./remote/validationBasis";
-import { getFileHash } from "./remote/fileHash";
+import { getFileHash, hashToRemoteFileHash } from "./remote/fileHash";
 import { splitRemoteRef } from "./remote/splitRemoteRef";
 import { convertRemoteSource } from "./schema/remote";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
@@ -157,6 +157,7 @@ const Internal = {
     getValidationBasis,
     getValidationHash,
     getFileHash,
+    hashToRemoteFileHash,
     splitRemoteRef,
   },
   isVal,
@@ -178,6 +179,7 @@ const Internal = {
     path: string[];
     filePath: string;
     value: string;
+    remote: boolean;
   } => op.op === "file" && typeof op.filePath === "string",
   createPatchJSONPath: (modulePath: ModulePath) =>
     `/${modulePath

@@ -124,6 +124,7 @@ export function parseOperation(
           path,
           filePath: operation.filePath,
           value: operation.value,
+          remote: operation.remote,
         })),
       );
     case "remove":

@@ -18,3 +18,4 @@ export {
   getPersonalAccessTokenPath,
   parsePersonalAccessTokenFile,
 } from "./personalAccessTokens";
+export { uploadRemoteFile } from "./uploadRemoteFile";

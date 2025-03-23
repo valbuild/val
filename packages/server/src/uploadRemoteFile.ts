@@ -3,19 +3,22 @@ import {
   SerializedFileSchema,
   SerializedImageSchema,
 } from "@valbuild/core";
-import { promises as fs } from "fs";
-import path from "path";
 import { getFileExt } from "./getFileExt";
 
-const textEncoder = new TextEncoder();
 export async function uploadRemoteFile(
+  fileBuffer: Buffer,
   publicProjectId: string,
   bucket: string,
-  root: string,
-  filePath: string,
+  filePath: `public/val/${string}`,
   schema: SerializedImageSchema | SerializedFileSchema,
   metadata: Record<string, unknown> | undefined,
-  pat: string,
+  auth:
+    | {
+        pat: string;
+      }
+    | {
+        apiKey: string;
+      },
 ): Promise<
   | {
       success: true;
@@ -26,45 +29,63 @@ export async function uploadRemoteFile(
       error: string;
     }
 > {
-  const fileBuffer = await fs.readFile(filePath);
-  const relativeFilePath = path
-    .relative(root, filePath)
-    .split(path.sep)
-    .join("/") as `public/val/${string}`;
-  if (!relativeFilePath.startsWith("public/val/")) {
-    return {
-      success: false,
-      error: `File path must be within the public/val/ directory (e.g. public/val/path/to/file.txt). Got: ${relativeFilePath}`,
-    };
-  }
   const fileHash = Internal.remote.getFileHash(fileBuffer);
   const coreVersion = Internal.VERSION.core || "unknown";
+  const fileExt = getFileExt(filePath);
   const ref = Internal.remote.createRemoteRef({
     publicProjectId,
     coreVersion,
     bucket,
-    validationHash: Internal.remote.getValidationHash(
+    validationHash: Internal.remote.getValidationBasis(
       coreVersion,
       schema,
-      getFileExt(relativeFilePath),
+      fileExt,
       metadata,
       fileHash,
-      textEncoder,
     ),
     fileHash,
-    filePath: relativeFilePath,
+    filePath,
   });
+  return uploadRemoteRef(fileBuffer, ref, auth);
+}
+
+export async function uploadRemoteRef(
+  fileBuffer: Buffer,
+  ref: string,
+  auth:
+    | {
+        pat: string;
+      }
+    | {
+        apiKey: string;
+      },
+): Promise<
+  | {
+      success: true;
+      ref: string;
+    }
+  | {
+      success: false;
+      error: string;
+    }
+> {
+  const authHeader:
+    | {
+        Authorization: string;
+      }
+    | {
+        "x-val-pat": string;
+      } =
+    "apiKey" in auth
+      ? {
+          Authorization: `Bearer ${auth.apiKey}`,
+        }
+      : {
+          "x-val-pat": auth.pat,
+        };
   const res = await fetch(ref, {
     method: "PUT",
-    headers:
-      typeof metadata?.mimeType === "string"
-        ? {
-            "x-val-pat": pat,
-            "content-type": metadata.mimeType,
-          }
-        : {
-            "x-val-pat": pat,
-          },
+    headers: { ...authHeader, "Content-Type": "application/octet-stream" },
     body: fileBuffer,
   });
   if (!res.ok) {

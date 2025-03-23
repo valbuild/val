@@ -59,6 +59,7 @@ export async function createFilePatch(
   }
 
   const filePath = `${directory}/${newFilePath}`;
+  const remoteFileHash = Internal.remote.hashToRemoteFileHash(fileHash);
   const ref = remote
     ? Internal.remote.createRemoteRef({
         publicProjectId: remote.publicProjectId,
@@ -69,10 +70,10 @@ export async function createFilePatch(
           remote.schema,
           getFileExt(newFilePath),
           metadata,
-          fileHash,
+          remoteFileHash,
           textEncoder,
         ),
-        fileHash,
+        fileHash: remoteFileHash,
         filePath: `${directory.slice(1) as `public/val`}/${newFilePath}`,
       })
     : filePath;

@@ -914,7 +914,12 @@ export class ValOpsHttp extends ValOps {
 
   protected override async getBase64EncodedBinaryFileMetadataFromPatch<
     T extends "file" | "image",
-  >(filePath: string, type: T, patchId: PatchId): Promise<OpsMetadata<T>> {
+  >(
+    filePath: string,
+    type: T,
+    patchId: PatchId,
+    remote: boolean,
+  ): Promise<OpsMetadata<T>> {
     const params = new URLSearchParams();
     params.set("file_path", filePath);
     try {
