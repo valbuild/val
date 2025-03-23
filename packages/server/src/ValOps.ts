@@ -369,7 +369,13 @@ export abstract class ValOps {
         patchId: PatchId;
       }[];
     } = {};
-    const fileLastUpdatedByPatchId: Record<string, PatchId> = {};
+    const fileLastUpdatedByPatchId: Record<
+      string,
+      {
+        patchId: PatchId;
+        remote: boolean;
+      }
+    > = {};
     for (const patch of sortedPatches) {
       if (patch.appliedAt) {
         continue;
@@ -377,7 +383,10 @@ export abstract class ValOps {
       for (const op of patch.patch) {
         if (op.op === "file") {
           const filePath = op.filePath;
-          fileLastUpdatedByPatchId[filePath] = patch.patchId;
+          fileLastUpdatedByPatchId[filePath] = {
+            patchId: patch.patchId,
+            remote: op.remote,
+          };
         }
         const path = patch.path;
         if (!patchesByModule[path]) {
@@ -755,18 +764,19 @@ export abstract class ValOps {
       }
       const type = schemaAtPath instanceof ImageSchema ? "image" : "file";
       const filePath = value[FILE_REF_PROP];
-      const patchId: PatchId | null =
+      const fileData: { patchId: PatchId; remote: boolean } | null =
         fileLastUpdatedByPatchId?.[filePath] || null;
       let metadata;
       let metadataErrors;
 
       // TODO: refactor so we call get metadata once instead of iterating like this. Reason: should be a lot faster
-      if (patchId) {
+      if (fileData) {
         const patchFileMetadata =
           await this.getBase64EncodedBinaryFileMetadataFromPatch(
             filePath,
             type,
-            patchId,
+            fileData.patchId,
+            fileData.remote,
           );
         if (patchFileMetadata.errors) {
           metadataErrors = patchFileMetadata.errors;
@@ -788,7 +798,7 @@ export abstract class ValOps {
         return {
           [sourcePath]: metadataErrors.map((e) => ({
             message: e.message,
-            value: { filePath, patchId },
+            value: { filePath, patchId: fileData?.patchId ?? null },
           })),
         };
       }
@@ -1055,7 +1065,8 @@ export abstract class ValOps {
     const binaryFilePatchErrors: Record<string, { message: string }> = {};
     await Promise.all(
       Object.entries(fileLastUpdatedByPatchId).map(
-        async ([filePath, patchId]) => {
+        async ([filePath, patchData]) => {
+          const { patchId, remote } = patchData;
           if (globalAppliedPatches.includes(patchId)) {
             // TODO: do we want to make sure the file is there? Then again, it should be rare that it happens (unless there's a Val bug) so it might be enough to fail later (at commit)
             // TODO: include sha256? This way we can make sure we pick the right file since theoretically there could be multiple files with the same path in the same patch
@@ -1174,6 +1185,7 @@ export abstract class ValOps {
           value: string;
           path: string[];
           sha256: string;
+          remote: boolean;
         }
       | {
           error: PatchError;
@@ -1205,6 +1217,7 @@ export abstract class ValOps {
             value,
             sha256,
             path: op.path,
+            remote: op.remote,
           };
           sourceFileOps.push({
             op: "file",
@@ -1346,6 +1359,7 @@ export abstract class ValOps {
                   data.value,
                   type,
                   metadataOps.metadata,
+                  data.remote,
                 );
                 if (!lastRes.error) {
                   return { filePath };
@@ -1425,7 +1439,12 @@ export abstract class ValOps {
   ): Promise<Buffer | null>;
   protected abstract getBase64EncodedBinaryFileMetadataFromPatch<
     T extends "file" | "image",
-  >(filePath: string, type: T, patchId: PatchId): Promise<OpsMetadata<T>>;
+  >(
+    filePath: string,
+    type: T,
+    patchId: PatchId,
+    remote: boolean,
+  ): Promise<OpsMetadata<T>>;
   abstract getBinaryFile(filePath: string): Promise<Buffer | null>;
   protected abstract getBinaryFileMetadata<T extends "file" | "image">(
     filePath: string,
@@ -1500,7 +1519,10 @@ export type PatchAnalysis = {
       patchId: PatchId;
     }[];
   };
-  fileLastUpdatedByPatchId: Record<string, PatchId>;
+  fileLastUpdatedByPatchId: Record<
+    string,
+    { patchId: PatchId; remote: boolean }
+  >;
 };
 
 export type PatchSourceError =

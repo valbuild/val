@@ -21,7 +21,6 @@ export function readImage(ev: ChangeEvent<HTMLInputElement>) {
         image.addEventListener("load", () => {
           const binaryData = Buffer.from(result.split(",")[1], "base64");
           const fileHash = Internal.getSHA256Hash(binaryData);
-          console.log({ fileHash });
           if (image.naturalWidth && image.naturalHeight) {
             const mimeType = Internal.getMimeType(result);
             resolve({

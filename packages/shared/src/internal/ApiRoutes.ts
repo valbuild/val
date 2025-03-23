@@ -807,19 +807,28 @@ export const Api = {
         }),
         z.object({
           status: z.literal(400),
-          json: z.object({
-            message: z.string(),
-            details: z.union([
-              z.object({
-                sourceFilePatchErrors: z.record(
-                  ModuleFilePath,
-                  z.array(GenericError),
-                ),
-                binaryFilePatchErrors: z.record(GenericError),
-              }),
-              z.array(GenericError),
-            ]),
-          }),
+          json: z.union([
+            z.object({
+              message: z.string(),
+              details: z.union([
+                z.object({
+                  sourceFilePatchErrors: z.record(
+                    ModuleFilePath,
+                    z.array(GenericError),
+                  ),
+                  binaryFilePatchErrors: z.record(GenericError),
+                }),
+                z.array(GenericError),
+              ]),
+            }),
+            z.object({
+              message: z.string(),
+              errorCode: z.union([
+                z.literal("project-not-configured"),
+                z.literal("pat-error"),
+              ]),
+            }),
+          ]),
         }),
       ]),
     },

@@ -6,6 +6,7 @@ import {
   getPersonalAccessTokenPath,
   parsePersonalAccessTokenFile,
   getRemoteFileBuckets,
+  uploadRemoteFile,
 } from "@valbuild/server";
 import {
   FILE_REF_PROP,
@@ -21,7 +22,6 @@ import { glob } from "fast-glob";
 import picocolors from "picocolors";
 import { ESLint } from "eslint";
 import fs from "fs/promises";
-import { uploadRemoteFile } from "./utils/uploadRemoteFile";
 
 export async function validate({
   root,
@@ -452,16 +452,39 @@ export async function validate({
                       errors += 1;
                       continue;
                     }
+                    let fileBuffer: Buffer;
+                    try {
+                      fileBuffer = await fs.readFile(filePath);
+                    } catch (e) {
+                      console.log(
+                        picocolors.red("✘"),
+                        `Error reading file: ${e}`,
+                      );
+                      errors += 1;
+                      continue;
+                    }
+                    const relativeFilePath = path
+                      .relative(projectRoot, filePath)
+                      .split(path.sep)
+                      .join("/") as `public/val/${string}`;
+                    if (!relativeFilePath.startsWith("public/val/")) {
+                      console.log(
+                        picocolors.red("✘"),
+                        `File path must be within the public/val/ directory (e.g. public/val/path/to/file.txt). Got: ${relativeFilePath}`,
+                      );
+                      errors += 1;
+                      continue;
+                    }
                     const remoteFileUpload = await uploadRemoteFile(
+                      fileBuffer,
                       publicProjectId,
                       bucket,
-                      projectRoot,
-                      filePath,
+                      relativeFilePath,
                       resolveRemoteFileSchema as
                         | SerializedFileSchema
                         | SerializedImageSchema,
                       fileSourceMetadata,
-                      pat,
+                      { pat },
                     );
                     if (!remoteFileUpload.success) {
                       console.log(
