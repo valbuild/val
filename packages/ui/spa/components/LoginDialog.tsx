@@ -13,7 +13,11 @@ export function LoginDialog() {
   const portalContainer = useValPortal();
   return (
     <Dialog open={true} modal>
-      <DialogContent container={portalContainer} aria-label="Login required">
+      <DialogContent
+        container={portalContainer}
+        aria-label="Login required"
+        className="bg-bg-primary text-text-primary"
+      >
         <DialogHeader>
           <DialogTitle>
             <span>Log in required</span>
