@@ -7,6 +7,7 @@ import { getFileExt } from "./getFileExt";
 
 const textEncoder = new TextEncoder();
 export async function uploadRemoteFile(
+  remoteHost: string,
   fileBuffer: Buffer,
   publicProjectId: string,
   bucket: string,
@@ -33,7 +34,7 @@ export async function uploadRemoteFile(
   const fileHash = Internal.remote.getFileHash(fileBuffer);
   const coreVersion = Internal.VERSION.core || "unknown";
   const fileExt = getFileExt(filePath);
-  const ref = Internal.remote.createRemoteRef({
+  const ref = Internal.remote.createRemoteRef(remoteHost, {
     publicProjectId,
     coreVersion,
     bucket,

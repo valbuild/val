@@ -86,14 +86,21 @@ export function RichTextField({
     typeof schema.options?.inline?.img === "object" &&
     schema.options.inline.img.remote &&
     remoteFiles.status === "ready" &&
+    config?.remoteHost &&
     currentRemoteFileBucket
       ? {
           publicProjectId: remoteFiles.publicProjectId,
           bucket: currentRemoteFileBucket,
           coreVersion: remoteFiles.coreVersion,
           schema: schema.options.inline.img,
+          remoteHost: config?.remoteHost,
         }
       : null;
+  if (!config?.remoteHost) {
+    console.warn(
+      "RichTextField: config.remoteHost is not set. Remote images will not work.",
+    );
+  }
   return (
     <div>
       <ValidationErrors path={path} />

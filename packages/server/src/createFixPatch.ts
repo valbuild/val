@@ -19,7 +19,7 @@ import { checkRemoteRef, downloadFileFromRemote } from "./checkRemoteRef";
 
 // TODO: find a better name? transformFixesToPatch?
 export async function createFixPatch(
-  config: { projectRoot: string },
+  config: { projectRoot: string; remoteHost: string },
   apply: boolean,
   sourcePath: SourcePath,
   validationError: ValidationError,
@@ -368,6 +368,7 @@ export async function createFixPatch(
 
       if (schemaAtPath.type === "image" || schemaAtPath.type === "file") {
         const res = await checkRemoteRef(
+          config.remoteHost,
           v._ref,
           config.projectRoot,
           schemaAtPath,

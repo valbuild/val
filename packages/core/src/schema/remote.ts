@@ -3,7 +3,7 @@ import { splitRemoteRef } from "../remote/splitRemoteRef";
 import { FILE_REF_PROP } from "../source/file";
 import { RemoteSource } from "../source/remote";
 
-export const VAL_REMOTE_HOST = "http://localhost:4000";
+export const DEFAULT_VAL_REMOTE_HOST = "https://remote.val.build";
 
 export function convertRemoteSource<
   Metadata extends { readonly [key: string]: Json } | undefined =
