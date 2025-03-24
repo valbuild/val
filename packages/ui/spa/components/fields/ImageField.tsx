@@ -126,6 +126,7 @@ export function ImageField({ path }: { path: SourcePath }) {
           bucket: currentRemoteFileBucket,
           coreVersion: remoteFiles.coreVersion,
           schema: schemaAtPath.data,
+          remoteHost: config.remoteHost,
         }
       : null;
   return (

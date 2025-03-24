@@ -1,6 +1,5 @@
 import { VAL_EXTENSION } from ".";
 import { ValConfig } from "../initVal";
-import { VAL_REMOTE_HOST } from "../schema/remote";
 import { FILE_REF_PROP, FileMetadata } from "./file";
 
 /**
@@ -33,21 +32,24 @@ export const initRemote = (config?: ValConfig) => {
 export type RemoteRef =
   `${string}/file/p/${string}/v/${string}/h/${string}/f/${string}/p/public/val/${string}`;
 
-export function createRemoteRef({
-  publicProjectId,
-  coreVersion,
-  validationHash,
-  fileHash,
-  filePath,
-  bucket,
-}: {
-  publicProjectId: string;
-  coreVersion: string;
-  validationHash: string;
-  fileHash: string;
-  filePath: `public/val/${string}`;
-  bucket: string;
-}): RemoteRef {
+export function createRemoteRef(
+  remoteHost: string,
+  {
+    publicProjectId,
+    coreVersion,
+    validationHash,
+    fileHash,
+    filePath,
+    bucket,
+  }: {
+    publicProjectId: string;
+    coreVersion: string;
+    validationHash: string;
+    fileHash: string;
+    filePath: `public/val/${string}`;
+    bucket: string;
+  },
+): RemoteRef {
   // NOTE: the core version is part of the validation hash, but it is also in the uri to make it easier to understand which version the remote file was validated against.
-  return `${VAL_REMOTE_HOST}/file/p/${publicProjectId}/b/${bucket}/v/${coreVersion}/h/${validationHash}/f/${fileHash}/p/${filePath}`;
+  return `${remoteHost}/file/p/${publicProjectId}/b/${bucket}/v/${coreVersion}/h/${validationHash}/f/${fileHash}/p/${filePath}`;
 }

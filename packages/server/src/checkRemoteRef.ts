@@ -14,6 +14,7 @@ import { extractFileMetadata, extractImageMetadata } from "./extractMetadata";
 
 const textEncoder = new TextEncoder();
 export async function checkRemoteRef(
+  remoteHost: string,
   ref: string,
   projectRoot: string,
   schema: SerializedImageSchema | SerializedFileSchema,
@@ -151,7 +152,7 @@ export async function checkRemoteRef(
   return {
     status: "fix-required",
     metadata: updatedMetadata,
-    ref: Internal.remote.createRemoteRef({
+    ref: Internal.remote.createRemoteRef(remoteHost, {
       publicProjectId: remoteRefDataRes.projectId,
       coreVersion,
       bucket: remoteRefDataRes.bucket,

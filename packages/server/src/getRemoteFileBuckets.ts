@@ -1,8 +1,8 @@
-import { VAL_REMOTE_HOST } from "@valbuild/core";
 import { z } from "zod";
 
 const RemoteFileBuckets = z.array(z.object({ bucket: z.string() }));
 export async function getRemoteFileBuckets(
+  remoteHost: string,
   publicProjectId: string,
   auth: { pat: string } | { apiKey: string },
 ): Promise<
@@ -10,18 +10,15 @@ export async function getRemoteFileBuckets(
   | { success: false; message: string }
 > {
   try {
-    const res = await fetch(
-      `${VAL_REMOTE_HOST}/file/p/${publicProjectId}/buckets`,
-      {
-        headers:
-          "pat" in auth
-            ? { "x-val-pat": auth.pat, "Content-Type": "application/json" }
-            : {
-                Authorization: `Bearer ${auth.apiKey}`,
-                "Content-Type": "application/json",
-              },
-      },
-    );
+    const res = await fetch(`${remoteHost}/file/p/${publicProjectId}/buckets`, {
+      headers:
+        "pat" in auth
+          ? { "x-val-pat": auth.pat, "Content-Type": "application/json" }
+          : {
+              Authorization: `Bearer ${auth.apiKey}`,
+              "Content-Type": "application/json",
+            },
+    });
     if (!res.ok) {
       return {
         success: false,

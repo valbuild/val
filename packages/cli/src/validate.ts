@@ -9,6 +9,7 @@ import {
   uploadRemoteFile,
 } from "@valbuild/server";
 import {
+  DEFAULT_VAL_REMOTE_HOST,
   FILE_REF_PROP,
   Internal,
   ModuleFilePath,
@@ -32,6 +33,8 @@ export async function validate({
   fix?: boolean;
   noEslint?: boolean;
 }) {
+  const VAL_REMOTE_HOST =
+    process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST;
   const projectRoot = root ? path.resolve(root) : process.cwd();
   const eslint = new ESLint({
     cwd: projectRoot,
@@ -448,6 +451,7 @@ export async function validate({
                     }
                     if (remoteFileBuckets === null) {
                       const bucketRes = await getRemoteFileBuckets(
+                        VAL_REMOTE_HOST,
                         publicProjectId,
                         { pat },
                       );
@@ -496,6 +500,7 @@ export async function validate({
                       continue;
                     }
                     const remoteFileUpload = await uploadRemoteFile(
+                      VAL_REMOTE_HOST,
                       fileBuffer,
                       publicProjectId,
                       bucket,
@@ -557,7 +562,7 @@ export async function validate({
                   continue;
                 }
                 const fixPatch = await createFixPatch(
-                  { projectRoot },
+                  { projectRoot, remoteHost: VAL_REMOTE_HOST },
                   !!fix,
                   sourcePath as SourcePath,
                   v,

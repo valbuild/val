@@ -7,6 +7,7 @@ import React, {
   useState,
 } from "react";
 import {
+  DEFAULT_VAL_REMOTE_HOST,
   FILE_REF_PROP,
   Internal,
   Json,
@@ -503,10 +504,23 @@ export function useTheme() {
 
 export function useValConfig() {
   const { config } = useContext(ValContext);
-  const lastConfig = useRef<ValConfig | undefined>(config);
+  const lastConfig = useRef<
+    | (ValConfig & {
+        remoteHost: string;
+      })
+    | undefined
+  >(
+    config && {
+      ...config,
+      remoteHost: DEFAULT_VAL_REMOTE_HOST,
+    },
+  );
   useEffect(() => {
     if (config) {
-      lastConfig.current = config;
+      lastConfig.current = {
+        ...config,
+        remoteHost: DEFAULT_VAL_REMOTE_HOST,
+      };
     }
   }, [config]);
   return lastConfig.current;

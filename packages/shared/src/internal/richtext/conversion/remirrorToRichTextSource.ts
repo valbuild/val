@@ -8,7 +8,6 @@ import {
   FILE_REF_SUBTYPE_TAG,
   ConfigDirectory,
   SerializedImageSchema,
-  VAL_REMOTE_HOST,
 } from "@valbuild/core";
 import {
   RemirrorBr,
@@ -39,6 +38,7 @@ export type RemoteRichTextOptions = {
   coreVersion: string;
   bucket: string;
   schema: SerializedImageSchema;
+  remoteHost: string;
 };
 export function remirrorToRichTextSource(
   node: RemirrorJSON,
@@ -342,7 +342,6 @@ function convertImageNode(
   configDirectory: ConfigDirectory,
   remoteOptions: RemoteRichTextOptions | null,
 ): ImageNode<AllRichTextOptions> {
-  console.log("convertImageNode", node);
   if (node.attrs && node.attrs.src.startsWith("data:")) {
     const binaryData = Buffer.from(node.attrs.src.split(",")[1], "base64");
     const fullFileHash = Internal.getSHA256Hash(new Uint8Array(binaryData));
@@ -381,7 +380,7 @@ function convertImageNode(
 
     const remoteFileHash = Internal.remote.hashToRemoteFileHash(fullFileHash);
     const ref = remoteOptions
-      ? Internal.remote.createRemoteRef({
+      ? Internal.remote.createRemoteRef(remoteOptions.remoteHost, {
           ...remoteOptions,
           fileHash: remoteFileHash,
           validationHash: Internal.remote.getValidationHash(
@@ -435,7 +434,7 @@ function convertImageNode(
         );
       }
     } else {
-      if (noParamsUrl.startsWith(VAL_REMOTE_HOST)) {
+      if (remoteOptions && noParamsUrl.startsWith(remoteOptions.remoteHost)) {
         remote = true;
       } else if (!noParamsUrl.startsWith("/public")) {
         noParamsUrl = `/public${noParamsUrl}`;

@@ -11,6 +11,7 @@ import {
   Internal,
   FileSource,
   RemoteSource,
+  DEFAULT_VAL_REMOTE_HOST,
 } from "@valbuild/core";
 import {
   Api,
@@ -82,6 +83,8 @@ export const ValServer = (
   options: ValServerConfig,
   callbacks: ValServerCallbacks,
 ): ServerOf<Api> => {
+  const VAL_REMOTE_HOST =
+    process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST;
   let serverOps: ValOpsHttp | ValOpsFS;
   if (options.mode === "fs") {
     serverOps = new ValOpsFS(options.cwd, valModules, {
@@ -758,6 +761,7 @@ export const ValServer = (
         }
 
         const remoteFileBucketsRes = await getRemoteFileBuckets(
+          VAL_REMOTE_HOST,
           publicProjectIdRes.data.publicProjectId,
           remoteFileAuth,
         );

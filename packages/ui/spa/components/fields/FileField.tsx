@@ -45,6 +45,7 @@ export async function createFilePatch(
     coreVersion: string;
     bucket: string;
     schema: SerializedImageSchema | SerializedFileSchema;
+    remoteHost: string;
   } | null,
   directory: ConfigDirectory = "/public/val",
 ): Promise<Patch> {
@@ -61,7 +62,7 @@ export async function createFilePatch(
   const filePath = `${directory}/${newFilePath}`;
   const remoteFileHash = Internal.remote.hashToRemoteFileHash(fileHash);
   const ref = remote
-    ? Internal.remote.createRemoteRef({
+    ? Internal.remote.createRemoteRef(remote.remoteHost, {
         publicProjectId: remote.publicProjectId,
         coreVersion: remote.coreVersion,
         bucket: remote.bucket,
@@ -156,6 +157,7 @@ export function FileField({ path }: { path: SourcePath }) {
           coreVersion: remoteFiles.coreVersion,
           bucket: currentRemoteFileBucket,
           schema: schemaAtPath.data,
+          remoteHost: config.remoteHost,
         }
       : null;
   return (
