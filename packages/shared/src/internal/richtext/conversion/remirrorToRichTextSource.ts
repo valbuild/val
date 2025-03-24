@@ -7,6 +7,8 @@ import {
   Styles,
   FILE_REF_SUBTYPE_TAG,
   ConfigDirectory,
+  SerializedImageSchema,
+  VAL_REMOTE_HOST,
 } from "@valbuild/core";
 import {
   RemirrorBr,
@@ -30,10 +32,18 @@ import {
   SpanNode,
   UnorderedListNode,
 } from "@valbuild/core";
+import { Buffer } from "buffer";
 
+export type RemoteRichTextOptions = {
+  publicProjectId: string;
+  coreVersion: string;
+  bucket: string;
+  schema: SerializedImageSchema;
+};
 export function remirrorToRichTextSource(
   node: RemirrorJSON,
   configDirectory: ConfigDirectory,
+  remoteOptions: RemoteRichTextOptions | null,
 ): {
   blocks: RichTextSource<AllRichTextOptions>;
   files: Record<string, { value: string; patchPaths: string[][] }>;
@@ -47,6 +57,7 @@ export function remirrorToRichTextSource(
       child,
       files,
       configDirectory,
+      remoteOptions,
     );
     blocks.push(block);
   }
@@ -58,6 +69,7 @@ function convertBlock(
   node: RemirrorJSON["content"][number],
   files: Record<string, { value: string; patchPaths: string[][] }>,
   configDirectory: ConfigDirectory,
+  remoteOptions: RemoteRichTextOptions | null,
 ): BlockNode<AllRichTextOptions> {
   if (node.type === "heading") {
     const depth = node.attrs?.level || 1;
@@ -73,15 +85,22 @@ function convertBlock(
             child,
             files,
             configDirectory,
+            remoteOptions,
           ),
         ) || [],
     };
   } else if (node.type === "paragraph") {
-    return convertParagraph(path, node, files, configDirectory);
+    return convertParagraph(path, node, files, configDirectory, remoteOptions);
   } else if (node.type === "bulletList") {
-    return convertBulletList(path, node, files, configDirectory);
+    return convertBulletList(path, node, files, configDirectory, remoteOptions);
   } else if (node.type === "orderedList") {
-    return convertOrderedList(path, node, files, configDirectory);
+    return convertOrderedList(
+      path,
+      node,
+      files,
+      configDirectory,
+      remoteOptions,
+    );
   } else {
     const exhaustiveCheck: never = node;
     throw new Error(
@@ -97,6 +116,7 @@ function convertHeadingChild(
   node: RemirrorText | RemirrorBr | RemirrorImage,
   files: Record<string, { value: string; patchPaths: string[][] }>,
   configDirectory: ConfigDirectory,
+  remoteOptions: RemoteRichTextOptions | null,
 ): HeadingNode<AllRichTextOptions>["children"][number] {
   if (node.type === "text") {
     return convertTextNode(node);
@@ -105,7 +125,7 @@ function convertHeadingChild(
       tag: "br",
     };
   } else if (node.type === "image") {
-    return convertImageNode(path, node, files, configDirectory);
+    return convertImageNode(path, node, files, configDirectory, remoteOptions);
   } else {
     const exhaustiveCheck: never = node;
     throw new Error(
@@ -123,6 +143,7 @@ function convertParagraph(
   child: RemirrorParagraph,
   files: Record<string, { value: string; patchPaths: string[][] }>,
   configDirectory: ConfigDirectory,
+  remoteOptions: RemoteRichTextOptions | null,
 ): ParagraphNode<AllRichTextOptions> {
   return {
     tag: "p",
@@ -140,6 +161,7 @@ function convertParagraph(
             child,
             files,
             configDirectory,
+            remoteOptions,
           );
         }
         const exhaustiveCheck: never = child;
@@ -214,6 +236,7 @@ function convertListItem(
   child: RemirrorListItem,
   files: Record<string, { value: string; patchPaths: string[][] }>,
   configDirectory: ConfigDirectory,
+  remoteOptions: RemoteRichTextOptions | null,
 ): ListItemNode<AllRichTextOptions> {
   return {
     tag: "li",
@@ -226,6 +249,7 @@ function convertListItem(
               child,
               files,
               configDirectory,
+              remoteOptions,
             );
           } else if (child.type === "bulletList") {
             return convertBulletList(
@@ -233,6 +257,7 @@ function convertListItem(
               child,
               files,
               configDirectory,
+              remoteOptions,
             );
           } else if (child.type === "orderedList") {
             return convertOrderedList(
@@ -240,6 +265,7 @@ function convertListItem(
               child,
               files,
               configDirectory,
+              remoteOptions,
             );
           } else {
             const exhaustiveCheck: never = child;
@@ -255,6 +281,7 @@ function convertBulletList(
   node: RemirrorBulletList,
   files: Record<string, { value: string; patchPaths: string[][] }>,
   configDirectory: ConfigDirectory,
+  remoteOptions: RemoteRichTextOptions | null,
 ): UnorderedListNode<AllRichTextOptions> {
   return {
     tag: "ul",
@@ -266,6 +293,7 @@ function convertBulletList(
             child,
             files,
             configDirectory,
+            remoteOptions,
           );
         } else {
           const exhaustiveCheck: never = child.type;
@@ -282,6 +310,7 @@ function convertOrderedList(
   node: RemirrorOrderedList,
   files: Record<string, { value: string; patchPaths: string[][] }>,
   configDirectory: ConfigDirectory,
+  remoteOptions: RemoteRichTextOptions | null,
 ): OrderedListNode<AllRichTextOptions> {
   return {
     tag: "ol",
@@ -293,6 +322,7 @@ function convertOrderedList(
             child,
             files,
             configDirectory,
+            remoteOptions,
           );
         } else {
           const exhaustiveCheck: never = child.type;
@@ -310,9 +340,12 @@ function convertImageNode(
   node: RemirrorImage,
   files: Record<string, { value: string; patchPaths: string[][] }>,
   configDirectory: ConfigDirectory,
+  remoteOptions: RemoteRichTextOptions | null,
 ): ImageNode<AllRichTextOptions> {
+  console.log("convertImageNode", node);
   if (node.attrs && node.attrs.src.startsWith("data:")) {
-    const sha256 = Internal.getSHA256Hash(textEncoder.encode(node.attrs.src));
+    const binaryData = Buffer.from(node.attrs.src.split(",")[1], "base64");
+    const fullFileHash = Internal.getSHA256Hash(binaryData);
     const mimeType = Internal.getMimeType(node.attrs.src);
     if (mimeType === undefined) {
       throw new Error(
@@ -327,7 +360,7 @@ function convertImageNode(
         height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
         mimeType,
       },
-      sha256,
+      fullFileHash,
     );
     const dir = configDirectory?.endsWith("/")
       ? configDirectory
@@ -346,12 +379,40 @@ function convertImageNode(
       };
     }
 
+    const remoteFileHash = Internal.remote.hashToRemoteFileHash(fullFileHash);
+    const ref = remoteOptions
+      ? Internal.remote.createRemoteRef({
+          ...remoteOptions,
+          fileHash: remoteFileHash,
+          validationHash: Internal.remote.getValidationHash(
+            remoteOptions.coreVersion,
+            remoteOptions.schema,
+            mimeType,
+            {
+              width:
+                typeof node.attrs.width === "number" ? node.attrs.width : 0,
+              height:
+                typeof node.attrs.height === "number" ? node.attrs.height : 0,
+            },
+            remoteFileHash,
+            textEncoder,
+          ),
+          filePath: filePath.slice(1) as `public/val/${string}`,
+        })
+      : (filePath as `/public/${string}`);
+
     return {
       tag: "img",
       src: {
-        [VAL_EXTENSION]: "file" as const,
-        [FILE_REF_PROP]: filePath as `/public/${string}`,
-        [FILE_REF_SUBTYPE_TAG]: "image" as const,
+        [FILE_REF_PROP]: ref,
+        ...(remoteOptions
+          ? {
+              [VAL_EXTENSION]: "remote" as const,
+            }
+          : {
+              [VAL_EXTENSION]: "file" as const,
+              [FILE_REF_SUBTYPE_TAG]: "image" as const,
+            }),
         metadata: {
           width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
           height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
@@ -363,7 +424,9 @@ function convertImageNode(
     const url = node.attrs.src;
     const patchId = getParam("patch_id", url);
     let noParamsUrl = url.split("?")[0];
+    let remote = false;
     if (patchId) {
+      remote = getParam("remote", url) === "true";
       if (noParamsUrl.startsWith("/api/val/files/public")) {
         noParamsUrl = noParamsUrl.slice("/api/val/files".length);
       } else {
@@ -372,7 +435,9 @@ function convertImageNode(
         );
       }
     } else {
-      if (!noParamsUrl.startsWith("/public")) {
+      if (noParamsUrl.startsWith(VAL_REMOTE_HOST)) {
+        remote = true;
+      } else if (!noParamsUrl.startsWith("/public")) {
         noParamsUrl = `/public${noParamsUrl}`;
       } else {
         console.error("Unpatched image URL starts with /public: " + url);
@@ -381,9 +446,16 @@ function convertImageNode(
     const tag: ImageNode<AllRichTextOptions> = {
       tag: "img" as const,
       src: {
-        [VAL_EXTENSION]: "file" as const,
-        [FILE_REF_PROP]: noParamsUrl as `/public/${string}`,
-        [FILE_REF_SUBTYPE_TAG]: "image" as const,
+        ...(remote
+          ? {
+              [VAL_EXTENSION]: "remote" as const,
+              [FILE_REF_PROP]: noParamsUrl,
+            }
+          : {
+              [VAL_EXTENSION]: "file" as const,
+              [FILE_REF_SUBTYPE_TAG]: "image" as const,
+              [FILE_REF_PROP]: noParamsUrl as `/public/${string}`,
+            }),
         metadata: {
           width: typeof node.attrs.width === "number" ? node.attrs.width : 0,
           height: typeof node.attrs.height === "number" ? node.attrs.height : 0,
@@ -393,6 +465,7 @@ function convertImageNode(
         ...(patchId ? { patch_id: patchId } : {}),
       },
     };
+    console.log({ tag });
     return tag;
   } else {
     throw new Error("Invalid image node (no attrs): " + JSON.stringify(node));

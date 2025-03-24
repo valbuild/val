@@ -1,4 +1,11 @@
+import {
+  ImageMetadata,
+  ImageSchema,
+  SerializedImageSchema,
+} from "../schema/image";
+import { FileSource } from "./file";
 import { ImageSource } from "./image";
+import { RemoteSource } from "./remote";
 
 export type RichTextOptions = Partial<{
   style: Partial<{
@@ -20,7 +27,31 @@ export type RichTextOptions = Partial<{
   }>;
   inline: Partial<{
     a: boolean;
-    img: boolean;
+    img: boolean | ImageSchema<ImageSource | RemoteSource<ImageMetadata>>;
+    // custom: Record<string, Schema<SelectorSource>>;
+  }>;
+}>;
+export type SerializedRichTextOptions = Partial<{
+  style: Partial<{
+    bold: boolean;
+    italic: boolean;
+    lineThrough: boolean;
+  }>;
+  block: Partial<{
+    h1: boolean;
+    h2: boolean;
+    h3: boolean;
+    h4: boolean;
+    h5: boolean;
+    h6: boolean;
+    ul: boolean;
+    ol: boolean;
+    // TODO:
+    // custom: Record<string, Schema<SelectorSource>>;
+  }>;
+  inline: Partial<{
+    a: boolean;
+    img: boolean | SerializedImageSchema;
     // custom: Record<string, Schema<SelectorSource>>;
   }>;
 }>;
@@ -107,8 +138,12 @@ export type SpanNode<O extends RichTextOptions> = {
 export type ImageNode<O extends RichTextOptions> = NonNullable<
   O["inline"]
 >["img"] extends true
-  ? { tag: "img"; src: ImageSource }
-  : never;
+  ? { tag: "img"; src: ImageSource | RemoteSource<ImageMetadata> }
+  : NonNullable<O["inline"]>["img"] extends ImageSchema<infer Src>
+    ? Src extends RemoteSource | FileSource
+      ? { tag: "img"; src: Src }
+      : never
+    : never;
 
 //#region Link
 type LinkTagNode<O extends RichTextOptions> = {

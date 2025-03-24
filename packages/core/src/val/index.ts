@@ -5,7 +5,7 @@ import { Val as PrimitiveVal } from "./primitive";
 import { Json, JsonArray, JsonObject, JsonPrimitive } from "../Json";
 import { Path, Selector } from "../selector";
 import { I18nSource } from "../source/future/i18n";
-import { RemoteSource } from "../source/future/remote";
+import { RemoteSource } from "../source/remote";
 import { FileSource } from "../source/file";
 
 export type SerializedVal = {
@@ -26,7 +26,7 @@ export type JsonOfSource<T extends Source> = Json extends T
   : T extends I18nSource<readonly string[], infer U>
     ? JsonOfSource<U>
     : T extends RemoteSource<infer U>
-      ? JsonOfSource<U>
+      ? T
       : T extends FileSource
         ? { url: string }
         : T extends SourceObject

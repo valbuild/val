@@ -31,6 +31,7 @@ export type {
   BrNode,
   RichTextNode,
   RichTextOptions,
+  SerializedRichTextOptions,
   RichTextSource,
   BlockNode,
   SpanNode,
@@ -78,7 +79,6 @@ import { getSchema } from "./selector";
 import { ModulePath, getValPath, isVal } from "./val";
 import { convertFileSource } from "./schema/file";
 import { createValPathOfItem } from "./selector/SelectorProxy";
-import { getVal } from "./future/fetchVal";
 import { getSHA256Hash } from "./getSha256";
 import { Operation } from "./patch";
 import { initSchema } from "./initSchema";

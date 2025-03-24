@@ -176,7 +176,7 @@ function isUnionSchema(
 function isRichTextSchema(
   schema: Schema<SelectorSource> | SerializedSchema,
 ): schema is
-  | Schema<RichTextSource<AllRichTextOptions>>
+  | RichTextSchema<AllRichTextOptions, RichTextSource<AllRichTextOptions>>
   | SerializedRichTextSchema {
   return (
     schema instanceof RichTextSchema ||
@@ -344,14 +344,19 @@ export function resolvePath<
       resolvedSchema = schemaOfUnionKey.items[part];
       resolvedSource = resolvedSource[part];
     } else if (isRichTextSchema(resolvedSchema)) {
-      return {
-        path: origParts
-          .slice(0, origParts.length - parts.length - 1)
-          .map((p) => JSON.stringify(p))
-          .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
-        schema: resolvedSchema as Sch,
-        source: resolvedSource,
-      };
+      if (
+        "src" in resolvedSource &&
+        "tag" in resolvedSource &&
+        resolvedSource.tag === "img" &&
+        parts.length === 0
+      ) {
+        resolvedSchema =
+          resolvedSchema.options?.inline?.img &&
+          typeof resolvedSchema.options?.inline?.img !== "boolean"
+            ? resolvedSchema.options.inline.img
+            : resolvedSchema;
+      }
+      resolvedSource = resolvedSource[part];
     } else {
       throw Error(
         `Invalid path: ${part} resolved to an unexpected schema ${JSON.stringify(

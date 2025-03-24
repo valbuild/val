@@ -413,7 +413,8 @@ export async function createFixPatch(
         remainingErrors.push({
           ...validationError,
           message:
-            "Could not check remote ref: schema type is not image or file",
+            "Could not check remote ref: schema type is not image or file: " +
+            schemaAtPath?.type,
           fixes: undefined,
         });
       }

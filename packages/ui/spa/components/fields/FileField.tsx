@@ -77,9 +77,6 @@ export async function createFilePatch(
         filePath: `${directory.slice(1) as `public/val`}/${newFilePath}`,
       })
     : filePath;
-
-  console.log("ref", ref);
-
   return [
     {
       value: {

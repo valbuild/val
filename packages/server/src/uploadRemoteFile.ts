@@ -5,6 +5,7 @@ import {
 } from "@valbuild/core";
 import { getFileExt } from "./getFileExt";
 
+const textEncoder = new TextEncoder();
 export async function uploadRemoteFile(
   fileBuffer: Buffer,
   publicProjectId: string,
@@ -36,12 +37,13 @@ export async function uploadRemoteFile(
     publicProjectId,
     coreVersion,
     bucket,
-    validationHash: Internal.remote.getValidationBasis(
+    validationHash: Internal.remote.getValidationHash(
       coreVersion,
       schema,
       fileExt,
       metadata,
       fileHash,
+      textEncoder,
     ),
     fileHash,
     filePath,
