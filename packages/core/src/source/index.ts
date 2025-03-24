@@ -1,6 +1,6 @@
 import { FileSource } from "./file";
 import { I18nSource, I18nCompatibleSource } from "./future/i18n";
-import { RemoteSource, RemoteCompatibleSource } from "./future/remote";
+import { RemoteSource } from "./remote";
 import { RichTextOptions, RichTextSource } from "./richtext";
 
 export type Source =
@@ -8,7 +8,7 @@ export type Source =
   | SourceObject
   | SourceArray
   | I18nSource<string[], I18nCompatibleSource>
-  | RemoteSource<RemoteCompatibleSource>
+  | RemoteSource
   | FileSource
   | RichTextSource<RichTextOptions>;
 

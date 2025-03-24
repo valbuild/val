@@ -219,10 +219,19 @@ function convertImageNodeToRemirror(
   imageNode: ImageNode<AllRichTextOptions>,
 ): RemirrorImage {
   const fileSource = imageNode.src;
-  if (!(VAL_EXTENSION in fileSource) || fileSource[VAL_EXTENSION] !== "file") {
+  if (
+    !(VAL_EXTENSION in fileSource) ||
+    (fileSource[VAL_EXTENSION] !== "file" &&
+      fileSource[VAL_EXTENSION] !== "remote")
+  ) {
     throw Error("Expected file source in image node");
   }
-  const fileVal = Internal.convertFileSource(fileSource);
+  let fileVal: { url: string };
+  if (fileSource[VAL_EXTENSION] === "remote") {
+    fileVal = Internal.convertRemoteSource(fileSource);
+  } else {
+    fileVal = Internal.convertFileSource(fileSource);
+  }
   return {
     type: "image",
     attrs: {

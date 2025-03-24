@@ -196,18 +196,26 @@ export async function validate({
                       valModule.source,
                       valModule.schema,
                     );
-                    const filePath = path.join(
-                      projectRoot,
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      (fileSource.source as any)?.[FILE_REF_PROP],
-                    );
+                    let filePath: string | null = null;
                     try {
+                      filePath = path.join(
+                        projectRoot,
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        (fileSource.source as any)?.[FILE_REF_PROP],
+                      );
                       await fs.access(filePath);
                     } catch {
-                      console.log(
-                        picocolors.red("✘"),
-                        `File ${filePath} does not exist`,
-                      );
+                      if (filePath) {
+                        console.log(
+                          picocolors.red("✘"),
+                          `File ${filePath} does not exist`,
+                        );
+                      } else {
+                        console.log(
+                          picocolors.red("✘"),
+                          `Expected file to be defined at: ${sourcePath} but no file was found`,
+                        );
+                      }
                       errors += 1;
                       continue;
                     }
@@ -277,20 +285,32 @@ export async function validate({
                       valModule.source,
                       valModule.schema,
                     );
-                    const filePath = path.join(
-                      projectRoot,
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      (resolvedRemoteFileAtSourcePath.source as any)?.[
-                        FILE_REF_PROP
-                      ],
+                    let filePath: string | null = null;
+                    console.log(
+                      sourcePath,
+                      resolvedRemoteFileAtSourcePath.source,
                     );
                     try {
+                      filePath = path.join(
+                        projectRoot,
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        (resolvedRemoteFileAtSourcePath.source as any)?.[
+                          FILE_REF_PROP
+                        ],
+                      );
                       await fs.access(filePath);
                     } catch {
-                      console.log(
-                        picocolors.red("✘"),
-                        `File ${filePath} does not exist`,
-                      );
+                      if (filePath) {
+                        console.log(
+                          picocolors.red("✘"),
+                          `File ${filePath} does not exist`,
+                        );
+                      } else {
+                        console.log(
+                          picocolors.red("✘"),
+                          `Expected file to be defined at: ${sourcePath} but no file was found`,
+                        );
+                      }
                       errors += 1;
                       continue;
                     }

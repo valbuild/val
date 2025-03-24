@@ -30,7 +30,6 @@ export function ImageField({ path }: { path: SourcePath }) {
   const config = useValConfig();
   const remoteFiles = useRemoteFiles();
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
-
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const { patchPath, addPatch } = useAddPatch(path);
