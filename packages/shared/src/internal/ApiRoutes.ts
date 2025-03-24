@@ -839,6 +839,7 @@ export const Api = {
         path: z.string(),
         query: {
           patch_id: PatchId.optional(),
+          remote: z.string().optional(),
         },
       },
       res: z.union([

@@ -301,55 +301,49 @@ export const ValServer = (
         json: { remoteFileAuth },
       };
     }
-    if (serverOps instanceof ValOpsHttp && options.apiKey) {
+    if (options.apiKey) {
       remoteFileAuth = {
         apiKey: options.apiKey,
       };
-    } else if (!(serverOps instanceof ValOpsHttp)) {
-      if (options.apiKey) {
+    } else if (serverOps instanceof ValOpsFS) {
+      const projectRootDir = options.config.root;
+      if (!projectRootDir) {
+        return {
+          status: 400,
+          json: {
+            errorCode: "project-not-configured",
+            message: "Root directory was empty",
+          },
+        };
+      }
+      const fs = await import("fs");
+      const patPath = getPersonalAccessTokenPath(path.join(process.cwd()));
+      let patFile;
+
+      try {
+        patFile = await fs.promises.readFile(patPath, "utf-8");
+      } catch (err) {
+        return {
+          status: 400,
+          json: {
+            errorCode: "pat-error",
+            message: "Could not read personal access token file",
+          },
+        };
+      }
+      const patRes = parsePersonalAccessTokenFile(patFile);
+      if (patRes.success) {
         remoteFileAuth = {
-          apiKey: options.apiKey,
+          pat: patRes.data.pat,
         };
       } else {
-        const projectRootDir = options.config.root;
-        if (!projectRootDir) {
-          return {
-            status: 400,
-            json: {
-              errorCode: "project-not-configured",
-              message: "Root directory was empty",
-            },
-          };
-        }
-        const fs = await import("fs");
-        const patPath = getPersonalAccessTokenPath(path.join(process.cwd()));
-        let patFile;
-
-        try {
-          patFile = await fs.promises.readFile(patPath, "utf-8");
-        } catch (err) {
-          return {
-            status: 400,
-            json: {
-              errorCode: "pat-error",
-              message: "Could not read personal access token file",
-            },
-          };
-        }
-        const patRes = parsePersonalAccessTokenFile(patFile);
-        if (patRes.success) {
-          remoteFileAuth = {
-            pat: patRes.data.pat,
-          };
-        } else {
-          return {
-            status: 400,
-            json: {
-              errorCode: "pat-error",
-              message: "Could not parse personal access token file",
-            },
-          };
-        }
+        return {
+          status: 400,
+          json: {
+            errorCode: "pat-error",
+            message: "Could not parse personal access token file",
+          },
+        };
       }
     }
     if (!remoteFileAuth) {
@@ -1532,16 +1526,25 @@ export const ValServer = (
         let cacheControl: string | undefined;
         let fileBuffer;
         let mimeType: string | undefined;
+        const remote = query.remote === "true";
         if (query.patch_id) {
           fileBuffer = await serverOps.getBase64EncodedBinaryFileFromPatch(
             filePath,
             query.patch_id as PatchId,
+            remote,
           );
           mimeType = Internal.filenameToMimeType(filePath);
-          cacheControl = "public, max-age=20000, immutable";
+          // TODO: reenable this:
+          // cacheControl = "public, max-age=20000, immutable";
         } else {
+          if (serverOps instanceof ValOpsHttp && remote) {
+            console.error(
+              `Remote file: ${filePath} requested without patch id. This is most likely a bug in Val.`,
+            );
+          }
           fileBuffer = await serverOps.getBinaryFile(filePath);
         }
+
         if (fileBuffer) {
           return {
             status: 200,

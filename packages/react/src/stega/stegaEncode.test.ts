@@ -80,15 +80,26 @@ describe("stega transform", () => {
     const schema = s.array(s.image().remote());
     const transformed = stegaEncode(
       c.define("/test1.val.ts", schema, [
-        c.remote("remote://valbuild/examples-next/public/val/test2.png", {
-          width: 100,
-          height: 100,
-          mimeType: "image/png",
-        }),
+        c.remote(
+          "http://example.com/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/test.png",
+          {
+            width: 100,
+            height: 100,
+            mimeType: "image/png",
+          },
+        ),
       ]),
       {},
     );
-    console.log(transformed);
+    expect(vercelStegaDecode(transformed[0].url)).toStrictEqual({
+      data: {
+        valPath: "/test1.val.ts?p=0",
+      },
+      origin: "val.build",
+    });
+    expect(vercelStegaSplit(transformed[0].url).cleaned).toStrictEqual(
+      "http://example.com/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/test.png",
+    );
   });
 
   test("get modules", () => {

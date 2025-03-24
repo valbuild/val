@@ -30,6 +30,7 @@ import { z } from "zod";
 import { fromError } from "zod-validation-error";
 import { ParentRef, Patch } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
+import { getFileExt } from "./getFileExt";
 
 const textEncoder = new TextEncoder();
 
@@ -94,6 +95,7 @@ const FilesResponse = z.object({
         location: z.literal("patch"),
         patchId: PatchId,
         value: z.string(),
+        remote: z.boolean(),
       }),
       z.object({
         filePath: z.string(),
@@ -111,6 +113,7 @@ const FilesResponse = z.object({
           location: z.literal("patch"),
           patchId: PatchId,
           message: z.string(),
+          remote: z.boolean(),
         }),
         z.object({
           filePath: z.string(),
@@ -683,14 +686,29 @@ export class ValOpsHttp extends ValOps {
   }
 
   protected override async saveBase64EncodedBinaryFileFromPatch(
-    filePath: string,
-    parentRef: ParentRef,
+    filePathOrRef: string,
+    _parentRef: ParentRef, // this is required for the FS implementation, but not for the HTTP implementation (patchId is enough)
     patchId: PatchId,
     data: string,
     type: BinaryFileType,
     metadata: MetadataOfType<BinaryFileType>,
     remote: boolean,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
+    let filePath: string;
+    if (remote) {
+      const splitRemoteRefDataRes =
+        Internal.remote.splitRemoteRef(filePathOrRef);
+      if (splitRemoteRefDataRes.status === "error") {
+        return {
+          error: {
+            message: `Could not split remote ref: ${splitRemoteRefDataRes.error}`,
+          },
+        };
+      }
+      filePath = "/" + splitRemoteRefDataRes.filePath;
+    } else {
+      filePath = filePathOrRef;
+    }
     return fetch(
       `${this.contentUrl}/v1/${this.project}/patches/${patchId}/files`,
       {
@@ -700,10 +718,11 @@ export class ValOpsHttp extends ValOps {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          filePath: filePath,
+          filePath,
           data,
           type,
           metadata,
+          remote,
         }),
       },
     )
@@ -755,6 +774,7 @@ export class ValOpsHttp extends ValOps {
           filePath: string;
           location: "patch";
           patchId: PatchId;
+          remote: boolean;
         }
       | {
           filePath: string;
@@ -771,6 +791,7 @@ export class ValOpsHttp extends ValOps {
             filePath: string;
             location: "patch";
             patchId: PatchId;
+            remote: boolean;
           }
         | {
             value: string;
@@ -785,6 +806,7 @@ export class ValOpsHttp extends ValOps {
             filePath: string;
             location: "patch";
             patchId: PatchId;
+            remote: boolean;
           }
         | {
             message: string;
@@ -873,18 +895,35 @@ export class ValOpsHttp extends ValOps {
 
   override async getBinaryFile(filePath: string): Promise<Buffer | null> {
     // We could also just get this from public/ on the running server. Current approach feels more clean, but will be slower / puts more server load... We might want to change this
-    const filesRes = await this.getHttpFiles([
-      {
-        filePath: filePath,
-        location: "repo",
-        root: this.root,
-        commitSha: this.commitSha as CommitSha,
-      },
-    ]);
+    const requestFiles: (
+      | {
+          filePath: string;
+          location: "patch";
+          patchId: PatchId;
+          remote: boolean;
+        }
+      | {
+          filePath: string;
+          location: "repo";
+          root: string;
+          commitSha: CommitSha;
+        }
+    )[] = [];
+
+    requestFiles.push({
+      filePath: filePath,
+      location: "repo",
+      root: this.root,
+      commitSha: this.commitSha as CommitSha,
+    });
+    const filesRes = await this.getHttpFiles(requestFiles);
     if (filesRes.error) {
       return null;
     }
-    const file = filesRes.files.find((f) => f.filePath === filePath);
+    const file = filesRes.files[0];
+    if (filesRes.files.length > 1) {
+      console.error("Expected 1 file, got more:", filesRes.files);
+    }
     if (!file) {
       return null;
     }
@@ -894,18 +933,27 @@ export class ValOpsHttp extends ValOps {
   override async getBase64EncodedBinaryFileFromPatch(
     filePath: string,
     patchId: PatchId,
+    remote: boolean,
   ): Promise<Buffer | null> {
     const filesRes = await this.getHttpFiles([
       {
         filePath: filePath,
         location: "patch",
         patchId,
+        remote,
       },
     ]);
     if (filesRes.error) {
+      console.error("Error getting file:", filePath, filesRes.error);
       return null;
     }
-    const file = filesRes.files.find((f) => f.filePath === filePath);
+    if (filesRes.errors) {
+      console.error("Failed while retrieving files", filePath, filesRes.errors);
+    }
+    const file = filesRes.files[0];
+    if (filesRes.files.length > 1) {
+      console.error("Expected 1 file, got more:", filesRes.files);
+    }
     if (!file) {
       return null;
     }
@@ -922,6 +970,7 @@ export class ValOpsHttp extends ValOps {
   ): Promise<OpsMetadata<T>> {
     const params = new URLSearchParams();
     params.set("file_path", filePath);
+    params.set("remote", remote.toString());
     try {
       const metadataRes = await fetch(
         `${this.contentUrl}/v1/${this.project}/patches/${patchId}/files?${params}`,

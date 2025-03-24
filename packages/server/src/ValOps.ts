@@ -1436,6 +1436,7 @@ export abstract class ValOps {
   abstract getBase64EncodedBinaryFileFromPatch(
     filePath: string,
     patchId: PatchId,
+    remote: boolean,
   ): Promise<Buffer | null>;
   protected abstract getBase64EncodedBinaryFileMetadataFromPatch<
     T extends "file" | "image",
@@ -1445,7 +1446,7 @@ export abstract class ValOps {
     patchId: PatchId,
     remote: boolean,
   ): Promise<OpsMetadata<T>>;
-  abstract getBinaryFile(filePath: string): Promise<Buffer | null>;
+  abstract getBinaryFile(filePathOrRef: string): Promise<Buffer | null>;
   protected abstract getBinaryFileMetadata<T extends "file" | "image">(
     filePath: string,
     type: T,

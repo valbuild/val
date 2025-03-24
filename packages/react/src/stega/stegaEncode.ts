@@ -553,10 +553,3 @@ export function getModuleIds(input: any): string[] {
 function isDate(s: string) {
   return Boolean(Date.parse(s));
 }
-
-function maybeTransformAsRemote(url: string, isRemote = false) {
-  if (isRemote) {
-    return "remote://" + url;
-  }
-  return url;
-}

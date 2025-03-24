@@ -736,8 +736,8 @@ export class ValOpsFS extends ValOps {
     const absPath = this.getBinaryFilePath(
       filePath,
       patchDirRes.value,
-      // remote and local are the same in this case
-      false,
+      // We save remote remote files using the filepath (so not the remote reference) and we also retrieve them using the filepath. Therefore remote is always false
+      false, // remote = false
     );
 
     if (!this.host.fileExists(absPath)) {
