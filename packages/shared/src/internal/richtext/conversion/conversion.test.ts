@@ -362,6 +362,7 @@ describe("isomorphic richtext <-> conversion", () => {
     const res = remirrorToRichTextSource(
       richTextToRemirror(inputSource),
       "/public/val",
+      null,
     );
     expect(res.blocks).toStrictEqual(inputSource);
   });

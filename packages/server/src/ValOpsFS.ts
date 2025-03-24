@@ -32,6 +32,7 @@ import { result } from "@valbuild/core/fp";
 import { ParentPatchId } from "@valbuild/core";
 import { computeChangedPatchParentRefs } from "./computeChangedPatchParentRefs";
 import { uploadRemoteRef } from "./uploadRemoteFile";
+import { Buffer } from "buffer";
 
 export class ValOpsFS extends ValOps {
   private static readonly VAL_DIR = ".val";
@@ -1092,7 +1093,7 @@ export class ValOpsFS extends ValOps {
     if (remote) {
       const res = Internal.remote.splitRemoteRef(filePath);
       if (res.status === "error") {
-        throw new Error("Failed to split remote ref");
+        throw new Error("Failed to split remote ref: " + filePath);
       }
       const actualFilePath = res.filePath;
       return fsPath.join(
@@ -1118,7 +1119,9 @@ export class ValOpsFS extends ValOps {
     if (remote) {
       const res = Internal.remote.splitRemoteRef(filePath);
       if (res.status === "error") {
-        throw new Error("Failed to split remote ref (in metadata path)");
+        throw new Error(
+          "Failed to split remote ref (in metadata path): " + filePath,
+        );
       }
       const actualFilePath = res.filePath;
       return fsPath.join(
@@ -1228,7 +1231,7 @@ class FSOpsHost {
 
   writeBinaryFile(path: string, data: Buffer): void {
     fs.mkdirSync(fsPath.dirname(path), { recursive: true });
-    fs.writeFileSync(path, data, "base64url");
+    fs.writeFileSync(path, new Uint8Array(data), "base64url");
   }
 
   copyFile(from: string, to: string): void {

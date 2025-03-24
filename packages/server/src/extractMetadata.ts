@@ -1,11 +1,12 @@
 import { FileMetadata, ImageMetadata, Internal } from "@valbuild/core";
 import sizeOf from "image-size";
+import { Buffer } from "buffer";
 
 export async function extractImageMetadata(
   filename: string,
   input: Buffer,
 ): Promise<ImageMetadata> {
-  const imageSize = sizeOf(input);
+  const imageSize = sizeOf(new Uint8Array(input));
   let mimeType: string | null = null;
   if (imageSize.type) {
     const possibleMimeType = `image/${imageSize.type}`;

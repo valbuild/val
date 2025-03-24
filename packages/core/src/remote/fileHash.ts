@@ -1,4 +1,5 @@
 import { getSHA256Hash } from "../getSha256";
+import { Buffer } from "buffer";
 
 export function hashToRemoteFileHash(hash: string) {
   return hash.slice(
@@ -7,5 +8,5 @@ export function hashToRemoteFileHash(hash: string) {
   );
 }
 export function getFileHash(text: Buffer) {
-  return hashToRemoteFileHash(getSHA256Hash(text));
+  return hashToRemoteFileHash(getSHA256Hash(new Uint8Array(text)));
 }

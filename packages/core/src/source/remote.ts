@@ -1,15 +1,13 @@
 import { VAL_EXTENSION } from ".";
 import { ValConfig } from "../initVal";
 import { VAL_REMOTE_HOST } from "../schema/remote";
-import { FILE_REF_PROP } from "./file";
+import { FILE_REF_PROP, FileMetadata } from "./file";
 
 /**
  * A remote source represents data that is not stored locally.
  */
 export type RemoteSource<
-  Metadata extends Record<string, unknown> | undefined =
-    | Record<string, unknown>
-    | undefined,
+  Metadata extends FileMetadata | undefined = FileMetadata | undefined,
 > = {
   readonly [FILE_REF_PROP]: string;
   readonly [VAL_EXTENSION]: "remote";

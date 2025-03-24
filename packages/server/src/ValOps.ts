@@ -29,6 +29,7 @@ import {
   ParentRef,
   Patch,
   PatchError,
+  ReadonlyJSONValue,
   applyPatch,
   deepClone,
 } from "@valbuild/core/patch";
@@ -482,7 +483,7 @@ export abstract class ValOps {
           }
         }
         const patchRes = applyPatch(
-          deepClone(patchedSources[path]) as JSONValue, // applyPatch mutates the source. On add operations it adds more than once? There is something strange going on... deepClone seems to fix, but is that the right solution?
+          deepClone(patchedSources[path] as ReadonlyJSONValue) as JSONValue, // applyPatch mutates the source. On add operations it adds more than once? There is something strange going on... deepClone seems to fix, but is that the right solution?
           jsonOps,
           applicableOps.concat(...Object.values(fileFixOps)),
         );
@@ -1658,7 +1659,7 @@ export function createMetadataFromBuffer<T extends BinaryFileType>(
   const errors = [];
   let availableMetadata: Record<string, string | number | undefined | null>;
   if (type === "image") {
-    const { width, height, type } = sizeOf(buffer);
+    const { width, height, type } = sizeOf(new Uint8Array(buffer));
     const normalizedType =
       type === "jpg" ? "jpeg" : type === "svg" ? "svg+xml" : type;
     if (type !== undefined && `image/${normalizedType}` !== mimeType) {

@@ -10,7 +10,6 @@ import {
 } from "./selector";
 import { Source } from "./source";
 import { ModuleFilePath, ModulePath, SourcePath } from "./val";
-import { Expr } from "./expr";
 import { ArraySchema, SerializedArraySchema } from "./schema/array";
 import { UnionSchema, SerializedUnionSchema } from "./schema/union";
 import { Json } from "./Json";
@@ -71,9 +70,6 @@ export function define<T extends Schema<SelectorSource>>(
 
 export function getSource(valModule: ValModule<SelectorSource>): Source {
   const sourceOrExpr = valModule[GetSource];
-  if (sourceOrExpr instanceof Expr) {
-    throw Error("Cannot get raw source of an Expr");
-  }
   const source = sourceOrExpr;
   return source;
 }
