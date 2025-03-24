@@ -2,10 +2,19 @@
 import { Call, Expr, StringLiteral, StringTemplate, Sym } from "./expr";
 import { Source } from "../source";
 import { result } from "../fp";
-import { Path, SourceOrExpr } from "../selector/future";
-import { newSelectorProxy } from "../selector/future/SelectorProxy";
 import { isSerializedVal, SourcePath } from "../val";
 import { Json } from "../Json";
+import { newSelectorProxy } from "./SelectorProxy";
+
+/**
+/**
+ * @internal
+ */
+export const Path = Symbol("Path");
+/**
+ * @internal
+ */
+export const SourceOrExpr = Symbol("SourceOrExpr");
 
 export class EvalError {
   constructor(

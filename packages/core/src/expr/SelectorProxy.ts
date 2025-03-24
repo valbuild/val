@@ -1,12 +1,53 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Path, GenericSelector, SourceOrExpr, GetSchema } from ".";
-import { Expr } from "../../expr/expr";
-import { Schema } from "../../schema";
-import { convertFileSource } from "../../schema/file";
-import { Source, SourcePrimitive, VAL_EXTENSION } from "../../source";
-import { FILE_REF_PROP } from "../../source/file";
-import { isSerializedVal, SourcePath } from "../../val";
-import { createValPathOfItem } from "../SelectorProxy";
+import { Expr } from "./expr";
+import { Schema } from "../schema";
+import { convertFileSource } from "../schema/file";
+import { Source, SourcePrimitive, VAL_EXTENSION } from "../source";
+import { FILE_REF_PROP } from "../source/file";
+import { isSerializedVal, SourcePath } from "../val";
+import { createValPathOfItem } from "../selector/SelectorProxy";
+
+/**
+ * @internal
+ */
+export const GetSchema = Symbol("GetSchema");
+/**
+/**
+ * @internal
+ */
+export const Path = Symbol("Path");
+/**
+ * @internal
+ */
+export const GetSource = Symbol("GetSource");
+/**
+ * @internal
+ */
+export const SourceOrExpr = Symbol("SourceOrExpr");
+/**
+ * @internal
+ */
+export const ValError = Symbol("ValError");
+export abstract class GenericSelector<
+  out T extends Source,
+  Error extends string | undefined = undefined,
+> {
+  readonly [Path]: SourcePath | undefined;
+  readonly [GetSource]: T;
+  readonly [ValError]: Error | undefined;
+  readonly [GetSchema]: Schema<T> | undefined;
+  constructor(
+    valOrExpr: T,
+    path: SourcePath | undefined,
+    schema?: Schema<T>,
+    error?: Error,
+  ) {
+    this[Path] = path;
+    this[GetSource] = valOrExpr;
+    this[ValError] = error;
+    this[GetSchema] = schema;
+  }
+}
 
 function hasOwn<T extends PropertyKey>(obj: object, prop: T): boolean {
   return Object.prototype.hasOwnProperty.call(obj, prop);
@@ -156,7 +197,7 @@ export function newSelectorProxy(
         eq: (other: SourcePrimitive | GenericSelector<Source>) => {
           let otherValue: any = other;
           if (isSelector(other)) {
-            otherValue = other[SourceOrExpr];
+            otherValue = (other as any)[SourceOrExpr];
             if (otherValue instanceof Expr) {
               throw Error("TODO: Cannot evaluate equality with an Expr");
             }

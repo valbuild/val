@@ -345,7 +345,7 @@ function convertImageNode(
   console.log("convertImageNode", node);
   if (node.attrs && node.attrs.src.startsWith("data:")) {
     const binaryData = Buffer.from(node.attrs.src.split(",")[1], "base64");
-    const fullFileHash = Internal.getSHA256Hash(binaryData);
+    const fullFileHash = Internal.getSHA256Hash(new Uint8Array(binaryData));
     const mimeType = Internal.getMimeType(node.attrs.src);
     if (mimeType === undefined) {
       throw new Error(

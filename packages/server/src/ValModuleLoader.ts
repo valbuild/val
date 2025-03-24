@@ -20,7 +20,11 @@ export const createModuleLoader = (
     ...ts.sys,
     writeFile: (fileName, data, encoding) => {
       fs.mkdirSync(path.dirname(fileName), { recursive: true });
-      fs.writeFileSync(fileName, data, encoding);
+      fs.writeFileSync(
+        fileName,
+        typeof data === "string" ? data : new Uint8Array(data),
+        encoding,
+      );
     },
     rmFile: fs.rmSync,
   },
@@ -55,7 +59,11 @@ export class ValModuleLoader {
       ...ts.sys,
       writeFile: (fileName, data, encoding) => {
         fs.mkdirSync(path.dirname(fileName), { recursive: true });
-        fs.writeFileSync(fileName, data, encoding);
+        fs.writeFileSync(
+          fileName,
+          typeof data === "string" ? data : new Uint8Array(data),
+          encoding,
+        );
       },
       rmFile: fs.rmSync,
     },
