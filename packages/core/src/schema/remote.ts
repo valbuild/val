@@ -17,7 +17,7 @@ export function convertRemoteSource<
         url:
           "/api/val/files/" +
           splitRemoteRefDataRes.filePath +
-          `?patch_id=${src["patch_id"]}`,
+          `?patch_id=${src["patch_id"]}&remote=true`,
         metadata: src.metadata,
       };
     } else {

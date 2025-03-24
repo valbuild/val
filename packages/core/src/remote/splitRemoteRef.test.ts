@@ -3,7 +3,7 @@ import { splitRemoteRef } from "./splitRemoteRef";
 describe("splitRemoteRef", () => {
   it("should return success with parsed values for a valid remote ref", () => {
     const ref =
-      "https://remote.val.build/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/path/to/file.txt";
+      "https://remote.val.build/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/test.png";
     const result = splitRemoteRef(ref);
 
     expect(result).toEqual({
@@ -14,7 +14,7 @@ describe("splitRemoteRef", () => {
       version: "1.0.0",
       validationHash: "abc123",
       fileHash: "def456",
-      filePath: "path/to/file.txt",
+      filePath: "public/val/test.png",
     });
   });
 
@@ -41,7 +41,7 @@ describe("splitRemoteRef", () => {
 
   it("should handle a remote ref with a complex file path", () => {
     const ref =
-      "https://remote.val.build/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/dir/subdir/file.txt";
+      "https://remote.val.build/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/dir/subdir/file.png";
     const result = splitRemoteRef(ref);
 
     expect(result).toEqual({
@@ -52,13 +52,13 @@ describe("splitRemoteRef", () => {
       version: "1.0.0",
       validationHash: "abc123",
       fileHash: "def456",
-      filePath: "dir/subdir/file.txt",
+      filePath: "public/val/dir/subdir/file.png",
     });
   });
 
   it("should handle a remote ref with an HTTP host", () => {
     const ref =
-      "http://example.com/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/file.txt";
+      "http://example.com/file/p/project123/b/01/v/1.0.0/h/abc123/f/def456/p/public/val/test.png";
     const result = splitRemoteRef(ref);
 
     expect(result).toEqual({
@@ -69,7 +69,7 @@ describe("splitRemoteRef", () => {
       version: "1.0.0",
       validationHash: "abc123",
       fileHash: "def456",
-      filePath: "file.txt",
+      filePath: "public/val/test.png",
     });
   });
 });
