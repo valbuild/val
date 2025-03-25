@@ -22,6 +22,7 @@ import { glob } from "fast-glob";
 import picocolors from "picocolors";
 import { ESLint } from "eslint";
 import fs from "fs/promises";
+import { evalValConfigFile } from "./utils/evalValConfigFile";
 
 export async function validate({
   root,
@@ -38,6 +39,14 @@ export async function validate({
     cwd: projectRoot,
     ignore: false,
   });
+  const valConfigFile =
+    (await evalValConfigFile(projectRoot, "val.config.ts")) ||
+    (await evalValConfigFile(projectRoot, "val.config.js"));
+  console.log(
+    picocolors.greenBright(
+      `Validating project${valConfigFile?.project ? ` '${picocolors.inverse(valConfigFile?.project)}'` : ""}...`,
+    ),
+  );
   const service = await createService(projectRoot, {});
   const checkKeyIsValid = async (
     key: string,
@@ -130,8 +139,7 @@ export async function validate({
       "files",
     );
   }
-  console.log("Validating...", valFiles.length, "files");
-
+  console.log(picocolors.greenBright(`Found ${valFiles.length} files...`));
   let publicProjectId: string | undefined;
   let didFix = false; // TODO: ugly
   async function validateFile(file: string): Promise<number> {
@@ -383,31 +391,7 @@ export async function validate({
                     if (!publicProjectId || !remoteFileBuckets) {
                       let projectName = process.env.VAL_PROJECT;
                       if (!projectName) {
-                        try {
-                          // eslint-disable-next-line @typescript-eslint/no-var-requires
-                          projectName = require(`${root}/val.config`)?.config
-                            ?.project;
-                        } catch {
-                          // ignore
-                        }
-                      }
-                      if (!projectName) {
-                        try {
-                          // eslint-disable-next-line @typescript-eslint/no-var-requires
-                          projectName = require(`${root}/val.config.ts`)?.config
-                            ?.project;
-                        } catch {
-                          // ignore
-                        }
-                      }
-                      if (!projectName) {
-                        try {
-                          // eslint-disable-next-line @typescript-eslint/no-var-requires
-                          projectName = require(`${root}/val.config.js`)?.config
-                            ?.project;
-                        } catch {
-                          // ignore
-                        }
+                        projectName = valConfigFile?.project;
                       }
                       if (!projectName) {
                         console.log(
