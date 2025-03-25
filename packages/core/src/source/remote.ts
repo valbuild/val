@@ -1,5 +1,6 @@
 import { VAL_EXTENSION } from ".";
 import { ValConfig } from "../initVal";
+import { ImageMetadata } from "../schema/image";
 import { FILE_REF_PROP, FileMetadata } from "./file";
 
 /**
@@ -16,9 +17,9 @@ export type RemoteSource<
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export const initRemote = (config?: ValConfig) => {
-  function remote<Metadata extends Record<string, string | number> | undefined>(
+  function remote<Metadata extends FileMetadata | ImageMetadata>(
     ref: RemoteRef,
-    metadata?: Metadata,
+    metadata: Metadata,
   ): RemoteSource<Metadata> {
     return {
       [FILE_REF_PROP]: ref,
