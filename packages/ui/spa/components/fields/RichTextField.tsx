@@ -11,6 +11,7 @@ import { FieldSourceError } from "../../components/FieldSourceError";
 import {
   RemirrorJSON,
   remirrorToRichTextSource,
+  RemoteRichTextOptions,
   richTextToRemirror,
 } from "@valbuild/shared/internal";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
@@ -20,6 +21,8 @@ import { ValidationErrors } from "../../components/ValidationError";
 import {
   ShallowSource,
   useAddPatch,
+  useCurrentRemoteFileBucket,
+  useRemoteFiles,
   useSchemaAtPath,
   useShallowSourceAtPath,
   useValConfig,
@@ -37,6 +40,8 @@ export function RichTextField({
   const config = useValConfig();
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
+  const remoteFiles = useRemoteFiles();
+  const currentRemoteFileBucket = useCurrentRemoteFileBucket();
   const defaultValue =
     "data" in sourceAtPath
       ? (sourceAtPath.data as RichTextSource<AllRichTextOptions>)
@@ -77,6 +82,25 @@ export function RichTextField({
     );
   }
   const schema = schemaAtPath.data;
+  const remoteOptions =
+    typeof schema.options?.inline?.img === "object" &&
+    schema.options.inline.img.remote &&
+    remoteFiles.status === "ready" &&
+    config?.remoteHost &&
+    currentRemoteFileBucket
+      ? {
+          publicProjectId: remoteFiles.publicProjectId,
+          bucket: currentRemoteFileBucket,
+          coreVersion: remoteFiles.coreVersion,
+          schema: schema.options.inline.img,
+          remoteHost: config?.remoteHost,
+        }
+      : null;
+  if (!config?.remoteHost) {
+    console.warn(
+      "RichTextField: config.remoteHost is not set. Remote images will not work.",
+    );
+  }
   return (
     <div>
       <ValidationErrors path={path} />
@@ -92,6 +116,7 @@ export function RichTextField({
                 patchPath,
                 config?.files?.directory ?? "/public/val",
                 event.state.doc.toJSON(),
+                remoteOptions,
               );
             }, path);
           }
@@ -104,10 +129,11 @@ export function RichTextField({
 function createRichTextPatch(
   path: string[],
   configDirectory: ConfigDirectory,
-  content?: RemirrorJSON,
+  content: RemirrorJSON | undefined,
+  remoteOptions: RemoteRichTextOptions | null,
 ): Patch {
   const { blocks, files } = content
-    ? remirrorToRichTextSource(content, configDirectory)
+    ? remirrorToRichTextSource(content, configDirectory, remoteOptions)
     : {
         blocks: [],
         files: {},
@@ -126,6 +152,7 @@ function createRichTextPatch(
           filePath,
           value,
           nestedFilePath: patchPath,
+          remote: !!remoteOptions,
         }),
       );
     }),

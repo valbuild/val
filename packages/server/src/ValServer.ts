@@ -10,6 +10,8 @@ import {
   ValConfig,
   Internal,
   FileSource,
+  RemoteSource,
+  DEFAULT_VAL_REMOTE_HOST,
 } from "@valbuild/core";
 import {
   Api,
@@ -24,7 +26,7 @@ import {
   ValServerErrorStatus,
 } from "@valbuild/shared/internal";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
-import { z } from "zod";
+import { optional, z } from "zod";
 import { ValOpsFS } from "./ValOpsFS";
 import {
   AuthorId,
@@ -36,6 +38,12 @@ import {
 import { fromError } from "zod-validation-error";
 import { ValOpsHttp } from "./ValOpsHttp";
 import { result } from "@valbuild/core/fp";
+import { getSettings } from "./getSettings";
+import {
+  getPersonalAccessTokenPath,
+  parsePersonalAccessTokenFile,
+} from "./personalAccessTokens";
+import path from "path";
 
 export type ValServerOptions = {
   route: string;
@@ -74,6 +82,8 @@ export const ValServer = (
   options: ValServerConfig,
   callbacks: ValServerCallbacks,
 ): ServerOf<Api> => {
+  const VAL_REMOTE_HOST =
+    process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST;
   let serverOps: ValOpsHttp | ValOpsFS;
   if (options.mode === "fs") {
     serverOps = new ValOpsFS(options.cwd, valModules, {
@@ -270,6 +280,86 @@ export const ValServer = (
       } as const,
       status: 302 as const,
       redirectTo: appAuthorizeUrl,
+    };
+  };
+
+  let remoteFileAuth: { apiKey: string } | { pat: string } | null = null;
+  const getRemoteFileAuth = async (): Promise<
+    | {
+        status: 200;
+        json: { remoteFileAuth: { apiKey: string } | { pat: string } };
+      }
+    | {
+        status: 400;
+        json: {
+          errorCode: "project-not-configured" | "pat-error";
+          message: string;
+        };
+      }
+  > => {
+    if (remoteFileAuth) {
+      return {
+        status: 200,
+        json: { remoteFileAuth },
+      };
+    }
+    if (options.apiKey) {
+      remoteFileAuth = {
+        apiKey: options.apiKey,
+      };
+    } else if (serverOps instanceof ValOpsFS) {
+      const projectRootDir = options.config.root;
+      if (!projectRootDir) {
+        return {
+          status: 400,
+          json: {
+            errorCode: "project-not-configured",
+            message: "Root directory was empty",
+          },
+        };
+      }
+      const fs = await import("fs");
+      const patPath = getPersonalAccessTokenPath(path.join(process.cwd()));
+      let patFile;
+
+      try {
+        patFile = await fs.promises.readFile(patPath, "utf-8");
+      } catch (err) {
+        return {
+          status: 400,
+          json: {
+            errorCode: "pat-error",
+            message: "Could not read personal access token file",
+          },
+        };
+      }
+      const patRes = parsePersonalAccessTokenFile(patFile);
+      if (patRes.success) {
+        remoteFileAuth = {
+          pat: patRes.data.pat,
+        };
+      } else {
+        return {
+          status: 400,
+          json: {
+            errorCode: "pat-error",
+            message: "Could not parse personal access token file",
+          },
+        };
+      }
+    }
+    if (!remoteFileAuth) {
+      return {
+        status: 400,
+        json: {
+          errorCode: "project-not-configured",
+          message: "Remote file auth is not configured",
+        },
+      };
+    }
+    return {
+      status: 200,
+      json: { remoteFileAuth },
     };
   };
 
@@ -609,6 +699,69 @@ export const ValServer = (
             [VAL_STATE_COOKIE]: {
               value: null,
             },
+          },
+        };
+      },
+    },
+
+    "/remote/settings": {
+      GET: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              errorCode: "unauthorized",
+              message: auth.error,
+            },
+          };
+        }
+        if (serverOps instanceof ValOpsHttp && !("id" in auth)) {
+          return {
+            status: 401,
+            json: {
+              errorCode: "unauthorized",
+              message: "Unauthorized",
+            },
+          };
+        }
+
+        if (!options.project) {
+          return {
+            status: 400,
+            json: {
+              errorCode: "project-not-configured",
+              message:
+                "Project is not configured. Update your val.config file with a valid remote project",
+            },
+          };
+        }
+        const remoteFileAuthRes = await getRemoteFileAuth();
+        if (remoteFileAuthRes.status !== 200) {
+          return remoteFileAuthRes;
+        }
+        const remoteFileAuth = remoteFileAuthRes.json.remoteFileAuth;
+
+        const settingsRes = await getSettings(options.project, remoteFileAuth);
+        if (!settingsRes.success) {
+          console.warn(
+            "Could not get public project id: " + settingsRes.message,
+          );
+          return {
+            status: 400,
+            json: {
+              errorCode: "error-could-not-get-settings",
+              message: `Could not get settings: ${settingsRes.message}`,
+            },
+          };
+        }
+        return {
+          status: 200,
+          json: {
+            publicProjectId: settingsRes.data.publicProjectId,
+            remoteFileBuckets: settingsRes.data.remoteFileBuckets,
+            coreVersion: Internal.VERSION.core || "unknown",
           },
         };
       },
@@ -1015,9 +1168,11 @@ export const ValServer = (
             }
           >;
           files: Record<SourcePath, FileSource>;
+          remoteFiles: Record<SourcePath, RemoteSource>;
         } = {
           errors: {},
           files: {},
+          remoteFiles: {},
         };
         if (query.validate_sources || query.validate_binary_files) {
           const schemas = await serverOps.getSchemas();
@@ -1032,6 +1187,12 @@ export const ValServer = (
               schemas,
               sourcesRes.sources,
               sourcesValidation.files,
+            );
+            // TODO : actually do something with this
+            await serverOps.validateRemoteFiles(
+              schemas,
+              sourcesRes.sources,
+              sourcesValidation.remoteFiles,
             );
           }
         }
@@ -1251,7 +1412,12 @@ export const ValServer = (
           };
         }
         if (serverOps instanceof ValOpsFS) {
-          await serverOps.saveFiles(preparedCommit);
+          const remoteFileAuthRes = await getRemoteFileAuth();
+          if (remoteFileAuthRes.status !== 200) {
+            return remoteFileAuthRes;
+          }
+          const remoteFileAuth = remoteFileAuthRes.json.remoteFileAuth;
+          await serverOps.saveOrUploadFiles(preparedCommit, remoteFileAuth);
           await serverOps.deletePatches(patchIds);
           return {
             status: 200,
@@ -1343,16 +1509,25 @@ export const ValServer = (
         let cacheControl: string | undefined;
         let fileBuffer;
         let mimeType: string | undefined;
+        const remote = query.remote === "true";
         if (query.patch_id) {
           fileBuffer = await serverOps.getBase64EncodedBinaryFileFromPatch(
             filePath,
             query.patch_id as PatchId,
+            remote,
           );
           mimeType = Internal.filenameToMimeType(filePath);
-          cacheControl = "public, max-age=20000, immutable";
+          // TODO: reenable this:
+          // cacheControl = "public, max-age=20000, immutable";
         } else {
+          if (serverOps instanceof ValOpsHttp && remote) {
+            console.error(
+              `Remote file: ${filePath} requested without patch id. This is most likely a bug in Val.`,
+            );
+          }
           fileBuffer = await serverOps.getBinaryFile(filePath);
         }
+
         if (fileBuffer) {
           return {
             status: 200,

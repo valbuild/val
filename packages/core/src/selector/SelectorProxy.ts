@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Path, GenericSelector, GetSource, GetSchema } from "./index";
-import { Expr } from "../expr/expr";
 import { Schema } from "../schema";
 import { convertFileSource } from "../schema/file";
 import { Source, SourcePrimitive, VAL_EXTENSION } from "../source";
@@ -157,9 +156,6 @@ export function newSelectorProxy(
           let otherValue: any = other;
           if (isSelector(other)) {
             otherValue = other[GetSource];
-            if (otherValue instanceof Expr) {
-              throw Error("TODO: Cannot evaluate equality with an Expr");
-            }
           }
           return newSelectorProxy(source === otherValue, undefined);
         },

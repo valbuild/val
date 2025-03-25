@@ -1,11 +1,13 @@
 import { SerializedSchema, Schema } from ".";
 import { SelectorSource } from "../selector";
+import { ImageSource } from "../source/image";
+import { RemoteSource } from "../source/remote";
 import { SourcePath } from "../val";
 import { ArraySchema } from "./array";
 import { BooleanSchema } from "./boolean";
 import { DateSchema } from "./date";
 import { FileSchema } from "./file";
-import { ImageSchema } from "./image";
+import { ImageMetadata, ImageSchema } from "./image";
 import { KeyOfSchema } from "./keyOf";
 import { LiteralSchema } from "./literal";
 import { NumberSchema } from "./number";
@@ -62,8 +64,26 @@ export function deserializeSchema(
         serialized.items.map(deserializeSchema) as any, // TODO: we do not really need any here - right?
         serialized.opt,
       );
-    case "richtext":
-      return new RichTextSchema(serialized.options || {}, serialized.opt);
+    case "richtext": {
+      const deserializedOptions = {
+        ...(serialized.options || {}),
+        inline:
+          typeof serialized.options?.inline?.img === "object"
+            ? {
+                a: serialized.options.inline.a,
+                img: deserializeSchema(
+                  serialized.options.inline.img,
+                ) as ImageSchema<ImageSource | RemoteSource<ImageMetadata>>,
+              }
+            : (serialized.options?.inline as
+                | undefined
+                | {
+                    a: boolean | undefined;
+                    img: boolean | undefined;
+                  }),
+      };
+      return new RichTextSchema(deserializedOptions, serialized.opt);
+    }
     case "record":
       return new RecordSchema(
         deserializeSchema(serialized.item),

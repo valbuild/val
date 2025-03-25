@@ -9,7 +9,7 @@
     "module": "esnext",
     "moduleResolution": "node",
     "noEmit": true,
-    "target": "ES5",
+    "target": "ES6",
     "outDir": "dist",
     "rootDir": ".",
     "skipLibCheck": true,

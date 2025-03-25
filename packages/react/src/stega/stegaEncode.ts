@@ -341,6 +341,13 @@ export function stegaEncode(
             ...fileSelector,
             url: rec(url, recOpts),
           };
+        } else if (sourceOrSelector[VAL_EXTENSION] === "remote") {
+          const remoteSelector = Internal.convertFileSource(sourceOrSelector);
+          const url = remoteSelector.url;
+          return {
+            ...remoteSelector,
+            url: rec(url, recOpts),
+          };
         }
         console.error(
           `Encountered unexpected extension: ${sourceOrSelector[VAL_EXTENSION]}`,

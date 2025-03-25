@@ -9,7 +9,7 @@ import {
   type SerializedArraySchema as SerializedArraySchemaT,
   type SerializedUnionSchema as SerializedUnionSchemaT,
   type SerializedRichTextSchema as SerializedRichTextSchemaT,
-  type RichTextOptions as RichTextOptionsT,
+  type SerializedRichTextOptions as SerializedRichTextOptionsT,
   type SerializedRecordSchema as SerializedRecordSchemaT,
   type SerializedKeyOfSchema as SerializedKeyOfSchemaT,
   type SerializedFileSchema as SerializedFileSchemaT,
@@ -119,8 +119,26 @@ export const SerializedUnionSchema: z.ZodType<
   ]);
 });
 
+export const ImageOptions = z.object({
+  ext: z
+    .union([z.tuple([z.literal("jpg")]), z.tuple([z.literal("webp")])])
+    .optional(),
+  directory: z.string().optional(),
+  prefix: z.string().optional(),
+  accept: z.string().optional(),
+});
+export const SerializedImageSchema: z.ZodType<
+  SerializedImageSchemaT,
+  z.ZodTypeDef,
+  unknown
+> = z.object({
+  type: z.literal("image"),
+  options: ImageOptions.optional(),
+  opt: z.boolean(),
+});
+
 export const RichTextOptions: z.ZodType<
-  RichTextOptionsT,
+  SerializedRichTextOptionsT,
   z.ZodTypeDef,
   unknown
 > = z.object({
@@ -146,7 +164,7 @@ export const RichTextOptions: z.ZodType<
   inline: z
     .object({
       a: z.boolean().optional(),
-      img: z.boolean().optional(),
+      img: z.union([z.boolean(), SerializedImageSchema]).optional(),
     })
     .optional(),
 });
@@ -205,24 +223,6 @@ export const SerializedDateSchema: z.ZodType<
   unknown
 > = z.object({
   type: z.literal("date"),
-  opt: z.boolean(),
-});
-
-export const ImageOptions = z.object({
-  ext: z
-    .union([z.tuple([z.literal("jpg")]), z.tuple([z.literal("webp")])])
-    .optional(),
-  directory: z.string().optional(),
-  prefix: z.string().optional(),
-  accept: z.string().optional(),
-});
-export const SerializedImageSchema: z.ZodType<
-  SerializedImageSchemaT,
-  z.ZodTypeDef,
-  unknown
-> = z.object({
-  type: z.literal("image"),
-  options: ImageOptions.optional(),
   opt: z.boolean(),
 });
 

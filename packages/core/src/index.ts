@@ -12,6 +12,8 @@ export type { FileMetadata } from "./schema/file";
 export type { ValModule, SerializedModule, InferValModuleType } from "./module";
 export type { SourceObject, SourcePrimitive, Source } from "./source";
 export type { FileSource } from "./source/file";
+export type { RemoteSource, RemoteRef } from "./source/remote";
+export { DEFAULT_VAL_REMOTE_HOST } from "./schema/remote";
 export type { RawString } from "./schema/string";
 export type { ImageSource } from "./source/image";
 export type {
@@ -29,6 +31,7 @@ export type {
   BrNode,
   RichTextNode,
   RichTextOptions,
+  SerializedRichTextOptions,
   RichTextSource,
   BlockNode,
   SpanNode,
@@ -50,7 +53,6 @@ export type {
   ValidationErrors,
 } from "./schema/validation/ValidationError";
 export type { ValidationFix } from "./schema/validation/ValidationFix";
-export * as expr from "./expr/";
 export { FILE_REF_PROP, FILE_REF_SUBTYPE_TAG } from "./source/file";
 export { VAL_EXTENSION, type SourceArray } from "./source";
 export { derefPatch } from "./patch/deref";
@@ -76,7 +78,6 @@ import { getSchema } from "./selector";
 import { ModulePath, getValPath, isVal } from "./val";
 import { convertFileSource } from "./schema/file";
 import { createValPathOfItem } from "./selector/SelectorProxy";
-import { getVal } from "./future/fetchVal";
 import { getSHA256Hash } from "./getSha256";
 import { Operation } from "./patch";
 import { initSchema } from "./initSchema";
@@ -89,6 +90,15 @@ import {
 } from "./mimeType";
 import { type ImageMetadata } from "./schema/image";
 import { type FileMetadata } from "./schema/file";
+import { isFile } from "./source/file";
+import { createRemoteRef } from "./source/remote";
+import {
+  getValidationBasis,
+  getValidationHash,
+} from "./remote/validationBasis";
+import { getFileHash, hashToRemoteFileHash } from "./remote/fileHash";
+import { splitRemoteRef } from "./remote/splitRemoteRef";
+import { convertRemoteSource } from "./schema/remote";
 export { type SerializedArraySchema, ArraySchema } from "./schema/array";
 export { type SerializedObjectSchema, ObjectSchema } from "./schema/object";
 export { type SerializedRecordSchema, RecordSchema } from "./schema/record";
@@ -133,14 +143,23 @@ const Internal = {
     })(),
   },
   convertFileSource,
+  convertRemoteSource,
   getSchema,
   getValPath,
-  getVal,
   getSource,
   resolvePath,
   splitModuleFilePathAndModulePath,
   joinModuleFilePathAndModulePath,
+  remote: {
+    createRemoteRef,
+    getValidationBasis,
+    getValidationHash,
+    getFileHash,
+    hashToRemoteFileHash,
+    splitRemoteRef,
+  },
   isVal,
+  isFile,
   createValPathOfItem,
   getSHA256Hash,
   initSchema,
@@ -158,6 +177,7 @@ const Internal = {
     path: string[];
     filePath: string;
     value: string;
+    remote: boolean;
   } => op.op === "file" && typeof op.filePath === "string",
   createPatchJSONPath: (modulePath: ModulePath) =>
     `/${modulePath

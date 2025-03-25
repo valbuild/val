@@ -162,6 +162,7 @@ describe("ValOpsFS", () => {
           filePath: "/public/val/images/smallest.png",
           path: ["testImage"],
           value: anotherSmallPng,
+          remote: false,
         },
       ],
       {
@@ -214,7 +215,13 @@ describe("ValOpsFS", () => {
       ...patchesRes,
     });
     console.log("prepare", JSON.stringify(pc1, null, 2));
-    const s1 = await ops.saveFiles(pc1);
+    const s1 = await ops.saveOrUploadFiles(
+      pc1,
+      {
+        pat: "test!",
+      },
+      "test-skip-remote",
+    );
     console.log("save files", JSON.stringify(s1, null, 2));
     console.log(
       "found patches",
@@ -246,6 +253,7 @@ describe("ValOpsFS", () => {
             filePath: "/public/val/images/smallest.png",
             path: ["testImage"],
             value: anotherSmallPng,
+            remote: false,
           },
         ],
         {

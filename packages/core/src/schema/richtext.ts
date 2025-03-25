@@ -1,8 +1,15 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { AssertError, Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
-import { RichTextSource, RichTextOptions } from "../source/richtext";
+import { ImageSource } from "../source/image";
+import {
+  RichTextSource,
+  RichTextOptions,
+  SerializedRichTextOptions,
+} from "../source/richtext";
 import { SourcePath } from "../val";
+import { SerializedFileSchema } from "./file";
+import { ImageSchema, SerializedImageSchema } from "./image";
 import {
   ValidationError,
   ValidationErrors,
@@ -15,7 +22,7 @@ type ValidationOptions = {
 export type SerializedRichTextSchema = {
   type: "richtext";
   opt: boolean;
-  options?: RichTextOptions & ValidationOptions;
+  options?: SerializedRichTextOptions & ValidationOptions;
 };
 
 export class RichTextSchema<
@@ -190,8 +197,44 @@ export class RichTextSchema<
         if (node.tag === "a" && !this.options.inline?.a) {
           addError(path, `'a' inline is not valid`, false);
         }
-        if (node.tag === "img" && !this.options.inline?.img) {
-          addError(path, `'img' inline is not valid`, false);
+
+        if (node.tag === "img") {
+          if (!this.options.inline?.img) {
+            addError(path, `'img' inline is not valid`, false);
+          } else if (this.options.inline?.img) {
+            if (!("src" in node)) {
+              return {
+                [path]: [
+                  {
+                    message: `Expected 'src' in 'img'`,
+                    typeError: true,
+                  },
+                ],
+              };
+            }
+            const srcPath = unsafeCreateSourcePath(path, "src");
+            const imageValidationErrors =
+              typeof this.options.inline?.img === "object"
+                ? this.options.inline?.img.validate(
+                    srcPath,
+                    node.src as ImageSource,
+                  )
+                : new ImageSchema({}, false, false).validate(
+                    srcPath,
+                    node.src as ImageSource,
+                  );
+            if (imageValidationErrors) {
+              for (const validationErrorPathS in imageValidationErrors) {
+                const validationErrorPath = validationErrorPathS as SourcePath;
+                if (!current[validationErrorPath]) {
+                  current[validationErrorPath] = [];
+                }
+                current[validationErrorPath].push(
+                  ...imageValidationErrors[validationErrorPath],
+                );
+              }
+            }
+          }
         }
         if ("styles" in node && node.tag !== "span") {
           return {
@@ -366,7 +409,6 @@ export class RichTextSchema<
         errors,
       };
     }
-    // TODO: validate options
     return {
       success: true,
       data: src,
@@ -485,10 +527,21 @@ export class RichTextSchema<
   }
 
   serialize(): SerializedSchema {
+    const serializedOptions: SerializedRichTextOptions = {
+      style: this.options.style,
+      block: this.options.block,
+      inline: this.options.inline && {
+        a: this.options.inline.a,
+        img:
+          this.options.inline.img && typeof this.options.inline.img === "object"
+            ? (this.options.inline.img.serialize() as SerializedImageSchema)
+            : this.options.inline.img,
+      },
+    };
     return {
       type: "richtext",
       opt: this.opt,
-      options: this.options,
+      options: serializedOptions,
     };
   }
 }

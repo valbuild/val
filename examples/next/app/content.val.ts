@@ -42,7 +42,7 @@ export const schema = s.object({
    */
   hero: s.object({
     title: s.string(),
-    image,
+    image: s.image(),
   }),
   // Boolean:
   featured: s.boolean(),
@@ -56,7 +56,7 @@ export default c.define("/app/content.val.ts", schema, {
   }),
   hero: {
     title: "Content as code",
-    image: c.image("/public/val/logo_e211b.png", {
+    image: c.image("/public/val/logo_7adc7.png", {
       width: 944,
       height: 944,
       mimeType: "image/png",

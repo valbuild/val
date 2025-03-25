@@ -3,6 +3,7 @@ import { TSOps } from "./ops";
 import { result, array, pipe } from "@valbuild/core/fp";
 import { PatchError, JSONValue } from "@valbuild/core/patch";
 import { ValSyntaxError } from "./syntax";
+import type { RemoteSource } from "@valbuild/core/src/source/remote";
 
 function testSourceFile(expression: string): ts.SourceFile {
   return ts.createSourceFile(
@@ -144,7 +145,7 @@ describe("TSOps", () => {
       name: "c.file",
       input: `{ foo: "bar" }`,
       path: ["image"],
-      value: { _ref: "/public/val/image.jpg" },
+      value: { _ref: "/public/val/image.jpg", _type: "file" },
       expected: result.ok(
         `{ foo: "bar", image: c.file("/public/val/image.jpg") }`,
       ),
@@ -155,6 +156,15 @@ describe("TSOps", () => {
       path: ["_ref"],
       value: "/public/val/bar.jpg",
       expected: result.ok(`c.file("/public/val/bar.jpg")`),
+    },
+    {
+      name: "ref prop to c.remote",
+      input: `c.remote("val://<schema>/<hash>/public/val/foo.jpg")`,
+      path: ["_ref"],
+      value: "val://<schema>/<hash>/public/val/bar.jpg",
+      expected: result.ok(
+        `c.remote("val://<schema>/<hash>/public/val/bar.jpg")`,
+      ),
     },
     {
       name: "ref prop",
@@ -272,6 +282,14 @@ describe("TSOps", () => {
       input: `[c.file("/public/val/image1.jpg"), c.file("/public/val/image2.jpg")]`,
       path: ["0"],
       expected: result.ok(`[c.file("/public/val/image2.jpg")]`),
+    },
+    {
+      name: "c.remote from array",
+      input: `[c.remote("val://<schema>/<hash>/public/val/image1.jpg"), c.remote("val://<schema>/<hash>/public/val/image2.jpg")]`,
+      path: ["0"],
+      expected: result.ok(
+        `[c.remote("val://<schema>/<hash>/public/val/image2.jpg")]`,
+      ),
     },
     {
       name: "c.file from object",
@@ -447,6 +465,47 @@ describe("TSOps", () => {
       value: null,
       expected: result.err(PatchError),
     },
+    {
+      name: "c.file with c.remote",
+      input: `c.file("/public/val/foo/bar.jpg")`,
+      path: [],
+      value: {
+        _ref: "val://<schema>/<hash>/public/val/foo/bar.jpg",
+        _type: "remote",
+      } satisfies RemoteSource,
+      expected: result.ok(
+        `c.remote("val://<schema>/<hash>/public/val/foo/bar.jpg")`,
+      ),
+    },
+    {
+      name: "c.image with c.remote",
+      input: `c.image("/public/val/foo/bar.jpg")`,
+      path: [],
+      value: {
+        _ref: "val://<schema>/<hash>/public/val/foo/bar.jpg",
+        _type: "remote",
+      } satisfies RemoteSource,
+      expected: result.ok(
+        `c.remote("val://<schema>/<hash>/public/val/foo/bar.jpg")`,
+      ),
+    },
+    {
+      name: "c.file with metadata with c.remote",
+      input: `c.file("/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
+      path: [],
+      value: {
+        _ref: "val://<schema>/<hash>/public/val/foo/bar.jpg",
+        _type: "remote",
+        metadata: {
+          checksum: "123",
+          width: 456,
+          height: 789,
+        },
+      } satisfies RemoteSource,
+      expected: result.ok(
+        `c.remote("val://<schema>/<hash>/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
+      ),
+    },
   ])("replace $name", ({ input, path, value, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);
@@ -561,6 +620,15 @@ describe("TSOps", () => {
         `{ baz: c.file("/public/val/foo/bar.jpg", { bar: "zoo" }) }`,
       ),
     },
+    {
+      name: "object into c.remote",
+      input: `{ foo: { bar: "zoo" }, baz: c.remote("val://<schema>/<hash>/public/val/foo/bar.jpg") }`,
+      from: ["foo"],
+      path: ["baz", "metadata"],
+      expected: result.ok(
+        `{ baz: c.remote("val://<schema>/<hash>/public/val/foo/bar.jpg", { bar: "zoo" }) }`,
+      ),
+    },
   ])("move $name", ({ input, from, path, expected }) => {
     const src = testSourceFile(input);
     const ops = new TSOps(findRoot);
@@ -671,6 +739,15 @@ describe("TSOps", () => {
       path: ["foo", "metadata"],
       expected: result.ok(
         `{ foo: c.file("/public/val/image1.jpg", null), bar: null }`,
+      ),
+    },
+    {
+      name: "object into c.file",
+      input: `{ foo: c.remote("val://<schema>/<hash>/public/val/image1.jpg"), bar: null }`,
+      from: ["bar"],
+      path: ["foo", "metadata"],
+      expected: result.ok(
+        `{ foo: c.remote("val://<schema>/<hash>/public/val/image1.jpg", null), bar: null }`,
       ),
     },
   ])("copy $name", ({ input, from, path, expected }) => {
@@ -798,6 +875,16 @@ describe("TSOps", () => {
       input: `c.file("/public/val/foo/bar.jpg")`,
       path: [],
       value: { _ref: "/public/val/foo/bar.jpg", _type: "file" },
+      expected: result.ok(true),
+    },
+    {
+      name: "c.remote",
+      input: `c.remote("val://<schema>/<hash>/public/val/foo/bar.jpg")`,
+      path: [],
+      value: {
+        _ref: "val://<schema>/<hash>/public/val/foo/bar.jpg",
+        _type: "remote",
+      },
       expected: result.ok(true),
     },
     {

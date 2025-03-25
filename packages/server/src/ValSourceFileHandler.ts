@@ -11,7 +11,11 @@ export class ValSourceFileHandler {
       ...ts.sys,
       writeFile: (fileName, data, encoding) => {
         fs.mkdirSync(path.dirname(fileName), { recursive: true });
-        fs.writeFileSync(fileName, data, encoding);
+        fs.writeFileSync(
+          fileName,
+          typeof data === "string" ? data : new Uint8Array(data),
+          encoding,
+        );
       },
       rmFile: fs.rmSync,
     },
