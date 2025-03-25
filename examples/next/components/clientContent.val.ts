@@ -27,7 +27,7 @@ export type ClientContent = t.inferSchema<typeof schema>;
 export default c.define("/components/clientContent.val.ts", schema, {
   text: "Client components works",
   date: "2001-05-08",
-  image: c.image("/public/val/logo_e211b.png", {
+  image: c.image("/public/val/logo_7adc7.png", {
     width: 944,
     height: 944,
     mimeType: "image/png",
