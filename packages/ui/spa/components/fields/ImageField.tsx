@@ -321,8 +321,7 @@ function getRemoteFilesError(
     | "project-not-configured"
     | "api-key-missing"
     | "pat-error"
-    | "error-could-not-get-public-project-id"
-    | "error-could-not-get-buckets"
+    | "error-could-not-get-settings"
     | "no-internet-connection"
     | "unauthorized-personal-access-token-error"
     | "unauthorized",
@@ -330,10 +329,8 @@ function getRemoteFilesError(
   switch (reason) {
     case "api-key-missing":
       return "Val is running in production mode. To upload remote files and images, the VAL_API_KEY env must be set. Contact a developer to fix this issue.";
-    case "error-could-not-get-buckets":
-      return "Cannot upload remote files and images, since an issue occurred while trying to get the buckets";
-    case "error-could-not-get-public-project-id":
-      return "Cannot upload remote files and images, since an issue occurred while trying to get the public project id";
+    case "error-could-not-get-settings":
+      return `Could not get settings from the Val remote server. This means that updating or changing certain types of files and images might not work. Check your internet connection and try again. (Error code: ${reason})`;
     case "no-internet-connection":
       return "Cannot upload remote files and images, since this requires an internet connection";
     case "pat-error":

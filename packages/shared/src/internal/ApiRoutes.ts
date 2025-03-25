@@ -416,8 +416,7 @@ export const Api = {
           json: z.object({
             errorCode: z.union([
               z.literal("project-not-configured"),
-              z.literal("error-could-not-get-public-project-id"),
-              z.literal("error-could-not-get-buckets"),
+              z.literal("error-could-not-get-settings"),
               z.literal("project-not-configured"),
               z.literal("pat-error"),
               z.literal("api-key-missing"),

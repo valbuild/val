@@ -1,12 +1,20 @@
+import { z } from "zod";
+
 const host = process.env.VAL_CONTENT_URL || "https://content.val.build";
 
-export async function getPublicProjectId(
+const SettingsSchema = z.object({
+  publicProjectId: z.string(),
+  remoteFileBuckets: z.array(z.object({ bucket: z.string() })),
+});
+type Settings = z.infer<typeof SettingsSchema>;
+
+export async function getSettings(
   projectName: string,
   auth: { pat: string } | { apiKey: string },
 ): Promise<
   | {
       success: true;
-      data: { publicProjectId: string };
+      data: Settings;
     }
   | {
       success: false;
@@ -39,15 +47,16 @@ export async function getPublicProjectId(
       };
     }
     const json = await response.json();
-    if (typeof json?.publicProjectId !== "string") {
+    const parseRes = SettingsSchema.safeParse(json);
+    if (!parseRes.success) {
       return {
         success: false,
-        message: `Invalid response: missing public project id`,
+        message: `Failed to parse settings data: ${parseRes.error.message}`,
       };
     }
     return {
       success: true,
-      data: { publicProjectId: json.publicProjectId },
+      data: parseRes.data,
     };
   } catch (err) {
     return {

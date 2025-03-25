@@ -111,8 +111,7 @@ type ValContextValue = {
           | "project-not-configured"
           | "api-key-missing"
           | "pat-error"
-          | "error-could-not-get-public-project-id"
-          | "error-could-not-get-buckets"
+          | "error-could-not-get-settings"
           | "no-internet-connection"
           | "unauthorized-personal-access-token-error"
           | "unauthorized";
