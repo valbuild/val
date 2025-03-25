@@ -31,11 +31,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "./designSystem/dropdown-menu";
-import {
-  Internal,
-  RichTextOptions,
-  SerializedRichTextOptions,
-} from "@valbuild/core";
+import { Internal, SerializedRichTextOptions } from "@valbuild/core";
 import { readImage } from "../utils/readImage";
 import { BoldExtension } from "@remirror/extension-bold";
 import { ItalicExtension } from "@remirror/extension-italic";
