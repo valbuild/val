@@ -1,4 +1,9 @@
-import { ImageMetadata, Internal, SourcePath } from "@valbuild/core";
+import {
+  ImageMetadata,
+  Internal,
+  SourcePath,
+  VAL_EXTENSION,
+} from "@valbuild/core";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
 import { FieldSchemaError } from "../../components/FieldSchemaError";
@@ -8,6 +13,8 @@ import {
   useShallowSourceAtPath,
   useAddPatch,
   useValConfig,
+  useCurrentRemoteFileBucket,
+  useRemoteFiles,
 } from "../ValProvider";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
@@ -21,12 +28,15 @@ import { Input } from "../designSystem/input";
 export function ImageField({ path }: { path: SourcePath }) {
   const type = "image";
   const config = useValConfig();
+  const remoteFiles = useRemoteFiles();
+  const currentRemoteFileBucket = useCurrentRemoteFileBucket();
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const { patchPath, addPatch } = useAddPatch(path);
   const [hotspot, setHotspot] = useState<{ y: number; x: number } | undefined>(
     undefined,
   );
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if ("data" in sourceAtPath && sourceAtPath.data) {
       if (sourceAtPath.data.metadata) {
@@ -102,9 +112,39 @@ export function ImageField({ path }: { path: SourcePath }) {
   if (source === undefined) {
     return <FieldNotFound path={path} type={type} />;
   }
+  const remoteFileUploadDisabled =
+    schemaAtPath.data.type === "image" &&
+    schemaAtPath.data.remote &&
+    remoteFiles.status !== "ready";
+  const disabled = remoteFileUploadDisabled;
+  const remoteData =
+    schemaAtPath.data.remote &&
+    remoteFiles.status === "ready" &&
+    currentRemoteFileBucket
+      ? {
+          publicProjectId: remoteFiles.publicProjectId,
+          bucket: currentRemoteFileBucket,
+          coreVersion: remoteFiles.coreVersion,
+          schema: schemaAtPath.data,
+          remoteHost: config.remoteHost,
+        }
+      : null;
   return (
     <div>
       <ValidationErrors path={path} />
+      {error && (
+        <div className="p-4 rounded bg-bg-error-primary text-text-error-primary">
+          {error}
+        </div>
+      )}
+      {schemaAtPath.data.type === "image" &&
+        schemaAtPath.data.remote &&
+        remoteFiles.status === "inactive" && (
+          <div className="p-4 rounded bg-bg-error-primary text-text-error-primary">
+            {getRemoteFilesError(remoteFiles.reason)}
+          </div>
+        )}
+
       {source && (
         <div className="py-2">
           <span>Alt text</span>
@@ -116,6 +156,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                   : ""
                 : ""
             }
+            disabled={disabled}
             onChange={(ev) => {
               const alt = ev.target.value;
               if (source.metadata && "alt" in source.metadata) {
@@ -158,10 +199,15 @@ export function ImageField({ path }: { path: SourcePath }) {
         <div className="relative">
           <img
             src={
-              Internal.convertFileSource({
-                ...source,
-                _type: "file",
-              }).url
+              VAL_EXTENSION in source && source[VAL_EXTENSION] === "remote"
+                ? Internal.convertRemoteSource({
+                    ...source,
+                    [VAL_EXTENSION]: "remote",
+                  }).url
+                : Internal.convertFileSource({
+                    ...source,
+                    [VAL_EXTENSION]: "file",
+                  }).url
             }
             draggable={false}
             className="object-contain w-full max-h-[500px] rounded-t-lg"
@@ -246,22 +292,62 @@ export function ImageField({ path }: { path: SourcePath }) {
                 mimeType: res.mimeType,
               };
             }
-            addPatch(
-              createFilePatch(
-                patchPath,
-                data.src,
-                data.filename ?? null,
-                res.sha256,
-                metadata,
-                "image",
-                config.files?.directory,
-              ),
-            );
+            setError(null);
+            createFilePatch(
+              patchPath,
+              data.src,
+              data.filename ?? null,
+              res.fileHash,
+              metadata,
+              "image",
+              remoteData,
+              config.files?.directory,
+            )
+              .then(addPatch)
+              .catch((err) => {
+                console.error("Failed to create file patch", err);
+                setError("Could not upload file. Please try again later");
+              });
           });
         }}
       />
     </div>
   );
+}
+
+function getRemoteFilesError(
+  reason:
+    | "unknown-error"
+    | "project-not-configured"
+    | "api-key-missing"
+    | "pat-error"
+    | "error-could-not-get-settings"
+    | "no-internet-connection"
+    | "unauthorized-personal-access-token-error"
+    | "unauthorized",
+) {
+  switch (reason) {
+    case "api-key-missing":
+      return "Val is running in production mode. To upload remote files and images, the VAL_API_KEY env must be set. Contact a developer to fix this issue.";
+    case "error-could-not-get-settings":
+      return `Could not get settings from the Val remote server. This means that updating or changing certain types of files and images might not work. Check your internet connection and try again. (Error code: ${reason})`;
+    case "no-internet-connection":
+      return "Cannot upload remote files and images, since this requires an internet connection";
+    case "pat-error":
+      return "Val is running in development mode. To upload remote files and images, you must either login (by running `npx -p @valbuild/cli val login`) or set the VAL_API_KEY env";
+    case "project-not-configured":
+      return "Project is not configured. To upload remote files and images, the val.config must contain a project id that is obtained from https://app.val.build. Contact a developer to fix this issue.";
+    case "unauthorized":
+      return "Cannot upload remote files and images since you are unauthorized";
+    case "unauthorized-personal-access-token-error":
+      return "Cannot upload remote files and images since the personal access token is unauthorized. Try to login again by running `npx -p @valbuild/cli val login`";
+    case "unknown-error":
+      return "Unknown error";
+    default: {
+      const exhaustiveCheck: never = reason;
+      return exhaustiveCheck;
+    }
+  }
 }
 
 export function ImagePreview({ path }: { path: SourcePath }) {
@@ -281,10 +367,15 @@ export function ImagePreview({ path }: { path: SourcePath }) {
   return (
     <img
       src={
-        Internal.convertFileSource({
-          ...source,
-          _type: "file",
-        }).url
+        VAL_EXTENSION in source && source[VAL_EXTENSION] === "remote"
+          ? Internal.convertRemoteSource({
+              ...source,
+              [VAL_EXTENSION]: "remote",
+            }).url
+          : Internal.convertFileSource({
+              ...source,
+              [VAL_EXTENSION]: "file",
+            }).url
       }
       draggable={false}
       className="object-contain max-w-[60px] max-h-[60px] rounded-lg"

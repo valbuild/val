@@ -14,6 +14,7 @@ import { AllRichTextOptions, RichTextSource } from "../source/richtext";
 import { ImageSelector } from "./image";
 import { RichTextSelector } from "./richtext";
 import { ImageSource } from "../source/image";
+import { RemoteSource } from "../source/remote";
 
 export type Selector<T extends Source> = Source extends T
   ? GenericSelector<T>
@@ -45,6 +46,7 @@ export type SelectorSource =
       [key: string]: SelectorSource;
     }
   | FileSource
+  | RemoteSource
   // eslint-disable-next-line @typescript-eslint/ban-types
   | RichTextSource<AllRichTextOptions>
   | GenericSelector<Source>;

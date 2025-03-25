@@ -37,9 +37,15 @@ const ValidationFixZ: z.ZodSchema<ValidationFix> = z.union([
   z.literal("image:change-extension"),
   z.literal("image:add-metadata"),
   z.literal("image:check-metadata"),
+  z.literal("image:check-remote"),
+  z.literal("image:upload-remote"),
+  z.literal("image:download-remote"),
   z.literal("file:change-extension"),
   z.literal("file:add-metadata"),
   z.literal("file:check-metadata"),
+  z.literal("file:check-remote"),
+  z.literal("file:upload-remote"),
+  z.literal("file:download-remote"),
   z.literal("keyof:check-keys"),
 ]);
 const ValidationError = z.object({
@@ -383,6 +389,55 @@ export const Api = {
           [VAL_STATE_COOKIE]: z.object({ value: z.literal(null) }),
         }),
       }),
+    },
+  },
+  "/remote/settings": {
+    GET: {
+      req: {
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            publicProjectId: z.string(),
+            coreVersion: z.string(),
+            remoteFileBuckets: z.array(
+              z.object({
+                bucket: z.string(),
+              }),
+            ),
+          }),
+        }),
+        z.object({
+          status: z.literal(400),
+          json: z.object({
+            errorCode: z.union([
+              z.literal("project-not-configured"),
+              z.literal("error-could-not-get-settings"),
+              z.literal("project-not-configured"),
+              z.literal("pat-error"),
+              z.literal("api-key-missing"),
+            ]),
+            message: z.string(),
+          }),
+        }),
+        z.object({
+          status: z.literal(401),
+          json: z.object({
+            errorCode: z.literal("unauthorized").optional(),
+            message: z.string(),
+          }),
+        }),
+        z.object({
+          status: z.literal(500),
+          json: z.object({
+            message: z.string(),
+          }),
+        }),
+      ]),
     },
   },
   "/stat": {
@@ -751,19 +806,28 @@ export const Api = {
         }),
         z.object({
           status: z.literal(400),
-          json: z.object({
-            message: z.string(),
-            details: z.union([
-              z.object({
-                sourceFilePatchErrors: z.record(
-                  ModuleFilePath,
-                  z.array(GenericError),
-                ),
-                binaryFilePatchErrors: z.record(GenericError),
-              }),
-              z.array(GenericError),
-            ]),
-          }),
+          json: z.union([
+            z.object({
+              message: z.string(),
+              details: z.union([
+                z.object({
+                  sourceFilePatchErrors: z.record(
+                    ModuleFilePath,
+                    z.array(GenericError),
+                  ),
+                  binaryFilePatchErrors: z.record(GenericError),
+                }),
+                z.array(GenericError),
+              ]),
+            }),
+            z.object({
+              message: z.string(),
+              errorCode: z.union([
+                z.literal("project-not-configured"),
+                z.literal("pat-error"),
+              ]),
+            }),
+          ]),
         }),
       ]),
     },
@@ -774,6 +838,7 @@ export const Api = {
         path: z.string(),
         query: {
           patch_id: PatchId.optional(),
+          remote: z.string().optional(),
         },
       },
       res: z.union([

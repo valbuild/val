@@ -31,6 +31,8 @@ import { guessMimeTypeFromPath } from "./ValServer";
 import { result } from "@valbuild/core/fp";
 import { ParentPatchId } from "@valbuild/core";
 import { computeChangedPatchParentRefs } from "./computeChangedPatchParentRefs";
+import { uploadRemoteRef } from "./uploadRemoteFile";
+import { Buffer } from "buffer";
 
 export class ValOpsFS extends ValOps {
   private static readonly VAL_DIR = ".val";
@@ -644,10 +646,15 @@ export class ValOpsFS extends ValOps {
     data: string,
     _type: BinaryFileType,
     metadata: MetadataOfType<BinaryFileType>,
+    remote: boolean,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
     const patchDir = this.getParentPatchIdFromParentRef(parentRef);
-    const patchFilePath = this.getBinaryFilePath(filePath, patchDir);
-    const metadataFilePath = this.getBinaryFileMetadataPath(filePath, patchDir);
+    const patchFilePath = this.getBinaryFilePath(filePath, patchDir, remote);
+    const metadataFilePath = this.getBinaryFileMetadataPath(
+      filePath,
+      patchDir,
+      remote,
+    );
     try {
       const buffer = bufferFromDataUrl(data);
       if (!buffer) {
@@ -672,7 +679,12 @@ export class ValOpsFS extends ValOps {
 
   protected override async getBase64EncodedBinaryFileMetadataFromPatch<
     T extends BinaryFileType,
-  >(filePath: string, type: T, patchId: PatchId): Promise<OpsMetadata<T>> {
+  >(
+    filePath: string,
+    type: T,
+    patchId: PatchId,
+    remote: boolean,
+  ): Promise<OpsMetadata<T>> {
     const patchDirRes = await this.getParentPatchIdFromPatchId(patchId);
     if (result.isErr(patchDirRes)) {
       return {
@@ -682,6 +694,7 @@ export class ValOpsFS extends ValOps {
     const metadataFilePath = this.getBinaryFileMetadataPath(
       filePath,
       patchDirRes.value,
+      remote,
     );
 
     if (!this.host.fileExists(metadataFilePath)) {
@@ -721,7 +734,12 @@ export class ValOpsFS extends ValOps {
     if (!result.isOk(patchDirRes)) {
       return null;
     }
-    const absPath = this.getBinaryFilePath(filePath, patchDirRes.value);
+    const absPath = this.getBinaryFilePath(
+      filePath,
+      patchDirRes.value,
+      // We save remote remote files using the filepath (so not the remote reference) and we also retrieve them using the filepath. Therefore remote is always false
+      false, // remote = false
+    );
 
     if (!this.host.fileExists(absPath)) {
       return null;
@@ -830,13 +848,105 @@ export class ValOpsFS extends ValOps {
     }
   }
 
-  async saveFiles(preparedCommit: PreparedCommit): Promise<{
+  async saveOrUploadFiles(
+    preparedCommit: PreparedCommit,
+    auth:
+      | {
+          apiKey: string;
+        }
+      | { pat: string },
+    testMode?: "test-skip-remote",
+  ): Promise<{
     updatedFiles: string[];
+    uploadedRemoteRefs: string[];
     errors: Record<string, GenericErrorMessage & { filePath?: string }>;
   }> {
     const updatedFiles: string[] = [];
+    const uploadedRemoteRefs: string[] = [];
     const errors: Record<string, GenericErrorMessage & { filePath?: string }> =
       {};
+
+    const remoteFileDescriptors = Object.entries(
+      preparedCommit.patchedBinaryFilesDescriptors,
+    )
+      .filter(([, { remote }]) => remote)
+      .map(([ref, { patchId }]) => [ref, { patchId }] as const);
+    const localFileDescriptors = Object.entries(
+      preparedCommit.patchedBinaryFilesDescriptors,
+    )
+      .filter(([, { remote }]) => !remote)
+      .map(([ref, { patchId }]) => [ref, { patchId }] as const);
+
+    for (const [ref, { patchId }] of remoteFileDescriptors) {
+      const splitRemoteRefRes = Internal.remote.splitRemoteRef(ref);
+      if (splitRemoteRefRes.status === "error") {
+        errors[ref] = {
+          message: "Failed to split remote ref: " + ref,
+        };
+        continue;
+      }
+      const fileBuffer = await this.getBase64EncodedBinaryFileFromPatch(
+        splitRemoteRefRes.filePath,
+        patchId,
+      );
+      if (!fileBuffer) {
+        errors[ref] = {
+          message:
+            "Failed to get binary file from patch. Ref: " +
+            ref +
+            ". PatchId: " +
+            patchId,
+        };
+        continue;
+      }
+      if (testMode === "test-skip-remote") {
+        console.log("Skip remote flag enabled. Skipping file upload", ref);
+        continue;
+      }
+      console.log("Uploading remote file", ref);
+      const res = await uploadRemoteRef(fileBuffer, ref, auth);
+      if (!res.success) {
+        console.error("Failed to upload remote file", ref, res.error);
+        throw new Error(`Failed to upload remote file: ${ref}. ${res.error}`);
+      }
+      console.log("Completed remote file", ref);
+      uploadedRemoteRefs.push(ref);
+    }
+
+    const patchIdToPatchDirMapRes = await this.getParentPatchIdFromPatchIdMap();
+    if (result.isErr(patchIdToPatchDirMapRes)) {
+      return {
+        updatedFiles,
+        uploadedRemoteRefs,
+        errors,
+      };
+    }
+    const patchIdToPatchDirMap = patchIdToPatchDirMapRes.value;
+
+    for (const [ref, { patchId }] of localFileDescriptors) {
+      const filePath = ref;
+      const absPath = fsPath.join(this.rootDir, ...filePath.split("/"));
+      try {
+        const patchDir = patchIdToPatchDirMap[patchId];
+        if (!patchDir) {
+          errors[absPath] = {
+            message: "Failed to find PatchDir for PatchId " + patchId,
+            filePath: filePath,
+          };
+          continue;
+        }
+        this.host.copyFile(
+          this.getBinaryFilePath(filePath, patchDir, false),
+          absPath,
+        );
+        updatedFiles.push(absPath);
+      } catch (err) {
+        errors[absPath] = {
+          message: err instanceof Error ? err.message : "Unknown error",
+          filePath: filePath,
+        };
+      }
+    }
 
     for (const [filePath, data] of Object.entries(
       preparedCommit.patchedSourceFiles,
@@ -844,38 +954,6 @@ export class ValOpsFS extends ValOps {
       const absPath = fsPath.join(this.rootDir, ...filePath.split("/"));
       try {
         this.host.writeUf8File(absPath, data);
-        updatedFiles.push(absPath);
-      } catch (err) {
-        errors[absPath] = {
-          message: err instanceof Error ? err.message : "Unknown error",
-          filePath,
-        };
-      }
-    }
-
-    const patchIdToPatchDirMapRes = await this.getParentPatchIdFromPatchIdMap();
-    if (result.isErr(patchIdToPatchDirMapRes)) {
-      return {
-        updatedFiles,
-        errors,
-      };
-    }
-    const patchIdToPatchDirMap = patchIdToPatchDirMapRes.value;
-
-    for (const [filePath, { patchId }] of Object.entries(
-      preparedCommit.patchedBinaryFilesDescriptors,
-    )) {
-      const absPath = fsPath.join(this.rootDir, ...filePath.split("/"));
-      try {
-        const patchDir = patchIdToPatchDirMap[patchId];
-        if (!patchDir) {
-          errors[absPath] = {
-            message: "Failed to find PatchDir for PatchId " + patchId,
-            filePath,
-          };
-          continue;
-        }
-        this.host.copyFile(this.getBinaryFilePath(filePath, patchDir), absPath);
         updatedFiles.push(absPath);
       } catch (err) {
         errors[absPath] = {
@@ -909,6 +987,7 @@ export class ValOpsFS extends ValOps {
     }
     return {
       updatedFiles,
+      uploadedRemoteRefs,
       errors,
     };
   }
@@ -1006,7 +1085,24 @@ export class ValOpsFS extends ValOps {
     return fsPath.join(this.getPatchesDir(), patchDir);
   }
 
-  private getBinaryFilePath(filePath: string, patchDir: ParentPatchId) {
+  private getBinaryFilePath(
+    filePath: string,
+    patchDir: ParentPatchId,
+    remote: boolean,
+  ) {
+    if (remote) {
+      const res = Internal.remote.splitRemoteRef(filePath);
+      if (res.status === "error") {
+        throw new Error("Failed to split remote ref: " + filePath);
+      }
+      const actualFilePath = res.filePath;
+      return fsPath.join(
+        this.getFullPatchDir(patchDir),
+        "files",
+        actualFilePath,
+        fsPath.basename(actualFilePath),
+      );
+    }
     return fsPath.join(
       this.getFullPatchDir(patchDir),
       "files",
@@ -1015,7 +1111,26 @@ export class ValOpsFS extends ValOps {
     );
   }
 
-  private getBinaryFileMetadataPath(filePath: string, patchDir: ParentPatchId) {
+  private getBinaryFileMetadataPath(
+    filePath: string,
+    patchDir: ParentPatchId,
+    remote: boolean,
+  ) {
+    if (remote) {
+      const res = Internal.remote.splitRemoteRef(filePath);
+      if (res.status === "error") {
+        throw new Error(
+          "Failed to split remote ref (in metadata path): " + filePath,
+        );
+      }
+      const actualFilePath = res.filePath;
+      return fsPath.join(
+        this.getFullPatchDir(patchDir),
+        "files",
+        actualFilePath,
+        fsPath.basename(actualFilePath),
+      );
+    }
     return fsPath.join(
       this.getFullPatchDir(patchDir),
       "files",
@@ -1116,7 +1231,7 @@ class FSOpsHost {
 
   writeBinaryFile(path: string, data: Buffer): void {
     fs.mkdirSync(fsPath.dirname(path), { recursive: true });
-    fs.writeFileSync(path, data, "base64url");
+    fs.writeFileSync(path, new Uint8Array(data), "base64url");
   }
 
   copyFile(from: string, to: string): void {

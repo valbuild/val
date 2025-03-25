@@ -215,11 +215,6 @@ function ObjectUnionField({
           const newValue: any =
             previouslySelectedSources.current[path][value] ||
             emptyOf(selectedSchema);
-          console.log({
-            newValue,
-            previouslySelectedSources: previouslySelectedSources.current,
-            emptyOf: emptyOf(selectedSchema),
-          });
           newValue[schema.key] = value;
           addPatch([
             {

@@ -1,6 +1,7 @@
 import path from "path";
 import ts from "typescript";
 import { ValFS } from "./ValFS";
+import { Buffer } from "buffer";
 
 /**
  * An implementation of methods in the various ts.*Host interfaces

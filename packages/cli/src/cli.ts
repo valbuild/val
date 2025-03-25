@@ -4,6 +4,7 @@ import { validate } from "./validate";
 import { files as files } from "./files";
 import { getVersions } from "./getVersions";
 import chalk from "chalk";
+import { login } from "./login";
 
 async function main(): Promise<void> {
   const { input, flags, showHelp } = meow(
@@ -16,6 +17,7 @@ async function main(): Promise<void> {
       
       Commands:
         validate
+        login
         list-files
         versions
       
@@ -25,6 +27,12 @@ async function main(): Promise<void> {
         --root [root], -r [root] Set project root directory (default process.cwd())
         --fix  [fix]             Attempt to fix validation errors
         --noEslint [noEslint]    Disable eslint validation during validate
+
+      
+      Command: login
+      Description: login to app.val.build and generate a Personal Access Token
+      Options:
+        --root [root], -r [root] Set project root directory (default process.cwd())
 
 
       Command: files
@@ -86,6 +94,10 @@ async function main(): Promise<void> {
       });
     case "versions":
       return versions();
+    case "login":
+      return login({
+        root: flags.root,
+      });
     case "validate":
     case "idate":
       if (flags.managedDir) {
@@ -113,7 +125,7 @@ void main().catch((err) => {
 });
 
 async function versions() {
-  const foundVersions = await getVersions();
+  const foundVersions = getVersions();
   console.log(`${chalk.cyan("@valbuild/core")}: ${foundVersions.coreVersion}`);
   console.log(`${chalk.cyan("@valbuild/next")}: ${foundVersions.nextVersion}`);
 }

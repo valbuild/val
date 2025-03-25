@@ -1,10 +1,20 @@
 import path from "path";
-import { createFixPatch, createService } from "@valbuild/server";
 import {
+  createFixPatch,
+  createService,
+  getSettings,
+  getPersonalAccessTokenPath,
+  parsePersonalAccessTokenFile,
+  uploadRemoteFile,
+} from "@valbuild/server";
+import {
+  DEFAULT_VAL_REMOTE_HOST,
   FILE_REF_PROP,
   Internal,
   ModuleFilePath,
   ModulePath,
+  SerializedFileSchema,
+  SerializedImageSchema,
   SourcePath,
   ValidationFix,
 } from "@valbuild/core";
@@ -22,6 +32,7 @@ export async function validate({
   fix?: boolean;
   noEslint?: boolean;
 }) {
+  const valRemoteHost = process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST;
   const projectRoot = root ? path.resolve(root) : process.cwd();
   const eslint = new ESLint({
     cwd: projectRoot,
@@ -121,6 +132,7 @@ export async function validate({
   }
   console.log("Validating...", valFiles.length, "files");
 
+  let publicProjectId: string | undefined;
   let didFix = false; // TODO: ugly
   async function validateFile(file: string): Promise<number> {
     const moduleFilePath = `/${file}` as ModuleFilePath; // TODO: check if this always works? (Windows?)
@@ -135,6 +147,12 @@ export async function validate({
       "utf-8",
     );
     const eslintResult = eslintResultsByFile?.[file];
+    const remoteFiles: Record<
+      SourcePath,
+      { ref: string; metadata?: Record<string, unknown> }
+    > = {};
+    let remoteFileBuckets: string[] | null = null;
+    let remoteFilesCounter = 0;
     eslintResult?.messages.forEach((m) => {
       // display surrounding code
       logEslintMessage(fileContent, moduleFilePath, m);
@@ -152,6 +170,7 @@ export async function validate({
           (prev, m) => (m.severity >= 2 ? prev + 1 : prev),
           0,
         ) || 0;
+      let fixedErrors = 0;
       if (valModule.errors) {
         if (valModule.errors.validation) {
           for (const [sourcePath, validationErrors] of Object.entries(
@@ -178,24 +197,31 @@ export async function validate({
                       valModule.source,
                       valModule.schema,
                     );
-                    const filePath = path.join(
-                      projectRoot,
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      (fileSource.source as any)?.[FILE_REF_PROP],
-                    );
+                    let filePath: string | null = null;
                     try {
+                      filePath = path.join(
+                        projectRoot,
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        (fileSource.source as any)?.[FILE_REF_PROP],
+                      );
                       await fs.access(filePath);
                     } catch {
-                      console.log(
-                        picocolors.red("✘"),
-                        `File ${filePath} does not exist`,
-                      );
+                      if (filePath) {
+                        console.log(
+                          picocolors.red("✘"),
+                          `File ${filePath} does not exist`,
+                        );
+                      } else {
+                        console.log(
+                          picocolors.red("✘"),
+                          `Expected file to be defined at: ${sourcePath} but no file was found`,
+                        );
+                      }
                       errors += 1;
                       continue;
                     }
                   }
                 } else if (v.fixes.includes("keyof:check-keys")) {
-                  const prevErrors = errors;
                   if (
                     v.value &&
                     typeof v.value === "object" &&
@@ -238,31 +264,302 @@ export async function validate({
                     );
                     errors += 1;
                   }
-                  if (prevErrors < errors) {
+                } else if (
+                  v.fixes.includes("image:upload-remote") ||
+                  v.fixes.includes("file:upload-remote")
+                ) {
+                  if (!fix) {
                     console.log(
                       picocolors.red("✘"),
-                      "Found error in",
-                      `${sourcePath}`,
+                      `Remote file ${sourcePath} needs to be uploaded (use --fix to upload)`,
                     );
+                    errors += 1;
+                    continue;
                   }
+                  const [, modulePath] =
+                    Internal.splitModuleFilePathAndModulePath(
+                      sourcePath as SourcePath,
+                    );
+                  if (valModule.source && valModule.schema) {
+                    const resolvedRemoteFileAtSourcePath = Internal.resolvePath(
+                      modulePath,
+                      valModule.source,
+                      valModule.schema,
+                    );
+                    let filePath: string | null = null;
+                    console.log(
+                      sourcePath,
+                      resolvedRemoteFileAtSourcePath.source,
+                    );
+                    try {
+                      filePath = path.join(
+                        projectRoot,
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        (resolvedRemoteFileAtSourcePath.source as any)?.[
+                          FILE_REF_PROP
+                        ],
+                      );
+                      await fs.access(filePath);
+                    } catch {
+                      if (filePath) {
+                        console.log(
+                          picocolors.red("✘"),
+                          `File ${filePath} does not exist`,
+                        );
+                      } else {
+                        console.log(
+                          picocolors.red("✘"),
+                          `Expected file to be defined at: ${sourcePath} but no file was found`,
+                        );
+                      }
+                      errors += 1;
+                      continue;
+                    }
+                    const patFile = getPersonalAccessTokenPath(projectRoot);
+                    try {
+                      await fs.access(patFile);
+                    } catch {
+                      // TODO: display this error only once:
+                      console.log(
+                        picocolors.red("✘"),
+                        `File: ${path.join(projectRoot, file)} has remote images that are not uploaded and you are not logged in.\n\nFix this error by logging in:\n\t"npx val login"\n`,
+                      );
+                      errors += 1;
+                      continue;
+                    }
+
+                    const parsedPatFile = parsePersonalAccessTokenFile(
+                      await fs.readFile(patFile, "utf-8"),
+                    );
+                    if (!parsedPatFile.success) {
+                      console.log(
+                        picocolors.red("✘"),
+                        `Error parsing personal access token file: ${parsedPatFile.error}. You need to login again.`,
+                      );
+                      errors += 1;
+                      continue;
+                    }
+                    const { pat } = parsedPatFile.data;
+
+                    if (remoteFiles[sourcePath as SourcePath]) {
+                      console.log(
+                        picocolors.yellow("⚠"),
+                        `Remote file ${filePath} already uploaded`,
+                      );
+                      continue;
+                    }
+                    // TODO: parallelize this:
+                    console.log(
+                      picocolors.yellow("⚠"),
+                      `Uploading remote file ${filePath}...`,
+                    );
+
+                    if (!resolvedRemoteFileAtSourcePath.schema) {
+                      console.log(
+                        picocolors.red("✘"),
+                        `Cannot upload remote file: schema not found for ${sourcePath}`,
+                      );
+                      errors += 1;
+                      continue;
+                    }
+
+                    const actualRemoteFileSource =
+                      resolvedRemoteFileAtSourcePath.source;
+                    const fileSourceMetadata = Internal.isFile(
+                      actualRemoteFileSource,
+                    )
+                      ? actualRemoteFileSource.metadata
+                      : undefined;
+                    const resolveRemoteFileSchema =
+                      resolvedRemoteFileAtSourcePath.schema;
+                    if (!resolveRemoteFileSchema) {
+                      console.log(
+                        picocolors.red("✘"),
+                        `Could not resolve schema for remote file: ${sourcePath}`,
+                      );
+                      errors += 1;
+                      continue;
+                    }
+                    if (!publicProjectId || !remoteFileBuckets) {
+                      let projectName = process.env.VAL_PROJECT;
+                      if (!projectName) {
+                        try {
+                          // eslint-disable-next-line @typescript-eslint/no-var-requires
+                          projectName = require(`${root}/val.config`)?.config
+                            ?.project;
+                        } catch {
+                          // ignore
+                        }
+                      }
+                      if (!projectName) {
+                        try {
+                          // eslint-disable-next-line @typescript-eslint/no-var-requires
+                          projectName = require(`${root}/val.config.ts`)?.config
+                            ?.project;
+                        } catch {
+                          // ignore
+                        }
+                      }
+                      if (!projectName) {
+                        try {
+                          // eslint-disable-next-line @typescript-eslint/no-var-requires
+                          projectName = require(`${root}/val.config.js`)?.config
+                            ?.project;
+                        } catch {
+                          // ignore
+                        }
+                      }
+                      if (!projectName) {
+                        console.log(
+                          picocolors.red("✘"),
+                          "Project name not found. Set VAL_PROJECT environment variable or add project name to val.config",
+                        );
+                        errors += 1;
+                        continue;
+                      }
+                      const settingsRes = await getSettings(projectName, {
+                        pat,
+                      });
+                      if (!settingsRes.success) {
+                        console.log(
+                          picocolors.red("✘"),
+                          `Could not get public project id: ${settingsRes.message}.`,
+                        );
+                        errors += 1;
+                        continue;
+                      }
+                      publicProjectId = settingsRes.data.publicProjectId;
+                      remoteFileBuckets =
+                        settingsRes.data.remoteFileBuckets.map((b) => b.bucket);
+                    }
+                    if (!publicProjectId) {
+                      console.log(
+                        picocolors.red("✘"),
+                        "Could not get public project id",
+                      );
+                      errors += 1;
+                      continue;
+                    }
+                    if (
+                      resolveRemoteFileSchema.type !== "image" &&
+                      resolveRemoteFileSchema.type !== "file"
+                    ) {
+                      console.log(
+                        picocolors.red("✘"),
+                        `The schema is the remote is neither image nor file: ${sourcePath}`,
+                      );
+                    }
+                    remoteFilesCounter += 1;
+                    const bucket =
+                      remoteFileBuckets[
+                        remoteFilesCounter % remoteFileBuckets.length
+                      ];
+                    if (!bucket) {
+                      console.log(
+                        picocolors.red("✘"),
+                        `Internal error: could not allocate a bucket for the remote file located at ${sourcePath}`,
+                      );
+                      errors += 1;
+                      continue;
+                    }
+                    let fileBuffer: Buffer;
+                    try {
+                      fileBuffer = await fs.readFile(filePath);
+                    } catch (e) {
+                      console.log(
+                        picocolors.red("✘"),
+                        `Error reading file: ${e}`,
+                      );
+                      errors += 1;
+                      continue;
+                    }
+                    const relativeFilePath = path
+                      .relative(projectRoot, filePath)
+                      .split(path.sep)
+                      .join("/") as `public/val/${string}`;
+                    if (!relativeFilePath.startsWith("public/val/")) {
+                      console.log(
+                        picocolors.red("✘"),
+                        `File path must be within the public/val/ directory (e.g. public/val/path/to/file.txt). Got: ${relativeFilePath}`,
+                      );
+                      errors += 1;
+                      continue;
+                    }
+                    const remoteFileUpload = await uploadRemoteFile(
+                      valRemoteHost,
+                      fileBuffer,
+                      publicProjectId,
+                      bucket,
+                      relativeFilePath,
+                      resolveRemoteFileSchema as
+                        | SerializedFileSchema
+                        | SerializedImageSchema,
+                      fileSourceMetadata,
+                      { pat },
+                    );
+                    if (!remoteFileUpload.success) {
+                      console.log(
+                        picocolors.red("✘"),
+                        `Error uploading remote file: ${remoteFileUpload.error}`,
+                      );
+                      errors += 1;
+                      continue;
+                    }
+                    console.log(
+                      picocolors.yellow("⚠"),
+                      `Uploaded remote file ${filePath}`,
+                    );
+                    remoteFiles[sourcePath as SourcePath] = {
+                      ref: remoteFileUpload.ref,
+                      metadata: fileSourceMetadata,
+                    };
+                  }
+                } else if (
+                  v.fixes.includes("image:download-remote") ||
+                  v.fixes.includes("file:download-remote")
+                ) {
+                  if (fix) {
+                    console.log(
+                      picocolors.yellow("⚠"),
+                      `Downloading remote file in ${sourcePath}...`,
+                    );
+                  } else {
+                    console.log(
+                      picocolors.red("✘"),
+                      `Remote file ${sourcePath} needs to be downloaded (use --fix to download)`,
+                    );
+                    errors += 1;
+                    continue;
+                  }
+                } else if (
+                  v.fixes.includes("image:check-remote") ||
+                  v.fixes.includes("file:check-remote")
+                ) {
+                  // skip
                 } else {
                   console.log(
                     picocolors.red("✘"),
-                    "Found error in",
-                    `${sourcePath}:`,
-                    v.message,
+                    "Unknown fix",
+                    v.fixes,
+                    "for",
+                    sourcePath,
                   );
                   errors += 1;
+                  continue;
                 }
                 const fixPatch = await createFixPatch(
-                  { projectRoot },
+                  { projectRoot, remoteHost: valRemoteHost },
                   !!fix,
                   sourcePath as SourcePath,
                   v,
+                  remoteFiles,
+                  valModule.source,
+                  valModule.schema,
                 );
                 if (fix && fixPatch?.patch && fixPatch?.patch.length > 0) {
                   await service.patch(moduleFilePath, fixPatch.patch);
                   didFix = true;
+                  fixedErrors += 1;
                   console.log(
                     picocolors.yellow("⚠"),
                     "Applied fix for",
@@ -272,8 +569,10 @@ export async function validate({
                 fixPatch?.remainingErrors?.forEach((e) => {
                   errors += 1;
                   console.log(
-                    v.fixes ? picocolors.yellow("⚠") : picocolors.red("✘"),
-                    `Found ${v.fixes ? "fixable " : ""}error in`,
+                    e.fixes && e.fixes.length
+                      ? picocolors.yellow("⚠")
+                      : picocolors.red("✘"),
+                    `Got ${e.fixes && e.fixes.length ? "fixable " : ""}error in`,
                     `${sourcePath}:`,
                     e.message,
                   );
@@ -282,13 +581,23 @@ export async function validate({
                 errors += 1;
                 console.log(
                   picocolors.red("✘"),
-                  "Found error in",
+                  "Got error in",
                   `${sourcePath}:`,
                   v.message,
                 );
               }
             }
           }
+        }
+        if (
+          fixedErrors === errors &&
+          (!valModule.errors.fatal || valModule.errors.fatal.length == 0)
+        ) {
+          console.log(
+            picocolors.green("✔"),
+            moduleFilePath,
+            "is valid (" + (Date.now() - start) + "ms)",
+          );
         }
         for (const fatalError of valModule.errors.fatal || []) {
           errors += 1;
@@ -304,6 +613,13 @@ export async function validate({
           picocolors.green("✔"),
           moduleFilePath,
           "is valid (" + (Date.now() - start) + "ms)",
+        );
+      }
+      if (errors > 0) {
+        console.log(
+          picocolors.red("✘"),
+          `${`/${file}`} contains ${errors} error${errors > 1 ? "s" : ""}`,
+          " (" + (Date.now() - start) + "ms)",
         );
       }
       return errors;
@@ -325,9 +641,9 @@ export async function validate({
   if (errors > 0) {
     console.log(
       picocolors.red("✘"),
-      "Found",
+      "Got",
       errors,
-      "validation error" + (errors > 1 ? "s" : ""),
+      "error" + (errors > 1 ? "s" : ""),
     );
     process.exit(1);
   } else {

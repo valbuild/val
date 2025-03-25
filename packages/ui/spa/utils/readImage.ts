@@ -1,12 +1,11 @@
 import { Internal } from "@valbuild/core";
 import { ChangeEvent } from "react";
-
-const textEncoder = new TextEncoder();
+import { Buffer } from "buffer";
 
 export function readImage(ev: ChangeEvent<HTMLInputElement>) {
   return new Promise<{
     src: string;
-    sha256: string;
+    fileHash: string;
     width?: number;
     height?: number;
     mimeType?: string;
@@ -20,7 +19,8 @@ export function readImage(ev: ChangeEvent<HTMLInputElement>) {
       if (typeof result === "string") {
         const image = new Image();
         image.addEventListener("load", () => {
-          const sha256 = Internal.getSHA256Hash(textEncoder.encode(result));
+          const binaryData = Buffer.from(result.split(",")[1], "base64");
+          const fileHash = Internal.getSHA256Hash(binaryData);
           if (image.naturalWidth && image.naturalHeight) {
             const mimeType = Internal.getMimeType(result);
             resolve({
@@ -28,7 +28,7 @@ export function readImage(ev: ChangeEvent<HTMLInputElement>) {
               width: image.naturalWidth,
               height: image.naturalHeight,
               filename: imageFile?.name,
-              sha256,
+              fileHash,
               mimeType,
               fileExt: mimeType && Internal.mimeTypeToFileExt(mimeType),
             });
@@ -36,7 +36,7 @@ export function readImage(ev: ChangeEvent<HTMLInputElement>) {
             resolve({
               src: result,
               filename: imageFile?.name,
-              sha256,
+              fileHash,
             });
           }
         });

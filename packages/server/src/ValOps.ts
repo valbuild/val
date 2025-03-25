@@ -9,6 +9,7 @@ import {
   Internal,
   ModuleFilePath,
   PatchId,
+  RemoteSource,
   RichTextSchema,
   Schema,
   SelectorSource,
@@ -28,6 +29,7 @@ import {
   ParentRef,
   Patch,
   PatchError,
+  ReadonlyJSONValue,
   applyPatch,
   deepClone,
 } from "@valbuild/core/patch";
@@ -368,7 +370,13 @@ export abstract class ValOps {
         patchId: PatchId;
       }[];
     } = {};
-    const fileLastUpdatedByPatchId: Record<string, PatchId> = {};
+    const fileLastUpdatedByPatchId: Record<
+      string,
+      {
+        patchId: PatchId;
+        remote: boolean;
+      }
+    > = {};
     for (const patch of sortedPatches) {
       if (patch.appliedAt) {
         continue;
@@ -376,13 +384,18 @@ export abstract class ValOps {
       for (const op of patch.patch) {
         if (op.op === "file") {
           const filePath = op.filePath;
-          fileLastUpdatedByPatchId[filePath] = patch.patchId;
+          fileLastUpdatedByPatchId[filePath] = {
+            patchId: patch.patchId,
+            remote: op.remote,
+          };
         }
         const path = patch.path;
         if (!patchesByModule[path]) {
           patchesByModule[path] = [];
         }
-        patchesByModule[path].push({ patchId: patch.patchId });
+        patchesByModule[path].push({
+          patchId: patch.patchId,
+        });
       }
     }
     return {
@@ -470,7 +483,7 @@ export abstract class ValOps {
           }
         }
         const patchRes = applyPatch(
-          deepClone(patchedSources[path]) as JSONValue, // applyPatch mutates the source. On add operations it adds more than once? There is something strange going on... deepClone seems to fix, but is that the right solution?
+          deepClone(patchedSources[path] as ReadonlyJSONValue) as JSONValue, // applyPatch mutates the source. On add operations it adds more than once? There is something strange going on... deepClone seems to fix, but is that the right solution?
           jsonOps,
           applicableOps.concat(...Object.values(fileFixOps)),
         );
@@ -518,6 +531,7 @@ export abstract class ValOps {
       }
     >;
     files: Record<SourcePath, FileSource>;
+    remoteFiles: Record<SourcePath, RemoteSource>;
   }> {
     const checkKeyIsValid = async (
       key: string,
@@ -561,6 +575,7 @@ export abstract class ValOps {
       }
     > = {};
     const files: Record<SourcePath, FileSource> = {};
+    const remoteFiles: Record<SourcePath, RemoteSource> = {};
     const entries = Object.entries(schemas);
     const modulePathsToValidate =
       patchesByModule && Object.keys(patchesByModule);
@@ -613,6 +628,11 @@ export abstract class ValOps {
               if (isFileSource(value)) {
                 files[sourcePath] = value;
               }
+            } else if (
+              validationError.fixes?.includes("image:check-remote") ||
+              validationError.fixes?.includes("file:check-remote")
+            ) {
+              remoteFiles[sourcePath] = validationError.value as RemoteSource;
             } else if (validationError.fixes?.includes("keyof:check-keys")) {
               const TYPE_ERROR_MESSAGE = `This is most likely a Val version mismatch or Val bug.`;
               if (!validationError.value) {
@@ -666,7 +686,16 @@ export abstract class ValOps {
         }
       }
     }
-    return { errors, files };
+    return { errors, files, remoteFiles };
+  }
+
+  async validateRemoteFiles(
+    schemas: Schemas,
+    sources: Sources,
+    remoteFiles: Record<SourcePath, RemoteSource>,
+  ): Promise<Record<SourcePath, ValidationError[]>> {
+    // TODO: Implement
+    return {};
   }
 
   // #region validateFiles
@@ -736,18 +765,19 @@ export abstract class ValOps {
       }
       const type = schemaAtPath instanceof ImageSchema ? "image" : "file";
       const filePath = value[FILE_REF_PROP];
-      const patchId: PatchId | null =
+      const fileData: { patchId: PatchId; remote: boolean } | null =
         fileLastUpdatedByPatchId?.[filePath] || null;
       let metadata;
       let metadataErrors;
 
       // TODO: refactor so we call get metadata once instead of iterating like this. Reason: should be a lot faster
-      if (patchId) {
+      if (fileData) {
         const patchFileMetadata =
           await this.getBase64EncodedBinaryFileMetadataFromPatch(
             filePath,
             type,
-            patchId,
+            fileData.patchId,
+            fileData.remote,
           );
         if (patchFileMetadata.errors) {
           metadataErrors = patchFileMetadata.errors;
@@ -769,7 +799,7 @@ export abstract class ValOps {
         return {
           [sourcePath]: metadataErrors.map((e) => ({
             message: e.message,
-            value: { filePath, patchId },
+            value: { filePath, patchId: fileData?.patchId ?? null },
           })),
         };
       }
@@ -1030,18 +1060,21 @@ export abstract class ValOps {
       string,
       {
         patchId: PatchId;
+        remote: boolean;
       }
     > = {};
     const binaryFilePatchErrors: Record<string, { message: string }> = {};
     await Promise.all(
       Object.entries(fileLastUpdatedByPatchId).map(
-        async ([filePath, patchId]) => {
+        async ([filePath, patchData]) => {
+          const { patchId, remote } = patchData;
           if (globalAppliedPatches.includes(patchId)) {
             // TODO: do we want to make sure the file is there? Then again, it should be rare that it happens (unless there's a Val bug) so it might be enough to fail later (at commit)
             // TODO: include sha256? This way we can make sure we pick the right file since theoretically there could be multiple files with the same path in the same patch
             // or is that the case? We are picking the latest file by path so, that should be enough?
             patchedBinaryFilesDescriptors[filePath] = {
               patchId,
+              remote,
             };
           } else {
             hasErrors = true;
@@ -1153,6 +1186,7 @@ export abstract class ValOps {
           value: string;
           path: string[];
           sha256: string;
+          remote: boolean;
         }
       | {
           error: PatchError;
@@ -1184,6 +1218,7 @@ export abstract class ValOps {
             value,
             sha256,
             path: op.path,
+            remote: op.remote,
           };
           sourceFileOps.push({
             op: "file",
@@ -1191,6 +1226,7 @@ export abstract class ValOps {
             filePath,
             nestedFilePath: op.nestedFilePath,
             value: sha256,
+            remote: op.remote,
           });
         }
       }
@@ -1324,6 +1360,7 @@ export abstract class ValOps {
                   data.value,
                   type,
                   metadataOps.metadata,
+                  data.remote,
                 );
                 if (!lastRes.error) {
                   return { filePath };
@@ -1395,15 +1432,22 @@ export abstract class ValOps {
     data: string,
     type: "file" | "image",
     metadata: MetadataOfType<"file" | "image">,
+    remote: boolean,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>>;
   abstract getBase64EncodedBinaryFileFromPatch(
     filePath: string,
     patchId: PatchId,
+    remote: boolean,
   ): Promise<Buffer | null>;
   protected abstract getBase64EncodedBinaryFileMetadataFromPatch<
     T extends "file" | "image",
-  >(filePath: string, type: T, patchId: PatchId): Promise<OpsMetadata<T>>;
-  abstract getBinaryFile(filePath: string): Promise<Buffer | null>;
+  >(
+    filePath: string,
+    type: T,
+    patchId: PatchId,
+    remote: boolean,
+  ): Promise<OpsMetadata<T>>;
+  abstract getBinaryFile(filePathOrRef: string): Promise<Buffer | null>;
   protected abstract getBinaryFileMetadata<T extends "file" | "image">(
     filePath: string,
     type: T,
@@ -1477,7 +1521,10 @@ export type PatchAnalysis = {
       patchId: PatchId;
     }[];
   };
-  fileLastUpdatedByPatchId: Record<string, PatchId>;
+  fileLastUpdatedByPatchId: Record<
+    string,
+    { patchId: PatchId; remote: boolean }
+  >;
 };
 
 export type PatchSourceError =
@@ -1522,7 +1569,10 @@ export type PreparedCommit = {
   /**
    * The file path and patch id in which they appear of binary files that are ready to be committed / saved
    */
-  patchedBinaryFilesDescriptors: Record<string, { patchId: PatchId }>;
+  patchedBinaryFilesDescriptors: Record<
+    string,
+    { patchId: PatchId; remote: boolean }
+  >;
   /**
    * Source file patches that were successfully applied to get to this result
    */
@@ -1609,7 +1659,7 @@ export function createMetadataFromBuffer<T extends BinaryFileType>(
   const errors = [];
   let availableMetadata: Record<string, string | number | undefined | null>;
   if (type === "image") {
-    const { width, height, type } = sizeOf(buffer);
+    const { width, height, type } = sizeOf(new Uint8Array(buffer));
     const normalizedType =
       type === "jpg" ? "jpeg" : type === "svg" ? "svg+xml" : type;
     if (type !== undefined && `image/${normalizedType}` !== mimeType) {

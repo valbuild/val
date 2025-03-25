@@ -31,7 +31,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from "./designSystem/dropdown-menu";
-import { Internal, RichTextOptions } from "@valbuild/core";
+import { Internal, SerializedRichTextOptions } from "@valbuild/core";
 import { readImage } from "../utils/readImage";
 import { BoldExtension } from "@remirror/extension-bold";
 import { ItalicExtension } from "@remirror/extension-italic";
@@ -96,7 +96,7 @@ export function RichTextEditor<E extends AnyExtension>({
   initialContent?: Readonly<EditorState>;
   state?: Readonly<EditorState>;
   manager: RemirrorManager<E>;
-  options?: RichTextOptions;
+  options?: SerializedRichTextOptions;
   onChange?: (value: RemirrorEventListenerProps<E>) => void;
   onFocus?: (focused: boolean) => void;
   debug?: boolean;
@@ -155,7 +155,7 @@ const Toolbar = ({
   debug,
   setShowToolbar,
 }: {
-  options?: RichTextOptions;
+  options?: SerializedRichTextOptions;
   hasOptions?: boolean;
   debug?: boolean;
   setShowToolbar: (showToolbar: boolean) => void;
@@ -378,7 +378,7 @@ const Toolbar = ({
                                 height: res.height,
                                 mimeType: res.mimeType,
                               },
-                              res.sha256,
+                              res.fileHash,
                             ) ?? undefined,
                         })
                         .focus()
