@@ -38,8 +38,7 @@ import {
 import { fromError } from "zod-validation-error";
 import { ValOpsHttp } from "./ValOpsHttp";
 import { result } from "@valbuild/core/fp";
-import { getPublicProjectId } from "./getPublicProjectId";
-import { getRemoteFileBuckets } from "./getRemoteFileBuckets";
+import { getSettings } from "./getSettings";
 import {
   getPersonalAccessTokenPath,
   parsePersonalAccessTokenFile,
@@ -744,44 +743,24 @@ export const ValServer = (
         }
         const remoteFileAuth = remoteFileAuthRes.json.remoteFileAuth;
 
-        const publicProjectIdRes = await getPublicProjectId(
-          options.project,
-          remoteFileAuth,
-        );
-        if (!publicProjectIdRes.success) {
+        const settingsRes = await getSettings(options.project, remoteFileAuth);
+        if (!settingsRes.success) {
+          console.warn(
+            "Could not get public project id: " + settingsRes.message,
+          );
           return {
             status: 400,
             json: {
-              errorCode: "error-could-not-get-public-project-id",
-              message:
-                "Could not get public project id: " +
-                publicProjectIdRes.message,
-            },
-          };
-        }
-
-        const remoteFileBucketsRes = await getRemoteFileBuckets(
-          VAL_REMOTE_HOST,
-          publicProjectIdRes.data.publicProjectId,
-          remoteFileAuth,
-        );
-
-        if (!remoteFileBucketsRes.success) {
-          return {
-            status: 400,
-            json: {
-              errorCode: "error-could-not-get-buckets",
-              message:
-                "Could not get public project id: " +
-                remoteFileBucketsRes.message,
+              errorCode: "error-could-not-get-settings",
+              message: `Could not get settings: ${settingsRes.message}`,
             },
           };
         }
         return {
           status: 200,
           json: {
-            publicProjectId: publicProjectIdRes.data.publicProjectId,
-            remoteFileBuckets: remoteFileBucketsRes.data,
+            publicProjectId: settingsRes.data.publicProjectId,
+            remoteFileBuckets: settingsRes.data.remoteFileBuckets,
             coreVersion: Internal.VERSION.core || "unknown",
           },
         };

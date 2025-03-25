@@ -2,10 +2,9 @@ import path from "path";
 import {
   createFixPatch,
   createService,
-  getPublicProjectId,
+  getSettings,
   getPersonalAccessTokenPath,
   parsePersonalAccessTokenFile,
-  getRemoteFileBuckets,
   uploadRemoteFile,
 } from "@valbuild/server";
 import {
@@ -33,8 +32,7 @@ export async function validate({
   fix?: boolean;
   noEslint?: boolean;
 }) {
-  const VAL_REMOTE_HOST =
-    process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST;
+  const valRemoteHost = process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST;
   const projectRoot = root ? path.resolve(root) : process.cwd();
   const eslint = new ESLint({
     cwd: projectRoot,
@@ -364,7 +362,25 @@ export async function validate({
                       errors += 1;
                       continue;
                     }
-                    if (!publicProjectId) {
+
+                    const actualRemoteFileSource =
+                      resolvedRemoteFileAtSourcePath.source;
+                    const fileSourceMetadata = Internal.isFile(
+                      actualRemoteFileSource,
+                    )
+                      ? actualRemoteFileSource.metadata
+                      : undefined;
+                    const resolveRemoteFileSchema =
+                      resolvedRemoteFileAtSourcePath.schema;
+                    if (!resolveRemoteFileSchema) {
+                      console.log(
+                        picocolors.red("✘"),
+                        `Could not resolve schema for remote file: ${sourcePath}`,
+                      );
+                      errors += 1;
+                      continue;
+                    }
+                    if (!publicProjectId || !remoteFileBuckets) {
                       let projectName = process.env.VAL_PROJECT;
                       if (!projectName) {
                         try {
@@ -401,41 +417,25 @@ export async function validate({
                         errors += 1;
                         continue;
                       }
-                      const publicProjectIdRes = await getPublicProjectId(
-                        projectName,
-                        { pat },
-                      );
-                      if (!publicProjectIdRes.success) {
+                      const settingsRes = await getSettings(projectName, {
+                        pat,
+                      });
+                      if (!settingsRes.success) {
                         console.log(
                           picocolors.red("✘"),
-                          `Could not get public project id: ${publicProjectIdRes.message}.`,
+                          `Could not get public project id: ${settingsRes.message}.`,
                         );
                         errors += 1;
                         continue;
                       }
-                      publicProjectId = publicProjectIdRes.data.publicProjectId;
+                      publicProjectId = settingsRes.data.publicProjectId;
+                      remoteFileBuckets =
+                        settingsRes.data.remoteFileBuckets.map((b) => b.bucket);
                     }
                     if (!publicProjectId) {
                       console.log(
                         picocolors.red("✘"),
                         "Could not get public project id",
-                      );
-                      errors += 1;
-                      continue;
-                    }
-                    const actualRemoteFileSource =
-                      resolvedRemoteFileAtSourcePath.source;
-                    const fileSourceMetadata = Internal.isFile(
-                      actualRemoteFileSource,
-                    )
-                      ? actualRemoteFileSource.metadata
-                      : undefined;
-                    const resolveRemoteFileSchema =
-                      resolvedRemoteFileAtSourcePath.schema;
-                    if (!resolveRemoteFileSchema) {
-                      console.log(
-                        picocolors.red("✘"),
-                        `Could not resolve schema for remote file: ${sourcePath}`,
                       );
                       errors += 1;
                       continue;
@@ -448,20 +448,6 @@ export async function validate({
                         picocolors.red("✘"),
                         `The schema is the remote is neither image nor file: ${sourcePath}`,
                       );
-                    }
-                    if (remoteFileBuckets === null) {
-                      const bucketRes = await getRemoteFileBuckets(
-                        VAL_REMOTE_HOST,
-                        publicProjectId,
-                        { pat },
-                      );
-                      if (bucketRes.success) {
-                        remoteFileBuckets = bucketRes.data.map((b) => b.bucket);
-                      } else {
-                        throw new Error(
-                          `Could not get remote file buckets for project ${publicProjectId}: ${bucketRes.message}`,
-                        );
-                      }
                     }
                     remoteFilesCounter += 1;
                     const bucket =
@@ -500,7 +486,7 @@ export async function validate({
                       continue;
                     }
                     const remoteFileUpload = await uploadRemoteFile(
-                      VAL_REMOTE_HOST,
+                      valRemoteHost,
                       fileBuffer,
                       publicProjectId,
                       bucket,
@@ -562,7 +548,7 @@ export async function validate({
                   continue;
                 }
                 const fixPatch = await createFixPatch(
-                  { projectRoot, remoteHost: VAL_REMOTE_HOST },
+                  { projectRoot, remoteHost: valRemoteHost },
                   !!fix,
                   sourcePath as SourcePath,
                   v,

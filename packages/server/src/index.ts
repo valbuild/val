@@ -12,8 +12,7 @@ export { formatSyntaxErrorTree } from "./patch/ts/syntax";
 export { createFixPatch } from "./createFixPatch";
 export * from "./jwt";
 export type { ValServer } from "./ValServer";
-export { getRemoteFileBuckets } from "./getRemoteFileBuckets";
-export { getPublicProjectId } from "./getPublicProjectId";
+export { getSettings } from "./getSettings";
 export {
   getPersonalAccessTokenPath,
   parsePersonalAccessTokenFile,
