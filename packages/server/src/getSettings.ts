@@ -37,7 +37,7 @@ export async function getSettings(
     if (response.status === 404) {
       return {
         success: false,
-        message: `Project ${projectName} not found. Verify that user has access to project and that it exists.`,
+        message: `Project '${projectName}' not found: verify that this project exists and that you have access to it.`,
       };
     }
     if (response.status !== 200) {
