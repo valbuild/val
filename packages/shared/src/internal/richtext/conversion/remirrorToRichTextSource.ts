@@ -464,7 +464,6 @@ function convertImageNode(
         ...(patchId ? { patch_id: patchId } : {}),
       },
     };
-    console.log({ tag });
     return tag;
   } else {
     throw new Error("Invalid image node (no attrs): " + JSON.stringify(node));
