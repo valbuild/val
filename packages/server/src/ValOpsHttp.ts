@@ -30,7 +30,6 @@ import { z } from "zod";
 import { fromError } from "zod-validation-error";
 import { ParentRef, Patch } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
-import { getFileExt } from "./getFileExt";
 
 const textEncoder = new TextEncoder();
 
