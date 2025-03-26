@@ -1442,9 +1442,6 @@ export const ValServer = (
                 message = res.commitSummary;
               }
             }
-            console.log({
-              message,
-            });
             const commitRes = await serverOps.commit(
               preparedCommit,
               message,
