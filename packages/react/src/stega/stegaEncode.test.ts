@@ -86,6 +86,10 @@ describe("stega transform", () => {
             width: 100,
             height: 100,
             mimeType: "image/png",
+            hotspot: {
+              x: 0.5,
+              y: 0.5,
+            },
           },
         ),
       ]),
