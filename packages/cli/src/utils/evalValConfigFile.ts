@@ -1,7 +1,7 @@
 import path from "path";
 import fs from "fs/promises";
 import vm from "node:vm";
-import ts from "typescript";
+import ts from "typescript"; // TODO: make this dependency optional (only required if the file is val.config.ts not val.config.js)
 import z from "zod";
 import { ValConfig } from "@valbuild/core";
 
