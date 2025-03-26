@@ -295,10 +295,6 @@ export async function validate({
                       valModule.schema,
                     );
                     let filePath: string | null = null;
-                    console.log(
-                      sourcePath,
-                      resolvedRemoteFileAtSourcePath.source,
-                    );
                     try {
                       filePath = path.join(
                         projectRoot,
