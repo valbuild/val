@@ -491,19 +491,17 @@ describe("TSOps", () => {
     },
     {
       name: "c.file with metadata with c.remote",
-      input: `c.file("/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
+      input: `c.file("/public/val/foo/bar.jpg", { mimeType: "image/jpeg" })`,
       path: [],
       value: {
         _ref: "val://<schema>/<hash>/public/val/foo/bar.jpg",
         _type: "remote",
         metadata: {
-          checksum: "123",
-          width: 456,
-          height: 789,
+          mimeType: "image/jpeg",
         },
       } satisfies RemoteSource,
       expected: result.ok(
-        `c.remote("val://<schema>/<hash>/public/val/foo/bar.jpg", { checksum: "123", width: 456, height: 789 })`,
+        `c.remote("val://<schema>/<hash>/public/val/foo/bar.jpg", { mimeType: "image/jpeg" })`,
       ),
     },
   ])("replace $name", ({ input, path, value, expected }) => {
