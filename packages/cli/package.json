@@ -34,7 +34,8 @@
     "zod": "^3.22.4"
   },
   "peerDependencies": {
-    "prettier": "*"
+    "prettier": "*",
+    "typescript": ">=5.0.0"
   },
   "preconstruct": {
     "entrypoints": [
