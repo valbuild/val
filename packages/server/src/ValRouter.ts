@@ -163,17 +163,16 @@ async function initHandlerOptions(
   const maybeValProject = opts.project || process.env.VAL_PROJECT;
   const valBuildUrl =
     opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://app.val.build";
-
+  const valContentUrl =
+    opts.valContentUrl ||
+    process.env.VAL_CONTENT_URL ||
+    "https://content.val.build";
   if (isProxyMode) {
     if (!maybeApiKey || !maybeValSecret) {
       throw new Error(
         "VAL_API_KEY and VAL_SECRET env vars must both be set in proxy mode",
       );
     }
-    const valContentUrl =
-      opts.valContentUrl ||
-      process.env.VAL_CONTENT_URL ||
-      "https://content.val.build";
     const maybeGitCommit = opts.gitCommit || process.env.VAL_GIT_COMMIT;
     if (!maybeGitCommit) {
       throw new Error("VAL_GIT_COMMIT env var must be set in proxy mode");
@@ -222,6 +221,7 @@ async function initHandlerOptions(
       valDisableRedirectUrl,
       valEnableRedirectUrl,
       valBuildUrl,
+      valContentUrl,
       apiKey: maybeApiKey,
       valSecret: maybeValSecret,
       project: maybeValProject,

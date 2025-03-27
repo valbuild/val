@@ -126,7 +126,9 @@ describe("ValOpsFS", () => {
       );
     }
 
+    const contentHost = process.env.VAL_CONTENT_URL || "http://localhost:4000";
     const ops = new ValOpsFS(
+      contentHost,
       rootDir,
       {
         config,
