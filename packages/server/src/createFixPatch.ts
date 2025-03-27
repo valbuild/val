@@ -144,15 +144,23 @@ export async function createFixPatch(
           }
         }
       } else if (fix === "image:add-metadata") {
-        patch.push({
-          op: "add",
-          path: sourceToPatchPath(sourcePath).concat("metadata"),
-          value: {
-            width: imageMetadata.width,
-            height: imageMetadata.height,
-            mimeType: imageMetadata.mimeType,
-          },
-        });
+        if (!imageMetadata.mimeType) {
+          remainingErrors.push({
+            ...validationError,
+            message: "Failed to get image metadata",
+            fixes: undefined,
+          });
+        } else {
+          patch.push({
+            op: "add",
+            path: sourceToPatchPath(sourcePath).concat("metadata"),
+            value: {
+              width: imageMetadata.width,
+              height: imageMetadata.height,
+              mimeType: imageMetadata.mimeType,
+            },
+          });
+        }
       }
     } else if (fix === "file:add-metadata" || fix === "file:check-metadata") {
       const fileMetadata = await getFileMetadata(
