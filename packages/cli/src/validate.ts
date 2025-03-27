@@ -23,7 +23,9 @@ import picocolors from "picocolors";
 import { ESLint } from "eslint";
 import fs from "fs/promises";
 import { evalValConfigFile } from "./utils/evalValConfigFile";
+import { getFileExt } from "./utils/getFileExt";
 
+const textEncoder = new TextEncoder();
 export async function validate({
   root,
   fix,
@@ -34,6 +36,8 @@ export async function validate({
   noEslint?: boolean;
 }) {
   const valRemoteHost = process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST;
+  const contentHostUrl =
+    process.env.VAL_CONTENT_URL || "https://content.val.build";
   const projectRoot = root ? path.resolve(root) : process.cwd();
   const eslint = new ESLint({
     cwd: projectRoot,
@@ -352,12 +356,7 @@ export async function validate({
                       );
                       continue;
                     }
-                    // TODO: parallelize this:
-                    console.log(
-                      picocolors.yellow("⚠"),
-                      `Uploading remote file ${filePath}...`,
-                    );
-
+                    // TODO: parallelize uploading files
                     if (!resolvedRemoteFileAtSourcePath.schema) {
                       console.log(
                         picocolors.red("✘"),
@@ -420,6 +419,14 @@ export async function validate({
                       errors += 1;
                       continue;
                     }
+                    if (!valConfigFile?.project) {
+                      console.log(
+                        picocolors.red("✘"),
+                        `Could not get project. Check that your val.config has the 'project' field set, or set it using the VAL_PROJECT environment variable`,
+                      );
+                      errors += 1;
+                      continue;
+                    }
                     if (
                       resolveRemoteFileSchema.type !== "image" &&
                       resolveRemoteFileSchema.type !== "file"
@@ -465,32 +472,57 @@ export async function validate({
                       errors += 1;
                       continue;
                     }
-                    const remoteFileUpload = await uploadRemoteFile(
-                      valRemoteHost,
-                      fileBuffer,
+
+                    const fileHash = Internal.remote.getFileHash(fileBuffer);
+                    const coreVersion = Internal.VERSION.core || "unknown";
+                    const fileExt = getFileExt(filePath);
+                    const schema = resolveRemoteFileSchema as
+                      | SerializedImageSchema
+                      | SerializedFileSchema;
+                    const metadata = fileSourceMetadata;
+                    const ref = Internal.remote.createRemoteRef(valRemoteHost, {
                       publicProjectId,
+                      coreVersion,
                       bucket,
-                      relativeFilePath,
-                      resolveRemoteFileSchema as
-                        | SerializedFileSchema
-                        | SerializedImageSchema,
-                      fileSourceMetadata,
+                      validationHash: Internal.remote.getValidationHash(
+                        coreVersion,
+                        schema,
+                        fileExt,
+                        metadata,
+                        fileHash,
+                        textEncoder,
+                      ),
+                      fileHash,
+                      filePath: relativeFilePath,
+                    });
+                    console.log(
+                      picocolors.yellow("⚠"),
+                      `Uploading remote file: '${ref}'...`,
+                    );
+
+                    const remoteFileUpload = await uploadRemoteFile(
+                      contentHostUrl,
+                      valConfigFile.project,
+                      bucket,
+                      fileHash,
+                      fileExt,
+                      fileBuffer,
                       { pat },
                     );
                     if (!remoteFileUpload.success) {
                       console.log(
                         picocolors.red("✘"),
-                        `Error uploading remote file: ${remoteFileUpload.error}`,
+                        `Could not upload remote file: '${ref}'. Error: ${remoteFileUpload.error}`,
                       );
                       errors += 1;
                       continue;
                     }
                     console.log(
-                      picocolors.yellow("⚠"),
-                      `Uploaded remote file ${filePath}`,
+                      picocolors.green("✔"),
+                      `Completed upload of remote file: '${ref}'`,
                     );
                     remoteFiles[sourcePath as SourcePath] = {
-                      ref: remoteFileUpload.ref,
+                      ref,
                       metadata: fileSourceMetadata,
                     };
                   }

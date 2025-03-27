@@ -31,13 +31,15 @@ import { guessMimeTypeFromPath } from "./ValServer";
 import { result } from "@valbuild/core/fp";
 import { ParentPatchId } from "@valbuild/core";
 import { computeChangedPatchParentRefs } from "./computeChangedPatchParentRefs";
-import { uploadRemoteRef } from "./uploadRemoteFile";
+import { uploadRemoteFile } from "./uploadRemoteFile";
 import { Buffer } from "buffer";
+import { getFileExt } from "./getFileExt";
 
 export class ValOpsFS extends ValOps {
   private static readonly VAL_DIR = ".val";
   private readonly host: FSOpsHost;
   constructor(
+    private readonly contentUrl: string,
     private readonly rootDir: string,
     valModules: ValModules,
     options?: ValOpsOptions,
@@ -903,8 +905,22 @@ export class ValOpsFS extends ValOps {
         console.log("Skip remote flag enabled. Skipping file upload", ref);
         continue;
       }
+      if (!this.options?.config.project) {
+        errors[ref] = {
+          message: "No project found in config",
+        };
+        continue;
+      }
       console.log("Uploading remote file", ref);
-      const res = await uploadRemoteRef(fileBuffer, ref, auth);
+      const res = await uploadRemoteFile(
+        this.contentUrl,
+        this.options.config.project,
+        splitRemoteRefRes.bucket,
+        splitRemoteRefRes.fileHash,
+        getFileExt(splitRemoteRefRes.filePath),
+        fileBuffer,
+        auth,
+      );
       if (!res.success) {
         console.error("Failed to upload remote file", ref, res.error);
         throw new Error(`Failed to upload remote file: ${ref}. ${res.error}`);

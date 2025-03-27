@@ -51,6 +51,7 @@ export type ValServerOptions = {
   valDisableRedirectUrl?: string;
   formatter?: (code: string, filePath: string) => string | Promise<string>;
   valBuildUrl?: string;
+  valContentUrl: string;
   valSecret?: string;
   apiKey?: string;
   project?: string;
@@ -66,7 +67,6 @@ export type ValServerConfig = ValServerOptions &
       }
     | {
         mode: "http";
-        valContentUrl: string;
         apiKey: string;
         project: string;
         commit: string;
@@ -82,11 +82,9 @@ export const ValServer = (
   options: ValServerConfig,
   callbacks: ValServerCallbacks,
 ): ServerOf<Api> => {
-  const VAL_REMOTE_HOST =
-    process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST;
   let serverOps: ValOpsHttp | ValOpsFS;
   if (options.mode === "fs") {
-    serverOps = new ValOpsFS(options.cwd, valModules, {
+    serverOps = new ValOpsFS(options.valContentUrl, options.cwd, valModules, {
       formatter: options.formatter,
       config: options.config,
     });
@@ -752,10 +750,11 @@ export const ValServer = (
             status: 400,
             json: {
               errorCode: "error-could-not-get-settings",
-              message: `Could not get settings: ${settingsRes.message}`,
+              message: `Could not get settings id: ${settingsRes.message}`,
             },
           };
         }
+
         return {
           status: 200,
           json: {
@@ -1442,6 +1441,9 @@ export const ValServer = (
                 message = res.commitSummary;
               }
             }
+            console.log({
+              message,
+            });
             const commitRes = await serverOps.commit(
               preparedCommit,
               message,
