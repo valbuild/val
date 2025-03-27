@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/ui",
-  "version": "0.73.2",
+  "version": "0.74.0",
   "sideEffects": false,
   "scripts": {
     "typecheck": "tsc --noEmit",
