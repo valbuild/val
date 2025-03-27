@@ -245,7 +245,24 @@ export async function createFixPatch(
       }
     } else if (fix === "image:upload-remote" || fix === "file:upload-remote") {
       const remoteFile = remoteFiles[sourcePath];
-      if (!remoteFile) {
+      let metadata = remoteFile.metadata as JSONValue | undefined;
+      if (!metadata) {
+        if (fix === "image:upload-remote") {
+          metadata = await getImageMetadata(
+            config.projectRoot,
+            validationError,
+          );
+        } else if (fix === "file:upload-remote") {
+          metadata = await getFileMetadata(config.projectRoot, validationError);
+        }
+      }
+      if (!metadata) {
+        remainingErrors.push({
+          ...validationError,
+          message: "Failed to get metadata for remote file",
+          fixes: undefined,
+        });
+      } else if (!remoteFile) {
         remainingErrors.push({
           ...validationError,
           message:
@@ -258,7 +275,7 @@ export async function createFixPatch(
           value: {
             _type: "remote",
             _ref: remoteFile.ref,
-            metadata: remoteFile.metadata as JSONValue,
+            metadata,
           },
           path: sourceToPatchPath(sourcePath),
         });
