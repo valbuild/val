@@ -5,7 +5,7 @@ import { FileSource, FILE_REF_PROP } from "../source/file";
 import { ImageSource } from "../source/image";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
-import { Internal } from "..";
+import { FileMetadata, Internal } from "..";
 import { RemoteSource } from "../source/remote";
 
 export type ImageOptions = {
@@ -22,10 +22,9 @@ export type SerializedImageSchema = {
   remote?: boolean;
 };
 
-export type ImageMetadata = {
+export type ImageMetadata = FileMetadata & {
   width: number;
   height: number;
-  mimeType: string;
   alt?: string;
   hotspot?: {
     x: number;
