@@ -71,7 +71,7 @@ const StatData = z.object({
 });
 type StatData = z.infer<typeof StatData>;
 
-type StatState =
+export type StatState =
   | {
       status: "not-asked";
     }
