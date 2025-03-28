@@ -17,12 +17,29 @@ import { ParentRef, ValClient } from "@valbuild/shared/internal";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Remote } from "../utils/Remote";
 import { mergePatches } from "../utils/mergePatches";
-import { useStatus } from "./useStatus";
+import { AuthenticationState, StatState, useStatus } from "./useStatus";
 
 const MAX_RETRIES_ON_CONFLICT = 10;
 
 const ops = new JSONOps();
-export function useValState(client: ValClient, overlayDraftMode: boolean) {
+
+export function useValState(
+  client: ValClient,
+  overlayDraftMode: boolean,
+): {
+  stat: StatState;
+  authenticationState: AuthenticationState;
+  schemas: Remote<Record<ModuleFilePath, SerializedSchema>>;
+  schemaSha: string | undefined;
+  sources: Record<ModuleFilePath, Json | undefined>;
+  addPatch: (moduleFilePath: ModuleFilePath, patch: Patch) => void;
+  deletePatches: (patchIds: PatchId[]) => Promise<DeletePatchesRes>;
+  patchesStatus: PatchesStatus;
+  sourcesSyncStatus: SourcesSyncStatus;
+  validationErrors: Record<SourcePath, ValidationError[]>;
+  patchIds: PatchId[];
+  serviceUnavailable: boolean | undefined;
+} {
   const [requestedSources, setRequestedSources] = useState<ModuleFilePath[]>(
     [],
   );
@@ -784,3 +801,31 @@ export function useValState(client: ValClient, overlayDraftMode: boolean) {
 export type DeletePatchesRes =
   | { status: "ok" }
   | { status: "error"; error: string };
+
+type PatchesStatus = Record<
+  ModuleFilePath,
+  | { status: "created-patch"; createdAt: string }
+  | { status: "uploading-patch"; createdAt: string; updatedAt: string }
+  | {
+      status: "error";
+      isAuthenticationError?: boolean;
+      errors: {
+        message: string;
+        patchId?: PatchId;
+        skipped?: boolean;
+      }[];
+    }
+>;
+
+type SourcesSyncStatus = Record<
+  ModuleFilePath,
+  | { status: "loading" }
+  | {
+      status: "error";
+      errors: {
+        message: string;
+        patchId?: PatchId;
+        skipped?: boolean;
+      }[];
+    }
+>;
