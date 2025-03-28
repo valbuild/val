@@ -26,6 +26,7 @@ import { Remote } from "../utils/Remote";
 import { isJsonArray } from "../utils/isJsonArray";
 import { DayPickerProvider } from "react-day-picker";
 import { DeletePatchesRes, useValState } from "../hooks/useValState";
+import { AuthenticationState } from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 
 type ValContextValue = {
@@ -440,8 +441,8 @@ export function ValProvider({
       }
     }
     if (requiresRemoteFiles) {
-    setRemoteFiles({ status: "loading" });
-    loadRemoteSettings();
+      setRemoteFiles({ status: "loading" });
+      loadRemoteSettings();
     }
   }, [requiresRemoteFiles]);
 
