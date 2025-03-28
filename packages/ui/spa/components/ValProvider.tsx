@@ -26,7 +26,7 @@ import { Remote } from "../utils/Remote";
 import { isJsonArray } from "../utils/isJsonArray";
 import { DayPickerProvider } from "react-day-picker";
 import { DeletePatchesRes, useValState } from "../hooks/useValState";
-import { AuthenticationState } from "spa/hooks/useStatus";
+import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 
 type ValContextValue = {
   mode: "http" | "fs" | "unknown";
@@ -387,6 +387,20 @@ export function ValProvider({
   >({
     status: "not-asked",
   });
+  const [requiresRemoteFiles, setRequiresRemoteFiles] = useState(false);
+  useEffect(() => {
+    if ("data" in schemas) {
+      const schemasData = schemas.data;
+      let requiresRemoteFiles = false;
+      for (const schema of Object.values(schemasData)) {
+        if (findRequiredRemoteFiles(schema)) {
+          requiresRemoteFiles = true;
+          break;
+        }
+      }
+      setRequiresRemoteFiles(requiresRemoteFiles);
+    }
+  }, [schemas, schemaSha]);
   useEffect(() => {
     let retries = 0;
     function loadRemoteSettings() {
@@ -410,7 +424,10 @@ export function ValProvider({
                   reason: res.json.errorCode,
                 });
               } else {
-                setRemoteFiles({ status: "inactive", reason: "unknown-error" });
+                setRemoteFiles({
+                  status: "inactive",
+                  reason: "unknown-error",
+                });
               }
               setTimeout(loadRemoteSettings, 5000);
             }
@@ -422,9 +439,11 @@ export function ValProvider({
           });
       }
     }
+    if (requiresRemoteFiles) {
     setRemoteFiles({ status: "loading" });
     loadRemoteSettings();
-  }, []);
+    }
+  }, [requiresRemoteFiles]);
 
   return (
     <ValContext.Provider
