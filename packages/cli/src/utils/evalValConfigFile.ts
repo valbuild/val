@@ -4,6 +4,7 @@ import vm from "node:vm";
 import ts from "typescript"; // TODO: make this dependency optional (only required if the file is val.config.ts not val.config.js)
 import z from "zod";
 import { ValConfig } from "@valbuild/core";
+import { createRequire } from "node:module";
 
 const ValConfigSchema = z.object({
   project: z.string().optional(),
@@ -56,14 +57,15 @@ export async function evalValConfigFile(
     fileName: valConfigPath,
   });
 
+  const projectRootRequire = createRequire(projectRoot);
   const exportsObj = {};
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sandbox: Record<string, any> = {
     exports: exportsObj,
     module: { exports: exportsObj },
-    require, // NOTE: this is a security risk, but this code is running in the users own environment at the CLI level
+    require: projectRootRequire, // NOTE: this is a security risk, but this code is running in the users own environment at the CLI level
     __filename: valConfigPath,
-    __dirname: path.dirname(valConfigPath),
+    __dirname: projectRoot,
     console,
     process,
   };
