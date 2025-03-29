@@ -1,6 +1,7 @@
 import {
   AllRichTextOptions,
   ConfigDirectory,
+  Internal,
   RichTextSource,
   SourcePath,
 } from "@valbuild/core";
@@ -25,9 +26,12 @@ import {
   useRemoteFiles,
   useSchemaAtPath,
   useShallowSourceAtPath,
+  useSyncStatus,
   useValConfig,
 } from "../ValProvider";
 import { RichTextEditor, useRichTextEditor } from "../RichTextEditor";
+import { useEffect, useState } from "react";
+import { EditorState } from "@remirror/core";
 
 export function RichTextField({
   path,
@@ -41,15 +45,37 @@ export function RichTextField({
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const remoteFiles = useRemoteFiles();
+  const syncStatus = useSyncStatus();
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
+  const isLoadingCurrentModule =
+    syncStatus[moduleFilePath]?.status === "loading";
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
-  const defaultValue =
+  const currentSourceData =
     "data" in sourceAtPath
       ? (sourceAtPath.data as RichTextSource<AllRichTextOptions>)
       : undefined;
-  const { state, manager } = useRichTextEditor(
-    defaultValue && richTextToRemirror(defaultValue),
+  const { manager } = useRichTextEditor(
+    currentSourceData && richTextToRemirror(currentSourceData),
   );
-  const { patchPath, addDebouncedPatch } = useAddPatch(path);
+  const { patchPath, addPatch } = useAddPatch(path);
+  const [editorState, setEditorState] = useState<Readonly<EditorState>>(
+    manager.createState({
+      content: currentSourceData && richTextToRemirror(currentSourceData),
+    }),
+  );
+  useEffect(() => {
+    if (isLoadingCurrentModule) {
+      return;
+    }
+    const state = manager.createState({
+      content: currentSourceData && richTextToRemirror(currentSourceData),
+    });
+    if (editorState?.doc && state.doc.eq(editorState?.doc)) {
+      return;
+    }
+    setEditorState(state);
+  }, [currentSourceData]);
+
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -106,19 +132,21 @@ export function RichTextField({
       <ValidationErrors path={path} />
       <RichTextEditor
         autoFocus={autoFocus}
-        initialContent={state}
+        state={editorState}
         options={schema.options}
         manager={manager}
         onChange={(event) => {
-          if (!event.state.doc.eq(state.doc)) {
-            addDebouncedPatch(() => {
-              return createRichTextPatch(
+          setEditorState(event.state);
+          const currentDoc = editorState?.doc;
+          if (currentDoc && !event.state.doc.eq(currentDoc)) {
+            addPatch(
+              createRichTextPatch(
                 patchPath,
                 config?.files?.directory ?? "/public/val",
                 event.state.doc.toJSON(),
                 remoteOptions,
-              );
-            }, path);
+              ),
+            );
           }
         }}
       />
