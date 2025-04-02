@@ -538,6 +538,7 @@ export const Api = {
           patches: z.array(
             z.object({
               path: ModuleFilePath,
+              patchId: PatchId,
               patch: Patch,
             }),
           ),
