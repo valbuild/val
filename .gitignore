@@ -4,3 +4,4 @@ dist
 tsconfig.tsbuildinfo
 .envrc
 .tmp
+.DS_Store
