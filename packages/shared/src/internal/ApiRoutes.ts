@@ -665,7 +665,6 @@ export const Api = {
       req: {
         path: z.string().optional(),
         query: {
-          validate_all: z.boolean().optional(),
           validate_sources: z.boolean().optional(),
           validate_binary_files: z.boolean().optional(),
         },
