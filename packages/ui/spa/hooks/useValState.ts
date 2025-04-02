@@ -130,7 +130,6 @@ export function useValState(
         path: path,
         query: {
           validate_sources: true,
-          validate_all: validateAll,
           validate_binary_files: false,
         },
       })

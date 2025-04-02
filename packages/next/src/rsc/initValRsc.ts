@@ -85,7 +85,6 @@ const initFetchValStega =
             path: "/",
             query: {
               validate_sources: true,
-              validate_all: false,
               validate_binary_files: false,
             },
             cookies: {
