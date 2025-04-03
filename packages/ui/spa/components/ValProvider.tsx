@@ -5,6 +5,7 @@ import React, {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import {
   DEFAULT_VAL_REMOTE_HOST,
@@ -25,11 +26,13 @@ import { ValClient } from "@valbuild/shared/internal";
 import { Remote } from "../utils/Remote";
 import { isJsonArray } from "../utils/isJsonArray";
 import { DayPickerProvider } from "react-day-picker";
-import { DeletePatchesRes, useValState } from "../hooks/useValState";
+import { useValState } from "../hooks/useValState";
 import { AuthenticationState } from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
+import { defaultOverlayEmitter, ValSyncStore } from "../ValSyncStore";
 
 type ValContextValue = {
+  syncStore: ValSyncStore;
   mode: "http" | "fs" | "unknown";
   serviceUnavailable: boolean | undefined;
   baseSha: string | undefined;
@@ -45,10 +48,13 @@ type ValContextValue = {
   setTheme: (theme: Themes | null) => void;
   config: ValConfig | undefined;
   authenticationState: AuthenticationState;
-  addPatch: (moduleFilePath: ModuleFilePath, patch: Patch) => void;
+  addPatch: (
+    moduleFilePath: ModuleFilePath,
+    patch: Patch,
+    type: SerializedSchema["type"],
+  ) => void;
   getPatches: (patchIds: PatchId[]) => Promise<GetPatchRes>;
-  deletePatches: (patchIds: PatchId[]) => Promise<DeletePatchesRes>;
-  addDebouncedPatch: (get: () => Patch, path: SourcePath) => void;
+  deletePatches: (patchIds: PatchId[]) => void;
   publish: () => void;
   isPublishing: boolean;
   publishError: string | null;
@@ -139,8 +145,6 @@ export function ValProvider({
   dispatchValEvents: boolean;
 }) {
   const {
-    addPatch,
-    deletePatches,
     authenticationState,
     schemas,
     schemaSha,
@@ -172,31 +176,8 @@ export function ValProvider({
     load();
   }, ["data" in stat && stat.data && stat.data.baseSha]);
 
-  // Global debounce: to avoid canceling patches that are debounced on navigation
-  const debouncedPatches = useRef<Record<SourcePath, (() => Patch)[]>>({});
-  useEffect(() => {
-    setInterval(() => {
-      if (Object.keys(debouncedPatches.current).length === 0) {
-        return;
-      }
-      for (const [pathS, patches] of Object.entries(debouncedPatches.current)) {
-        const path = pathS as SourcePath;
-        const [moduleFilePath] =
-          Internal.splitModuleFilePathAndModulePath(path);
-        for (const getPatch of patches) {
-          addPatch(moduleFilePath, getPatch());
-        }
-      }
-      debouncedPatches.current = {};
-    }, 200);
-  }, [addPatch]);
-  const addDebouncedPatch = useCallback(
-    (get: () => Patch, path: SourcePath) => {
-      if (!debouncedPatches.current[path]) {
-        debouncedPatches.current[path] = [];
-      }
-      debouncedPatches.current[path].push(get);
-    },
+  const syncStore = useMemo(
+    () => new ValSyncStore(client, defaultOverlayEmitter),
     [],
   );
   const config =
@@ -446,9 +427,84 @@ export function ValProvider({
     }
   }, [requiresRemoteFiles]);
 
+  const syncStoreInitStatus = useRef<
+    "not-asked" | "done" | "in-progress" | "retry"
+  >("not-asked");
+  const [startSyncPoll, setStartSyncPoll] = useState(false);
+
+  useEffect(() => {
+    console.log("STAT?", syncStoreInitStatus.current, stat);
+    if (
+      "data" in stat &&
+      stat.data &&
+      syncStoreInitStatus.current === "not-asked"
+    ) {
+      syncStoreInitStatus.current = "in-progress";
+      let timeout: NodeJS.Timeout | null = null;
+      const exec = async () => {
+        if ("data" in stat && stat.data) {
+          const res = await syncStore.init(
+            stat.data.baseSha,
+            stat.data.schemaSha,
+            stat.data.patches,
+            Date.now(),
+          );
+          if (res.status === "retry") {
+            syncStoreInitStatus.current = "retry";
+            timeout = setTimeout(exec, 4000);
+          } else {
+            console.log("Val is initialized!");
+            syncStoreInitStatus.current = "done";
+            if (timeout) {
+              clearTimeout(timeout);
+            }
+            setStartSyncPoll(true);
+          }
+        } else {
+          throw Error(
+            "Unexpected state: init was started with start.data but now it is not there",
+          );
+        }
+      };
+      exec();
+      return () => {
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+      };
+    } else if ("data" in stat && stat.data) {
+      syncStore.syncWithUpdatedStat(
+        stat.data.baseSha,
+        stat.data.schemaSha,
+        stat.data.patches,
+        Date.now(),
+      );
+    }
+  }, [stat, syncStore]);
+  useEffect(() => {
+    if (!startSyncPoll) {
+      return;
+    }
+    let timeout: NodeJS.Timeout | null = null;
+    const sync = async () => {
+      await syncStore.sync(Date.now(), false);
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      timeout = setTimeout(sync, 1000);
+    };
+    sync();
+    return () => {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    };
+  }, [syncStore, startSyncPoll]);
+
   return (
     <ValContext.Provider
       value={{
+        syncStore,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
         serviceUnavailable: showServiceUnavailable,
         baseSha,
@@ -457,10 +513,22 @@ export function ValProvider({
         getCommitSummary,
         portalRef: portalRef.current,
         authenticationState,
-        addPatch,
         getPatches,
-        deletePatches,
-        addDebouncedPatch,
+        addPatch: (moduleFilePath, patch, type) => {
+          console.log(
+            syncStore.addPatch(moduleFilePath, type, patch, Date.now()),
+          );
+        },
+        deletePatches: (patchIds) => {
+          // Delete in batches of 100 patch ids (since it is added to request url as query param)
+          const batches = [];
+          for (let i = 0; i < patchIds.length; i += 100) {
+            batches.push(patchIds.slice(i, i + 100));
+          }
+          for (const batch of batches) {
+            syncStore.deletePatches(batch, Date.now());
+          }
+        },
         theme,
         setTheme: (theme) => {
           if (theme === "dark" || theme === "light") {
@@ -584,15 +652,15 @@ export function useConnectionStatus() {
 }
 
 export function useAddPatch(sourcePath: SourcePath) {
-  const { addPatch, addDebouncedPatch } = useContext(ValContext);
+  const { addPatch } = useContext(ValContext);
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const patchPath = useMemo(() => {
     return Internal.createPatchPath(modulePath);
   }, [modulePath]);
   const addPatchCallback = useCallback(
-    (patch: Patch) => {
-      addPatch(moduleFilePath, patch);
+    (patch: Patch, type: SerializedSchema["type"]) => {
+      addPatch(moduleFilePath, patch, type);
     },
     [addPatch, sourcePath],
   );
@@ -604,7 +672,6 @@ export function useAddPatch(sourcePath: SourcePath) {
      * Prefer addPatch. Use addModuleFilePatch only if you need to add a patch to a different module file (should be rare).
      */
     addModuleFilePatch: addPatch,
-    addDebouncedPatch,
   };
 }
 
@@ -939,40 +1006,48 @@ type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =
 export function useShallowSourceAtPath<
   SchemaType extends SerializedSchema["type"],
 >(sourcePath?: SourcePath, type?: SchemaType): ShallowSourceOf<SchemaType> {
-  const { sources, sourcesSyncStatus } = useContext(ValContext);
-  if (sourcePath === undefined) {
-    return { status: "loading" };
-  }
-  const [moduleFilePath, modulePath] =
-    Internal.splitModuleFilePathAndModulePath(sourcePath);
+  const { syncStore } = useContext(ValContext);
+  const [moduleFilePath, modulePath] = sourcePath
+    ? Internal.splitModuleFilePathAndModulePath(sourcePath)
+    : (["", ""] as [ModuleFilePath, ModulePath]);
+  const sourcesRes = useSyncExternalStore(
+    syncStore.subscribe("source", moduleFilePath),
+    () => syncStore.getSourceSnapshot(moduleFilePath),
+    () => syncStore.getSourceSnapshot(moduleFilePath),
+  );
+
   const source = useMemo((): ShallowSourceOf<SchemaType> => {
-    const moduleSources = sources[moduleFilePath];
-    if (moduleSources !== undefined && type !== undefined) {
-      const sourceAtSourcePath = getShallowSourceAtSourcePath(
-        moduleFilePath,
-        modulePath,
-        type,
-        moduleSources,
-      );
-      return sourceAtSourcePath;
-    } else {
+    if (syncStore.initializedAt === null) {
+      return { status: "loading" };
+    }
+    if (moduleFilePath === "") {
+      return { status: "loading" };
+    }
+    if (sourcesRes.status === "module-schema-not-found") {
       return { status: "not-found" };
     }
-  }, [sources[moduleFilePath], sourcePath, type]);
-
-  const status = useMemo(() => {
-    return sourcesSyncStatus[moduleFilePath];
-  }, [moduleFilePath, sourcesSyncStatus]);
-  if ("data" in source && status?.status === "loading") {
-    return { status: "loading", data: source.data };
-  }
-  if (status?.status === "error") {
+    if (sourcesRes.status === "module-source-not-found") {
+      return { status: "not-found" };
+    }
+    if (sourcesRes.status === "success") {
+      const moduleSources = sourcesRes.data;
+      if (moduleSources !== undefined && type !== undefined) {
+        const sourceAtSourcePath = getShallowSourceAtSourcePath(
+          moduleFilePath,
+          modulePath,
+          type,
+          moduleSources,
+        );
+        return sourceAtSourcePath;
+      } else {
+        return { status: "not-found" };
+      }
+    }
     return {
       status: "error",
-      data: "data" in source ? source.data : undefined,
-      error: status.errors.map((error) => error.message).join(", "),
+      error: sourcesRes.message || "Unknown error",
     };
-  }
+  }, [sourcesRes, syncStore.initializedAt, syncStore.syncStatus, type]);
   return source;
 }
 
@@ -984,12 +1059,39 @@ export function useSources() {
   return useContext(ValContext).sources;
 }
 
-export function useSourceAtPath(sourcePath: SourcePath) {
-  const { sources } = useContext(ValContext);
+export function useSourceAtPath(sourcePath: SourcePath):
+  | {
+      status: "success";
+      data: Json;
+    }
+  | {
+      status: "error";
+      error: string;
+    }
+  | {
+      status: "not-found";
+    }
+  | {
+      status: "loading";
+    } {
+  const { syncStore } = useContext(ValContext);
 
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
-  return walkSourcePath(modulePath, sources[moduleFilePath]);
+  const sourceSnapshot = syncStore.getSourceSnapshot(moduleFilePath);
+  if (syncStore.initializedAt === null) {
+    return { status: "loading" };
+  }
+  if (sourceSnapshot.status === "success") {
+    return walkSourcePath(modulePath, sourceSnapshot.data);
+  }
+  if (
+    sourceSnapshot.status === "module-schema-not-found" ||
+    sourceSnapshot.status === "module-source-not-found"
+  ) {
+    return { status: "not-found" };
+  }
+  return { status: "error", error: sourceSnapshot.message || "Unknown error" };
 }
 
 function walkSourcePath(

@@ -216,13 +216,16 @@ function ObjectUnionField({
             previouslySelectedSources.current[path][value] ||
             emptyOf(selectedSchema);
           newValue[schema.key] = value;
-          addPatch([
-            {
-              op: "replace",
-              path: patchPath,
-              value: newValue,
-            },
-          ]);
+          addPatch(
+            [
+              {
+                op: "replace",
+                path: patchPath,
+                value: newValue,
+              },
+            ],
+            schema.type,
+          );
         }}
       >
         <SelectTrigger>
@@ -280,13 +283,16 @@ function SelectField({
     <Select
       value={source ?? ""}
       onValueChange={(value) => {
-        addPatch([
-          {
-            op: "replace",
-            path: patchPath,
-            value: value,
-          },
-        ]);
+        addPatch(
+          [
+            {
+              op: "replace",
+              path: patchPath,
+              value: value,
+            },
+          ],
+          "union",
+        );
       }}
     >
       <SelectTrigger>

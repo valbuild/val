@@ -160,32 +160,41 @@ export function ImageField({ path }: { path: SourcePath }) {
             onChange={(ev) => {
               const alt = ev.target.value;
               if (source.metadata && "alt" in source.metadata) {
-                addPatch([
-                  {
-                    op: "replace",
-                    value: alt,
-                    path: patchPath.concat(["metadata", "alt"]),
-                  },
-                ]);
-              } else if (source.metadata && !("alt" in source.metadata)) {
-                addPatch([
-                  {
-                    op: "add",
-                    value: alt,
-                    path: patchPath.concat(["metadata", "alt"]),
-                  },
-                ]);
-              } else if (source.metadata === undefined) {
-                addPatch([
-                  {
-                    op: "add",
-                    value: {
-                      ...(hotspot ? { hotspot } : {}),
-                      alt: alt,
+                addPatch(
+                  [
+                    {
+                      op: "replace",
+                      value: alt,
+                      path: patchPath.concat(["metadata", "alt"]),
                     },
-                    path: patchPath.concat(["metadata"]),
-                  },
-                ]);
+                  ],
+                  schemaAtPath.data.type,
+                );
+              } else if (source.metadata && !("alt" in source.metadata)) {
+                addPatch(
+                  [
+                    {
+                      op: "add",
+                      value: alt,
+                      path: patchPath.concat(["metadata", "alt"]),
+                    },
+                  ],
+                  schemaAtPath.data.type,
+                );
+              } else if (source.metadata === undefined) {
+                addPatch(
+                  [
+                    {
+                      op: "add",
+                      value: {
+                        ...(hotspot ? { hotspot } : {}),
+                        alt: alt,
+                      },
+                      path: patchPath.concat(["metadata"]),
+                    },
+                  ],
+                  schemaAtPath.data.type,
+                );
               } else {
                 console.warn(
                   `Expected source.metadata to be an object but got ${typeof source.metadata}`,
@@ -222,31 +231,40 @@ export function ImageField({ path }: { path: SourcePath }) {
                 y: Math.max((ev.clientY - 6 - top) / height, 0),
               };
               if (source.metadata && "hotspot" in source.metadata) {
-                addPatch([
-                  {
-                    op: "replace",
-                    path: patchPath.concat(["metadata", "hotspot"]),
-                    value: hotspot,
-                  },
-                ]);
-              } else if (source.metadata) {
-                addPatch([
-                  {
-                    op: "add",
-                    path: patchPath.concat(["metadata", "hotspot"]),
-                    value: hotspot,
-                  },
-                ]);
-              } else if (source.metadata === undefined) {
-                addPatch([
-                  {
-                    op: "add",
-                    value: {
-                      ...(hotspot ? { hotspot } : {}),
+                addPatch(
+                  [
+                    {
+                      op: "replace",
+                      path: patchPath.concat(["metadata", "hotspot"]),
+                      value: hotspot,
                     },
-                    path: patchPath.concat(["metadata"]),
-                  },
-                ]);
+                  ],
+                  schemaAtPath.data.type,
+                );
+              } else if (source.metadata) {
+                addPatch(
+                  [
+                    {
+                      op: "add",
+                      path: patchPath.concat(["metadata", "hotspot"]),
+                      value: hotspot,
+                    },
+                  ],
+                  schemaAtPath.data.type,
+                );
+              } else if (source.metadata === undefined) {
+                addPatch(
+                  [
+                    {
+                      op: "add",
+                      value: {
+                        ...(hotspot ? { hotspot } : {}),
+                      },
+                      path: patchPath.concat(["metadata"]),
+                    },
+                  ],
+                  schemaAtPath.data.type,
+                );
               } else {
                 console.warn(
                   `Expected source.metadata to be an object but got ${typeof source.metadata}`,
@@ -303,7 +321,7 @@ export function ImageField({ path }: { path: SourcePath }) {
               remoteData,
               config.files?.directory,
             )
-              .then(addPatch)
+              .then((patch) => addPatch(patch, schemaAtPath.data.type))
               .catch((err) => {
                 console.error("Failed to create file patch", err);
                 setError("Could not upload file. Please try again later");

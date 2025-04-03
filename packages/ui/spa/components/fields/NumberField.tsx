@@ -59,13 +59,16 @@ export function NumberField({ path }: { path: SourcePath }) {
         onChange={(ev) => {
           const nextNumber = Number(ev.target.value);
           if (!Number.isNaN(nextNumber)) {
-            addPatch([
-              {
-                op: "replace",
-                path: patchPath,
-                value: nextNumber,
-              },
-            ]);
+            addPatch(
+              [
+                {
+                  op: "replace",
+                  path: patchPath,
+                  value: nextNumber,
+                },
+              ],
+              type,
+            );
           }
         }}
       />
