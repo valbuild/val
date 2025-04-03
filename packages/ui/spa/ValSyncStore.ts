@@ -141,8 +141,12 @@ export class ValSyncStore {
     now: number,
   ) {
     const start = Date.now();
-    this.syncWithUpdatedStat(baseSha, schemaSha, patchIds, now);
-    const res = await this.sync(now, false);
+    const res = await this.syncWithUpdatedStat(
+      baseSha,
+      schemaSha,
+      patchIds,
+      now,
+    );
     if (res.status === "done") {
       this.initializedAt = now + (Date.now() - start);
     }
@@ -813,7 +817,7 @@ export class ValSyncStore {
     }
     return "all";
   }
-  private isSyncing = false;
+  public isSyncing = false;
   async sync(
     now: number,
     serverPatchIdsDidChange: boolean,
