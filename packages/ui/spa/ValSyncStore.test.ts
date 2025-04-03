@@ -130,14 +130,14 @@ describe("ValSyncStore", () => {
       data: "value 2 from store 2",
     });
     // ...then sync store 1
-    expect(await syncStore1.sync(tester.getNextNow())).toMatchObject({
+    expect(await syncStore1.sync(tester.getNextNow(), false)).toMatchObject({
       status: "done",
     });
     expect(await tester.simulateStatCallback(syncStore1)).toMatchObject({
       status: "done",
     });
     // We must get stat before we can sync again
-    expect(await syncStore2.sync(tester.getNextNow())).toMatchObject({
+    expect(await syncStore2.sync(tester.getNextNow(), false)).toMatchObject({
       status: "retry",
       reason: "conflict",
     });
@@ -426,17 +426,20 @@ class SyncStoreTester {
       }
       if (patchRes.kind === "ok") {
         modules[moduleFilePath].source = patchRes.value;
-        modules[moduleFilePath].patches.applied.push(patchId);
+        modules[moduleFilePath].patches?.applied.push(patchId);
       } else {
-        if (!modules[moduleFilePath].patches.skipped) {
-          modules[moduleFilePath].patches.skipped = [];
+        if (
+          modules[moduleFilePath].patches !== undefined &&
+          !modules[moduleFilePath].patches?.skipped
+        ) {
+          modules[moduleFilePath].patches!.skipped = [];
         }
-        modules[moduleFilePath].patches.skipped.push(patchId);
-        if (!modules[moduleFilePath].patches.errors) {
-          modules[moduleFilePath].patches.errors = {};
+        modules[moduleFilePath].patches?.skipped?.push(patchId);
+        if (!modules[moduleFilePath].patches!.errors) {
+          modules[moduleFilePath].patches!.errors = {};
         }
-        if (!modules[moduleFilePath].patches.errors[patchId]) {
-          modules[moduleFilePath].patches.errors[patchId] = {
+        if (!modules[moduleFilePath].patches?.errors?.[patchId]) {
+          modules[moduleFilePath].patches!.errors![patchId] = {
             message: patchRes.error.message,
           };
         }
