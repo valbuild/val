@@ -13,7 +13,12 @@ export function resolvePatchPath(
   schema: SerializedSchema,
   source: Json,
 ):
-  | { success: true; modulePath: ModulePath; schema: SerializedSchema }
+  | {
+      success: true;
+      modulePath: ModulePath;
+      source: Json;
+      schema: SerializedSchema;
+    }
   | { success: false; error: string } {
   if (patchPath.length === 0) {
     return { success: false, error: "Empty path" };
