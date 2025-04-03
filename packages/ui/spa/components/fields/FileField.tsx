@@ -222,7 +222,7 @@ export function FileField({ path }: { path: SourcePath }) {
                 remoteData,
                 config.files?.directory,
               )
-                .then(addPatch)
+                .then((patch) => addPatch(patch, schemaAtPath.data.type))
                 .catch((err) => {
                   console.error("Failed to create file patch", err);
                   setError("Could not upload file. Please try again later");

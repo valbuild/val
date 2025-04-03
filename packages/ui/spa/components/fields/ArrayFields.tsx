@@ -60,25 +60,31 @@ export function ArrayFields({ path }: { path: SourcePath }) {
           navigate(path);
         }}
         onDelete={async (item) => {
-          addPatch([
-            {
-              op: "remove",
-              path: patchPath.concat(
-                item.toString(),
-              ) as array.NonEmptyArray<string>,
-            },
-          ]);
+          addPatch(
+            [
+              {
+                op: "remove",
+                path: patchPath.concat(
+                  item.toString(),
+                ) as array.NonEmptyArray<string>,
+              },
+            ],
+            schema.type,
+          );
         }}
         onMove={async (from, to) => {
-          addPatch([
-            {
-              op: "move",
-              from: patchPath.concat(
-                from.toString(),
-              ) as array.NonEmptyArray<string>,
-              path: patchPath.concat(to.toString()),
-            },
-          ]);
+          addPatch(
+            [
+              {
+                op: "move",
+                from: patchPath.concat(
+                  from.toString(),
+                ) as array.NonEmptyArray<string>,
+                path: patchPath.concat(to.toString()),
+              },
+            ],
+            schema.type,
+          );
         }}
         schema={schema}
         source={sourceAtPath.data || []}

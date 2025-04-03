@@ -126,13 +126,16 @@ export function DateField({ path }: { path: SourcePath }) {
             onSelect={(date) => {
               if (date) {
                 setCurrentValue(date);
-                addPatch([
-                  {
-                    op: "replace",
-                    value: date.toISOString().slice(0, 10),
-                    path: patchPath,
-                  },
-                ]);
+                addPatch(
+                  [
+                    {
+                      op: "replace",
+                      value: date.toISOString().slice(0, 10),
+                      path: patchPath,
+                    },
+                  ],
+                  schema.type,
+                );
                 setPopoverOpen(false);
               }
             }}

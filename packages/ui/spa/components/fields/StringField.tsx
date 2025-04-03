@@ -26,7 +26,7 @@ export function StringField({
   const type = "string";
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
-  const { patchPath, addDebouncedPatch } = useAddPatch(path);
+  const { patchPath, addPatch } = useAddPatch(path);
   const [focus, setFocus] = useState(false);
   const [currentValue, setCurrentValue] = useState<string | null>(null);
   useEffect(() => {
@@ -48,15 +48,15 @@ export function StringField({
         console.warn(
           `Mis-matched strings: '${sourceAtPath.data}' and '${currentValue}'. Patching...`,
         );
-        addDebouncedPatch(
-          () => [
+        addPatch(
+          [
             {
               op: "replace",
               path: patchPath,
               value: currentValue,
             },
           ],
-          path,
+          type,
         );
       }, 3000);
       return () => {
@@ -111,15 +111,15 @@ export function StringField({
           value={currentValue || ""}
           onChange={(ev) => {
             setCurrentValue(ev.target.value);
-            addDebouncedPatch(
-              () => [
+            addPatch(
+              [
                 {
                   op: "replace",
                   path: patchPath,
                   value: ev.target.value,
                 },
               ],
-              path,
+              type,
             );
           }}
         />

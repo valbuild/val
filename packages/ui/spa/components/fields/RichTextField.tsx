@@ -146,6 +146,7 @@ export function RichTextField({
                 event.state.doc.toJSON(),
                 remoteOptions,
               ),
+              type,
             );
           }
         }}

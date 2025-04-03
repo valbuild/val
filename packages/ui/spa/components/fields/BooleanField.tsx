@@ -84,13 +84,16 @@ export function BooleanField({ path }: { path: SourcePath }) {
               nextValue = false;
             }
           }
-          addPatch([
-            {
-              op: "replace",
-              path: patchPath,
-              value: nextValue,
-            },
-          ]);
+          addPatch(
+            [
+              {
+                op: "replace",
+                path: patchPath,
+                value: nextValue,
+              },
+            ],
+            schemaAtPath.data.type,
+          );
         }}
       />
     </div>
@@ -126,37 +129,49 @@ export function EmbeddedBooleanField({
       }
       onCheckedChange={() => {
         if (source === null) {
-          addPatch([
-            {
-              op: "replace",
-              path: patchPath,
-              value: true,
-            },
-          ]);
+          addPatch(
+            [
+              {
+                op: "replace",
+                path: patchPath,
+                value: true,
+              },
+            ],
+            "boolean",
+          );
         } else if (source === false && isNullable) {
-          addPatch([
-            {
-              op: "replace",
-              path: patchPath,
-              value: null,
-            },
-          ]);
+          addPatch(
+            [
+              {
+                op: "replace",
+                path: patchPath,
+                value: null,
+              },
+            ],
+            "boolean",
+          );
         } else if (source === false) {
-          addPatch([
-            {
-              op: "replace",
-              path: patchPath,
-              value: true,
-            },
-          ]);
+          addPatch(
+            [
+              {
+                op: "replace",
+                path: patchPath,
+                value: true,
+              },
+            ],
+            "boolean",
+          );
         } else {
-          addPatch([
-            {
-              op: "replace",
-              path: patchPath,
-              value: false,
-            },
-          ]);
+          addPatch(
+            [
+              {
+                op: "replace",
+                path: patchPath,
+                value: false,
+              },
+            ],
+            "boolean",
+          );
         }
       }}
     />

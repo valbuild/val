@@ -139,13 +139,16 @@ export function KeyOfField({ path }: { path: SourcePath }) {
         <Select
           value={source ?? ""}
           onValueChange={(value) => {
-            addPatch([
-              {
-                op: "replace",
-                path: patchPath,
-                value: value,
-              },
-            ]);
+            addPatch(
+              [
+                {
+                  op: "replace",
+                  path: patchPath,
+                  value: value,
+                },
+              ],
+              type,
+            );
           }}
         >
           <SelectTrigger>

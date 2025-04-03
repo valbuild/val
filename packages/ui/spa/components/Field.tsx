@@ -78,24 +78,30 @@ export function Field({
                   setShowEmptyFileOrImage(true);
                 } else {
                   if (source === null) {
-                    addPatch([
-                      {
-                        op: "replace",
-                        path: patchPath,
-                        value: emptyOf({
-                          ...schemaAtPath.data,
-                          opt: false, // empty of nullable is null, so we override
-                        }) as JSONValue,
-                      },
-                    ]);
+                    addPatch(
+                      [
+                        {
+                          op: "replace",
+                          path: patchPath,
+                          value: emptyOf({
+                            ...schemaAtPath.data,
+                            opt: false, // empty of nullable is null, so we override
+                          }) as JSONValue,
+                        },
+                      ],
+                      schemaAtPath.data.type,
+                    );
                   } else {
-                    addPatch([
-                      {
-                        op: "replace",
-                        path: patchPath,
-                        value: null,
-                      },
-                    ]);
+                    addPatch(
+                      [
+                        {
+                          op: "replace",
+                          path: patchPath,
+                          value: null,
+                        },
+                      ],
+                      schemaAtPath.data.type,
+                    );
                   }
                 }
               }}

@@ -160,16 +160,16 @@ function AddArrayButton({
 }) {
   const { navigate } = useNavigation();
   const { addPatch, patchPath } = useAddPatch(path);
-  const schmeaAtPath = useSchemaAtPath(path);
+  const schemaAtPath = useSchemaAtPath(path);
   const shallowSourceAtPath = useShallowSourceAtPath(path, "array");
   const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   if (!("data" in shallowSourceAtPath) || !shallowSourceAtPath.data) {
     return null;
   }
-  if (!("data" in schmeaAtPath)) {
+  if (!("data" in schemaAtPath)) {
     return null;
   }
-  const schema = schmeaAtPath.data;
+  const schema = schemaAtPath.data;
   if (schema.type !== "array") {
     console.error("Cannot add to non-array", shallowSourceAtPath, {
       parentPath: path,
@@ -184,13 +184,16 @@ function AddArrayButton({
       variant={getButtonVariant(variant)}
       onClick={() => {
         const newPatchPath = patchPath.concat(highestIndex.toString());
-        addPatch([
-          {
-            op: "add",
-            path: newPatchPath,
-            value: emptyOf(schema.item) as JSONValue,
-          },
-        ]);
+        addPatch(
+          [
+            {
+              op: "add",
+              path: newPatchPath,
+              value: emptyOf(schema.item) as JSONValue,
+            },
+          ],
+          schema.type,
+        );
         if (schema.item.type !== "string") {
           navigate(
             Internal.joinModuleFilePathAndModulePath(
@@ -237,12 +240,15 @@ function DeleteRecordButton({
           variant={getButtonVariant(variant)}
           disabled={refs.length > 0}
           onClick={() => {
-            addPatch([
-              {
-                op: "remove",
-                path: patchPath as array.NonEmptyArray<string>,
-              },
-            ]);
+            addPatch(
+              [
+                {
+                  op: "remove",
+                  path: patchPath as array.NonEmptyArray<string>,
+                },
+              ],
+              "record",
+            );
             navigate(parentPath);
           }}
         >
@@ -354,18 +360,22 @@ function ChangeRecordPopover({
                 ) as array.NonEmptyArray<string>,
               },
             ];
-            addPatch(patchOps);
+            addPatch(patchOps, "record");
             for (const ref of refs) {
               const [refModuleFilePath, refModulePath] =
                 Internal.splitModuleFilePathAndModulePath(ref);
               const refPatchPath = Internal.createPatchPath(refModulePath);
-              addModuleFilePatch(refModuleFilePath, [
-                {
-                  op: "replace",
-                  path: refPatchPath,
-                  value: key,
-                },
-              ]);
+              addModuleFilePatch(
+                refModuleFilePath,
+                [
+                  {
+                    op: "replace",
+                    path: refPatchPath,
+                    value: key,
+                  },
+                ],
+                "record",
+              );
             }
             navigate(
               Internal.joinModuleFilePathAndModulePath(
@@ -507,13 +517,16 @@ function AddRecordPopover({
             ev.preventDefault();
             const newPatchPath =
               Internal.createPatchPath(modulePath).concat(key);
-            addPatch([
-              {
-                op: "add",
-                path: newPatchPath,
-                value: emptyOf(schema.item) as JSONValue,
-              },
-            ]);
+            addPatch(
+              [
+                {
+                  op: "add",
+                  path: newPatchPath,
+                  value: emptyOf(schema.item) as JSONValue,
+                },
+              ],
+              "record",
+            );
             navigate(
               Internal.joinModuleFilePathAndModulePath(
                 moduleFilePath,
