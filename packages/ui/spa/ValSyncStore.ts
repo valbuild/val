@@ -73,7 +73,7 @@ export class ValSyncStore {
   optimisticClientSources: Record<ModuleFilePath, JSONValue>;
   schemas: Record<ModuleFilePath, SerializedSchema> | null;
   schemaSha: string | null;
-  baseSha: string | null;
+  baseSha: string | null; // TODO: Currently not used, we should use this to reset the client state
   syncStatus: Record<SourcePath | ModuleFilePath, SyncStatus>;
   pendingOps: PendingOp[];
   errors: Partial<{
@@ -516,7 +516,6 @@ export class ValSyncStore {
       patchIds,
     );
     this.globalServerSidePatchIds = patchIds;
-    this.initializedAt = now;
     for (const patchId of patchIds) {
       for (let i = 0; i < this.pendingClientPatchIds.length; i++) {
         if (this.pendingClientPatchIds[i] === patchId) {
