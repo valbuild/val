@@ -647,7 +647,10 @@ export function useValState(
 
     client("/patches", "PUT", {
       body: {
-        patches: mergedPatches,
+        patches: mergedPatches.map((p) => ({
+          ...p,
+          patchId: crypto.randomUUID() as PatchId,
+        })),
         parentRef,
       },
     })
