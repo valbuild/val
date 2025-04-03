@@ -142,7 +142,7 @@ export class ValSyncStore {
   ) {
     const start = Date.now();
     this.syncWithUpdatedStat(baseSha, schemaSha, patchIds, now);
-    const res = await this.sync(now);
+    const res = await this.sync(now, false);
     if (res.status === "done") {
       this.initializedAt = now + (Date.now() - start);
     }
@@ -501,7 +501,7 @@ export class ValSyncStore {
     });
   }
 
-  // #region Misc
+  // #region Stat
 
   async syncWithUpdatedStat(
     baseSha: string,
@@ -511,6 +511,10 @@ export class ValSyncStore {
   ) {
     this.baseSha = baseSha;
     this.schemaSha = schemaSha;
+    const serverPatchIdsDidChange = !deepEqual(
+      this.globalServerSidePatchIds,
+      patchIds,
+    );
     this.globalServerSidePatchIds = patchIds;
     this.initializedAt = now;
     for (const patchId of patchIds) {
@@ -527,9 +531,10 @@ export class ValSyncStore {
         }
       }
     }
-    return this.sync(now);
+    return this.sync(now, serverPatchIdsDidChange);
   }
 
+  // #region Misc
   private waitForMinutes(minutes: number, now: number) {
     return this.waitForSeconds(minutes * 60, now);
   }
@@ -810,7 +815,10 @@ export class ValSyncStore {
     return "all";
   }
   private isSyncing = false;
-  async sync(now: number): Promise<
+  async sync(
+    now: number,
+    serverPatchIdsDidChange: boolean,
+  ): Promise<
     | {
         status: "done";
         nextSync: number;
@@ -885,7 +893,9 @@ export class ValSyncStore {
       }
       const changedModules = this.getChangedModules(changes);
       if (
+        // TODO: clean this up, surely there's no need for 4 different ways of triggering sources sync
         this.initializedAt === null ||
+        serverPatchIdsDidChange ||
         syncAllRequired ||
         changedModules === "all" ||
         changedModules.length > 0
