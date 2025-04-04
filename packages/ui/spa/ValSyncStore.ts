@@ -989,7 +989,17 @@ export class ValSyncStore {
                 this.serverSources = {};
               }
               this.serverSources[moduleFilePath] = valModule.source;
-              delete this.optimisticClientSources[moduleFilePath];
+              if (
+                // We cannot remove optimisticClientSources, even if we just synced because the optimistic client side sources might have been changed while we were syncing
+                // If we remove the optimistic client side sources without verifying that the server side sources are the same, the user will see a flash and it revert back to the previously saved state.
+                // It feels like there might be errors that pops up because of this: what if the patch never is written / is wrong?! The change will then be lost.
+                deepEqual(
+                  this.serverSources[moduleFilePath],
+                  this.optimisticClientSources[moduleFilePath],
+                )
+              ) {
+                delete this.optimisticClientSources[moduleFilePath];
+              }
               this.invalidateSource(moduleFilePath);
             } else {
               this.addTransientGlobalError(
