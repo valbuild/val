@@ -997,6 +997,7 @@ type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =
   | { status: "not-found" }
   | {
       status: "success";
+      clientSideOnly: boolean;
       data: ShallowSource[SchemaType] | null; // we add union to allow for nullable values
     }
   | {
@@ -1049,6 +1050,7 @@ export function useShallowSourceAtPath<
           modulePath,
           type,
           moduleSources,
+          sourcesRes.optimistic,
         );
         return sourceAtSourcePath;
       } else {
@@ -1180,6 +1182,7 @@ function getShallowSourceAtSourcePath<
   modulePath: ModulePath,
   type: SchemaType,
   sources: Json,
+  clientSideOnly: boolean,
 ): ShallowSourceOf<SchemaType> {
   const source = walkSourcePath(modulePath, sources);
   if ("data" in source && source.data !== undefined) {
@@ -1189,6 +1192,13 @@ function getShallowSourceAtSourcePath<
       type,
       source.data,
     );
+    if (mappedSource.status === "success") {
+      return {
+        status: "success",
+        data: mappedSource.data,
+        clientSideOnly,
+      };
+    }
     return mappedSource;
   }
   return source as ShallowSourceOf<SchemaType>;
