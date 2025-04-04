@@ -618,6 +618,7 @@ export class ValOpsHttp extends ValOps {
   protected async saveSourceFilePatch(
     path: ModuleFilePath,
     patch: PatchT,
+    patchId: PatchId,
     parentRef: ParentRefT,
     authorId: AuthorId | null,
   ): Promise<SaveSourceFilePatchResult> {
@@ -632,6 +633,7 @@ export class ValOpsHttp extends ValOps {
         path,
         patch,
         authorId,
+        patchId,
         parentPatchId: parentRef.type === "patch" ? parentRef.patchId : null,
         baseSha,
         commit: this.commitSha,

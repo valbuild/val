@@ -1104,13 +1104,14 @@ export abstract class ValOps {
   async createPatch(
     path: ModuleFilePath,
     patch: Patch,
+    patchId: PatchId,
     parentRef: ParentRef,
     authorId: AuthorId | null,
   ): Promise<
     result.Result<
       {
-        patchId: PatchId;
         error?: undefined;
+        patchId: PatchId;
         createdAt: string;
         files: {
           filePath: string;
@@ -1234,6 +1235,7 @@ export abstract class ValOps {
     const saveRes = await this.saveSourceFilePatch(
       path,
       patch,
+      patchId,
       parentRef,
       authorId,
     );
@@ -1246,7 +1248,6 @@ export abstract class ValOps {
       }
       return result.err({ errorType: "other", error: saveRes.error });
     }
-    const patchId = saveRes.value.patchId;
     const saveFileRes: { filePath: string; error?: PatchError }[] =
       await Promise.all(
         Object.entries(files).map(
@@ -1419,6 +1420,7 @@ export abstract class ValOps {
   protected abstract saveSourceFilePatch(
     path: ModuleFilePath,
     patch: Patch,
+    patchId: PatchId,
     parentRef: ParentRef | null,
     authorId: AuthorId | null,
   ): Promise<SaveSourceFilePatchResult>;

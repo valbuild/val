@@ -563,13 +563,13 @@ export class ValOpsFS extends ValOps {
   protected override async saveSourceFilePatch(
     path: ModuleFilePath,
     patch: Patch,
+    patchId: PatchId,
     parentRef: ParentRef,
     authorId: AuthorId | null,
   ): Promise<SaveSourceFilePatchResult> {
     const patchDir = this.getParentPatchIdFromParentRef(parentRef);
     try {
       const baseSha = await this.getBaseSha();
-      const patchId = crypto.randomUUID() as PatchId;
       const data: z.infer<typeof FSPatch> = {
         patch,
         patchId,
