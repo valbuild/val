@@ -259,19 +259,21 @@ export class ValSyncStore {
   getModuleData(sourcePath: SourcePath | ModuleFilePath) {
     const [moduleFilePath, modulePath] =
       Internal.splitModuleFilePathAndModulePath(sourcePath as SourcePath);
-    const isOptimistic = !!this.optimisticClientSources[moduleFilePath];
+    const isOptimistic =
+      this.optimisticClientSources[moduleFilePath] !== undefined;
     const source =
-      this.optimisticClientSources[moduleFilePath] ||
-      this.serverSources?.[moduleFilePath];
+      this.optimisticClientSources[moduleFilePath] !== undefined
+        ? this.optimisticClientSources[moduleFilePath]
+        : this.serverSources?.[moduleFilePath];
 
-    if (!source) {
+    if (source === undefined) {
       return {
         status: "module-source-not-found",
         moduleFilePath,
       } as const;
     }
     const schema = this.schemas?.[moduleFilePath];
-    if (!schema) {
+    if (schema === undefined) {
       return {
         status: "module-schema-not-found",
         moduleFilePath,
@@ -643,6 +645,10 @@ export class ValSyncStore {
         nextSync: this.waitForSeconds(30, now),
       };
     } else if (addPatchesRes.status === 409) {
+      console.log(
+        "conflict parentref",
+        parentRef && "patchId" in parentRef && parentRef.patchId,
+      );
       // Try again if it is a conflict error:
       return {
         status: "retry",
@@ -697,6 +703,10 @@ export class ValSyncStore {
           delete this.patchDataByPatchId[patchId];
         }
       }
+      console.log(
+        "stored   parentref",
+        this.patchIdsStoredByClient[this.patchIdsStoredByClient.length - 1],
+      );
     }
     return {
       status: "done",

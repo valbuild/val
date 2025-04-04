@@ -41,7 +41,7 @@ describe("ValSyncStore", () => {
       data: "test",
     });
 
-    expect(updateValue(syncStore1, "value 0 from store 1")).toMatchObject({
+    expect(updateValue(syncStore1, "")).toMatchObject({
       status: "patch-added",
     });
     expect(
@@ -49,7 +49,7 @@ describe("ValSyncStore", () => {
     ).toMatchObject({
       status: "success",
       optimistic: true,
-      data: "value 0 from store 1",
+      data: "",
     });
     expect(updateValue(syncStore1, "value 1 from store 1")).toMatchObject({
       status: "patch-merged",
