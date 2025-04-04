@@ -23,11 +23,9 @@ import {
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { ValClient } from "@valbuild/shared/internal";
-import { Remote } from "../utils/Remote";
 import { isJsonArray } from "../utils/isJsonArray";
 import { DayPickerProvider } from "react-day-picker";
-import { useValState } from "../hooks/useValState";
-import { AuthenticationState } from "../hooks/useStatus";
+import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 import { defaultOverlayEmitter, ValSyncStore } from "../ValSyncStore";
 
@@ -74,45 +72,6 @@ type ValContextValue = {
   isPublishing: boolean;
   publishError: string | null;
   resetPublishError: () => void;
-  schemas: Remote<Record<ModuleFilePath, SerializedSchema>>;
-  schemaSha: string | undefined;
-  sources: Record<ModuleFilePath, Json | undefined>;
-  validationErrors: Record<SourcePath, ValidationError[]>;
-  sourcesSyncStatus: Record<
-    ModuleFilePath,
-    | {
-        status: "loading";
-      }
-    | {
-        status: "error";
-        errors: {
-          message: string;
-          patchId?: PatchId;
-          skipped?: boolean;
-        }[];
-      }
-  >;
-  patchesStatus: Record<
-    SourcePath,
-    | {
-        status: "created-patch";
-        createdAt: string;
-      }
-    | {
-        status: "uploading-patch";
-        createdAt: string;
-        updatedAt: string;
-      }
-    | {
-        status: "error";
-        errors: {
-          message: string;
-          patchId?: PatchId;
-          skipped?: boolean;
-        }[];
-      }
-  >;
-  patchIds: PatchId[];
   profiles: Record<AuthorId, Profile>;
   deployments: Deployment[];
   dismissDeployment: (deploymentId: string) => void;
@@ -159,18 +118,17 @@ export function ValProvider({
   client: ValClient;
   dispatchValEvents: boolean;
 }) {
-  const {
-    authenticationState,
-    schemas,
-    schemaSha,
+  const [
     stat,
-    sources,
-    validationErrors,
-    sourcesSyncStatus,
-    patchesStatus,
-    patchIds,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _setStat,
+    authenticationState,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    setAuthenticationLoadingIfNotAuthenticated,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    setIsAuthenticated,
     serviceUnavailable,
-  } = useValState(client, dispatchValEvents);
+  ] = useStatus(client);
   const [profiles, setProfiles] = useState<Record<AuthorId, Profile>>({});
   useEffect(() => {
     const load = async () => {
@@ -192,7 +150,12 @@ export function ValProvider({
   }, ["data" in stat && stat.data && stat.data.baseSha]);
 
   const syncStore = useMemo(
-    () => new ValSyncStore(client, defaultOverlayEmitter),
+    () =>
+      new ValSyncStore(client, (moduleFilePath, newSource) => {
+        if (dispatchValEvents) {
+          defaultOverlayEmitter(moduleFilePath, newSource);
+        }
+      }),
     [],
   );
   const config =
@@ -260,11 +223,14 @@ export function ValProvider({
     commitSummary: string | null;
   } | null>(null);
   const publish = useCallback(() => {
+    if (syncStore.globalServerSidePatchIds === null) {
+      return;
+    }
     setIsPublishing(true);
     client("/save", "POST", {
       body: {
         message: currentRequestSummary?.commitSummary ?? undefined,
-        patchIds,
+        patchIds: syncStore.globalServerSidePatchIds ?? [],
       },
     })
       .then((res) => {
@@ -281,7 +247,7 @@ export function ValProvider({
         setPublishError(err.message);
         setIsPublishing(false);
       });
-  }, [client, patchIds]);
+  }, [client, syncStore]);
   const resetPublishError = useCallback(() => {
     setPublishError(null);
   }, []);
@@ -307,7 +273,10 @@ export function ValProvider({
   const portalRef = useRef<HTMLDivElement>(null);
   const baseSha = "data" in stat && stat.data ? stat.data.baseSha : undefined;
   const getCommitSummary = useCallback(async () => {
-    const patchIdsString = patchIds.join(",");
+    if (syncStore.globalServerSidePatchIds === null) {
+      return { commitSummary: null };
+    }
+    const patchIdsString = syncStore.globalServerSidePatchIds.join(",");
     if (
       currentRequestSummary &&
       baseSha === currentRequestSummary.baseSha &&
@@ -319,7 +288,7 @@ export function ValProvider({
     }
     const res = await client("/commit-summary", "GET", {
       query: {
-        patch_id: patchIds,
+        patch_id: syncStore.globalServerSidePatchIds,
       },
     });
     if (res.status === 200) {
@@ -333,7 +302,7 @@ export function ValProvider({
       };
     }
     return { error: res.json.message };
-  }, [client, baseSha, patchIds]);
+  }, [client, baseSha, syncStore.globalServerSidePatchIds]);
 
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const dismissedDeploymentsRef = useRef<Set<string>>(new Set());
@@ -386,8 +355,8 @@ export function ValProvider({
   });
   const [requiresRemoteFiles, setRequiresRemoteFiles] = useState(false);
   useEffect(() => {
-    if ("data" in schemas) {
-      const schemasData = schemas.data;
+    if (syncStore.schemas) {
+      const schemasData = syncStore.schemas;
       let requiresRemoteFiles = false;
       for (const schema of Object.values(schemasData)) {
         if (findRequiredRemoteFiles(schema)) {
@@ -397,7 +366,7 @@ export function ValProvider({
       }
       setRequiresRemoteFiles(requiresRemoteFiles);
     }
-  }, [schemas, schemaSha]);
+  }, [syncStore.schemas, syncStore.schemaSha]);
   useEffect(() => {
     let retries = 0;
     function loadRemoteSettings() {
@@ -563,13 +532,6 @@ export function ValProvider({
         publishError,
         resetPublishError,
         config,
-        schemas,
-        schemaSha,
-        sources,
-        validationErrors,
-        sourcesSyncStatus,
-        patchesStatus,
-        patchIds,
         profiles,
         remoteFiles,
       }}
@@ -704,7 +666,8 @@ export function useDeployments() {
 
 export function useAppliedPatches() {
   const { getPatches } = useGetPatches();
-  const { isPublishing, patchIds } = useContext(ValContext);
+  const { isPublishing, syncStore } = useContext(ValContext);
+  const patchIds = syncStore.globalServerSidePatchIds ?? [];
   const [appliedPatchIds, setAppliedPatchIds] = useState<Set<PatchId>>(
     new Set(),
   );
@@ -730,8 +693,8 @@ export function useAppliedPatches() {
 }
 
 export function useCurrentPatchIds(): PatchId[] {
-  const { patchIds } = useContext(ValContext);
-  return patchIds;
+  const { syncStore } = useContext(ValContext);
+  return syncStore.globalServerSidePatchIds ?? [];
 }
 
 export function useValMode(): "http" | "fs" | "unknown" {
@@ -749,29 +712,14 @@ export function useSummary() {
 
 export type LoadingStatus = "loading" | "not-asked" | "error" | "success";
 export function useLoadingStatus(): LoadingStatus {
-  const { sourcesSyncStatus } = useContext(ValContext);
-  return useMemo(() => {
-    if (
-      Object.values(sourcesSyncStatus).some(
-        (status) => status.status === "loading",
-      )
-    ) {
-      return "loading";
-    }
-    if (
-      Object.values(sourcesSyncStatus).some(
-        (status) => status.status === "error",
-      )
-    ) {
-      return "error";
-    }
-    return "success";
-  }, [sourcesSyncStatus]);
-}
-
-export function useSyncStatus() {
-  const { sourcesSyncStatus } = useContext(ValContext);
-  return sourcesSyncStatus;
+  const { syncStore } = useContext(ValContext);
+  if (syncStore.initializedAt === null) {
+    return "not-asked";
+  }
+  if (syncStore.pendingOps.length > 0) {
+    return "loading";
+  }
+  return "success";
 }
 
 export function usePublish() {
@@ -799,34 +747,8 @@ export function usePublish() {
 }
 
 export function useDebouncedLoadingStatus() {
-  const syncStatus = useSyncStatus();
-  // Debounce loading status to avoid flickering...
-  const [debouncedLoadingStatus, setDebouncedLoadingStatus] = useState<
-    "loading" | "error" | "success" | "not-asked"
-  >("not-asked");
-  useEffect(() => {
-    let loadingStatus: "loading" | "error" | "success" = "success";
-    for (const value of Object.values(syncStatus)) {
-      if (value.status === "error") {
-        loadingStatus = "error";
-        break;
-      } else if (value.status === "loading") {
-        loadingStatus = "loading";
-        break;
-      }
-    }
-    if (loadingStatus === "success") {
-      const timeout = setTimeout(() => {
-        setDebouncedLoadingStatus(loadingStatus);
-      }, 100);
-      return () => {
-        clearTimeout(timeout);
-      };
-    } else {
-      setDebouncedLoadingStatus(loadingStatus);
-    }
-  }, [syncStatus]);
-  return debouncedLoadingStatus;
+  // TODO: remove this?
+  return useLoadingStatus();
 }
 
 type EnsureAllTypes<T extends Record<SerializedSchema["type"], unknown>> = T;
@@ -862,128 +784,122 @@ export type ShallowSource = EnsureAllTypes<{
   richtext: unknown[];
 }>;
 
-export function useSchemaAtPath(sourcePath: SourcePath) {
-  const { schemas, sources } = useContext(ValContext);
-  const getMemoizedResolvedSchema = useCallback(():
-    | { status: "not-found" }
-    | { status: "loading" }
-    | {
-        status: "success";
-        data: SerializedSchema;
-      }
-    | {
-        status: "error";
-        error: string;
-      } => {
-    const [moduleFilePath, modulePath] =
-      Internal.splitModuleFilePathAndModulePath(sourcePath);
-    const moduleSources = sources[moduleFilePath];
-    if (schemas.status === "error") {
-      return schemas;
-    } else if (schemas.status === "not-asked") {
-      return { status: "loading" };
-    } else if (schemas.status === "loading") {
-      return { status: "loading" };
-    } else if (moduleSources === undefined) {
-      return { status: "not-found" };
+export function useSchemaAtPath(sourcePath: SourcePath):
+  | { status: "not-found" }
+  | { status: "loading" }
+  | {
+      status: "success";
+      data: SerializedSchema;
     }
-    const moduleSchema = schemas.data[moduleFilePath];
-    try {
-      const { schema } = Internal.resolvePath(
-        modulePath,
-        moduleSources,
-        moduleSchema,
-      );
-      if (schema === undefined) {
-        return { status: "not-found" };
-      }
-      return {
-        status: "success",
-        data: schema,
-      };
-    } catch (e) {
-      return {
-        status: "error",
-        error:
-          e instanceof Error
-            ? e.message
-            : "Unknown error: " + JSON.stringify(e),
-      };
-    }
-  }, [sourcePath, sources, schemas]);
-
-  return useMemo(getMemoizedResolvedSchema, [
-    // NOTE: we avoid depending on sources directly, and depend on the shallowSource to avoid unnecessary re-renders
-    // TODO: optimize re-renders:
-    // shallowSource, // Not sure if this helps
-    sources,
-    sourcePath,
-    schemas,
-  ]);
+  | {
+      status: "error";
+      error: string;
+    } {
+  const { syncStore } = useContext(ValContext);
+  const data = useSyncExternalStore(
+    syncStore.subscribe("schema"),
+    () => syncStore.getDataSnapshot(sourcePath),
+    () => syncStore.getDataSnapshot(sourcePath),
+  );
+  if (data.status === "success") {
+    return { status: "success", data: data.data.schema };
+  }
+  if (syncStore.initializedAt === null) {
+    return { status: "loading" };
+  }
+  if (data.status === "module-schema-not-found") {
+    return { status: "not-found" };
+  }
+  if (data.status === "module-source-not-found") {
+    return { status: "not-found" };
+  }
+  return { status: "error", error: data.message || data.status };
 }
 
-export function useSchemas() {
-  return useContext(ValContext).schemas;
+export function useSchemas():
+  | {
+      status: "loading";
+    }
+  | {
+      status: "error";
+      error: "Schemas not found";
+    }
+  | {
+      status: "success";
+      data: Record<ModuleFilePath, SerializedSchema>;
+    } {
+  const syncStore = useContext(ValContext).syncStore;
+  if (syncStore.initializedAt === null) {
+    return { status: "loading" } as const;
+  }
+  if (syncStore.schemas === null) {
+    return {
+      status: "error",
+      error: "Schemas not found",
+    } as const;
+  }
+  return {
+    status: "success",
+    data: syncStore.schemas || {},
+  } as const;
 }
 
 export function useSchemaSha() {
-  return useContext(ValContext).schemaSha;
+  return useContext(ValContext).syncStore.schemaSha;
 }
 
 export function useErrors() {
-  // sync errors, schema errors, patch errors, validation errors
-  const { sourcesSyncStatus, schemas, patchesStatus, validationErrors } =
-    useContext(ValContext);
   const globalErrors: string[] = [];
   const patchErrors: Record<PatchId, string[]> = {};
   const skippedPatches: Record<PatchId, true> = {};
-  if (schemas.status === "error") {
-    globalErrors.push(schemas.error);
-  }
+  const validationErrors: Record<SourcePath, ValidationError[]> = {};
+  // if (schemas.status === "error") {
+  //   globalErrors.push(schemas.error);
+  // }
 
-  for (const [moduleFilePath, value] of Object.entries(sourcesSyncStatus)) {
-    if (value.status === "error") {
-      for (const error of value.errors) {
-        if (error.patchId) {
-          if (error.skipped) {
-            skippedPatches[error.patchId] = true;
-          }
-          if (!patchErrors[error.patchId]) {
-            patchErrors[error.patchId] = [];
-          }
-          patchErrors[error.patchId].push(error.message);
-        } else {
-          globalErrors.push(
-            `Error syncing ${moduleFilePath}: ${error.message}`,
-          );
-        }
-      }
-    }
-  }
+  // for (const [moduleFilePath, value] of Object.entries(sourcesSyncStatus)) {
+  //   if (value.status === "error") {
+  //     for (const error of value.errors) {
+  //       if (error.patchId) {
+  //         if (error.skipped) {
+  //           skippedPatches[error.patchId] = true;
+  //         }
+  //         if (!patchErrors[error.patchId]) {
+  //           patchErrors[error.patchId] = [];
+  //         }
+  //         patchErrors[error.patchId].push(error.message);
+  //       } else {
+  //         globalErrors.push(
+  //           `Error syncing ${moduleFilePath}: ${error.message}`,
+  //         );
+  //       }
+  //     }
+  //   }
+  // }
 
-  for (const [sourcePath, errors] of Object.entries(validationErrors)) {
-    for (const error of errors) {
-      globalErrors.push(`Error validating ${sourcePath}: ${error.message}`);
-    }
-  }
-  for (const [sourcePathS, value] of Object.entries(patchesStatus)) {
-    const sourcePath = sourcePathS as SourcePath;
-    if (value.status === "error") {
-      for (const error of value.errors) {
-        if (error.patchId) {
-          if (error.skipped) {
-            skippedPatches[error.patchId] = true;
-          }
-          if (!patchErrors[error.patchId]) {
-            patchErrors[error.patchId] = [];
-          }
-          patchErrors[error.patchId].push(error.message);
-        } else {
-          globalErrors.push(`Error patching ${sourcePath}: ${error.message}`);
-        }
-      }
-    }
-  }
+  // for (const [sourcePath, errors] of Object.entries(validationErrors)) {
+  //   for (const error of errors) {
+  //     globalErrors.push(`Error validating ${sourcePath}: ${error.message}`);
+  //   }
+  // }
+  // for (const [sourcePathS, value] of Object.entries(patchesStatus)) {
+  //   const sourcePath = sourcePathS as SourcePath;
+  //   if (value.status === "error") {
+  //     for (const error of value.errors) {
+  //       if (error.patchId) {
+  //         if (error.skipped) {
+  //           skippedPatches[error.patchId] = true;
+  //         }
+  //         if (!patchErrors[error.patchId]) {
+  //           patchErrors[error.patchId] = [];
+  //         }
+  //         patchErrors[error.patchId].push(error.message);
+  //       } else {
+  //         globalErrors.push(`Error patching ${sourcePath}: ${error.message}`);
+  //       }
+  //     }
+  //   }
+  // }
 
   return { globalErrors, patchErrors, skippedPatches, validationErrors };
 }
@@ -1025,8 +941,8 @@ export function useShallowSourceAtPath<
     : (["", ""] as [ModuleFilePath, ModulePath]);
   const sourcesRes = useSyncExternalStore(
     syncStore.subscribe("source", moduleFilePath),
-    () => syncStore.getSourceSnapshot(moduleFilePath),
-    () => syncStore.getSourceSnapshot(moduleFilePath),
+    () => syncStore.getDataSnapshot(moduleFilePath),
+    () => syncStore.getDataSnapshot(moduleFilePath),
   );
 
   const source = useMemo((): ShallowSourceOf<SchemaType> => {
@@ -1043,7 +959,7 @@ export function useShallowSourceAtPath<
       return { status: "not-found" };
     }
     if (sourcesRes.status === "success") {
-      const moduleSources = sourcesRes.data;
+      const moduleSources = sourcesRes.data.source;
       if (moduleSources !== undefined && type !== undefined) {
         const sourceAtSourcePath = getShallowSourceAtSourcePath(
           moduleFilePath,
@@ -1070,7 +986,13 @@ export function useShallowSourceAtPath<
  * Reason: principles! Use only what you need...
  */
 export function useSources() {
-  return useContext(ValContext).sources;
+  const { syncStore } = useContext(ValContext);
+  const sources: Record<ModuleFilePath, Json | undefined> = {};
+  for (const moduleFilePathS in syncStore.schemas || {}) {
+    const moduleFilePath = moduleFilePathS as ModuleFilePath;
+    sources[moduleFilePath] = syncStore.getDataSnapshot(moduleFilePath).data;
+  }
+  return useContext(ValContext).syncStore.optimisticClientSources;
 }
 
 export function useSourceAtPath(sourcePath: SourcePath):
@@ -1092,7 +1014,7 @@ export function useSourceAtPath(sourcePath: SourcePath):
 
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
-  const sourceSnapshot = syncStore.getSourceSnapshot(moduleFilePath);
+  const sourceSnapshot = syncStore.getDataSnapshot(moduleFilePath);
   if (syncStore.initializedAt === null) {
     return { status: "loading" };
   }
