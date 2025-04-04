@@ -848,16 +848,16 @@ export class ValSyncStore {
         nextSync: number;
       }
   > {
+    if (this.isSyncing) {
+      // Already syncing, don't start a new sync
+      return {
+        status: "retry",
+        reason: "already-syncing",
+        nextSync: this.waitForMinutes(1, now),
+      };
+    }
+    this.isSyncing = true;
     try {
-      if (this.isSyncing) {
-        // Already syncing, don't start a new sync
-        return {
-          status: "retry",
-          reason: "already-syncing",
-          nextSync: this.waitForMinutes(1, now),
-        };
-      }
-      this.isSyncing = true;
       let syncAllRequired = false;
       const changes: Record<
         ModuleFilePath,
