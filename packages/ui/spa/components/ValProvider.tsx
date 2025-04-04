@@ -52,7 +52,22 @@ type ValContextValue = {
     moduleFilePath: ModuleFilePath,
     patch: Patch,
     type: SerializedSchema["type"],
-  ) => void;
+  ) =>
+    | {
+        status: "patch-merged";
+        patchId: PatchId;
+        moduleFilePath: ModuleFilePath;
+      }
+    | {
+        status: "patch-added";
+        patchId: PatchId;
+        moduleFilePath: ModuleFilePath;
+      }
+    | {
+        status: "patch-error";
+        message: string;
+        moduleFilePath: ModuleFilePath;
+      };
   getPatches: (patchIds: PatchId[]) => Promise<GetPatchRes>;
   deletePatches: (patchIds: PatchId[]) => void;
   publish: () => void;
@@ -433,7 +448,6 @@ export function ValProvider({
   const [startSyncPoll, setStartSyncPoll] = useState(false);
 
   useEffect(() => {
-    console.log("STAT?", syncStoreInitStatus.current, stat);
     if (
       "data" in stat &&
       stat.data &&
@@ -515,9 +529,7 @@ export function ValProvider({
         authenticationState,
         getPatches,
         addPatch: (moduleFilePath, patch, type) => {
-          console.log(
-            syncStore.addPatch(moduleFilePath, type, patch, Date.now()),
-          );
+          return syncStore.addPatch(moduleFilePath, type, patch, Date.now());
         },
         deletePatches: (patchIds) => {
           // Delete in batches of 100 patch ids (since it is added to request url as query param)
