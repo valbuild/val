@@ -24,7 +24,7 @@ import { Preview } from "./Preview";
 import { StringField } from "./fields/StringField";
 import { isParentError } from "../utils/isParentError";
 import { ErrorIndicator } from "./ErrorIndicator";
-import { useErrors } from "./ValProvider";
+import { useAllValidationErrors } from "./ValProvider";
 
 export function SortableList({
   source,
@@ -143,7 +143,7 @@ export function SortableItem({
   }, [id, path]);
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: id, disabled: disabled === true });
-  const { validationErrors } = useErrors();
+  const validationErrors = useAllValidationErrors() || {};
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,

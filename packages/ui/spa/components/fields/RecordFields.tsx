@@ -1,6 +1,6 @@
 import { SourcePath } from "@valbuild/core";
 import {
-  useErrors,
+  useAllValidationErrors,
   useSchemaAtPath,
   useShallowSourceAtPath,
 } from "../ValProvider";
@@ -18,7 +18,7 @@ import { ErrorIndicator } from "../ErrorIndicator";
 
 export function RecordFields({ path }: { path: SourcePath }) {
   const type = "record";
-  const { validationErrors } = useErrors();
+  const validationErrors = useAllValidationErrors() || {};
   const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);

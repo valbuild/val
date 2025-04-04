@@ -72,7 +72,9 @@ export class ValSyncStore {
   /** optimisticClientSources is the state of the client, optimistic means that patches have been applied in client-only */
   optimisticClientSources: Record<ModuleFilePath, JSONValue>;
   schemas: Record<ModuleFilePath, SerializedSchema> | null;
-  schemaSha: string | null;
+  serverSideSchemaSha: string | null;
+  clientSideSchemaSha: string | null;
+
   baseSha: string | null; // TODO: Currently not used, we should use this to reset the client state
   syncStatus: Record<SourcePath | ModuleFilePath, SyncStatus>;
   pendingOps: PendingOp[];
@@ -105,10 +107,7 @@ export class ValSyncStore {
     // /** Errors that prohibits publishing */
     // publishError: string | null;
     // patchErrors: Record<PatchId, string | null>;
-    validationErrors: Record<
-      ModuleFilePath,
-      Record<ModulePath, ValidationError[]>
-    >;
+    validationErrors: Record<SourcePath, ValidationError[]>;
   }>;
 
   constructor(
@@ -122,7 +121,8 @@ export class ValSyncStore {
     this.listeners = {};
     this.syncStatus = {};
     this.schemas = null;
-    this.schemaSha = null;
+    this.serverSideSchemaSha = null;
+    this.clientSideSchemaSha = null;
     this.baseSha = null;
     this.optimisticClientSources = {};
     this.serverSources = null;
@@ -159,7 +159,8 @@ export class ValSyncStore {
     this.listeners = {};
     this.syncStatus = {};
     this.schemas = null;
-    this.schemaSha = null;
+    this.serverSideSchemaSha = null;
+    this.clientSideSchemaSha = null;
     this.baseSha = null;
     this.optimisticClientSources = {};
     this.serverSources = null;
@@ -187,6 +188,9 @@ export class ValSyncStore {
   subscribe(
     type: "validation-error",
     path: SourcePath,
+  ): (listener: () => void) => () => void;
+  subscribe(
+    type: "all-validation-errors",
   ): (listener: () => void) => () => void;
   subscribe(
     type: "sync-status",
@@ -245,6 +249,9 @@ export class ValSyncStore {
   private invalidateValidationError(sourcePath: SourcePath) {
     this.emit(this.listeners["validation-error"]?.[sourcePath]);
   }
+  private invalidateAllValidationErrors() {
+    this.emit(this.listeners["all-validation-errors"]?.[globalNamespace]);
+  }
   private invalidateTransientGlobalError() {
     this.emit(this.listeners["transient-global-error"]?.[globalNamespace]);
   }
@@ -252,7 +259,13 @@ export class ValSyncStore {
     this.emit(this.listeners["persistent-global-error"]?.[globalNamespace]);
   }
   private invalidateSchema() {
+    console.log("Schema invalidated");
     this.emit(this.listeners["schema"]?.[globalNamespace]);
+    this.invalidateAllValidationErrors();
+    for (const sourcePathS in this.listeners?.["validation-error"] || {}) {
+      const sourcePath = sourcePathS as SourcePath;
+      this.invalidateValidationError(sourcePath);
+    }
   }
 
   // #region Snapshot
@@ -354,6 +367,13 @@ export class ValSyncStore {
       this.cachedDataSnapshots[moduleFilePath][modulePath] = snapshot;
     }
     return this.cachedDataSnapshots[moduleFilePath][modulePath];
+  }
+
+  getValidationErrorSnapshot(sourcePath: SourcePath) {
+    return this.errors.validationErrors?.[sourcePath];
+  }
+  getAllValidationErrorsSnapshot() {
+    return this.errors.validationErrors;
   }
 
   getSyncStatusSnapshot(sourcePath: SourcePath) {
@@ -520,7 +540,7 @@ export class ValSyncStore {
     now: number,
   ) {
     this.baseSha = baseSha;
-    this.schemaSha = schemaSha;
+    this.serverSideSchemaSha = schemaSha;
     const serverPatchIdsDidChange = !deepEqual(
       this.globalServerSidePatchIds,
       patchIds,
@@ -796,8 +816,10 @@ export class ValSyncStore {
           this.schemas[moduleFilePath] = schema;
         }
       }
-      this.schemaSha = schemaRes.json.schemaSha;
-      this.invalidateSchema();
+      if (this.clientSideSchemaSha !== schemaRes.json.schemaSha) {
+        this.clientSideSchemaSha = schemaRes.json.schemaSha;
+        this.invalidateSchema();
+      }
       return {
         status: "done",
       };
@@ -937,7 +959,7 @@ export class ValSyncStore {
       }
 
       // #region Read operations:
-      if (this.schemaSha === null || this.schemas === null) {
+      if (this.clientSideSchemaSha === null || this.schemas === null) {
         const res = await this.syncSchema();
         if (res.status !== "done") {
           return res;
@@ -947,11 +969,13 @@ export class ValSyncStore {
       if (
         // TODO: clean this up, surely there's no need for 4 different ways of triggering sources sync
         this.initializedAt === null ||
+        this.clientSideSchemaSha !== this.serverSideSchemaSha ||
         serverPatchIdsDidChange ||
         syncAllRequired ||
         changedModules === "all" ||
         changedModules.length > 0
       ) {
+        console.log("Syncing sources");
         const path =
           // We could be smarter wrt to the modules we fetch.
           // However, note that we are not quite sure how long it takes to evaluate 1 vs many...
@@ -984,6 +1008,16 @@ export class ValSyncStore {
             sourcesRes.json.message,
           );
         } else {
+          // Clean up validation errors
+          const changedValidationErrors = new Set<SourcePath>();
+          for (const sourcePathS in this.errors.validationErrors) {
+            const sourcePath = sourcePathS as SourcePath;
+            if (path === undefined || sourcePath.startsWith(path)) {
+              changedValidationErrors.add(sourcePath);
+              delete this.errors.validationErrors[sourcePath];
+            }
+          }
+
           for (const [moduleFilePathS, valModule] of Object.entries(
             sourcesRes.json.modules,
           )) {
@@ -1005,6 +1039,17 @@ export class ValSyncStore {
                 delete this.optimisticClientSources[moduleFilePath];
               }
               this.invalidateSource(moduleFilePath);
+
+              // NOTE: we clean up relevant validation errors above
+              for (const sourcePathS in valModule.validationErrors) {
+                const sourcePath = sourcePathS as SourcePath;
+                if (!this.errors.validationErrors) {
+                  this.errors.validationErrors = {};
+                }
+                this.errors.validationErrors[sourcePath] =
+                  valModule.validationErrors[sourcePath];
+                changedValidationErrors.add(sourcePath);
+              }
             } else {
               this.addTransientGlobalError(
                 `Could not find '${moduleFilePath}' in server reply`,
@@ -1014,7 +1059,13 @@ export class ValSyncStore {
             }
             this.markAllSyncStatusIn(moduleFilePath, "done");
           }
-          if (sourcesRes.json.schemaSha !== this.schemaSha) {
+          if (changedValidationErrors.size > 0) {
+            this.invalidateAllValidationErrors();
+          }
+          for (const sourcePath of Array.from(changedValidationErrors)) {
+            this.invalidateValidationError(sourcePath);
+          }
+          if (sourcesRes.json.schemaSha !== this.clientSideSchemaSha) {
             await this.syncSchema();
           }
         }
@@ -1090,6 +1141,7 @@ type SourcePathListenerType =
   | "schema"
   | "sync-status"
   | "validation-error"
+  | "all-validation-errors"
   | "transient-global-error"
   | "persistent-global-error"
   | "source";

@@ -29,10 +29,10 @@ import { CompressedPath } from "./CompressedPath";
 import { Button } from "./designSystem/button";
 import { AnyField } from "./AnyField";
 import {
+  useAllValidationErrors,
   useAuthenticationState,
   useCurrentPatchIds,
   useDebouncedLoadingStatus,
-  useErrors,
   usePublish,
   useSchemaAtPath,
   useTheme,
@@ -567,7 +567,7 @@ function ValMenu({
   const debouncedLoadingStatus = useDebouncedLoadingStatus();
   const [publishPopoverSideOffset, setPublishPopoverSideOffset] = useState(0);
   const patchIds = useCurrentPatchIds();
-  const { validationErrors } = useErrors();
+  const validationErrors = useAllValidationErrors() || {};
   const validationErrorCount = Object.keys(validationErrors).length;
   const valMode = useValMode();
   // TODO: refactor all resize handlers into a hook

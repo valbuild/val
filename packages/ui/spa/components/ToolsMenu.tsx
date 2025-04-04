@@ -1,4 +1,5 @@
 import {
+  useAllValidationErrors,
   useDebouncedLoadingStatus,
   useErrors,
   usePublish,
@@ -27,7 +28,8 @@ import { useNavigation } from "./ValRouter";
 export function ToolsMenu() {
   const debouncedLoadingStatus = useDebouncedLoadingStatus();
   const { isPublishing } = usePublish();
-  const { globalErrors, validationErrors } = useErrors();
+  const validationErrors = useAllValidationErrors() || {};
+  const { globalErrors } = useErrors();
   const mode = useValMode();
   const [errorModules, sumValidationErrors] = useMemo(() => {
     const modulesWithErrors = new Set<ModuleFilePath>();
