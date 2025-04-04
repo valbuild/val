@@ -11,7 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PathNode, pathTree } from "../utils/pathTree";
 import { Remote } from "../utils/Remote";
 import {
-  useErrors,
+  useAllValidationErrors,
   useSchemas,
   useTheme,
   useValConfig,
@@ -200,7 +200,7 @@ function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
   const { navigate, currentSourcePath } = useNavigation();
   const { navMenu } = useLayout();
   const [isOpen, setIsOpen] = useState(true);
-  const { validationErrors } = useErrors();
+  const validationErrors = useAllValidationErrors() || {};
   const nodeErrors = useMemo(() => {
     let hasErrors = false;
     for (const errorPath in validationErrors) {

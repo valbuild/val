@@ -1,5 +1,5 @@
 import { SourcePath, ValidationError } from "@valbuild/core";
-import { useErrors } from "./ValProvider";
+import { useAllValidationErrors } from "./ValProvider";
 import { Accordion } from "@radix-ui/react-accordion";
 import {
   AccordionContent,
@@ -9,7 +9,7 @@ import {
 import { useNavigation } from "./ValRouter";
 
 export function ValidationErrors({ path }: { path: SourcePath }) {
-  const { validationErrors } = useErrors();
+  const validationErrors = useAllValidationErrors() || {};
   const navigation = useNavigation();
 
   const errors: (ValidationError & { path: string })[] = [];

@@ -6,10 +6,10 @@ import { useEffect, useState } from "react";
 import { AnimateHeight } from "./AnimateHeight";
 import {
   useAddPatch,
-  useErrors,
   useLoadingStatus,
   useSchemaAtPath,
   useShallowSourceAtPath,
+  useValidationErrors,
 } from "./ValProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import { JSONValue } from "@valbuild/core/patch";
@@ -33,7 +33,7 @@ export function Field({
   foldLevel?: "2" | "1";
 }) {
   const loadingStatus = useLoadingStatus();
-  const { validationErrors } = useErrors();
+  const validationErrors = useValidationErrors(path);
   const { patchPath, addPatch } = useAddPatch(path);
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
@@ -60,7 +60,7 @@ export function Field({
     <div
       className={classNames("p-4 border rounded-lg", {
         "bg-bg-tertiary": !transparent,
-        "border-border-error": validationErrors[path]?.length > 0,
+        "border-border-error": validationErrors.length > 0,
       })}
     >
       <div className="flex items-center justify-between">

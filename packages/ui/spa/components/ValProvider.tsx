@@ -19,7 +19,6 @@ import {
   SerializedSchema,
   SourcePath,
   ValConfig,
-  ValidationError,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
 import { ValClient } from "@valbuild/shared/internal";
@@ -366,7 +365,7 @@ export function ValProvider({
       }
       setRequiresRemoteFiles(requiresRemoteFiles);
     }
-  }, [syncStore.schemas, syncStore.schemaSha]);
+  }, [syncStore.schemas]);
   useEffect(() => {
     let retries = 0;
     function loadRemoteSettings() {
@@ -845,14 +844,33 @@ export function useSchemas():
 }
 
 export function useSchemaSha() {
-  return useContext(ValContext).syncStore.schemaSha;
+  return useContext(ValContext).syncStore.clientSideSchemaSha;
+}
+
+export function useValidationErrors(sourcePath: SourcePath) {
+  const { syncStore } = useContext(ValContext);
+  const data = useSyncExternalStore(
+    syncStore.subscribe("validation-error", sourcePath),
+    () => syncStore.getValidationErrorSnapshot(sourcePath),
+    () => syncStore.getValidationErrorSnapshot(sourcePath),
+  );
+  return data || [];
+}
+export function useAllValidationErrors() {
+  const { syncStore } = useContext(ValContext);
+  const validationErrors = useSyncExternalStore(
+    syncStore.subscribe("all-validation-errors"),
+    () => syncStore.getAllValidationErrorsSnapshot(),
+    () => syncStore.getAllValidationErrorsSnapshot(),
+  );
+  return validationErrors;
 }
 
 export function useErrors() {
   const globalErrors: string[] = [];
   const patchErrors: Record<PatchId, string[]> = {};
   const skippedPatches: Record<PatchId, true> = {};
-  const validationErrors: Record<SourcePath, ValidationError[]> = {};
+
   // if (schemas.status === "error") {
   //   globalErrors.push(schemas.error);
   // }
@@ -901,7 +919,7 @@ export function useErrors() {
   //   }
   // }
 
-  return { globalErrors, patchErrors, skippedPatches, validationErrors };
+  return { globalErrors, patchErrors, skippedPatches };
 }
 
 export function useProfilesByAuthorId() {
