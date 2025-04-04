@@ -26,11 +26,10 @@ import {
   useRemoteFiles,
   useSchemaAtPath,
   useShallowSourceAtPath,
-  useSyncStatus,
   useValConfig,
 } from "../ValProvider";
 import { RichTextEditor, useRichTextEditor } from "../RichTextEditor";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { EditorState } from "@remirror/core";
 
 export function RichTextField({
@@ -45,10 +44,6 @@ export function RichTextField({
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const remoteFiles = useRemoteFiles();
-  const syncStatus = useSyncStatus();
-  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
-  const isLoadingCurrentModule =
-    syncStatus[moduleFilePath]?.status === "loading";
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
   const currentSourceData =
     "data" in sourceAtPath
@@ -63,18 +58,57 @@ export function RichTextField({
       content: currentSourceData && richTextToRemirror(currentSourceData),
     }),
   );
+  const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
+  const maybeClientSideOnly =
+    "clientSideOnly" in sourceAtPath && sourceAtPath.clientSideOnly;
   useEffect(() => {
-    if (isLoadingCurrentModule) {
-      return;
+    if (maybeClientSideOnly === false) {
+      setEditorState((prevState) => {
+        try {
+          return manager.createState({
+            content: maybeSourceData
+              ? richTextToRemirror(
+                  maybeSourceData as RichTextSource<AllRichTextOptions>,
+                )
+              : undefined,
+            selection: prevState.selection,
+          });
+        } catch (e) {
+          console.error(
+            "Error (re)creating editor state with selection, retrying without...",
+            e,
+          );
+          return manager.createState({
+            content: maybeSourceData
+              ? richTextToRemirror(
+                  maybeSourceData as RichTextSource<AllRichTextOptions>,
+                )
+              : undefined,
+          });
+        }
+      });
     }
-    const state = manager.createState({
-      content: currentSourceData && richTextToRemirror(currentSourceData),
-    });
-    if (editorState?.doc && state.doc.eq(editorState?.doc)) {
-      return;
+  }, [maybeSourceData, maybeClientSideOnly]);
+
+  const remoteOptions = useMemo(() => {
+    if (!("data" in schemaAtPath && schemaAtPath.data.type === "richtext")) {
+      return null;
     }
-    setEditorState(state);
-  }, [currentSourceData]);
+    const schema = schemaAtPath.data;
+    return typeof schema.options?.inline?.img === "object" &&
+      schema.options.inline.img.remote &&
+      remoteFiles.status === "ready" &&
+      config?.remoteHost &&
+      currentRemoteFileBucket
+      ? {
+          publicProjectId: remoteFiles.publicProjectId,
+          bucket: currentRemoteFileBucket,
+          coreVersion: remoteFiles.coreVersion,
+          schema: schema.options.inline.img,
+          remoteHost: config?.remoteHost,
+        }
+      : null;
+  }, [schemaAtPath, remoteFiles, config, currentRemoteFileBucket]);
 
   if (schemaAtPath.status === "error") {
     return (
@@ -108,20 +142,6 @@ export function RichTextField({
     );
   }
   const schema = schemaAtPath.data;
-  const remoteOptions =
-    typeof schema.options?.inline?.img === "object" &&
-    schema.options.inline.img.remote &&
-    remoteFiles.status === "ready" &&
-    config?.remoteHost &&
-    currentRemoteFileBucket
-      ? {
-          publicProjectId: remoteFiles.publicProjectId,
-          bucket: currentRemoteFileBucket,
-          coreVersion: remoteFiles.coreVersion,
-          schema: schema.options.inline.img,
-          remoteHost: config?.remoteHost,
-        }
-      : null;
   if (!config?.remoteHost) {
     console.warn(
       "RichTextField: config.remoteHost is not set. Remote images will not work.",
@@ -136,8 +156,8 @@ export function RichTextField({
         options={schema.options}
         manager={manager}
         onChange={(event) => {
-          setEditorState(event.state);
           const currentDoc = editorState?.doc;
+          setEditorState(event.state);
           if (currentDoc && !event.state.doc.eq(currentDoc)) {
             addPatch(
               createRichTextPatch(
