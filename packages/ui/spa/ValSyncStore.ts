@@ -685,6 +685,10 @@ export class ValSyncStore {
           this.patchIdsStoredByClient.push(patchId);
           this.patchDataByPatchId[patchId].isPending = false;
         } else {
+          console.error(
+            `Failed to save changes: ${patchId} not found in createdPatchIds`,
+            createdPatchIds,
+          );
           this.addTransientGlobalError(
             `Failed to save some of the changes`,
             now,
@@ -818,6 +822,8 @@ export class ValSyncStore {
     return "all";
   }
   public isSyncing = false;
+  private MIN_WAIT_SECONDS = 1;
+  private MAX_WAIT_SECONDS = 5;
   async sync(
     now: number,
     serverPatchIdsDidChange: boolean,
@@ -848,6 +854,35 @@ export class ValSyncStore {
         Set<SerializedSchema["type"] | "unknown">
       > = {};
 
+      const lessThanNSecondsSince = (seconds: number, timestamp: number) => {
+        const timeElapsed = now - timestamp;
+        return timeElapsed <= seconds * 1000;
+      };
+
+      const moreThanNSecondsSince = (seconds: number, timestamp: number) => {
+        const timeElapsed = now - timestamp;
+
+        return timeElapsed >= seconds * 1000;
+      };
+      if (
+        this.pendingOps[this.pendingOps.length - 1]?.updatedAt !== undefined &&
+        // Less than N seconds ago since last op was updated - we should wait...
+        lessThanNSecondsSince(
+          this.MIN_WAIT_SECONDS,
+          this.pendingOps[this.pendingOps.length - 1].updatedAt!,
+        ) &&
+        // ... unless if we have already waited more than N seconds - we still sync
+        !moreThanNSecondsSince(
+          this.MAX_WAIT_SECONDS,
+          this.pendingOps[this.pendingOps.length - 1].createdAt,
+        )
+      ) {
+        return {
+          status: "retry",
+          reason: "too-fast",
+          nextSync: this.waitForSeconds(1, now),
+        };
+      }
       // #region Write operations:
       let op = this.pendingOps.shift(); // mutates pendingOps
       while (op) {
@@ -1024,6 +1059,7 @@ type RetryReason =
   | "conflict"
   | "not-initialized"
   | "network-error"
+  | "too-fast"
   | "error"
   | "already-syncing";
 type SourcePathListenerType =
