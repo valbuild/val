@@ -61,6 +61,7 @@ describe("ValSyncStore", () => {
       optimistic: true,
       data: "value 1 from store 1",
     });
+    tester.simulatePassingOfSeconds(5);
     expect(await tester.simulateStatCallback(syncStore1)).toMatchObject({
       status: "done",
     });
@@ -70,6 +71,83 @@ describe("ValSyncStore", () => {
       status: "success",
       optimistic: false,
       data: "value 1 from store 1",
+    });
+  });
+
+  test("wait 1 second from last op before allowing sync", async () => {
+    const { s, c, config } = initVal();
+    const tester = new SyncStoreTester(
+      [c.define("/test.val.ts", s.string().minLength(2), "test")],
+      config,
+    );
+    const updateValue = (syncStore: ValSyncStore, value: string) => {
+      return syncStore.addPatch(
+        toSourcePath("/test.val.ts"),
+        "string",
+        [{ op: "replace", path: [], value }],
+        tester.getNextNow(),
+      );
+    };
+    const syncStore1 = await tester.createInitializedSyncStore();
+    expect(
+      syncStore1.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+    ).toMatchObject({
+      status: "success",
+      optimistic: false,
+      data: "test",
+    });
+    expect(updateValue(syncStore1, "value 0 from store 1")).toMatchObject({
+      status: "patch-added",
+    });
+    expect(
+      syncStore1.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+    ).toMatchObject({
+      status: "success",
+      optimistic: true,
+      data: "value 0 from store 1",
+    });
+    expect(updateValue(syncStore1, "value 1 from store 1")).toMatchObject({
+      status: "patch-merged",
+    });
+    expect(
+      syncStore1.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+    ).toMatchObject({
+      status: "success",
+      optimistic: true,
+      data: "value 1 from store 1",
+    });
+    tester.simulatePassingOfSeconds(0.5);
+    expect(await syncStore1.sync(tester.getNextNow(), false)).toMatchObject({
+      status: "retry",
+      reason: "too-fast",
+    });
+
+    expect(updateValue(syncStore1, "value 2 from store 1")).toMatchObject({
+      status: "patch-merged",
+    });
+    tester.simulatePassingOfSeconds(1);
+    expect(await syncStore1.sync(tester.getNextNow(), false)).toMatchObject({
+      status: "done",
+    });
+
+    expect(updateValue(syncStore1, "value 3 from store 1")).toMatchObject({
+      status: "patch-added",
+    });
+    tester.simulatePassingOfSeconds(4.5);
+    expect(updateValue(syncStore1, "value 4 from store 1")).toMatchObject({
+      status: "patch-merged",
+    });
+    tester.simulatePassingOfSeconds(0.5);
+    expect(await syncStore1.sync(tester.getNextNow(), false)).toMatchObject({
+      status: "done",
+    });
+
+    expect(
+      syncStore1.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+    ).toMatchObject({
+      status: "success",
+      optimistic: false,
+      data: "value 4 from store 1",
     });
   });
 
@@ -130,6 +208,7 @@ describe("ValSyncStore", () => {
       data: "value 2 from store 2",
     });
     // ...then sync store 1
+    tester.simulatePassingOfSeconds(5);
     expect(await syncStore1.sync(tester.getNextNow(), false)).toMatchObject({
       status: "done",
     });
@@ -137,13 +216,16 @@ describe("ValSyncStore", () => {
       status: "done",
     });
     // We must get stat before we can sync again
+    tester.simulatePassingOfSeconds(5);
     expect(await syncStore2.sync(tester.getNextNow(), false)).toMatchObject({
       status: "retry",
       reason: "conflict",
     });
+    tester.simulatePassingOfSeconds(5);
     expect(await tester.simulateStatCallback(syncStore2)).toMatchObject({
       status: "done",
     });
+    tester.simulatePassingOfSeconds(5);
     expect(await tester.simulateStatCallback(syncStore1)).toMatchObject({
       status: "done",
     });
@@ -191,6 +273,7 @@ type FakeApi = {
     GET: z.infer<Api["/schema"]["GET"]["res"]> | ClientFetchErrors | null;
   };
 };
+
 class SyncStoreTester {
   fakeModules: any[];
   ops: JSONOps;
@@ -550,6 +633,10 @@ class SyncStoreTester {
       this.now++,
     );
     return syncStore;
+  }
+
+  simulatePassingOfSeconds(seconds: number) {
+    this.now += seconds * 1000;
   }
 
   getNextNow() {
