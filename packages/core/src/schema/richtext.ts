@@ -527,7 +527,9 @@ export class RichTextSchema<
   }
 
   serialize(): SerializedSchema {
-    const serializedOptions: SerializedRichTextOptions = {
+    const serializedOptions: SerializedRichTextOptions & ValidationOptions = {
+      maxLength: this.options.maxLength,
+      minLength: this.options.minLength,
       style: this.options.style,
       block: this.options.block,
       inline: this.options.inline && {
