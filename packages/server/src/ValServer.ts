@@ -864,6 +864,7 @@ export const ValServer = (
           const createPatchRes = await serverOps.createPatch(
             patch.path,
             patch.patch,
+            patch.patchId,
             parentRef,
             authorId,
           );

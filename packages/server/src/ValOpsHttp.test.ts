@@ -129,6 +129,7 @@ describe("ValOpsFS", () => {
     console.log("cleanupPatches", cleanupPatches);
 
     const schemas = await ops.getSchemas();
+    const patchId = crypto.randomUUID() as PatchId;
     const patchRes1 = await ops.createPatch(
       "/components/clientContent.val.ts" as ModuleFilePath,
       [
@@ -138,6 +139,7 @@ describe("ValOpsFS", () => {
           value: "Http works",
         },
       ],
+      patchId,
       { type: "head", headBaseSha: await ops.getBaseSha() },
       authorId,
     );

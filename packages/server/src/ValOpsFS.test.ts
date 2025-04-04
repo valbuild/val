@@ -143,6 +143,7 @@ describe("ValOpsFS", () => {
 
     // #region test
     const schemas = await ops.getSchemas();
+    const patchId1 = crypto.randomUUID() as PatchId;
     const patchRes1 = await ops.createPatch(
       "/test/test1.val.js" as ModuleFilePath,
       [
@@ -167,6 +168,7 @@ describe("ValOpsFS", () => {
           remote: false,
         },
       ],
+      patchId1,
       {
         type: "head",
         headBaseSha: await ops.getBaseSha(),
@@ -234,6 +236,7 @@ describe("ValOpsFS", () => {
       ),
     );
     if (result.isOk(patchRes1)) {
+      const patchId = crypto.randomUUID() as PatchId;
       await ops.createPatch(
         "/test/test1.val.js" as ModuleFilePath,
         [
@@ -258,6 +261,7 @@ describe("ValOpsFS", () => {
             remote: false,
           },
         ],
+        patchId,
         {
           type: "patch",
           patchId: patchRes1.value.patchId,
