@@ -229,7 +229,7 @@ export class ValSyncStore {
     }
   }
   private invalidateSource(moduleFilePath: ModuleFilePath) {
-    delete this.cachedSourceSnapshots[moduleFilePath];
+    delete this.cachedDataSnapshots[moduleFilePath];
     if (this.overlayEmitter && this.serverSources) {
       this.overlayEmitter(
         moduleFilePath,
@@ -283,7 +283,11 @@ export class ValSyncStore {
       return {
         status: "success",
         optimistic: isOptimistic,
-        data: source,
+        data: {
+          path: sourcePath,
+          source: source,
+          schema: schema,
+        },
       } as const;
     }
     let dataAtPath;
@@ -333,23 +337,23 @@ export class ValSyncStore {
     return this.getModuleData(sourcePath);
   }
 
-  private cachedSourceSnapshots: Record<
+  private cachedDataSnapshots: Record<
     ModuleFilePath,
     Record<ModulePath, ReturnType<typeof this.getModuleData>>
   > = {};
-  getSourceSnapshot(sourcePath: SourcePath | ModuleFilePath) {
+  getDataSnapshot(sourcePath: SourcePath | ModuleFilePath) {
     const [moduleFilePath, modulePath] =
       Internal.splitModuleFilePathAndModulePath(sourcePath as SourcePath);
     if (
-      this.cachedSourceSnapshots?.[moduleFilePath]?.[modulePath] === undefined
+      this.cachedDataSnapshots?.[moduleFilePath]?.[modulePath] === undefined
     ) {
       const snapshot = this.getModuleData(sourcePath);
-      if (!this.cachedSourceSnapshots[moduleFilePath]) {
-        this.cachedSourceSnapshots[moduleFilePath] = {};
+      if (!this.cachedDataSnapshots[moduleFilePath]) {
+        this.cachedDataSnapshots[moduleFilePath] = {};
       }
-      this.cachedSourceSnapshots[moduleFilePath][modulePath] = snapshot;
+      this.cachedDataSnapshots[moduleFilePath][modulePath] = snapshot;
     }
-    return this.cachedSourceSnapshots[moduleFilePath][modulePath];
+    return this.cachedDataSnapshots[moduleFilePath][modulePath];
   }
 
   getSyncStatusSnapshot(sourcePath: SourcePath) {

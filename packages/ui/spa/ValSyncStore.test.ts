@@ -34,7 +34,7 @@ describe("ValSyncStore", () => {
     const syncStore1 = await tester.createInitializedSyncStore();
 
     expect(
-      syncStore1.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
     ).toMatchObject({
       status: "success",
       optimistic: false,
@@ -45,7 +45,7 @@ describe("ValSyncStore", () => {
       status: "patch-added",
     });
     expect(
-      syncStore1.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
     ).toMatchObject({
       status: "success",
       optimistic: true,
@@ -55,7 +55,7 @@ describe("ValSyncStore", () => {
       status: "patch-merged",
     });
     expect(
-      syncStore1.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
     ).toMatchObject({
       status: "success",
       optimistic: true,
@@ -66,7 +66,7 @@ describe("ValSyncStore", () => {
       status: "done",
     });
     expect(
-      syncStore1.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
     ).toMatchObject({
       status: "success",
       optimistic: false,
@@ -90,7 +90,7 @@ describe("ValSyncStore", () => {
     };
     const syncStore1 = await tester.createInitializedSyncStore();
     expect(
-      syncStore1.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
     ).toMatchObject({
       status: "success",
       optimistic: false,
@@ -100,7 +100,7 @@ describe("ValSyncStore", () => {
       status: "patch-added",
     });
     expect(
-      syncStore1.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
     ).toMatchObject({
       status: "success",
       optimistic: true,
@@ -110,7 +110,7 @@ describe("ValSyncStore", () => {
       status: "patch-merged",
     });
     expect(
-      syncStore1.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
     ).toMatchObject({
       status: "success",
       optimistic: true,
@@ -143,7 +143,7 @@ describe("ValSyncStore", () => {
     });
 
     expect(
-      syncStore1.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
     ).toMatchObject({
       status: "success",
       optimistic: false,
@@ -169,7 +169,7 @@ describe("ValSyncStore", () => {
     const syncStore1 = await tester.createInitializedSyncStore();
 
     expect(
-      syncStore1.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
     ).toMatchObject({
       status: "success",
       optimistic: false,
@@ -179,7 +179,7 @@ describe("ValSyncStore", () => {
       status: "patch-added",
     });
     expect(
-      syncStore1.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
     ).toMatchObject({
       status: "success",
       optimistic: true,
@@ -189,7 +189,7 @@ describe("ValSyncStore", () => {
       status: "patch-merged",
     });
     expect(
-      syncStore1.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
     ).toMatchObject({
       status: "success",
       optimistic: true,
@@ -201,7 +201,7 @@ describe("ValSyncStore", () => {
       status: "patch-added",
     });
     expect(
-      syncStore2.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+      syncStore2.getDataSnapshot(toModuleFilePath("/test.val.ts")),
     ).toMatchObject({
       status: "success",
       optimistic: true,
@@ -230,7 +230,7 @@ describe("ValSyncStore", () => {
       status: "done",
     });
     expect(
-      syncStore1.getSourceSnapshot(toModuleFilePath("/test.val.ts")),
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
     ).toMatchObject({
       status: "success",
       optimistic: false,
