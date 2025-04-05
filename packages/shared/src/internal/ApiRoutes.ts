@@ -996,6 +996,14 @@ export type ClientFetchErrors =
       };
     }
   | {
+      status: 413;
+      json: {
+        message: string;
+        method: string;
+        path: string;
+      };
+    }
+  | {
       status: 500;
       json: {
         message: string;

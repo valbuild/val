@@ -78,6 +78,16 @@ export const createValClient = (host: string): ValClient => {
           anyReq.body !== undefined ? JSON.stringify(anyReq.body) : undefined,
       }).then(async (res) => {
         const contentTypeHeaders = res.headers.get("content-type");
+        if (res.status === 413) {
+          return {
+            status: 413,
+            json: {
+              message: `Request too large.`,
+              method: method as string,
+              path: path,
+            },
+          } satisfies ClientFetchErrors;
+        }
         if (!contentTypeHeaders?.includes("application/json")) {
           return {
             status: null,
