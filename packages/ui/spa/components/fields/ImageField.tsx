@@ -168,7 +168,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                       path: patchPath.concat(["metadata", "alt"]),
                     },
                   ],
-                  schemaAtPath.data.type,
+                  "string",
                 );
               } else if (source.metadata && !("alt" in source.metadata)) {
                 addPatch(
@@ -179,7 +179,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                       path: patchPath.concat(["metadata", "alt"]),
                     },
                   ],
-                  schemaAtPath.data.type,
+                  "string",
                 );
               } else if (source.metadata === undefined) {
                 addPatch(
@@ -193,7 +193,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                       path: patchPath.concat(["metadata"]),
                     },
                   ],
-                  schemaAtPath.data.type,
+                  "object",
                 );
               } else {
                 console.warn(
@@ -239,7 +239,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                       value: hotspot,
                     },
                   ],
-                  schemaAtPath.data.type,
+                  "object",
                 );
               } else if (source.metadata) {
                 addPatch(
@@ -250,7 +250,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                       value: hotspot,
                     },
                   ],
-                  schemaAtPath.data.type,
+                  "object",
                 );
               } else if (source.metadata === undefined) {
                 addPatch(
@@ -263,7 +263,7 @@ export function ImageField({ path }: { path: SourcePath }) {
                       path: patchPath.concat(["metadata"]),
                     },
                   ],
-                  schemaAtPath.data.type,
+                  "object",
                 );
               } else {
                 console.warn(
@@ -321,7 +321,7 @@ export function ImageField({ path }: { path: SourcePath }) {
               remoteData,
               config.files?.directory,
             )
-              .then((patch) => addPatch(patch, schemaAtPath.data.type))
+              .then((patch) => addPatch(patch, "image"))
               .catch((err) => {
                 console.error("Failed to create file patch", err);
                 setError("Could not upload file. Please try again later");
