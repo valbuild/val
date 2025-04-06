@@ -480,6 +480,7 @@ export const Api = {
               schemaSha: z.string(),
               patches: z.array(PatchId),
               config: ValConfig,
+              profileId: z.string().nullable(),
               mode: z.union([
                 z.literal("http"),
                 z.literal("fs"),
@@ -495,6 +496,7 @@ export const Api = {
               commitSha: z.string(),
               patches: z.array(PatchId),
               config: ValConfig,
+              profileId: z.string().nullable(),
               mode: z.union([
                 z.literal("http"),
                 z.literal("fs"),

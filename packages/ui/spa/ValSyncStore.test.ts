@@ -34,44 +34,28 @@ describe("ValSyncStore", () => {
     const syncStore1 = await tester.createInitializedSyncStore();
 
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
-    ).toMatchObject({
-      status: "success",
-      optimistic: false,
-      data: "test",
-    });
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+    ).toStrictEqual("test");
 
     expect(updateValue(syncStore1, "")).toMatchObject({
       status: "patch-added",
     });
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
-    ).toMatchObject({
-      status: "success",
-      optimistic: true,
-      data: "",
-    });
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+    ).toStrictEqual("");
     expect(updateValue(syncStore1, "value 1 from store 1")).toMatchObject({
       status: "patch-merged",
     });
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
-    ).toMatchObject({
-      status: "success",
-      optimistic: true,
-      data: "value 1 from store 1",
-    });
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+    ).toStrictEqual("value 1 from store 1");
     tester.simulatePassingOfSeconds(5);
     expect(await tester.simulateStatCallback(syncStore1)).toMatchObject({
       status: "done",
     });
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
-    ).toMatchObject({
-      status: "success",
-      optimistic: false,
-      data: "value 1 from store 1",
-    });
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+    ).toStrictEqual("value 1 from store 1");
   });
 
   test("wait 1 second from last op before allowing sync", async () => {
@@ -90,32 +74,20 @@ describe("ValSyncStore", () => {
     };
     const syncStore1 = await tester.createInitializedSyncStore();
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
-    ).toMatchObject({
-      status: "success",
-      optimistic: false,
-      data: "test",
-    });
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+    ).toStrictEqual("test");
     expect(updateValue(syncStore1, "value 0 from store 1")).toMatchObject({
       status: "patch-added",
     });
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
-    ).toMatchObject({
-      status: "success",
-      optimistic: true,
-      data: "value 0 from store 1",
-    });
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+    ).toStrictEqual("value 0 from store 1");
     expect(updateValue(syncStore1, "value 1 from store 1")).toMatchObject({
       status: "patch-merged",
     });
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
-    ).toMatchObject({
-      status: "success",
-      optimistic: true,
-      data: "value 1 from store 1",
-    });
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+    ).toStrictEqual("value 1 from store 1");
     tester.simulatePassingOfSeconds(0.5);
     expect(await syncStore1.sync(tester.getNextNow(), false)).toMatchObject({
       status: "retry",
@@ -143,12 +115,8 @@ describe("ValSyncStore", () => {
     });
 
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
-    ).toMatchObject({
-      status: "success",
-      optimistic: false,
-      data: "value 4 from store 1",
-    });
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+    ).toStrictEqual("value 4 from store 1");
   });
 
   test("basic conflict", async () => {
@@ -169,44 +137,28 @@ describe("ValSyncStore", () => {
     const syncStore1 = await tester.createInitializedSyncStore();
 
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
-    ).toMatchObject({
-      status: "success",
-      optimistic: false,
-      data: "test",
-    });
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+    ).toStrictEqual("test");
     expect(updateValue(syncStore1, "value 0 from store 1")).toMatchObject({
       status: "patch-added",
     });
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
-    ).toMatchObject({
-      status: "success",
-      optimistic: true,
-      data: "value 0 from store 1",
-    });
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+    ).toStrictEqual("value 0 from store 1");
     expect(updateValue(syncStore1, "value 1 from store 1")).toMatchObject({
       status: "patch-merged",
     });
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
-    ).toMatchObject({
-      status: "success",
-      optimistic: true,
-      data: "value 1 from store 1",
-    });
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+    ).toStrictEqual("value 1 from store 1");
     // Start up sync store 2 before sync...
     const syncStore2 = await tester.createInitializedSyncStore();
     expect(updateValue(syncStore2, "value 2 from store 2")).toMatchObject({
       status: "patch-added",
     });
     expect(
-      syncStore2.getDataSnapshot(toModuleFilePath("/test.val.ts")),
-    ).toMatchObject({
-      status: "success",
-      optimistic: true,
-      data: "value 2 from store 2",
-    });
+      syncStore2.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+    ).toStrictEqual("value 2 from store 2");
     // ...then sync store 1
     tester.simulatePassingOfSeconds(5);
     expect(await syncStore1.sync(tester.getNextNow(), false)).toMatchObject({
@@ -230,12 +182,8 @@ describe("ValSyncStore", () => {
       status: "done",
     });
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")),
-    ).toMatchObject({
-      status: "success",
-      optimistic: false,
-      data: "value 2 from store 2",
-    });
+      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+    ).toStrictEqual("value 2 from store 2");
   });
 });
 
@@ -626,10 +574,12 @@ class SyncStoreTester {
 
   async createInitializedSyncStore() {
     const syncStore = new ValSyncStore(this.createMockClient(), undefined);
+    const authorId = null;
     await syncStore.init(
       this.getBaseSha(),
       this.getSchemasSha(),
       this.fakePatches.map((p) => p.patchId),
+      authorId,
       this.now++,
     );
     return syncStore;

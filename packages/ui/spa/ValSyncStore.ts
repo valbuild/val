@@ -18,6 +18,7 @@ import {
 } from "@valbuild/core/patch";
 import { ParentRef, ValClient } from "@valbuild/shared/internal";
 import { canMerge } from "./utils/mergePatches";
+import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
 
 /**
  * ValSyncStore is a store that keeps track of the state of the Val client.
@@ -64,9 +65,15 @@ export class ValSyncStore {
       moduleFilePath: ModuleFilePath;
       patch: Patch;
       isPending: boolean;
-      createdAt: number;
+      createdAt: string;
+      authorId: string | null;
+      isCommitted?: {
+        committedAt: number;
+      };
     }
   >;
+  authorId: string | null;
+  patchSets: PatchSets;
   /** serverSources is the state on the server, it is the actual state */
   serverSources: Record<ModuleFilePath, JSONValue> | null;
   /** optimisticClientSources is the state of the client, optimistic means that patches have been applied in client-only */
@@ -132,14 +139,18 @@ export class ValSyncStore {
     this.pendingClientPatchIds = [];
     this.patchDataByPatchId = {};
     this.isSyncing = false;
+    this.patchSets = new PatchSets();
+    this.authorId = null;
   }
 
   async init(
     baseSha: string,
     schemaSha: string,
     patchIds: PatchId[],
+    authorId: string | null,
     now: number,
   ) {
+    this.authorId = authorId;
     const start = Date.now();
     const res = await this.syncWithUpdatedStat(
       baseSha,
@@ -170,6 +181,8 @@ export class ValSyncStore {
     this.pendingClientPatchIds = [];
     this.patchDataByPatchId = {};
     this.isSyncing = false;
+    this.patchSets = new PatchSets();
+    this.authorId = null;
     for (const listenersOfType of Object.values(this.listeners)) {
       for (const listeners of Object.values(listenersOfType)) {
         this.emit(listeners);
@@ -179,7 +192,7 @@ export class ValSyncStore {
 
   // #region Subscribe
   private listeners: Partial<
-    Record<SourcePathListenerType, Record<string, (() => void)[]>>
+    Record<SyncStoreListenerType, Record<string, (() => void)[]>>
   >;
   subscribe(
     type: "source",
@@ -203,8 +216,9 @@ export class ValSyncStore {
     type: "persistent-global-error",
   ): (listener: () => void) => () => void;
   subscribe(type: "schema"): (listener: () => void) => () => void;
+  subscribe(type: "patch-sets"): (listener: () => void) => () => void;
   subscribe(
-    type: SourcePathListenerType,
+    type: SyncStoreListenerType,
     path?: string,
   ): (listener: () => void) => () => void {
     const p = path || globalNamespace;
@@ -233,7 +247,6 @@ export class ValSyncStore {
     }
   }
   private invalidateSource(moduleFilePath: ModuleFilePath) {
-    delete this.cachedDataSnapshots[moduleFilePath];
     if (this.overlayEmitter && this.serverSources) {
       this.overlayEmitter(
         moduleFilePath,
@@ -241,6 +254,7 @@ export class ValSyncStore {
           this.serverSources[moduleFilePath],
       );
     }
+    delete this.cachedDataSnapshots[moduleFilePath];
     this.emit(this.listeners.source?.[moduleFilePath]);
   }
   private invalidateSyncStatus(sourcePath: SourcePath | ModuleFilePath) {
@@ -258,8 +272,11 @@ export class ValSyncStore {
   private invalidatePersistentGlobalError() {
     this.emit(this.listeners["persistent-global-error"]?.[globalNamespace]);
   }
+  private invalidatePatchSets() {
+    this.cachedSerializedPatchSetsSnapshot = null;
+    this.emit(this.listeners["patch-sets"]?.[globalNamespace]);
+  }
   private invalidateSchema() {
-    console.log("Schema invalidated");
     this.emit(this.listeners["schema"]?.[globalNamespace]);
     this.invalidateAllValidationErrors();
     for (const sourcePathS in this.listeners?.["validation-error"] || {}) {
@@ -379,6 +396,13 @@ export class ValSyncStore {
   getSyncStatusSnapshot(sourcePath: SourcePath) {
     return this.syncStatus[sourcePath];
   }
+  private cachedSerializedPatchSetsSnapshot: SerializedPatchSet | null = null;
+  getSerializedPatchSetsSnapshot() {
+    if (!this.cachedSerializedPatchSetsSnapshot) {
+      this.cachedSerializedPatchSetsSnapshot = this.patchSets.serialize();
+    }
+    return this.cachedSerializedPatchSetsSnapshot;
+  }
 
   // #region Patching
   addPatch(
@@ -460,12 +484,12 @@ export class ValSyncStore {
         ) {
           lastOp.data[moduleFilePath][lastPatchIdx].patch = patch;
           lastOp.updatedAt = now;
-          this.patchDataByPatchId[
-            lastOp.data[moduleFilePath][lastPatchIdx].patchId
-          ].patch = patch;
+          const patchId = lastOp.data[moduleFilePath][lastPatchIdx].patchId;
+          this.patchDataByPatchId[patchId].patch = patch;
+          this.patchSetInsert(moduleFilePath, patchId, patch, now);
           return {
             status: "patch-merged",
-            patchId: lastOp.data[moduleFilePath][lastPatchIdx].patchId,
+            patchId: patchId,
             moduleFilePath,
           } as const;
         } else {
@@ -484,8 +508,10 @@ export class ValSyncStore {
             moduleFilePath: moduleFilePath,
             patch: patch,
             isPending: true,
-            createdAt: now,
+            createdAt: new Date(now).toISOString(),
+            authorId: this.authorId,
           };
+          this.patchSetInsert(moduleFilePath, patchId, patch, now);
           return {
             status: "patch-added",
             patchId,
@@ -506,8 +532,10 @@ export class ValSyncStore {
           moduleFilePath: moduleFilePath,
           patch: patch,
           isPending: true,
-          createdAt: now,
+          createdAt: new Date(now).toISOString(),
+          authorId: this.authorId,
         };
+        this.patchSetInsert(moduleFilePath, patchId, patch, now);
         return {
           status: "patch-added",
           patchId,
@@ -515,6 +543,26 @@ export class ValSyncStore {
         } as const;
       }
     }
+  }
+
+  patchSetInsert(
+    moduleFilePath: ModuleFilePath,
+    patchId: PatchId,
+    patch: Patch,
+    now: number,
+  ) {
+    const createdAt = new Date(now).toISOString();
+    for (const op of patch) {
+      this.patchSets.insert(
+        moduleFilePath,
+        this.schemas?.[moduleFilePath] ?? undefined,
+        op,
+        patchId,
+        createdAt,
+        this.authorId,
+      );
+    }
+    this.invalidatePatchSets();
   }
 
   deletePatches(patchIds: PatchId[], now: number) {
@@ -531,45 +579,7 @@ export class ValSyncStore {
     });
   }
 
-  // #region Stat
-
-  async syncWithUpdatedStat(
-    baseSha: string,
-    schemaSha: string,
-    patchIds: PatchId[],
-    now: number,
-  ) {
-    this.baseSha = baseSha;
-    this.serverSideSchemaSha = schemaSha;
-    const serverPatchIdsDidChange = !deepEqual(
-      this.globalServerSidePatchIds,
-      patchIds,
-    );
-    this.globalServerSidePatchIds = patchIds;
-    for (const patchId of patchIds) {
-      for (let i = 0; i < this.pendingClientPatchIds.length; i++) {
-        if (this.pendingClientPatchIds[i] === patchId) {
-          this.pendingClientPatchIds.splice(i, 1);
-          i--;
-        }
-      }
-      for (let i = 0; i < this.patchIdsStoredByClient.length; i++) {
-        if (this.patchIdsStoredByClient[i] === patchId) {
-          this.patchIdsStoredByClient.splice(i, 1);
-          i--;
-        }
-      }
-    }
-    return this.sync(now, serverPatchIdsDidChange);
-  }
-
   // #region Misc
-  private waitForMinutes(minutes: number, now: number) {
-    return this.waitForSeconds(minutes * 60, now);
-  }
-  private waitForSeconds(seconds: number, now: number) {
-    return now + seconds * 1000;
-  }
 
   private markAllSyncStatusIn(
     moduleFilePath: ModuleFilePath,
@@ -605,6 +615,40 @@ export class ValSyncStore {
     };
   }
 
+  // #region Stat
+
+  async syncWithUpdatedStat(
+    baseSha: string,
+    schemaSha: string,
+    patchIds: PatchId[],
+    now: number,
+  ) {
+    this.baseSha = baseSha;
+    this.serverSideSchemaSha = schemaSha;
+    const serverPatchIdsDidChange = !deepEqual(
+      this.globalServerSidePatchIds?.concat(
+        this.patchIdsStoredByClient || [],
+      ) ?? null,
+      patchIds,
+    );
+    this.globalServerSidePatchIds = patchIds;
+    for (const patchId of patchIds) {
+      for (let i = 0; i < this.pendingClientPatchIds.length; i++) {
+        if (this.pendingClientPatchIds[i] === patchId) {
+          this.pendingClientPatchIds.splice(i, 1);
+          i--;
+        }
+      }
+      for (let i = 0; i < this.patchIdsStoredByClient.length; i++) {
+        if (this.patchIdsStoredByClient[i] === patchId) {
+          this.patchIdsStoredByClient.splice(i, 1);
+          i--;
+        }
+      }
+    }
+    return this.sync(now, serverPatchIdsDidChange);
+  }
+
   // #region Syncing
   async executeAddPatches(
     op: AddPatchOp,
@@ -617,7 +661,6 @@ export class ValSyncStore {
     | {
         status: "retry";
         reason: RetryReason;
-        nextSync: number;
       }
   > {
     const postPatchesBody: {
@@ -650,7 +693,6 @@ export class ValSyncStore {
       return {
         status: "retry",
         reason: "not-initialized",
-        nextSync: this.waitForSeconds(30, now),
       };
     }
     const addPatchesRes = await this.client("/patches", "PUT", {
@@ -666,7 +708,6 @@ export class ValSyncStore {
       return {
         status: "retry",
         reason: "network-error",
-        nextSync: this.waitForSeconds(30, now),
       };
     } else if (addPatchesRes.status === 409) {
       console.log(
@@ -677,7 +718,6 @@ export class ValSyncStore {
       return {
         status: "retry",
         reason: "conflict",
-        nextSync: this.waitForSeconds(10, now),
       };
     } else if (addPatchesRes.status !== 200) {
       console.error("Failed to add patches", {
@@ -749,7 +789,6 @@ export class ValSyncStore {
     | {
         status: "retry";
         reason: RetryReason;
-        nextSync: number;
       }
   > {
     let syncAllRequired = false;
@@ -757,7 +796,7 @@ export class ValSyncStore {
     const deletePatchIdsSet = new Set(deletePatchIds);
     const deleteRes = await this.client("/patches", "DELETE", {
       query: {
-        id: op.patchIds,
+        id: op.patchIds.reverse(),
       },
     });
     if (deleteRes.status === null) {
@@ -765,7 +804,6 @@ export class ValSyncStore {
       return {
         status: "retry",
         reason: "network-error",
-        nextSync: this.waitForMinutes(1, now),
       };
     } else if (deleteRes.status !== 200) {
       // Give up unless it is a network error
@@ -788,6 +826,10 @@ export class ValSyncStore {
       this.pendingClientPatchIds = this.pendingClientPatchIds.filter(
         (id) => !deletePatchIdsSet.has(id),
       );
+      this.globalServerSidePatchIds =
+        this.globalServerSidePatchIds?.filter(
+          (id) => !deletePatchIdsSet.has(id),
+        ) ?? null;
     }
     return {
       status: "done",
@@ -802,7 +844,6 @@ export class ValSyncStore {
     | {
         status: "retry";
         reason: "error";
-        nextSync: number;
       }
   > {
     const schemaRes = await this.client("/schema", "GET", {});
@@ -827,13 +868,172 @@ export class ValSyncStore {
       return {
         status: "retry",
         reason: "error",
-        nextSync: this.waitForMinutes(1, Date.now()),
       };
     }
     return {
       status: "retry",
       reason: "error",
-      nextSync: this.waitForMinutes(1, Date.now()),
+    };
+  }
+
+  private async syncPatchSets(now: number): Promise<
+    | {
+        status: "done";
+      }
+    | {
+        status: "retry";
+      }
+  > {
+    // get missing data
+    if (this.initializedAt === null) {
+      // When we are initializing, we don't want to sync all individual patch sets
+      // since we are going to get them all at once anyway
+      // Why is this a problem? It's because we can only do about 300 patch ids at a time before the URL gets too long
+      // Now, you might be saying that is an API issue, and you might be right (but this way we at least can cache the patch ids heavily)
+      const res = await this.client("/patches", "GET", {
+        query: {
+          exclude_patch_ops: false,
+          patch_id: undefined, // all patches
+        },
+      });
+      if (res.status !== 200) {
+        this.addTransientGlobalError(
+          "Failed to get changes",
+          now,
+          res.json.message,
+        );
+        return {
+          status: "retry",
+        };
+      }
+      for (const patchData of res.json.patches) {
+        if (patchData.patch) {
+          this.patchDataByPatchId[patchData.patchId] = {
+            moduleFilePath: patchData.path,
+            patch: patchData.patch,
+            isPending: false,
+            createdAt: patchData.createdAt,
+            authorId: patchData.authorId,
+          };
+        }
+      }
+      if (res.json.error) {
+        this.addTransientGlobalError(
+          "Some changes has errors",
+          now,
+          res.json.error.message,
+        );
+      }
+      for (const error of Object.values(res.json.errors || {})) {
+        if (error) {
+          this.addTransientGlobalError(
+            "A change has an error",
+            now,
+            error.message,
+          );
+        }
+      }
+    } else {
+      // Get missing patch data for potentially new global server side patch ids
+      const missingPatchData: PatchId[] = [];
+      for (const serverSidePatchId of this.globalServerSidePatchIds || []) {
+        if (!this.patchDataByPatchId[serverSidePatchId]) {
+          missingPatchData.push(serverSidePatchId);
+        }
+      }
+      if (missingPatchData.length > 0) {
+        // Batch in batches of 100 to avoid URL length issues
+        const batchSize = 100;
+        const batches = [];
+        for (let i = 0; i < missingPatchData.length; i += batchSize) {
+          batches.push(missingPatchData.slice(i, i + batchSize));
+        }
+        for (const batch of batches) {
+          const res = await this.client("/patches", "GET", {
+            query: {
+              exclude_patch_ops: false,
+              patch_id: batch,
+            },
+          });
+          if (res.status !== 200) {
+            this.addTransientGlobalError(
+              "Failed to get changes",
+              now,
+              res.json.message,
+            );
+            return {
+              status: "retry",
+            };
+          }
+          for (const patchData of res.json.patches) {
+            if (patchData.patch) {
+              this.patchDataByPatchId[patchData.patchId] = {
+                moduleFilePath: patchData.path,
+                patch: patchData.patch,
+                isPending: false,
+                createdAt: patchData.createdAt,
+                authorId: patchData.authorId,
+              };
+            }
+          }
+        }
+      }
+    }
+
+    let didUpdatePatchSet = false;
+    const allCurrentPatchIds = new Set(this.globalServerSidePatchIds);
+    for (const patchId of Array.from(this.patchSets.getInsertedPatches()) ||
+      []) {
+      if (!allCurrentPatchIds.has(patchId)) {
+        // The patch set is dirty, so we need to reset it
+        // Maybe we should add a remove method on PatchSets?
+        this.patchSets = new PatchSets();
+        didUpdatePatchSet = true;
+        break;
+      }
+    }
+
+    // All patch ids should be good, but we might have had new patches added while we were syncing data
+    // In that case, we will retry
+    const missingDataPatchIds = [];
+    for (const patchId of this.globalServerSidePatchIds || []) {
+      if (!this.patchSets.isInserted(patchId)) {
+        const patchData = this.patchDataByPatchId[patchId];
+        const schema =
+          patchData?.moduleFilePath &&
+          this.schemas?.[patchData?.moduleFilePath];
+        if (patchData && schema) {
+          for (const op of patchData.patch) {
+            didUpdatePatchSet = true;
+            this.patchSets.insert(
+              patchData.moduleFilePath,
+              schema,
+              op,
+              patchId,
+              patchData.createdAt,
+              patchData.authorId,
+            );
+          }
+        } else {
+          missingDataPatchIds.push(patchId);
+        }
+      }
+    }
+    if (didUpdatePatchSet) {
+      this.invalidatePatchSets();
+    }
+    if (missingDataPatchIds.length > 0) {
+      this.addTransientGlobalError(
+        "Failed to get changes",
+        now,
+        `Missing data for patch ids: ${missingDataPatchIds.join(", ")}`,
+      );
+      return {
+        status: "retry",
+      };
+    }
+    return {
+      status: "done",
     };
   }
 
@@ -866,12 +1066,10 @@ export class ValSyncStore {
   ): Promise<
     | {
         status: "done";
-        nextSync: number;
       }
     | {
         status: "retry";
         reason: RetryReason;
-        nextSync: number;
       }
   > {
     if (this.isSyncing) {
@@ -879,7 +1077,6 @@ export class ValSyncStore {
       return {
         status: "retry",
         reason: "already-syncing",
-        nextSync: this.waitForMinutes(1, now),
       };
     }
     this.isSyncing = true;
@@ -916,7 +1113,6 @@ export class ValSyncStore {
         return {
           status: "retry",
           reason: "too-fast",
-          nextSync: this.waitForSeconds(1, now),
         };
       }
       // #region Write operations:
@@ -934,7 +1130,6 @@ export class ValSyncStore {
             return {
               status: "retry",
               reason: "error",
-              nextSync: this.waitForSeconds(30, now),
             };
           }
         } else if (op.type === "delete-patches") {
@@ -951,7 +1146,6 @@ export class ValSyncStore {
             return {
               status: "retry",
               reason: "error",
-              nextSync: this.waitForSeconds(30, now),
             };
           }
         }
@@ -975,7 +1169,6 @@ export class ValSyncStore {
         changedModules === "all" ||
         changedModules.length > 0
       ) {
-        console.log("Syncing sources");
         const path =
           // We could be smarter wrt to the modules we fetch.
           // However, note that we are not quite sure how long it takes to evaluate 1 vs many...
@@ -985,7 +1178,23 @@ export class ValSyncStore {
           typeof changedModules === "object" && changedModules.length === 1
             ? (changedModules[0] as ModuleFilePath)
             : undefined;
-
+        if (path === undefined) {
+          console.log("GET SOURCES FROM", {
+            //        this.initializedAt === null ||
+            // this.clientSideSchemaSha !== this.serverSideSchemaSha ||
+            // serverPatchIdsDidChange ||
+            // syncAllRequired ||
+            // changedModules === "all" ||
+            // changedModules.length > 0
+            path,
+            initializedAt: this.initializedAt,
+            changedModules,
+            serverPatchIdsDidChange,
+            syncAllRequired,
+            schemaShaCompare:
+              this.clientSideSchemaSha !== this.serverSideSchemaSha,
+          });
+        }
         // TODO: change sources endpoint so that you can have multiple moduleFilePaths
         const sourcesRes = await this.client("/sources/~", "PUT", {
           path: path,
@@ -999,7 +1208,6 @@ export class ValSyncStore {
           return {
             status: "retry",
             reason: "network-error",
-            nextSync: this.waitForSeconds(30, now),
           };
         } else if (sourcesRes.status !== 200) {
           this.addTransientGlobalError(
@@ -1059,20 +1267,23 @@ export class ValSyncStore {
             }
             this.markAllSyncStatusIn(moduleFilePath, "done");
           }
+          //  Invalidate validation errors:
           if (changedValidationErrors.size > 0) {
             this.invalidateAllValidationErrors();
           }
           for (const sourcePath of Array.from(changedValidationErrors)) {
             this.invalidateValidationError(sourcePath);
           }
+
+          // Schema if it changed:
           if (sourcesRes.json.schemaSha !== this.clientSideSchemaSha) {
             await this.syncSchema();
           }
         }
       }
+      await this.syncPatchSets(now);
       return {
         status: "done",
-        nextSync: this.waitForMinutes(5, now),
       };
     } finally {
       this.isSyncing = false;
@@ -1117,13 +1328,11 @@ export const defaultOverlayEmitter = (
   newSource: JSONValue,
 ) => {
   window.dispatchEvent(
-    new CustomEvent("val-provider-overlay", {
+    new CustomEvent("val-event", {
       detail: {
         type: "source-update",
-        detail: {
-          moduleFilePath,
-          source: newSource,
-        },
+        moduleFilePath,
+        source: newSource,
       },
     }),
   );
@@ -1137,9 +1346,10 @@ type RetryReason =
   | "too-fast"
   | "error"
   | "already-syncing";
-type SourcePathListenerType =
+type SyncStoreListenerType =
   | "schema"
   | "sync-status"
+  | "patch-sets"
   | "validation-error"
   | "all-validation-errors"
   | "transient-global-error"

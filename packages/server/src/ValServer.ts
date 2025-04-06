@@ -787,9 +787,10 @@ export const ValServer = (
             },
           };
         }
+        const profileId = "id" in auth ? (auth.id as AuthorId) : undefined;
         const currentStat = await serverOps.getStat({
           ...req.body,
-          profileId: "id" in auth ? (auth.id as AuthorId) : undefined,
+          profileId,
         } as {
           baseSha: BaseSha;
           schemaSha: SchemaSha;
@@ -822,6 +823,7 @@ export const ValServer = (
           status: 200,
           json: {
             ...currentStat,
+            profileId: profileId ?? null,
             mode:
               serverOps instanceof ValOpsFS
                 ? "fs"
