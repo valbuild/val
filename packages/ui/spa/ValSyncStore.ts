@@ -363,10 +363,6 @@ export class ValSyncStore {
     } as const;
   }
 
-  getServerSnapshot(sourcePath: SourcePath | ModuleFilePath) {
-    return this.getModuleData(sourcePath);
-  }
-
   private cachedDataSnapshots: Record<
     ModuleFilePath,
     Record<ModulePath, ReturnType<typeof this.getModuleData>>
