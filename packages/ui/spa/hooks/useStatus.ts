@@ -46,6 +46,7 @@ const StatData = z.object({
     z.literal("request-again"),
     z.literal("use-websocket"),
   ]),
+  profileId: z.string().nullable(),
   config: z.object({
     project: z.string().optional(),
     files: z

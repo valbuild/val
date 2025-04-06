@@ -10,30 +10,23 @@ import {
 import {
   Deployment,
   LoadingStatus,
-  useAppliedPatches,
+  usePublishedPatches,
   useCurrentPatchIds,
   useDeletePatches,
   useDeployments,
   useErrors,
-  useGetPatches,
   useProfilesByAuthorId,
   usePublish,
-  useSchemas,
-  useSchemaSha,
   useSummary,
   useValMode,
   useValPortal,
+  usePatchSets,
 } from "./ValProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { ChevronDown, Loader2, Sparkles, Undo2, X } from "lucide-react";
-import {
-  PatchMetadata,
-  PatchSetMetadata,
-  PatchSets,
-  SerializedPatchSet,
-} from "../utils/PatchSets";
+import { PatchMetadata, PatchSetMetadata } from "../utils/PatchSets";
 import { AnimateHeight } from "./AnimateHeight";
 import { relativeLocalDate } from "../utils/relativeLocalDate";
 import { Operation } from "@valbuild/core/patch";
@@ -58,9 +51,6 @@ export function DraftChanges({
   className?: string;
   loadingStatus: LoadingStatus;
 }) {
-  const { getPatches } = useGetPatches();
-  const schemasRes = useSchemas();
-  const schemaSha = useSchemaSha();
   const patchIds = useCurrentPatchIds();
   const { getCommitSummary } = useSummary();
   const [summary, setSummary] = useState<
@@ -72,120 +62,11 @@ export function DraftChanges({
     setSummary({ status: "not-asked" });
   }, [JSON.stringify(patchIds)]);
   const mode = useValMode();
-  // refs:
-  const patchSetsSchemaShaRef = useRef<string | null>(null);
-  const patchSetsRef = useRef<PatchSets | null>(null);
-  const requestedPatchIdsRef = useRef<PatchId[]>([]);
-  const appliedPatchIds = useAppliedPatches();
+  const publishedPatchIds = usePublishedPatches();
   const { publishDisabled } = usePublish();
   // patch set state:
-  const [patchSetsError, setPatchSetsError] = useState<string | null>(null);
-  const [serializedPatchSets, setSerializedPatchSets] = useState<
-    Remote<SerializedPatchSet>
-  >({
-    status: "not-asked",
-  });
-  const prevInsertedPatchesRef = useRef<Set<PatchId>>(new Set());
-  useEffect(() => {
-    async function load() {
-      if (patchSetsSchemaShaRef.current !== schemaSha) {
-        // Reset if schema changes
-        patchSetsRef.current = new PatchSets();
-        prevInsertedPatchesRef.current = new Set();
-      }
-      patchSetsSchemaShaRef.current = schemaSha ?? null;
-      if (!patchSetsRef.current) {
-        // Initialize if not already
-        patchSetsRef.current = new PatchSets();
-        prevInsertedPatchesRef.current = new Set();
-      }
-      // If we, for example, delete a patch, we need to reset the patchSets (we do not have a .delete method yet)
-      for (const patchId of Array.from(prevInsertedPatchesRef.current)) {
-        if (!patchIds.includes(patchId)) {
-          patchSetsRef.current = new PatchSets();
-          prevInsertedPatchesRef.current = new Set();
-          requestedPatchIdsRef.current = [];
-          break;
-        }
-      }
-      // Only request patches that are not already inserted
-      const requestPatchIds: PatchId[] = [];
-      for (const patchId of patchIds) {
-        if (!prevInsertedPatchesRef.current.has(patchId)) {
-          requestPatchIds.push(patchId);
-        }
-      }
-      // Reset if previous patches are not in the current patchIds
-      for (const patchId of Array.from(
-        // TODO: guessing Array.from(set.values()) is slow for large sets?
-        prevInsertedPatchesRef.current.values(),
-      )) {
-        if (!patchIds.includes(patchId)) {
-          patchSetsRef.current = new PatchSets();
-          break;
-        }
-      }
-      if (patchIds.length > 0 && requestPatchIds.length === 0) {
-        return;
-      }
-      if (schemasRes.status === "error") {
-        setPatchSetsError(schemasRes.error);
-        return;
-      }
-      if (!("data" in schemasRes)) {
-        return;
-      }
-      const patchSets = patchSetsRef.current;
-      const schemas = schemasRes.data;
-      requestedPatchIdsRef.current = requestPatchIds;
-      setPatchSetsError(null);
-      const res = await getPatches(
-        patchIds.length === requestPatchIds.length
-          ? [] // all patchIds are requested so avoid sending a large GET request
-          : (requestPatchIds as PatchId[]),
-      );
-      // skip if requested have have changed since the request was made
-      if (
-        requestedPatchIdsRef.current.length !== requestPatchIds.length ||
-        requestedPatchIdsRef.current.some(
-          (id, i) => id !== requestPatchIds[i],
-        ) ||
-        patchSetsSchemaShaRef.current !== schemaSha
-      ) {
-        return;
-      }
-      if (res.status === "ok") {
-        const patches = res.data;
-        for (const [patchIdS, patchMetadata] of Object.entries(patches)) {
-          const patchId = patchIdS as PatchId;
-          if (patchMetadata) {
-            for (const op of patchMetadata.patch || []) {
-              const moduleFilePath = patchMetadata.path;
-              const schema = schemas[moduleFilePath];
-              prevInsertedPatchesRef.current.add(patchId);
-              patchSets.insert(
-                patchMetadata.path,
-                schema,
-                op,
-                patchId,
-                patchMetadata.createdAt,
-                patchMetadata.authorId,
-              );
-            }
-          }
-        }
-        setSerializedPatchSets({
-          status: "success",
-          data: patchSets.serialize(),
-        });
-      } else {
-        setPatchSetsError(res.error);
-      }
-    }
-    load().catch((err) => {
-      setPatchSetsError(err.message);
-    });
-  }, [patchIds, getPatches, schemasRes, schemaSha]);
+  const serializedPatchSets = usePatchSets();
+
   const portalContainer = useValPortal();
 
   const { deployments, dismissDeployment } = useDeployments();
@@ -244,12 +125,12 @@ export function DraftChanges({
           )}
         </div>
       )}
-      {appliedPatchIds.size > 0 && (
+      {publishedPatchIds.size > 0 && (
         <div className="flex items-center gap-2 p-4 border-b border-border-primary">
           <span className="font-bold">
             {"Published "}
-            {appliedPatchIds.size}
-            {appliedPatchIds.size === 1 ? " change" : " changes"}
+            {publishedPatchIds.size}
+            {publishedPatchIds.size === 1 ? " change" : " changes"}
             {"..."}
           </span>
         </div>
@@ -258,12 +139,12 @@ export function DraftChanges({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="font-bold">
-              {patchIds.length - appliedPatchIds.size <= 0
+              {patchIds.length - publishedPatchIds.size <= 0
                 ? "No"
-                : patchIds.length - appliedPatchIds.size === 1
+                : patchIds.length - publishedPatchIds.size === 1
                   ? "1"
-                  : patchIds.length - appliedPatchIds.size}{" "}
-              change{patchIds.length - appliedPatchIds.size === 1 ? "" : "s"}
+                  : patchIds.length - publishedPatchIds.size}{" "}
+              change{patchIds.length - publishedPatchIds.size === 1 ? "" : "s"}
             </span>
             {(loadingStatus === "loading" || loadingStatus === "not-asked") && (
               <span>
@@ -345,11 +226,6 @@ export function DraftChanges({
           )}
         </div>
       </div>
-      {patchSetsError !== null && (
-        <div className="p-4 bg-bg-tertiary text-text-error-primary">
-          {patchSetsError}
-        </div>
-      )}
       <div className="flex flex-col gap-[2px]">
         {"data" in serializedPatchSets &&
           serializedPatchSets.data.map((patchSet) => {
@@ -358,7 +234,7 @@ export function DraftChanges({
                 key={
                   patchSet.moduleFilePath + ":" + patchSet.patchPath.join("/")
                 }
-                appliedPatchIds={appliedPatchIds}
+                appliedPatchIds={publishedPatchIds}
                 patchSet={patchSet}
               />
             );

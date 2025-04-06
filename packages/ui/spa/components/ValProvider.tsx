@@ -27,6 +27,7 @@ import { DayPickerProvider } from "react-day-picker";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 import { defaultOverlayEmitter, ValSyncStore } from "../ValSyncStore";
+import { SerializedPatchSet } from "../utils/PatchSets";
 
 type ValContextValue = {
   syncStore: ValSyncStore;
@@ -155,7 +156,7 @@ export function ValProvider({
           defaultOverlayEmitter(moduleFilePath, newSource);
         }
       }),
-    [],
+    [dispatchValEvents],
   );
   const config =
     "data" in stat && stat.data ? (stat.data.config as ValConfig) : undefined;
@@ -429,6 +430,7 @@ export function ValProvider({
             stat.data.baseSha,
             stat.data.schemaSha,
             stat.data.patches,
+            stat.data.profileId,
             Date.now(),
           );
           if (res.status === "retry") {
@@ -653,41 +655,57 @@ export function useDeletePatches() {
   return { deletePatches };
 }
 
-export function useGetPatches() {
-  const { getPatches } = useContext(ValContext);
-  return { getPatches };
-}
-
 export function useDeployments() {
   const { deployments, dismissDeployment } = useContext(ValContext);
   return { deployments, dismissDeployment };
 }
 
-export function useAppliedPatches() {
-  const { getPatches } = useGetPatches();
+export function usePatchSets():
+  | {
+      status: "success";
+      data: SerializedPatchSet;
+    }
+  | {
+      status: "error";
+      error: string;
+    }
+  | {
+      status: "not-asked";
+    } {
+  const { syncStore } = useContext(ValContext);
+  const serializedPatchSets = useSyncExternalStore(
+    syncStore.subscribe("patch-sets"),
+    () => syncStore.getSerializedPatchSetsSnapshot(),
+    () => syncStore.getSerializedPatchSetsSnapshot(),
+  );
+  return { status: "success", data: serializedPatchSets };
+}
+
+export function usePublishedPatches() {
+  // const { getPatches } = useGetPatches();
   const { isPublishing, syncStore } = useContext(ValContext);
   const patchIds = syncStore.globalServerSidePatchIds ?? [];
   const [appliedPatchIds, setAppliedPatchIds] = useState<Set<PatchId>>(
     new Set(),
   );
-  useEffect(() => {
-    if (!isPublishing) {
-      getPatches(patchIds).then((res) => {
-        if (res.status === "ok") {
-          const appliedPatchIds = new Set<PatchId>();
-          for (const [patchIdS, patchMetadata] of Object.entries(res.data)) {
-            // TODO: as long as appliedAt is set, I suppose we can assume it is applied for this current commit?
-            if (patchMetadata?.appliedAt) {
-              appliedPatchIds.add(patchIdS as PatchId);
-            }
-          }
-          setAppliedPatchIds(appliedPatchIds);
-        }
-      });
-    } else {
-      setAppliedPatchIds(new Set(patchIds));
-    }
-  }, [isPublishing, patchIds.join(",")]);
+  // useEffect(() => {
+  //   if (!isPublishing) {
+  //     getPatches(patchIds).then((res) => {
+  //       if (res.status === "ok") {
+  //         const appliedPatchIds = new Set<PatchId>();
+  //         for (const [patchIdS, patchMetadata] of Object.entries(res.data)) {
+  //           // TODO: as long as appliedAt is set, I suppose we can assume it is applied for this current commit?
+  //           if (patchMetadata?.appliedAt) {
+  //             appliedPatchIds.add(patchIdS as PatchId);
+  //           }
+  //         }
+  //         setAppliedPatchIds(appliedPatchIds);
+  //       }
+  //     });
+  //   } else {
+  //     setAppliedPatchIds(new Set(patchIds));
+  //   }
+  // }, [isPublishing, patchIds.join(",")]);
   return appliedPatchIds;
 }
 
@@ -727,9 +745,9 @@ export function usePublish() {
   const patchIds = useCurrentPatchIds();
   const { globalErrors } = useErrors();
   const debouncedLoadingStatus = useDebouncedLoadingStatus();
-  const appliedPatchIds = useAppliedPatches();
+  const publishedPatchIds = usePublishedPatches();
   const unappliedPatchIds = patchIds.filter(
-    (patchId) => !appliedPatchIds.has(patchId),
+    (patchId) => !publishedPatchIds.has(patchId),
   );
   const publishDisabled =
     debouncedLoadingStatus !== "success" ||

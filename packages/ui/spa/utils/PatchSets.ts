@@ -51,6 +51,10 @@ export class PatchSets {
     this.insertedPatches = new Set();
   }
 
+  getInsertedPatches(): Set<PatchId> {
+    return this.insertedPatches;
+  }
+
   private insertPath(
     moduleFilePath: ModuleFilePath,
     affectsPatchPath: PatchPath,
