@@ -89,7 +89,7 @@ describe("ValSyncStore", () => {
       syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
     ).toStrictEqual("value 1 from store 1");
     tester.simulatePassingOfSeconds(0.5);
-    expect(await syncStore1.sync(tester.getNextNow(), false)).toMatchObject({
+    expect(await syncStore1.sync(tester.getNextNow())).toMatchObject({
       status: "retry",
       reason: "too-fast",
     });
@@ -98,7 +98,7 @@ describe("ValSyncStore", () => {
       status: "patch-merged",
     });
     tester.simulatePassingOfSeconds(1);
-    expect(await syncStore1.sync(tester.getNextNow(), false)).toMatchObject({
+    expect(await syncStore1.sync(tester.getNextNow())).toMatchObject({
       status: "done",
     });
 
@@ -110,7 +110,7 @@ describe("ValSyncStore", () => {
       status: "patch-merged",
     });
     tester.simulatePassingOfSeconds(0.5);
-    expect(await syncStore1.sync(tester.getNextNow(), false)).toMatchObject({
+    expect(await syncStore1.sync(tester.getNextNow())).toMatchObject({
       status: "done",
     });
 
@@ -161,7 +161,7 @@ describe("ValSyncStore", () => {
     ).toStrictEqual("value 2 from store 2");
     // ...then sync store 1
     tester.simulatePassingOfSeconds(5);
-    expect(await syncStore1.sync(tester.getNextNow(), false)).toMatchObject({
+    expect(await syncStore1.sync(tester.getNextNow())).toMatchObject({
       status: "done",
     });
     expect(await tester.simulateStatCallback(syncStore1)).toMatchObject({
@@ -169,7 +169,7 @@ describe("ValSyncStore", () => {
     });
     // We must get stat before we can sync again
     tester.simulatePassingOfSeconds(5);
-    expect(await syncStore2.sync(tester.getNextNow(), false)).toMatchObject({
+    expect(await syncStore2.sync(tester.getNextNow())).toMatchObject({
       status: "retry",
       reason: "conflict",
     });
