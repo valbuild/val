@@ -23,7 +23,7 @@ export const createValClient = (host: string): ValClient => {
           }
         } else {
           if (anyReq.query?.[key] !== undefined) {
-            params.push([key, anyReq?.query?.[key]]);
+            params.push([key, anyReq?.query?.[key].toString()]);
           }
         }
       }
