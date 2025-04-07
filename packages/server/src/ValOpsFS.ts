@@ -385,15 +385,22 @@ export class ValOpsFS extends ValOps {
       this.createPatchChain(
         fetchPatchesRes.patches,
       ) as OrderedPatches["patches"]
-    ).map((patchData) => {
-      if (filters.excludePatchOps) {
-        return {
-          ...patchData,
-          patch: undefined,
-        };
-      }
-      return patchData;
-    });
+    )
+      .map((patchData) => {
+        if (filters.excludePatchOps) {
+          return {
+            ...patchData,
+            patch: undefined,
+          };
+        }
+        return patchData;
+      })
+      .filter((patchData) => {
+        if (filters.patchIds && filters.patchIds.length > 0) {
+          return filters.patchIds.includes(patchData.patchId);
+        }
+        return true;
+      });
 
     return {
       patches: sortedPatches,
