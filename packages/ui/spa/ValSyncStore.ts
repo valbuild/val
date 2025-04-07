@@ -59,6 +59,10 @@ export class ValSyncStore {
    * Patch Ids created by this client, that are not yet stored
    */
   pendingClientPatchIds: PatchId[];
+  /**
+   * Patch Ids that have been successfully been seen on server
+   */
+  syncedPatchIds: Set<PatchId>;
   patchDataByPatchId: Record<
     PatchId,
     {
@@ -134,6 +138,7 @@ export class ValSyncStore {
     this.optimisticClientSources = {};
     this.serverSources = null;
     this.globalServerSidePatchIds = [];
+    this.syncedPatchIds = new Set();
     this.pendingOps = [];
     this.patchIdsStoredByClient = [];
     this.pendingClientPatchIds = [];
@@ -176,6 +181,7 @@ export class ValSyncStore {
     this.optimisticClientSources = {};
     this.serverSources = null;
     this.globalServerSidePatchIds = [];
+    this.syncedPatchIds = new Set();
     this.pendingOps = [];
     this.patchIdsStoredByClient = [];
     this.pendingClientPatchIds = [];
@@ -247,13 +253,6 @@ export class ValSyncStore {
     }
   }
   private invalidateSource(moduleFilePath: ModuleFilePath) {
-    if (this.overlayEmitter && this.serverSources) {
-      this.overlayEmitter(
-        moduleFilePath,
-        this.optimisticClientSources[moduleFilePath] ||
-          this.serverSources[moduleFilePath],
-      );
-    }
     delete this.cachedDataSnapshots[moduleFilePath];
     this.emit(this.listeners.source?.[moduleFilePath]);
   }
@@ -291,10 +290,9 @@ export class ValSyncStore {
       Internal.splitModuleFilePathAndModulePath(sourcePath as SourcePath);
     const isOptimistic =
       this.optimisticClientSources[moduleFilePath] !== undefined;
-    const source =
-      this.optimisticClientSources[moduleFilePath] !== undefined
-        ? this.optimisticClientSources[moduleFilePath]
-        : this.serverSources?.[moduleFilePath];
+    const source = isOptimistic
+      ? this.optimisticClientSources[moduleFilePath]
+      : this.serverSources?.[moduleFilePath];
 
     if (source === undefined) {
       return {
@@ -453,6 +451,7 @@ export class ValSyncStore {
       patchableOps,
     );
     if (result.isErr(patchRes)) {
+      console.error("Could not apply patch:", patchRes.error);
       this.addTransientGlobalError(
         `Could apply patch: ${patchRes.error.message}`,
         now,
@@ -465,9 +464,7 @@ export class ValSyncStore {
     } else {
       const newSource = patchRes.value;
       this.syncStatus[sourcePath] = "patches-pending";
-      this.invalidateSyncStatus(sourcePath);
       this.optimisticClientSources[moduleFilePath] = newSource;
-      this.invalidateSource(moduleFilePath);
       if (lastOp?.type === "add-patches") {
         // Batch add-patches ops together to avoid too many requests...
         const lastPatchIdx = (lastOp.data[moduleFilePath]?.length || 0) - 1;
@@ -483,6 +480,9 @@ export class ValSyncStore {
           const patchId = lastOp.data[moduleFilePath][lastPatchIdx].patchId;
           this.patchDataByPatchId[patchId].patch = patch;
           this.patchSetInsert(moduleFilePath, patchId, patch, now);
+
+          this.invalidateSyncStatus(sourcePath);
+          this.invalidateSource(moduleFilePath);
           return {
             status: "patch-merged",
             patchId: patchId,
@@ -508,6 +508,9 @@ export class ValSyncStore {
             authorId: this.authorId,
           };
           this.patchSetInsert(moduleFilePath, patchId, patch, now);
+
+          this.invalidateSyncStatus(sourcePath);
+          this.invalidateSource(moduleFilePath);
           return {
             status: "patch-added",
             patchId,
@@ -532,6 +535,9 @@ export class ValSyncStore {
           authorId: this.authorId,
         };
         this.patchSetInsert(moduleFilePath, patchId, patch, now);
+
+        this.invalidateSyncStatus(sourcePath);
+        this.invalidateSource(moduleFilePath);
         return {
           status: "patch-added",
           patchId,
@@ -621,12 +627,6 @@ export class ValSyncStore {
   ) {
     this.baseSha = baseSha;
     this.serverSideSchemaSha = schemaSha;
-    const serverPatchIdsDidChange = !deepEqual(
-      this.globalServerSidePatchIds?.concat(
-        this.patchIdsStoredByClient || [],
-      ) ?? null,
-      patchIds,
-    );
     this.globalServerSidePatchIds = patchIds;
     for (const patchId of patchIds) {
       for (let i = 0; i < this.pendingClientPatchIds.length; i++) {
@@ -642,7 +642,7 @@ export class ValSyncStore {
         }
       }
     }
-    return this.sync(now, serverPatchIdsDidChange);
+    return this.sync(now);
   }
 
   // #region Syncing
@@ -706,11 +706,7 @@ export class ValSyncStore {
         reason: "network-error",
       };
     } else if (addPatchesRes.status === 409) {
-      console.log(
-        "conflict parentref",
-        parentRef && "patchId" in parentRef && parentRef.patchId,
-      );
-      // Try again if it is a conflict error:
+      // Try again if it is a conflict error (NOTE: this can absolutely happen if there are multiple concurrent users)
       return {
         status: "retry",
         reason: "conflict",
@@ -763,10 +759,6 @@ export class ValSyncStore {
           delete this.patchDataByPatchId[patchId];
         }
       }
-      console.log(
-        "stored   parentref",
-        this.patchIdsStoredByClient[this.patchIdsStoredByClient.length - 1],
-      );
     }
     return {
       status: "done",
@@ -1056,10 +1048,9 @@ export class ValSyncStore {
   public isSyncing = false;
   private MIN_WAIT_SECONDS = 1;
   private MAX_WAIT_SECONDS = 5;
-  async sync(
-    now: number,
-    serverPatchIdsDidChange: boolean,
-  ): Promise<
+
+  // #region Sync method
+  async sync(now: number): Promise<
     | {
         status: "done";
       }
@@ -1076,6 +1067,13 @@ export class ValSyncStore {
       };
     }
     this.isSyncing = true;
+    let pendingOps: PendingOp[] = [];
+    let serverPatchIdsDidChange = false;
+    for (const patchId of this.globalServerSidePatchIds || []) {
+      if (!this.syncedPatchIds.has(patchId)) {
+        serverPatchIdsDidChange = true;
+      }
+    }
     try {
       let syncAllRequired = false;
       const changes: Record<
@@ -1112,17 +1110,18 @@ export class ValSyncStore {
         };
       }
       // #region Write operations:
-      let op = this.pendingOps.shift(); // mutates pendingOps
-      while (op) {
+      pendingOps = this.pendingOps.slice();
+      this.pendingOps = [];
+      let didWrite = false;
+      while (pendingOps[0]) {
+        const op = pendingOps[0];
         if (op.type === "add-patches") {
           try {
             const res = await this.executeAddPatches(op, changes, now);
             if (res.status !== "done") {
-              this.pendingOps.unshift(op);
               return res;
             }
           } catch (err) {
-            this.pendingOps.unshift(op);
             return {
               status: "retry",
               reason: "error",
@@ -1132,20 +1131,19 @@ export class ValSyncStore {
           try {
             const res = await this.executeDeletePatches(op, changes, now);
             if (res.status !== "done") {
-              this.pendingOps.unshift(op);
               return res;
             } else {
               syncAllRequired = syncAllRequired || res.syncAllRequired;
             }
           } catch (err) {
-            this.pendingOps.unshift(op);
             return {
               status: "retry",
               reason: "error",
             };
           }
         }
-        op = this.pendingOps.shift();
+        didWrite = true;
+        pendingOps.shift();
       }
 
       // #region Read operations:
@@ -1167,30 +1165,13 @@ export class ValSyncStore {
       ) {
         const path =
           // We could be smarter wrt to the modules we fetch.
-          // However, note that we are not quite sure how long it takes to evaluate 1 vs many...
+          // However, note¨ that we are not quite sure how long it takes to evaluate 1 vs many...
           // NOTE currently we have only optimized for the case where
           // there's a lot of changes in a single text / richtext field that needs to be synced
           // (e.g. an editor is typing inside a richtext / text field)
           typeof changedModules === "object" && changedModules.length === 1
             ? (changedModules[0] as ModuleFilePath)
             : undefined;
-        if (path === undefined) {
-          console.log("GET SOURCES FROM", {
-            //        this.initializedAt === null ||
-            // this.clientSideSchemaSha !== this.serverSideSchemaSha ||
-            // serverPatchIdsDidChange ||
-            // syncAllRequired ||
-            // changedModules === "all" ||
-            // changedModules.length > 0
-            path,
-            initializedAt: this.initializedAt,
-            changedModules,
-            serverPatchIdsDidChange,
-            syncAllRequired,
-            schemaShaCompare:
-              this.clientSideSchemaSha !== this.serverSideSchemaSha,
-          });
-        }
         // TODO: change sources endpoint so that you can have multiple moduleFilePaths
         const sourcesRes = await this.client("/sources/~", "PUT", {
           path: path,
@@ -1232,13 +1213,16 @@ export class ValSyncStore {
               }
               this.serverSources[moduleFilePath] = valModule.source;
               if (
+                // Feel free to revisit / rewrite this if statement:
                 // We cannot remove optimisticClientSources, even if we just synced because the optimistic client side sources might have been changed while we were syncing
                 // If we remove the optimistic client side sources without verifying that the server side sources are the same, the user will see a flash and it revert back to the previously saved state.
                 // It feels like there might be errors that pops up because of this: what if the patch never is written / is wrong?! The change will then be lost.
                 deepEqual(
                   this.serverSources[moduleFilePath],
                   this.optimisticClientSources[moduleFilePath],
-                )
+                ) ||
+                // We check for pendingOps, because the check above will fail for files since they inject a patchId...
+                this.pendingOps.length === 0
               ) {
                 delete this.optimisticClientSources[moduleFilePath];
               }
@@ -1253,6 +1237,12 @@ export class ValSyncStore {
                 this.errors.validationErrors[sourcePath] =
                   valModule.validationErrors[sourcePath];
                 changedValidationErrors.add(sourcePath);
+              }
+              for (const syncedPatchId of valModule.patches?.applied || []) {
+                this.syncedPatchIds.add(syncedPatchId);
+              }
+              for (const syncedPatchId of valModule.patches?.skipped || []) {
+                this.syncedPatchIds.add(syncedPatchId);
               }
             } else {
               this.addTransientGlobalError(
@@ -1278,11 +1268,37 @@ export class ValSyncStore {
         }
       }
       await this.syncPatchSets(now);
+      if (this.overlayEmitter) {
+        if (didWrite && this.serverSources) {
+          for (const moduleFilePathS in changes) {
+            const moduleFilePath = moduleFilePathS as ModuleFilePath;
+            this.overlayEmitter(
+              moduleFilePath,
+              this.optimisticClientSources[moduleFilePath] ||
+                this.serverSources[moduleFilePath],
+            );
+          }
+        } else if (
+          (this.initializedAt === null || serverPatchIdsDidChange) &&
+          this.serverSources
+        ) {
+          // Initialize overlay
+          for (const moduleFilePathS in this.schemas) {
+            const moduleFilePath = moduleFilePathS as ModuleFilePath;
+            this.overlayEmitter(
+              moduleFilePath,
+              this.optimisticClientSources[moduleFilePath] ||
+                this.serverSources[moduleFilePath],
+            );
+          }
+        }
+      }
       return {
         status: "done",
       };
     } finally {
       this.isSyncing = false;
+      this.pendingOps = [...pendingOps, ...this.pendingOps];
     }
   }
 
@@ -1352,15 +1368,18 @@ type SyncStoreListenerType =
   | "persistent-global-error"
   | "source";
 type SyncStatus = "not-asked" | "fetching" | "patches-pending" | "done";
-type WithTimestamp<T> = T & { createdAt: number; updatedAt?: number };
-type AddPatchOp = WithTimestamp<{
+type CommonOpProps<T> = T & {
+  createdAt: number;
+  updatedAt?: number;
+};
+type AddPatchOp = CommonOpProps<{
   type: "add-patches";
   data: Record<
     ModuleFilePath,
     { patch: Patch; type: SerializedSchema["type"]; patchId: PatchId }[]
   >;
 }>;
-type DeletePatchesOp = WithTimestamp<{
+type DeletePatchesOp = CommonOpProps<{
   type: "delete-patches";
   patchIds: PatchId[];
 }>;
