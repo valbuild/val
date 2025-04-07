@@ -24,6 +24,7 @@ import { ValidationErrors } from "../../components/ValidationError";
 import classNames from "classnames";
 import { useEffect, useState } from "react";
 import { Input } from "../designSystem/input";
+import { Loader2 } from "lucide-react";
 
 export function ImageField({ path }: { path: SourcePath }) {
   const type = "image";
@@ -37,10 +38,33 @@ export function ImageField({ path }: { path: SourcePath }) {
     undefined,
   );
   const [error, setError] = useState<string | null>(null);
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
+  const maybeClientSideOnly =
+    sourceAtPath.status === "success" && sourceAtPath.clientSideOnly;
   useEffect(() => {
-    if ("data" in sourceAtPath && sourceAtPath.data) {
-      if (sourceAtPath.data.metadata) {
-        const metadata = sourceAtPath.data.metadata;
+    if (maybeSourceData) {
+      if (maybeSourceData.metadata) {
+        // We can't set the url before it is server side (since the we will be loading)
+        if (!maybeClientSideOnly) {
+          const nextUrl =
+            VAL_EXTENSION in maybeSourceData &&
+            maybeSourceData[VAL_EXTENSION] === "remote"
+              ? Internal.convertRemoteSource({
+                  ...maybeSourceData,
+                  [VAL_EXTENSION]: "remote",
+                }).url
+              : Internal.convertFileSource({
+                  ...maybeSourceData,
+                  [VAL_EXTENSION]: "file",
+                }).url;
+          setUrl(nextUrl);
+          setLoading(false);
+        }
+        //
+        const metadata = maybeSourceData.metadata;
         if (
           typeof metadata.width !== "number" ||
           typeof metadata.height !== "number"
@@ -76,7 +100,7 @@ export function ImageField({ path }: { path: SourcePath }) {
         setHotspot(undefined);
       }
     }
-  }, ["data" in sourceAtPath && sourceAtPath.data]);
+  }, [sourceAtPath]);
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -146,7 +170,7 @@ export function ImageField({ path }: { path: SourcePath }) {
         )}
 
       {source && (
-        <div className="py-2">
+        <div className="p-4 rounded-t-lg bg-bg-secondary">
           <span>Alt text</span>
           <Input
             value={
@@ -204,22 +228,18 @@ export function ImageField({ path }: { path: SourcePath }) {
           />
         </div>
       )}
-      {source && (
-        <div className="relative">
+      {source && url && (
+        <div className="relative bg-bg-secondary">
+          {loading && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="absolute inset-0 w-full h-full opacity-50 bg-bg-secondary" />
+              <Loader2 size={24} className="animate-spin" />
+            </div>
+          )}
           <img
-            src={
-              VAL_EXTENSION in source && source[VAL_EXTENSION] === "remote"
-                ? Internal.convertRemoteSource({
-                    ...source,
-                    [VAL_EXTENSION]: "remote",
-                  }).url
-                : Internal.convertFileSource({
-                    ...source,
-                    [VAL_EXTENSION]: "file",
-                  }).url
-            }
+            src={url}
             draggable={false}
-            className="object-contain w-full max-h-[500px] rounded-t-lg"
+            className="object-contain max-h-[500px] w-full"
             style={{
               cursor: "crosshair",
             }}
@@ -287,7 +307,7 @@ export function ImageField({ path }: { path: SourcePath }) {
         <label
           htmlFor={`img_input:${path}`}
           className={classNames(
-            "block px-1 py-2 mt-4 text-sm text-center rounded-lg cursor-pointer bg-bg-primary text-text-secondary",
+            "block px-1 py-2 text-sm text-center rounded-b-lg cursor-pointer bg-bg-primary text-text-secondary",
           )}
         >
           Update
@@ -301,6 +321,9 @@ export function ImageField({ path }: { path: SourcePath }) {
         accept={schemaAtPath.data.options?.accept || "image/*"}
         onChange={(ev) => {
           readImage(ev).then((res) => {
+            setUrl(res.src);
+            setLoading(true);
+
             const data = { src: res.src, filename: res.filename };
             let metadata: ImageMetadata | undefined;
             if (res.width && res.height && res.mimeType) {
