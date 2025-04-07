@@ -1013,7 +1013,14 @@ export function useShallowSourceAtPath<
       status: "error",
       error: sourcesRes.message || "Unknown error",
     };
-  }, [sourcesRes, syncStore.initializedAt, syncStore.syncStatus, type]);
+  }, [
+    sourcesRes,
+    modulePath,
+    moduleFilePath,
+    syncStore.initializedAt,
+    syncStore.syncStatus,
+    type,
+  ]);
   return source;
 }
 
@@ -1054,19 +1061,24 @@ export function useSourceAtPath(sourcePath: SourcePath):
     () => syncStore.getDataSnapshot(moduleFilePath),
     () => syncStore.getDataSnapshot(moduleFilePath),
   );
-  if (syncStore.initializedAt === null) {
-    return { status: "loading" };
-  }
-  if (sourceSnapshot.status === "success") {
-    return walkSourcePath(modulePath, sourceSnapshot.data.source);
-  }
-  if (
-    sourceSnapshot.status === "module-schema-not-found" ||
-    sourceSnapshot.status === "module-source-not-found"
-  ) {
-    return { status: "not-found" };
-  }
-  return { status: "error", error: sourceSnapshot.message || "Unknown error" };
+  return useMemo(() => {
+    if (syncStore.initializedAt === null) {
+      return { status: "loading" };
+    }
+    if (sourceSnapshot.status === "success") {
+      return walkSourcePath(modulePath, sourceSnapshot.data.source);
+    }
+    if (
+      sourceSnapshot.status === "module-schema-not-found" ||
+      sourceSnapshot.status === "module-source-not-found"
+    ) {
+      return { status: "not-found" };
+    }
+    return {
+      status: "error",
+      error: sourceSnapshot.message || "Unknown error",
+    };
+  }, [sourceSnapshot, syncStore.initializedAt, modulePath, moduleFilePath]);
 }
 
 function walkSourcePath(

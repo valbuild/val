@@ -4,6 +4,7 @@ import {
   useAddPatch,
   useSchemaAtPath,
   useShallowSourceAtPath,
+  useSourceAtPath,
 } from "../ValProvider";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -25,15 +26,17 @@ export function StringField({
 }) {
   const type = "string";
   const schemaAtPath = useSchemaAtPath(path);
-  const sourceAtPath = useShallowSourceAtPath(path, type);
+  const sourceAtPath = useSourceAtPath(path);
   const { patchPath, addPatch } = useAddPatch(path);
   const [currentValue, setCurrentValue] = useState<string | null>(null);
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
   const maybeClientSideOnly =
     "clientSideOnly" in sourceAtPath && sourceAtPath.clientSideOnly;
   useEffect(() => {
-    if (maybeClientSideOnly === false && typeof maybeSourceData === "string") {
-      setCurrentValue(maybeSourceData);
+    if (maybeClientSideOnly === false) {
+      setCurrentValue(
+        typeof maybeSourceData === "string" ? maybeSourceData : null,
+      );
     }
   }, [maybeSourceData, maybeClientSideOnly]);
   if (schemaAtPath.status === "error") {
