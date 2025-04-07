@@ -34,7 +34,7 @@ import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
  *
  * We believe that we either must:
  *  1) accept that this is complex and make sure it is well tested (this is where we try to go now)
- *  2) find a better model of the problem / cut down on the performance
+ *  2) find a better model of the problem / cut down on the performance ambitions
  *
  * NOTE: we haven't actually measured the performance well, so one might argue that until we do that
  * we have no business in optimizing for performance. However, wrt performance the stance now is to,
@@ -645,7 +645,7 @@ export class ValSyncStore {
     return this.sync(now);
   }
 
-  // #region Syncing
+  // #region Sync utils
   async executeAddPatches(
     op: AddPatchOp,
     changes: Record<ModuleFilePath, Set<SerializedSchema["type"] | "unknown">>,
@@ -1049,7 +1049,7 @@ export class ValSyncStore {
   private MIN_WAIT_SECONDS = 1;
   private MAX_WAIT_SECONDS = 5;
 
-  // #region Sync method
+  // #region Sync
   async sync(now: number): Promise<
     | {
         status: "done";
@@ -1109,7 +1109,7 @@ export class ValSyncStore {
           reason: "too-fast",
         };
       }
-      // #region Write operations:
+      // #region Write operations
       pendingOps = this.pendingOps.slice();
       this.pendingOps = [];
       let didWrite = false;
@@ -1146,7 +1146,7 @@ export class ValSyncStore {
         pendingOps.shift();
       }
 
-      // #region Read operations:
+      // #region Read operations
       if (this.clientSideSchemaSha === null || this.schemas === null) {
         const res = await this.syncSchema();
         if (res.status !== "done") {
@@ -1319,7 +1319,7 @@ export class ValSyncStore {
   }
 }
 
-// #region Supporting code:
+// #region Supporting code
 const ops = new JSONOps();
 const globalNamespace = "global";
 /**
@@ -1350,7 +1350,7 @@ export const defaultOverlayEmitter = (
   );
 };
 
-// #region Types:
+// #region Types
 type RetryReason =
   | "conflict"
   | "not-initialized"
