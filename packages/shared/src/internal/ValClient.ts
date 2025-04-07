@@ -17,10 +17,14 @@ export const createValClient = (host: string): ValClient => {
       for (const key of Object.keys(anyReq.query)) {
         if (Array.isArray(anyReq.query?.[key])) {
           for (const value of anyReq.query?.[key] || []) {
-            params.push([key, value.toString()]);
+            if (value !== undefined) {
+              params.push([key, value.toString()]);
+            }
           }
         } else {
-          params.push([key, anyReq?.query?.[key]]);
+          if (anyReq.query?.[key] !== undefined) {
+            params.push([key, anyReq?.query?.[key]]);
+          }
         }
       }
       if (anyReq?.query && params.length > 0) {
