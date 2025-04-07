@@ -1047,15 +1047,18 @@ export function useSourceAtPath(sourcePath: SourcePath):
       status: "loading";
     } {
   const { syncStore } = useContext(ValContext);
-
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
-  const sourceSnapshot = syncStore.getDataSnapshot(moduleFilePath);
+  const sourceSnapshot = useSyncExternalStore(
+    syncStore.subscribe("source", moduleFilePath),
+    () => syncStore.getDataSnapshot(moduleFilePath),
+    () => syncStore.getDataSnapshot(moduleFilePath),
+  );
   if (syncStore.initializedAt === null) {
     return { status: "loading" };
   }
   if (sourceSnapshot.status === "success") {
-    return walkSourcePath(modulePath, sourceSnapshot.data);
+    return walkSourcePath(modulePath, sourceSnapshot.data.source);
   }
   if (
     sourceSnapshot.status === "module-schema-not-found" ||
