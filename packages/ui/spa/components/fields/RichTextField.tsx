@@ -1,7 +1,6 @@
 import {
   AllRichTextOptions,
   ConfigDirectory,
-  Internal,
   RichTextSource,
   SourcePath,
 } from "@valbuild/core";
@@ -31,7 +30,6 @@ import {
 import { RichTextEditor, useRichTextEditor } from "../RichTextEditor";
 import { useEffect, useMemo, useState } from "react";
 import { EditorState } from "@remirror/core";
-import { TextSelection } from "@remirror/pm/state";
 
 export function RichTextField({
   path,
@@ -71,60 +69,15 @@ export function RichTextField({
                 maybeSourceData as RichTextSource<AllRichTextOptions>,
               )
             : undefined;
-          const { view } = manager;
-
-          // Claude helped me with this... Seems legit though:
-          // If we have a view, we can use transactions to update content which preserves history
-          if (view) {
-            // Store information about the current selection
-            const { selection } = prevState;
-            const wasAtEnd = selection.to === prevState.doc.content.size;
-            const selectionRelativePos =
-              selection.from / Math.max(1, prevState.doc.content.size);
-
-            // Create a transaction to replace the document content while preserving history
-            const tr = view.state.tr.replaceWith(
-              0,
-              view.state.doc.content.size,
-              manager.createState({
-                content: newContent,
-              }).doc.content,
-            );
-
-            // Try to restore selection in the new document
-            const newDocSize = tr.doc.content.size;
-
-            if (wasAtEnd) {
-              // If selection was at the end, keep it at the end
-              tr.setSelection(TextSelection.create(tr.doc, newDocSize));
-            } else {
-              // Otherwise try to place it at approximately the same relative position
-              const newPos = Math.min(
-                Math.round(selectionRelativePos * newDocSize),
-                newDocSize,
-              );
-              try {
-                const textSelection = TextSelection.create(tr.doc, newPos);
-                tr.setSelection(textSelection);
-              } catch (e) {
-                console.warn("Failed to restore selection position", e);
-                // Fallback to start of document if selection fails
-                tr.setSelection(TextSelection.create(tr.doc, 0));
-              }
-            }
-
-            // Apply the transaction which preserves history
-            view.dispatch(tr);
-
-            // Return the current state as it's already updated via the transaction
-            return view.state;
-          }
-
-          // Fallback to creating a new state if view isn't available
-          return manager.createState({
+          const newState = manager.createState({
             content: newContent,
             selection: prevState.selection,
           });
+          if (newState.doc.eq(prevState.doc)) {
+            // Avoid (unnecessary) update that also erases the history
+            return prevState;
+          }
+          return newState;
         } catch (e) {
           console.error(
             "Error (re)creating editor state with selection, retrying without...",
