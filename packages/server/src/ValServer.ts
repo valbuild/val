@@ -1216,7 +1216,9 @@ export const ValServer = (
           sourcesRes.sources,
         )) {
           const moduleFilePath = moduleFilePathS as ModuleFilePath;
-          if (moduleFilePath.startsWith(moduleFilePath)) {
+          // TODO: currently sourcesRes contains ALL MODULES.
+          // We should only evaluate exactly what we need
+          if (!req.path || moduleFilePath.startsWith(req.path)) {
             const skippedPatches: PatchId[] = [];
             const patchErrors: Record<PatchId, { message: string }> = {};
             const appliedPatches: PatchId[] =
