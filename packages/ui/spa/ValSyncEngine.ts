@@ -465,12 +465,12 @@ export class ValSyncEngine {
       const newSource = patchRes.value;
       this.syncStatus[sourcePath] = "patches-pending";
       this.optimisticClientSources[moduleFilePath] = newSource;
+      // Try to batch add-patches ops together to avoid too many requests...
       if (lastOp?.type === "add-patches") {
-        // Batch add-patches ops together to avoid too many requests...
+        // ... either by merging them if possible (reduces amount of patch ops and data)
         const lastPatchIdx = (lastOp.data?.[moduleFilePath]?.length || 0) - 1;
         const lastPatch = lastOp.data?.[moduleFilePath]?.[lastPatchIdx]?.patch;
         const patchId = lastOp.data?.[moduleFilePath]?.[lastPatchIdx]?.patchId;
-        // ... either by merging them if possible (reduces amount of patch ops and data)
         if (
           canMerge(lastPatch, patch) &&
           // The type of the last should always be the same as long as the schema has not changed
