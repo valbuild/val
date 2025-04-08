@@ -471,7 +471,7 @@ export function ValProvider({
     }
     let timeout: NodeJS.Timeout | null = null;
     const sync = async () => {
-      await syncStore.sync(Date.now(), false);
+      await syncStore.sync(Date.now());
       if (timeout) {
         clearTimeout(timeout);
       }
