@@ -524,7 +524,7 @@ export const EXT_TO_MIME_TYPES: Record<string, string> = {
   ssf: "application/vnd.epson.ssf",
   qam: "application/vnd.epson.quickanime",
   qfx: "application/vnd.intu.qfx",
-  qt: "video/quicktime",
+  mov: "video/quicktime",
   rar: "application/x-rar-compressed",
   ram: "audio/x-pn-realaudio",
   rmp: "audio/x-pn-realaudio-plugin",
