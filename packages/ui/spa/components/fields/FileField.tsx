@@ -26,11 +26,12 @@ import {
   useRemoteFiles,
 } from "../ValProvider";
 import { PreviewLoading, PreviewNull } from "../Preview";
-import { File, SquareArrowOutUpRight } from "lucide-react";
+import { File, Loader2, SquareArrowOutUpRight } from "lucide-react";
 import { readFile } from "../../utils/readFile";
 import { Button } from "../designSystem/button";
 import { useState } from "react";
 import { getFileExt } from "../../utils/getFileExt";
+import { useEffect } from "react";
 
 const textEncoder = new TextEncoder();
 export async function createFilePatch(
@@ -108,6 +109,17 @@ export function FileField({ path }: { path: SourcePath }) {
   const sourceAtPath = useShallowSourceAtPath(path, type);
   const { patchPath, addPatch } = useAddPatch(path);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const maybeClientSideOnly =
+    sourceAtPath.status === "success" && sourceAtPath.clientSideOnly;
+  useEffect(() => {
+    if (sourceAtPath.status === "loading" || maybeClientSideOnly) {
+      setLoading(true);
+    } else {
+      setLoading(false);
+    }
+  }, [sourceAtPath]);
+
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
@@ -160,6 +172,24 @@ export function FileField({ path }: { path: SourcePath }) {
           remoteHost: config.remoteHost,
         }
       : null;
+  let filePathRef = null;
+  if (source?._ref) {
+    if (schemaAtPath.data.remote) {
+      const splitRemoteRefDataRes = Internal.remote.splitRemoteRef(
+        source?._ref,
+      );
+      if (splitRemoteRefDataRes.status === "success") {
+        filePathRef = splitRemoteRefDataRes.filePath;
+      }
+    } else {
+      filePathRef = source?._ref;
+    }
+  }
+
+  let filename = null;
+  if (filePathRef) {
+    filename = filePathRef.split("/").slice(-1)[0];
+  }
   return (
     <div>
       <ValidationErrors path={path} />
@@ -168,68 +198,82 @@ export function FileField({ path }: { path: SourcePath }) {
           {error}
         </div>
       )}
-      <div className="flex items-center gap-4">
-        <Button
-          asChild
-          variant={"ghost"}
-          className="cursor-pointer bg-bg-primary hover:bg-bg-secondary_alt"
-        >
-          <label htmlFor={`img_input:${path}`}>Update</label>
-        </Button>
-        {source && (
-          <a
-            className="flex items-center gap-2"
-            href={
-              VAL_EXTENSION in source && source[VAL_EXTENSION] === "remote"
-                ? Internal.convertRemoteSource({
-                    ...source,
-                    [VAL_EXTENSION]: "remote",
-                  }).url
-                : Internal.convertFileSource({
-                    ...source,
-                    [VAL_EXTENSION]: "file",
-                  }).url
-            }
-          >
-            {" "}
-            <span> Open file</span>
-            <SquareArrowOutUpRight />
-          </a>
+      <div className="grid gap-2">
+        {filename && (
+          <div className="flex items-center gap-2">
+            <div className="text-sm text-text-secondary">{filename}</div>
+            {loading && (
+              <Loader2
+                className={`animate-spin text-text-secondary ${
+                  loading ? "block" : "hidden"
+                }`}
+                size={16}
+              />
+            )}
+          </div>
         )}
-        <input
-          disabled={disabled}
-          hidden
-          id={`img_input:${path}`}
-          type="file"
-          accept={schemaAtPath.data.options?.accept}
-          onChange={(ev) => {
-            readFile(ev).then((res) => {
-              const data = { src: res.src, filename: res.filename };
-              let metadata: FileMetadata | undefined;
-              if (res.mimeType) {
-                metadata = {
-                  mimeType: res.mimeType,
-                };
+        <div className="flex items-center gap-4">
+          <Button
+            asChild
+            variant={"ghost"}
+            className="cursor-pointer bg-bg-primary hover:bg-bg-secondary_alt"
+          >
+            <label htmlFor={`img_input:${path}`}>Update</label>
+          </Button>
+          {source && (
+            <a
+              className="flex items-center gap-2"
+              href={
+                VAL_EXTENSION in source && source[VAL_EXTENSION] === "remote"
+                  ? Internal.convertRemoteSource({
+                      ...source,
+                      [VAL_EXTENSION]: "remote",
+                    }).url
+                  : Internal.convertFileSource({
+                      ...source,
+                      [VAL_EXTENSION]: "file",
+                    }).url
               }
-              setError(null);
-              createFilePatch(
-                patchPath,
-                data.src,
-                data.filename ?? null,
-                res.fileHash,
-                metadata,
-                "file",
-                remoteData,
-                config.files?.directory,
-              )
-                .then((patch) => addPatch(patch, schemaAtPath.data.type))
-                .catch((err) => {
-                  console.error("Failed to create file patch", err);
-                  setError("Could not upload file. Please try again later");
-                });
-            });
-          }}
-        />
+            >
+              <span> Open file</span>
+              <SquareArrowOutUpRight />
+            </a>
+          )}
+          <input
+            disabled={disabled}
+            hidden
+            id={`img_input:${path}`}
+            type="file"
+            accept={schemaAtPath.data.options?.accept}
+            onChange={(ev) => {
+              readFile(ev).then((res) => {
+                const data = { src: res.src, filename: res.filename };
+                let metadata: FileMetadata | undefined;
+                if (res.mimeType) {
+                  metadata = {
+                    mimeType: res.mimeType,
+                  };
+                }
+                setError(null);
+                createFilePatch(
+                  patchPath,
+                  data.src,
+                  data.filename ?? null,
+                  res.fileHash,
+                  metadata,
+                  "file",
+                  remoteData,
+                  config.files?.directory,
+                )
+                  .then((patch) => addPatch(patch, schemaAtPath.data.type))
+                  .catch((err) => {
+                    console.error("Failed to create file patch", err);
+                    setError("Could not upload file. Please try again later");
+                  });
+              });
+            }}
+          />
+        </div>
       </div>
     </div>
   );
