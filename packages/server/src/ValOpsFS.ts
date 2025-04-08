@@ -859,12 +859,12 @@ export class ValOpsFS extends ValOps {
 
   async saveOrUploadFiles(
     preparedCommit: PreparedCommit,
-    auth:
+    mode: "skip-remote" | "upload-remote",
+    auth?:
       | {
           apiKey: string;
         }
       | { pat: string },
-    testMode?: "test-skip-remote",
   ): Promise<{
     updatedFiles: string[];
     uploadedRemoteRefs: string[];
@@ -886,54 +886,62 @@ export class ValOpsFS extends ValOps {
       .filter(([, { remote }]) => !remote)
       .map(([ref, { patchId }]) => [ref, { patchId }] as const);
 
-    for (const [ref, { patchId }] of remoteFileDescriptors) {
-      const splitRemoteRefRes = Internal.remote.splitRemoteRef(ref);
-      if (splitRemoteRefRes.status === "error") {
-        errors[ref] = {
-          message: "Failed to split remote ref: " + ref,
+    if (mode === "upload-remote") {
+      if (!auth) {
+        errors["auth"] = {
+          message: "No auth provided",
         };
-        continue;
-      }
-      const fileBuffer = await this.getBase64EncodedBinaryFileFromPatch(
-        splitRemoteRefRes.filePath,
-        patchId,
-      );
-      if (!fileBuffer) {
-        errors[ref] = {
-          message:
-            "Failed to get binary file from patch. Ref: " +
-            ref +
-            ". PatchId: " +
-            patchId,
+        return {
+          updatedFiles,
+          uploadedRemoteRefs,
+          errors,
         };
-        continue;
       }
-      if (testMode === "test-skip-remote") {
-        console.log("Skip remote flag enabled. Skipping file upload", ref);
-        continue;
+      for (const [ref, { patchId }] of remoteFileDescriptors) {
+        const splitRemoteRefRes = Internal.remote.splitRemoteRef(ref);
+        if (splitRemoteRefRes.status === "error") {
+          errors[ref] = {
+            message: "Failed to split remote ref: " + ref,
+          };
+          continue;
+        }
+        const fileBuffer = await this.getBase64EncodedBinaryFileFromPatch(
+          splitRemoteRefRes.filePath,
+          patchId,
+        );
+        if (!fileBuffer) {
+          errors[ref] = {
+            message:
+              "Failed to get binary file from patch. Ref: " +
+              ref +
+              ". PatchId: " +
+              patchId,
+          };
+          continue;
+        }
+        if (!this.options?.config.project) {
+          errors[ref] = {
+            message: "No project found in config",
+          };
+          continue;
+        }
+        console.log("Uploading remote file", ref);
+        const res = await uploadRemoteFile(
+          this.contentUrl,
+          this.options.config.project,
+          splitRemoteRefRes.bucket,
+          splitRemoteRefRes.fileHash,
+          getFileExt(splitRemoteRefRes.filePath),
+          fileBuffer,
+          auth,
+        );
+        if (!res.success) {
+          console.error("Failed to upload remote file", ref, res.error);
+          throw new Error(`Failed to upload remote file: ${ref}. ${res.error}`);
+        }
+        console.log("Completed remote file", ref);
+        uploadedRemoteRefs.push(ref);
       }
-      if (!this.options?.config.project) {
-        errors[ref] = {
-          message: "No project found in config",
-        };
-        continue;
-      }
-      console.log("Uploading remote file", ref);
-      const res = await uploadRemoteFile(
-        this.contentUrl,
-        this.options.config.project,
-        splitRemoteRefRes.bucket,
-        splitRemoteRefRes.fileHash,
-        getFileExt(splitRemoteRefRes.filePath),
-        fileBuffer,
-        auth,
-      );
-      if (!res.success) {
-        console.error("Failed to upload remote file", ref, res.error);
-        throw new Error(`Failed to upload remote file: ${ref}. ${res.error}`);
-      }
-      console.log("Completed remote file", ref);
-      uploadedRemoteRefs.push(ref);
     }
 
     const patchIdToPatchDirMapRes = await this.getParentPatchIdFromPatchIdMap();
