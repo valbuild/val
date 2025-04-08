@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Api, ClientFetchErrors } from "@valbuild/shared/internal";
-import { ValSyncStore } from "./ValSyncStore";
+import { ValSyncEngine } from "./ValSyncEngine";
 import {
   initVal,
   Internal,
@@ -15,15 +15,15 @@ import {
 import { applyPatch, deepClone, JSONOps, Patch } from "@valbuild/core/patch";
 import { z } from "zod";
 
-describe("ValSyncStore", () => {
+describe("ValSyncEngine", () => {
   test("basic init and sync", async () => {
     const { s, c, config } = initVal();
-    const tester = new SyncStoreTester(
+    const tester = new SyncEngineTester(
       [c.define("/test.val.ts", s.string().minLength(2), "test")],
       config,
     );
-    const updateValue = (syncStore: ValSyncStore, value: string) => {
-      return syncStore.addPatch(
+    const updateValue = (syncEngine: ValSyncEngine, value: string) => {
+      return syncEngine.addPatch(
         toSourcePath("/test.val.ts"),
         "string",
         [{ op: "replace", path: [], value }],
@@ -31,102 +31,110 @@ describe("ValSyncStore", () => {
       );
     };
 
-    const syncStore1 = await tester.createInitializedSyncStore();
+    const syncEngine1 = await tester.createInitializedSyncEngine();
 
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
+        ?.source,
     ).toStrictEqual("test");
 
-    expect(updateValue(syncStore1, "")).toMatchObject({
+    expect(updateValue(syncEngine1, "")).toMatchObject({
       status: "patch-added",
     });
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
+        ?.source,
     ).toStrictEqual("");
-    expect(updateValue(syncStore1, "value 1 from store 1")).toMatchObject({
+    expect(updateValue(syncEngine1, "value 1 from store 1")).toMatchObject({
       status: "patch-merged",
     });
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
+        ?.source,
     ).toStrictEqual("value 1 from store 1");
     tester.simulatePassingOfSeconds(5);
-    expect(await tester.simulateStatCallback(syncStore1)).toMatchObject({
+    expect(await tester.simulateStatCallback(syncEngine1)).toMatchObject({
       status: "done",
     });
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
+        ?.source,
     ).toStrictEqual("value 1 from store 1");
   });
 
   test("wait 1 second from last op before allowing sync", async () => {
     const { s, c, config } = initVal();
-    const tester = new SyncStoreTester(
+    const tester = new SyncEngineTester(
       [c.define("/test.val.ts", s.string().minLength(2), "test")],
       config,
     );
-    const updateValue = (syncStore: ValSyncStore, value: string) => {
-      return syncStore.addPatch(
+    const updateValue = (syncEngine: ValSyncEngine, value: string) => {
+      return syncEngine.addPatch(
         toSourcePath("/test.val.ts"),
         "string",
         [{ op: "replace", path: [], value }],
         tester.getNextNow(),
       );
     };
-    const syncStore1 = await tester.createInitializedSyncStore();
+    const syncEngine1 = await tester.createInitializedSyncEngine();
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
+        ?.source,
     ).toStrictEqual("test");
-    expect(updateValue(syncStore1, "value 0 from store 1")).toMatchObject({
+    expect(updateValue(syncEngine1, "value 0 from store 1")).toMatchObject({
       status: "patch-added",
     });
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
+        ?.source,
     ).toStrictEqual("value 0 from store 1");
-    expect(updateValue(syncStore1, "value 1 from store 1")).toMatchObject({
+    expect(updateValue(syncEngine1, "value 1 from store 1")).toMatchObject({
       status: "patch-merged",
     });
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
+        ?.source,
     ).toStrictEqual("value 1 from store 1");
     tester.simulatePassingOfSeconds(0.5);
-    expect(await syncStore1.sync(tester.getNextNow())).toMatchObject({
+    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
       status: "retry",
       reason: "too-fast",
     });
 
-    expect(updateValue(syncStore1, "value 2 from store 1")).toMatchObject({
+    expect(updateValue(syncEngine1, "value 2 from store 1")).toMatchObject({
       status: "patch-merged",
     });
     tester.simulatePassingOfSeconds(1);
-    expect(await syncStore1.sync(tester.getNextNow())).toMatchObject({
+    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
       status: "done",
     });
 
-    expect(updateValue(syncStore1, "value 3 from store 1")).toMatchObject({
+    expect(updateValue(syncEngine1, "value 3 from store 1")).toMatchObject({
       status: "patch-added",
     });
     tester.simulatePassingOfSeconds(4.5);
-    expect(updateValue(syncStore1, "value 4 from store 1")).toMatchObject({
+    expect(updateValue(syncEngine1, "value 4 from store 1")).toMatchObject({
       status: "patch-merged",
     });
     tester.simulatePassingOfSeconds(0.5);
-    expect(await syncStore1.sync(tester.getNextNow())).toMatchObject({
+    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
       status: "done",
     });
 
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
+        ?.source,
     ).toStrictEqual("value 4 from store 1");
   });
 
   test("basic conflict", async () => {
     const { s, c, config } = initVal();
-    const tester = new SyncStoreTester(
+    const tester = new SyncEngineTester(
       [c.define("/test.val.ts", s.string().minLength(2), "test")],
       config,
     );
-    const updateValue = (syncStore: ValSyncStore, value: string) => {
-      return syncStore.addPatch(
+    const updateValue = (syncEngine: ValSyncEngine, value: string) => {
+      return syncEngine.addPatch(
         toSourcePath("/test.val.ts"),
         "string",
         [{ op: "replace", path: [], value }],
@@ -134,55 +142,60 @@ describe("ValSyncStore", () => {
       );
     };
 
-    const syncStore1 = await tester.createInitializedSyncStore();
+    const syncEngine1 = await tester.createInitializedSyncEngine();
 
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
+        ?.source,
     ).toStrictEqual("test");
-    expect(updateValue(syncStore1, "value 0 from store 1")).toMatchObject({
+    expect(updateValue(syncEngine1, "value 0 from store 1")).toMatchObject({
       status: "patch-added",
     });
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
+        ?.source,
     ).toStrictEqual("value 0 from store 1");
-    expect(updateValue(syncStore1, "value 1 from store 1")).toMatchObject({
+    expect(updateValue(syncEngine1, "value 1 from store 1")).toMatchObject({
       status: "patch-merged",
     });
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
+        ?.source,
     ).toStrictEqual("value 1 from store 1");
     // Start up sync store 2 before sync...
-    const syncStore2 = await tester.createInitializedSyncStore();
-    expect(updateValue(syncStore2, "value 2 from store 2")).toMatchObject({
+    const syncEngine2 = await tester.createInitializedSyncEngine();
+    expect(updateValue(syncEngine2, "value 2 from store 2")).toMatchObject({
       status: "patch-added",
     });
     expect(
-      syncStore2.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+      syncEngine2.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
+        ?.source,
     ).toStrictEqual("value 2 from store 2");
     // ...then sync store 1
     tester.simulatePassingOfSeconds(5);
-    expect(await syncStore1.sync(tester.getNextNow())).toMatchObject({
+    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
       status: "done",
     });
-    expect(await tester.simulateStatCallback(syncStore1)).toMatchObject({
+    expect(await tester.simulateStatCallback(syncEngine1)).toMatchObject({
       status: "done",
     });
     // We must get stat before we can sync again
     tester.simulatePassingOfSeconds(5);
-    expect(await syncStore2.sync(tester.getNextNow())).toMatchObject({
+    expect(await syncEngine2.sync(tester.getNextNow())).toMatchObject({
       status: "retry",
       reason: "conflict",
     });
     tester.simulatePassingOfSeconds(5);
-    expect(await tester.simulateStatCallback(syncStore2)).toMatchObject({
+    expect(await tester.simulateStatCallback(syncEngine2)).toMatchObject({
       status: "done",
     });
     tester.simulatePassingOfSeconds(5);
-    expect(await tester.simulateStatCallback(syncStore1)).toMatchObject({
+    expect(await tester.simulateStatCallback(syncEngine1)).toMatchObject({
       status: "done",
     });
     expect(
-      syncStore1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data?.source,
+      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
+        ?.source,
     ).toStrictEqual("value 2 from store 2");
   });
 });
@@ -222,7 +235,7 @@ type FakeApi = {
   };
 };
 
-class SyncStoreTester {
+class SyncEngineTester {
   fakeModules: any[];
   ops: JSONOps;
   fakePatches: {
@@ -563,7 +576,7 @@ class SyncStoreTester {
     };
   }
 
-  async simulateStatCallback(valStore: ValSyncStore) {
+  async simulateStatCallback(valStore: ValSyncEngine) {
     return await valStore.syncWithUpdatedStat(
       this.getBaseSha(),
       this.getSchemasSha(),
@@ -572,17 +585,17 @@ class SyncStoreTester {
     );
   }
 
-  async createInitializedSyncStore() {
-    const syncStore = new ValSyncStore(this.createMockClient(), undefined);
+  async createInitializedSyncEngine() {
+    const syncEngine = new ValSyncEngine(this.createMockClient(), undefined);
     const authorId = null;
-    await syncStore.init(
+    await syncEngine.init(
       this.getBaseSha(),
       this.getSchemasSha(),
       this.fakePatches.map((p) => p.patchId),
       authorId,
       this.now++,
     );
-    return syncStore;
+    return syncEngine;
   }
 
   simulatePassingOfSeconds(seconds: number) {
