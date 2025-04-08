@@ -12,6 +12,8 @@ import {
   FileSource,
   RemoteSource,
   DEFAULT_VAL_REMOTE_HOST,
+  Schema,
+  SelectorSource,
 } from "@valbuild/core";
 import {
   Api,
@@ -44,6 +46,7 @@ import {
   parsePersonalAccessTokenFile,
 } from "./personalAccessTokens";
 import path from "path";
+import { hasRemoteFileSchema } from "./hasRemoteFileSchema";
 
 export type ValServerOptions = {
   route: string;
@@ -306,7 +309,7 @@ export const ValServer = (
         apiKey: options.apiKey,
       };
     } else if (serverOps instanceof ValOpsFS) {
-      const projectRootDir = options.config.root;
+      const projectRootDir = options.config.root || ".";
       if (!projectRootDir) {
         return {
           status: 400,
@@ -1416,12 +1419,28 @@ export const ValServer = (
           };
         }
         if (serverOps instanceof ValOpsFS) {
-          const remoteFileAuthRes = await getRemoteFileAuth();
-          if (remoteFileAuthRes.status !== 200) {
+          const isRemoteRequired = getIsRemoteRequired(
+            await serverOps.getSchemas(),
+          );
+          let mode: "skip-remote" | "upload-remote";
+          let remoteFileAuthRes:
+            | undefined
+            | Awaited<ReturnType<typeof getRemoteFileAuth>>;
+          if (isRemoteRequired) {
+            mode = "upload-remote";
+            remoteFileAuthRes = await getRemoteFileAuth();
+          } else {
+            mode = "skip-remote";
+          }
+          if (remoteFileAuthRes && remoteFileAuthRes.status !== 200) {
             return remoteFileAuthRes;
           }
-          const remoteFileAuth = remoteFileAuthRes.json.remoteFileAuth;
-          await serverOps.saveOrUploadFiles(preparedCommit, remoteFileAuth);
+          const remoteFileAuth = remoteFileAuthRes?.json?.remoteFileAuth;
+          await serverOps.saveOrUploadFiles(
+            preparedCommit,
+            mode,
+            remoteFileAuth,
+          );
           await serverOps.deletePatches(patchIds);
           return {
             status: 200,
@@ -1914,4 +1933,18 @@ export function guessMimeTypeFromPath(filePath: string): string | null {
     return COMMON_MIME_TYPES[fileExt.toLowerCase()] || null;
   }
   return null;
+}
+
+function getIsRemoteRequired(
+  schemas: Record<ModuleFilePath, Schema<SelectorSource>>,
+): boolean {
+  for (const moduleFilePathS in schemas) {
+    const moduleFilePath = moduleFilePathS as ModuleFilePath;
+    const schema = schemas[moduleFilePath].serialize();
+    const isRemoteRequired = hasRemoteFileSchema(schema);
+    if (isRemoteRequired) {
+      return true;
+    }
+  }
+  return false;
 }
