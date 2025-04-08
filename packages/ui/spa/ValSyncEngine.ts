@@ -21,7 +21,7 @@ import { canMerge } from "./utils/mergePatches";
 import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
 
 /**
- * ValSyncStore is a store that keeps track of the state of the Val client.
+ * ValSyncEngine is the engine that keeps track of the state of the Val client.
  * It is intended to be used with useSyncExternalStore.
  *
  * It is a MASSIVE class that handles all the syncing, patching, and state management for the Val client.
@@ -43,7 +43,7 @@ import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
  * What we're trying to say is... ...That although optimizing performance is stupid without measuring,
  * it is even stupider to do lots of work that we simply know is unnecessary.
  */
-export class ValSyncStore {
+export class ValSyncEngine {
   initializedAt: number | null;
   /**
    * Patch Ids stored by this client
@@ -198,7 +198,7 @@ export class ValSyncStore {
 
   // #region Subscribe
   private listeners: Partial<
-    Record<SyncStoreListenerType, Record<string, (() => void)[]>>
+    Record<SyncEngineListenerType, Record<string, (() => void)[]>>
   >;
   subscribe(
     type: "source",
@@ -224,7 +224,7 @@ export class ValSyncStore {
   subscribe(type: "schema"): (listener: () => void) => () => void;
   subscribe(type: "patch-sets"): (listener: () => void) => () => void;
   subscribe(
-    type: SyncStoreListenerType,
+    type: SyncEngineListenerType,
     path?: string,
   ): (listener: () => void) => () => void {
     const p = path || globalNamespace;
@@ -1358,7 +1358,7 @@ type RetryReason =
   | "too-fast"
   | "error"
   | "already-syncing";
-type SyncStoreListenerType =
+type SyncEngineListenerType =
   | "schema"
   | "sync-status"
   | "patch-sets"
