@@ -113,12 +113,10 @@ export function FileField({ path }: { path: SourcePath }) {
   const maybeClientSideOnly =
     sourceAtPath.status === "success" && sourceAtPath.clientSideOnly;
   useEffect(() => {
-    if (sourceAtPath.status === "loading" || maybeClientSideOnly) {
-      setLoading(true);
-    } else {
+    if (!maybeClientSideOnly) {
       setLoading(false);
     }
-  }, [sourceAtPath]);
+  }, [maybeClientSideOnly]);
 
   if (schemaAtPath.status === "error") {
     return (
@@ -246,6 +244,7 @@ export function FileField({ path }: { path: SourcePath }) {
             type="file"
             accept={schemaAtPath.data.options?.accept}
             onChange={(ev) => {
+              setLoading(true);
               readFile(ev).then((res) => {
                 const data = { src: res.src, filename: res.filename };
                 let metadata: FileMetadata | undefined;
@@ -265,8 +264,11 @@ export function FileField({ path }: { path: SourcePath }) {
                   remoteData,
                   config.files?.directory,
                 )
-                  .then((patch) => addPatch(patch, schemaAtPath.data.type))
+                  .then((patch) => {
+                    addPatch(patch, schemaAtPath.data.type);
+                  })
                   .catch((err) => {
+                    setLoading(false);
                     console.error("Failed to create file patch", err);
                     setError("Could not upload file. Please try again later");
                   });
