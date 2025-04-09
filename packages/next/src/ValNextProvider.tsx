@@ -1,13 +1,19 @@
 "use client";
 
-import { Internal, ModuleFilePath, ValConfig } from "@valbuild/core";
+import {
+  DEFAULT_CONTENT_HOST,
+  Internal,
+  ModuleFilePath,
+  ValConfig,
+} from "@valbuild/core";
 import { VAL_APP_PATH, VAL_OVERLAY_ID } from "@valbuild/ui";
 import { useRouter } from "next/navigation";
 import Script from "next/script";
-import React, { useEffect } from "react";
+import React from "react";
 import { ValExternalStore, ValOverlayProvider } from "./ValOverlayContext";
 import { SET_AUTO_TAG_JSX_ENABLED } from "@valbuild/react/stega";
 import { createValClient } from "@valbuild/shared/internal";
+import { useRemoteConfigSender } from "./useRemoteConfigSender";
 
 /**
  * Shows the Overlay menu and updates the store which the client side useVal hook uses to display data.
@@ -19,7 +25,14 @@ export const ValNextProvider = (props: {
 }) => {
   // TODO: use config:
   const route = "/api/val";
-  const client = React.useMemo(() => createValClient(route), [route]);
+  const client = React.useMemo(
+    () =>
+      createValClient(route, {
+        ...props.config,
+        contentHostUrl: DEFAULT_CONTENT_HOST,
+      }),
+    [route, props.config],
+  );
 
   // TODO: move below into react package
   const valStore = React.useMemo(() => new ValExternalStore(), []);
@@ -127,7 +140,7 @@ export const ValNextProvider = (props: {
   }, [showOverlay, draftMode]);
 
   const pollDraftStatIdRef = React.useRef(0);
-  useEffect(() => {
+  React.useEffect(() => {
     // continous polling to check for updates:
 
     let timeout: NodeJS.Timeout;
@@ -271,6 +284,7 @@ export const ValNextProvider = (props: {
       setDropZone("val-menu-right-center");
     }
   }, []);
+  useRemoteConfigSender(props.config);
 
   return (
     <ValOverlayProvider draftMode={draftMode} store={valStore}>

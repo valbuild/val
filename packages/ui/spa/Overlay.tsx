@@ -9,10 +9,16 @@ import { ValRouter } from "./components/ValRouter";
 import { useEffect, useState } from "react";
 import { ValProvider } from "./components/ValProvider";
 import { Fonts } from "./Fonts";
+import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
+import { useRemoteConfigReceiver } from "./hooks/useRemoteConfigReceiver";
 
 function Overlay() {
+  const config = useRemoteConfigReceiver();
   const host = "/api/val";
-  const client = createValClient(host);
+  const client = createValClient("/api/val", {
+    ...config,
+    contentHostUrl: DEFAULT_CONTENT_HOST,
+  });
 
   const [draftMode, setDraftMode] = useState(false);
   const [draftModeLoading, setDraftModeLoading] = useState(false);
@@ -63,7 +69,11 @@ function Overlay() {
         <link rel="stylesheet" href={`${host}/static${VAL_CSS_PATH}`} />
         <ErrorBoundary fallbackRender={fallbackRender}>
           <ValRouter overlay>
-            <ValProvider client={client} dispatchValEvents={draftMode}>
+            <ValProvider
+              client={client}
+              dispatchValEvents={draftMode}
+              config={config}
+            >
               <ValOverlay
                 draftMode={draftMode}
                 draftModeLoading={draftModeLoading}

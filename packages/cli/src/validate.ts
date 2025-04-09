@@ -8,6 +8,7 @@ import {
   uploadRemoteFile,
 } from "@valbuild/server";
 import {
+  DEFAULT_CONTENT_HOST,
   DEFAULT_VAL_REMOTE_HOST,
   FILE_REF_PROP,
   Internal,
@@ -36,8 +37,7 @@ export async function validate({
   noEslint?: boolean;
 }) {
   const valRemoteHost = process.env.VAL_REMOTE_HOST || DEFAULT_VAL_REMOTE_HOST;
-  const contentHostUrl =
-    process.env.VAL_CONTENT_URL || "https://content.val.build";
+  const contentHostUrl = process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
   const projectRoot = root ? path.resolve(root) : process.cwd();
   const eslint = new ESLint({
     cwd: projectRoot,

@@ -63,6 +63,11 @@ export class ValSyncEngine {
    * Patch Ids that have been successfully been seen on server
    */
   syncedPatchIds: Set<PatchId>;
+  /**
+   * Patch Ids that have been committed to the server
+   */
+  committedPatchIds: Set<PatchId>;
+  publishDisabled: boolean;
   patchDataByPatchId: Record<
     PatchId,
     {
@@ -72,7 +77,7 @@ export class ValSyncEngine {
       createdAt: string;
       authorId: string | null;
       isCommitted?: {
-        committedAt: number;
+        commitSha: string;
       };
     }
   >;
@@ -139,6 +144,7 @@ export class ValSyncEngine {
     this.serverSources = null;
     this.globalServerSidePatchIds = [];
     this.syncedPatchIds = new Set();
+    this.committedPatchIds = new Set();
     this.pendingOps = [];
     this.patchIdsStoredByClient = [];
     this.pendingClientPatchIds = [];
@@ -146,6 +152,7 @@ export class ValSyncEngine {
     this.isSyncing = false;
     this.patchSets = new PatchSets();
     this.authorId = null;
+    this.publishDisabled = true;
   }
 
   async init(
@@ -182,6 +189,7 @@ export class ValSyncEngine {
     this.serverSources = null;
     this.globalServerSidePatchIds = [];
     this.syncedPatchIds = new Set();
+    this.committedPatchIds = new Set();
     this.pendingOps = [];
     this.patchIdsStoredByClient = [];
     this.pendingClientPatchIds = [];
@@ -189,6 +197,7 @@ export class ValSyncEngine {
     this.isSyncing = false;
     this.patchSets = new PatchSets();
     this.authorId = null;
+    this.publishDisabled = true;
     for (const listenersOfType of Object.values(this.listeners)) {
       for (const listeners of Object.values(listenersOfType)) {
         this.emit(listeners);
@@ -221,6 +230,10 @@ export class ValSyncEngine {
   subscribe(
     type: "persistent-global-error",
   ): (listener: () => void) => () => void;
+  subscribe(
+    type: "global-server-side-patch-ids",
+  ): (listener: () => void) => () => void;
+  subscribe(type: "publish-disabled"): (listener: () => void) => () => void;
   subscribe(type: "schema"): (listener: () => void) => () => void;
   subscribe(type: "patch-sets"): (listener: () => void) => () => void;
   subscribe(
@@ -282,6 +295,14 @@ export class ValSyncEngine {
       const sourcePath = sourcePathS as SourcePath;
       this.invalidateValidationError(sourcePath);
     }
+  }
+  private invalidateGlobalServerSidePatchIds() {
+    this.emit(
+      this.listeners["global-server-side-patch-ids"]?.[globalNamespace],
+    );
+  }
+  private invalidatePublishDisabled() {
+    this.emit(this.listeners["publish-disabled"]?.[globalNamespace]);
   }
 
   // #region Snapshot
@@ -396,6 +417,14 @@ export class ValSyncEngine {
       this.cachedSerializedPatchSetsSnapshot = this.patchSets.serialize();
     }
     return this.cachedSerializedPatchSetsSnapshot;
+  }
+
+  getGlobalServerSidePatchIdsSnapshot() {
+    return this.globalServerSidePatchIds;
+  }
+
+  getPublishDisabledSnapshot() {
+    return this.publishDisabled;
   }
 
   // #region Patching
@@ -628,20 +657,29 @@ export class ValSyncEngine {
     patchIds: PatchId[],
     now: number,
   ) {
-    this.baseSha = baseSha;
-    this.serverSideSchemaSha = schemaSha;
-    this.globalServerSidePatchIds = patchIds;
-    for (const patchId of patchIds) {
-      for (let i = 0; i < this.pendingClientPatchIds.length; i++) {
-        if (this.pendingClientPatchIds[i] === patchId) {
-          this.pendingClientPatchIds.splice(i, 1);
-          i--;
+    if (this.baseSha !== baseSha) {
+      this.baseSha = baseSha;
+    }
+    if (this.serverSideSchemaSha !== schemaSha) {
+      this.serverSideSchemaSha = schemaSha;
+    }
+    if (!deepEqual(this.globalServerSidePatchIds, patchIds)) {
+      // Do not update the globalServerSidePatchIds if they are the same
+      // since we using this directly in get snapshot method
+      this.globalServerSidePatchIds = patchIds;
+      this.invalidateGlobalServerSidePatchIds();
+      for (const patchId of patchIds) {
+        for (let i = 0; i < this.pendingClientPatchIds.length; i++) {
+          if (this.pendingClientPatchIds[i] === patchId) {
+            this.pendingClientPatchIds.splice(i, 1);
+            i--;
+          }
         }
-      }
-      for (let i = 0; i < this.patchIdsStoredByClient.length; i++) {
-        if (this.patchIdsStoredByClient[i] === patchId) {
-          this.patchIdsStoredByClient.splice(i, 1);
-          i--;
+        for (let i = 0; i < this.patchIdsStoredByClient.length; i++) {
+          if (this.patchIdsStoredByClient[i] === patchId) {
+            this.patchIdsStoredByClient.splice(i, 1);
+            i--;
+          }
         }
       }
     }
@@ -867,7 +905,10 @@ export class ValSyncEngine {
     };
   }
 
-  private async syncPatchSets(now: number): Promise<
+  private async syncPatches(
+    reset: boolean,
+    now: number,
+  ): Promise<
     | {
         status: "done";
       }
@@ -876,7 +917,8 @@ export class ValSyncEngine {
       }
   > {
     // get missing data
-    if (this.initializedAt === null) {
+    const isInit = this.initializedAt === null || reset;
+    if (this.initializedAt === null || reset) {
       // When we are initializing, we don't want to sync all individual patch sets
       // since we are going to get them all at once anyway
       // Why is this a problem? It's because we can only do about 300 patch ids at a time before the URL gets too long
@@ -899,6 +941,9 @@ export class ValSyncEngine {
       }
       for (const patchData of res.json.patches) {
         if (patchData.patch) {
+          if (patchData.appliedAt) {
+            this.committedPatchIds.add(patchData.patchId);
+          }
           this.patchDataByPatchId[patchData.patchId] = {
             moduleFilePath: patchData.path,
             patch: patchData.patch,
@@ -958,12 +1003,20 @@ export class ValSyncEngine {
           }
           for (const patchData of res.json.patches) {
             if (patchData.patch) {
+              if (patchData.appliedAt) {
+                this.committedPatchIds.add(patchData.patchId);
+              }
               this.patchDataByPatchId[patchData.patchId] = {
                 moduleFilePath: patchData.path,
                 patch: patchData.patch,
                 isPending: false,
                 createdAt: patchData.createdAt,
                 authorId: patchData.authorId,
+                isCommitted: patchData.appliedAt
+                  ? {
+                      commitSha: patchData.appliedAt.commitSha,
+                    }
+                  : undefined,
               };
             }
           }
@@ -1023,6 +1076,11 @@ export class ValSyncEngine {
         status: "retry",
       };
     }
+    // Init is complete:
+    if (isInit) {
+      this.publishDisabled = false;
+      this.invalidatePublishDisabled();
+    }
     return {
       status: "done",
     };
@@ -1049,8 +1107,8 @@ export class ValSyncEngine {
     return "all";
   }
   public isSyncing = false;
-  private MIN_WAIT_SECONDS = 1;
-  private MAX_WAIT_SECONDS = 5;
+  private MIN_WAIT_SECONDS = 0.1;
+  private MAX_WAIT_SECONDS = 1.5;
 
   // #region Sync
   async sync(now: number): Promise<
@@ -1086,9 +1144,7 @@ export class ValSyncEngine {
         this.globalServerSidePatchIds &&
         !this.globalServerSidePatchIds.includes(patchId)
       ) {
-        serverPatchIdsDidChange = true;
-        this.syncedPatchIds = new Set();
-        this.patchIdsStoredByClient = [];
+        this.reset();
         break;
       }
     }
@@ -1182,6 +1238,14 @@ export class ValSyncEngine {
         changedModules === "all" ||
         changedModules.length > 0
       ) {
+        // console.log("Syncing...", {
+        //   initializedAt: this.initializedAt,
+        //   changedModules,
+        //   serverPatchIdsDidChange,
+        //   syncAllRequired,
+        //   clientSideSchemaSha: this.clientSideSchemaSha,
+        //   serverSideSchemaSha: this.serverSideSchemaSha,
+        // });
         const path =
           // We could be smarter wrt to the modules we fetch.
           // However, note¨ that we are not quite sure how long it takes to evaluate 1 vs many...
@@ -1286,7 +1350,7 @@ export class ValSyncEngine {
           }
         }
       }
-      await this.syncPatchSets(now);
+      await this.syncPatches(false, now);
       if (this.overlayEmitter) {
         if (didWrite && this.serverSources) {
           for (const moduleFilePathS in changes) {
@@ -1321,11 +1385,56 @@ export class ValSyncEngine {
     }
   }
 
-  private addTransientGlobalError(
-    message: string,
-    now: number,
-    details?: string,
-  ) {
+  // #region Publish
+  async publish(patchIds: PatchId[], message: string | undefined, now: number) {
+    try {
+      this.publishDisabled = true;
+      this.invalidatePublishDisabled();
+      if (patchIds.length === 0) {
+        this.addTransientGlobalError(
+          "Could not publish changes, since there are no changes to publish",
+          Date.now(),
+        );
+        return {
+          status: "done",
+        } as const;
+      }
+      const res = await this.client("/save", "POST", {
+        body: {
+          message: message,
+          patchIds: patchIds,
+        },
+      });
+      if (res.status === null) {
+        this.addTransientGlobalError(
+          "Network error: could not publish",
+          Date.now(),
+        );
+        return {
+          status: "retry",
+        } as const;
+      } else if (res.status !== 200) {
+        this.addTransientGlobalError(
+          "Failed to publish changes",
+          Date.now(),
+          res.json.message,
+        );
+        return {
+          status: "retry",
+        } as const;
+      } else {
+        await this.syncPatches(true, now);
+        return {
+          status: "done",
+        } as const;
+      }
+    } finally {
+      this.publishDisabled = false;
+      this.invalidatePublishDisabled();
+    }
+  }
+
+  addTransientGlobalError(message: string, now: number, details?: string) {
     if (!this.errors.transientGlobalErrorQueue) {
       this.errors.transientGlobalErrorQueue = [];
     }
@@ -1385,6 +1494,8 @@ type SyncEngineListenerType =
   | "all-validation-errors"
   | "transient-global-error"
   | "persistent-global-error"
+  | "global-server-side-patch-ids"
+  | "publish-disabled"
   | "source";
 type SyncStatus = "not-asked" | "fetching" | "patches-pending" | "done";
 type CommonOpProps<T> = T & {

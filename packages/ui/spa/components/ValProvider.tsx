@@ -1,4 +1,6 @@
 import React, {
+  Dispatch,
+  SetStateAction,
   useCallback,
   useContext,
   useEffect,
@@ -21,26 +23,23 @@ import {
   ValConfig,
 } from "@valbuild/core";
 import { Patch } from "@valbuild/core/patch";
-import { ValClient } from "@valbuild/shared/internal";
+import { SharedValConfig, ValClient } from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
 import { DayPickerProvider } from "react-day-picker";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
 import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 import { defaultOverlayEmitter, ValSyncEngine } from "../ValSyncEngine";
 import { SerializedPatchSet } from "../utils/PatchSets";
+import { z } from "zod";
 
 type ValContextValue = {
   syncEngine: ValSyncEngine;
   mode: "http" | "fs" | "unknown";
+  client: ValClient;
+  publishSummaryState: PublishSummaryState;
+  setPublishSummaryState: Dispatch<SetStateAction<PublishSummaryState>>;
   serviceUnavailable: boolean | undefined;
   baseSha: string | undefined;
-  getCommitSummary: () => Promise<
-    | { commitSummary: string | null; error?: undefined }
-    | {
-        commitSummary?: undefined;
-        error: string;
-      }
-  >;
   portalRef: HTMLElement | null;
   theme: Themes | null;
   setTheme: (theme: Themes | null) => void;
@@ -68,13 +67,10 @@ type ValContextValue = {
       };
   getPatches: (patchIds: PatchId[]) => Promise<GetPatchRes>;
   deletePatches: (patchIds: PatchId[]) => void;
-  publish: () => void;
-  isPublishing: boolean;
-  publishError: string | null;
-  resetPublishError: () => void;
   profiles: Record<AuthorId, Profile>;
   deployments: Deployment[];
   dismissDeployment: (deploymentId: string) => void;
+  globalServerSidePatchIds: PatchId[] | null;
   remoteFiles:
     | {
         status: "ready";
@@ -116,6 +112,7 @@ export function ValProvider({
 }: {
   children: React.ReactNode;
   client: ValClient;
+  config: SharedValConfig | null;
   dispatchValEvents: boolean;
 }) {
   const [
@@ -156,6 +153,7 @@ export function ValProvider({
           defaultOverlayEmitter(moduleFilePath, newSource);
         }
       }),
+    // TODO: add client to dependency array NOTE: we need to make sure syncing works if when syncEngine is instantiated anew
     [dispatchValEvents],
   );
   const config =
@@ -214,43 +212,11 @@ export function ValProvider({
       setTheme("dark");
     }
   }, [theme, config]);
-
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [publishError, setPublishError] = useState<string | null>(null);
-  const [currentRequestSummary, setCurrentRequestSummary] = useState<{
-    baseSha: string | undefined;
-    patchIdsString: string;
-    commitSummary: string | null;
-  } | null>(null);
-  const publish = useCallback(() => {
-    if (syncEngine.globalServerSidePatchIds === null) {
-      return;
-    }
-    setIsPublishing(true);
-    client("/save", "POST", {
-      body: {
-        message: currentRequestSummary?.commitSummary ?? undefined,
-        patchIds: syncEngine.globalServerSidePatchIds ?? [],
-      },
-    })
-      .then((res) => {
-        if (res.status === 200) {
-          setIsPublishing(false);
-          setPublishError(null);
-        } else {
-          console.error("Error publishing", res.json);
-          setPublishError(res.json.message);
-          setIsPublishing(false);
-        }
-      })
-      .catch((err) => {
-        setPublishError(err.message);
-        setIsPublishing(false);
-      });
-  }, [client, syncEngine]);
-  const resetPublishError = useCallback(() => {
-    setPublishError(null);
-  }, []);
+  const globalServerSidePatchIds = useSyncExternalStore(
+    syncEngine.subscribe("global-server-side-patch-ids"),
+    () => syncEngine.globalServerSidePatchIds,
+    () => syncEngine.globalServerSidePatchIds,
+  );
   const getPatches = useCallback(
     async (patchIds: PatchId[]): Promise<GetPatchRes> => {
       const res = await client("/patches", "GET", {
@@ -272,37 +238,6 @@ export function ValProvider({
   );
   const portalRef = useRef<HTMLDivElement>(null);
   const baseSha = "data" in stat && stat.data ? stat.data.baseSha : undefined;
-  const getCommitSummary = useCallback(async () => {
-    if (syncEngine.globalServerSidePatchIds === null) {
-      return { commitSummary: null };
-    }
-    const patchIdsString = syncEngine.globalServerSidePatchIds.join(",");
-    if (
-      currentRequestSummary &&
-      baseSha === currentRequestSummary.baseSha &&
-      patchIdsString === currentRequestSummary.patchIdsString
-    ) {
-      return {
-        commitSummary: currentRequestSummary.commitSummary,
-      };
-    }
-    const res = await client("/commit-summary", "GET", {
-      query: {
-        patch_id: syncEngine.globalServerSidePatchIds,
-      },
-    });
-    if (res.status === 200) {
-      setCurrentRequestSummary({
-        baseSha,
-        patchIdsString,
-        commitSummary: res.json.commitSummary,
-      });
-      return {
-        commitSummary: res.json.commitSummary,
-      };
-    }
-    return { error: res.json.message };
-  }, [client, baseSha, syncEngine.globalServerSidePatchIds]);
 
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const dismissedDeploymentsRef = useRef<Set<string>>(new Set());
@@ -485,16 +420,24 @@ export function ValProvider({
     };
   }, [syncEngine, startSyncPoll]);
 
+  const [publishSummaryState, setPublishSummaryState] =
+    useState<PublishSummaryState>({
+      type: "not-asked",
+    });
+
   return (
     <ValContext.Provider
       value={{
+        client,
+        publishSummaryState,
+        setPublishSummaryState,
         syncEngine,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
         serviceUnavailable: showServiceUnavailable,
         baseSha,
         deployments,
         dismissDeployment,
-        getCommitSummary,
+        globalServerSidePatchIds,
         portalRef: portalRef.current,
         authenticationState,
         getPatches,
@@ -528,10 +471,6 @@ export function ValProvider({
             console.warn(`Cannot set invalid theme theme: ${theme}`);
           }
         },
-        publish,
-        isPublishing,
-        publishError,
-        resetPublishError,
         config,
         profiles,
         remoteFiles,
@@ -681,9 +620,8 @@ export function usePatchSets():
   return { status: "success", data: serializedPatchSets };
 }
 
-export function usePublishedPatches() {
-  // const { getPatches } = useGetPatches();
-  const { isPublishing, syncEngine } = useContext(ValContext);
+export function useCommittedPatches() {
+  const { syncEngine } = useContext(ValContext);
   const patchIds = syncEngine.globalServerSidePatchIds ?? [];
   const [appliedPatchIds, setAppliedPatchIds] = useState<Set<PatchId>>(
     new Set(),
@@ -710,21 +648,13 @@ export function usePublishedPatches() {
 }
 
 export function useCurrentPatchIds(): PatchId[] {
-  const { syncEngine } = useContext(ValContext);
-  return syncEngine.globalServerSidePatchIds ?? [];
+  const { globalServerSidePatchIds } = useContext(ValContext);
+  return globalServerSidePatchIds || [];
 }
 
 export function useValMode(): "http" | "fs" | "unknown" {
   const { mode } = useContext(ValContext);
   return mode;
-}
-
-export function useSummary() {
-  const { getCommitSummary } = useContext(ValContext);
-
-  return {
-    getCommitSummary,
-  };
 }
 
 export type LoadingStatus = "loading" | "not-asked" | "error" | "success";
@@ -739,33 +669,217 @@ export function useLoadingStatus(): LoadingStatus {
   return "success";
 }
 
-export function usePublish() {
-  const { publish, isPublishing, publishError, resetPublishError } =
-    useContext(ValContext);
-  const patchIds = useCurrentPatchIds();
-  const { globalErrors } = useErrors();
-  const debouncedLoadingStatus = useDebouncedLoadingStatus();
-  const publishedPatchIds = usePublishedPatches();
-  const unappliedPatchIds = patchIds.filter(
-    (patchId) => !publishedPatchIds.has(patchId),
+const PublishSummaryState = z.union([
+  z.object({
+    type: z.literal("not-asked"),
+    isGenerating: z.boolean().optional(),
+  }),
+  z.object({
+    type: z.literal("manual").or(z.literal("ai")),
+    text: z.string(),
+    patchIds: z.array(z.string()).nullable(),
+    isGenerating: z.boolean(),
+  }),
+]);
+type PublishSummaryState = z.infer<typeof PublishSummaryState>;
+/**
+ * Responsible for publishing and also managing publishing state
+ */
+export function usePublishSummary() {
+  const {
+    syncEngine,
+    client,
+    publishSummaryState,
+    setPublishSummaryState,
+    globalServerSidePatchIds,
+    config,
+  } = useContext(ValContext);
+  const publishDisabled = useSyncExternalStore(
+    syncEngine.subscribe("publish-disabled"),
+    () => syncEngine.getPublishDisabledSnapshot(),
+    () => syncEngine.getPublishDisabledSnapshot(),
   );
-  const publishDisabled =
-    debouncedLoadingStatus !== "success" ||
-    isPublishing ||
-    unappliedPatchIds.length === 0 ||
-    globalErrors.length > 0;
+  const [canGenerate, setCanGenerate] = useState(false);
+  useEffect(() => {
+    if (
+      config?.ai?.commitMessages?.disabled === undefined ||
+      config.ai.commitMessages.disabled === false
+    ) {
+      setCanGenerate(true);
+    } else {
+      setCanGenerate(false);
+    }
+  }, [config]);
+  useEffect(() => {
+    if (publishSummaryState.type === "not-asked") {
+      const storedSummaryState = getSummaryStateFromLocalStorage(
+        config?.project,
+      );
+      if (
+        storedSummaryState &&
+        storedSummaryState.type !== "not-asked" &&
+        // Only load if there's actually patches to publish
+        globalServerSidePatchIds &&
+        globalServerSidePatchIds?.length > 0
+      ) {
+        setPublishSummaryState(storedSummaryState);
+      }
+    }
+  }, [publishSummaryState, config?.project, setPublishSummaryState]);
+  const generateSummary = useCallback(async (): Promise<
+    { type: "ai"; text: string } | { type: "error"; message: string }
+  > => {
+    if (globalServerSidePatchIds === null) {
+      return {
+        type: "error",
+        message: "Empty patch set",
+      };
+    }
+    if (
+      "isGenerating" in publishSummaryState &&
+      publishSummaryState.isGenerating
+    ) {
+      return {
+        type: "error",
+        message: "Already generating summary",
+      };
+    }
+    setPublishSummaryState((prev) => {
+      return {
+        ...prev,
+        isGenerating: true,
+      };
+    });
+    try {
+      const res = await client("/commit-summary", "GET", {
+        query: {
+          patch_id: globalServerSidePatchIds,
+        },
+      });
+      if (res.status === 200) {
+        if (res.json.commitSummary) {
+          return { type: "ai", text: res.json.commitSummary };
+        } else {
+          return {
+            type: "error",
+            message: "Commit summary could not be generated",
+          };
+        }
+      } else {
+        return { type: "error", message: res.json.message };
+      }
+    } finally {
+      setPublishSummaryState((prev) => {
+        return {
+          ...prev,
+          isGenerating: false,
+        };
+      });
+    }
+  }, [client, globalServerSidePatchIds, publishSummaryState]);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const publish = useCallback(
+    async (summary: string) => {
+      if (globalServerSidePatchIds === null) {
+        return {
+          status: "error",
+          message: "No changes to publish",
+        };
+      }
+      if (isPublishing) {
+        return {
+          status: "error",
+          message: "Already publishing",
+        };
+      }
+      setIsPublishing(true);
+      return syncEngine
+        .publish(globalServerSidePatchIds, summary, Date.now())
+        .then((res) => {
+          if (res.status === "done") {
+            deleteSummaryStateFromLocalStorage(config?.project);
+          }
+          return res;
+        })
+        .finally(() => {
+          setIsPublishing(false);
+        });
+    },
+    [globalServerSidePatchIds, isPublishing, config?.project, syncEngine],
+  );
+  const setSummary = useCallback(
+    (summary: { type: "manual" | "ai"; text: string }) => {
+      setPublishSummaryState((prev) => {
+        const publishSummary = {
+          type: summary.type,
+          text: summary.text,
+          patchIds: globalServerSidePatchIds,
+          isGenerating: !!prev.isGenerating,
+        };
+        saveSummaryStateInLocalStorage(publishSummary, config?.project);
+        return publishSummary;
+      });
+    },
+    [globalServerSidePatchIds, setPublishSummaryState, config?.project],
+  );
   return {
     publish,
-    isPublishing,
-    publishError,
-    resetPublishError,
     publishDisabled,
+    isPublishing,
+    generateSummary,
+    canGenerate,
+    summary: publishSummaryState,
+    setSummary,
   };
 }
 
-export function useDebouncedLoadingStatus() {
-  // TODO: remove this?
-  return useLoadingStatus();
+function saveSummaryStateInLocalStorage(
+  publishSummaryState: PublishSummaryState,
+  project?: string,
+) {
+  try {
+    localStorage.setItem(
+      "val-publish-summary-" + (project || "unknown"),
+      JSON.stringify(publishSummaryState),
+    );
+  } catch (e) {
+    console.error("Error setting publish summary in local storage", e);
+  }
+  return publishSummaryState;
+}
+
+function getSummaryStateFromLocalStorage(
+  project?: string,
+): PublishSummaryState | null {
+  try {
+    const publishSummaryState = localStorage.getItem(
+      "val-publish-summary-" + (project || "unknown"),
+    );
+    if (publishSummaryState) {
+      const parseRes = PublishSummaryState.safeParse(
+        JSON.parse(publishSummaryState),
+      );
+      if (parseRes.success) {
+        return parseRes.data;
+      } else {
+        console.warn(
+          "Error parsing publish summary from local storage",
+          parseRes.error,
+        );
+      }
+    }
+  } catch (e) {
+    console.error("Error getting publish summary from local storage", e);
+  }
+  return null;
+}
+
+function deleteSummaryStateFromLocalStorage(project?: string) {
+  try {
+    localStorage.removeItem("val-publish-summary-" + (project || "unknown"));
+  } catch (e) {
+    console.error("Error deleting publish summary from local storage", e);
+  }
 }
 
 type EnsureAllTypes<T extends Record<SerializedSchema["type"], unknown>> = T;

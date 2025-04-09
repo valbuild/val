@@ -1448,26 +1448,11 @@ export const ValServer = (
           };
         } else if (serverOps instanceof ValOpsHttp) {
           if (auth.error === undefined && auth.id) {
-            let message =
+            const message =
               body.message ||
-              "Update content: " +
-                Object.keys(analysis.patchesByModule) +
-                " modules changed";
-            if (!options.config.ai?.commitMessages?.disabled) {
-              const res = await serverOps.getCommitMessage(preparedCommit);
-              if (res.error) {
-                // ignore
-                console.error(
-                  "Failed to get commit message",
-                  res.error.message,
-                );
-              } else {
-                message = res.commitSummary;
-              }
-            }
-            console.log({
-              message,
-            });
+              "Val CMS update (" +
+                Object.keys(analysis.patchesByModule).length +
+                " files changed)";
             const commitRes = await serverOps.commit(
               preparedCommit,
               message,

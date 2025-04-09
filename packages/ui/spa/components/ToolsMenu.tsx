@@ -1,14 +1,13 @@
 import {
   useAllValidationErrors,
-  useDebouncedLoadingStatus,
   useErrors,
-  usePublish,
+  useLoadingStatus,
+  usePublishSummary,
   useValMode,
 } from "./ValProvider";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { DraftChanges } from "./DraftChanges";
 import classNames from "classnames";
-import { PublishErrorDialog } from "./PublishErrorDialog";
 import { Eye, Loader2, PanelRightOpen, Upload } from "lucide-react";
 import { useLayout } from "./Layout";
 import { Button } from "./designSystem/button";
@@ -24,10 +23,11 @@ import { cn } from "./designSystem/cn";
 import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { useNavigation } from "./ValRouter";
+import { PublishButton } from "./PublishButton";
 
 export function ToolsMenu() {
-  const debouncedLoadingStatus = useDebouncedLoadingStatus();
-  const { isPublishing } = usePublish();
+  const loadingStatus = useLoadingStatus();
+  const { isPublishing } = usePublishSummary();
   const validationErrors = useAllValidationErrors() || {};
   const { globalErrors } = useErrors();
   const mode = useValMode();
@@ -56,7 +56,6 @@ export function ToolsMenu() {
       )}
       <ScrollArea>
         <div className="max-h-[calc(100svh-64px)]">
-          <PublishErrorDialog />
           {globalErrors &&
             globalErrors.length > 0 &&
             globalErrors.length !== sumValidationErrors && (
@@ -97,7 +96,7 @@ export function ToolsMenu() {
                   </AccordionTrigger>
                   <AccordionContent>
                     <ScrollArea>
-                      <div className="max-h-[calc(100svh-128px)] max-w-[320px]">
+                      <div className="max-h-[calc(100svh-64px)] max-w-[320px]">
                         {errorModules?.map((error, i) => {
                           return <ModuleError key={i} moduleFilePath={error} />;
                         })}
@@ -107,11 +106,11 @@ export function ToolsMenu() {
                 </AccordionItem>
               </Accordion>
             )}
-          {debouncedLoadingStatus !== "not-asked" && (
+          {loadingStatus !== "not-asked" && (
             <div className={classNames("", {})}>
               <ScrollArea>
-                <div className="max-h-[calc(100svh-128px)] border-b border-border-primary">
-                  <DraftChanges loadingStatus={debouncedLoadingStatus} />
+                <div className="max-h-[calc(100svh-64px)] border-b border-border-primary">
+                  <DraftChanges loadingStatus={loadingStatus} />
                 </div>
               </ScrollArea>
             </div>
@@ -170,8 +169,6 @@ function ShortenedErrorMessage({ error }: { error: string }) {
 }
 
 export function ToolsMenuButtons() {
-  const { publish, publishDisabled } = usePublish();
-  const mode = useValMode();
   const { navMenu, toolsMenu } = useLayout();
   return (
     <div className="flex flex-col">
@@ -202,16 +199,7 @@ export function ToolsMenuButtons() {
             <span>Preview</span>
             <Eye size={16} />
           </Button>
-          <Button
-            className="flex items-center gap-2"
-            disabled={publishDisabled}
-            onClick={() => {
-              publish();
-            }}
-          >
-            <span>{mode === "fs" ? "Save" : "Publish"}</span>
-            <Upload size={16} />
-          </Button>
+          <PublishButton />
         </div>
       </div>
     </div>
