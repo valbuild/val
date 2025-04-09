@@ -4,7 +4,6 @@ import {
   Ellipsis,
   Eye,
   EyeOff,
-  Loader2,
   LogIn,
   PanelBottom,
   PanelLeft,
@@ -51,6 +50,7 @@ import { DraftChanges } from "./DraftChanges";
 import { HoverCard } from "./designSystem/hover-card";
 import { HoverCardContent, HoverCardTrigger } from "@radix-ui/react-hover-card";
 import { PublishButton } from "./PublishButton";
+import { ScrollArea } from "./designSystem/scroll-area";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -744,9 +744,11 @@ function ValMenu({
                   <PublishButton />
                 </div>
               )}
-              <div className="sm:max-h-[min(400px,80svh)] max-h-[calc(100svh-96px-64px)] w-[320px] overflow-scroll">
-                <DraftChanges loadingStatus={loadingStatus} />
-              </div>
+              <ScrollArea>
+                <div className="sm:max-h-[min(400px,80svh)] max-h-[calc(100svh-96px-64px)] w-[320px]">
+                  <DraftChanges loadingStatus={loadingStatus} />
+                </div>
+              </ScrollArea>
               {!publishDisabled && (
                 <div className="hidden py-4 sm:block">
                   <PublishButton />
