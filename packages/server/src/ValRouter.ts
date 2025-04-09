@@ -1,6 +1,11 @@
 import { promises as fs } from "fs";
 import * as path from "path";
-import { ValConfig, ValModules } from "@valbuild/core";
+import {
+  DEFAULT_CONTENT_HOST,
+  DEFAULT_VAL_REMOTE_HOST,
+  ValConfig,
+  ValModules,
+} from "@valbuild/core";
 import {
   Api,
   ApiEndpoint,
@@ -164,9 +169,7 @@ async function initHandlerOptions(
   const valBuildUrl =
     opts.valBuildUrl || process.env.VAL_BUILD_URL || "https://app.val.build";
   const valContentUrl =
-    opts.valContentUrl ||
-    process.env.VAL_CONTENT_URL ||
-    "https://content.val.build";
+    opts.valContentUrl || process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
   if (isProxyMode) {
     if (!maybeApiKey || !maybeValSecret) {
       throw new Error(

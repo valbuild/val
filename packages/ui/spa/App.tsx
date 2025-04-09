@@ -8,14 +8,19 @@ import { createValClient } from "@valbuild/shared/internal";
 import { ShadowRoot } from "./components/ShadowRoot";
 import { VAL_CSS_PATH } from "../src";
 import { Fonts } from "./Fonts";
+import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
+import { useRemoteConfigReceiver } from "./hooks/useRemoteConfigReceiver";
 
 function App() {
+  const config = useRemoteConfigReceiver();
+  const host = "/api/val"; // TODO: make configurable
   const { client } = useMemo(() => {
-    const client = createValClient("/api/val");
+    const client = createValClient(host, {
+      ...config,
+      contentHostUrl: DEFAULT_CONTENT_HOST,
+    });
     return { client };
-  }, []);
-
-  const host = "/api/val";
+  }, [host, config]);
   return (
     <>
       <Fonts />
@@ -23,7 +28,7 @@ function App() {
         <link rel="stylesheet" href={`${host}/static${VAL_CSS_PATH}`} />
         <ErrorBoundary fallbackRender={fallbackRender}>
           <ValRouter>
-            <ValStudio client={client} />
+            <ValStudio client={client} config={config} />
           </ValRouter>
         </ErrorBoundary>
       </ShadowRoot>

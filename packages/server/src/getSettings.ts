@@ -1,6 +1,7 @@
+import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
 import { z } from "zod";
 
-const host = process.env.VAL_CONTENT_URL || "https://content.val.build";
+const host = process.env.VAL_CONTENT_URL || DEFAULT_CONTENT_HOST;
 
 const SettingsSchema = z.object({
   publicProjectId: z.string(),

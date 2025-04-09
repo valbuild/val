@@ -10,17 +10,16 @@ import {
 import {
   Deployment,
   LoadingStatus,
-  usePublishedPatches,
+  useCommittedPatches,
   useCurrentPatchIds,
   useDeletePatches,
   useDeployments,
   useErrors,
   useProfilesByAuthorId,
-  usePublish,
-  useSummary,
   useValMode,
   useValPortal,
   usePatchSets,
+  usePublishSummary,
 } from "./ValProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
@@ -30,7 +29,6 @@ import { PatchMetadata, PatchSetMetadata } from "../utils/PatchSets";
 import { AnimateHeight } from "./AnimateHeight";
 import { relativeLocalDate } from "../utils/relativeLocalDate";
 import { Operation } from "@valbuild/core/patch";
-import { Remote } from "../utils/Remote";
 import { Button } from "./designSystem/button";
 import {
   Popover,
@@ -43,6 +41,7 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "./designSystem/hover-card";
+import { PublishSummary } from "./PublishSummary";
 
 export function DraftChanges({
   className,
@@ -52,24 +51,14 @@ export function DraftChanges({
   loadingStatus: LoadingStatus;
 }) {
   const patchIds = useCurrentPatchIds();
-  const { getCommitSummary } = useSummary();
-  const [summary, setSummary] = useState<
-    Remote<{ title: string; description: string }>
-  >({
-    status: "not-asked",
-  });
-  useEffect(() => {
-    setSummary({ status: "not-asked" });
-  }, [JSON.stringify(patchIds)]);
   const mode = useValMode();
-  const publishedPatchIds = usePublishedPatches();
-  const { publishDisabled } = usePublish();
-  // patch set state:
+  const publishedPatchIds = useCommittedPatches();
   const serializedPatchSets = usePatchSets();
-
   const portalContainer = useValPortal();
-
   const { deployments, dismissDeployment } = useDeployments();
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const { canGenerate } = usePublishSummary();
+
   // TODO: remove test data
   // const deployments: Deployment[] = [
   //   {
@@ -128,7 +117,7 @@ export function DraftChanges({
       {publishedPatchIds.size > 0 && (
         <div className="flex items-center gap-2 p-4 border-b border-border-primary">
           <span className="font-bold">
-            {"Published "}
+            {"Pushed "}
             {publishedPatchIds.size}
             {publishedPatchIds.size === 1 ? " change" : " changes"}
             {"..."}
@@ -154,73 +143,33 @@ export function DraftChanges({
           </div>
           {mode === "http" && (
             <Popover
+              open={summaryOpen}
               onOpenChange={(open) => {
-                if (open && !("data" in summary && summary.data)) {
-                  setSummary({ status: "loading" });
-                  getCommitSummary()
-                    .then((res) => {
-                      if (typeof res.commitSummary === "string") {
-                        const lines = res.commitSummary.split("\n");
-                        const title = lines[0];
-                        const description = lines.slice(1).join("\n");
-                        setSummary({
-                          status: "success",
-                          data: {
-                            title,
-                            description,
-                          },
-                        });
-                      } else {
-                        setSummary({
-                          status: "error",
-                          error: "Could not get commit summary string",
-                        });
-                      }
-                    })
-                    .catch((err) => {
-                      setSummary({ status: "error", error: err.message });
-                    });
-                }
+                setSummaryOpen(open);
               }}
             >
               <PopoverTrigger asChild>
                 <Button
-                  disabled={publishDisabled}
                   variant="outline"
                   className="flex items-center gap-2 text-sm"
                 >
                   <span>Summary</span>
-                  <Sparkles size={14} />
+                  {canGenerate && <Sparkles size={14} />}
                 </Button>
               </PopoverTrigger>
               <PopoverContent
                 container={portalContainer}
                 align="end"
-                className="z-[9001] hover:w-[min(100vw,500px)] transition-[width] ease-in-out duration-200 flex flex-col gap-4"
+                className="z-[9001] flex flex-col gap-4"
               >
-                {summary.status === "loading" && (
-                  <div className="p-4 text-center">Generating summary...</div>
-                )}
-                {summary.status === "error" && <div>{summary.error}</div>}
-                {summary.status === "success" && (
-                  <div className="text-sm">
-                    <div className="p-2 mb-2 font-bold">
-                      {summary.data.title}
-                    </div>
-                    <div className="p-2 border rounded border-border-primary">
-                      {summary.data.description.split("\n").map((line, i) => (
-                        <p className="py-1" key={i}>
-                          {line}
-                        </p>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <PopoverClose asChild>
-                  <div className="self-end">
-                    <Button>Close</Button>
-                  </div>
+                <PopoverClose asChild className="self-end cursor-pointer">
+                  <X size={12} />
                 </PopoverClose>
+                <PublishSummary
+                  onComplete={() => {
+                    setSummaryOpen(false);
+                  }}
+                />
               </PopoverContent>
             </Popover>
           )}

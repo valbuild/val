@@ -32,17 +32,16 @@ import {
   useAllValidationErrors,
   useAuthenticationState,
   useCurrentPatchIds,
-  useDebouncedLoadingStatus,
-  usePublish,
+  useLoadingStatus,
   useSchemaAtPath,
   useTheme,
   useValConfig,
   useValMode,
   useValPortal,
+  usePublishSummary,
 } from "./ValProvider";
 import { FieldLoading } from "./FieldLoading";
 import { urlOf } from "@valbuild/shared/internal";
-import { PublishErrorDialog } from "./PublishErrorDialog";
 import { Popover, PopoverContent } from "./designSystem/popover";
 import { PopoverClose, PopoverTrigger } from "@radix-ui/react-popover";
 import { Switch } from "./designSystem/switch";
@@ -51,6 +50,7 @@ import { fixCapitalization } from "../utils/fixCapitalization";
 import { DraftChanges } from "./DraftChanges";
 import { HoverCard } from "./designSystem/hover-card";
 import { HoverCardContent, HoverCardTrigger } from "@radix-ui/react-hover-card";
+import { PublishButton } from "./PublishButton";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -564,7 +564,7 @@ function ValMenu({
   const authenticationState = useAuthenticationState();
   const portalContainer = useValPortal();
   const { theme, setTheme } = useTheme();
-  const debouncedLoadingStatus = useDebouncedLoadingStatus();
+  const loadingStatus = useLoadingStatus();
   const [publishPopoverSideOffset, setPublishPopoverSideOffset] = useState(0);
   const patchIds = useCurrentPatchIds();
   const validationErrors = useAllValidationErrors() || {};
@@ -585,7 +585,7 @@ function ValMenu({
       window.removeEventListener("resize", handleResize);
     };
   }, []);
-  const { publishDisabled } = usePublish();
+  const { publishDisabled } = usePublishSummary();
   const publishPopoverSide =
     dropZone === "val-menu-center-bottom"
       ? "top"
@@ -627,7 +627,6 @@ function ValMenu({
           </div>
         </div>
       )}
-      <PublishErrorDialog />
       <AnimateHeight
         isOpen={
           draftMode &&
@@ -746,7 +745,7 @@ function ValMenu({
                 </div>
               )}
               <div className="sm:max-h-[min(400px,80svh)] max-h-[calc(100svh-96px-64px)] w-[320px] overflow-scroll">
-                <DraftChanges loadingStatus={debouncedLoadingStatus} />
+                <DraftChanges loadingStatus={loadingStatus} />
               </div>
               {!publishDisabled && (
                 <div className="hidden py-4 sm:block">
@@ -864,33 +863,6 @@ function ValMenu({
         </div>
       </AnimateHeight>
     </div>
-  );
-}
-
-function PublishButton() {
-  const { publishDisabled, isPublishing, publish } = usePublish();
-  const valMode = useValMode();
-  return (
-    <Button
-      className="mx-4 "
-      disabled={publishDisabled}
-      onClick={() => {
-        publish();
-      }}
-    >
-      {!isPublishing && (
-        <span className="flex items-center gap-1">
-          <span>{valMode === "fs" ? "Save" : "Publish"}</span>
-          <Upload size={16} />
-        </span>
-      )}
-      {isPublishing && (
-        <span className="flex items-center gap-1">
-          <span>Publishing</span>
-          <Loader2 size={16} className="animate-spin" />
-        </span>
-      )}
-    </Button>
   );
 }
 

@@ -1,8 +1,13 @@
 import { Api, ApiEndpoint, ClientOf, ClientFetchErrors } from "./ApiRoutes";
 import { fromZodError } from "zod-validation-error";
+import { SharedValConfig } from "./SharedValConfig";
 
 export type ValClient = ClientOf<Api>;
-export const createValClient = (host: string): ValClient => {
+export const createValClient = (
+  host: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  config: SharedValConfig | null, // We want to use this in the future
+): ValClient => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const anyApi = Api as any;
   return async (path, method, req) => {
