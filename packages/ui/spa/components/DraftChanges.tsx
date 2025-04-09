@@ -1,4 +1,4 @@
-import { ModuleFilePath, PatchId } from "@valbuild/core";
+import { ModuleFilePath, PatchId, SourcePath } from "@valbuild/core";
 import {
   useState,
   useEffect,
@@ -20,6 +20,7 @@ import {
   useValPortal,
   usePatchSets,
   usePublishSummary,
+  useAllValidationErrors,
 } from "./ValProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
@@ -42,6 +43,14 @@ import {
   HoverCardTrigger,
 } from "./designSystem/hover-card";
 import { PublishSummary } from "./PublishSummary";
+import { ScrollArea } from "./designSystem/scroll-area";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "./designSystem/accordion";
+import { useNavigation } from "./ValRouter";
 
 export function DraftChanges({
   className,
@@ -58,6 +67,15 @@ export function DraftChanges({
   const { deployments, dismissDeployment } = useDeployments();
   const [summaryOpen, setSummaryOpen] = useState(false);
   const { canGenerate } = usePublishSummary();
+  const allValidationErrors = useAllValidationErrors();
+  const validationErrorsCount = useMemo(() => {
+    let count = 0;
+    for (const sourcePathS in allValidationErrors) {
+      const sourcePath = sourcePathS as SourcePath;
+      count += allValidationErrors[sourcePath].length;
+    }
+    return count;
+  }, [allValidationErrors]);
 
   // TODO: remove test data
   // const deployments: Deployment[] = [
@@ -81,6 +99,7 @@ export function DraftChanges({
   //   },
   // ];
   const [isDeploymentsExpanded, setIsDeploymentsExpanded] = useState(false);
+  const navigation = useNavigation();
   return (
     <div className={classNames("text-sm", className)}>
       {deployments.length > 0 && (
@@ -112,6 +131,76 @@ export function DraftChanges({
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {allValidationErrors && validationErrorsCount > 0 && (
+        <div className="text-white border-b border-border-primary bg-bg-error-primary ">
+          <ScrollArea orientation="horizontal">
+            <Accordion type="single" className="px-4 font-serif" collapsible>
+              <AccordionItem
+                value="error"
+                className="border-b-0 data-[state=open]:mb-4"
+              >
+                <AccordionTrigger>
+                  {validationErrorsCount} validation error
+                  {validationErrorsCount > 1 ? "s" : ""}
+                </AccordionTrigger>
+                <AccordionContent className="w-full">
+                  <div className="flex flex-col gap-2">
+                    <Accordion type="multiple" className="w-full">
+                      {Object.entries(allValidationErrors).map(
+                        ([sourcePath, errors], i) => (
+                          <AccordionItem
+                            key={sourcePath + "#" + i}
+                            value={sourcePath + "#" + i}
+                          >
+                            <AccordionTrigger>
+                              <div className="flex items-center justify-between">
+                                <span
+                                  className="underline cursor-pointer"
+                                  onClick={() => {
+                                    navigation.navigate(
+                                      sourcePath as SourcePath,
+                                    );
+                                  }}
+                                >
+                                  {sourcePath}
+                                </span>
+                                <span className="pl-4">({errors.length})</span>
+                              </div>
+                            </AccordionTrigger>
+                            <AccordionContent>
+                              <div className="flex flex-col gap-2">
+                                {errors.map((error, j) => (
+                                  <div key={j}>
+                                    <div>{error.message}</div>
+                                    <div className="pl-4 font-thin">
+                                      at
+                                      <span
+                                        className="underline cursor-pointer"
+                                        onClick={() => {
+                                          navigation.navigate(
+                                            sourcePath as SourcePath,
+                                          );
+                                        }}
+                                      >
+                                        {sourcePath}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </AccordionContent>
+                          </AccordionItem>
+                        ),
+                      )}
+                    </Accordion>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </ScrollArea>
         </div>
       )}
       {publishedPatchIds.size > 0 && (

@@ -15,6 +15,7 @@ import {
   JSONOps,
   JSONValue,
   Patch,
+  ReadonlyJSONValue,
 } from "@valbuild/core/patch";
 import { ParentRef, ValClient } from "@valbuild/shared/internal";
 import { canMerge } from "./utils/mergePatches";
@@ -276,6 +277,10 @@ export class ValSyncEngine {
     this.emit(this.listeners["validation-error"]?.[sourcePath]);
   }
   private invalidateAllValidationErrors() {
+    // TODO: ugly - we need to do this to make sure we get new references across the board
+    this.errors.validationErrors = deepClone(
+      this.errors.validationErrors as ReadonlyJSONValue,
+    ) as Record<SourcePath, ValidationError[]>;
     this.emit(this.listeners["all-validation-errors"]?.[globalNamespace]);
   }
   private invalidateTransientGlobalError() {
@@ -1282,10 +1287,11 @@ export class ValSyncEngine {
             const sourcePath = sourcePathS as SourcePath;
             if (path === undefined || sourcePath.startsWith(path)) {
               changedValidationErrors.add(sourcePath);
-              delete this.errors.validationErrors[sourcePath];
+              if (this.errors.validationErrors[sourcePath]) {
+                delete this.errors.validationErrors[sourcePath];
+              }
             }
           }
-
           for (const [moduleFilePathS, valModule] of Object.entries(
             sourcesRes.json.modules,
           )) {
@@ -1351,31 +1357,32 @@ export class ValSyncEngine {
         }
       }
       await this.syncPatches(false, now);
-      if (this.overlayEmitter) {
-        if (didWrite && this.serverSources) {
-          for (const moduleFilePathS in changes) {
-            const moduleFilePath = moduleFilePathS as ModuleFilePath;
-            this.overlayEmitter(
-              moduleFilePath,
-              this.optimisticClientSources[moduleFilePath] ||
-                this.serverSources[moduleFilePath],
-            );
-          }
-        } else if (
-          (this.initializedAt === null || serverPatchIdsDidChange) &&
-          this.serverSources
-        ) {
-          // Initialize overlay
-          for (const moduleFilePathS in this.schemas) {
-            const moduleFilePath = moduleFilePathS as ModuleFilePath;
-            this.overlayEmitter(
-              moduleFilePath,
-              this.optimisticClientSources[moduleFilePath] ||
-                this.serverSources[moduleFilePath],
-            );
+      if (changedModules)
+        if (this.overlayEmitter) {
+          if (didWrite && this.serverSources) {
+            for (const moduleFilePathS in changes) {
+              const moduleFilePath = moduleFilePathS as ModuleFilePath;
+              this.overlayEmitter(
+                moduleFilePath,
+                this.optimisticClientSources[moduleFilePath] ||
+                  this.serverSources[moduleFilePath],
+              );
+            }
+          } else if (
+            (this.initializedAt === null || serverPatchIdsDidChange) &&
+            this.serverSources
+          ) {
+            // Initialize overlay
+            for (const moduleFilePathS in this.schemas) {
+              const moduleFilePath = moduleFilePathS as ModuleFilePath;
+              this.overlayEmitter(
+                moduleFilePath,
+                this.optimisticClientSources[moduleFilePath] ||
+                  this.serverSources[moduleFilePath],
+              );
+            }
           }
         }
-      }
       return {
         status: "done",
       };

@@ -44,7 +44,14 @@ export function ToolsMenu() {
     return [Array.from(modulesWithErrors).sort(), sumValidationErrors];
   }, [validationErrors]);
   return (
-    <div className="min-h-[100svh] bg-bg-primary">
+    <div
+      className="min-h-[100svh] bg-bg-primary"
+      style={
+        {
+          "--menu-width": "320px",
+        } as React.CSSProperties
+      }
+    >
       <div className="h-16 border-b border-border-primary">
         <ToolsMenuButtons />
       </div>
@@ -70,7 +77,7 @@ export function ToolsMenu() {
                   </AccordionTrigger>
                   <AccordionContent>
                     <ScrollArea>
-                      <div className="max-h-[calc(100svh-128px)] max-w-[320px]">
+                      <div className="max-h-[calc(100svh-128px)] max-w-[var(--menu-width)]">
                         {globalErrors?.map((error, i) => {
                           return (
                             <ShortenedErrorMessage key={i} error={error} />
@@ -96,7 +103,7 @@ export function ToolsMenu() {
                   </AccordionTrigger>
                   <AccordionContent>
                     <ScrollArea>
-                      <div className="max-h-[calc(100svh-64px)] max-w-[320px]">
+                      <div className="max-h-[calc(100svh-64px)] max-w-[var(--menu-width)]">
                         {errorModules?.map((error, i) => {
                           return <ModuleError key={i} moduleFilePath={error} />;
                         })}
