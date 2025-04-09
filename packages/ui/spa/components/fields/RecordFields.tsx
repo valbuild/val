@@ -63,7 +63,7 @@ export function RecordFields({ path }: { path: SourcePath }) {
             <div
               key={key}
               onClick={() => navigate(sourcePathOfItem(path, key))}
-              className="bg-primary-foreground cursor-pointer hover:bg-primary-foreground/50 min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4"
+              className="bg-primary-foreground cursor-pointer hover:bg-primary-foreground/50 min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4 hover:bg-bg-brand-primary hover:text-text-brand-primary"
             >
               <div className="flex items-start justify-between">
                 <div className="pb-4 font-semibold text-md">{key}</div>
