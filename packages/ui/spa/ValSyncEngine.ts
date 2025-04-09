@@ -1073,10 +1073,26 @@ export class ValSyncEngine {
     let pendingOps: PendingOp[] = [];
     let serverPatchIdsDidChange = false;
     for (const patchId of this.globalServerSidePatchIds || []) {
-      if (!this.syncedPatchIds.has(patchId)) {
+      if (
+        !this.syncedPatchIds.has(patchId) &&
+        !this.committedPatchIds.has(patchId)
+      ) {
         serverPatchIdsDidChange = true;
       }
     }
+    // This will happen if there's patches that are removed
+    for (const patchId of this.syncedPatchIds) {
+      if (
+        this.globalServerSidePatchIds &&
+        !this.globalServerSidePatchIds.includes(patchId)
+      ) {
+        serverPatchIdsDidChange = true;
+        this.syncedPatchIds = new Set();
+        this.patchIdsStoredByClient = [];
+        break;
+      }
+    }
+
     try {
       let syncAllRequired = false;
       const changes: Record<
