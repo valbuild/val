@@ -25,6 +25,13 @@ export function PublishSummary({
   const [staleWarning, setStaleWarning] = useState(false);
   const dismissStaleWarning = () => {
     setStaleWarning(false);
+    if (summary.type !== "not-asked") {
+      // Reset summary so that it has the current patch ids
+      // and is not marked as stale
+      setSummary({
+        ...summary,
+      });
+    }
   };
   useEffect(() => {
     if (
