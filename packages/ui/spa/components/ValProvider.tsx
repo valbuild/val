@@ -424,7 +424,7 @@ export function ValProvider({
     let timeout: NodeJS.Timeout | null = null;
     const sync = async () => {
       // We got a reset, so we must re-initialize
-      if (syncEngine.initializedAt === null) {
+      if (initializedAt === null) {
         setStartSyncPoll(false);
         syncEngineInitStatus.current = "not-initialized";
         return;
@@ -441,7 +441,7 @@ export function ValProvider({
         clearTimeout(timeout);
       }
     };
-  }, [syncEngine, startSyncPoll]);
+  }, [syncEngine, initializedAt, startSyncPoll]);
 
   const [publishSummaryState, setPublishSummaryState] =
     useState<PublishSummaryState>({
