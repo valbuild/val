@@ -75,7 +75,7 @@ export function getSource(valModule: ValModule<SelectorSource>): Source {
 }
 
 export function splitModuleFilePathAndModulePath(
-  path: SourcePath,
+  path: SourcePath | ModuleFilePath,
 ): [moduleId: ModuleFilePath, path: ModulePath] {
   const pathOfSep = path.indexOf(ModuleFilePathSep);
   if (pathOfSep === -1) {
