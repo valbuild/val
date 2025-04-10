@@ -359,7 +359,10 @@ export function ValProvider({
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
 
   useEffect(() => {
-    if (initializedAt === null) {
+    if (
+      initializedAt === null &&
+      syncEngineInitStatus.current !== "in-progress"
+    ) {
       syncEngineInitStatus.current = "not-initialized";
     }
     if (
@@ -391,6 +394,7 @@ export function ValProvider({
             setStartSyncPoll(true);
           }
         } else {
+          syncEngineInitStatus.current = "not-initialized";
           throw Error(
             "Unexpected state: init was started with stat.data but now it is not there",
           );
@@ -934,10 +938,10 @@ export type ShallowSource = EnsureAllTypes<{
 export const useSyncEngineInitializedAt = (syncEngine: ValSyncEngine) => {
   const initializedAt = useSyncExternalStore(
     syncEngine.subscribe("initialized-at"),
-    () => syncEngine.initializedAt,
-    () => syncEngine.initializedAt,
+    () => syncEngine.getInitializedAtSnapshot(),
+    () => syncEngine.getInitializedAtSnapshot(),
   );
-  return initializedAt;
+  return initializedAt.data;
 };
 
 export function useSchemaAtPath(sourcePath: SourcePath):
@@ -987,10 +991,10 @@ export function useSchemaAtPath(sourcePath: SourcePath):
       data: resolvedSchemaAtPath,
     };
   }, [schemaRes, sourcesRes, moduleFilePath, modulePath]);
-  // const initializedAt = useSyncEngineInitializedAt(syncEngine);
-  // if (initializedAt === null) {
-  //   return { status: "loading" };
-  // }
+  const initializedAt = useSyncEngineInitializedAt(syncEngine);
+  if (initializedAt === null) {
+    return { status: "loading" };
+  }
   if (resolvedSchemaAtPathRes.status !== "success") {
     if (resolvedSchemaAtPathRes.status === "resolved-schema-not-found") {
       return { status: "not-found" };
@@ -1020,13 +1024,13 @@ export function useSchemas():
       status: "success";
       data: Record<ModuleFilePath, SerializedSchema>;
     } {
-  const { schemas } = useContext(ValContext);
+  const { schemas, syncEngine } = useContext(ValContext);
 
-  // const initializedAt = useSyncEngineInitializedAt(syncEngine);
-  // if (initializedAt === null) {
-  //   console.log("schemas: loading");
-  //   return { status: "loading" } as const;
-  // }
+  const initializedAt = useSyncEngineInitializedAt(syncEngine);
+  if (initializedAt === null) {
+    console.log("schemas: loading");
+    return { status: "loading" } as const;
+  }
   if (schemas === null) {
     console.warn("Schemas: not found");
     return {
@@ -1187,14 +1191,7 @@ export function useShallowSourceAtPath<
       status: "error",
       error: sourcesRes.message || "Unknown error",
     };
-  }, [
-    sourcesRes,
-    modulePath,
-    moduleFilePath,
-    syncEngine.initializedAt,
-    type,
-    // initializedAt,
-  ]);
+  }, [sourcesRes, modulePath, moduleFilePath, initializedAt, type]);
   return source;
 }
 
@@ -1231,11 +1228,11 @@ export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
     () => syncEngine.getSourceSnapshot(moduleFilePath),
     () => syncEngine.getSourceSnapshot(moduleFilePath),
   );
-  // const initializedAt = useSyncEngineInitializedAt(syncEngine);
+  const initializedAt = useSyncEngineInitializedAt(syncEngine);
   return useMemo(() => {
-    // if (initializedAt === null) {
-    //   return { status: "loading" };
-    // }
+    if (initializedAt === null) {
+      return { status: "loading" };
+    }
     if (sourceSnapshot.status === "success") {
       return walkSourcePath(modulePath, sourceSnapshot.data);
     }
@@ -1243,12 +1240,7 @@ export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
       status: "error",
       error: sourceSnapshot.message || "Unknown error",
     };
-  }, [
-    sourceSnapshot,
-    //  initializedAt,
-    modulePath,
-    moduleFilePath,
-  ]);
+  }, [sourceSnapshot, initializedAt, modulePath, moduleFilePath]);
 }
 
 function walkSourcePath(
