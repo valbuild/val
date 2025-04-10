@@ -46,7 +46,7 @@ import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
  * it is even stupider to do lots of work that we simply know is unnecessary.
  */
 export class ValSyncEngine {
-  initializedAt: number | null;
+  private initializedAt: number | null;
   /**
    * Patch Ids stored by this client
    */
