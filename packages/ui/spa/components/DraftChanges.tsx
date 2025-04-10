@@ -61,7 +61,7 @@ export function DraftChanges({
 }) {
   const patchIds = useCurrentPatchIds();
   const mode = useValMode();
-  const publishedPatchIds = useCommittedPatches();
+  const committedPatchIds = useCommittedPatches();
   const serializedPatchSets = usePatchSets();
   const portalContainer = useValPortal();
   const { deployments, dismissDeployment } = useDeployments();
@@ -72,7 +72,7 @@ export function DraftChanges({
     let count = 0;
     for (const sourcePathS in allValidationErrors) {
       const sourcePath = sourcePathS as SourcePath;
-      count += allValidationErrors[sourcePath].length;
+      count += allValidationErrors[sourcePath]?.length || 0;
     }
     return count;
   }, [allValidationErrors]);
@@ -167,12 +167,14 @@ export function DraftChanges({
                                 >
                                   {sourcePath}
                                 </span>
-                                <span className="pl-4">({errors.length})</span>
+                                <span className="pl-4">
+                                  ({errors?.length || 0})
+                                </span>
                               </div>
                             </AccordionTrigger>
                             <AccordionContent>
                               <div className="flex flex-col gap-2">
-                                {errors.map((error, j) => (
+                                {errors?.map((error, j) => (
                                   <div key={j}>
                                     <div>{error.message}</div>
                                     <div className="pl-4 font-thin">
@@ -203,12 +205,12 @@ export function DraftChanges({
           </ScrollArea>
         </div>
       )}
-      {publishedPatchIds.size > 0 && (
+      {committedPatchIds.size > 0 && (
         <div className="flex items-center gap-2 p-4 border-b border-border-primary">
           <span className="font-bold">
             {"Pushed "}
-            {publishedPatchIds.size}
-            {publishedPatchIds.size === 1 ? " change" : " changes"}
+            {committedPatchIds.size}
+            {committedPatchIds.size === 1 ? " change" : " changes"}
             {"..."}
           </span>
         </div>
@@ -217,12 +219,12 @@ export function DraftChanges({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="font-bold">
-              {patchIds.length - publishedPatchIds.size <= 0
+              {patchIds.length - committedPatchIds.size <= 0
                 ? "No"
-                : patchIds.length - publishedPatchIds.size === 1
+                : patchIds.length - committedPatchIds.size === 1
                   ? "1"
-                  : patchIds.length - publishedPatchIds.size}{" "}
-              change{patchIds.length - publishedPatchIds.size === 1 ? "" : "s"}
+                  : patchIds.length - committedPatchIds.size}{" "}
+              change{patchIds.length - committedPatchIds.size === 1 ? "" : "s"}
             </span>
             {(loadingStatus === "loading" || loadingStatus === "not-asked") && (
               <span>
@@ -272,7 +274,7 @@ export function DraftChanges({
                 key={
                   patchSet.moduleFilePath + ":" + patchSet.patchPath.join("/")
                 }
-                appliedPatchIds={publishedPatchIds}
+                appliedPatchIds={committedPatchIds}
                 patchSet={patchSet}
               />
             );

@@ -159,14 +159,7 @@ export function PublishSummary({
               if (summary.type === "not-asked") {
                 return;
               }
-              const summaryText = summary.text.trim();
-              publish(summaryText)
-                .then(() => {
-                  onComplete();
-                })
-                .catch((e) => {
-                  setError(e.message);
-                });
+              onComplete();
             }}
             variant="default"
             className="flex items-center gap-2"

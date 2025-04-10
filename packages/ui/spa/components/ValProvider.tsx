@@ -34,6 +34,7 @@ import { z } from "zod";
 
 type ValContextValue = {
   syncEngine: ValSyncEngine;
+  schemas: Record<string, SerializedSchema>;
   mode: "http" | "fs" | "unknown";
   client: ValClient;
   publishSummaryState: PublishSummaryState;
@@ -214,8 +215,8 @@ export function ValProvider({
   }, [theme, config]);
   const globalServerSidePatchIds = useSyncExternalStore(
     syncEngine.subscribe("global-server-side-patch-ids"),
-    () => syncEngine.globalServerSidePatchIds,
-    () => syncEngine.globalServerSidePatchIds,
+    () => syncEngine.getGlobalServerSidePatchIdsSnapshot(),
+    () => syncEngine.getGlobalServerSidePatchIdsSnapshot(),
   );
   const getPatches = useCallback(
     async (patchIds: PatchId[]): Promise<GetPatchRes> => {
@@ -289,9 +290,14 @@ export function ValProvider({
     status: "not-asked",
   });
   const [requiresRemoteFiles, setRequiresRemoteFiles] = useState(false);
+  const schemas = useSyncExternalStore(
+    syncEngine.subscribe("schema"),
+    () => syncEngine.getAllSchemasSnapshot(),
+    () => syncEngine.getAllSchemasSnapshot(),
+  );
   useEffect(() => {
-    if (syncEngine.schemas) {
-      const schemasData = syncEngine.schemas;
+    if (schemas) {
+      const schemasData = schemas;
       let requiresRemoteFiles = false;
       for (const schema of Object.values(schemasData)) {
         if (findRequiredRemoteFiles(schema)) {
@@ -301,7 +307,7 @@ export function ValProvider({
       }
       setRequiresRemoteFiles(requiresRemoteFiles);
     }
-  }, [syncEngine.schemas]);
+  }, [schemas]);
   useEffect(() => {
     let retries = 0;
     function loadRemoteSettings() {
@@ -347,20 +353,25 @@ export function ValProvider({
   }, [requiresRemoteFiles]);
 
   const syncEngineInitStatus = useRef<
-    "not-asked" | "done" | "in-progress" | "retry"
-  >("not-asked");
+    "not-initialized" | "done" | "in-progress" | "retry"
+  >("not-initialized");
   const [startSyncPoll, setStartSyncPoll] = useState(false);
+  const initializedAt = useSyncEngineInitializedAt(syncEngine);
 
   useEffect(() => {
+    if (initializedAt === null) {
+      syncEngineInitStatus.current = "not-initialized";
+    }
     if (
       "data" in stat &&
       stat.data &&
-      syncEngineInitStatus.current === "not-asked"
+      syncEngineInitStatus.current === "not-initialized"
     ) {
       syncEngineInitStatus.current = "in-progress";
       let timeout: NodeJS.Timeout | null = null;
       const exec = async () => {
         if ("data" in stat && stat.data) {
+          console.debug("ValSyncEngine init started...");
           const res = await syncEngine.init(
             stat.data.baseSha,
             stat.data.schemaSha,
@@ -372,7 +383,7 @@ export function ValProvider({
             syncEngineInitStatus.current = "retry";
             timeout = setTimeout(exec, 4000);
           } else {
-            console.log("Val is initialized!");
+            console.debug("Val is initialized!", res);
             syncEngineInitStatus.current = "done";
             if (timeout) {
               clearTimeout(timeout);
@@ -381,7 +392,7 @@ export function ValProvider({
           }
         } else {
           throw Error(
-            "Unexpected state: init was started with start.data but now it is not there",
+            "Unexpected state: init was started with stat.data but now it is not there",
           );
         }
       };
@@ -392,6 +403,7 @@ export function ValProvider({
         }
       };
     } else if ("data" in stat && stat.data) {
+      console.debug("ValSyncEngine will be updated with status");
       syncEngine.syncWithUpdatedStat(
         stat.data.baseSha,
         stat.data.schemaSha,
@@ -399,13 +411,20 @@ export function ValProvider({
         Date.now(),
       );
     }
-  }, [stat, syncEngine]);
+  }, [stat, syncEngine, initializedAt]);
+
   useEffect(() => {
     if (!startSyncPoll) {
       return;
     }
     let timeout: NodeJS.Timeout | null = null;
     const sync = async () => {
+      // We got a reset, so we must re-initialize
+      if (syncEngine.initializedAt === null) {
+        setStartSyncPoll(false);
+        syncEngineInitStatus.current = "not-initialized";
+        return;
+      }
       await syncEngine.sync(Date.now());
       if (timeout) {
         clearTimeout(timeout);
@@ -430,6 +449,7 @@ export function ValProvider({
       value={{
         client,
         publishSummaryState,
+        schemas,
         setPublishSummaryState,
         syncEngine,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
@@ -622,29 +642,23 @@ export function usePatchSets():
 
 export function useCommittedPatches() {
   const { syncEngine } = useContext(ValContext);
-  const patchIds = syncEngine.globalServerSidePatchIds ?? [];
-  const [appliedPatchIds, setAppliedPatchIds] = useState<Set<PatchId>>(
-    new Set(),
+  const currentPatchIds = useCurrentPatchIds();
+  const allPatches = useSyncExternalStore(
+    syncEngine.subscribe("all-patches"),
+    () => syncEngine.getAllPatchesSnapshot(),
+    () => syncEngine.getAllPatchesSnapshot(),
   );
-  // useEffect(() => {
-  //   if (!isPublishing) {
-  //     getPatches(patchIds).then((res) => {
-  //       if (res.status === "ok") {
-  //         const appliedPatchIds = new Set<PatchId>();
-  //         for (const [patchIdS, patchMetadata] of Object.entries(res.data)) {
-  //           // TODO: as long as appliedAt is set, I suppose we can assume it is applied for this current commit?
-  //           if (patchMetadata?.appliedAt) {
-  //             appliedPatchIds.add(patchIdS as PatchId);
-  //           }
-  //         }
-  //         setAppliedPatchIds(appliedPatchIds);
-  //       }
-  //     });
-  //   } else {
-  //     setAppliedPatchIds(new Set(patchIds));
-  //   }
-  // }, [isPublishing, patchIds.join(",")]);
-  return appliedPatchIds;
+
+  return useMemo(() => {
+    const committedPatchIds: Set<PatchId> = new Set();
+    for (const patchId of currentPatchIds) {
+      const patchData = allPatches[patchId];
+      if (patchData?.isCommitted) {
+        committedPatchIds.add(patchId);
+      }
+    }
+    return committedPatchIds;
+  }, [allPatches, currentPatchIds]);
 }
 
 export function useCurrentPatchIds(): PatchId[] {
@@ -660,10 +674,12 @@ export function useValMode(): "http" | "fs" | "unknown" {
 export type LoadingStatus = "loading" | "not-asked" | "error" | "success";
 export function useLoadingStatus(): LoadingStatus {
   const { syncEngine } = useContext(ValContext);
-  if (syncEngine.initializedAt === null) {
-    return "not-asked";
-  }
-  if (syncEngine.pendingOps.length > 0) {
+  const pendingOpsCount = useSyncExternalStore(
+    syncEngine.subscribe("pending-ops-count"),
+    () => syncEngine.getPendingOpsSnapshot(),
+    () => syncEngine.getPendingOpsSnapshot(),
+  );
+  if (pendingOpsCount > 0) {
     return "loading";
   }
   return "success";
@@ -915,6 +931,15 @@ export type ShallowSource = EnsureAllTypes<{
   richtext: unknown[];
 }>;
 
+export const useSyncEngineInitializedAt = (syncEngine: ValSyncEngine) => {
+  const initializedAt = useSyncExternalStore(
+    syncEngine.subscribe("initialized-at"),
+    () => syncEngine.initializedAt,
+    () => syncEngine.initializedAt,
+  );
+  return initializedAt;
+};
+
 export function useSchemaAtPath(sourcePath: SourcePath):
   | { status: "not-found" }
   | { status: "loading" }
@@ -927,24 +952,60 @@ export function useSchemaAtPath(sourcePath: SourcePath):
       error: string;
     } {
   const { syncEngine } = useContext(ValContext);
-  const data = useSyncExternalStore(
+  const [moduleFilePath, modulePath] = useMemo(() => {
+    return Internal.splitModuleFilePathAndModulePath(sourcePath);
+  }, [sourcePath]);
+  const schemaRes = useSyncExternalStore(
     syncEngine.subscribe("schema"),
-    () => syncEngine.getDataSnapshot(sourcePath),
-    () => syncEngine.getDataSnapshot(sourcePath),
+    () => syncEngine.getSchemaSnapshot(moduleFilePath),
+    () => syncEngine.getSchemaSnapshot(moduleFilePath),
   );
-  if (data.status === "success") {
-    return { status: "success", data: data.data.schema };
+  const sourcesRes = useSyncExternalStore(
+    syncEngine.subscribe("source", moduleFilePath),
+    () => syncEngine.getSourceSnapshot(moduleFilePath),
+    () => syncEngine.getSourceSnapshot(moduleFilePath),
+  );
+  const resolvedSchemaAtPathRes = useMemo(() => {
+    if (schemaRes.status !== "success") {
+      return schemaRes;
+    }
+    if (sourcesRes.status !== "success") {
+      return sourcesRes;
+    }
+    const resolvedSchemaAtPath = Internal.resolvePath(
+      modulePath,
+      sourcesRes.data,
+      schemaRes.data,
+    )?.schema;
+    if (!resolvedSchemaAtPath) {
+      return {
+        status: "resolved-schema-not-found" as const,
+      };
+    }
+    return {
+      status: "success" as const,
+      data: resolvedSchemaAtPath,
+    };
+  }, [schemaRes, sourcesRes, moduleFilePath, modulePath]);
+  // const initializedAt = useSyncEngineInitializedAt(syncEngine);
+  // if (initializedAt === null) {
+  //   return { status: "loading" };
+  // }
+  if (resolvedSchemaAtPathRes.status !== "success") {
+    if (resolvedSchemaAtPathRes.status === "resolved-schema-not-found") {
+      return { status: "not-found" };
+    }
+    if (resolvedSchemaAtPathRes.status === "no-schemas") {
+      return { status: "error", error: "No schemas" };
+    }
+    if (resolvedSchemaAtPathRes.status === "module-schema-not-found") {
+      return { status: "not-found" };
+    }
+    return {
+      status: "loading",
+    };
   }
-  if (syncEngine.initializedAt === null) {
-    return { status: "loading" };
-  }
-  if (data.status === "module-schema-not-found") {
-    return { status: "not-found" };
-  }
-  if (data.status === "module-source-not-found") {
-    return { status: "not-found" };
-  }
-  return { status: "error", error: data.message || data.status };
+  return resolvedSchemaAtPathRes;
 }
 
 export function useSchemas():
@@ -959,24 +1020,31 @@ export function useSchemas():
       status: "success";
       data: Record<ModuleFilePath, SerializedSchema>;
     } {
-  const syncEngine = useContext(ValContext).syncEngine;
-  if (syncEngine.initializedAt === null) {
-    return { status: "loading" } as const;
-  }
-  if (syncEngine.schemas === null) {
+  const { schemas } = useContext(ValContext);
+
+  // const initializedAt = useSyncEngineInitializedAt(syncEngine);
+  // if (initializedAt === null) {
+  //   console.log("schemas: loading");
+  //   return { status: "loading" } as const;
+  // }
+  if (schemas === null) {
+    console.warn("Schemas: not found");
     return {
       status: "error",
       error: "Schemas not found",
     } as const;
   }
+  const definedSchemas: Record<ModuleFilePath, SerializedSchema> = {};
+  for (const [moduleFilePathS, moduleSchema] of Object.entries(schemas)) {
+    const moduleFilePath = moduleFilePathS as ModuleFilePath;
+    if (moduleSchema) {
+      definedSchemas[moduleFilePath] = moduleSchema;
+    }
+  }
   return {
     status: "success",
-    data: syncEngine.schemas || {},
+    data: definedSchemas,
   } as const;
-}
-
-export function useSchemaSha() {
-  return useContext(ValContext).syncEngine.clientSideSchemaSha;
 }
 
 export function useValidationErrors(sourcePath: SourcePath) {
@@ -1091,25 +1159,17 @@ export function useShallowSourceAtPath<
     : (["", ""] as [ModuleFilePath, ModulePath]);
   const sourcesRes = useSyncExternalStore(
     syncEngine.subscribe("source", moduleFilePath),
-    () => syncEngine.getDataSnapshot(moduleFilePath),
-    () => syncEngine.getDataSnapshot(moduleFilePath),
+    () => syncEngine.getSourceSnapshot(moduleFilePath),
+    () => syncEngine.getSourceSnapshot(moduleFilePath),
   );
+  const initializedAt = useSyncEngineInitializedAt(syncEngine);
 
   const source = useMemo((): ShallowSourceOf<SchemaType> => {
-    if (syncEngine.initializedAt === null) {
+    if (initializedAt === null) {
       return { status: "loading" };
-    }
-    if (moduleFilePath === "") {
-      return { status: "loading" };
-    }
-    if (sourcesRes.status === "module-schema-not-found") {
-      return { status: "not-found" };
-    }
-    if (sourcesRes.status === "module-source-not-found") {
-      return { status: "not-found" };
     }
     if (sourcesRes.status === "success") {
-      const moduleSources = sourcesRes.data.source;
+      const moduleSources = sourcesRes.data;
       if (moduleSources !== undefined && type !== undefined) {
         const sourceAtSourcePath = getShallowSourceAtSourcePath(
           moduleFilePath,
@@ -1132,27 +1192,23 @@ export function useShallowSourceAtPath<
     modulePath,
     moduleFilePath,
     syncEngine.initializedAt,
-    syncEngine.syncStatus,
     type,
+    // initializedAt,
   ]);
   return source;
 }
 
-/**
- * Avoid using this unless necessary. Prefer useSourceAtPath or useShallowSourceAtPath instead.
- * Reason: principles! Use only what you need...
- */
-export function useSources() {
+export function useAllSources() {
   const { syncEngine } = useContext(ValContext);
-  const sources: Record<ModuleFilePath, Json | undefined> = {};
-  for (const moduleFilePathS in syncEngine.schemas || {}) {
-    const moduleFilePath = moduleFilePathS as ModuleFilePath;
-    sources[moduleFilePath] = syncEngine.getDataSnapshot(moduleFilePath).data;
-  }
-  return useContext(ValContext).syncEngine.optimisticClientSources;
+  const sources = useSyncExternalStore(
+    syncEngine.subscribe("all-sources"),
+    () => syncEngine.getAllSourcesSnapshot(),
+    () => syncEngine.getAllSourcesSnapshot(),
+  );
+  return sources;
 }
 
-export function useSourceAtPath(sourcePath: SourcePath):
+export function useSourceAtPath(sourcePath: SourcePath | ModuleFilePath):
   | {
       status: "success";
       data: Json;
@@ -1172,27 +1228,27 @@ export function useSourceAtPath(sourcePath: SourcePath):
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const sourceSnapshot = useSyncExternalStore(
     syncEngine.subscribe("source", moduleFilePath),
-    () => syncEngine.getDataSnapshot(moduleFilePath),
-    () => syncEngine.getDataSnapshot(moduleFilePath),
+    () => syncEngine.getSourceSnapshot(moduleFilePath),
+    () => syncEngine.getSourceSnapshot(moduleFilePath),
   );
+  // const initializedAt = useSyncEngineInitializedAt(syncEngine);
   return useMemo(() => {
-    if (syncEngine.initializedAt === null) {
-      return { status: "loading" };
-    }
+    // if (initializedAt === null) {
+    //   return { status: "loading" };
+    // }
     if (sourceSnapshot.status === "success") {
-      return walkSourcePath(modulePath, sourceSnapshot.data.source);
-    }
-    if (
-      sourceSnapshot.status === "module-schema-not-found" ||
-      sourceSnapshot.status === "module-source-not-found"
-    ) {
-      return { status: "not-found" };
+      return walkSourcePath(modulePath, sourceSnapshot.data);
     }
     return {
       status: "error",
       error: sourceSnapshot.message || "Unknown error",
     };
-  }, [sourceSnapshot, syncEngine.initializedAt, modulePath, moduleFilePath]);
+  }, [
+    sourceSnapshot,
+    //  initializedAt,
+    modulePath,
+    moduleFilePath,
+  ]);
 }
 
 function walkSourcePath(

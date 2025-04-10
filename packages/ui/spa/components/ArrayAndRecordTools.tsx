@@ -15,11 +15,12 @@ import { Input } from "./designSystem/input";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import {
   useAddPatch,
+  useAllSources,
   useLoadingStatus,
   useSchemaAtPath,
   useSchemas,
   useShallowSourceAtPath,
-  useSources,
+  useSourceAtPath,
   useValPortal,
 } from "./ValProvider";
 import { useNavigation } from "./ValRouter";
@@ -420,25 +421,19 @@ function ChangeRecordPopover({
 function useKeysOf(parentPath: ModuleFilePath, keyValue?: string) {
   const schemas = useSchemas();
   const loadingStatus = useLoadingStatus();
-  const sources = useSources();
+  const allSources = useAllSources();
   const referencingModuleFilePaths = useMemo(() => {
     if (
-      sources[parentPath] !== undefined &&
       "data" in schemas &&
       schemas.data !== undefined &&
       schemas.data[parentPath] !== undefined
     ) {
-      return getKeysOf(
-        schemas.data,
-        sources as Record<ModuleFilePath, Json>,
-        parentPath,
-        keyValue,
-      );
+      return getKeysOf(schemas.data, allSources, parentPath, keyValue);
     }
     return [];
   }, [
     loadingStatus,
-    sources,
+    allSources,
     "data" in schemas && schemas.data,
     parentPath,
     keyValue,

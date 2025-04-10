@@ -1,5 +1,6 @@
 import {
   Internal,
+  Json,
   ModuleFilePath,
   ModulePath,
   PatchId,
@@ -49,53 +50,57 @@ export class ValSyncEngine {
   /**
    * Patch Ids stored by this client
    */
-  patchIdsStoredByClient: PatchId[];
+  private patchIdsStoredByClient: PatchId[];
   /**
    * Patch Ids reported by the /stat endpoint or webhook
    *
    * These are all the patch ids that are currently in the server; from this client AND FROM OTHER CLIENTS.
    **/
-  globalServerSidePatchIds: PatchId[] | null;
+  private globalServerSidePatchIds: PatchId[] | null;
   /**
    * Patch Ids created by this client, that are not yet stored
    */
-  pendingClientPatchIds: PatchId[];
+  private pendingClientPatchIds: PatchId[];
   /**
    * Patch Ids that have been successfully been seen on server
    */
-  syncedPatchIds: Set<PatchId>;
+  private syncedPatchIds: Set<PatchId>;
   /**
    * Patch Ids that have been committed to the server
    */
-  committedPatchIds: Set<PatchId>;
-  publishDisabled: boolean;
-  patchDataByPatchId: Record<
+  private committedPatchIds: Set<PatchId>;
+  private publishDisabled: boolean;
+  private patchDataByPatchId: Record<
     PatchId,
-    {
-      moduleFilePath: ModuleFilePath;
-      patch: Patch;
-      isPending: boolean;
-      createdAt: string;
-      authorId: string | null;
-      isCommitted?: {
-        commitSha: string;
-      };
-    }
+    | {
+        moduleFilePath: ModuleFilePath;
+        patch: Patch;
+        isPending: boolean;
+        createdAt: string;
+        authorId: string | null;
+        isCommitted?: {
+          commitSha: string;
+        };
+      }
+    | undefined
   >;
-  authorId: string | null;
-  patchSets: PatchSets;
+  private authorId: string | null;
+  private patchSets: PatchSets;
   /** serverSources is the state on the server, it is the actual state */
-  serverSources: Record<ModuleFilePath, JSONValue> | null;
+  private serverSources: Record<ModuleFilePath, JSONValue | undefined> | null;
   /** optimisticClientSources is the state of the client, optimistic means that patches have been applied in client-only */
-  optimisticClientSources: Record<ModuleFilePath, JSONValue>;
-  schemas: Record<ModuleFilePath, SerializedSchema> | null;
-  serverSideSchemaSha: string | null;
-  clientSideSchemaSha: string | null;
+  private optimisticClientSources: Record<
+    ModuleFilePath,
+    JSONValue | undefined
+  >;
+  private schemas: Record<ModuleFilePath, SerializedSchema | undefined> | null;
+  private serverSideSchemaSha: string | null;
+  private clientSideSchemaSha: string | null;
 
-  baseSha: string | null; // TODO: Currently not used, we should use this to reset the client state
-  syncStatus: Record<SourcePath | ModuleFilePath, SyncStatus>;
-  pendingOps: PendingOp[];
-  errors: Partial<{
+  private baseSha: string | null; // TODO: Currently not used, we should use this to reset the client state
+  private syncStatus: Record<SourcePath | ModuleFilePath, SyncStatus>;
+  private pendingOps: PendingOp[];
+  private errors: Partial<{
     /**
      * Transient global errors are errors that are
      * 1) transient (reloading might fix)
@@ -124,7 +129,7 @@ export class ValSyncEngine {
     // /** Errors that prohibits publishing */
     // publishError: string | null;
     // patchErrors: Record<PatchId, string | null>;
-    validationErrors: Record<SourcePath, ValidationError[]>;
+    validationErrors: Record<SourcePath, ValidationError[] | undefined>;
   }>;
 
   constructor(
@@ -154,6 +159,17 @@ export class ValSyncEngine {
     this.patchSets = new PatchSets();
     this.authorId = null;
     this.publishDisabled = true;
+    //
+    this.cachedSourceSnapshots = null;
+    this.cachedSchemaSnapshots = null;
+    this.cachedPatchData = null;
+    this.cachedSerializedPatchSetsSnapshot = null;
+    this.cachedValidationErrors = null;
+    this.cachedAllSchemasSnapshot = null;
+    this.cachedGlobalServerSidePatchIdsSnapshot = null;
+    this.cachedAllSourcesSnapshot = null;
+    this.cachedSyncStatus = null;
+    this.cachedPendingOpsCountSnapshot = null;
   }
 
   async init(
@@ -165,6 +181,7 @@ export class ValSyncEngine {
   ) {
     this.authorId = authorId;
     const start = Date.now();
+    this.initializedAt = null;
     const res = await this.syncWithUpdatedStat(
       baseSha,
       schemaSha,
@@ -199,6 +216,19 @@ export class ValSyncEngine {
     this.patchSets = new PatchSets();
     this.authorId = null;
     this.publishDisabled = true;
+    //
+    this.cachedSourceSnapshots = null;
+    this.cachedSchemaSnapshots = null;
+    this.cachedPatchData = null;
+    this.cachedSerializedPatchSetsSnapshot = null;
+    this.cachedValidationErrors = null;
+    this.cachedAllSchemasSnapshot = null;
+    this.cachedGlobalServerSidePatchIdsSnapshot = null;
+    this.cachedAllSourcesSnapshot = null;
+    this.cachedSyncStatus = null;
+    this.cachedPendingOpsCountSnapshot = null;
+
+    // TODO: ugly - we need to do this to make sure we get new references across the board
     for (const listenersOfType of Object.values(this.listeners)) {
       for (const listeners of Object.values(listenersOfType)) {
         this.emit(listeners);
@@ -214,6 +244,8 @@ export class ValSyncEngine {
     type: "source",
     path: ModuleFilePath,
   ): (listener: () => void) => () => void;
+  subscribe(type: "all-sources"): (listener: () => void) => () => void;
+  subscribe(type: "pending-ops-count"): (listener: () => void) => () => void;
   subscribe(
     type: "validation-error",
     path: SourcePath,
@@ -221,6 +253,7 @@ export class ValSyncEngine {
   subscribe(
     type: "all-validation-errors",
   ): (listener: () => void) => () => void;
+  subscribe(type: "initialized-at"): (listener: () => void) => () => void;
   subscribe(
     type: "sync-status",
     path: SourcePath,
@@ -237,6 +270,7 @@ export class ValSyncEngine {
   subscribe(type: "publish-disabled"): (listener: () => void) => () => void;
   subscribe(type: "schema"): (listener: () => void) => () => void;
   subscribe(type: "patch-sets"): (listener: () => void) => () => void;
+  subscribe(type: "all-patches"): (listener: () => void) => () => void;
   subscribe(
     type: SyncEngineListenerType,
     path?: string,
@@ -267,10 +301,15 @@ export class ValSyncEngine {
     }
   }
   private invalidateSource(moduleFilePath: ModuleFilePath) {
-    delete this.cachedDataSnapshots[moduleFilePath];
+    this.cachedSourceSnapshots[moduleFilePath] = undefined;
+    this.cachedAllSourcesSnapshot = null;
     this.emit(this.listeners.source?.[moduleFilePath]);
   }
   private invalidateSyncStatus(sourcePath: SourcePath | ModuleFilePath) {
+    this.cachedSyncStatus = {
+      ...this.cachedSyncStatus,
+      [sourcePath]: undefined,
+    };
     this.emit(this.listeners["sync-status"]?.[sourcePath]);
   }
   private invalidateValidationError(sourcePath: SourcePath) {
@@ -278,9 +317,7 @@ export class ValSyncEngine {
   }
   private invalidateAllValidationErrors() {
     // TODO: ugly - we need to do this to make sure we get new references across the board
-    this.errors.validationErrors = deepClone(
-      this.errors.validationErrors as ReadonlyJSONValue,
-    ) as Record<SourcePath, ValidationError[]>;
+    this.cachedValidationErrors = null;
     this.emit(this.listeners["all-validation-errors"]?.[globalNamespace]);
   }
   private invalidateTransientGlobalError() {
@@ -293,7 +330,18 @@ export class ValSyncEngine {
     this.cachedSerializedPatchSetsSnapshot = null;
     this.emit(this.listeners["patch-sets"]?.[globalNamespace]);
   }
+  private invalidatePendingOps() {
+    this.cachedPendingOpsCountSnapshot = null;
+    this.emit(this.listeners["pending-ops-count"]?.[globalNamespace]);
+  }
+
+  private invalidateAllPatches() {
+    this.emit(this.listeners["all-patches"]?.[globalNamespace]);
+  }
   private invalidateSchema() {
+    this.cachedAllSchemasSnapshot = null;
+    this.cachedSchemaSnapshots = null;
+    this.cachedAllSourcesSnapshot = null;
     this.emit(this.listeners["schema"]?.[globalNamespace]);
     this.invalidateAllValidationErrors();
     for (const sourcePathS in this.listeners?.["validation-error"] || {}) {
@@ -302,6 +350,7 @@ export class ValSyncEngine {
     }
   }
   private invalidateGlobalServerSidePatchIds() {
+    this.cachedGlobalServerSidePatchIdsSnapshot = null;
     this.emit(
       this.listeners["global-server-side-patch-ids"]?.[globalNamespace],
     );
@@ -311,112 +360,173 @@ export class ValSyncEngine {
   }
 
   // #region Snapshot
-  getModuleData(sourcePath: SourcePath | ModuleFilePath) {
-    const [moduleFilePath, modulePath] =
-      Internal.splitModuleFilePathAndModulePath(sourcePath as SourcePath);
-    const isOptimistic =
-      this.optimisticClientSources[moduleFilePath] !== undefined;
-    const source = isOptimistic
-      ? this.optimisticClientSources[moduleFilePath]
-      : this.serverSources?.[moduleFilePath];
 
-    if (source === undefined) {
-      return {
-        status: "module-source-not-found",
-        moduleFilePath,
-      } as const;
-    }
-    const schema = this.schemas?.[moduleFilePath];
-    if (schema === undefined) {
-      return {
-        status: "module-schema-not-found",
-        moduleFilePath,
-      } as const;
-    }
-    if (!modulePath) {
-      return {
-        status: "success",
-        optimistic: isOptimistic,
-        data: {
-          path: sourcePath,
-          source: source,
-          schema: schema,
-        },
-      } as const;
-    }
-    let dataAtPath;
-    try {
-      dataAtPath = Internal.resolvePath(modulePath, source, schema);
-    } catch (err) {
-      if (err instanceof Error) {
-        return {
-          status: "resolve-path-error",
-          sourcePath,
-          message: err.message,
-        } as const;
+  private cachedSchemaSnapshots: Record<
+    SourcePath | ModuleFilePath,
+    | {
+        status: "success";
+        data: SerializedSchema;
       }
-      return {
-        status: "resolve-path-error",
-        sourcePath,
-        message: "Unknown error",
-      } as const;
+    | {
+        status: "no-schemas";
+        message?: string;
+      }
+    | {
+        status: "module-schema-not-found";
+        message?: string;
+      }
+  > | null;
+  getSchemaSnapshot(sourcePath: ModuleFilePath) {
+    if (this.cachedSchemaSnapshots === null) {
+      this.cachedSchemaSnapshots = {};
     }
-    if (dataAtPath.source === undefined) {
-      return {
-        status: "resolved-source-not-found",
-        sourcePath,
-      } as const;
+    if (this.cachedSchemaSnapshots[sourcePath] === undefined) {
+      if (!this.schemas) {
+        this.cachedSchemaSnapshots[sourcePath] = {
+          status: "no-schemas",
+        };
+      } else {
+        const schemaAtPath = this.schemas[sourcePath];
+        if (!schemaAtPath) {
+          this.cachedSchemaSnapshots[sourcePath] = {
+            status: "module-schema-not-found",
+          };
+        } else {
+          this.cachedSchemaSnapshots[sourcePath] = {
+            status: "success",
+            data: deepClone(schemaAtPath),
+          };
+        }
+      }
     }
-    if (dataAtPath.schema === undefined) {
-      return {
-        status: "resolved-schema-not-found",
-        sourcePath,
-        message: "Schema not found",
-      } as const;
-    }
-    if (dataAtPath.path === undefined) {
-      return {
-        status: "resolve-path-error-source-path-not-found",
-        sourcePath,
-      } as const;
-    }
-    return {
-      status: "success",
-      optimistic: isOptimistic,
-      data: dataAtPath,
-    } as const;
+    return this.cachedSchemaSnapshots[sourcePath];
   }
 
-  private cachedDataSnapshots: Record<
+  private cachedSourceSnapshots: Record<
     ModuleFilePath,
-    Record<ModulePath, ReturnType<typeof this.getModuleData>>
-  > = {};
-  getDataSnapshot(sourcePath: SourcePath | ModuleFilePath) {
-    const [moduleFilePath, modulePath] =
-      Internal.splitModuleFilePathAndModulePath(sourcePath as SourcePath);
-    if (
-      this.cachedDataSnapshots?.[moduleFilePath]?.[modulePath] === undefined
-    ) {
-      const snapshot = this.getModuleData(sourcePath);
-      if (!this.cachedDataSnapshots[moduleFilePath]) {
-        this.cachedDataSnapshots[moduleFilePath] = {};
+    | {
+        status: "success";
+        data: Json;
+        optimistic: boolean;
       }
-      this.cachedDataSnapshots[moduleFilePath][modulePath] = snapshot;
+    | {
+        data?: undefined;
+        status: "no-schemas" | "source-not-found" | "schema-not-found";
+        message?: string;
+      }
+  > | null;
+  getSourceSnapshot(sourcePath: ModuleFilePath) {
+    if (this.cachedSourceSnapshots === null) {
+      this.cachedSourceSnapshots = {};
     }
-    return this.cachedDataSnapshots[moduleFilePath][modulePath];
+    if (this.cachedSourceSnapshots[sourcePath] === undefined) {
+      const moduleData =
+        this.optimisticClientSources[sourcePath] ||
+        this.serverSources?.[sourcePath];
+
+      if (this.schemas === null) {
+        this.cachedSourceSnapshots[sourcePath] = {
+          status: "no-schemas",
+        };
+      } else if (!this.schemas[sourcePath]) {
+        this.cachedSourceSnapshots[sourcePath] = {
+          status: "schema-not-found",
+        };
+      } else if (moduleData === undefined) {
+        this.cachedSourceSnapshots[sourcePath] = {
+          status: "source-not-found",
+        };
+      } else {
+        this.cachedSourceSnapshots[sourcePath] = {
+          status: "success",
+          data: deepClone(moduleData),
+          optimistic: this.optimisticClientSources[sourcePath] !== undefined,
+        };
+      }
+    }
+    return this.cachedSourceSnapshots[sourcePath];
   }
 
+  private cachedAllSourcesSnapshot: Record<ModuleFilePath, Json> | null;
+  getAllSourcesSnapshot() {
+    if (this.cachedAllSourcesSnapshot === null) {
+      this.cachedAllSourcesSnapshot = {};
+      for (const moduleFilePathS in this.schemas || {}) {
+        const moduleFilePath = moduleFilePathS as ModuleFilePath;
+        const data =
+          this.optimisticClientSources[moduleFilePath] ||
+          this.serverSources?.[moduleFilePath];
+        if (data) {
+          this.cachedAllSourcesSnapshot[moduleFilePath] = deepClone(data);
+        }
+      }
+    }
+    return this.cachedAllSourcesSnapshot;
+  }
+
+  private cachedAllSchemasSnapshot: Record<
+    ModuleFilePath,
+    SerializedSchema
+  > | null;
+  getAllSchemasSnapshot() {
+    if (this.cachedAllSchemasSnapshot === null) {
+      this.cachedAllSchemasSnapshot = {};
+    }
+    for (const moduleFilePathS in this.schemas || {}) {
+      const moduleFilePath = moduleFilePathS as ModuleFilePath;
+      const schema = this.schemas?.[moduleFilePath];
+      if (schema) {
+        this.cachedAllSchemasSnapshot[moduleFilePath] = deepClone(schema);
+      }
+    }
+    return this.cachedAllSchemasSnapshot;
+  }
+
+  private cachedValidationErrors: Record<SourcePath, ValidationError[]> | null;
   getValidationErrorSnapshot(sourcePath: SourcePath) {
-    return this.errors.validationErrors?.[sourcePath];
-  }
-  getAllValidationErrorsSnapshot() {
-    return this.errors.validationErrors;
+    const allValidationErrorsSnapshot = this.getAllValidationErrorsSnapshot();
+    return allValidationErrorsSnapshot?.[sourcePath];
   }
 
+  getAllValidationErrorsSnapshot() {
+    if (!this.cachedValidationErrors) {
+      this.cachedValidationErrors = {};
+      for (const sourcePathS in this.errors.validationErrors) {
+        const sourcePath = sourcePathS as SourcePath;
+        const newErrors = [];
+        for (const error of this.errors.validationErrors[sourcePath] || []) {
+          if (error) {
+            newErrors.push(error);
+          }
+        }
+        if (newErrors.length > 0) {
+          this.cachedValidationErrors[sourcePath] = newErrors;
+        }
+      }
+    }
+    return this.cachedValidationErrors;
+  }
+
+  private cachedSyncStatus: Record<SourcePath, SyncStatus | null> | null;
   getSyncStatusSnapshot(sourcePath: SourcePath) {
+    if (this.cachedSyncStatus === null) {
+      this.cachedSyncStatus = {};
+    }
+    if (this.cachedSyncStatus[sourcePath] === undefined) {
+      this.cachedSyncStatus[sourcePath] = this.syncStatus[sourcePath] || null;
+    }
     return this.syncStatus[sourcePath];
   }
-  private cachedSerializedPatchSetsSnapshot: SerializedPatchSet | null = null;
+
+  private cachedPendingOpsCountSnapshot: number | null;
+  getPendingOpsSnapshot() {
+    if (this.cachedPendingOpsCountSnapshot === null) {
+      this.cachedPendingOpsCountSnapshot = this.pendingOps.length;
+    }
+    return this.cachedPendingOpsCountSnapshot;
+  }
+
+  private cachedSerializedPatchSetsSnapshot: SerializedPatchSet | null;
   getSerializedPatchSetsSnapshot() {
     if (!this.cachedSerializedPatchSetsSnapshot) {
       this.cachedSerializedPatchSetsSnapshot = this.patchSets.serialize();
@@ -424,8 +534,43 @@ export class ValSyncEngine {
     return this.cachedSerializedPatchSetsSnapshot;
   }
 
+  private cachedPatchData: Record<
+    PatchId,
+    {
+      moduleFilePath: ModuleFilePath;
+      patch: Patch;
+      isPending: boolean;
+      createdAt: string;
+      authorId: string | null;
+      isCommitted?: {
+        commitSha: string;
+      };
+    }
+  > | null;
+  getAllPatchesSnapshot() {
+    if (!this.cachedPatchData) {
+      this.cachedPatchData = {};
+      for (const patchIdS in this.patchDataByPatchId) {
+        const patchId = patchIdS as PatchId;
+        const patchData = this.patchDataByPatchId[patchId];
+        if (patchData) {
+          this.cachedPatchData[patchId] = patchData;
+        }
+      }
+    }
+    return this.cachedPatchData;
+  }
+
+  private cachedGlobalServerSidePatchIdsSnapshot: PatchId[] | null;
   getGlobalServerSidePatchIdsSnapshot() {
-    return this.globalServerSidePatchIds;
+    if (
+      this.cachedGlobalServerSidePatchIdsSnapshot === null &&
+      this.globalServerSidePatchIds
+    ) {
+      this.cachedGlobalServerSidePatchIdsSnapshot =
+        this.globalServerSidePatchIds.slice();
+    }
+    return this.cachedGlobalServerSidePatchIdsSnapshot;
   }
 
   getPublishDisabledSnapshot() {
@@ -515,7 +660,9 @@ export class ValSyncEngine {
         ) {
           lastOp.data[moduleFilePath][lastPatchIdx].patch = patch;
           lastOp.updatedAt = now;
-          this.patchDataByPatchId[patchId].patch = patch;
+          this.invalidatePendingOps();
+
+          this.patchDataByPatchId[patchId]!.patch = patch;
           this.patchSetInsert(moduleFilePath, patchId, patch, now);
 
           this.invalidateSyncStatus(sourcePath);
@@ -536,6 +683,7 @@ export class ValSyncEngine {
             type,
             patchId,
           });
+          this.invalidatePendingOps();
           this.pendingClientPatchIds.push(patchId);
           this.patchDataByPatchId[patchId] = {
             moduleFilePath: moduleFilePath,
@@ -563,6 +711,7 @@ export class ValSyncEngine {
           },
           createdAt: now,
         });
+        this.invalidatePendingOps();
         this.pendingClientPatchIds.push(patchId);
         this.patchDataByPatchId[patchId] = {
           moduleFilePath: moduleFilePath,
@@ -616,6 +765,7 @@ export class ValSyncEngine {
       patchIds: patchIds,
       createdAt: now,
     });
+    this.invalidatePendingOps();
   }
 
   // #region Misc
@@ -771,7 +921,10 @@ export class ValSyncEngine {
       // Also note that there is (or at least should) be something permanently wrong with these
       // patches so there shouldn't be any need to retry
       for (const patchId of newPatchIds) {
-        delete this.patchDataByPatchId[patchId];
+        this.patchDataByPatchId = {
+          ...this.patchDataByPatchId,
+          [patchId]: undefined,
+        };
       }
       const newPatchIdsSet = new Set(newPatchIds);
       this.pendingClientPatchIds = this.pendingClientPatchIds.filter(
@@ -791,7 +944,9 @@ export class ValSyncEngine {
         const patchId = patchIdS as PatchId;
         if (createdPatchIds.has(patchId)) {
           this.patchIdsStoredByClient.push(patchId);
-          this.patchDataByPatchId[patchId].isPending = false;
+          if (this.patchDataByPatchId[patchId]) {
+            this.patchDataByPatchId[patchId]!.isPending = false;
+          }
         } else {
           console.error(
             `Failed to save changes: ${patchId} not found in createdPatchIds`,
@@ -802,7 +957,11 @@ export class ValSyncEngine {
             now,
             `Did not find expected patch id: '${patchId}'`,
           );
-          delete this.patchDataByPatchId[patchId];
+          this.patchDataByPatchId[patchId];
+          this.patchDataByPatchId = {
+            ...this.patchDataByPatchId,
+            [patchId]: undefined,
+          };
         }
       }
     }
@@ -846,13 +1005,16 @@ export class ValSyncEngine {
       for (const patchId of op.patchIds) {
         if (this.patchDataByPatchId[patchId]) {
           const currentModuleFilePath =
-            this.patchDataByPatchId[patchId].moduleFilePath;
+            this.patchDataByPatchId[patchId]!.moduleFilePath;
 
           if (!changes[currentModuleFilePath]) {
             changes[currentModuleFilePath] = new Set();
           }
           changes[currentModuleFilePath].add("unknown");
-          delete this.patchDataByPatchId[patchId];
+          this.patchDataByPatchId = {
+            ...this.patchDataByPatchId,
+            [patchId]: undefined,
+          };
         } else {
           syncAllRequired = true;
         }
@@ -893,8 +1055,10 @@ export class ValSyncEngine {
       }
       if (this.clientSideSchemaSha !== schemaRes.json.schemaSha) {
         this.clientSideSchemaSha = schemaRes.json.schemaSha;
-        this.invalidateSchema();
       }
+
+      console.debug("Invalidating schema");
+      this.invalidateSchema();
       return {
         status: "done",
       };
@@ -1068,6 +1232,7 @@ export class ValSyncEngine {
         }
       }
     }
+    this.invalidateAllPatches();
     if (didUpdatePatchSet) {
       this.invalidatePatchSets();
     }
@@ -1112,8 +1277,8 @@ export class ValSyncEngine {
     return "all";
   }
   public isSyncing = false;
-  private MIN_WAIT_SECONDS = 0.1;
-  private MAX_WAIT_SECONDS = 1.5;
+  private MIN_WAIT_SECONDS = 1;
+  private MAX_WAIT_SECONDS = 5;
 
   // #region Sync
   async sync(now: number): Promise<
@@ -1150,7 +1315,11 @@ export class ValSyncEngine {
         !this.globalServerSidePatchIds.includes(patchId)
       ) {
         this.reset();
-        break;
+        console.log("Resetting ValSyncEngine");
+        return {
+          status: "retry",
+          reason: "patch-ids-changed",
+        };
       }
     }
 
@@ -1225,15 +1394,26 @@ export class ValSyncEngine {
         didWrite = true;
         pendingOps.shift();
       }
+      this.invalidatePendingOps();
 
       // #region Read operations
-      if (this.clientSideSchemaSha === null || this.schemas === null) {
+      if (
+        this.clientSideSchemaSha === null ||
+        this.schemas === null ||
+        this.initializedAt === null
+      ) {
         const res = await this.syncSchema();
         if (res.status !== "done") {
           return res;
         }
       }
       const changedModules = this.getChangedModules(changes);
+      // console.log("Syncing?", {
+      //   initializedAt: this.initializedAt,
+      //   schemaShaDiff: this.clientSideSchemaSha !== this.serverSideSchemaSha,
+      //   syncAllRequired,
+      //   changedModules,
+      // });
       if (
         // TODO: clean this up, surely there's no need for 4 different ways of triggering sources sync
         this.initializedAt === null ||
@@ -1243,23 +1423,18 @@ export class ValSyncEngine {
         changedModules === "all" ||
         changedModules.length > 0
       ) {
-        // console.log("Syncing...", {
-        //   initializedAt: this.initializedAt,
-        //   changedModules,
-        //   serverPatchIdsDidChange,
-        //   syncAllRequired,
-        //   clientSideSchemaSha: this.clientSideSchemaSha,
-        //   serverSideSchemaSha: this.serverSideSchemaSha,
-        // });
         const path =
           // We could be smarter wrt to the modules we fetch.
           // However, note¨ that we are not quite sure how long it takes to evaluate 1 vs many...
           // NOTE currently we have only optimized for the case where
           // there's a lot of changes in a single text / richtext field that needs to be synced
           // (e.g. an editor is typing inside a richtext / text field)
-          typeof changedModules === "object" && changedModules.length === 1
+          this.initializedAt !== null &&
+          typeof changedModules === "object" &&
+          changedModules.length === 1
             ? (changedModules[0] as ModuleFilePath)
             : undefined;
+
         // TODO: change sources endpoint so that you can have multiple moduleFilePaths
         const sourcesRes = await this.client("/sources/~", "PUT", {
           path: path,
@@ -1288,7 +1463,10 @@ export class ValSyncEngine {
             if (path === undefined || sourcePath.startsWith(path)) {
               changedValidationErrors.add(sourcePath);
               if (this.errors.validationErrors[sourcePath]) {
-                delete this.errors.validationErrors[sourcePath];
+                this.errors.validationErrors = {
+                  ...this.errors.validationErrors,
+                  [sourcePath]: undefined,
+                };
               }
             }
           }
@@ -1307,14 +1485,22 @@ export class ValSyncEngine {
                 // If we remove the optimistic client side sources without verifying that the server side sources are the same, the user will see a flash and it revert back to the previously saved state.
                 // It feels like there might be errors that pops up because of this: what if the patch never is written / is wrong?! The change will then be lost.
                 deepEqual(
-                  this.serverSources[moduleFilePath],
-                  this.optimisticClientSources[moduleFilePath],
+                  this.serverSources[moduleFilePath] as ReadonlyJSONValue,
+                  this.optimisticClientSources[
+                    moduleFilePath
+                  ] as ReadonlyJSONValue,
                 ) ||
                 // We check for pendingOps, because the check above will fail for files since they inject a patchId...
                 this.pendingOps.length === 0
               ) {
-                delete this.optimisticClientSources[moduleFilePath];
+                this.optimisticClientSources = {
+                  ...this.optimisticClientSources,
+                  [moduleFilePath]: undefined,
+                };
               }
+              console.debug("Invalidating source", moduleFilePath);
+              // this.optimisticClientSources = {};
+              // this.cachedDataSnapshots = {};
               this.invalidateSource(moduleFilePath);
 
               // NOTE: we clean up relevant validation errors above
@@ -1343,14 +1529,14 @@ export class ValSyncEngine {
             this.markAllSyncStatusIn(moduleFilePath, "done");
           }
           //  Invalidate validation errors:
-          if (changedValidationErrors.size > 0) {
-            this.invalidateAllValidationErrors();
-          }
+          // if (changedValidationErrors.size > 0) {
+          this.invalidateAllValidationErrors();
+          // }
           for (const sourcePath of Array.from(changedValidationErrors)) {
             this.invalidateValidationError(sourcePath);
           }
 
-          // Schema if it changed:
+          // Sync Schema if it changed:
           if (sourcesRes.json.schemaSha !== this.clientSideSchemaSha) {
             await this.syncSchema();
           }
@@ -1362,11 +1548,12 @@ export class ValSyncEngine {
           if (didWrite && this.serverSources) {
             for (const moduleFilePathS in changes) {
               const moduleFilePath = moduleFilePathS as ModuleFilePath;
-              this.overlayEmitter(
-                moduleFilePath,
+              const source =
                 this.optimisticClientSources[moduleFilePath] ||
-                  this.serverSources[moduleFilePath],
-              );
+                this.serverSources[moduleFilePath];
+              if (source) {
+                this.overlayEmitter(moduleFilePath, source);
+              }
             }
           } else if (
             (this.initializedAt === null || serverPatchIdsDidChange) &&
@@ -1375,14 +1562,16 @@ export class ValSyncEngine {
             // Initialize overlay
             for (const moduleFilePathS in this.schemas) {
               const moduleFilePath = moduleFilePathS as ModuleFilePath;
-              this.overlayEmitter(
-                moduleFilePath,
+              const source =
                 this.optimisticClientSources[moduleFilePath] ||
-                  this.serverSources[moduleFilePath],
-              );
+                this.serverSources[moduleFilePath];
+              if (source) {
+                this.overlayEmitter(moduleFilePath, source);
+              }
             }
           }
         }
+
       return {
         status: "done",
       };
@@ -1430,7 +1619,8 @@ export class ValSyncEngine {
           status: "retry",
         } as const;
       } else {
-        await this.syncPatches(true, now);
+        this.reset();
+        console.log("Publish success", await this.sync(now));
         return {
           status: "done",
         } as const;
@@ -1492,17 +1682,22 @@ type RetryReason =
   | "network-error"
   | "too-fast"
   | "error"
+  | "patch-ids-changed"
   | "already-syncing";
 type SyncEngineListenerType =
   | "schema"
+  | "initialized-at"
   | "sync-status"
   | "patch-sets"
+  | "all-patches"
   | "validation-error"
   | "all-validation-errors"
   | "transient-global-error"
   | "persistent-global-error"
   | "global-server-side-patch-ids"
   | "publish-disabled"
+  | "pending-ops-count"
+  | "all-sources"
   | "source";
 type SyncStatus = "not-asked" | "fetching" | "patches-pending" | "done";
 type CommonOpProps<T> = T & {
