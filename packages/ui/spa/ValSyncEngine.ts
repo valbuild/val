@@ -170,6 +170,7 @@ export class ValSyncEngine {
     this.cachedAllSourcesSnapshot = null;
     this.cachedSyncStatus = null;
     this.cachedPendingOpsCountSnapshot = null;
+    this.cachedInitializedAtSnapshot = null;
   }
 
   async init(
@@ -182,6 +183,7 @@ export class ValSyncEngine {
     this.authorId = authorId;
     const start = Date.now();
     this.initializedAt = null;
+    this.invalidateInitializedAt();
     const res = await this.syncWithUpdatedStat(
       baseSha,
       schemaSha,
@@ -190,6 +192,7 @@ export class ValSyncEngine {
     );
     if (res.status === "done") {
       this.initializedAt = now + (Date.now() - start);
+      this.invalidateInitializedAt();
     }
     return res;
   }
@@ -227,6 +230,7 @@ export class ValSyncEngine {
     this.cachedAllSourcesSnapshot = null;
     this.cachedSyncStatus = null;
     this.cachedPendingOpsCountSnapshot = null;
+    this.cachedInitializedAtSnapshot = null;
 
     // TODO: ugly - we need to do this to make sure we get new references across the board
     for (const listenersOfType of Object.values(this.listeners)) {
@@ -300,8 +304,20 @@ export class ValSyncEngine {
       }
     }
   }
+
+  // #region Invalidate
+  private invalidateInitializedAt() {
+    this.cachedInitializedAtSnapshot = null;
+    this.emit(this.listeners["initialized-at"]?.[globalNamespace]);
+  }
+
   private invalidateSource(moduleFilePath: ModuleFilePath) {
-    this.cachedSourceSnapshots[moduleFilePath] = undefined;
+    if (this.cachedSourceSnapshots !== null) {
+      this.cachedSourceSnapshots = {
+        ...this.cachedSourceSnapshots,
+        [moduleFilePath]: undefined,
+      };
+    }
     this.cachedAllSourcesSnapshot = null;
     this.emit(this.listeners.source?.[moduleFilePath]);
   }
@@ -532,6 +548,16 @@ export class ValSyncEngine {
       this.cachedSerializedPatchSetsSnapshot = this.patchSets.serialize();
     }
     return this.cachedSerializedPatchSetsSnapshot;
+  }
+
+  private cachedInitializedAtSnapshot: { data: number | null } | null;
+  getInitializedAtSnapshot() {
+    if (this.cachedInitializedAtSnapshot === null) {
+      this.cachedInitializedAtSnapshot = {
+        data: this.initializedAt,
+      };
+    }
+    return this.cachedInitializedAtSnapshot;
   }
 
   private cachedPatchData: Record<
