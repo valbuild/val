@@ -19,7 +19,7 @@ export function getKeysOf(
 ): SourcePath[] {
   const parentSource = sources[parent];
   if (!parentSource) {
-    console.error(`Source not found for ${parent}`);
+    console.error(`Get keysOf Source not found for ${parent}`);
     return [];
   }
   const parentSchema = schemas[parent];

@@ -34,32 +34,62 @@ describe("ValSyncEngine", () => {
     const syncEngine1 = await tester.createInitializedSyncEngine();
 
     expect(
-      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
-        ?.source,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("test");
 
     expect(updateValue(syncEngine1, "")).toMatchObject({
       status: "patch-added",
     });
     expect(
-      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
-        ?.source,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("");
     expect(updateValue(syncEngine1, "value 1 from store 1")).toMatchObject({
       status: "patch-merged",
     });
     expect(
-      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
-        ?.source,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("value 1 from store 1");
     tester.simulatePassingOfSeconds(5);
     expect(await tester.simulateStatCallback(syncEngine1)).toMatchObject({
       status: "done",
     });
     expect(
-      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
-        ?.source,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("value 1 from store 1");
+  });
+
+  test("basic reset", async () => {
+    const { s, c, config } = initVal();
+    const tester = new SyncEngineTester(
+      [c.define("/test.val.ts", s.string().minLength(2), "test")],
+      config,
+    );
+    const updateValue = (syncEngine: ValSyncEngine, value: string) => {
+      return syncEngine.addPatch(
+        toSourcePath("/test.val.ts"),
+        "string",
+        [{ op: "replace", path: [], value }],
+        tester.getNextNow(),
+      );
+    };
+    const syncEngine1 = await tester.createInitializedSyncEngine();
+    updateValue(syncEngine1, "value 0 from store 1");
+    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
+      status: "done",
+    });
+    expect(
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+    ).toStrictEqual("value 0 from store 1");
+    syncEngine1.reset();
+    syncEngine1.reset();
+    syncEngine1.reset();
+    syncEngine1.reset();
+    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
+      status: "done",
+    });
+    expect(
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
+    ).toStrictEqual("value 0 from store 1");
   });
 
   test("wait 1 second from last op before allowing sync", async () => {
@@ -78,22 +108,19 @@ describe("ValSyncEngine", () => {
     };
     const syncEngine1 = await tester.createInitializedSyncEngine();
     expect(
-      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
-        ?.source,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("test");
     expect(updateValue(syncEngine1, "value 0 from store 1")).toMatchObject({
       status: "patch-added",
     });
     expect(
-      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
-        ?.source,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("value 0 from store 1");
     expect(updateValue(syncEngine1, "value 1 from store 1")).toMatchObject({
       status: "patch-merged",
     });
     expect(
-      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
-        ?.source,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("value 1 from store 1");
     tester.simulatePassingOfSeconds(0.5);
     expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
@@ -122,8 +149,7 @@ describe("ValSyncEngine", () => {
     });
 
     expect(
-      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
-        ?.source,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("value 4 from store 1");
   });
 
@@ -145,22 +171,19 @@ describe("ValSyncEngine", () => {
     const syncEngine1 = await tester.createInitializedSyncEngine();
 
     expect(
-      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
-        ?.source,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("test");
     expect(updateValue(syncEngine1, "value 0 from store 1")).toMatchObject({
       status: "patch-added",
     });
     expect(
-      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
-        ?.source,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("value 0 from store 1");
     expect(updateValue(syncEngine1, "value 1 from store 1")).toMatchObject({
       status: "patch-merged",
     });
     expect(
-      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
-        ?.source,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("value 1 from store 1");
     // Start up sync store 2 before sync...
     const syncEngine2 = await tester.createInitializedSyncEngine();
@@ -168,8 +191,7 @@ describe("ValSyncEngine", () => {
       status: "patch-added",
     });
     expect(
-      syncEngine2.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
-        ?.source,
+      syncEngine2.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("value 2 from store 2");
     // ...then sync store 1
     tester.simulatePassingOfSeconds(5);
@@ -194,8 +216,7 @@ describe("ValSyncEngine", () => {
       status: "done",
     });
     expect(
-      syncEngine1.getDataSnapshot(toModuleFilePath("/test.val.ts")).data
-        ?.source,
+      syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("value 2 from store 2");
   });
 });

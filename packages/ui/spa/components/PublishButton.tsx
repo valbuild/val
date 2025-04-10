@@ -2,7 +2,7 @@ import { Loader2, Upload, X } from "lucide-react";
 import { Button } from "./designSystem/button";
 import {
   useAllValidationErrors,
-  useErrors,
+  useCurrentPatchIds,
   usePublishSummary,
   useValMode,
   useValPortal,
@@ -21,6 +21,8 @@ export function PublishButton() {
   const { publish, publishDisabled, isPublishing, summary } =
     usePublishSummary();
   const allValidationErrors = useAllValidationErrors();
+  const patchIds = useCurrentPatchIds();
+  const hasPatchIds = patchIds.length > 0;
   const hasValidationErrors =
     allValidationErrors !== undefined &&
     Object.keys(allValidationErrors).length > 0;
@@ -37,7 +39,7 @@ export function PublishButton() {
         <PopoverTrigger asChild>
           <Button
             className="flex items-center gap-2"
-            disabled={publishDisabled || hasValidationErrors}
+            disabled={publishDisabled || hasValidationErrors || !hasPatchIds}
             title={hasValidationErrors ? "Please fix validation errors" : ""}
             onClick={() => {
               if (mode === "fs") {
