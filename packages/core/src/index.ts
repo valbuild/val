@@ -131,7 +131,7 @@ export const FATAL_ERROR_TYPES = [
 ] as const;
 export type FatalErrorType = (typeof FATAL_ERROR_TYPES)[number];
 
-export const DEFAULT_CONTENT_HOST = "http://localhost:4000"; // "https://content.val.build";
+export const DEFAULT_CONTENT_HOST = "https://content.val.build";
 
 const Internal = {
   VERSION: {
