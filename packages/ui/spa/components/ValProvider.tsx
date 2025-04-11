@@ -34,7 +34,6 @@ import { z } from "zod";
 
 type ValContextValue = {
   syncEngine: ValSyncEngine;
-  schemas: Record<string, SerializedSchema>;
   mode: "http" | "fs" | "unknown";
   client: ValClient;
   publishSummaryState: PublishSummaryState;
@@ -66,12 +65,10 @@ type ValContextValue = {
         message: string;
         moduleFilePath: ModuleFilePath;
       };
-  getPatches: (patchIds: PatchId[]) => Promise<GetPatchRes>;
   deletePatches: (patchIds: PatchId[]) => void;
   profiles: Record<AuthorId, Profile>;
   deployments: Deployment[];
   dismissDeployment: (deploymentId: string) => void;
-  globalServerSidePatchIds: PatchId[] | null;
   remoteFiles:
     | {
         status: "ready";
@@ -217,30 +214,7 @@ export function ValProvider({
       setTheme("dark");
     }
   }, [theme, config]);
-  const globalServerSidePatchIds = useSyncExternalStore(
-    syncEngine.subscribe("global-server-side-patch-ids"),
-    () => syncEngine.getGlobalServerSidePatchIdsSnapshot(),
-    () => syncEngine.getGlobalServerSidePatchIdsSnapshot(),
-  );
-  const getPatches = useCallback(
-    async (patchIds: PatchId[]): Promise<GetPatchRes> => {
-      const res = await client("/patches", "GET", {
-        query: {
-          exclude_patch_ops: false,
-          patch_id: patchIds,
-        },
-      });
-      if (res.status === 200) {
-        const grouped: GroupedPatches = {};
-        for (const patch of res.json.patches) {
-          grouped[patch.patchId] = patch;
-        }
-        return { status: "ok", data: grouped } as const;
-      }
-      return { status: "error", error: res.json.message } as const;
-    },
-    [client],
-  );
+
   const portalRef = useRef<HTMLDivElement>(null);
   const baseSha = "data" in stat && stat.data ? stat.data.baseSha : undefined;
 
@@ -461,7 +435,6 @@ export function ValProvider({
       value={{
         client,
         publishSummaryState,
-        schemas,
         setPublishSummaryState,
         syncEngine,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
@@ -469,10 +442,8 @@ export function ValProvider({
         baseSha,
         deployments,
         dismissDeployment,
-        globalServerSidePatchIds,
         portalRef: portalRef.current,
         authenticationState,
-        getPatches,
         addPatch: (moduleFilePath, patch, type) => {
           return syncEngine.addPatch(moduleFilePath, type, patch, Date.now());
         },
@@ -662,8 +633,7 @@ export function useCommittedPatches() {
   const currentPatchIds = useCurrentPatchIds();
   const committedPatchIds = useMemo(() => {
     const committedPatchIds: Set<PatchId> = new Set();
-    for (const patchIdS in allPatches) {
-      const patchId = patchIdS as PatchId;
+    for (const patchId of currentPatchIds) {
       const patchData = allPatches[patchId];
       if (patchData?.isCommitted) {
         committedPatchIds.add(patchId);
@@ -675,8 +645,13 @@ export function useCommittedPatches() {
 }
 
 export function useCurrentPatchIds(): PatchId[] {
-  const { globalServerSidePatchIds } = useContext(ValContext);
-  return globalServerSidePatchIds || [];
+  const { syncEngine } = useContext(ValContext);
+  const globalServerSidePatchIds = useSyncExternalStore(
+    syncEngine.subscribe("global-server-side-patch-ids"),
+    () => syncEngine.getGlobalServerSidePatchIdsSnapshot(),
+    () => syncEngine.getGlobalServerSidePatchIdsSnapshot(),
+  );
+  return globalServerSidePatchIds;
 }
 
 export function useValMode(): "http" | "fs" | "unknown" {
@@ -720,9 +695,9 @@ export function usePublishSummary() {
     client,
     publishSummaryState,
     setPublishSummaryState,
-    globalServerSidePatchIds,
     config,
   } = useContext(ValContext);
+  const globalServerSidePatchIds = useCurrentPatchIds();
   const publishDisabled = useSyncExternalStore(
     syncEngine.subscribe("publish-disabled"),
     () => syncEngine.getPublishDisabledSnapshot(),
@@ -748,8 +723,7 @@ export function usePublishSummary() {
         storedSummaryState &&
         storedSummaryState.type !== "not-asked" &&
         // Only load if there's actually patches to publish
-        globalServerSidePatchIds &&
-        globalServerSidePatchIds?.length > 0
+        globalServerSidePatchIds.length > 0
       ) {
         setPublishSummaryState(storedSummaryState);
       }
@@ -1051,11 +1025,15 @@ export function useSchemas():
       status: "success";
       data: Record<ModuleFilePath, SerializedSchema>;
     } {
-  const { schemas, syncEngine } = useContext(ValContext);
+  const { syncEngine } = useContext(ValContext);
+  const schemas = useSyncExternalStore(
+    syncEngine.subscribe("schema"),
+    () => syncEngine.getAllSchemasSnapshot(),
+    () => syncEngine.getAllSchemasSnapshot(),
+  );
 
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
   if (initializedAt === null) {
-    console.log("schemas: loading");
     return { status: "loading" } as const;
   }
   if (schemas === null) {
@@ -1536,28 +1514,6 @@ function mapSource<SchemaType extends SerializedSchema["type"]>(
     };
   }
 }
-
-type GroupedPatches = Record<
-  PatchId,
-  {
-    path: ModuleFilePath;
-    createdAt: string;
-    authorId: string | null;
-    patch?: Patch | undefined;
-    appliedAt: {
-      commitSha: string;
-    } | null;
-  }
->;
-type GetPatchRes =
-  | {
-      status: "ok";
-      data: Partial<GroupedPatches>;
-    }
-  | {
-      status: "error";
-      error: string;
-    };
 
 function concatModulePath(
   moduleFilePath: ModuleFilePath,
