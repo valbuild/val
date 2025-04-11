@@ -258,7 +258,7 @@ export function DraftChanges({
                   <X size={12} />
                 </PopoverClose>
                 <PublishSummary
-                  onComplete={() => {
+                  onClose={() => {
                     setSummaryOpen(false);
                   }}
                 />
@@ -533,7 +533,9 @@ function PatchSetCard({
         setOpen={setOpen}
         errors={errors}
         onDelete={() => {
-          deletePatches(patchIds);
+          deletePatches(
+            patchIds.filter((patchId) => !committedPatchIds.has(patchId)),
+          );
         }}
         amount={new Set(patchIds).size}
       />

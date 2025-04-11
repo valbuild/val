@@ -72,8 +72,10 @@ export function PublishButton() {
             <X size={12} />
           </PopoverClose>
           <PublishSummary
-            showPublishButton
-            onComplete={() => {
+            onClose={() => {
+              setSummaryOpen(false);
+            }}
+            onPublish={() => {
               setSummaryOpen(false);
               if (summary.type === "not-asked") {
                 return;
