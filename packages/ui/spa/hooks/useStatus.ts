@@ -198,7 +198,6 @@ export function useStatus(client: ValClient) {
       );
     }
   }, [client, stat.status]);
-  console.log(stat.status, "wait" in stat && stat.wait);
 
   return [
     stat,
