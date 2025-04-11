@@ -132,6 +132,7 @@ export const FATAL_ERROR_TYPES = [
 export type FatalErrorType = (typeof FATAL_ERROR_TYPES)[number];
 
 export const DEFAULT_CONTENT_HOST = "https://content.val.build";
+export const DEFAULT_APP_HOST = "https://app.val.build";
 
 const Internal = {
   VERSION: {
