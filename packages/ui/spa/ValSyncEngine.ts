@@ -2,7 +2,6 @@ import {
   Internal,
   Json,
   ModuleFilePath,
-  ModulePath,
   PatchId,
   SerializedSchema,
   SourcePath,
@@ -65,10 +64,6 @@ export class ValSyncEngine {
    * Patch Ids that have been successfully been seen on server
    */
   private syncedPatchIds: Set<PatchId>;
-  /**
-   * Patch Ids that have been committed to the server
-   */
-  private committedPatchIds: Set<PatchId>;
   private publishDisabled: boolean;
   private patchDataByPatchId: Record<
     PatchId,
@@ -150,7 +145,6 @@ export class ValSyncEngine {
     this.serverSources = null;
     this.globalServerSidePatchIds = [];
     this.syncedPatchIds = new Set();
-    this.committedPatchIds = new Set();
     this.pendingOps = [];
     this.patchIdsStoredByClient = [];
     this.pendingClientPatchIds = [];
@@ -181,13 +175,13 @@ export class ValSyncEngine {
     now: number,
   ) {
     this.authorId = authorId;
+    console.log("init", { authorId: this.authorId });
     const start = Date.now();
-    this.initializedAt = null;
-    this.invalidateInitializedAt();
     const res = await this.syncWithUpdatedStat(
       baseSha,
       schemaSha,
       patchIds,
+      authorId,
       now,
     );
     if (res.status === "done") {
@@ -198,6 +192,7 @@ export class ValSyncEngine {
   }
 
   reset() {
+    console.log("Resetting ValSyncEngine");
     this.initializedAt = null;
     this.errors = {};
     this.listeners = {};
@@ -210,7 +205,6 @@ export class ValSyncEngine {
     this.serverSources = null;
     this.globalServerSidePatchIds = [];
     this.syncedPatchIds = new Set();
-    this.committedPatchIds = new Set();
     this.pendingOps = [];
     this.patchIdsStoredByClient = [];
     this.pendingClientPatchIds = [];
@@ -232,12 +226,7 @@ export class ValSyncEngine {
     this.cachedPendingOpsCountSnapshot = null;
     this.cachedInitializedAtSnapshot = null;
 
-    // TODO: ugly - we need to do this to make sure we get new references across the board
-    for (const listenersOfType of Object.values(this.listeners)) {
-      for (const listeners of Object.values(listenersOfType)) {
-        this.emit(listeners);
-      }
-    }
+    this.invalidateInitializedAt();
   }
 
   // #region Subscribe
@@ -352,8 +341,10 @@ export class ValSyncEngine {
   }
 
   private invalidateAllPatches() {
+    this.cachedPatchData = null;
     this.emit(this.listeners["all-patches"]?.[globalNamespace]);
   }
+
   private invalidateSchema() {
     this.cachedAllSchemasSnapshot = null;
     this.cachedSchemaSnapshots = null;
@@ -580,7 +571,7 @@ export class ValSyncEngine {
         const patchId = patchIdS as PatchId;
         const patchData = this.patchDataByPatchId[patchId];
         if (patchData) {
-          this.cachedPatchData[patchId] = patchData;
+          this.cachedPatchData[patchId] = deepClone(patchData);
         }
       }
     }
@@ -836,13 +827,22 @@ export class ValSyncEngine {
     baseSha: string,
     schemaSha: string,
     patchIds: PatchId[],
+    authorId: string | null,
     now: number,
-  ) {
-    if (this.baseSha !== baseSha) {
+  ): Promise<
+    | {
+        status: "done";
+      }
+    | {
+        status: "retry";
+        reason: RetryReason;
+      }
+  > {
+    if (this.baseSha !== baseSha || this.serverSideSchemaSha !== schemaSha) {
+      this.reset();
       this.baseSha = baseSha;
-    }
-    if (this.serverSideSchemaSha !== schemaSha) {
       this.serverSideSchemaSha = schemaSha;
+      return this.init(baseSha, schemaSha, patchIds, authorId, now);
     }
     if (!deepEqual(this.globalServerSidePatchIds, patchIds)) {
       // Do not update the globalServerSidePatchIds if they are the same
@@ -1111,9 +1111,13 @@ export class ValSyncEngine {
         status: "retry";
       }
   > {
+    let didUpdatePatchSet = false;
+
     // get missing data
     const isInit = this.initializedAt === null || reset;
     if (this.initializedAt === null || reset) {
+      this.patchSets = new PatchSets();
+      didUpdatePatchSet = true;
       // When we are initializing, we don't want to sync all individual patch sets
       // since we are going to get them all at once anyway
       // Why is this a problem? It's because we can only do about 300 patch ids at a time before the URL gets too long
@@ -1136,15 +1140,17 @@ export class ValSyncEngine {
       }
       for (const patchData of res.json.patches) {
         if (patchData.patch) {
-          if (patchData.appliedAt) {
-            this.committedPatchIds.add(patchData.patchId);
-          }
           this.patchDataByPatchId[patchData.patchId] = {
             moduleFilePath: patchData.path,
             patch: patchData.patch,
             isPending: false,
             createdAt: patchData.createdAt,
             authorId: patchData.authorId,
+            isCommitted: patchData.appliedAt
+              ? {
+                  commitSha: patchData.appliedAt.commitSha,
+                }
+              : undefined,
           };
         }
       }
@@ -1198,9 +1204,6 @@ export class ValSyncEngine {
           }
           for (const patchData of res.json.patches) {
             if (patchData.patch) {
-              if (patchData.appliedAt) {
-                this.committedPatchIds.add(patchData.patchId);
-              }
               this.patchDataByPatchId[patchData.patchId] = {
                 moduleFilePath: patchData.path,
                 patch: patchData.patch,
@@ -1219,7 +1222,6 @@ export class ValSyncEngine {
       }
     }
 
-    let didUpdatePatchSet = false;
     const allCurrentPatchIds = new Set(this.globalServerSidePatchIds);
     for (const patchId of Array.from(this.patchSets.getInsertedPatches()) ||
       []) {
@@ -1302,11 +1304,17 @@ export class ValSyncEngine {
     }
     return "all";
   }
+
+  private isPatchCommitted(patchId: PatchId): boolean {
+    const patchData = this.patchDataByPatchId[patchId];
+    return !!patchData?.isCommitted;
+  }
+
+  // #region Sync
   public isSyncing = false;
   private MIN_WAIT_SECONDS = 1;
   private MAX_WAIT_SECONDS = 5;
 
-  // #region Sync
   async sync(now: number): Promise<
     | {
         status: "done";
@@ -1329,7 +1337,7 @@ export class ValSyncEngine {
     for (const patchId of this.globalServerSidePatchIds || []) {
       if (
         !this.syncedPatchIds.has(patchId) &&
-        !this.committedPatchIds.has(patchId)
+        !this.isPatchCommitted(patchId)
       ) {
         serverPatchIdsDidChange = true;
       }
@@ -1341,7 +1349,7 @@ export class ValSyncEngine {
         !this.globalServerSidePatchIds.includes(patchId)
       ) {
         this.reset();
-        console.log("Resetting ValSyncEngine");
+        await this.syncPatches(true, now);
         return {
           status: "retry",
           reason: "patch-ids-changed",
@@ -1441,7 +1449,7 @@ export class ValSyncEngine {
       //   changedModules,
       // });
       if (
-        // TODO: clean this up, surely there's no need for 4 different ways of triggering sources sync
+        // TODO: clean this up, surely there's no need for this many different ways of triggering sources sync
         this.initializedAt === null ||
         this.clientSideSchemaSha !== this.serverSideSchemaSha ||
         serverPatchIdsDidChange ||
@@ -1645,8 +1653,8 @@ export class ValSyncEngine {
           status: "retry",
         } as const;
       } else {
-        this.reset();
-        console.log("Publish success", await this.sync(now));
+        const fullReset = true;
+        await this.syncPatches(fullReset, now);
         return {
           status: "done",
         } as const;

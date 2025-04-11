@@ -142,6 +142,10 @@ export function ValProvider({
         setProfiles(profilesById);
       } else {
         console.error("Could not get profiles", res.json);
+        const timeout = setTimeout(load, 2000);
+        return () => {
+          clearTimeout(timeout);
+        };
       }
     };
     load();
@@ -359,10 +363,7 @@ export function ValProvider({
   const initializedAt = useSyncEngineInitializedAt(syncEngine);
 
   useEffect(() => {
-    if (
-      initializedAt === null &&
-      syncEngineInitStatus.current !== "in-progress"
-    ) {
+    if (initializedAt === null && syncEngineInitStatus.current === "done") {
       syncEngineInitStatus.current = "not-initialized";
     }
     if (
@@ -374,7 +375,7 @@ export function ValProvider({
       let timeout: NodeJS.Timeout | null = null;
       const exec = async () => {
         if ("data" in stat && stat.data) {
-          console.debug("ValSyncEngine init started...");
+          console.debug("ValSyncEngine init started...", stat.data.profileId);
           const res = await syncEngine.init(
             stat.data.baseSha,
             stat.data.schemaSha,
@@ -406,12 +407,17 @@ export function ValProvider({
           clearTimeout(timeout);
         }
       };
-    } else if ("data" in stat && stat.data) {
+    } else if (
+      "data" in stat &&
+      stat.data &&
+      syncEngineInitStatus.current === "done"
+    ) {
       console.debug("ValSyncEngine will be updated with status");
       syncEngine.syncWithUpdatedStat(
         stat.data.baseSha,
         stat.data.schemaSha,
         stat.data.patches,
+        stat.data.profileId,
         Date.now(),
       );
     }
@@ -646,16 +652,16 @@ export function usePatchSets():
 
 export function useCommittedPatches() {
   const { syncEngine } = useContext(ValContext);
-  const currentPatchIds = useCurrentPatchIds();
   const allPatches = useSyncExternalStore(
     syncEngine.subscribe("all-patches"),
     () => syncEngine.getAllPatchesSnapshot(),
     () => syncEngine.getAllPatchesSnapshot(),
   );
-
-  return useMemo(() => {
+  const currentPatchIds = useCurrentPatchIds();
+  const committedPatchIds = useMemo(() => {
     const committedPatchIds: Set<PatchId> = new Set();
-    for (const patchId of currentPatchIds) {
+    for (const patchIdS in allPatches) {
+      const patchId = patchIdS as PatchId;
       const patchData = allPatches[patchId];
       if (patchData?.isCommitted) {
         committedPatchIds.add(patchId);
@@ -663,6 +669,7 @@ export function useCommittedPatches() {
     }
     return committedPatchIds;
   }, [allPatches, currentPatchIds]);
+  return committedPatchIds;
 }
 
 export function useCurrentPatchIds(): PatchId[] {

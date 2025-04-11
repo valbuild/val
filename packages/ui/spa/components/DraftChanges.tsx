@@ -59,7 +59,7 @@ export function DraftChanges({
   className?: string;
   loadingStatus: LoadingStatus;
 }) {
-  const patchIds = useCurrentPatchIds();
+  const currentPatchIds = useCurrentPatchIds();
   const mode = useValMode();
   const committedPatchIds = useCommittedPatches();
   const serializedPatchSets = usePatchSets();
@@ -76,6 +76,7 @@ export function DraftChanges({
     }
     return count;
   }, [allValidationErrors]);
+  const pendingChanges = currentPatchIds.length - committedPatchIds.size;
 
   // TODO: remove test data
   // const deployments: Deployment[] = [
@@ -206,30 +207,30 @@ export function DraftChanges({
         </div>
       )}
       {committedPatchIds.size > 0 && (
-        <div className="flex items-center gap-2 p-4 border-b border-border-primary">
-          <span className="font-bold">
-            {"Pushed "}
+        <div className="p-4 border-b border-border-primary">
+          <div className="font-bold">
             {committedPatchIds.size}
-            {committedPatchIds.size === 1 ? " change" : " changes"}
-            {"..."}
-          </span>
+            {committedPatchIds.size === 1 ? " change" : " changes"}{" "}
+            {" deploying"}
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            {"Deploying new version"}{" "}
+            <Loader2 size={12} className="animate-spin" />
+          </div>
         </div>
       )}
       <div className="p-4 z-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="font-bold">
-              {patchIds.length - committedPatchIds.size <= 0
-                ? "No"
-                : patchIds.length - committedPatchIds.size === 1
-                  ? "1"
-                  : patchIds.length - committedPatchIds.size}{" "}
-              change{patchIds.length - committedPatchIds.size === 1 ? "" : "s"}
-            </span>
+            <div className="font-bold">
+              {pendingChanges <= 0 ? "No " : `${pendingChanges} `}
+              pending change
+              {pendingChanges === 1 ? "" : "s"}
+            </div>
             {(loadingStatus === "loading" || loadingStatus === "not-asked") && (
-              <span>
+              <div className="">
                 <Loader2 size={16} className="animate-spin" />
-              </span>
+              </div>
             )}
           </div>
           {mode === "http" && (
@@ -274,7 +275,7 @@ export function DraftChanges({
                 key={
                   patchSet.moduleFilePath + ":" + patchSet.patchPath.join("/")
                 }
-                appliedPatchIds={committedPatchIds}
+                committedPatchIds={committedPatchIds}
                 patchSet={patchSet}
               />
             );
@@ -332,15 +333,16 @@ function DeploymentCard({
 function PatchCard({
   moduleFilePath,
   patchMetadata,
-  appliedPatchIds,
+  committedPatchIds,
 }: {
   moduleFilePath: ModuleFilePath;
   patchMetadata: PatchMetadata;
-  appliedPatchIds: Set<PatchId>;
+  committedPatchIds: Set<PatchId>;
 }) {
   const changeDescription = useChangeDescription(
     [patchMetadata.opType],
     patchMetadata.createdAt,
+    committedPatchIds.has(patchMetadata.patchId),
   );
   const profilesById = useProfilesByAuthorId();
   const { patchErrors, skippedPatches } = useErrors();
@@ -356,6 +358,7 @@ function PatchCard({
       skippedPatches[patchMetadata.patchId],
     ],
   );
+  const mode = useValMode();
   let authors: {
     url: string | null;
     fullName: string;
@@ -370,7 +373,14 @@ function PatchCard({
           url,
         },
       ];
+    } else {
+      console.warn("Did not find profile for author: ", patchMetadata.author, {
+        profilesById,
+      });
     }
+  }
+  if (authors.length === 0 && mode === "http") {
+    console.warn("No authors", { patchMetadata });
   }
   return (
     <PatchOrPatchSetCard
@@ -383,12 +393,16 @@ function PatchCard({
       authors={authors}
       errors={errors}
       skipped={skipped}
-      isApplied={appliedPatchIds.has(patchMetadata.patchId)}
+      isApplied={committedPatchIds.has(patchMetadata.patchId)}
     />
   );
 }
 
-function useChangeDescription(opTypes: string[], lastUpdated: string) {
+function useChangeDescription(
+  opTypes: string[],
+  lastUpdated: string,
+  isCommitted: boolean,
+) {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const interval = setInterval(() => {
@@ -398,6 +412,9 @@ function useChangeDescription(opTypes: string[], lastUpdated: string) {
       clearInterval(interval);
     };
   }, []);
+  if (isCommitted) {
+    return "Pushed " + relativeLocalDate(now, lastUpdated);
+  }
   if (opTypes.length > 1) {
     return "Updated" + " " + relativeLocalDate(now, lastUpdated);
   }
@@ -426,10 +443,10 @@ function useChangeDescription(opTypes: string[], lastUpdated: string) {
 
 function PatchSetCard({
   patchSet,
-  appliedPatchIds,
+  committedPatchIds,
 }: {
   patchSet: PatchSetMetadata;
-  appliedPatchIds: Set<PatchId>;
+  committedPatchIds: Set<PatchId>;
 }) {
   const [isOpen, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -472,11 +489,12 @@ function PatchSetCard({
   const changeDescription = useChangeDescription(
     patchSet.opTypes,
     patchSet.lastUpdated,
+    false,
   );
   const profilesById = useProfilesByAuthorId();
 
   const isApplied = patchSet.patches.every((patch) =>
-    appliedPatchIds.has(patch.patchId),
+    committedPatchIds.has(patch.patchId),
   );
   if (!hasBeenSeen) {
     return <PatchOrPatchSetCard ref={ref} isApplied={isApplied} />;
@@ -529,7 +547,7 @@ function PatchSetCard({
               patchMetadata.patchId +
               i
             }
-            appliedPatchIds={appliedPatchIds}
+            committedPatchIds={committedPatchIds}
             moduleFilePath={patchSet.moduleFilePath}
             patchMetadata={patchMetadata}
           />
