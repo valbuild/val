@@ -364,6 +364,7 @@ export class ValOpsHttp extends ValOps {
       body: JSON.stringify({
         branch: this.branch,
         profileId,
+        commitSha: this.commitSha,
       }),
       headers: {
         ...this.authHeaders,
