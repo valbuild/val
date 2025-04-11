@@ -827,6 +827,10 @@ export function usePublishSummary() {
         .then((res) => {
           if (res.status === "done") {
             deleteSummaryStateFromLocalStorage(config?.project);
+            setPublishSummaryState((prev) => ({
+              type: "not-asked",
+              isGenerating: prev.isGenerating,
+            }));
           }
           return res;
         })
@@ -837,14 +841,28 @@ export function usePublishSummary() {
     [globalServerSidePatchIds, isPublishing, config?.project, syncEngine],
   );
   const setSummary = useCallback(
-    (summary: { type: "manual" | "ai"; text: string }) => {
+    (
+      summary:
+        | { type: "manual" | "ai"; text: string }
+        | {
+            type: "not-asked";
+          },
+    ) => {
       setPublishSummaryState((prev) => {
-        const publishSummary = {
-          type: summary.type,
-          text: summary.text,
-          patchIds: globalServerSidePatchIds,
-          isGenerating: !!prev.isGenerating,
-        };
+        let publishSummary: PublishSummaryState;
+        if (summary.type === "not-asked") {
+          publishSummary = {
+            type: "not-asked",
+            isGenerating: prev.isGenerating,
+          };
+        } else {
+          publishSummary = {
+            type: summary.type,
+            text: summary.text,
+            patchIds: globalServerSidePatchIds,
+            isGenerating: !!prev.isGenerating,
+          };
+        }
         saveSummaryStateInLocalStorage(publishSummary, config?.project);
         return publishSummary;
       });
