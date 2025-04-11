@@ -1,4 +1,4 @@
-import { SourcePath } from "@valbuild/core";
+import { DEFAULT_APP_HOST, SourcePath } from "@valbuild/core";
 import classNames from "classnames";
 import {
   Tally2,
@@ -80,6 +80,8 @@ export function NavMenu() {
   const portalContainer = useValPortal();
   const { theme, setTheme } = useTheme();
   const { navMenu } = useLayout();
+  const appHostUrl = config?.appHost || DEFAULT_APP_HOST;
+  const [orgName, projectName] = name.split("/");
 
   return (
     <nav className="relative min-h-[100svh] bg-bg-primary">
@@ -90,7 +92,16 @@ export function NavMenu() {
           ) : (
             <div className="w-4 h-4" />
           )}
-          <span className="truncate">{name}</span>
+          {orgName && projectName ? (
+            <a
+              className="truncate"
+              href={`${appHostUrl}/orgs/${orgName}/projects/${projectName}`}
+            >
+              {name}
+            </a>
+          ) : (
+            <span className="truncate">{name}</span>
+          )}
         </div>
         <button
           className="lg:hidden"

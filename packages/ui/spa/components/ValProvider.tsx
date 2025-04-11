@@ -10,6 +10,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import {
+  DEFAULT_APP_HOST,
   DEFAULT_VAL_REMOTE_HOST,
   FILE_REF_PROP,
   Internal,
@@ -511,12 +512,14 @@ export function useValConfig() {
   const lastConfig = useRef<
     | (ValConfig & {
         remoteHost: string;
+        appHost: string;
       })
     | undefined
   >(
     config && {
       ...config,
       remoteHost: DEFAULT_VAL_REMOTE_HOST,
+      appHost: DEFAULT_APP_HOST,
     },
   );
   useEffect(() => {
@@ -524,6 +527,7 @@ export function useValConfig() {
       lastConfig.current = {
         ...config,
         remoteHost: DEFAULT_VAL_REMOTE_HOST,
+        appHost: DEFAULT_APP_HOST,
       };
     }
   }, [config]);
