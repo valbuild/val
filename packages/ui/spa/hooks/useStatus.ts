@@ -55,6 +55,7 @@ const StatData = z.object({
       })
       .optional(),
   }),
+  commitSha: z.string().optional(), // Only use-websocket has this (refactor this zod schema?)
   schemaSha: z.string(),
   baseSha: z.string(),
   patches: z.array(PatchId),
@@ -82,6 +83,7 @@ export type StatState =
   | {
       status: "updated-request-again";
       data: StatData;
+      waitStart: number;
       wait: number;
     }
   | {
@@ -91,6 +93,8 @@ export type StatState =
   | {
       status: "ws-message-received";
       data: StatData;
+      waitStart: number;
+      wait: number;
     }
   | {
       status: "error";
@@ -98,6 +102,7 @@ export type StatState =
       isAuthenticationError?: boolean;
       error: string;
       retries: number;
+      waitStart: number;
       wait: number;
     };
 export function useStatus(client: ValClient) {
@@ -126,12 +131,18 @@ export function useStatus(client: ValClient) {
 
   const statIdRef = useRef(0);
   useEffect(() => {
-    if (stat.status === "updated-request-again" || stat.status === "error") {
+    if (
+      stat.status === "updated-request-again" ||
+      stat.status === "error" ||
+      stat.status === "ws-message-received"
+    ) {
       if (stat.wait === 0) {
         console.debug(
           "Executing stat immediately",
           stat.status,
           stat.status === "error" ? stat.error : "no error",
+          "Now:",
+          Date.now(),
         );
         execStat(
           client,
@@ -149,6 +160,8 @@ export function useStatus(client: ValClient) {
           stat.wait,
           " status: ",
           stat.status,
+          "Now:",
+          Date.now(),
         );
         const timeout = setTimeout(() => {
           execStat(
@@ -185,6 +198,7 @@ export function useStatus(client: ValClient) {
       );
     }
   }, [client, stat.status]);
+  console.log(stat.status, "wait" in stat && stat.wait);
 
   return [
     stat,
@@ -234,6 +248,7 @@ async function execStat(
           status: "error",
           error: "Service unavailable",
           retries: ("retries" in prev ? prev.retries : 0) + 1,
+          waitStart: Date.now(),
           wait: 5000,
         }));
         return;
@@ -252,6 +267,7 @@ async function execStat(
           setStat({
             status: "updated-request-again",
             data: res.json,
+            waitStart: Date.now(),
             wait: webSocketRef.current ? WebSocketStatInterval : 0, // why 0 wait unless websocket? If websocket is not used, we are long polling so no point in waiting
           });
         } else if (res.json.type === "use-websocket") {
@@ -259,6 +275,7 @@ async function execStat(
             ...prev,
             status: "updated-request-again",
             data: res.json,
+            waitStart: Date.now(),
             wait: WebSocketStatInterval,
           }));
           if (webSocketRef.current) {
@@ -298,6 +315,12 @@ async function execStat(
                         ...prev.data,
                         patches: message.patches,
                       },
+                      waitStart:
+                        "waitStart" in prev ? prev.waitStart : Date.now(),
+                      wait:
+                        "waitStart" in prev
+                          ? Math.max(0, Date.now() - prev.waitStart)
+                          : WebSocketStatInterval,
                     };
                   }
                   return prev;
@@ -316,6 +339,12 @@ async function execStat(
                           message.deployment,
                         ),
                       },
+                      waitStart:
+                        "waitStart" in prev ? prev.waitStart : Date.now(),
+                      wait:
+                        "waitStart" in prev
+                          ? Math.max(0, Date.now() - prev.waitStart)
+                          : WebSocketStatInterval,
                     };
                   }
                   return prev;
@@ -370,6 +399,7 @@ function createError(stat: StatState, message: string): StatState {
     error: message,
     data: "data" in stat ? stat.data : undefined,
     retries,
+    waitStart: "waitStart" in stat ? stat.waitStart : Date.now(),
     wait: waitMillis,
   };
 }
