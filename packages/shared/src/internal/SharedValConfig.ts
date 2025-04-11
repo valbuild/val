@@ -8,6 +8,7 @@ export const SharedValConfig: z.ZodSchema<
   }
 > = z.object({
   contentHostUrl: z.string().optional(),
+  appHostUrl: z.string().optional(),
   project: z.string().optional(),
   root: z.string().optional(),
   files: z
