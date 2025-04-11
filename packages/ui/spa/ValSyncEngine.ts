@@ -196,7 +196,7 @@ export class ValSyncEngine {
   }
 
   reset() {
-    console.log("Resetting ValSyncEngine");
+    console.debug("Resetting ValSyncEngine");
     this.initializedAt = null;
     this.errors = {};
     this.listeners = {};
@@ -297,6 +297,11 @@ export class ValSyncEngine {
         listener();
       }
     }
+  }
+
+  // TODO: remove this (used for manual testing)
+  public setCommitSha(sha: string | null) {
+    this.commitSha = sha;
   }
 
   // #region Invalidate
@@ -585,12 +590,9 @@ export class ValSyncEngine {
 
   private cachedGlobalServerSidePatchIdsSnapshot: PatchId[] | null;
   getGlobalServerSidePatchIdsSnapshot() {
-    if (
-      this.cachedGlobalServerSidePatchIdsSnapshot === null &&
-      this.globalServerSidePatchIds
-    ) {
+    if (this.cachedGlobalServerSidePatchIdsSnapshot === null) {
       this.cachedGlobalServerSidePatchIdsSnapshot =
-        this.globalServerSidePatchIds.slice();
+        this.globalServerSidePatchIds?.slice() || [];
     }
     return this.cachedGlobalServerSidePatchIdsSnapshot;
   }
@@ -855,11 +857,14 @@ export class ValSyncEngine {
       this.commitSha = commitSha;
       return this.init(baseSha, schemaSha, patchIds, authorId, commitSha, now);
     }
-    if (!deepEqual(this.globalServerSidePatchIds, patchIds)) {
+    const patchIdsDidChange = !deepEqual(
+      this.globalServerSidePatchIds,
+      patchIds,
+    );
+    if (patchIdsDidChange) {
       // Do not update the globalServerSidePatchIds if they are the same
       // since we using this directly in get snapshot method
       this.globalServerSidePatchIds = patchIds;
-      this.invalidateGlobalServerSidePatchIds();
       for (const patchId of patchIds) {
         for (let i = 0; i < this.pendingClientPatchIds.length; i++) {
           if (this.pendingClientPatchIds[i] === patchId) {
@@ -874,6 +879,8 @@ export class ValSyncEngine {
           }
         }
       }
+      this.invalidateGlobalServerSidePatchIds();
+      await this.syncPatches(true, now);
     }
     return this.sync(now);
   }
@@ -1123,6 +1130,7 @@ export class ValSyncEngine {
       }
   > {
     let didUpdatePatchSet = false;
+    let didUpdatePatchData = false;
 
     // get missing data
     const isInit = this.initializedAt === null || reset;
@@ -1151,6 +1159,7 @@ export class ValSyncEngine {
       }
       for (const patchData of res.json.patches) {
         if (patchData.patch) {
+          didUpdatePatchData = true;
           this.patchDataByPatchId[patchData.patchId] = {
             moduleFilePath: patchData.path,
             patch: patchData.patch,
@@ -1215,6 +1224,7 @@ export class ValSyncEngine {
           }
           for (const patchData of res.json.patches) {
             if (patchData.patch) {
+              didUpdatePatchData = true;
               this.patchDataByPatchId[patchData.patchId] = {
                 moduleFilePath: patchData.path,
                 patch: patchData.patch,
@@ -1271,7 +1281,9 @@ export class ValSyncEngine {
         }
       }
     }
-    this.invalidateAllPatches();
+    if (didUpdatePatchData) {
+      this.invalidateAllPatches();
+    }
     if (didUpdatePatchSet) {
       this.invalidatePatchSets();
     }
@@ -1342,6 +1354,7 @@ export class ValSyncEngine {
         reason: "already-syncing",
       };
     }
+    console.debug("Syncing...", this.commitSha, this.globalServerSidePatchIds);
     this.isSyncing = true;
     let pendingOps: PendingOp[] = [];
     let serverPatchIdsDidChange = false;
@@ -1453,7 +1466,7 @@ export class ValSyncEngine {
         }
       }
       const changedModules = this.getChangedModules(changes);
-      // console.log("Syncing?", {
+      // console.debug("Syncing?", {
       //   initializedAt: this.initializedAt,
       //   schemaShaDiff: this.clientSideSchemaSha !== this.serverSideSchemaSha,
       //   syncAllRequired,
