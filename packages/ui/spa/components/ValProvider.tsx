@@ -381,6 +381,7 @@ export function ValProvider({
             stat.data.schemaSha,
             stat.data.patches,
             stat.data.profileId,
+            stat.data.commitSha ?? null,
             Date.now(),
           );
           if (res.status === "retry") {
@@ -412,12 +413,13 @@ export function ValProvider({
       stat.data &&
       syncEngineInitStatus.current === "done"
     ) {
-      console.debug("ValSyncEngine will be updated with status");
+      console.debug("ValSyncEngine update");
       syncEngine.syncWithUpdatedStat(
         stat.data.baseSha,
         stat.data.schemaSha,
         stat.data.patches,
         stat.data.profileId,
+        stat.data.commitSha ?? null,
         Date.now(),
       );
     }

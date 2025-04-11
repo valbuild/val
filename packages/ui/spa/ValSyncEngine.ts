@@ -92,6 +92,7 @@ export class ValSyncEngine {
   private serverSideSchemaSha: string | null;
   private clientSideSchemaSha: string | null;
 
+  private commitSha: string | null;
   private baseSha: string | null; // TODO: Currently not used, we should use this to reset the client state
   private syncStatus: Record<SourcePath | ModuleFilePath, SyncStatus>;
   private pendingOps: PendingOp[];
@@ -153,6 +154,7 @@ export class ValSyncEngine {
     this.patchSets = new PatchSets();
     this.authorId = null;
     this.publishDisabled = true;
+    this.commitSha = null;
     //
     this.cachedSourceSnapshots = null;
     this.cachedSchemaSnapshots = null;
@@ -172,16 +174,18 @@ export class ValSyncEngine {
     schemaSha: string,
     patchIds: PatchId[],
     authorId: string | null,
+    commitSha: string | null,
     now: number,
   ) {
+    this.commitSha = commitSha;
     this.authorId = authorId;
-    console.log("init", { authorId: this.authorId });
     const start = Date.now();
     const res = await this.syncWithUpdatedStat(
       baseSha,
       schemaSha,
       patchIds,
       authorId,
+      commitSha,
       now,
     );
     if (res.status === "done") {
@@ -213,6 +217,7 @@ export class ValSyncEngine {
     this.patchSets = new PatchSets();
     this.authorId = null;
     this.publishDisabled = true;
+    this.commitSha = null;
     //
     this.cachedSourceSnapshots = null;
     this.cachedSchemaSnapshots = null;
@@ -828,6 +833,7 @@ export class ValSyncEngine {
     schemaSha: string,
     patchIds: PatchId[],
     authorId: string | null,
+    commitSha: string | null,
     now: number,
   ): Promise<
     | {
@@ -838,11 +844,16 @@ export class ValSyncEngine {
         reason: RetryReason;
       }
   > {
-    if (this.baseSha !== baseSha || this.serverSideSchemaSha !== schemaSha) {
+    if (
+      this.baseSha !== baseSha ||
+      this.serverSideSchemaSha !== schemaSha ||
+      this.commitSha !== commitSha
+    ) {
       this.reset();
       this.baseSha = baseSha;
       this.serverSideSchemaSha = schemaSha;
-      return this.init(baseSha, schemaSha, patchIds, authorId, now);
+      this.commitSha = commitSha;
+      return this.init(baseSha, schemaSha, patchIds, authorId, commitSha, now);
     }
     if (!deepEqual(this.globalServerSidePatchIds, patchIds)) {
       // Do not update the globalServerSidePatchIds if they are the same

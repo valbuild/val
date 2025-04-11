@@ -315,6 +315,14 @@ class SyncEngineTester {
     );
   }
 
+  getAuthorId() {
+    return "6e4d2995-ac82-4e29-8c23-25b859371a9a";
+  }
+
+  getCommitSha() {
+    return "e83c5163316f89bfbde7d9ab23ca2e25604af290";
+  }
+
   getSchema(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _req: InferReq<Api["/schema"]["GET"]["req"]>,
@@ -598,10 +606,13 @@ class SyncEngineTester {
   }
 
   async simulateStatCallback(valStore: ValSyncEngine) {
+    const authorId = null;
     return await valStore.syncWithUpdatedStat(
       this.getBaseSha(),
       this.getSchemasSha(),
       this.fakePatches.map((p) => p.patchId),
+      authorId,
+      this.getCommitSha(),
       this.now++,
     );
   }
@@ -614,6 +625,7 @@ class SyncEngineTester {
       this.getSchemasSha(),
       this.fakePatches.map((p) => p.patchId),
       authorId,
+      this.getCommitSha(),
       this.now++,
     );
     return syncEngine;
