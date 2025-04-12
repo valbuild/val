@@ -56,6 +56,7 @@ const StatData = z.object({
       .optional(),
   }),
   commitSha: z.string().optional(), // Only use-websocket has this (refactor this zod schema?)
+  sourcesSha: z.string(),
   schemaSha: z.string(),
   baseSha: z.string(),
   patches: z.array(PatchId),
@@ -69,7 +70,7 @@ const StatData = z.object({
       }),
     )
     .optional(),
-  mode: z.union([z.literal("fs"), z.literal("http"), z.literal("unknown")]),
+  mode: z.union([z.literal("fs"), z.literal("http")]),
 });
 type StatData = z.infer<typeof StatData>;
 
@@ -225,6 +226,7 @@ async function execStat(
   if ("data" in stat && stat.data) {
     body = {
       schemaSha: stat.data.schemaSha,
+      sourcesSha: stat.data.sourcesSha,
       baseSha: stat.data.baseSha,
       patches: stat.data.patches,
     };

@@ -269,6 +269,7 @@ export function DraftChanges({
       </div>
       <div className="flex flex-col gap-[2px]">
         {"data" in serializedPatchSets &&
+          currentPatchIds.length > 0 &&
           serializedPatchSets.data.map((patchSet) => {
             return (
               <PatchSetCard

@@ -445,6 +445,7 @@ export const Api = {
       req: {
         body: z
           .object({
+            sourcesSha: z.string(),
             schemaSha: z.string(),
             baseSha: z.string(),
             patches: z.array(z.string()).optional(),
@@ -478,14 +479,11 @@ export const Api = {
               ]),
               baseSha: z.string(),
               schemaSha: z.string(),
+              sourcesSha: z.string(),
               patches: z.array(PatchId),
               config: ValConfig,
               profileId: z.string().nullable(),
-              mode: z.union([
-                z.literal("http"),
-                z.literal("fs"),
-                z.literal("unknown"),
-              ]),
+              mode: z.union([z.literal("http"), z.literal("fs")]),
             }),
             z.object({
               type: z.literal("use-websocket"),
@@ -493,15 +491,12 @@ export const Api = {
               nonce: z.string(),
               baseSha: z.string(),
               schemaSha: z.string(),
+              sourcesSha: z.string(),
               commitSha: z.string(),
               patches: z.array(PatchId),
               config: ValConfig,
               profileId: z.string().nullable(),
-              mode: z.union([
-                z.literal("http"),
-                z.literal("fs"),
-                z.literal("unknown"),
-              ]),
+              mode: z.union([z.literal("http"), z.literal("fs")]),
             }),
           ]),
         }),
@@ -704,6 +699,7 @@ export const Api = {
           status: z.literal(200),
           json: z.object({
             schemaSha: z.string(),
+            sourcesSha: z.string(),
             modules: z.record(
               ModuleFilePath,
               z.object({

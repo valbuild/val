@@ -25,6 +25,7 @@ import {
   bufferFromDataUrl,
   OrderedPatchesMetadata,
   OrderedPatches,
+  SourcesSha,
 } from "./ValOps";
 import { z } from "zod";
 import { fromError } from "zod-validation-error";
@@ -273,6 +274,7 @@ export class ValOpsHttp extends ValOps {
         type: "request-again" | "no-change";
         baseSha: BaseSha;
         schemaSha: SchemaSha;
+        sourcesSha: SourcesSha;
         patches: PatchId[];
       }
     | {
@@ -281,6 +283,7 @@ export class ValOpsHttp extends ValOps {
         nonce: string;
         baseSha: BaseSha;
         schemaSha: SchemaSha;
+        sourcesSha: SourcesSha;
         commitSha: CommitSha;
         patches: PatchId[];
       }
@@ -296,6 +299,7 @@ export class ValOpsHttp extends ValOps {
     }
     const currentBaseSha = await this.getBaseSha();
     const currentSchemaSha = await this.getSchemaSha();
+    const currentSourcesSha = await this.getSourcesSha();
     const allPatchData = await this.fetchPatches({
       excludePatchOps: true,
       patchIds: undefined,
@@ -347,6 +351,7 @@ export class ValOpsHttp extends ValOps {
       nonce,
       baseSha: currentBaseSha,
       schemaSha: currentSchemaSha,
+      sourcesSha: currentSourcesSha,
       patches,
       commitSha: this.commitSha as CommitSha,
     };

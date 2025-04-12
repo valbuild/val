@@ -41,6 +41,8 @@ import sizeOf from "image-size";
 import { ParentPatchId } from "@valbuild/core";
 
 export type BaseSha = string & { readonly _tag: unique symbol };
+export type ConfigSha = string & { readonly _tag: unique symbol };
+export type SourcesSha = string & { readonly _tag: unique symbol };
 export type SchemaSha = string & { readonly _tag: unique symbol };
 export type CommitSha = string & { readonly _tag: unique symbol };
 export type AuthorId = string & { readonly _tag: unique symbol };
@@ -75,8 +77,12 @@ export type ValOpsOptions = {
 export abstract class ValOps {
   /** Sources from val modules, immutable (without patches or anything)  */
   private sources: Sources | null;
-  /** The sha256 / hash of sources + schema + config */
+  /** The sha256 / hash of all sources + all schemas + config */
   private baseSha: BaseSha | null;
+  /** The sha256 / hash of all sources */
+  private sourcesSha: SourcesSha | null;
+  /** The sha256 / hash of config */
+  private configSha: ConfigSha | null;
   /** Schema from val modules, immutable  */
   private schemas: Schemas | null;
   /** The sha256 / hash of schema + config - if this changes users needs to reload */
@@ -91,6 +97,8 @@ export abstract class ValOps {
     this.baseSha = null;
     this.schemas = null;
     this.schemaSha = null;
+    this.sourcesSha = null;
+    this.configSha = null;
     this.modulesErrors = null;
   }
 
@@ -171,6 +179,7 @@ export abstract class ValOps {
         type: "request-again" | "no-change" | "did-change";
         baseSha: BaseSha;
         schemaSha: SchemaSha;
+        sourcesSha: SourcesSha;
         patches: PatchId[];
       }
     | {
@@ -180,6 +189,7 @@ export abstract class ValOps {
         baseSha: BaseSha;
         schemaSha: SchemaSha;
         commitSha: CommitSha;
+        sourcesSha: SourcesSha;
         patches: PatchId[];
       }
     | {
@@ -194,12 +204,16 @@ export abstract class ValOps {
   private async initSources(): Promise<{
     baseSha: BaseSha;
     schemaSha: SchemaSha;
+    sourcesSha: SourcesSha;
+    configSha: ConfigSha;
     sources: Sources;
     schemas: Schemas;
     moduleErrors: ModulesError[];
   }> {
     if (
       this.baseSha === null ||
+      this.sourcesSha === null ||
+      this.configSha === null ||
       this.schemaSha === null ||
       this.sources === null ||
       this.schemas === null ||
@@ -218,8 +232,10 @@ export abstract class ValOps {
       };
       const currentSources: Sources = {};
       const currentSchemas: Schemas = {};
-      let baseSha = this.hash(JSON.stringify(this.valModules.config));
-      let schemaSha = baseSha;
+      const configSha = this.hash(JSON.stringify(this.valModules.config));
+      let sourcesSha = "";
+      let baseSha = configSha;
+      let schemaSha = configSha;
       for (
         let moduleIdx = 0;
         moduleIdx < this.valModules.modules.length;
@@ -304,6 +320,7 @@ export abstract class ValOps {
           currentSources[pathM] = source;
           currentSchemas[pathM] = schema;
           // make sure the checks above is enough that this does not fail - even if val modules are not set up correctly
+          sourcesSha = this.hash(sourcesSha + JSON.stringify({ path, source }));
           baseSha = this.hash(
             baseSha +
               JSON.stringify({
@@ -320,11 +337,15 @@ export abstract class ValOps {
       this.schemas = currentSchemas;
       this.baseSha = baseSha as BaseSha;
       this.schemaSha = schemaSha as SchemaSha;
+      this.sourcesSha = sourcesSha as SourcesSha;
+      this.configSha = configSha as ConfigSha;
       this.modulesErrors = currentModulesErrors;
     }
     return {
       baseSha: this.baseSha,
       schemaSha: this.schemaSha,
+      sourcesSha: this.sourcesSha,
+      configSha: this.configSha,
       sources: this.sources,
       schemas: this.schemas,
       moduleErrors: this.modulesErrors,
@@ -347,6 +368,12 @@ export abstract class ValOps {
   }
   async getBaseSha(): Promise<BaseSha> {
     return this.initSources().then((result) => result.baseSha);
+  }
+  async getConfigSha(): Promise<ConfigSha> {
+    return this.initSources().then((result) => result.configSha);
+  }
+  async getSourcesSha(): Promise<SourcesSha> {
+    return this.initSources().then((result) => result.sourcesSha);
   }
   async getSchemaSha(): Promise<SchemaSha> {
     return this.initSources().then((result) => result.schemaSha);

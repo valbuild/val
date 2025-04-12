@@ -19,6 +19,7 @@ describe("ValSyncEngine", () => {
   test("basic init and sync", async () => {
     const { s, c, config } = initVal();
     const tester = new SyncEngineTester(
+      "fs",
       [c.define("/test.val.ts", s.string().minLength(2), "test")],
       config,
     );
@@ -61,6 +62,7 @@ describe("ValSyncEngine", () => {
   test("basic reset", async () => {
     const { s, c, config } = initVal();
     const tester = new SyncEngineTester(
+      "fs",
       [c.define("/test.val.ts", s.string().minLength(2), "test")],
       config,
     );
@@ -74,7 +76,7 @@ describe("ValSyncEngine", () => {
     };
     const syncEngine1 = await tester.createInitializedSyncEngine();
     updateValue(syncEngine1, "value 0 from store 1");
-    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
+    expect(await syncEngine1.sync(false, tester.getNextNow())).toMatchObject({
       status: "done",
     });
     expect(
@@ -84,7 +86,7 @@ describe("ValSyncEngine", () => {
     syncEngine1.reset();
     syncEngine1.reset();
     syncEngine1.reset();
-    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
+    expect(await syncEngine1.sync(false, tester.getNextNow())).toMatchObject({
       status: "done",
     });
     expect(
@@ -95,6 +97,7 @@ describe("ValSyncEngine", () => {
   test("wait 1 second from last op before allowing sync", async () => {
     const { s, c, config } = initVal();
     const tester = new SyncEngineTester(
+      "fs",
       [c.define("/test.val.ts", s.string().minLength(2), "test")],
       config,
     );
@@ -123,7 +126,7 @@ describe("ValSyncEngine", () => {
       syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("value 1 from store 1");
     tester.simulatePassingOfSeconds(0.5);
-    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
+    expect(await syncEngine1.sync(false, tester.getNextNow())).toMatchObject({
       status: "retry",
       reason: "too-fast",
     });
@@ -132,7 +135,7 @@ describe("ValSyncEngine", () => {
       status: "patch-merged",
     });
     tester.simulatePassingOfSeconds(1);
-    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
+    expect(await syncEngine1.sync(false, tester.getNextNow())).toMatchObject({
       status: "done",
     });
 
@@ -144,7 +147,7 @@ describe("ValSyncEngine", () => {
       status: "patch-merged",
     });
     tester.simulatePassingOfSeconds(0.5);
-    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
+    expect(await syncEngine1.sync(false, tester.getNextNow())).toMatchObject({
       status: "done",
     });
 
@@ -156,6 +159,7 @@ describe("ValSyncEngine", () => {
   test("basic conflict", async () => {
     const { s, c, config } = initVal();
     const tester = new SyncEngineTester(
+      "fs",
       [c.define("/test.val.ts", s.string().minLength(2), "test")],
       config,
     );
@@ -195,7 +199,7 @@ describe("ValSyncEngine", () => {
     ).toStrictEqual("value 2 from store 2");
     // ...then sync store 1
     tester.simulatePassingOfSeconds(5);
-    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
+    expect(await syncEngine1.sync(false, tester.getNextNow())).toMatchObject({
       status: "done",
     });
     expect(await tester.simulateStatCallback(syncEngine1)).toMatchObject({
@@ -203,7 +207,7 @@ describe("ValSyncEngine", () => {
     });
     // We must get stat before we can sync again
     tester.simulatePassingOfSeconds(5);
-    expect(await syncEngine2.sync(tester.getNextNow())).toMatchObject({
+    expect(await syncEngine2.sync(false, tester.getNextNow())).toMatchObject({
       status: "retry",
       reason: "conflict",
     });
@@ -273,6 +277,7 @@ class SyncEngineTester {
   fakeResponses: Partial<FakeApi>;
 
   constructor(
+    private mode: "fs" | "http",
     public valModules: ValModule<SelectorSource>[],
     public config: ValConfig,
   ) {
@@ -295,11 +300,23 @@ class SyncEngineTester {
     this.fakeResponses = {};
   }
 
+  getMode() {
+    return this.mode;
+  }
+
   getSchemasSha() {
     // We could have used the way we do this in ValOps which is better (more stable), but this is simple and should work for the tests
     const textEncoder = new TextEncoder();
     return Internal.getSHA256Hash(
       textEncoder.encode(JSON.stringify(this.fakeSchemas)),
+    );
+  }
+
+  getSourcesSha() {
+    // We could have used the way we do this in ValOps which is better (more stable), but this is simple and should work for the tests
+    const textEncoder = new TextEncoder();
+    return Internal.getSHA256Hash(
+      textEncoder.encode(JSON.stringify(this.fakeSources)),
     );
   }
 
@@ -537,6 +554,7 @@ class SyncEngineTester {
       status: 200,
       json: {
         modules,
+        sourcesSha: this.getSourcesSha(),
         schemaSha: this.getSchemasSha(),
       },
     };
@@ -608,8 +626,10 @@ class SyncEngineTester {
   async simulateStatCallback(valStore: ValSyncEngine) {
     const authorId = null;
     return await valStore.syncWithUpdatedStat(
+      this.getMode(),
       this.getBaseSha(),
       this.getSchemasSha(),
+      this.getSourcesSha(),
       this.fakePatches.map((p) => p.patchId),
       authorId,
       this.getCommitSha(),
@@ -621,8 +641,10 @@ class SyncEngineTester {
     const syncEngine = new ValSyncEngine(this.createMockClient(), undefined);
     const authorId = null;
     await syncEngine.init(
+      this.getMode(),
       this.getBaseSha(),
       this.getSchemasSha(),
+      this.getSourcesSha(),
       this.fakePatches.map((p) => p.patchId),
       authorId,
       this.getCommitSha(),

@@ -147,7 +147,7 @@ export function ValProvider({
       }
     };
     load();
-  }, ["data" in stat && stat.data && stat.data.baseSha]);
+  }, [authenticationState, client, serviceUnavailable]);
 
   const syncEngine = useMemo(
     () =>
@@ -352,13 +352,16 @@ export function ValProvider({
         if ("data" in stat && stat.data) {
           console.debug("ValSyncEngine init started...", stat.data.profileId);
           const res = await syncEngine.init(
+            stat.data.mode,
             stat.data.baseSha,
             stat.data.schemaSha,
+            stat.data.sourcesSha,
             stat.data.patches,
             stat.data.profileId,
             stat.data.commitSha ?? null,
             Date.now(),
           );
+          console.debug("ValSyncEngine init result", res);
           if (res.status === "retry") {
             syncEngineInitStatus.current = "retry";
             timeout = setTimeout(exec, 4000);
@@ -388,10 +391,11 @@ export function ValProvider({
       stat.data &&
       syncEngineInitStatus.current === "done"
     ) {
-      console.debug("ValSyncEngine update");
       syncEngine.syncWithUpdatedStat(
+        stat.data.mode,
         stat.data.baseSha,
         stat.data.schemaSha,
+        stat.data.sourcesSha,
         stat.data.patches,
         stat.data.profileId,
         stat.data.commitSha ?? null,
@@ -412,7 +416,7 @@ export function ValProvider({
         syncEngineInitStatus.current = "not-initialized";
         return;
       }
-      await syncEngine.sync(Date.now());
+      await syncEngine.sync(false, Date.now());
       if (timeout) {
         clearTimeout(timeout);
       }
@@ -655,7 +659,63 @@ export function useCurrentPatchIds(): PatchId[] {
     () => syncEngine.getGlobalServerSidePatchIdsSnapshot(),
     () => syncEngine.getGlobalServerSidePatchIdsSnapshot(),
   );
-  return globalServerSidePatchIds;
+  const pendingClientSidePatchIds = useSyncExternalStore(
+    syncEngine.subscribe("pending-client-side-patch-ids"),
+    () => syncEngine.getPendingClientSidePatchIdsSnapshot(),
+    () => syncEngine.getPendingClientSidePatchIdsSnapshot(),
+  );
+  const syncedServerSidePatchIds = useSyncExternalStore(
+    syncEngine.subscribe("synced-server-side-patch-ids"),
+    () => syncEngine.getSyncedServerSidePatchIdsSnapshot(),
+    () => syncEngine.getSyncedServerSidePatchIdsSnapshot(),
+  );
+  const savedServerSidePatchIds = useSyncExternalStore(
+    syncEngine.subscribe("saved-server-side-patch-ids"),
+    () => syncEngine.getSavedServerSidePatchIdsSnapshot(),
+    () => syncEngine.getSavedServerSidePatchIdsSnapshot(),
+  );
+  const currentPatchIds = useMemo(() => {
+    const added: Set<PatchId> = new Set();
+    const currentPatchIds: PatchId[] = [];
+    for (const patchId of globalServerSidePatchIds) {
+      if (!added.has(patchId)) {
+        currentPatchIds.push(patchId);
+      }
+      added.add(patchId);
+    }
+    for (const patchId of savedServerSidePatchIds) {
+      if (!added.has(patchId)) {
+        currentPatchIds.push(patchId);
+      }
+      added.add(patchId);
+    }
+    for (const patchId of syncedServerSidePatchIds) {
+      if (!added.has(patchId)) {
+        currentPatchIds.push(patchId);
+      }
+      added.add(patchId);
+    }
+    for (const patchId of pendingClientSidePatchIds) {
+      if (!added.has(patchId)) {
+        currentPatchIds.push(patchId);
+      }
+      added.add(patchId);
+    }
+    console.log({
+      currentPatchIds,
+      savedServerSidePatchIds,
+      globalServerSidePatchIds,
+      syncedServerSidePatchIds,
+      pendingClientSidePatchIds,
+    });
+    return currentPatchIds;
+  }, [
+    globalServerSidePatchIds,
+    syncedServerSidePatchIds,
+    pendingClientSidePatchIds,
+    savedServerSidePatchIds,
+  ]);
+  return currentPatchIds;
 }
 
 export function useValMode(): "http" | "fs" | "unknown" {
