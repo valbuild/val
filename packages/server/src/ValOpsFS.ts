@@ -19,6 +19,7 @@ import {
   OrderedPatches,
   OrderedPatchesMetadata,
   PatchReadError,
+  SourcesSha,
 } from "./ValOps";
 import fsPath from "path";
 import ts from "typescript";
@@ -67,6 +68,7 @@ export class ValOpsFS extends ValOps {
     params: {
       baseSha: BaseSha;
       schemaSha: SchemaSha;
+      sourcesSha: SourcesSha;
       patches: PatchId[];
       profileId?: AuthorId;
     } | null,
@@ -75,6 +77,7 @@ export class ValOpsFS extends ValOps {
         type: "request-again" | "no-change" | "did-change";
         baseSha: BaseSha;
         schemaSha: SchemaSha;
+        sourcesSha: SourcesSha;
         patches: PatchId[];
       }
     | {
@@ -83,6 +86,7 @@ export class ValOpsFS extends ValOps {
         nonce: string;
         baseSha: BaseSha;
         schemaSha: SchemaSha;
+        sourcesSha: SourcesSha;
         commitSha: CommitSha;
         patches: PatchId[];
       }
@@ -98,6 +102,7 @@ export class ValOpsFS extends ValOps {
     try {
       const currentBaseSha = await this.getBaseSha();
       const currentSchemaSha = await this.getSchemaSha();
+      const currentSourcesSha = await this.getSourcesSha();
       const moduleFilePaths = Object.keys(await this.getSchemas());
 
       const patchData = await this.readPatches();
@@ -114,6 +119,8 @@ export class ValOpsFS extends ValOps {
       const didChange =
         !params ||
         currentBaseSha !== params.baseSha ||
+        // base sha covers both sources sha and schema sha, so we could remove checks for schema sha and sources sha
+        currentSourcesSha !== params.sourcesSha ||
         currentSchemaSha !== params.schemaSha ||
         patches.length !== params.patches.length ||
         patches.some((p, i) => p !== params.patches[i]);
@@ -122,6 +129,7 @@ export class ValOpsFS extends ValOps {
           type: "did-change",
           baseSha: currentBaseSha,
           schemaSha: currentSchemaSha,
+          sourcesSha: currentSourcesSha,
           patches,
         };
       }
@@ -288,6 +296,7 @@ export class ValOpsFS extends ValOps {
         type,
         baseSha: currentBaseSha,
         schemaSha: currentSchemaSha,
+        sourcesSha: currentSourcesSha,
         patches,
       };
     } catch (err) {

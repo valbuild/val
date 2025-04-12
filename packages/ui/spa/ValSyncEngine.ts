@@ -46,10 +46,7 @@ import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
  */
 export class ValSyncEngine {
   private initializedAt: number | null;
-  /**
-   * Patch Ids stored by this client
-   */
-  private patchIdsStoredByClient: PatchId[];
+  private autoPublish: boolean = true;
   /**
    * Patch Ids reported by the /stat endpoint or webhook
    *
@@ -61,9 +58,13 @@ export class ValSyncEngine {
    */
   private pendingClientPatchIds: PatchId[];
   /**
-   * Patch Ids that have been successfully been seen on server
+   * Patch Ids that have been successfully been applied (or skipped) server side
    */
-  private syncedPatchIds: Set<PatchId>;
+  private syncedServerSidePatchIds: PatchId[];
+  /**
+   * Patch Ids that have been saved server side
+   */
+  private savedServerSidePatchIds: PatchId[];
   private publishDisabled: boolean;
   private patchDataByPatchId: Record<
     PatchId,
@@ -91,9 +92,11 @@ export class ValSyncEngine {
   private schemas: Record<ModuleFilePath, SerializedSchema | undefined> | null;
   private serverSideSchemaSha: string | null;
   private clientSideSchemaSha: string | null;
+  private mode: "fs" | "http" | null;
 
   private commitSha: string | null;
-  private baseSha: string | null; // TODO: Currently not used, we should use this to reset the client state
+  private baseSha: string | null; // TODO: Currently only used for headBaseSha in head patches - we think we should replace headBaseSha with headSourcesSha
+  private sourcesSha: string | null;
   private syncStatus: Record<SourcePath | ModuleFilePath, SyncStatus>;
   private pendingOps: PendingOp[];
   private errors: Partial<{
@@ -142,12 +145,14 @@ export class ValSyncEngine {
     this.serverSideSchemaSha = null;
     this.clientSideSchemaSha = null;
     this.baseSha = null;
+    this.sourcesSha = null;
+    this.mode = null;
     this.optimisticClientSources = {};
     this.serverSources = null;
     this.globalServerSidePatchIds = [];
-    this.syncedPatchIds = new Set();
+    this.syncedServerSidePatchIds = [];
+    this.savedServerSidePatchIds = [];
     this.pendingOps = [];
-    this.patchIdsStoredByClient = [];
     this.pendingClientPatchIds = [];
     this.patchDataByPatchId = {};
     this.isSyncing = false;
@@ -163,6 +168,9 @@ export class ValSyncEngine {
     this.cachedValidationErrors = null;
     this.cachedAllSchemasSnapshot = null;
     this.cachedGlobalServerSidePatchIdsSnapshot = null;
+    this.cachedPendingClientSidePatchIdsSnapshot = null;
+    this.cachedSyncedServerSidePatchIdsSnapshot = null;
+    this.cachedSavedServerSidePatchIdsSnapshot = null;
     this.cachedAllSourcesSnapshot = null;
     this.cachedSyncStatus = null;
     this.cachedPendingOpsCountSnapshot = null;
@@ -170,25 +178,35 @@ export class ValSyncEngine {
   }
 
   async init(
+    mode: "fs" | "http",
     baseSha: string,
     schemaSha: string,
+    sourcesSha: string,
     patchIds: PatchId[],
     authorId: string | null,
     commitSha: string | null,
     now: number,
   ) {
+    this.mode = mode;
+    this.baseSha = baseSha;
     this.commitSha = commitSha;
+    this.sourcesSha = sourcesSha;
     this.authorId = authorId;
     const start = Date.now();
     const res = await this.syncWithUpdatedStat(
+      mode,
       baseSha,
       schemaSha,
+      sourcesSha,
       patchIds,
       authorId,
       commitSha,
       now,
     );
     if (res.status === "done") {
+      await this.syncPatches(true, now);
+      this.publishDisabled = false;
+      this.invalidatePublishDisabled();
       this.initializedAt = now + (Date.now() - start);
       this.invalidateInitializedAt();
     }
@@ -204,13 +222,13 @@ export class ValSyncEngine {
     this.schemas = null;
     this.serverSideSchemaSha = null;
     this.clientSideSchemaSha = null;
-    this.baseSha = null;
+    this.sourcesSha = null;
     this.optimisticClientSources = {};
     this.serverSources = null;
     this.globalServerSidePatchIds = [];
-    this.syncedPatchIds = new Set();
+    this.syncedServerSidePatchIds = [];
+    this.savedServerSidePatchIds = [];
     this.pendingOps = [];
-    this.patchIdsStoredByClient = [];
     this.pendingClientPatchIds = [];
     this.patchDataByPatchId = {};
     this.isSyncing = false;
@@ -226,6 +244,9 @@ export class ValSyncEngine {
     this.cachedValidationErrors = null;
     this.cachedAllSchemasSnapshot = null;
     this.cachedGlobalServerSidePatchIdsSnapshot = null;
+    this.cachedPendingClientSidePatchIdsSnapshot = null;
+    this.cachedSyncedServerSidePatchIdsSnapshot = null;
+    this.cachedSavedServerSidePatchIdsSnapshot = null;
     this.cachedAllSourcesSnapshot = null;
     this.cachedSyncStatus = null;
     this.cachedPendingOpsCountSnapshot = null;
@@ -264,6 +285,15 @@ export class ValSyncEngine {
   ): (listener: () => void) => () => void;
   subscribe(
     type: "global-server-side-patch-ids",
+  ): (listener: () => void) => () => void;
+  subscribe(
+    type: "pending-client-side-patch-ids",
+  ): (listener: () => void) => () => void;
+  subscribe(
+    type: "synced-server-side-patch-ids",
+  ): (listener: () => void) => () => void;
+  subscribe(
+    type: "saved-server-side-patch-ids",
   ): (listener: () => void) => () => void;
   subscribe(type: "publish-disabled"): (listener: () => void) => () => void;
   subscribe(type: "schema"): (listener: () => void) => () => void;
@@ -366,12 +396,33 @@ export class ValSyncEngine {
       this.invalidateValidationError(sourcePath);
     }
   }
+
   private invalidateGlobalServerSidePatchIds() {
     this.cachedGlobalServerSidePatchIdsSnapshot = null;
     this.emit(
       this.listeners["global-server-side-patch-ids"]?.[globalNamespace],
     );
   }
+
+  private invalidatePendingClientSidePatchIds() {
+    this.cachedPendingClientSidePatchIdsSnapshot = null;
+    this.emit(
+      this.listeners["pending-client-side-patch-ids"]?.[globalNamespace],
+    );
+  }
+
+  private invalidateSyncedServerSidePatchIds() {
+    this.cachedSyncedServerSidePatchIdsSnapshot = null;
+    this.emit(
+      this.listeners["synced-server-side-patch-ids"]?.[globalNamespace],
+    );
+  }
+
+  private invalidateSavedServerSidePatchIds() {
+    this.cachedSavedServerSidePatchIdsSnapshot = null;
+    this.emit(this.listeners["saved-server-side-patch-ids"]?.[globalNamespace]);
+  }
+
   private invalidatePublishDisabled() {
     this.emit(this.listeners["publish-disabled"]?.[globalNamespace]);
   }
@@ -597,6 +648,33 @@ export class ValSyncEngine {
     return this.cachedGlobalServerSidePatchIdsSnapshot;
   }
 
+  private cachedPendingClientSidePatchIdsSnapshot: PatchId[] | null;
+  getPendingClientSidePatchIdsSnapshot() {
+    if (this.cachedPendingClientSidePatchIdsSnapshot === null) {
+      this.cachedPendingClientSidePatchIdsSnapshot =
+        this.pendingClientPatchIds?.slice() || [];
+    }
+    return this.cachedPendingClientSidePatchIdsSnapshot;
+  }
+
+  private cachedSyncedServerSidePatchIdsSnapshot: PatchId[] | null;
+  getSyncedServerSidePatchIdsSnapshot() {
+    if (this.cachedSyncedServerSidePatchIdsSnapshot === null) {
+      this.cachedSyncedServerSidePatchIdsSnapshot =
+        this.syncedServerSidePatchIds?.slice() || [];
+    }
+    return this.cachedSyncedServerSidePatchIdsSnapshot;
+  }
+
+  private cachedSavedServerSidePatchIdsSnapshot: PatchId[] | null;
+  getSavedServerSidePatchIdsSnapshot() {
+    if (this.cachedSavedServerSidePatchIdsSnapshot === null) {
+      this.cachedSavedServerSidePatchIdsSnapshot =
+        this.savedServerSidePatchIds?.slice() || [];
+    }
+    return this.cachedSavedServerSidePatchIdsSnapshot;
+  }
+
   getPublishDisabledSnapshot() {
     return this.publishDisabled;
   }
@@ -709,6 +787,7 @@ export class ValSyncEngine {
           });
           this.invalidatePendingOps();
           this.pendingClientPatchIds.push(patchId);
+          this.invalidatePendingClientSidePatchIds();
           this.patchDataByPatchId[patchId] = {
             moduleFilePath: moduleFilePath,
             patch: patch,
@@ -737,6 +816,7 @@ export class ValSyncEngine {
         });
         this.invalidatePendingOps();
         this.pendingClientPatchIds.push(patchId);
+        this.invalidatePendingClientSidePatchIds();
         this.patchDataByPatchId[patchId] = {
           moduleFilePath: moduleFilePath,
           patch: patch,
@@ -813,7 +893,8 @@ export class ValSyncEngine {
       return null;
     }
     const patchId =
-      this.patchIdsStoredByClient[this.patchIdsStoredByClient.length - 1] ||
+      this.savedServerSidePatchIds[this.savedServerSidePatchIds.length - 1] ||
+      this.syncedServerSidePatchIds[this.syncedServerSidePatchIds.length - 1] ||
       this.globalServerSidePatchIds[this.globalServerSidePatchIds.length - 1];
 
     if (!patchId) {
@@ -831,8 +912,10 @@ export class ValSyncEngine {
   // #region Stat
 
   async syncWithUpdatedStat(
+    mode: "fs" | "http",
     baseSha: string,
     schemaSha: string,
+    sourcesSha: string,
     patchIds: PatchId[],
     authorId: string | null,
     commitSha: string | null,
@@ -846,16 +929,27 @@ export class ValSyncEngine {
         reason: RetryReason;
       }
   > {
+    const sourcesShaDidChange = this.sourcesSha !== sourcesSha;
+    this.sourcesSha = sourcesSha;
+    this.baseSha = baseSha;
+    this.mode = mode;
     if (
-      this.baseSha !== baseSha ||
       this.serverSideSchemaSha !== schemaSha ||
       this.commitSha !== commitSha
     ) {
       this.reset();
-      this.baseSha = baseSha;
       this.serverSideSchemaSha = schemaSha;
       this.commitSha = commitSha;
-      return this.init(baseSha, schemaSha, patchIds, authorId, commitSha, now);
+      return this.init(
+        mode,
+        baseSha,
+        schemaSha,
+        sourcesSha,
+        patchIds,
+        authorId,
+        commitSha,
+        now,
+      );
     }
     const patchIdsDidChange = !deepEqual(
       this.globalServerSidePatchIds,
@@ -872,17 +966,25 @@ export class ValSyncEngine {
             i--;
           }
         }
-        for (let i = 0; i < this.patchIdsStoredByClient.length; i++) {
-          if (this.patchIdsStoredByClient[i] === patchId) {
-            this.patchIdsStoredByClient.splice(i, 1);
+        for (let i = 0; i < this.syncedServerSidePatchIds.length; i++) {
+          if (this.syncedServerSidePatchIds[i] === patchId) {
+            this.syncedServerSidePatchIds.splice(i, 1);
+            i--;
+          }
+        }
+        for (let i = 0; i < this.savedServerSidePatchIds.length; i++) {
+          if (this.savedServerSidePatchIds[i] === patchId) {
+            this.savedServerSidePatchIds.splice(i, 1);
             i--;
           }
         }
       }
       this.invalidateGlobalServerSidePatchIds();
-      await this.syncPatches(true, now);
+      this.invalidateSyncedServerSidePatchIds();
+      this.invalidateSavedServerSidePatchIds();
+      this.invalidatePendingClientSidePatchIds();
     }
-    return this.sync(now);
+    return this.sync(sourcesShaDidChange || patchIdsDidChange, now);
   }
 
   // #region Sync utils
@@ -986,26 +1088,9 @@ export class ValSyncEngine {
       }
       for (const patchIdS of newPatchIds) {
         const patchId = patchIdS as PatchId;
-        if (createdPatchIds.has(patchId)) {
-          this.patchIdsStoredByClient.push(patchId);
-          if (this.patchDataByPatchId[patchId]) {
-            this.patchDataByPatchId[patchId]!.isPending = false;
-          }
-        } else {
-          console.error(
-            `Failed to save changes: ${patchId} not found in createdPatchIds`,
-            createdPatchIds,
-          );
-          this.addTransientGlobalError(
-            `Failed to save some of the changes`,
-            now,
-            `Did not find expected patch id: '${patchId}'`,
-          );
-          this.patchDataByPatchId[patchId];
-          this.patchDataByPatchId = {
-            ...this.patchDataByPatchId,
-            [patchId]: undefined,
-          };
+        this.savedServerSidePatchIds.push(patchId);
+        if (this.patchDataByPatchId[patchId]) {
+          this.patchDataByPatchId[patchId]!.isPending = false;
         }
       }
     }
@@ -1133,7 +1218,6 @@ export class ValSyncEngine {
     let didUpdatePatchData = false;
 
     // get missing data
-    const isInit = this.initializedAt === null || reset;
     if (this.initializedAt === null || reset) {
       this.patchSets = new PatchSets();
       didUpdatePatchSet = true;
@@ -1297,11 +1381,7 @@ export class ValSyncEngine {
         status: "retry",
       };
     }
-    // Init is complete:
-    if (isInit) {
-      this.publishDisabled = false;
-      this.invalidatePublishDisabled();
-    }
+
     return {
       status: "done",
     };
@@ -1338,7 +1418,10 @@ export class ValSyncEngine {
   private MIN_WAIT_SECONDS = 1;
   private MAX_WAIT_SECONDS = 5;
 
-  async sync(now: number): Promise<
+  async sync(
+    sourcesChanged: boolean,
+    now: number,
+  ): Promise<
     | {
         status: "done";
       }
@@ -1354,30 +1437,33 @@ export class ValSyncEngine {
         reason: "already-syncing",
       };
     }
-    console.debug("Syncing...", this.commitSha, this.globalServerSidePatchIds);
     this.isSyncing = true;
     let pendingOps: PendingOp[] = [];
     let serverPatchIdsDidChange = false;
+    const allSyncedPatchIds = new Set(this.syncedServerSidePatchIds);
     for (const patchId of this.globalServerSidePatchIds || []) {
-      if (
-        !this.syncedPatchIds.has(patchId) &&
-        !this.isPatchCommitted(patchId)
-      ) {
+      if (!allSyncedPatchIds.has(patchId) && !this.isPatchCommitted(patchId)) {
         serverPatchIdsDidChange = true;
       }
     }
-    // This will happen if there's patches that are removed
-    for (const patchId of this.syncedPatchIds) {
-      if (
-        this.globalServerSidePatchIds &&
-        !this.globalServerSidePatchIds.includes(patchId)
-      ) {
-        this.reset();
-        await this.syncPatches(true, now);
-        return {
-          status: "retry",
-          reason: "patch-ids-changed",
-        };
+    if (this.globalServerSidePatchIds) {
+      // This will happen if there's patches that are removed
+      // console.log("here", this.syncedPatchIds, this.globalServerSidePatchIds);
+      for (const clientCreatedPatchId of this.savedServerSidePatchIds) {
+        if (
+          // We synced a client created patch id...
+          allSyncedPatchIds.has(clientCreatedPatchId) &&
+          // ... but it is no longer in the global server side patch ids
+          // (this means that the patch id was removed from the server)
+          !this.globalServerSidePatchIds.includes(clientCreatedPatchId)
+        ) {
+          // resetting the patches stored by client
+          this.syncedServerSidePatchIds = [];
+          this.savedServerSidePatchIds = [];
+          // in http mode we need to sync patches
+          serverPatchIdsDidChange = this.mode === "http";
+          break;
+        }
       }
     }
 
@@ -1452,6 +1538,7 @@ export class ValSyncEngine {
         didWrite = true;
         pendingOps.shift();
       }
+
       this.invalidatePendingOps();
 
       // #region Read operations
@@ -1466,17 +1553,26 @@ export class ValSyncEngine {
         }
       }
       const changedModules = this.getChangedModules(changes);
-      // console.debug("Syncing?", {
-      //   initializedAt: this.initializedAt,
-      //   schemaShaDiff: this.clientSideSchemaSha !== this.serverSideSchemaSha,
-      //   syncAllRequired,
-      //   changedModules,
-      // });
+      console.log("Syncing?", {
+        initializedAt: this.initializedAt,
+        schemaShaDiff: this.clientSideSchemaSha !== this.serverSideSchemaSha,
+        syncAllRequired,
+        serverPatchIdsDidChange,
+        changedModules,
+        res:
+          this.initializedAt === null ||
+          this.clientSideSchemaSha !== this.serverSideSchemaSha ||
+          serverPatchIdsDidChange ||
+          syncAllRequired ||
+          changedModules === "all" ||
+          changedModules.length > 0,
+      });
       if (
         // TODO: clean this up, surely there's no need for this many different ways of triggering sources sync
         this.initializedAt === null ||
         this.clientSideSchemaSha !== this.serverSideSchemaSha ||
         serverPatchIdsDidChange ||
+        sourcesChanged ||
         syncAllRequired ||
         changedModules === "all" ||
         changedModules.length > 0
@@ -1488,6 +1584,7 @@ export class ValSyncEngine {
           // there's a lot of changes in a single text / richtext field that needs to be synced
           // (e.g. an editor is typing inside a richtext / text field)
           this.initializedAt !== null &&
+          !sourcesChanged &&
           typeof changedModules === "object" &&
           changedModules.length === 1
             ? (changedModules[0] as ModuleFilePath)
@@ -1572,10 +1669,10 @@ export class ValSyncEngine {
                 changedValidationErrors.add(sourcePath);
               }
               for (const syncedPatchId of valModule.patches?.applied || []) {
-                this.syncedPatchIds.add(syncedPatchId);
+                this.syncedServerSidePatchIds.push(syncedPatchId);
               }
               for (const syncedPatchId of valModule.patches?.skipped || []) {
-                this.syncedPatchIds.add(syncedPatchId);
+                this.syncedServerSidePatchIds.push(syncedPatchId);
               }
             } else {
               this.addTransientGlobalError(
@@ -1600,8 +1697,43 @@ export class ValSyncEngine {
           }
         }
       }
-      await this.syncPatches(false, now);
-      if (changedModules)
+
+      if (
+        this.autoPublish &&
+        this.globalServerSidePatchIds &&
+        this.globalServerSidePatchIds.length > 0
+      ) {
+        let hasValidationError = false;
+        for (const sourcePathS in this.errors.validationErrors || {}) {
+          const sourcePath = sourcePathS as SourcePath;
+          if (
+            this.errors?.validationErrors?.[sourcePath] &&
+            this.errors?.validationErrors?.[sourcePath]!.length > 0
+          ) {
+            hasValidationError = true;
+            break;
+          }
+        }
+        if (!hasValidationError) {
+          await this.publish(
+            this.globalServerSidePatchIds.concat(
+              ...Array.from(this.syncedServerSidePatchIds),
+            ),
+            undefined,
+            now,
+          );
+          didWrite = true;
+        } else {
+          console.log("--->", this.errors.validationErrors);
+        }
+      }
+      if (serverPatchIdsDidChange || didWrite) {
+        this.invalidatePendingClientSidePatchIds();
+        this.invalidateGlobalServerSidePatchIds();
+        this.invalidateSyncedServerSidePatchIds();
+        this.invalidateSavedServerSidePatchIds();
+      }
+      if (changedModules) {
         if (this.overlayEmitter) {
           if (didWrite && this.serverSources) {
             for (const moduleFilePathS in changes) {
@@ -1629,6 +1761,7 @@ export class ValSyncEngine {
             }
           }
         }
+      }
 
       return {
         status: "done",
@@ -1643,7 +1776,7 @@ export class ValSyncEngine {
   async publish(patchIds: PatchId[], message: string | undefined, now: number) {
     try {
       this.publishDisabled = true;
-      this.invalidatePublishDisabled();
+      // this.invalidatePublishDisabled();
       if (patchIds.length === 0) {
         this.addTransientGlobalError(
           "Could not publish changes, since there are no changes to publish",
@@ -1679,6 +1812,16 @@ export class ValSyncEngine {
       } else {
         const fullReset = true;
         await this.syncPatches(fullReset, now);
+        this.pendingClientPatchIds = [];
+        this.syncedServerSidePatchIds = [];
+        this.savedServerSidePatchIds = [];
+        this.patchDataByPatchId = {};
+        this.patchSets = new PatchSets();
+        this.invalidatePatchSets();
+        this.invalidateAllPatches();
+        this.invalidatePendingClientSidePatchIds();
+        this.invalidateSyncedServerSidePatchIds();
+        this.invalidateSavedServerSidePatchIds();
         return {
           status: "done",
         } as const;
@@ -1753,6 +1896,9 @@ type SyncEngineListenerType =
   | "transient-global-error"
   | "persistent-global-error"
   | "global-server-side-patch-ids"
+  | "pending-client-side-patch-ids"
+  | "synced-server-side-patch-ids"
+  | "saved-server-side-patch-ids"
   | "publish-disabled"
   | "pending-ops-count"
   | "all-sources"

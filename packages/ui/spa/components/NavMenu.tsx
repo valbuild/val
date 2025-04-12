@@ -75,7 +75,7 @@ export function NavMenu() {
         setName("Studio");
       }
     }
-  }, [config]);
+  }, [JSON.stringify(config)]);
   const remoteSchemasByModuleFilePath = useSchemas();
   const portalContainer = useValPortal();
   const { theme, setTheme } = useTheme();

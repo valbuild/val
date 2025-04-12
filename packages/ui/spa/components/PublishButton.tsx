@@ -28,6 +28,21 @@ export function PublishButton() {
     Object.keys(allValidationErrors).length > 0;
   const mode = useValMode();
   const portalContainer = useValPortal();
+  if (mode === "fs") {
+    return (
+      <Button
+        className="flex items-center gap-2"
+        disabled={publishDisabled || hasValidationErrors || !hasPatchIds}
+        title={hasValidationErrors ? "Please fix validation errors" : ""}
+        onClick={() => {
+          publish("No summary provided");
+        }}
+      >
+        <span>{"Save"}</span>
+        {isPublishing && <Loader2 className="animate-spin" size={16} />}
+      </Button>
+    );
+  }
   return (
     <span>
       <Popover
@@ -42,22 +57,18 @@ export function PublishButton() {
             disabled={publishDisabled || hasValidationErrors || !hasPatchIds}
             title={hasValidationErrors ? "Please fix validation errors" : ""}
             onClick={() => {
-              if (mode === "fs") {
-                publish("Saved");
-                return;
-              }
               setSummaryOpen(true);
             }}
           >
             {!isPublishing && (
               <>
-                <span>{mode === "fs" ? "Save" : "Ready"}</span>
+                <span>{"Ready"}</span>
                 <Upload size={16} />
               </>
             )}
             {isPublishing && (
               <>
-                <span>{mode === "fs" ? "Saving" : "Pushing"}</span>
+                <span>{"Pushing"}</span>
                 <Loader2 className="animate-spin" size={16} />
               </>
             )}

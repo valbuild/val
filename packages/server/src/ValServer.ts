@@ -36,6 +36,7 @@ import {
   CommitSha,
   PatchSourceError,
   SchemaSha,
+  SourcesSha,
 } from "./ValOps";
 import { fromError } from "zod-validation-error";
 import { ValOpsHttp } from "./ValOpsHttp";
@@ -796,6 +797,7 @@ export const ValServer = (
           profileId,
         } as {
           baseSha: BaseSha;
+          sourcesSha: SourcesSha;
           schemaSha: SchemaSha;
           patches: PatchId[];
           profileId?: AuthorId;
@@ -822,17 +824,27 @@ export const ValServer = (
             json: currentStat.error,
           };
         }
+        const mode =
+          serverOps instanceof ValOpsFS
+            ? "fs"
+            : serverOps instanceof ValOpsHttp
+              ? "http"
+              : "unknown";
+        if (mode === "unknown") {
+          return {
+            status: 500,
+            json: {
+              message:
+                "Server mode is neither fs nor http - this is an internal Val bug",
+            },
+          };
+        }
         return {
           status: 200,
           json: {
             ...currentStat,
             profileId: profileId ?? null,
-            mode:
-              serverOps instanceof ValOpsFS
-                ? "fs"
-                : serverOps instanceof ValOpsHttp
-                  ? "http"
-                  : "unknown",
+            mode,
             config: options.config,
           },
         };
@@ -1124,6 +1136,7 @@ export const ValServer = (
             },
           };
         }
+        const sourcesSha = await serverOps.getSourcesSha();
         const moduleErrors = await serverOps.getModuleErrors();
         if (moduleErrors?.length > 0) {
           console.error("Val: Module errors", moduleErrors);
@@ -1266,6 +1279,7 @@ export const ValServer = (
           status: 200,
           json: {
             schemaSha,
+            sourcesSha,
             modules,
           },
         };
