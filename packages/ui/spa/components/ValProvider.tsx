@@ -701,13 +701,6 @@ export function useCurrentPatchIds(): PatchId[] {
       }
       added.add(patchId);
     }
-    console.log({
-      currentPatchIds,
-      savedServerSidePatchIds,
-      globalServerSidePatchIds,
-      syncedServerSidePatchIds,
-      pendingClientSidePatchIds,
-    });
     return currentPatchIds;
   }, [
     globalServerSidePatchIds,
