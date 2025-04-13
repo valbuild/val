@@ -25,6 +25,7 @@ const WebSocketServerMessage = z.union([
     type: z.literal("deployment"),
     deployment: z.object({
       deployment_id: z.string(),
+      commit_sha: z.string().optional(),
       deployment_state: z.string(),
       created_at: z.string(),
       updated_at: z.string(),
@@ -39,6 +40,15 @@ const WebSocketServerMessage = z.union([
     reconnect: z.boolean().optional(),
   }),
 ]);
+const ValCommit = z.object({
+  commitSha: z.string(),
+  clientCommitSha: z.string(),
+  parentCommitSha: z.string(),
+  branch: z.string(),
+  creator: z.string(),
+  createdAt: z.string(),
+  commitMessage: z.string().nullable(),
+});
 const StatData = z.object({
   type: z.union([
     z.literal("did-change"),
@@ -60,13 +70,15 @@ const StatData = z.object({
   schemaSha: z.string(),
   baseSha: z.string(),
   patches: z.array(PatchId),
+  commits: z.array(ValCommit).optional(),
   deployments: z
     .array(
       z.object({
-        deployment_id: z.string(),
-        deployment_state: z.string(),
-        created_at: z.string(),
-        updated_at: z.string(),
+        deploymentId: z.string(),
+        deploymentState: z.string(),
+        commitSha: z.string().optional(),
+        createdAt: z.string(),
+        updatedAt: z.string(),
       }),
     )
     .optional(),
@@ -332,13 +344,18 @@ async function execStat(
                 console.debug("Deployment", message.deployment);
                 setStat((prev) => {
                   if ("data" in prev && prev.data) {
+                    // we don't want to set the wait time to 0 here, because we want to keep the polling
                     return {
                       status: "ws-message-received",
                       data: {
                         ...prev.data,
-                        deployments: (prev.data.deployments || []).concat(
-                          message.deployment,
-                        ),
+                        deployments: (prev.data.deployments || []).concat({
+                          commitSha: message.deployment.commit_sha,
+                          deploymentId: message.deployment.deployment_id,
+                          deploymentState: message.deployment.deployment_state,
+                          createdAt: message.deployment.created_at,
+                          updatedAt: message.deployment.updated_at,
+                        }),
                       },
                       waitStart:
                         "waitStart" in prev ? prev.waitStart : Date.now(),

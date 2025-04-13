@@ -1626,13 +1626,14 @@ export type PatchReadError =
       message: string;
     };
 
-type ValCommit = {
+export type ValCommit = {
   commitSha: CommitSha;
   clientCommitSha: CommitSha;
   parentCommitSha: CommitSha;
   branch: string;
   creator: AuthorId;
   createdAt: string;
+  commitMessage: string | null;
 };
 export type OrderedPatches = {
   patches: {
