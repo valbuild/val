@@ -130,6 +130,12 @@ export class ValSyncEngine {
     // patchErrors: Record<PatchId, string | null>;
     validationErrors: Record<SourcePath, ValidationError[] | undefined>;
   }>;
+  /**
+   * If this is true, the next sync (and only the next) will sync all modules
+   *
+   * We use this if there's unknown patch ids or to initialize
+   */
+  private forceSyncAllModules: boolean;
 
   constructor(
     private readonly client: ValClient,
@@ -138,6 +144,7 @@ export class ValSyncEngine {
       | undefined = undefined,
   ) {
     this.initializedAt = null;
+    this.forceSyncAllModules = true;
     this.errors = {};
     this.listeners = {};
     this.syncStatus = {};
@@ -216,6 +223,7 @@ export class ValSyncEngine {
   reset() {
     console.debug("Resetting ValSyncEngine");
     this.initializedAt = null;
+    this.forceSyncAllModules = true;
     this.errors = {};
     this.listeners = {};
     this.syncStatus = {};
@@ -965,18 +973,6 @@ export class ValSyncEngine {
             i--;
           }
         }
-        for (let i = 0; i < this.syncedServerSidePatchIds.length; i++) {
-          if (this.syncedServerSidePatchIds[i] === patchId) {
-            this.syncedServerSidePatchIds.splice(i, 1);
-            i--;
-          }
-        }
-        for (let i = 0; i < this.savedServerSidePatchIds.length; i++) {
-          if (this.savedServerSidePatchIds[i] === patchId) {
-            this.savedServerSidePatchIds.splice(i, 1);
-            i--;
-          }
-        }
       }
       if (mode === "http") {
         await this.syncPatches(false, now);
@@ -986,7 +982,13 @@ export class ValSyncEngine {
       this.invalidateSavedServerSidePatchIds();
       this.invalidatePendingClientSidePatchIds();
     }
-    return this.sync(sourcesShaDidChange || patchIdsDidChange, now);
+    if (
+      !this.forceSyncAllModules &&
+      (sourcesShaDidChange || patchIdsDidChange)
+    ) {
+      this.forceSyncAllModules = true;
+    }
+    return this.sync(now);
   }
 
   // #region Sync utils
@@ -1415,10 +1417,7 @@ export class ValSyncEngine {
   private MIN_WAIT_SECONDS = 1;
   private MAX_WAIT_SECONDS = 5;
 
-  async sync(
-    sourcesChanged: boolean,
-    now: number,
-  ): Promise<
+  async sync(now: number): Promise<
     | {
         status: "done";
       }
@@ -1434,6 +1433,20 @@ export class ValSyncEngine {
         reason: "already-syncing",
       };
     }
+    let changedModules: "all" | ModuleFilePath[] = [];
+    if (this.forceSyncAllModules) {
+      this.forceSyncAllModules = false;
+      changedModules = "all";
+    }
+    if (this.initializedAt === null) {
+      // We are not initialized yet, so we need to sync everything
+      changedModules = "all";
+    }
+    if (this.clientSideSchemaSha !== this.serverSideSchemaSha) {
+      // Schema has changed, so we need to sync everything
+      changedModules = "all";
+    }
+
     this.isSyncing = true;
     let pendingOps: PendingOp[] = [];
     let serverPatchIdsDidChange = false;
@@ -1465,7 +1478,6 @@ export class ValSyncEngine {
     }
 
     try {
-      let syncAllRequired = false;
       const changes: Record<
         ModuleFilePath,
         Set<SerializedSchema["type"] | "unknown">
@@ -1523,7 +1535,9 @@ export class ValSyncEngine {
             if (res.status !== "done") {
               return res;
             } else {
-              syncAllRequired = syncAllRequired || res.syncAllRequired;
+              if (res.syncAllRequired && changedModules !== "all") {
+                changedModules = "all";
+              }
             }
           } catch (err) {
             return {
@@ -1535,8 +1549,17 @@ export class ValSyncEngine {
         didWrite = true;
         pendingOps.shift();
       }
-
       this.invalidatePendingOps();
+      if (changedModules !== "all") {
+        const currentChangedModules = this.getChangedModules(changes);
+        if (currentChangedModules === "all") {
+          changedModules = "all";
+        } else {
+          for (const moduleFilePath of currentChangedModules) {
+            changedModules.push(moduleFilePath);
+          }
+        }
+      }
 
       // #region Read operations
       if (
@@ -1549,41 +1572,18 @@ export class ValSyncEngine {
           return res;
         }
       }
-      const changedModules = this.getChangedModules(changes);
-      console.log("Syncing?", {
-        initializedAt: this.initializedAt,
-        schemaShaDiff: this.clientSideSchemaSha !== this.serverSideSchemaSha,
-        syncAllRequired,
-        serverPatchIdsDidChange,
+      console.debug("Syncing?", {
         changedModules,
-        res:
-          this.initializedAt === null ||
-          this.clientSideSchemaSha !== this.serverSideSchemaSha ||
-          serverPatchIdsDidChange ||
-          syncAllRequired ||
-          changedModules === "all" ||
-          changedModules.length > 0,
       });
-      if (
-        // TODO: clean this up, surely there's no need for this many different ways of triggering sources sync
-        this.initializedAt === null ||
-        this.clientSideSchemaSha !== this.serverSideSchemaSha ||
-        serverPatchIdsDidChange ||
-        sourcesChanged ||
-        syncAllRequired ||
-        changedModules === "all" ||
-        changedModules.length > 0
-      ) {
+      if (changedModules === "all" || changedModules.length > 0) {
         const path =
           // We could be smarter wrt to the modules we fetch.
-          // However, note¨ that we are not quite sure how long it takes to evaluate 1 vs many...
-          // NOTE currently we have only optimized for the case where
+          // However, note that we are not sure how long it takes to evaluate 1 vs many
+          // - there' might not be that much to gain by being much more specific...
+          // NOTE currently we're trying to optimize for the case where
           // there's a lot of changes in a single text / richtext field that needs to be synced
           // (e.g. an editor is typing inside a richtext / text field)
-          this.initializedAt !== null &&
-          !sourcesChanged &&
-          typeof changedModules === "object" &&
-          changedModules.length === 1
+          changedModules !== "all" && changedModules.length === 1
             ? (changedModules[0] as ModuleFilePath)
             : undefined;
 
@@ -1773,6 +1773,33 @@ export class ValSyncEngine {
   // #region Publish
   async publish(patchIds: PatchId[], message: string | undefined, now: number) {
     try {
+      // TODO: we're syncing but it not necessarily the same patch ids...
+      const syncRes = await this.sync(now);
+      if (syncRes.status !== "done") {
+        return syncRes;
+      }
+      const hasValidationError =
+        Object.values(this.errors.validationErrors || {}).flat().length > 0;
+      if (hasValidationError) {
+        this.addTransientGlobalError(
+          "Could not publish changes, since there are validation errors",
+          now,
+        );
+        return {
+          status: "retry",
+          reason: "validation-error",
+        } as const;
+      }
+      if (this.publishDisabled) {
+        this.addTransientGlobalError(
+          "Could not publish changes, since the publish is disabled",
+          now,
+        );
+        return {
+          status: "retry",
+          reason: "publish-disabled",
+        } as const;
+      }
       this.publishDisabled = true;
       // this.invalidatePublishDisabled();
       if (patchIds.length === 0) {
