@@ -62,9 +62,10 @@ export class ValSyncEngine {
    */
   private syncedServerSidePatchIds: PatchId[];
   /**
-   * Patch Ids that have been saved server side
+   * Patch Ids that have been saved server side, but that not part of the global server state
+   * i.e. they are currently only known by this client
    */
-  private savedServerSidePatchIds: PatchId[];
+  private savedNonGlobalServerSidePatchIds: PatchId[];
   private publishDisabled: boolean;
   private patchDataByPatchId: Record<
     PatchId,
@@ -158,7 +159,7 @@ export class ValSyncEngine {
     this.serverSources = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
-    this.savedServerSidePatchIds = [];
+    this.savedNonGlobalServerSidePatchIds = [];
     this.pendingOps = [];
     this.pendingClientPatchIds = [];
     this.patchDataByPatchId = {};
@@ -235,7 +236,7 @@ export class ValSyncEngine {
     this.serverSources = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
-    this.savedServerSidePatchIds = [];
+    this.savedNonGlobalServerSidePatchIds = [];
     this.pendingOps = [];
     this.pendingClientPatchIds = [];
     this.patchDataByPatchId = {};
@@ -678,7 +679,7 @@ export class ValSyncEngine {
   getSavedServerSidePatchIdsSnapshot() {
     if (this.cachedSavedServerSidePatchIdsSnapshot === null) {
       this.cachedSavedServerSidePatchIdsSnapshot =
-        this.savedServerSidePatchIds?.slice() || [];
+        this.savedNonGlobalServerSidePatchIds?.slice() || [];
     }
     return this.cachedSavedServerSidePatchIdsSnapshot;
   }
@@ -847,7 +848,6 @@ export class ValSyncEngine {
 
   private createPatchId() {
     const patchId = crypto.randomUUID() as PatchId;
-    console.log("Creating patchId", patchId);
     return patchId;
   }
 
@@ -907,7 +907,10 @@ export class ValSyncEngine {
       return null;
     }
     const patchId =
-      this.savedServerSidePatchIds[this.savedServerSidePatchIds.length - 1] ||
+      // Avoid conflicts when it is only this client that creates patches
+      this.savedNonGlobalServerSidePatchIds[
+        this.savedNonGlobalServerSidePatchIds.length - 1
+      ] ||
       this.globalServerSidePatchIds[this.globalServerSidePatchIds.length - 1];
 
     if (!patchId) {
@@ -968,19 +971,13 @@ export class ValSyncEngine {
       this.globalServerSidePatchIds,
       patchIds,
     );
-    console.log("Last global:", patchIds[patchIds.length - 1]);
     if (patchIdsDidChange) {
       // Do not update the globalServerSidePatchIds if they are the same
       // since we using this directly in get snapshot method
       this.globalServerSidePatchIds = patchIds;
-      for (const patchId of patchIds) {
-        for (let i = 0; i < this.pendingClientPatchIds.length; i++) {
-          if (this.pendingClientPatchIds[i] === patchId) {
-            this.pendingClientPatchIds.splice(i, 1);
-            i--;
-          }
-        }
-      }
+      const uniquePatchIds = new Set(patchIds);
+      this.deletePendingPatchId(uniquePatchIds);
+      this.deleteSavedButNotGlobalPatchId(uniquePatchIds);
       if (mode === "http") {
         await this.syncPatches(false, now);
       }
@@ -1090,17 +1087,10 @@ export class ValSyncEngine {
     } else {
       // Success
       const createdPatchIds = new Set(addPatchesRes.json.newPatchIds);
-      console.log("Created patch ids", createdPatchIds);
-      for (let i = 0; i < this.pendingClientPatchIds.length; i++) {
-        const patchId = this.pendingClientPatchIds[i];
-        if (createdPatchIds.has(patchId)) {
-          this.pendingClientPatchIds.splice(i, 1);
-          i--;
-        }
-      }
+      this.deletePendingPatchId(createdPatchIds);
       for (const patchIdS of newPatchIds) {
         const patchId = patchIdS as PatchId;
-        this.savedServerSidePatchIds.push(patchId);
+        this.savedNonGlobalServerSidePatchIds.push(patchId);
         if (this.patchDataByPatchId[patchId]) {
           this.patchDataByPatchId[patchId]!.isPending = false;
         }
@@ -1109,6 +1099,36 @@ export class ValSyncEngine {
     return {
       status: "done",
     };
+  }
+
+  private deletePendingPatchId(patchIds: Set<PatchId>) {
+    let deleteCount = 0;
+    for (let i = 0; i < this.pendingClientPatchIds.length; i++) {
+      const patchId = this.pendingClientPatchIds[i] as PatchId;
+      if (patchIds.has(patchId)) {
+        this.pendingClientPatchIds.splice(i, 1);
+        i--;
+        deleteCount++;
+        if (patchIds.size === deleteCount) {
+          break;
+        }
+      }
+    }
+  }
+
+  private deleteSavedButNotGlobalPatchId(patchIds: Set<PatchId>) {
+    let deleteCount = 0;
+    for (let i = 0; i < this.savedNonGlobalServerSidePatchIds.length; i++) {
+      const patchId = this.savedNonGlobalServerSidePatchIds[i] as PatchId;
+      if (patchIds.has(patchId)) {
+        this.savedNonGlobalServerSidePatchIds.splice(i, 1);
+        i--;
+        deleteCount++;
+        if (patchIds.size === deleteCount) {
+          break;
+        }
+      }
+    }
   }
 
   async executeDeletePatches(
@@ -1462,7 +1482,7 @@ export class ValSyncEngine {
     let serverPatchIdsDidChange = false;
     const allSyncedPatchIds = new Set([
       ...this.syncedServerSidePatchIds,
-      ...this.savedServerSidePatchIds,
+      ...this.savedNonGlobalServerSidePatchIds,
     ]);
 
     if (this.globalServerSidePatchIds && this.mode === "http") {
@@ -1477,7 +1497,7 @@ export class ValSyncEngine {
         ) {
           // resetting the patches stored by client
           this.syncedServerSidePatchIds = [];
-          this.savedServerSidePatchIds = [];
+          this.savedNonGlobalServerSidePatchIds = [];
           this.pendingClientPatchIds = [];
           await this.syncPatches(true, now);
           // in http mode we need to sync patches
@@ -1732,7 +1752,10 @@ export class ValSyncEngine {
           );
           didWrite = true;
         } else {
-          console.log("--->", this.errors.validationErrors);
+          console.debug(
+            "Skip auto-publish since there's validation errors",
+            this.errors.validationErrors,
+          );
         }
       }
       if (serverPatchIdsDidChange || didWrite) {
@@ -1851,7 +1874,7 @@ export class ValSyncEngine {
       } else {
         this.pendingClientPatchIds = [];
         this.syncedServerSidePatchIds = [];
-        this.savedServerSidePatchIds = [];
+        this.savedNonGlobalServerSidePatchIds = [];
         this.patchDataByPatchId = {};
         this.patchSets = new PatchSets();
         const fullReset = true;
