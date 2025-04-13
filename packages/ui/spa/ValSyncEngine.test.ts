@@ -76,7 +76,7 @@ describe("ValSyncEngine", () => {
     };
     const syncEngine1 = await tester.createInitializedSyncEngine();
     updateValue(syncEngine1, "value 0 from store 1");
-    expect(await syncEngine1.sync(false, tester.getNextNow())).toMatchObject({
+    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
       status: "done",
     });
     expect(
@@ -86,7 +86,7 @@ describe("ValSyncEngine", () => {
     syncEngine1.reset();
     syncEngine1.reset();
     syncEngine1.reset();
-    expect(await syncEngine1.sync(false, tester.getNextNow())).toMatchObject({
+    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
       status: "done",
     });
     expect(
@@ -126,7 +126,7 @@ describe("ValSyncEngine", () => {
       syncEngine1.getSourceSnapshot(toModuleFilePath("/test.val.ts")).data,
     ).toStrictEqual("value 1 from store 1");
     tester.simulatePassingOfSeconds(0.5);
-    expect(await syncEngine1.sync(false, tester.getNextNow())).toMatchObject({
+    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
       status: "retry",
       reason: "too-fast",
     });
@@ -135,7 +135,7 @@ describe("ValSyncEngine", () => {
       status: "patch-merged",
     });
     tester.simulatePassingOfSeconds(1);
-    expect(await syncEngine1.sync(false, tester.getNextNow())).toMatchObject({
+    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
       status: "done",
     });
 
@@ -147,7 +147,7 @@ describe("ValSyncEngine", () => {
       status: "patch-merged",
     });
     tester.simulatePassingOfSeconds(0.5);
-    expect(await syncEngine1.sync(false, tester.getNextNow())).toMatchObject({
+    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
       status: "done",
     });
 
@@ -199,7 +199,7 @@ describe("ValSyncEngine", () => {
     ).toStrictEqual("value 2 from store 2");
     // ...then sync store 1
     tester.simulatePassingOfSeconds(5);
-    expect(await syncEngine1.sync(false, tester.getNextNow())).toMatchObject({
+    expect(await syncEngine1.sync(tester.getNextNow())).toMatchObject({
       status: "done",
     });
     expect(await tester.simulateStatCallback(syncEngine1)).toMatchObject({
@@ -207,7 +207,7 @@ describe("ValSyncEngine", () => {
     });
     // We must get stat before we can sync again
     tester.simulatePassingOfSeconds(5);
-    expect(await syncEngine2.sync(false, tester.getNextNow())).toMatchObject({
+    expect(await syncEngine2.sync(tester.getNextNow())).toMatchObject({
       status: "retry",
       reason: "conflict",
     });

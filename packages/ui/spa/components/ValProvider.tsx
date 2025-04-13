@@ -416,7 +416,7 @@ export function ValProvider({
         syncEngineInitStatus.current = "not-initialized";
         return;
       }
-      await syncEngine.sync(false, Date.now());
+      await syncEngine.sync(Date.now());
       if (timeout) {
         clearTimeout(timeout);
       }
