@@ -893,8 +893,7 @@ export class ValSyncEngine {
       return null;
     }
     const patchId =
-      this.savedServerSidePatchIds[this.savedServerSidePatchIds.length - 1] ||
-      this.syncedServerSidePatchIds[this.syncedServerSidePatchIds.length - 1] ||
+      this.pendingClientPatchIds[this.savedServerSidePatchIds.length - 1] ||
       this.globalServerSidePatchIds[this.globalServerSidePatchIds.length - 1];
 
     if (!patchId) {
