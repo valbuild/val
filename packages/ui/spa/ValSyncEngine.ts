@@ -907,7 +907,7 @@ export class ValSyncEngine {
       return null;
     }
     const patchId =
-      this.pendingClientPatchIds[this.savedServerSidePatchIds.length - 1] ||
+      this.savedServerSidePatchIds[this.savedServerSidePatchIds.length - 1] ||
       this.globalServerSidePatchIds[this.globalServerSidePatchIds.length - 1];
 
     if (!patchId) {
@@ -916,10 +916,6 @@ export class ValSyncEngine {
         headBaseSha: this.baseSha,
       };
     }
-    console.log("Using patchId", patchId, {
-      isPending:
-        this.pendingClientPatchIds[this.savedServerSidePatchIds.length - 1],
-    });
     return {
       type: "patch",
       patchId,
