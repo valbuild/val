@@ -228,22 +228,22 @@ export function ValProvider({
           if (stat.data?.deployments && stat.data?.deployments?.length > 0) {
             const grouped: Record<string, Deployment> = {};
             for (const d of stat.data.deployments) {
-              if (dismissedDeploymentsRef.current.has(d.deployment_id)) {
+              if (dismissedDeploymentsRef.current.has(d.deploymentId)) {
                 continue;
               }
-              if (!grouped[d.deployment_id]) {
-                grouped[d.deployment_id] = {
-                  deploymentId: d.deployment_id,
+              if (!grouped[d.deploymentId]) {
+                grouped[d.deploymentId] = {
+                  deploymentId: d.deploymentId,
                   deploymentState:
-                    d.deployment_state as Deployment["deploymentState"],
-                  createdAt: d.created_at,
-                  updatedAt: d.updated_at,
+                    d.deploymentState as Deployment["deploymentState"],
+                  createdAt: d.createdAt,
+                  updatedAt: d.updatedAt,
                 };
               }
-              if (d.updated_at > grouped[d.deployment_id].updatedAt) {
-                grouped[d.deployment_id].updatedAt = d.updated_at;
-                grouped[d.deployment_id].deploymentState =
-                  d.deployment_state as Deployment["deploymentState"];
+              if (d.updatedAt > grouped[d.deploymentId].updatedAt) {
+                grouped[d.deploymentId].updatedAt = d.updatedAt;
+                grouped[d.deploymentId].deploymentState =
+                  d.deploymentState as Deployment["deploymentState"];
               }
             }
             const newDeployments = Object.values(grouped).sort((a, b) => {

@@ -26,6 +26,7 @@ import {
   OrderedPatchesMetadata,
   OrderedPatches,
   SourcesSha,
+  ValCommit,
 } from "./ValOps";
 import { z } from "zod";
 import { fromError } from "zod-validation-error";
@@ -80,6 +81,7 @@ const GetApplicablePatches = z.object({
         commitSha: z.string(),
         clientCommitSha: z.string(),
         parentCommitSha: z.string(),
+        commitMessage: z.string().nullable(),
         branch: z.string(),
         creator: z.string(),
         createdAt: z.string(),
@@ -285,6 +287,7 @@ export class ValOpsHttp extends ValOps {
         schemaSha: SchemaSha;
         sourcesSha: SourcesSha;
         commitSha: CommitSha;
+        commits?: ValCommit[];
         patches: PatchId[];
       }
     | {
@@ -352,6 +355,7 @@ export class ValOpsHttp extends ValOps {
       baseSha: currentBaseSha,
       schemaSha: currentSchemaSha,
       sourcesSha: currentSourcesSha,
+      commits: allPatchData.commits,
       patches,
       commitSha: this.commitSha as CommitSha,
     };
@@ -555,6 +559,7 @@ export class ValOpsHttp extends ValOps {
                 branch: commit.branch,
                 creator: commit.creator as AuthorId,
                 createdAt: commit.createdAt,
+                commitMessage: commit.commitMessage,
               });
             }
           }

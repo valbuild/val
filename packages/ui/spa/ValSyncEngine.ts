@@ -46,7 +46,7 @@ import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
  */
 export class ValSyncEngine {
   private initializedAt: number | null;
-  private autoPublish: boolean = true;
+  private autoPublish: boolean = false;
   /**
    * Patch Ids reported by the /stat endpoint or webhook
    *
@@ -979,6 +979,9 @@ export class ValSyncEngine {
           }
         }
       }
+      if (mode === "http") {
+        await this.syncPatches(false, now);
+      }
       this.invalidateGlobalServerSidePatchIds();
       this.invalidateSyncedServerSidePatchIds();
       this.invalidateSavedServerSidePatchIds();
@@ -1408,11 +1411,6 @@ export class ValSyncEngine {
     return "all";
   }
 
-  private isPatchCommitted(patchId: PatchId): boolean {
-    const patchData = this.patchDataByPatchId[patchId];
-    return !!patchData?.isCommitted;
-  }
-
   // #region Sync
   public isSyncing = false;
   private MIN_WAIT_SECONDS = 1;
@@ -1440,19 +1438,17 @@ export class ValSyncEngine {
     this.isSyncing = true;
     let pendingOps: PendingOp[] = [];
     let serverPatchIdsDidChange = false;
-    const allSyncedPatchIds = new Set(this.syncedServerSidePatchIds);
-    for (const patchId of this.globalServerSidePatchIds || []) {
-      if (!allSyncedPatchIds.has(patchId) && !this.isPatchCommitted(patchId)) {
-        serverPatchIdsDidChange = true;
-      }
-    }
-    if (this.globalServerSidePatchIds) {
-      // This will happen if there's patches that are removed
-      // console.log("here", this.syncedPatchIds, this.globalServerSidePatchIds);
-      for (const clientCreatedPatchId of this.savedServerSidePatchIds) {
+    const allSyncedPatchIds = new Set([
+      ...this.syncedServerSidePatchIds,
+      ...this.savedServerSidePatchIds,
+    ]);
+
+    if (this.globalServerSidePatchIds && this.mode === "http") {
+      // This will happen if there's patches that are deleted server side
+      // that was created by the client
+      for (const clientCreatedPatchId of allSyncedPatchIds) {
         if (
-          // We synced a client created patch id...
-          allSyncedPatchIds.has(clientCreatedPatchId) &&
+          // Client believes it has synced clientCreatedPatchId...
           // ... but it is no longer in the global server side patch ids
           // (this means that the patch id was removed from the server)
           !this.globalServerSidePatchIds.includes(clientCreatedPatchId)
@@ -1460,8 +1456,10 @@ export class ValSyncEngine {
           // resetting the patches stored by client
           this.syncedServerSidePatchIds = [];
           this.savedServerSidePatchIds = [];
+          this.pendingClientPatchIds = [];
+          await this.syncPatches(true, now);
           // in http mode we need to sync patches
-          serverPatchIdsDidChange = this.mode === "http";
+          serverPatchIdsDidChange = true;
           break;
         }
       }
@@ -1700,6 +1698,7 @@ export class ValSyncEngine {
 
       if (
         this.autoPublish &&
+        this.mode === "fs" &&
         this.globalServerSidePatchIds &&
         this.globalServerSidePatchIds.length > 0
       ) {
@@ -1810,13 +1809,13 @@ export class ValSyncEngine {
           status: "retry",
         } as const;
       } else {
-        const fullReset = true;
-        await this.syncPatches(fullReset, now);
         this.pendingClientPatchIds = [];
         this.syncedServerSidePatchIds = [];
         this.savedServerSidePatchIds = [];
         this.patchDataByPatchId = {};
         this.patchSets = new PatchSets();
+        const fullReset = true;
+        await this.syncPatches(fullReset, now);
         this.invalidatePatchSets();
         this.invalidateAllPatches();
         this.invalidatePendingClientSidePatchIds();
