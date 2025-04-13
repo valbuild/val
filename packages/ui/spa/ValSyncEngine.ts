@@ -787,7 +787,7 @@ export class ValSyncEngine {
           if (!lastOp.data[moduleFilePath]) {
             lastOp.data[moduleFilePath] = [];
           }
-          const patchId = crypto.randomUUID() as PatchId;
+          const patchId = this.createPatchId();
           lastOp.data[moduleFilePath].push({
             patch,
             type,
@@ -814,7 +814,7 @@ export class ValSyncEngine {
           } as const;
         }
       } else {
-        const patchId = crypto.randomUUID() as PatchId;
+        const patchId = this.createPatchId();
         this.pendingOps.push({
           type: "add-patches",
           data: {
@@ -843,6 +843,12 @@ export class ValSyncEngine {
         } as const;
       }
     }
+  }
+
+  private createPatchId() {
+    const patchId = crypto.randomUUID() as PatchId;
+    console.log("Creating patchId", patchId);
+    return patchId;
   }
 
   patchSetInsert(
@@ -910,6 +916,10 @@ export class ValSyncEngine {
         headBaseSha: this.baseSha,
       };
     }
+    console.log("Using patchId", patchId, {
+      isPending:
+        this.pendingClientPatchIds[this.savedServerSidePatchIds.length - 1],
+    });
     return {
       type: "patch",
       patchId,
@@ -962,6 +972,7 @@ export class ValSyncEngine {
       this.globalServerSidePatchIds,
       patchIds,
     );
+    console.log("Last global:", patchIds[patchIds.length - 1]);
     if (patchIdsDidChange) {
       // Do not update the globalServerSidePatchIds if they are the same
       // since we using this directly in get snapshot method
@@ -1083,6 +1094,7 @@ export class ValSyncEngine {
     } else {
       // Success
       const createdPatchIds = new Set(addPatchesRes.json.newPatchIds);
+      console.log("Created patch ids", createdPatchIds);
       for (let i = 0; i < this.pendingClientPatchIds.length; i++) {
         const patchId = this.pendingClientPatchIds[i];
         if (createdPatchIds.has(patchId)) {
@@ -1237,9 +1249,9 @@ export class ValSyncEngine {
       });
       if (res.status !== 200) {
         this.addTransientGlobalError(
-          "Failed to get changes",
+          "Failed to get changes (full sync)",
           now,
-          res.json.message,
+          `Did not get ok status (got: ${res.status}): ${res.json.message}`,
         );
         return {
           status: "retry",
@@ -1302,9 +1314,9 @@ export class ValSyncEngine {
           });
           if (res.status !== 200) {
             this.addTransientGlobalError(
-              "Failed to get changes",
+              "Failed to get changes (batch)",
               now,
-              res.json.message,
+              `Did not get ok status (got: ${res.status}): ${res.json.message}`,
             );
             return {
               status: "retry",
@@ -1376,11 +1388,13 @@ export class ValSyncEngine {
       this.invalidatePatchSets();
     }
     if (missingDataPatchIds.length > 0) {
-      this.addTransientGlobalError(
-        "Failed to get changes",
-        now,
-        `Missing data for patch ids: ${missingDataPatchIds.join(", ")}`,
-      );
+      if (this.initializedAt !== null) {
+        this.addTransientGlobalError(
+          "Failed to get changes",
+          now,
+          `Missing data for patch ids: ${missingDataPatchIds.join(", ")}`,
+        );
+      }
       return {
         status: "retry",
       };
@@ -1776,6 +1790,10 @@ export class ValSyncEngine {
       // TODO: we're syncing but it not necessarily the same patch ids...
       const syncRes = await this.sync(now);
       if (syncRes.status !== "done") {
+        this.addTransientGlobalError(
+          "Failed to synchronize changes prior to publish",
+          now,
+        );
         return syncRes;
       }
       const hasValidationError =
@@ -1851,6 +1869,17 @@ export class ValSyncEngine {
           status: "done",
         } as const;
       }
+    } catch (err) {
+      console.error("Error while publishing", err);
+      this.addTransientGlobalError(
+        "Failed to publish changes",
+        Date.now(),
+        (err as Error).message,
+      );
+      return {
+        status: "retry",
+        reason: "error",
+      } as const;
     } finally {
       this.publishDisabled = false;
       this.invalidatePublishDisabled();
@@ -1861,6 +1890,7 @@ export class ValSyncEngine {
     if (!this.errors.transientGlobalErrorQueue) {
       this.errors.transientGlobalErrorQueue = [];
     }
+    console.error("Transient global error", message, details || "");
     this.errors.transientGlobalErrorQueue.push({
       message,
       details,
