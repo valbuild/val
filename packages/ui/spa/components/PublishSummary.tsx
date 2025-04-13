@@ -105,14 +105,18 @@ export function PublishSummary({
       </div>
       <div
         className={cn(
-          "p-2 text-xs font-light bg-bg-warning-primary text-[black] rounded",
+          "p-2 text-xs flex-grow font-light bg-bg-warning-primary text-[black] rounded flex items-center",
+          "flex justify-between w-full gap-2 py-2",
           {
             hidden: !staleWarning,
           },
         )}
         aria-hidden={staleWarning}
       >
-        Summary might be outdated
+        <span>Summary might be outdated. </span>
+        <button className="underline" onClick={dismissStaleWarning}>
+          Dismiss
+        </button>
       </div>
       <div className="flex items-center justify-end gap-2">
         {onPublish ? (
