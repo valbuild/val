@@ -358,7 +358,11 @@ ${positionStyles}
       )}
       {showOverlay && draftMode !== undefined && (
         <React.Fragment>
-          <Script type="module" src={`${route}/static${VAL_APP_PATH}`} />
+          <Script
+            type="module"
+            src={`${route}/static${VAL_APP_PATH}`}
+            crossOrigin="anonymous"
+          />
           {/* TODO: use portal to mount overlay */}
           <div id={VAL_OVERLAY_ID}></div>
         </React.Fragment>

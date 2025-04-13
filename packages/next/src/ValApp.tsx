@@ -38,7 +38,11 @@ export const ValApp = ({ config }: { config: ValConfig }) => {
   }
   return (
     <>
-      <Script type="module" src={`${route}/static${VAL_APP_PATH}`} />
+      <Script
+        type="module"
+        src={`${route}/static${VAL_APP_PATH}`}
+        crossOrigin="anonymous"
+      />
       <div id={VAL_APP_ID}></div>
     </>
   );
