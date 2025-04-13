@@ -1818,15 +1818,7 @@ export class ValSyncEngine {
       }
       this.publishDisabled = true;
       this.invalidatePublishDisabled();
-      // TODO: we're syncing but it not necessarily the same patch ids...
-      const syncRes = await this.sync(now);
-      if (syncRes.status !== "done") {
-        this.addTransientGlobalError(
-          "Failed to synchronize changes prior to publish",
-          now,
-        );
-        return syncRes;
-      }
+
       const hasValidationError =
         Object.values(this.errors.validationErrors || {}).flat().length > 0;
       if (hasValidationError) {
