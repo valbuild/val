@@ -1806,6 +1806,18 @@ export class ValSyncEngine {
   // #region Publish
   async publish(patchIds: PatchId[], message: string | undefined, now: number) {
     try {
+      if (this.publishDisabled) {
+        this.addTransientGlobalError(
+          "Could not publish changes, since the publish is disabled",
+          now,
+        );
+        return {
+          status: "retry",
+          reason: "publish-disabled",
+        } as const;
+      }
+      this.publishDisabled = true;
+      this.invalidatePublishDisabled();
       // TODO: we're syncing but it not necessarily the same patch ids...
       const syncRes = await this.sync(now);
       if (syncRes.status !== "done") {
@@ -1827,18 +1839,6 @@ export class ValSyncEngine {
           reason: "validation-error",
         } as const;
       }
-      if (this.publishDisabled) {
-        this.addTransientGlobalError(
-          "Could not publish changes, since the publish is disabled",
-          now,
-        );
-        return {
-          status: "retry",
-          reason: "publish-disabled",
-        } as const;
-      }
-      this.publishDisabled = true;
-      // this.invalidatePublishDisabled();
       if (patchIds.length === 0) {
         this.addTransientGlobalError(
           "Could not publish changes, since there are no changes to publish",
