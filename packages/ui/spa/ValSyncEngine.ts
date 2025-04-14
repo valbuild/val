@@ -46,7 +46,7 @@ import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
  */
 export class ValSyncEngine {
   private initializedAt: number | null;
-  private autoPublish: boolean = false;
+  private autoPublish: boolean = true;
   /**
    * Patch Ids reported by the /stat endpoint or webhook
    *
@@ -183,6 +183,12 @@ export class ValSyncEngine {
     this.cachedSyncStatus = null;
     this.cachedPendingOpsCountSnapshot = null;
     this.cachedInitializedAtSnapshot = null;
+    this.cachedAutoPublishSnapshot = null;
+  }
+
+  setAutoPublish(autoPublish: boolean) {
+    this.autoPublish = autoPublish;
+    this.invalidateAutoPublish();
   }
 
   async init(
@@ -260,6 +266,7 @@ export class ValSyncEngine {
     this.cachedSyncStatus = null;
     this.cachedPendingOpsCountSnapshot = null;
     this.cachedInitializedAtSnapshot = null;
+    this.cachedAutoPublishSnapshot = null;
 
     this.invalidateInitializedAt();
   }
@@ -434,6 +441,10 @@ export class ValSyncEngine {
 
   private invalidatePublishDisabled() {
     this.emit(this.listeners["publish-disabled"]?.[globalNamespace]);
+  }
+
+  private invalidateAutoPublish() {
+    this.emit(this.listeners["auto-publish"]?.[globalNamespace]);
   }
 
   // #region Snapshot
@@ -686,6 +697,14 @@ export class ValSyncEngine {
 
   getPublishDisabledSnapshot() {
     return this.publishDisabled;
+  }
+
+  private cachedAutoPublishSnapshot: boolean | null;
+  getAutoPublishSnapshot() {
+    if (this.cachedAutoPublishSnapshot === null) {
+      this.cachedAutoPublishSnapshot = this.autoPublish;
+    }
+    return this.cachedAutoPublishSnapshot;
   }
 
   // #region Patching
@@ -1403,7 +1422,10 @@ export class ValSyncEngine {
     if (didUpdatePatchSet) {
       this.invalidatePatchSets();
     }
-    if (missingDataPatchIds.length > 0) {
+    if (
+      missingDataPatchIds.length > 0 &&
+      this.autoPublish === false // TODO: we believe this is OK in the autoPublish case
+    ) {
       if (this.initializedAt !== null) {
         this.addTransientGlobalError(
           "Failed to get changes",
@@ -1684,7 +1706,7 @@ export class ValSyncEngine {
               // this.optimisticClientSources = {};
               // this.cachedDataSnapshots = {};
               this.invalidateSource(moduleFilePath);
-
+              this.overlayEmitter?.(moduleFilePath, valModule.source);
               // NOTE: we clean up relevant validation errors above
               for (const sourcePathS in valModule.validationErrors) {
                 const sourcePath = sourcePathS as SourcePath;
@@ -1764,36 +1786,6 @@ export class ValSyncEngine {
         this.invalidateSyncedServerSidePatchIds();
         this.invalidateSavedServerSidePatchIds();
       }
-      if (changedModules) {
-        if (this.overlayEmitter) {
-          if (didWrite && this.serverSources) {
-            for (const moduleFilePathS in changes) {
-              const moduleFilePath = moduleFilePathS as ModuleFilePath;
-              const source =
-                this.optimisticClientSources[moduleFilePath] ||
-                this.serverSources[moduleFilePath];
-              if (source) {
-                this.overlayEmitter(moduleFilePath, source);
-              }
-            }
-          } else if (
-            (this.initializedAt === null || serverPatchIdsDidChange) &&
-            this.serverSources
-          ) {
-            // Initialize overlay
-            for (const moduleFilePathS in this.schemas) {
-              const moduleFilePath = moduleFilePathS as ModuleFilePath;
-              const source =
-                this.optimisticClientSources[moduleFilePath] ||
-                this.serverSources[moduleFilePath];
-              if (source) {
-                this.overlayEmitter(moduleFilePath, source);
-              }
-            }
-          }
-        }
-      }
-
       return {
         status: "done",
       };
@@ -1954,6 +1946,7 @@ type RetryReason =
 type SyncEngineListenerType =
   | "schema"
   | "initialized-at"
+  | "auto-publish"
   | "sync-status"
   | "patch-sets"
   | "all-patches"
