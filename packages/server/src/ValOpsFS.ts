@@ -596,6 +596,17 @@ export class ValOpsFS extends ValOps {
         coreVersion: Internal.VERSION.core,
         createdAt: new Date().toISOString(),
       };
+      const headParentPatchId = "head" as ParentPatchId;
+      if (
+        patchDir !== headParentPatchId &&
+        !this.host.fileExists(this.getPatchFilePath(headParentPatchId))
+      ) {
+        console.error(
+          "Val: out-of-band patch detected.",
+          this.getPatchFilePath(headParentPatchId),
+        );
+        return result.err({ errorType: "patch-head-conflict" });
+      }
       const writeRes = this.host.tryWriteUf8File(
         this.getPatchFilePath(patchDir),
         JSON.stringify(data),
@@ -791,6 +802,31 @@ export class ValOpsFS extends ValOps {
       return { deleted, errors };
     }
     return { deleted };
+  }
+
+  async deleteAllPatches(): Promise<{ error?: GenericErrorMessage }> {
+    const patchesCacheDir = this.getPatchesDir();
+    const tmpDir = fsPath.join(
+      this.rootDir,
+      ValOpsFS.VAL_DIR,
+      "patches-deleted-" + crypto.randomUUID(),
+    );
+    try {
+      this.host.moveDir(patchesCacheDir, tmpDir);
+      this.host.deleteDir(tmpDir);
+      return {};
+    } catch (err) {
+      if (err instanceof Error) {
+        return {
+          error: {
+            message: `Got an error while deleting patches: ${err.message}`,
+          },
+        };
+      }
+      return {
+        error: { message: "Got an unexpected error while deleting patches" },
+      };
+    }
   }
 
   private updateOrderedPatches(
