@@ -4,6 +4,8 @@ import {
   useAllValidationErrors,
   useAutoPublish,
   useCurrentPatchIds,
+  usePendingClientSidePatchIds,
+  usePendingServerSidePatchIds,
   usePublishSummary,
   useValMode,
   useValPortal,
@@ -25,8 +27,8 @@ export function PublishButton() {
   const hasValidationErrors =
     allValidationErrors !== undefined &&
     Object.keys(allValidationErrors).length > 0;
-  const patchIds = useCurrentPatchIds();
-  const hasPatchIds = patchIds.length > 0;
+  const pendingServerSidePatchIds = usePendingServerSidePatchIds();
+  const pendingClientSidePatchIds = usePendingClientSidePatchIds();
   const mode = useValMode();
   const portalContainer = useValPortal();
   const { autoPublish } = useAutoPublish();
@@ -35,7 +37,11 @@ export function PublishButton() {
       <Button
         className="flex items-center gap-2"
         disabled={
-          publishDisabled || hasValidationErrors || !hasPatchIds || autoPublish
+          publishDisabled ||
+          hasValidationErrors ||
+          autoPublish ||
+          pendingServerSidePatchIds.length === 0 ||
+          pendingClientSidePatchIds.length > 0
         }
         title={hasValidationErrors ? "Please fix validation errors" : ""}
         onClick={() => {
@@ -51,6 +57,12 @@ export function PublishButton() {
       </Button>
     );
   }
+  console.log({
+    publishDisabled,
+    hasValidationErrors,
+    pendingServerSidePatchIds,
+    pendingClientSidePatchIds,
+  });
   return (
     <span>
       <Popover
@@ -62,7 +74,12 @@ export function PublishButton() {
         <PopoverTrigger asChild>
           <Button
             className="flex items-center gap-2"
-            disabled={publishDisabled || hasValidationErrors || !hasPatchIds}
+            disabled={
+              publishDisabled ||
+              hasValidationErrors ||
+              pendingServerSidePatchIds.length === 0 ||
+              pendingClientSidePatchIds.length > 0
+            }
             title={hasValidationErrors ? "Please fix validation errors" : ""}
             onClick={() => {
               setSummaryOpen(true);

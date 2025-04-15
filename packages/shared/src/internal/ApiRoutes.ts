@@ -11,6 +11,7 @@ import {
 } from "./server/types";
 import { Patch, PatchId } from "./zod/Patch";
 import { SerializedSchema } from "./zod/SerializedSchema";
+import { ValCommit } from "./zod/ValCommit";
 
 const ModuleFilePath = z.string().refine(
   (_path): _path is ModuleFilePath => true, // TODO: validation
@@ -494,6 +495,7 @@ export const Api = {
               sourcesSha: z.string(),
               commitSha: z.string(),
               patches: z.array(PatchId),
+              commits: z.array(ValCommit),
               config: ValConfig,
               profileId: z.string().nullable(),
               mode: z.union([z.literal("http"), z.literal("fs")]),

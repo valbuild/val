@@ -8,7 +8,6 @@ import {
   Fragment,
 } from "react";
 import {
-  Deployment,
   LoadingStatus,
   useCommittedPatches,
   useCurrentPatchIds,
@@ -52,6 +51,13 @@ import {
   AccordionTrigger,
 } from "./designSystem/accordion";
 import { useNavigation } from "./ValRouter";
+import { ValEnrichedDeployment } from "../utils/mergeCommitsAndDeployments";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "./designSystem/tooltip";
+import { TooltipPortal } from "@radix-ui/react-tooltip";
 
 export function DraftChanges({
   className,
@@ -65,7 +71,6 @@ export function DraftChanges({
   const committedPatchIds = useCommittedPatches();
   const serializedPatchSets = usePatchSets();
   const portalContainer = useValPortal();
-  const { deployments, dismissDeployment } = useDeployments();
   const [summaryOpen, setSummaryOpen] = useState(false);
   const { canGenerate } = usePublishSummary();
   const allValidationErrors = useAllValidationErrors();
@@ -79,64 +84,11 @@ export function DraftChanges({
     return count;
   }, [allValidationErrors]);
   const pendingChanges = currentPatchIds.length - committedPatchIds.size;
-
-  // TODO: remove test data
-  // const deployments: Deployment[] = [
-  //   {
-  //     deploymentId: "1",
-  //     deploymentState: "success",
-  //     createdAt: new Date().toISOString(),
-  //     updatedAt: new Date().toISOString(),
-  //   },
-  //   {
-  //     deploymentId: "2",
-  //     deploymentState: "pending",
-  //     createdAt: new Date().toISOString(),
-  //     updatedAt: new Date().toISOString(),
-  //   },
-  //   {
-  //     deploymentId: "3",
-  //     deploymentState: "failure",
-  //     createdAt: new Date().toISOString(),
-  //     updatedAt: new Date().toISOString(),
-  //   },
-  // ];
-  const [isDeploymentsExpanded, setIsDeploymentsExpanded] = useState(false);
   const navigation = useNavigation();
+  const { deployments, dismissDeployment } = useDeployments();
+
   return (
     <div className={classNames("text-sm", className)}>
-      {deployments.length > 0 && (
-        <div className="p-4 border-b border-border-primary">
-          <div className="flex flex-col gap-2">
-            {deployments
-              .slice() // slice because sort mutates
-              .sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1))
-              .slice(0, isDeploymentsExpanded ? undefined : 2)
-              .map((deployment) => (
-                <DeploymentCard
-                  key={deployment.deploymentId}
-                  deployment={deployment}
-                  onDismiss={() => {
-                    dismissDeployment(deployment.deploymentId);
-                  }}
-                />
-              ))}
-          </div>
-          {deployments.length > 2 && !isDeploymentsExpanded && (
-            <div className="flex items-center justify-center mt-4">
-              <button
-                className="p-2 text-xs border rounded border-border-primary"
-                onClick={() => {
-                  setIsDeploymentsExpanded(true);
-                }}
-              >
-                View all deployments
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
       {allValidationErrors && validationErrorsCount > 0 && (
         <div className="text-white border-b border-border-primary bg-bg-error-primary ">
           <ScrollArea orientation="horizontal">
@@ -208,17 +160,12 @@ export function DraftChanges({
           </ScrollArea>
         </div>
       )}
-      {committedPatchIds.size > 0 && (
+      {deployments.length > 0 && (
         <div className="p-4 border-b border-border-primary">
-          <div className="font-bold">
-            {committedPatchIds.size}
-            {committedPatchIds.size === 1 ? " change" : " changes"}{" "}
-            {" deploying"}
-          </div>
-          <div className="flex items-center gap-2 text-xs">
-            {"Deploying new version"}{" "}
-            <Loader2 size={12} className="animate-spin" />
-          </div>
+          <Deployments
+            deployments={deployments}
+            onDismiss={dismissDeployment}
+          />
         </div>
       )}
       <div className="p-4 z-5">
@@ -290,47 +237,109 @@ export function DraftChanges({
   );
 }
 
-function DeploymentCard({
-  deployment: { deploymentId, deploymentState, updatedAt },
+function Deployments({
+  deployments,
   onDismiss,
 }: {
-  deployment: Deployment;
-  onDismiss?: () => void;
+  deployments: ValEnrichedDeployment[];
+  onDismiss: (commitSha: string) => void;
 }) {
-  const [now, setNow] = useState(new Date());
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setNow(new Date());
-    }, 60 * 1000);
-    return () => {
-      clearInterval(interval);
-    };
-  }, []);
-  const isFailedOrError =
-    deploymentState === "error" || deploymentState === "failure";
   return (
-    <div
-      key={deploymentId}
-      className="relative py-4 border-b border-border-primary"
-    >
-      <button
-        className={classNames("absolute top-0 right-0 rounded-full")}
-        onClick={onDismiss}
-      >
-        <X size={16} />
-      </button>
-      <div className="grid grid-cols-[1fr,auto,auto] gap-2 py-2 pr-2">
-        <div className="font-bold">Deployment {deploymentState}</div>
-        <div
-          className={classNames("rounded-full h-3 w-3 mt-1", {
-            "bg-bg-brand-primary animate-pulse":
-              deploymentState === "pending" || deploymentState === "created",
-            "bg-bg-success-primary": deploymentState === "success",
-            "bg-bg-error-solid": isFailedOrError,
-          })}
-        />
-        <div>{relativeLocalDate(now, updatedAt)}</div>
+    <div>
+      <div className="flex items-center justify-between p-2 font-bold">
+        <span>Deployments</span>
+        <Loader2 size={16} className="inline animate-spin" />
       </div>
+      <div>
+        {deployments.reverse().map((deployment) => {
+          return (
+            <Deployment
+              key={deployment.commitSha}
+              deployment={deployment}
+              onDismiss={() => {
+                onDismiss(deployment.commitSha);
+              }}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Deployment({
+  deployment,
+  onDismiss,
+}: {
+  deployment: ValEnrichedDeployment;
+  onDismiss: () => void;
+}) {
+  const profilesById = useProfilesByAuthorId();
+  const portalContainer = useValPortal();
+  const author = deployment.creator && profilesById[deployment.creator];
+  return (
+    <div className="flex items-start justify-between p-2">
+      <div className="flex items-start gap-2">
+        {author && (
+          <img
+            src={author.avatar?.url}
+            alt={author.fullName}
+            className="w-8 h-8 rounded-full"
+          />
+        )}
+
+        <Tooltip>
+          <TooltipPortal container={portalContainer} />
+          <TooltipTrigger>
+            <div className="max-w-[180px] overflow-clip font-light truncate">
+              {deployment.commitMessage}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-[320px]">
+            <pre className="font-sans font-light whitespace-break-spaces">
+              {deployment.commitMessage}
+            </pre>
+          </TooltipContent>
+        </Tooltip>
+      </div>
+      <TimeSpent since={new Date(deployment.createdAt)} />
+    </div>
+  );
+}
+
+function TimeSpent({ since }: { since: Date }) {
+  const [minutes, setMinutes] = useState("00");
+  const [seconds, setSeconds] = useState<string | null>("00");
+  useEffect(() => {
+    let timeout: NodeJS.Timeout;
+    const updateTime = () => {
+      const now = Date.now();
+      const diff = Math.floor((now - since.getTime()) / 1000);
+      const minutes = Math.floor(diff / 60);
+      const seconds = diff % 60;
+      let nextCheck: number;
+      if (minutes > 4) {
+        // every minute:
+        nextCheck = (60 - seconds) * 1000;
+        setMinutes(minutes.toString());
+        setSeconds(null);
+      } else {
+        // every second::
+        nextCheck = 1000;
+        setMinutes(minutes.toString().padStart(2, "0"));
+        setSeconds(seconds.toString().padStart(2, "0"));
+      }
+      timeout = setTimeout(updateTime, nextCheck);
+    };
+    updateTime();
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [since]);
+  return (
+    <div className="text-xs font-light text-text-quartenary">
+      {minutes}
+      {seconds !== null ? `:${seconds}` : " mins"}
     </div>
   );
 }

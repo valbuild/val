@@ -67,6 +67,7 @@ export class ValSyncEngine {
    */
   private savedButNotYetGlobalServerSidePatchIds: PatchId[];
   private publishDisabled: boolean;
+  private isPublishing: boolean;
   private patchDataByPatchId: Record<
     PatchId,
     | {
@@ -167,6 +168,7 @@ export class ValSyncEngine {
     this.patchSets = new PatchSets();
     this.authorId = null;
     this.publishDisabled = true;
+    this.isPublishing = false;
     this.commitSha = null;
     //
     this.cachedSourceSnapshots = null;
@@ -271,6 +273,7 @@ export class ValSyncEngine {
     this.patchSets = new PatchSets();
     this.authorId = null;
     this.publishDisabled = true;
+    this.isPublishing = false;
     this.commitSha = null;
     //
     this.cachedSourceSnapshots = null;
@@ -1018,7 +1021,7 @@ export class ValSyncEngine {
     const patchIdsDidChange =
       this.globalServerSidePatchIds === null ||
       !deepEqual(this.globalServerSidePatchIds, patchIds);
-    console.log({
+    console.log("syncWithUpdatedStat", {
       patchIdsDidChange,
       patchIds,
       globalServerSidePatchIds: this.globalServerSidePatchIds,
@@ -1304,6 +1307,7 @@ export class ValSyncEngine {
         status: "retry";
       }
   > {
+    const currentPatchIds = this.globalServerSidePatchIds || [];
     let didUpdatePatchSet = false;
     let didUpdatePatchData = false;
 
@@ -1417,7 +1421,7 @@ export class ValSyncEngine {
       }
     }
 
-    const allCurrentPatchIds = new Set(this.globalServerSidePatchIds);
+    const allCurrentPatchIds = new Set(currentPatchIds);
     for (const patchId of Array.from(this.patchSets.getInsertedPatches()) ||
       []) {
       if (!allCurrentPatchIds.has(patchId)) {
@@ -1432,7 +1436,7 @@ export class ValSyncEngine {
     // All patch ids should be good, but we might have had new patches added while we were syncing data
     // In that case, we will retry
     const missingDataPatchIds = [];
-    for (const patchId of this.globalServerSidePatchIds || []) {
+    for (const patchId of currentPatchIds) {
       if (!this.patchSets.isInserted(patchId)) {
         const patchData = this.patchDataByPatchId[patchId];
         const schema =
@@ -1463,6 +1467,10 @@ export class ValSyncEngine {
     }
     if (missingDataPatchIds.length > 0) {
       if (this.initializedAt !== null) {
+        console.debug("Missing data for patch ids", missingDataPatchIds, {
+          currentPatchIds,
+          reset,
+        });
         this.addTransientGlobalError(
           "Failed to get changes",
           now,
@@ -1519,6 +1527,13 @@ export class ValSyncEngine {
       return {
         status: "retry",
         reason: "already-syncing",
+      };
+    }
+    if (this.isPublishing) {
+      // Publishing, wait until complete before syncing
+      return {
+        status: "retry",
+        reason: "publishing",
       };
     }
     let changedModules: "all" | ModuleFilePath[] = [];
@@ -1834,6 +1849,14 @@ export class ValSyncEngine {
   // #region Publish
   async publish(patchIds: PatchId[], message: string | undefined, now: number) {
     try {
+      if (this.isPublishing) {
+        console.debug("Already publishing changes", now);
+        return {
+          status: "retry",
+          reason: "already-publishing",
+        } as const;
+      }
+      this.isPublishing = true;
       if (this.publishDisabled) {
         console.debug(
           "Could not publish changes, since the publish is disabled",
@@ -1898,6 +1921,11 @@ export class ValSyncEngine {
           status: "retry",
         } as const;
       } else {
+        if (this.mode === "fs") {
+          // In fs mode we delete all patch ids, so we start fresh
+          this.globalServerSidePatchIds = [];
+          console.log("Deleting all patch ids");
+        }
         this.pendingClientPatchIds = [];
         this.syncedServerSidePatchIds = [];
         this.savedButNotYetGlobalServerSidePatchIds = [];
@@ -1926,6 +1954,7 @@ export class ValSyncEngine {
         reason: "error",
       } as const;
     } finally {
+      this.isPublishing = false;
       this.publishDisabled = false;
       this.invalidatePublishDisabled();
     }
@@ -1982,6 +2011,7 @@ type RetryReason =
   | "not-initialized"
   | "network-error"
   | "too-fast"
+  | "publishing"
   | "error"
   | "patch-ids-changed"
   | "already-syncing";

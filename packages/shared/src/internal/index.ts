@@ -6,3 +6,5 @@ export * from "./ApiRoutes";
 export * from "./zod/Patch";
 export * from "./listeners";
 export * from "./SharedValConfig";
+export * from "./zod/ValCommit";
+export * from "./zod/ValDeployment";
