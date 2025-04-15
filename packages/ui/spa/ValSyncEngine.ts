@@ -223,7 +223,11 @@ export class ValSyncEngine {
     this.sourcesSha = sourcesSha;
     this.authorId = authorId;
     const start = Date.now();
-    this.loadAutoPublish();
+    if (mode === "fs") {
+      this.loadAutoPublish();
+    } else {
+      this.autoPublish = false;
+    }
     const res = await this.syncWithUpdatedStat(
       mode,
       baseSha,
