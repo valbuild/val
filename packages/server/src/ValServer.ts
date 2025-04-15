@@ -1450,12 +1450,17 @@ export const ValServer = (
             return remoteFileAuthRes;
           }
           const remoteFileAuth = remoteFileAuthRes?.json?.remoteFileAuth;
+          const deleteRes = await serverOps.deleteAllPatches();
           await serverOps.saveOrUploadFiles(
             preparedCommit,
             mode,
             remoteFileAuth,
           );
-          await serverOps.deletePatches(patchIds);
+          if (deleteRes.error) {
+            console.error(
+              `Val got an error while cleaning up patches after publish: ${deleteRes.error.message}`,
+            );
+          }
           return {
             status: 200,
             json: {}, // TODO:
