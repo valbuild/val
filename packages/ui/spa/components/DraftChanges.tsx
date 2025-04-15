@@ -21,6 +21,7 @@ import {
   usePatchSets,
   usePublishSummary,
   useAllValidationErrors,
+  useAutoPublish,
 } from "./ValProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
@@ -68,6 +69,7 @@ export function DraftChanges({
   const [summaryOpen, setSummaryOpen] = useState(false);
   const { canGenerate } = usePublishSummary();
   const allValidationErrors = useAllValidationErrors();
+  const { autoPublish } = useAutoPublish();
   const validationErrorsCount = useMemo(() => {
     let count = 0;
     for (const sourcePathS in allValidationErrors) {
@@ -267,21 +269,23 @@ export function DraftChanges({
           )}
         </div>
       </div>
-      <div className="flex flex-col gap-[2px]">
-        {"data" in serializedPatchSets &&
-          currentPatchIds.length > 0 &&
-          serializedPatchSets.data.map((patchSet) => {
-            return (
-              <PatchSetCard
-                key={
-                  patchSet.moduleFilePath + ":" + patchSet.patchPath.join("/")
-                }
-                committedPatchIds={committedPatchIds}
-                patchSet={patchSet}
-              />
-            );
-          })}
-      </div>
+      {(!autoPublish || validationErrorsCount > 0) && (
+        <div className="flex flex-col gap-[2px]">
+          {"data" in serializedPatchSets &&
+            currentPatchIds.length > 0 &&
+            serializedPatchSets.data.map((patchSet) => {
+              return (
+                <PatchSetCard
+                  key={
+                    patchSet.moduleFilePath + ":" + patchSet.patchPath.join("/")
+                  }
+                  committedPatchIds={committedPatchIds}
+                  patchSet={patchSet}
+                />
+              );
+            })}
+        </div>
+      )}
     </div>
   );
 }

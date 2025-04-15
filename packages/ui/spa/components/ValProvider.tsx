@@ -664,11 +664,6 @@ export function useCurrentPatchIds(): PatchId[] {
     () => syncEngine.getPendingClientSidePatchIdsSnapshot(),
     () => syncEngine.getPendingClientSidePatchIdsSnapshot(),
   );
-  const syncedServerSidePatchIds = useSyncExternalStore(
-    syncEngine.subscribe("synced-server-side-patch-ids"),
-    () => syncEngine.getSyncedServerSidePatchIdsSnapshot(),
-    () => syncEngine.getSyncedServerSidePatchIdsSnapshot(),
-  );
   const savedServerSidePatchIds = useSyncExternalStore(
     syncEngine.subscribe("saved-server-side-patch-ids"),
     () => syncEngine.getSavedServerSidePatchIdsSnapshot(),
@@ -689,12 +684,6 @@ export function useCurrentPatchIds(): PatchId[] {
       }
       added.add(patchId);
     }
-    for (const patchId of syncedServerSidePatchIds) {
-      if (!added.has(patchId)) {
-        currentPatchIds.push(patchId);
-      }
-      added.add(patchId);
-    }
     for (const patchId of pendingClientSidePatchIds) {
       if (!added.has(patchId)) {
         currentPatchIds.push(patchId);
@@ -704,7 +693,6 @@ export function useCurrentPatchIds(): PatchId[] {
     return currentPatchIds;
   }, [
     globalServerSidePatchIds,
-    syncedServerSidePatchIds,
     pendingClientSidePatchIds,
     savedServerSidePatchIds,
   ]);
@@ -1001,6 +989,21 @@ export const useSyncEngineInitializedAt = (syncEngine: ValSyncEngine) => {
   );
   return initializedAt.data;
 };
+
+export function useAutoPublish() {
+  const { syncEngine } = useContext(ValContext);
+  const autoPublish = useSyncExternalStore(
+    syncEngine.subscribe("auto-publish"),
+    () => syncEngine.getAutoPublishSnapshot(),
+    () => syncEngine.getAutoPublishSnapshot(),
+  );
+  return {
+    autoPublish,
+    setAutoPublish: (autoPublish: boolean) => {
+      syncEngine.setAutoPublish(Date.now(), autoPublish);
+    },
+  };
+}
 
 export function useSchemaAtPath(sourcePath: SourcePath):
   | { status: "not-found" }
