@@ -108,7 +108,7 @@ export function NavMenu() {
           )}
           {orgName && projectName ? (
             <a
-              className="truncate"
+              className="truncate hover:underline"
               href={`${appHostUrl}/orgs/${orgName}/projects/${projectName}`}
             >
               {name}
