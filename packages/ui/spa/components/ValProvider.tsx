@@ -425,6 +425,24 @@ export function ValProvider({
       type: "not-asked",
     });
 
+  const pendingOpsCount = useSyncExternalStore(
+    syncEngine.subscribe("pending-ops-count"),
+    () => syncEngine.getPendingOpsSnapshot(),
+    () => syncEngine.getPendingOpsSnapshot(),
+  );
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (pendingOpsCount > 0) {
+        event.preventDefault();
+        event.returnValue = ""; // Required for Chrome and some other browsers
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [pendingOpsCount]);
+
   return (
     <ValContext.Provider
       value={{
