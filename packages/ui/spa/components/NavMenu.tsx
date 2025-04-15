@@ -1,4 +1,4 @@
-import { DEFAULT_APP_HOST, SourcePath } from "@valbuild/core";
+import { DEFAULT_APP_HOST, SerializedSchema, SourcePath } from "@valbuild/core";
 import classNames from "classnames";
 import {
   Tally2,
@@ -6,12 +6,33 @@ import {
   File,
   PanelRightOpen,
   Ellipsis,
+  Loader2,
+  Type,
+  Box,
+  Calendar,
+  Code,
+  FileIcon,
+  FileText,
+  Hash,
+  ImageIcon,
+  Key,
+  List,
+  Split,
+  Table,
+  ToggleRight,
+  HelpCircle,
+  Folders,
+  FolderTree,
+  Folder,
+  Package,
+  Layers,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PathNode, pathTree } from "../utils/pathTree";
 import { Remote } from "../utils/Remote";
 import {
   useAllValidationErrors,
+  useSchemaAtPath,
   useSchemas,
   useTheme,
   useValConfig,
@@ -232,11 +253,15 @@ function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
     }
     return false;
   }, [nodeErrors, isOpen, isDirectory]);
+  const path = fullPath as SourcePath;
+  const schema = useSchemaAtPath(path);
+  const schemaType = "data" in schema ? schema.data.type : "loading";
   return (
     <div className="w-full text-sm">
       <button
         className={classNames("relative flex justify-between w-full p-2", {
-          underline: currentSourcePath.startsWith(fullPath as SourcePath),
+          underline: currentSourcePath.startsWith(path) && !isDirectory,
+          "font-bold": currentSourcePath.startsWith(path) && isDirectory,
         })}
         onClick={() => {
           if (isDirectory) {
@@ -245,24 +270,27 @@ function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
             if (window.innerWidth < NAV_MENU_MOBILE_BREAKPOINT) {
               navMenu.setOpen(false);
             }
-            navigate(fullPath as SourcePath);
+            navigate(path);
           }
         }}
       >
         <div className="flex items-center pr-2">
-          {isDirectory ? <Tally2 /> : <File className="pr-2" />}
-          <span>{prettifyFilename(name)}</span>
-          {showErrorIndicator && (
-            <div className="w-2 h-2 ml-2 rounded-full bg-bg-error-primary"></div>
+          {isDirectory ? (
+            <ChevronRight
+              size={16}
+              className={classNames("transform mr-2", {
+                "rotate-90": isOpen,
+                hidden: !children.length,
+              })}
+            />
+          ) : (
+            <NodeIcon type={schemaType} size={14} />
           )}
+          <span>{prettifyFilename(name)}</span>
         </div>
-        <ChevronRight
-          size={16}
-          className={classNames("transform", {
-            "rotate-90": isOpen,
-            hidden: !children.length,
-          })}
-        />
+        {showErrorIndicator && (
+          <div className="w-2 h-2 ml-2 rounded-full bg-bg-error-primary"></div>
+        )}
       </button>
       <div className="pl-2">
         <AnimateHeight isOpen={isOpen}>
@@ -273,4 +301,47 @@ function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
       </div>
     </div>
   );
+}
+
+function NodeIcon({
+  size,
+  type,
+}: {
+  size?: number;
+  type: SerializedSchema["type"] | "loading";
+}) {
+  if (type === "loading") {
+    return <Loader2 size={size} className="mr-2 animate-spin" />;
+  }
+
+  switch (type) {
+    case "string":
+      return <Type size={size} className="mr-2" />;
+    case "number":
+      return <Hash size={size} className="mr-2" />;
+    case "boolean":
+      return <ToggleRight size={size} className="mr-2" />;
+    case "object":
+      return <Layers size={size} className="mr-2" />;
+    case "literal":
+      return <Code size={size} className="mr-2" />;
+    case "array":
+      return <List size={size} className="mr-2" />;
+    case "union":
+      return <Split size={size} className="mr-2" />;
+    case "richtext":
+      return <FileText size={size} className="mr-2" />;
+    case "record":
+      return <Table size={size} className="mr-2" />;
+    case "keyOf":
+      return <Key size={size} className="mr-2" />;
+    case "file":
+      return <FileIcon size={size} className="mr-2" />;
+    case "date":
+      return <Calendar size={size} className="mr-2" />;
+    case "image":
+      return <ImageIcon size={size} className="mr-2" />;
+    default:
+      return <HelpCircle size={size} className="mr-2" />;
+  }
 }
