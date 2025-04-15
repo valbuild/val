@@ -27,7 +27,7 @@ import { z } from "zod";
 import fs from "fs";
 import nodePath from "path";
 import { fromError } from "zod-validation-error";
-import { Patch, ParentRef } from "@valbuild/shared/internal";
+import { Patch, ParentRef, ValCommit } from "@valbuild/shared/internal";
 import { guessMimeTypeFromPath } from "./ValServer";
 import { result } from "@valbuild/core/fp";
 import { ParentPatchId } from "@valbuild/core";
@@ -88,6 +88,7 @@ export class ValOpsFS extends ValOps {
         schemaSha: SchemaSha;
         sourcesSha: SourcesSha;
         commitSha: CommitSha;
+        commits: ValCommit[];
         patches: PatchId[];
       }
     | {

@@ -1,6 +1,6 @@
 import { Patch } from "@valbuild/core/patch";
 import type { ModuleFilePath, PatchId } from "@valbuild/core";
-import { ValClient } from "@valbuild/shared/internal";
+import { ValClient, ValCommit, ValDeployment } from "@valbuild/shared/internal";
 import React, {
   useState,
   useEffect,
@@ -23,13 +23,11 @@ const WebSocketServerMessage = z.union([
   }),
   z.object({
     type: z.literal("deployment"),
-    deployment: z.object({
-      deployment_id: z.string(),
-      commit_sha: z.string().optional(),
-      deployment_state: z.string(),
-      created_at: z.string(),
-      updated_at: z.string(),
-    }),
+    deployment: ValDeployment,
+  }),
+  z.object({
+    type: z.literal("commit"),
+    commit: ValCommit,
   }),
   z.object({
     type: z.literal("subscribed"),
@@ -40,15 +38,7 @@ const WebSocketServerMessage = z.union([
     reconnect: z.boolean().optional(),
   }),
 ]);
-const ValCommit = z.object({
-  commitSha: z.string(),
-  clientCommitSha: z.string(),
-  parentCommitSha: z.string(),
-  branch: z.string(),
-  creator: z.string(),
-  createdAt: z.string(),
-  commitMessage: z.string().nullable(),
-});
+
 const StatData = z.object({
   type: z.union([
     z.literal("did-change"),
@@ -71,17 +61,7 @@ const StatData = z.object({
   baseSha: z.string(),
   patches: z.array(PatchId),
   commits: z.array(ValCommit).optional(),
-  deployments: z
-    .array(
-      z.object({
-        deploymentId: z.string(),
-        deploymentState: z.string(),
-        commitSha: z.string().optional(),
-        createdAt: z.string(),
-        updatedAt: z.string(),
-      }),
-    )
-    .optional(),
+  deployments: z.array(ValDeployment).optional(),
   mode: z.union([z.literal("fs"), z.literal("http")]),
 });
 type StatData = z.infer<typeof StatData>;
@@ -340,8 +320,8 @@ async function execStat(
                 });
               } else if (message.type === "subscribed") {
                 console.debug("Subscribed!");
-              } else if (message.type === "deployment") {
-                console.debug("Deployment", message.deployment);
+              } else if (message.type === "commit") {
+                console.debug("Commit", message.commit);
                 setStat((prev) => {
                   if ("data" in prev && prev.data) {
                     // we don't want to set the wait time to 0 here, because we want to keep the polling
@@ -349,12 +329,34 @@ async function execStat(
                       status: "ws-message-received",
                       data: {
                         ...prev.data,
+                        commits: (prev.data.commits || []).concat(
+                          message.commit,
+                        ),
+                      },
+                      waitStart:
+                        "waitStart" in prev ? prev.waitStart : Date.now(),
+                      wait:
+                        "waitStart" in prev
+                          ? Math.max(0, Date.now() - prev.waitStart)
+                          : WebSocketStatInterval,
+                    };
+                  }
+                  return prev;
+                });
+              } else if (message.type === "deployment") {
+                console.debug("Deployment", message.deployment);
+                setStat((prev) => {
+                  if ("data" in prev && prev.data) {
+                    return {
+                      status: "ws-message-received",
+                      data: {
+                        ...prev.data,
                         deployments: (prev.data.deployments || []).concat({
-                          commitSha: message.deployment.commit_sha,
-                          deploymentId: message.deployment.deployment_id,
-                          deploymentState: message.deployment.deployment_state,
-                          createdAt: message.deployment.created_at,
-                          updatedAt: message.deployment.updated_at,
+                          commitSha: message.deployment.commitSha,
+                          deploymentId: message.deployment.deploymentId,
+                          deploymentState: message.deployment.deploymentState,
+                          createdAt: message.deployment.createdAt,
+                          updatedAt: message.deployment.updatedAt,
                         }),
                       },
                       waitStart:

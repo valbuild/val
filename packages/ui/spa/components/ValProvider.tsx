@@ -32,6 +32,11 @@ import { findRequiredRemoteFiles } from "../utils/findRequiredRemoteFiles";
 import { defaultOverlayEmitter, ValSyncEngine } from "../ValSyncEngine";
 import { SerializedPatchSet } from "../utils/PatchSets";
 import { z } from "zod";
+import {
+  ValEnrichedDeployment,
+  mergeCommitsAndDeployments,
+} from "../utils/mergeCommitsAndDeployments";
+import { TooltipProvider } from "./designSystem/tooltip";
 
 type ValContextValue = {
   syncEngine: ValSyncEngine;
@@ -68,7 +73,7 @@ type ValContextValue = {
       };
   deletePatches: (patchIds: PatchId[]) => void;
   profiles: Record<AuthorId, Profile>;
-  deployments: Deployment[];
+  deployments: ValEnrichedDeployment[];
   dismissDeployment: (deploymentId: string) => void;
   remoteFiles:
     | {
@@ -219,48 +224,33 @@ export function ValProvider({
   const portalRef = useRef<HTMLDivElement>(null);
   const baseSha = "data" in stat && stat.data ? stat.data.baseSha : undefined;
 
-  const [deployments, setDeployments] = useState<Deployment[]>([]);
+  const [deployments, setDeployments] = useState<ValEnrichedDeployment[]>([]);
   const dismissedDeploymentsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if ("data" in stat && stat.data) {
-      if (stat.data?.deployments) {
-        setDeployments((prev) => {
-          if (stat.data?.deployments && stat.data?.deployments?.length > 0) {
-            const grouped: Record<string, Deployment> = {};
-            for (const d of stat.data.deployments) {
-              if (dismissedDeploymentsRef.current.has(d.deploymentId)) {
-                continue;
-              }
-              if (!grouped[d.deploymentId]) {
-                grouped[d.deploymentId] = {
-                  deploymentId: d.deploymentId,
-                  deploymentState:
-                    d.deploymentState as Deployment["deploymentState"],
-                  createdAt: d.createdAt,
-                  updatedAt: d.updatedAt,
-                };
-              }
-              if (d.updatedAt > grouped[d.deploymentId].updatedAt) {
-                grouped[d.deploymentId].updatedAt = d.updatedAt;
-                grouped[d.deploymentId].deploymentState =
-                  d.deploymentState as Deployment["deploymentState"];
-              }
-            }
-            const newDeployments = Object.values(grouped).sort((a, b) => {
-              return a.updatedAt > b.updatedAt ? -1 : 1;
-            });
-            return newDeployments;
-          }
-          return prev;
-        });
-      }
+      setDeployments((prev) => {
+        if (
+          (stat.data?.deployments && stat.data.deployments?.length > 0) ||
+          (stat.data?.commits && stat.data.commits?.length > 0)
+        ) {
+          return mergeCommitsAndDeployments(
+            prev,
+            stat.data?.commits || [],
+            stat.data?.deployments || [],
+          ).filter((d) => !dismissedDeploymentsRef.current.has(d.commitSha));
+        }
+        return prev;
+      });
     }
-  }, ["data" in stat && stat.data]);
-  const dismissDeployment = useCallback((deploymentId: string) => {
+  }, [
+    "data" in stat && stat.data?.deployments && stat.data?.deployments.length,
+    "data" in stat && stat.data?.commits && stat.data?.commits.length,
+  ]);
+  const dismissDeployment = useCallback((commitSha: string) => {
     setDeployments((prev) => {
-      return prev.filter((d) => d.deploymentId !== deploymentId);
+      return prev.filter((d) => d.commitSha !== commitSha);
     });
-    dismissedDeploymentsRef.current.add(deploymentId);
+    dismissedDeploymentsRef.current.add(commitSha);
   }, []);
 
   const [remoteFiles, setRemoteFiles] = useState<
@@ -484,18 +474,20 @@ export function ValProvider({
         remoteFiles,
       }}
     >
-      <DayPickerProvider
-        initialProps={{
-          mode: "default",
-        }}
-      >
-        <div
-          data-val-portal="true"
-          ref={portalRef}
-          {...(theme ? { "data-mode": theme } : {})}
-        ></div>
-        {children}
-      </DayPickerProvider>
+      <TooltipProvider>
+        <DayPickerProvider
+          initialProps={{
+            mode: "default",
+          }}
+        >
+          <div
+            data-val-portal="true"
+            ref={portalRef}
+            {...(theme ? { "data-mode": theme } : {})}
+          ></div>
+          {children}
+        </DayPickerProvider>
+      </TooltipProvider>
     </ValContext.Provider>
   );
 }
@@ -652,18 +644,30 @@ export function useCommittedPatches() {
   return committedPatchIds;
 }
 
-export function useCurrentPatchIds(): PatchId[] {
+export function usePendingServerSidePatchIds(): PatchId[] {
   const { syncEngine } = useContext(ValContext);
   const globalServerSidePatchIds = useSyncExternalStore(
     syncEngine.subscribe("global-server-side-patch-ids"),
     () => syncEngine.getGlobalServerSidePatchIdsSnapshot(),
     () => syncEngine.getGlobalServerSidePatchIdsSnapshot(),
   );
+  return globalServerSidePatchIds;
+}
+
+export function usePendingClientSidePatchIds(): PatchId[] {
+  const { syncEngine } = useContext(ValContext);
   const pendingClientSidePatchIds = useSyncExternalStore(
     syncEngine.subscribe("pending-client-side-patch-ids"),
     () => syncEngine.getPendingClientSidePatchIdsSnapshot(),
     () => syncEngine.getPendingClientSidePatchIdsSnapshot(),
   );
+  return pendingClientSidePatchIds;
+}
+
+export function useCurrentPatchIds(): PatchId[] {
+  const { syncEngine } = useContext(ValContext);
+  const globalServerSidePatchIds = usePendingServerSidePatchIds();
+  const pendingClientSidePatchIds = usePendingClientSidePatchIds();
   const savedServerSidePatchIds = useSyncExternalStore(
     syncEngine.subscribe("saved-server-side-patch-ids"),
     () => syncEngine.getSavedServerSidePatchIdsSnapshot(),
@@ -1596,11 +1600,4 @@ export type Profile = {
   avatar: {
     url: string;
   } | null;
-};
-
-export type Deployment = {
-  deploymentId: string;
-  deploymentState: "pending" | "success" | "failure" | "error" | "created";
-  createdAt: string;
-  updatedAt: string;
 };

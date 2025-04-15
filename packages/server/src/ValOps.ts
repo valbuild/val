@@ -39,6 +39,7 @@ import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
 import { ParentPatchId } from "@valbuild/core";
+import { ValCommit } from "@valbuild/shared/internal";
 
 export type BaseSha = string & { readonly _tag: unique symbol };
 export type ConfigSha = string & { readonly _tag: unique symbol };
@@ -382,14 +383,7 @@ export abstract class ValOps {
   // #region analyzePatches
   analyzePatches(
     sortedPatches: OrderedPatches["patches"],
-    commits?: {
-      commitSha: CommitSha;
-      clientCommitSha: CommitSha;
-      parentCommitSha: CommitSha;
-      branch: string;
-      creator: AuthorId;
-      createdAt: string;
-    }[],
+    commits?: ValCommit[],
     currentCommitSha?: CommitSha,
   ): PatchAnalysis {
     const patchesByModule: {
@@ -1626,15 +1620,6 @@ export type PatchReadError =
       message: string;
     };
 
-export type ValCommit = {
-  commitSha: CommitSha;
-  clientCommitSha: CommitSha;
-  parentCommitSha: CommitSha;
-  branch: string;
-  creator: AuthorId;
-  createdAt: string;
-  commitMessage: string | null;
-};
 export type OrderedPatches = {
   patches: {
     path: ModuleFilePath;
@@ -1659,6 +1644,7 @@ export type OrderedPatchesMetadata = {
     patch?: undefined;
   })[];
   commits?: ValCommit[];
+  deployments?: ValDeployment[];
   error?: GenericErrorMessage;
   errors?: OrderedPatches["errors"];
   unauthorized?: boolean;

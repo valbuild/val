@@ -26,11 +26,10 @@ import {
   OrderedPatchesMetadata,
   OrderedPatches,
   SourcesSha,
-  ValCommit,
 } from "./ValOps";
 import { z } from "zod";
 import { fromError } from "zod-validation-error";
-import { ParentRef, Patch } from "@valbuild/shared/internal";
+import { ParentRef, Patch, ValCommit } from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 
 const textEncoder = new TextEncoder();
@@ -85,6 +84,17 @@ const GetApplicablePatches = z.object({
         branch: z.string(),
         creator: z.string(),
         createdAt: z.string(),
+      }),
+    )
+    .optional(),
+  deployments: z
+    .array(
+      z.object({
+        deploymentId: z.string(),
+        commitSha: z.string(),
+        deploymentState: z.string(),
+        createdAt: z.string(),
+        updatedAt: z.string(),
       }),
     )
     .optional(),
@@ -287,7 +297,7 @@ export class ValOpsHttp extends ValOps {
         schemaSha: SchemaSha;
         sourcesSha: SourcesSha;
         commitSha: CommitSha;
-        commits?: ValCommit[];
+        commits: ValCommit[];
         patches: PatchId[];
       }
     | {
@@ -355,7 +365,7 @@ export class ValOpsHttp extends ValOps {
       baseSha: currentBaseSha,
       schemaSha: currentSchemaSha,
       sourcesSha: currentSourcesSha,
-      commits: allPatchData.commits,
+      commits: allPatchData.commits || [],
       patches,
       commitSha: this.commitSha as CommitSha,
     };
@@ -563,8 +573,25 @@ export class ValOpsHttp extends ValOps {
               });
             }
           }
+          const deployments: OrderedPatchesMetadata["d"] = [];
+
+          if (data.deployments) {
+            for (const deployment of data.deployments) {
+              if (deployment.commitSha) {
+                const commit = commits.find(
+                  (c) => c.commitSha === deployment.commitSha,
+                );
+                if (commit) {
+                  commit.deploymentId = deployment.deploymentId;
+                  commit.deploymentState = deployment.deploymentState;
+                  commit.updatedAt = deployment.updatedAt;
+                }
+              }
+            }
+          }
           return {
             commits,
+            deployments,
             patches,
             errors,
           } as ExcludePatchOps extends true
