@@ -46,7 +46,7 @@ import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
  */
 export class ValSyncEngine {
   private initializedAt: number | null;
-  private autoPublish: boolean = true;
+  private autoPublish: boolean = false;
   /**
    * Patch Ids reported by the /stat endpoint or webhook
    *
@@ -65,7 +65,7 @@ export class ValSyncEngine {
    * Patch Ids that have been saved server side, but that not part of the global server state
    * i.e. they are currently only known by this client
    */
-  private savedNonGlobalServerSidePatchIds: PatchId[];
+  private savedButNotYetGlobalServerSidePatchIds: PatchId[];
   private publishDisabled: boolean;
   private patchDataByPatchId: Record<
     PatchId,
@@ -159,7 +159,7 @@ export class ValSyncEngine {
     this.serverSources = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
-    this.savedNonGlobalServerSidePatchIds = [];
+    this.savedButNotYetGlobalServerSidePatchIds = [];
     this.pendingOps = [];
     this.pendingClientPatchIds = [];
     this.patchDataByPatchId = {};
@@ -184,11 +184,27 @@ export class ValSyncEngine {
     this.cachedPendingOpsCountSnapshot = null;
     this.cachedInitializedAtSnapshot = null;
     this.cachedAutoPublishSnapshot = null;
+    this.cachedPublishDisabledSnapshot = null;
   }
 
-  setAutoPublish(autoPublish: boolean) {
+  setAutoPublish(now: number, autoPublish: boolean) {
     this.autoPublish = autoPublish;
+    try {
+      localStorage.setItem("val-auto-publish", autoPublish.toString());
+    } catch (err) {
+      // ignore
+    }
     this.invalidateAutoPublish();
+    return this.sync(now);
+  }
+
+  private loadAutoPublish() {
+    try {
+      this.autoPublish = localStorage.getItem("val-auto-publish") === "true";
+      this.invalidateAutoPublish();
+    } catch (err) {
+      // ignore
+    }
   }
 
   async init(
@@ -207,6 +223,7 @@ export class ValSyncEngine {
     this.sourcesSha = sourcesSha;
     this.authorId = authorId;
     const start = Date.now();
+    this.loadAutoPublish();
     const res = await this.syncWithUpdatedStat(
       mode,
       baseSha,
@@ -242,7 +259,7 @@ export class ValSyncEngine {
     this.serverSources = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
-    this.savedNonGlobalServerSidePatchIds = [];
+    this.savedButNotYetGlobalServerSidePatchIds = [];
     this.pendingOps = [];
     this.pendingClientPatchIds = [];
     this.patchDataByPatchId = {};
@@ -267,6 +284,7 @@ export class ValSyncEngine {
     this.cachedPendingOpsCountSnapshot = null;
     this.cachedInitializedAtSnapshot = null;
     this.cachedAutoPublishSnapshot = null;
+    this.cachedPublishDisabledSnapshot = null;
 
     this.invalidateInitializedAt();
   }
@@ -280,6 +298,7 @@ export class ValSyncEngine {
     path: ModuleFilePath,
   ): (listener: () => void) => () => void;
   subscribe(type: "all-sources"): (listener: () => void) => () => void;
+  subscribe(type: "auto-publish"): (listener: () => void) => () => void;
   subscribe(type: "pending-ops-count"): (listener: () => void) => () => void;
   subscribe(
     type: "validation-error",
@@ -440,10 +459,12 @@ export class ValSyncEngine {
   }
 
   private invalidatePublishDisabled() {
+    this.cachedPublishDisabledSnapshot = null;
     this.emit(this.listeners["publish-disabled"]?.[globalNamespace]);
   }
 
   private invalidateAutoPublish() {
+    this.cachedAutoPublishSnapshot = null;
     this.emit(this.listeners["auto-publish"]?.[globalNamespace]);
   }
 
@@ -690,13 +711,17 @@ export class ValSyncEngine {
   getSavedServerSidePatchIdsSnapshot() {
     if (this.cachedSavedServerSidePatchIdsSnapshot === null) {
       this.cachedSavedServerSidePatchIdsSnapshot =
-        this.savedNonGlobalServerSidePatchIds?.slice() || [];
+        this.savedButNotYetGlobalServerSidePatchIds?.slice() || [];
     }
     return this.cachedSavedServerSidePatchIdsSnapshot;
   }
 
+  private cachedPublishDisabledSnapshot: boolean | null;
   getPublishDisabledSnapshot() {
-    return this.publishDisabled;
+    if (this.cachedPublishDisabledSnapshot === null) {
+      this.cachedPublishDisabledSnapshot = this.publishDisabled;
+    }
+    return this.cachedPublishDisabledSnapshot;
   }
 
   private cachedAutoPublishSnapshot: boolean | null;
@@ -927,8 +952,8 @@ export class ValSyncEngine {
     }
     const patchId =
       // Avoid conflicts when it is only this client that creates patches
-      this.savedNonGlobalServerSidePatchIds[
-        this.savedNonGlobalServerSidePatchIds.length - 1
+      this.savedButNotYetGlobalServerSidePatchIds[
+        this.savedButNotYetGlobalServerSidePatchIds.length - 1
       ] ||
       this.globalServerSidePatchIds[this.globalServerSidePatchIds.length - 1];
 
@@ -986,20 +1011,24 @@ export class ValSyncEngine {
         now,
       );
     }
-    const patchIdsDidChange = !deepEqual(
-      this.globalServerSidePatchIds,
+    const patchIdsDidChange =
+      this.globalServerSidePatchIds === null ||
+      !deepEqual(this.globalServerSidePatchIds, patchIds);
+    console.log({
+      patchIdsDidChange,
       patchIds,
-    );
+      globalServerSidePatchIds: this.globalServerSidePatchIds,
+    });
     if (patchIdsDidChange) {
       // Do not update the globalServerSidePatchIds if they are the same
       // since we using this directly in get snapshot method
       this.globalServerSidePatchIds = patchIds;
       const uniquePatchIds = new Set(patchIds);
       this.deletePendingPatchId(uniquePatchIds);
-      this.deleteSavedButNotGlobalPatchId(uniquePatchIds);
-      if (mode === "http") {
-        await this.syncPatches(false, now);
-      }
+      this.deleteSavedButNotYetGlobalServerSidePatchIds(uniquePatchIds);
+      // if (mode === "http") {
+      await this.syncPatches(false, now);
+      // }
       this.invalidateGlobalServerSidePatchIds();
       this.invalidateSyncedServerSidePatchIds();
       this.invalidateSavedServerSidePatchIds();
@@ -1075,6 +1104,8 @@ export class ValSyncEngine {
         reason: "network-error",
       };
     } else if (addPatchesRes.status === 409) {
+      // Reset saved patch ids since they are not valid anymore
+      this.savedButNotYetGlobalServerSidePatchIds = [];
       // Try again if it is a conflict error (NOTE: this can absolutely happen if there are multiple concurrent users)
       return {
         status: "retry",
@@ -1109,7 +1140,7 @@ export class ValSyncEngine {
       this.deletePendingPatchId(createdPatchIds);
       for (const patchIdS of newPatchIds) {
         const patchId = patchIdS as PatchId;
-        this.savedNonGlobalServerSidePatchIds.push(patchId);
+        this.savedButNotYetGlobalServerSidePatchIds.push(patchId);
         if (this.patchDataByPatchId[patchId]) {
           this.patchDataByPatchId[patchId]!.isPending = false;
         }
@@ -1135,12 +1166,16 @@ export class ValSyncEngine {
     }
   }
 
-  private deleteSavedButNotGlobalPatchId(patchIds: Set<PatchId>) {
+  private deleteSavedButNotYetGlobalServerSidePatchIds(patchIds: Set<PatchId>) {
     let deleteCount = 0;
-    for (let i = 0; i < this.savedNonGlobalServerSidePatchIds.length; i++) {
-      const patchId = this.savedNonGlobalServerSidePatchIds[i] as PatchId;
+    for (
+      let i = 0;
+      i < this.savedButNotYetGlobalServerSidePatchIds.length;
+      i++
+    ) {
+      const patchId = this.savedButNotYetGlobalServerSidePatchIds[i] as PatchId;
       if (patchIds.has(patchId)) {
-        this.savedNonGlobalServerSidePatchIds.splice(i, 1);
+        this.savedButNotYetGlobalServerSidePatchIds.splice(i, 1);
         i--;
         deleteCount++;
         if (patchIds.size === deleteCount) {
@@ -1422,10 +1457,7 @@ export class ValSyncEngine {
     if (didUpdatePatchSet) {
       this.invalidatePatchSets();
     }
-    if (
-      missingDataPatchIds.length > 0 &&
-      this.autoPublish === false // TODO: we believe this is OK in the autoPublish case
-    ) {
+    if (missingDataPatchIds.length > 0) {
       if (this.initializedAt !== null) {
         this.addTransientGlobalError(
           "Failed to get changes",
@@ -1504,7 +1536,7 @@ export class ValSyncEngine {
     let serverPatchIdsDidChange = false;
     const allSyncedPatchIds = new Set([
       ...this.syncedServerSidePatchIds,
-      ...this.savedNonGlobalServerSidePatchIds,
+      ...this.savedButNotYetGlobalServerSidePatchIds,
     ]);
 
     if (this.globalServerSidePatchIds && this.mode === "http") {
@@ -1519,7 +1551,7 @@ export class ValSyncEngine {
         ) {
           // resetting the patches stored by client
           this.syncedServerSidePatchIds = [];
-          this.savedNonGlobalServerSidePatchIds = [];
+          this.savedButNotYetGlobalServerSidePatchIds = [];
           this.pendingClientPatchIds = [];
           await this.syncPatches(true, now);
           // in http mode we need to sync patches
@@ -1799,7 +1831,7 @@ export class ValSyncEngine {
   async publish(patchIds: PatchId[], message: string | undefined, now: number) {
     try {
       if (this.publishDisabled) {
-        this.addTransientGlobalError(
+        console.debug(
           "Could not publish changes, since the publish is disabled",
           now,
         );
@@ -1812,8 +1844,14 @@ export class ValSyncEngine {
       this.invalidatePublishDisabled();
 
       const hasValidationError =
-        Object.values(this.errors.validationErrors || {}).flat().length > 0;
+        Object.values(this.errors.validationErrors || {}).flatMap(
+          (errors) => errors || [],
+        ).length > 0;
       if (hasValidationError) {
+        console.debug(
+          "Skipping publish since there's validation errors",
+          this.errors.validationErrors,
+        );
         this.addTransientGlobalError(
           "Could not publish changes, since there are validation errors",
           now,
@@ -1858,7 +1896,7 @@ export class ValSyncEngine {
       } else {
         this.pendingClientPatchIds = [];
         this.syncedServerSidePatchIds = [];
-        this.savedNonGlobalServerSidePatchIds = [];
+        this.savedButNotYetGlobalServerSidePatchIds = [];
         this.patchDataByPatchId = {};
         this.patchSets = new PatchSets();
         const fullReset = true;

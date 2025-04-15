@@ -2,6 +2,7 @@ import { Loader2, Upload, X } from "lucide-react";
 import { Button } from "./designSystem/button";
 import {
   useAllValidationErrors,
+  useAutoPublish,
   useCurrentPatchIds,
   usePublishSummary,
   useValMode,
@@ -21,24 +22,31 @@ export function PublishButton() {
   const { publish, publishDisabled, isPublishing, summary } =
     usePublishSummary();
   const allValidationErrors = useAllValidationErrors();
-  const patchIds = useCurrentPatchIds();
-  const hasPatchIds = patchIds.length > 0;
   const hasValidationErrors =
     allValidationErrors !== undefined &&
     Object.keys(allValidationErrors).length > 0;
+  const patchIds = useCurrentPatchIds();
+  const hasPatchIds = patchIds.length > 0;
   const mode = useValMode();
   const portalContainer = useValPortal();
+  const { autoPublish } = useAutoPublish();
   if (mode === "fs") {
     return (
       <Button
         className="flex items-center gap-2"
-        disabled={publishDisabled || hasValidationErrors || !hasPatchIds}
+        disabled={
+          publishDisabled || hasValidationErrors || !hasPatchIds || autoPublish
+        }
         title={hasValidationErrors ? "Please fix validation errors" : ""}
         onClick={() => {
           publish("No summary provided");
         }}
       >
-        <span>{"Save"}</span>
+        {!hasValidationErrors ? (
+          <span>{isPublishing ? "Saving" : "Save"}</span>
+        ) : (
+          <span>{"Save"}</span>
+        )}
         {isPublishing && <Loader2 className="animate-spin" size={16} />}
       </Button>
     );

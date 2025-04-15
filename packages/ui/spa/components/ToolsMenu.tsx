@@ -1,5 +1,6 @@
 import {
   useAllValidationErrors,
+  useAutoPublish,
   useErrors,
   useLoadingStatus,
   usePublishSummary,
@@ -8,7 +9,7 @@ import {
 import { ScrollArea } from "./designSystem/scroll-area";
 import { DraftChanges } from "./DraftChanges";
 import classNames from "classnames";
-import { Eye, Loader2, PanelRightOpen, Upload } from "lucide-react";
+import { Eye, Loader2, PanelRightOpen } from "lucide-react";
 import { useLayout } from "./Layout";
 import { Button } from "./designSystem/button";
 import { urlOf } from "@valbuild/shared/internal";
@@ -24,6 +25,7 @@ import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { useNavigation } from "./ValRouter";
 import { PublishButton } from "./PublishButton";
+import { Checkbox } from "./designSystem/checkbox";
 
 export function ToolsMenu() {
   const loadingStatus = useLoadingStatus();
@@ -177,6 +179,8 @@ function ShortenedErrorMessage({ error }: { error: string }) {
 
 export function ToolsMenuButtons() {
   const { navMenu, toolsMenu } = useLayout();
+  const mode = useValMode();
+  const { setAutoPublish, autoPublish } = useAutoPublish();
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between w-full gap-2 p-4">
@@ -194,6 +198,15 @@ export function ToolsMenuButtons() {
           />
         </button>
         <div className="flex items-center justify-end w-full gap-2">
+          {mode === "fs" && (
+            <div className="overflow-hidden flex items-center gap-2 text-[10px] lg:text-xs">
+              <span className="truncate text-text-secondary">Auto-save</span>
+              <Checkbox
+                checked={autoPublish}
+                onCheckedChange={setAutoPublish}
+              />
+            </div>
+          )}
           <Button
             className="flex items-center gap-2"
             variant={"outline"}
