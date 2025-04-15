@@ -1,14 +1,11 @@
 import { DEFAULT_APP_HOST, SerializedSchema, SourcePath } from "@valbuild/core";
 import classNames from "classnames";
 import {
-  Tally2,
   ChevronRight,
-  File,
   PanelRightOpen,
   Ellipsis,
   Loader2,
   Type,
-  Box,
   Calendar,
   Code,
   FileIcon,
@@ -21,10 +18,6 @@ import {
   Table,
   ToggleRight,
   HelpCircle,
-  Folders,
-  FolderTree,
-  Folder,
-  Package,
   Layers,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
