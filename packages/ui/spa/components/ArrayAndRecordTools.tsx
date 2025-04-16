@@ -3,7 +3,6 @@ import {
   Internal,
   ModulePath,
   ModuleFilePath,
-  Json,
 } from "@valbuild/core";
 import { array } from "@valbuild/core/fp";
 import { JSONValue, Patch } from "@valbuild/core/patch";
@@ -20,7 +19,6 @@ import {
   useSchemaAtPath,
   useSchemas,
   useShallowSourceAtPath,
-  useSourceAtPath,
   useValPortal,
 } from "./ValProvider";
 import { useNavigation } from "./ValRouter";
