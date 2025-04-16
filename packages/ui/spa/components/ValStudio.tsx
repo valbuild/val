@@ -3,6 +3,7 @@ import { ValClient } from "@valbuild/shared/src/internal/ValClient";
 import { ValProvider } from "./ValProvider";
 import { Layout } from "./Layout";
 import { SharedValConfig } from "@valbuild/shared/internal";
+import { ValRouter } from "./ValRouter";
 
 interface ValFullscreenProps {
   client: ValClient;
@@ -12,7 +13,9 @@ interface ValFullscreenProps {
 export const ValStudio: FC<ValFullscreenProps> = ({ client, config }) => {
   return (
     <ValProvider client={client} dispatchValEvents={false} config={config}>
-      <Layout />
+      <ValRouter>
+        <Layout />
+      </ValRouter>
     </ValProvider>
   );
 };

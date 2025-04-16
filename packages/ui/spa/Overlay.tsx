@@ -68,12 +68,12 @@ function Overlay() {
         `}</style>
         <link rel="stylesheet" href={`${host}/static${VAL_CSS_PATH}`} />
         <ErrorBoundary fallbackRender={fallbackRender}>
-          <ValRouter overlay>
-            <ValProvider
-              client={client}
-              dispatchValEvents={draftMode}
-              config={config}
-            >
+          <ValProvider
+            client={client}
+            dispatchValEvents={draftMode}
+            config={config}
+          >
+            <ValRouter overlay>
               <ValOverlay
                 draftMode={draftMode}
                 draftModeLoading={draftModeLoading}
@@ -92,8 +92,8 @@ function Overlay() {
                   )}`;
                 }}
               />
-            </ValProvider>
-          </ValRouter>
+            </ValRouter>
+          </ValProvider>
         </ErrorBoundary>
       </ShadowRoot>
     </>
