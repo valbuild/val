@@ -27,19 +27,20 @@ export function ValidationErrors({ path }: { path: SourcePath }) {
     return null;
   }
   if (errors.length === 1) {
+    const error = errors[0];
     return (
       <div className="p-4 font-normal rounded bg-bg-error-primary text-text-primary">
-        <div>{errors[0].message}</div>
-        {path !== errors[0].path && (
+        <div>{error.message}</div>
+        {path !== error.path && (
           <div className="pl-4 font-thin">
             at{" "}
             <span
               className="underline cursor-pointer"
               onClick={() => {
-                navigation.navigate(errors[0].path as SourcePath);
+                navigation.navigate(error.path as SourcePath);
               }}
             >
-              {errors[0].path}
+              {error.path}
             </span>
           </div>
         )}
