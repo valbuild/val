@@ -25,6 +25,7 @@ import { PathNode, pathTree } from "../utils/pathTree";
 import { Remote } from "../utils/Remote";
 import {
   useAllValidationErrors,
+  useCurrentProfile,
   useSchemaAtPath,
   useSchemas,
   useTheme,
@@ -40,6 +41,9 @@ import { Popover, PopoverContent } from "./designSystem/popover";
 import { PopoverTrigger } from "@radix-ui/react-popover";
 import { Switch } from "./designSystem/switch";
 import { useLayout } from "./Layout";
+import { ProfileImage } from "./ProfileImage";
+import { Button } from "./designSystem/button";
+import { urlOf } from "@valbuild/shared/internal";
 
 export const NAV_MENU_MOBILE_BREAKPOINT = 1280; // nav menu behaves a bit differently (closes it self) below this breakpoint.
 
@@ -96,6 +100,7 @@ export function NavMenu() {
   const { navMenu } = useLayout();
   const appHostUrl = config?.appHost || DEFAULT_APP_HOST;
   const [orgName, projectName] = name.split("/");
+  const profile = useCurrentProfile();
 
   return (
     <nav className="relative min-h-[100svh] bg-bg-primary">
@@ -142,7 +147,29 @@ export function NavMenu() {
       )}
       <div className="h-6 p-4" />
       <div className="absolute bottom-0 left-0 flex items-center justify-between w-full p-4 pr-6 border-t border-border-primary">
-        <span></span>
+        <span>
+          {profile && (
+            <Popover>
+              <PopoverTrigger>
+                <ProfileImage size="sm" profile={profile} />
+              </PopoverTrigger>
+              <PopoverContent container={portalContainer}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-bold">{profile.fullName}</span>
+                  <Button asChild>
+                    <a
+                      href={urlOf("/api/val/logout", {
+                        redirect_to: `${window.location.origin}`,
+                      })}
+                    >
+                      <span className="text-sm">Logout</span>
+                    </a>
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+        </span>
         <Popover>
           <PopoverTrigger>
             <Ellipsis size={16} />
@@ -150,6 +177,7 @@ export function NavMenu() {
           <PopoverContent container={portalContainer}>
             <div className="flex items-center justify-between">
               <span>Dark mode</span>
+
               <Switch
                 checked={theme !== "light"}
                 onClick={(ev) => {

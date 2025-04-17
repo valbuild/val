@@ -382,14 +382,80 @@ export const Api = {
   },
   "/logout": {
     GET: {
-      req: {}, // TODO fix req types
-      res: z.object({
-        status: z.literal(200),
-        cookies: z.object({
-          [VAL_SESSION_COOKIE]: z.object({ value: z.literal(null) }),
-          [VAL_STATE_COOKIE]: z.object({ value: z.literal(null) }),
+      req: {
+        query: {
+          redirect_to: z.string().optional(),
+        },
+      }, // TODO fix req types
+      res: z.union([
+        z.object({
+          status: z.literal(200),
+          cookies: z.object({
+            [VAL_SESSION_COOKIE]: z
+              .object({
+                value: z.string(),
+                options: z
+                  .object({
+                    httpOnly: z.literal(true),
+                    sameSite: z.literal("strict"),
+                    path: z.string(),
+                    secure: z.literal(true),
+                    expires: z.instanceof(Date),
+                  })
+                  .optional(),
+              })
+              .optional(),
+            [VAL_STATE_COOKIE]: z
+              .object({
+                value: z.string(),
+                options: z
+                  .object({
+                    httpOnly: z.literal(true),
+                    sameSite: z.literal("strict"),
+                    path: z.string(),
+                    secure: z.literal(true),
+                    expires: z.instanceof(Date),
+                  })
+                  .optional(),
+              })
+              .optional(),
+          }),
         }),
-      }),
+        z.object({
+          status: z.literal(302),
+          redirectTo: z.string(),
+          cookies: z.object({
+            [VAL_SESSION_COOKIE]: z
+              .object({
+                value: z.string(),
+                options: z
+                  .object({
+                    httpOnly: z.literal(true),
+                    sameSite: z.literal("strict"),
+                    path: z.string(),
+                    secure: z.literal(true),
+                    expires: z.instanceof(Date),
+                  })
+                  .optional(),
+              })
+              .optional(),
+            [VAL_STATE_COOKIE]: z
+              .object({
+                value: z.string(),
+                options: z
+                  .object({
+                    httpOnly: z.literal(true),
+                    sameSite: z.literal("strict"),
+                    path: z.string(),
+                    secure: z.literal(true),
+                    expires: z.instanceof(Date),
+                  })
+                  .optional(),
+              })
+              .optional(),
+          }),
+        }),
+      ]),
     },
   },
   "/remote/settings": {
@@ -1058,7 +1124,8 @@ export type UrlOf<Api extends ApiGuard> = <
             >;
           },
         ]
-      : [route: `/api/val${Route & string}`]
+      : // eslint-disable-next-line @typescript-eslint/ban-types
+        [route: `/api/val${Route & string}`, query: {}]
 ) => string;
 
 export type Api = {
