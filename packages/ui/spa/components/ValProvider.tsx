@@ -41,6 +41,7 @@ import { TooltipProvider } from "./designSystem/tooltip";
 type ValContextValue = {
   syncEngine: ValSyncEngine;
   mode: "http" | "fs" | "unknown";
+  profileId: string | null;
   client: ValClient;
   publishSummaryState: PublishSummaryState;
   setPublishSummaryState: Dispatch<SetStateAction<PublishSummaryState>>;
@@ -450,6 +451,7 @@ export function ValProvider({
         publishSummaryState,
         setPublishSummaryState,
         syncEngine,
+        profileId: "data" in stat && stat.data ? stat.data.profileId : null,
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
         serviceUnavailable: showServiceUnavailable,
         baseSha,
@@ -1002,6 +1004,14 @@ export type ShallowSource = EnsureAllTypes<{
   literal: string;
   richtext: unknown[];
 }>;
+
+export function useCurrentProfile() {
+  const { profileId, profiles } = useContext(ValContext);
+  if (profileId) {
+    return profiles[profileId] ?? null;
+  }
+  return null;
+}
 
 export const useSyncEngineInitializedAt = (syncEngine: ValSyncEngine) => {
   const initializedAt = useSyncExternalStore(

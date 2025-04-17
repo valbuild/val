@@ -691,15 +691,59 @@ export const ValServer = (
     },
 
     "/logout": {
-      GET: async () => {
+      GET: async (req) => {
+        const query = req.query;
+        const redirectTo = query.redirect_to;
+        if (redirectTo) {
+          return {
+            status: 302,
+            redirectTo: redirectTo,
+            cookies: {
+              [VAL_SESSION_COOKIE]: {
+                value: "empty",
+                options: {
+                  httpOnly: true,
+                  sameSite: "strict",
+                  path: "/",
+                  secure: true,
+                  expires: new Date(0),
+                },
+              },
+              [VAL_STATE_COOKIE]: {
+                value: "empty",
+                options: {
+                  httpOnly: true,
+                  sameSite: "strict",
+                  path: "/",
+                  secure: true,
+                  expires: new Date(0),
+                },
+              },
+            },
+          };
+        }
         return {
           status: 200,
           cookies: {
             [VAL_SESSION_COOKIE]: {
-              value: null,
+              value: "empty",
+              options: {
+                httpOnly: true,
+                sameSite: "strict",
+                path: "/",
+                secure: true,
+                expires: new Date(0),
+              },
             },
             [VAL_STATE_COOKIE]: {
-              value: null,
+              value: "empty",
+              options: {
+                httpOnly: true,
+                sameSite: "strict",
+                path: "/",
+                secure: true,
+                expires: new Date(0),
+              },
             },
           },
         };
