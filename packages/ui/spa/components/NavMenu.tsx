@@ -160,7 +160,7 @@ export function NavMenu() {
           <PopoverContent
             className="p-0 py-2"
             container={portalContainer}
-            side="right"
+            side="top"
           >
             <div className="flex flex-col items-center justify-between gap-2">
               {profile && (
