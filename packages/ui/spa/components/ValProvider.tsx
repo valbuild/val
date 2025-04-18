@@ -140,6 +140,7 @@ export function ValProvider({
         for (const profile of res.json.profiles) {
           profilesById[profile.profileId] = {
             fullName: profile.fullName,
+            email: profile.email,
             avatar: profile.avatar,
           };
         }
@@ -1625,6 +1626,7 @@ function concatModulePath(
 type AuthorId = string;
 export type Profile = {
   fullName: string;
+  email?: string; // TODO: required in the future
   avatar: {
     url: string;
   } | null;
