@@ -165,6 +165,7 @@ const ProfilesResponse = z.object({
     z.object({
       profileId: z.string(),
       fullName: z.string(),
+      email: z.string().optional(), // TODO: make this required once this can be guaranteed
       avatar: z
         .object({
           url: z.string(),
@@ -1293,7 +1294,12 @@ export class ValOpsHttp extends ValOps {
 
   // #region profiles
   override async getProfiles(): Promise<
-    { profileId: string; fullName: string; avatar: { url: string } | null }[]
+    {
+      profileId: string;
+      fullName: string;
+      email?: string;
+      avatar: { url: string } | null;
+    }[]
   > {
     const res = await fetch(`${this.contentUrl}/v1/${this.project}/profiles`, {
       headers: {

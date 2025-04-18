@@ -19,6 +19,9 @@ import {
   ToggleRight,
   HelpCircle,
   Layers,
+  Moon,
+  Sun,
+  LogOut,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PathNode, pathTree } from "../utils/pathTree";
@@ -146,51 +149,67 @@ export function NavMenu() {
         </div>
       )}
       <div className="h-6 p-4" />
-      <div className="absolute bottom-0 left-0 flex items-center justify-between w-full p-4 pr-6 border-t border-border-primary">
-        <span>
-          {profile && (
-            <Popover>
-              <PopoverTrigger>
-                <ProfileImage size="sm" profile={profile} />
-              </PopoverTrigger>
-              <PopoverContent container={portalContainer}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-bold">{profile.fullName}</span>
-                  <Button asChild>
-                    <a
-                      href={urlOf("/api/val/logout", {
-                        redirect_to: `${window.location.origin}`,
-                      })}
-                    >
-                      <span className="text-sm">Logout</span>
-                    </a>
-                  </Button>
-                </div>
-              </PopoverContent>
-            </Popover>
-          )}
-        </span>
+      <div className="absolute bottom-0 left-0 w-full">
         <Popover>
-          <PopoverTrigger>
+          <PopoverTrigger className="flex items-center justify-between w-full p-4 border-t border-border-primary hover:bg-bg-secondary data-[state=open]:bg-bg-secondary">
+            <span>
+              {profile && <ProfileImage size="sm" profile={profile} />}
+            </span>
             <Ellipsis size={16} />
           </PopoverTrigger>
-          <PopoverContent container={portalContainer}>
-            <div className="flex items-center justify-between">
-              <span>Dark mode</span>
-
-              <Switch
-                checked={theme !== "light"}
-                onClick={(ev) => {
-                  ev.stopPropagation();
-                }}
-                onCheckedChange={(checked) => {
-                  if (checked) {
-                    setTheme("dark");
-                  } else {
-                    setTheme("light");
-                  }
-                }}
-              />
+          <PopoverContent
+            className="p-0 py-2"
+            container={portalContainer}
+            side="right"
+          >
+            <div className="flex flex-col items-center justify-between gap-2">
+              {profile && (
+                <>
+                  <div className="flex items-center w-full gap-2 px-4 py-2">
+                    <ProfileImage size="sm" profile={profile} />
+                    <div className="text-sm">
+                      <div className="truncate">{profile.fullName}</div>
+                      {profile.email && (
+                        <div className="font-light truncate">
+                          {profile.email}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <hr className="w-full h-1 mb-1 border-t border-border-primary" />
+                </>
+              )}
+              <div className="flex items-center w-full gap-2 px-4">
+                {theme === "dark" ? (
+                  <Moon size={"1rem"} />
+                ) : (
+                  <Sun size={"1rem"} />
+                )}
+                <button
+                  className=""
+                  onClick={() => {
+                    setTheme(theme === "dark" ? "light" : "dark");
+                  }}
+                >
+                  {theme === "dark" ? (
+                    <span className="text-sm">Dark mode</span>
+                  ) : (
+                    <span className="text-sm">Light mode</span>
+                  )}
+                </button>
+              </div>
+              {profile && (
+                <div className="flex items-center w-full gap-2 px-4">
+                  <LogOut size={"1rem"} />
+                  <a
+                    href={urlOf("/api/val/logout", {
+                      redirect_to: `${window.location.origin}`,
+                    })}
+                  >
+                    <span className="text-sm">Log out</span>
+                  </a>
+                </div>
+              )}
             </div>
           </PopoverContent>
         </Popover>

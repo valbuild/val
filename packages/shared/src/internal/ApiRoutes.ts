@@ -805,6 +805,7 @@ export const Api = {
               z.object({
                 profileId: z.string(),
                 fullName: z.string(),
+                email: z.string().optional(),
                 avatar: z
                   .object({
                     url: z.string(),

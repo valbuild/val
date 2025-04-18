@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Profile } from "./ValProvider";
-import { cn } from "./designSystem/cn";
 import classNames from "classnames";
 
 export function ProfileImage({
