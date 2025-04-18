@@ -22,6 +22,7 @@ import {
   Moon,
   Sun,
   LogOut,
+  User,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PathNode, pathTree } from "../utils/pathTree";
@@ -42,10 +43,8 @@ import { ScrollArea } from "./designSystem/scroll-area";
 import { fixCapitalization } from "../utils/fixCapitalization";
 import { Popover, PopoverContent } from "./designSystem/popover";
 import { PopoverTrigger } from "@radix-ui/react-popover";
-import { Switch } from "./designSystem/switch";
 import { useLayout } from "./Layout";
 import { ProfileImage } from "./ProfileImage";
-import { Button } from "./designSystem/button";
 import { urlOf } from "@valbuild/shared/internal";
 
 export const NAV_MENU_MOBILE_BREAKPOINT = 1280; // nav menu behaves a bit differently (closes it self) below this breakpoint.
@@ -104,6 +103,9 @@ export function NavMenu() {
   const appHostUrl = config?.appHost || DEFAULT_APP_HOST;
   const [orgName, projectName] = name.split("/");
   const profile = useCurrentProfile();
+  const orgUrl = `${appHostUrl}/orgs/${orgName}`;
+  const membersUrl = `${appHostUrl}/orgs/${orgName}/members`;
+  const projectUrl = `${orgUrl}/projects/${projectName}`;
 
   return (
     <nav className="relative min-h-[100svh] bg-bg-primary">
@@ -115,10 +117,7 @@ export function NavMenu() {
             <div className="w-4 h-4" />
           )}
           {orgName && projectName ? (
-            <a
-              className="truncate hover:underline"
-              href={`${appHostUrl}/orgs/${orgName}/projects/${projectName}`}
-            >
+            <a className="truncate hover:underline" href={projectUrl}>
               {name}
             </a>
           ) : (
@@ -200,15 +199,26 @@ export function NavMenu() {
               </div>
               {profile && (
                 <div className="flex items-center w-full gap-2 px-4">
-                  <LogOut size={"1rem"} />
-                  <a
-                    href={urlOf("/api/val/logout", {
-                      redirect_to: `${window.location.origin}`,
-                    })}
-                  >
-                    <span className="text-sm">Log out</span>
+                  <User size={"1rem"} />
+                  <a href={membersUrl}>
+                    <span className="text-sm truncate">Manage members</span>
                   </a>
                 </div>
+              )}
+              {profile && (
+                <>
+                  <hr className="w-full h-1 mt-1 mb-1 border-t border-border-primary" />
+                  <div className="flex items-center w-full gap-2 px-4">
+                    <LogOut size={"1rem"} />
+                    <a
+                      href={urlOf("/api/val/logout", {
+                        redirect_to: `${window.location.origin}`,
+                      })}
+                    >
+                      <span className="text-sm">Log out</span>
+                    </a>
+                  </div>
+                </>
               )}
             </div>
           </PopoverContent>
