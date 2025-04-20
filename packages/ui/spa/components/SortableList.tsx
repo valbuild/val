@@ -178,6 +178,7 @@ export function SortableItem({
       >
         {formatNumber(id)}
       </button>
+      {/** Changing this behavior means we need to change the getNavPath behavior */}
       {schema?.item?.type === "string" && <StringField path={path} />}
       {schema?.item?.type !== "string" && (
         <button
