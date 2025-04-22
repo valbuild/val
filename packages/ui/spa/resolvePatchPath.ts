@@ -2,10 +2,10 @@ import {
   SerializedSchema,
   Json,
   ModulePath,
-  SerializedStringUnionSchema,
-  SerializedObjectUnionSchema,
   JsonObject,
   SerializedObjectSchema,
+  SerializedObjectUnionSchema,
+  SerializedStringUnionSchema,
 } from "@valbuild/core";
 
 export function resolvePatchPath(
@@ -18,6 +18,11 @@ export function resolvePatchPath(
       modulePath: ModulePath;
       source: Json;
       schema: SerializedSchema;
+      allResolved: {
+        modulePath: ModulePath;
+        schema: SerializedSchema;
+        source: Json;
+      }[];
     }
   | { success: false; error: string } {
   if (patchPath.length === 0) {
@@ -35,6 +40,17 @@ export function resolvePatchPath(
   };
   let currentSchema: SerializedSchema = schema;
   let currentSource: Json = source;
+  const allResolved: {
+    modulePath: ModulePath;
+    schema: SerializedSchema;
+    source: Json;
+  }[] = [
+    {
+      modulePath: current as ModulePath,
+      schema: currentSchema,
+      source: currentSource,
+    },
+  ];
   for (const part of patchPath) {
     i++;
     if (part === "") {
@@ -180,18 +196,43 @@ export function resolvePatchPath(
           error: `Invalid lookup in union: unknown union type in: '${patchPath.join("/")}' at part ${i} (sliced: ${patchPath.slice(0, i + 1).join("/")})`,
         };
       }
+    } else if (
+      currentSchema.type === "image" ||
+      currentSchema.type === "file"
+    ) {
+      const currentObjectSourceRes = getObjectSourceOrError(
+        patchPath,
+        part,
+        i,
+        currentSource,
+        "record",
+      );
+      if (!currentObjectSourceRes.success) {
+        return {
+          success: false,
+          error: currentObjectSourceRes.error,
+        };
+      }
+      currentSource = currentObjectSourceRes.source[part];
+      addPart(JSON.stringify(part));
     } else {
       return {
         success: false,
         error: `Cannot construct sub-path in schema of '${currentSchema.type}' in: '${patchPath.join("/")}'. Path was: '${patchPath.join("/")}' at part ${i} (sliced: ${patchPath.slice(0, i + 1).join("/")}`,
       };
     }
+    allResolved.push({
+      modulePath: current as ModulePath,
+      schema: currentSchema,
+      source: currentSource,
+    });
   }
   return {
     success: true,
     modulePath: current as ModulePath,
     schema: currentSchema,
     source: currentSource,
+    allResolved,
   };
 }
 
