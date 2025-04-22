@@ -17,6 +17,10 @@ const testModule1 = c.define(
             type: s.literal("type2"),
             "4": s.array(s.string()),
           }),
+          s.object({
+            type: s.literal("type3"),
+            image: s.image(),
+          }),
         ),
       ),
     }),
@@ -28,6 +32,14 @@ const testModule1 = c.define(
         { type: "type2", "4": ["zero"] },
         { type: "type2", "4": ["zero"] },
         { type: "type2", "4": ["zero", "one", "two", "three", "four", "five"] },
+        {
+          type: "type3",
+          image: c.image("/public/val/test.png", {
+            alt: "test",
+            height: 100,
+            width: 100,
+          }),
+        },
       ],
     },
   },
@@ -51,6 +63,14 @@ describe("resolvePatchPath", () => {
             type: "type2",
             "4": ["zero", "one", "two", "three", "four", "five"],
           },
+          {
+            type: "type3",
+            image: c.image("/public/val/test.png", {
+              alt: "test",
+              height: 100,
+              width: 100,
+            }),
+          },
         ],
       },
     });
@@ -71,6 +91,14 @@ describe("resolvePatchPath", () => {
         {
           type: "type2",
           "4": ["zero", "one", "two", "three", "four", "five"],
+        },
+        {
+          type: "type3",
+          image: c.image("/public/val/test.png", {
+            alt: "test",
+            height: 100,
+            width: 100,
+          }),
         },
       ],
     });
@@ -112,6 +140,38 @@ describe("resolvePatchPath", () => {
         type: "string",
       },
       source: "five",
+    });
+  });
+
+  test("basics image", () => {
+    expect(
+      resolvePatchPath(["1", "2", "4", "image"], testSchema1, testSource1),
+    ).toMatchObject({
+      modulePath: `"1"."2".4."image"`,
+      schema: {
+        type: "image",
+      },
+      source: c.image("/public/val/test.png", {
+        alt: "test",
+        height: 100,
+        width: 100,
+      }),
+    });
+  });
+
+  test("basics image alt", () => {
+    expect(
+      resolvePatchPath(
+        ["1", "2", "4", "image", "metadata", "alt"],
+        testSchema1,
+        testSource1,
+      ),
+    ).toMatchObject({
+      modulePath: `"1"."2".4."image"."metadata"."alt"`,
+      schema: {
+        type: "image",
+      },
+      source: "test",
     });
   });
 });
