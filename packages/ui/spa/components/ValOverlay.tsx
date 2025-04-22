@@ -51,6 +51,7 @@ import { HoverCard } from "./designSystem/hover-card";
 import { HoverCardContent, HoverCardTrigger } from "@radix-ui/react-hover-card";
 import { PublishButton } from "./PublishButton";
 import { ScrollArea } from "./designSystem/scroll-area";
+import { ValPath } from "./ValPath";
 
 export type ValOverlayProps = {
   draftMode: boolean;
@@ -238,7 +239,7 @@ export function ValOverlay(props: ValOverlayProps) {
           >
             <div className="relative top-0 left-0 w-full">
               <div
-                className="absolute top-[0px] right-[0px] truncate bg-bg-brand-primary text-text-brand-primary flex gap-2 px-2 rounded-bl hover:opacity-20 cursor-pointer"
+                className="absolute top-[0px] right-[0px] w-full truncate bg-bg-brand-primary text-text-brand-primary flex gap-2 px-2 rounded-bl hover:opacity-20 cursor-pointer"
                 style={{
                   fontSize: `${Math.min(boundingBox.height - 2, 10)}px`,
                   maxHeight: `${Math.min(boundingBox.height - 2, 16)}px`,
@@ -249,33 +250,14 @@ export function ValOverlay(props: ValOverlayProps) {
                   (path) => {
                     const [moduleFilePath, modulePath] =
                       Internal.splitModuleFilePathAndModulePath(path);
-                    const moduleFilePathParts = moduleFilePath
-                      .split("/")
-                      .slice(1);
-                    const modulePathParts = modulePath
-                      ? Internal.splitModulePath(modulePath)
-                      : [];
+
                     return (
-                      <span key={path}>
-                        {moduleFilePathParts.length > 0 && <span>/</span>}
-                        {moduleFilePathParts.length > 0 &&
-                          moduleFilePathParts.map((part, i) => (
-                            <Fragment key={`${part}-${i}`}>
-                              <span>{prettifyFilename(part)}</span>
-                              {i < moduleFilePathParts.length - 1 && (
-                                <span>/</span>
-                              )}
-                            </Fragment>
-                          ))}
-                        {modulePathParts.length > 0 && <span>/</span>}
-                        {modulePathParts.length > 0 &&
-                          modulePathParts.map((part, i) => (
-                            <Fragment key={`${part}-${i}`}>
-                              <span>{fixCapitalization(part)}</span>
-                              {i < modulePathParts.length - 1 && <span>/</span>}
-                            </Fragment>
-                          ))}
-                      </span>
+                      <ValPath
+                        link={false}
+                        toolTip={false}
+                        moduleFilePath={moduleFilePath}
+                        patchPath={Internal.splitModulePath(modulePath)}
+                      />
                     );
                   },
                 )}
@@ -485,14 +467,22 @@ function Window({
           >
             {editMode &&
               Internal.splitJoinedSourcePaths(editMode.joinedPaths).map(
-                (path) => (
-                  <Fragment key={path}>
-                    <div>
-                      <CompressedPath disabled={false} path={path} />
-                    </div>
-                    <WindowField path={path} />
-                  </Fragment>
-                ),
+                (path) => {
+                  const [moduleFilePath, modulePath] =
+                    Internal.splitModuleFilePathAndModulePath(path);
+                  const patchPath = Internal.splitModulePath(modulePath);
+                  return (
+                    <Fragment key={path}>
+                      <ValPath
+                        link
+                        toolTip
+                        moduleFilePath={moduleFilePath}
+                        patchPath={patchPath}
+                      />
+                      <WindowField path={path} />
+                    </Fragment>
+                  );
+                },
               )}
             <Button className="self-end" type="submit">
               Done

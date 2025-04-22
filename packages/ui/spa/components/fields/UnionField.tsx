@@ -91,7 +91,7 @@ export function UnionField({ path }: { path: SourcePath }) {
       );
     }
     return (
-      <div>
+      <div id={path}>
         <ValidationErrors path={path} />
         <SelectField
           path={path}
@@ -128,7 +128,7 @@ export function UnionField({ path }: { path: SourcePath }) {
       );
     }
     return (
-      <div>
+      <div id={path}>
         <ValidationErrors path={path} />
         <ObjectUnionField path={path} schema={schemaAtPath.data} />
       </div>

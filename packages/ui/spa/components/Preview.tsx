@@ -66,7 +66,7 @@ export function Preview({ path }: { path: SourcePath }) {
 
 export function PreviewLoading({ path }: { path: SourcePath }) {
   return (
-    <div key={path + "-loading"}>
+    <div id={path} key={path + "-loading"}>
       <Loader2 size={12} className="animate-spin" />
     </div>
   );
@@ -74,7 +74,7 @@ export function PreviewLoading({ path }: { path: SourcePath }) {
 
 export function PreviewNull({ path }: { path: SourcePath }) {
   return (
-    <div key={path + "-null"} className="text-text-quartenary">
+    <div id={path} key={path + "-null"} className="text-text-quartenary">
       null
     </div>
   );

@@ -55,7 +55,7 @@ export function BooleanField({ path }: { path: SourcePath }) {
   // null is the "indeterminate" state
   const current = source === null ? "indeterminate" : source;
   return (
-    <div>
+    <div id={path}>
       <ValidationErrors path={path} />
       <Checkbox
         checked={current}
@@ -119,6 +119,7 @@ export function EmbeddedBooleanField({
   }
   return (
     <Checkbox
+      id={path}
       disabled={loadingStatus === "loading"}
       checked={
         source === null

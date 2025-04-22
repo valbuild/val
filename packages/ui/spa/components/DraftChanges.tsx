@@ -24,7 +24,6 @@ import {
 } from "./ValProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
-import { prettifyFilename } from "../utils/prettifyFilename";
 import { ChevronDown, Loader2, Sparkles, Undo2, X } from "lucide-react";
 import { PatchMetadata, PatchSetMetadata } from "../utils/PatchSets";
 import { AnimateHeight } from "./AnimateHeight";
@@ -58,6 +57,7 @@ import {
   TooltipTrigger,
 } from "./designSystem/tooltip";
 import { TooltipPortal } from "@radix-ui/react-tooltip";
+import { ValPath } from "./ValPath";
 
 export function DraftChanges({
   className,
@@ -269,7 +269,6 @@ function Deployments({
 
 function Deployment({
   deployment,
-  onDismiss,
 }: {
   deployment: ValEnrichedDeployment;
   onDismiss: () => void;
@@ -398,11 +397,8 @@ function PatchCard({
   }
   return (
     <PatchOrPatchSetCard
-      path={moduleFilePath
-        .split("/")
-        .map(prettifyFilename)
-        .slice(1)
-        .concat(patchMetadata.patchPath)}
+      moduleFilePath={moduleFilePath}
+      patchPath={patchMetadata.patchPath}
       changeDescription={skipped ? "Skipped" : changeDescription}
       authors={authors}
       errors={errors}
@@ -516,11 +512,8 @@ function PatchSetCard({
   return (
     <>
       <PatchOrPatchSetCard
-        path={patchSet.moduleFilePath
-          .split("/")
-          .map(prettifyFilename)
-          .slice(1)
-          .concat(patchSet.patchPath)}
+        moduleFilePath={patchSet.moduleFilePath}
+        patchPath={patchSet.patchPath}
         isApplied={isApplied}
         authors={patchSet.authors
           .reduce((prev, curr) => {
@@ -576,7 +569,8 @@ function PatchSetCard({
 const PatchOrPatchSetCard = forwardRef<
   HTMLDivElement,
   {
-    path?: string[];
+    moduleFilePath?: ModuleFilePath;
+    patchPath?: string[];
     changeDescription?: string;
     authors?: { url: string | null; fullName: string }[];
     isOpen?: boolean;
@@ -592,7 +586,8 @@ const PatchOrPatchSetCard = forwardRef<
 >(
   (
     {
-      path,
+      moduleFilePath,
+      patchPath,
       changeDescription,
       authors,
       isOpen,
@@ -617,42 +612,20 @@ const PatchOrPatchSetCard = forwardRef<
         })}
       >
         <div className="relative">
-          <span
-            title={path?.join("/") + "/"}
-            className={classNames(
-              "inline-block w-[calc(320px-24px-8px-16px-24px-48px)] truncate mr-2 overflow-y-hidden h-6 text-left",
-              {
-                "animate-pulse bg-bg-disabled rounded-3xl": path === undefined,
-                "text-text-disabled": skipped,
-              },
+          <span className="inline-block w-[calc(320px-24px-8px-16px-24px-48px)] truncate mr-2 ">
+            {moduleFilePath && patchPath && (
+              <ValPath
+                moduleFilePath={moduleFilePath}
+                patchPath={patchPath}
+                link
+                toolTip
+              />
             )}
-            dir="rtl"
-          >
-            {path !== undefined &&
-              // path.map((pathPart, index) => (
-              //   <Fragment key={index}>
-              //     {index === 0 && (
-              //       <span className="text-text-quartenary">/</span>
-              //     )}
-              //     <span
-              //       className={classNames("truncate", {
-              //         "font-bold": index === path.length - 1,
-              //         "text-text-quartenary": index !== path.length - 1,
-              //       })}
-              //     >
-              //       {pathPart}
-              //     </span>
-              //     {index !== path.length - 1 && (
-              //       <span className="text-text-quartenary">/</span>
-              //     )}
-              //   </Fragment>
-              // ))
-              path.join("/") + "/"}
           </span>
           {isSelected === undefined && (
             <span
               className={classNames("inline-block w-6 h-6 rounded", {
-                "bg-bg-disabled animate-pulse": path === undefined,
+                "bg-bg-disabled animate-pulse": patchPath === undefined,
               })}
             ></span>
           )}

@@ -153,7 +153,7 @@ export function RichTextField({
     );
   }
   return (
-    <div>
+    <div id={path}>
       <ValidationErrors path={path} />
       <RichTextEditor
         autoFocus={autoFocus}

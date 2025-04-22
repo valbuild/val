@@ -13,6 +13,7 @@ type ValRouterContextValue = {
   navigate: (
     path: SourcePath | ModuleFilePath,
     params?: {
+      scrollToId?: string;
       replace?: true;
     },
   ) => void;
@@ -74,15 +75,28 @@ export function ValRouter({
     };
   }, []);
   const navigate = useCallback(
-    (path: SourcePath | ModuleFilePath, params?: { replace?: true }) => {
+    (
+      path: SourcePath | ModuleFilePath,
+      params?: { scrollToId?: string; replace?: true },
+    ) => {
       const navigateTo = `${VAL_CONTENT_VIEW_ROUTE}${path}`;
       setSourcePath(path as SourcePath);
       if (!overlay) {
-        const scrollContainer = document
-          .getElementById("val-shadow-root")
-          ?.shadowRoot?.getElementById("val-content-area");
+        const shadowRoot =
+          document.getElementById("val-shadow-root")?.shadowRoot;
+        const scrollContainer = shadowRoot?.getElementById("val-content-area");
         const prevScrollPos = scrollContainer?.scrollTop;
-        scrollContainer?.scrollTo(0, 0);
+        if (params?.scrollToId && shadowRoot) {
+          setTimeout(() => {
+            if (params?.scrollToId && shadowRoot) {
+              shadowRoot.getElementById(params.scrollToId)?.scrollIntoView({
+                behavior: "smooth",
+              });
+            }
+          }, 100);
+        } else {
+          scrollContainer?.scrollTo(0, 0);
+        }
         if (prevScrollPos !== undefined) {
           // NOTE: we cannot use history.state since it is overridden by Next.js
           historyState.current.push(prevScrollPos);

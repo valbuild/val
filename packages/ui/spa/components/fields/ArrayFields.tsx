@@ -52,7 +52,7 @@ export function ArrayFields({ path }: { path: SourcePath }) {
   }
   const schema = schemaAtPath.data as SerializedArraySchema;
   return (
-    <div>
+    <div id={path}>
       <ValidationErrors path={path} />
       <SortableList
         path={path}
