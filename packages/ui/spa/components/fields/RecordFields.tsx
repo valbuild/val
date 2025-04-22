@@ -55,7 +55,7 @@ export function RecordFields({ path }: { path: SourcePath }) {
   }
   const source = sourceAtPath.data;
   return (
-    <div>
+    <div id={path}>
       <ValidationErrors path={path} />
       <div className="grid grid-cols-1 gap-4">
         {source &&

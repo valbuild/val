@@ -1,10 +1,10 @@
 import { SourcePath } from "@valbuild/core";
-import { useSchemaAtPath } from "./ValProvider";
+import { useAllSources, useSchemaAtPath, useSchemas } from "./ValProvider";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FieldLoading } from "./FieldLoading";
 import { FieldNotFound } from "./FieldNotFound";
 import { AnyField } from "./AnyField";
-import { Fragment } from "react";
+import { Fragment, useCallback } from "react";
 import { ChevronRight } from "lucide-react";
 import { useNavigation } from "./ValRouter";
 import {
@@ -12,11 +12,32 @@ import {
   splitIntoInitAndLastParts,
 } from "./ArrayAndRecordTools";
 import { isParentArray, useParent } from "../hooks/useParent";
+import { getNavPathFromAll } from "./getNavPath";
 
 export function Module({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
   const { path: maybeParentPath, schema: parentSchema } = useParent(path);
   const { navigate } = useNavigation();
+  const sources = useAllSources();
+  const schemasRes = useSchemas();
+  const onNavigate = useCallback(
+    (path: SourcePath) => {
+      if ("data" in schemasRes) {
+        const schemas = schemasRes.data;
+        const navPath = getNavPathFromAll(path, sources, schemas);
+        if (navPath) {
+          navigate(navPath);
+        } else {
+          navigate(path);
+          console.error(`Error navigating to path: ${path} - no schemas found`);
+        }
+      } else {
+        console.warn("Schemas not loaded yet");
+        navigate(path);
+      }
+    },
+    [schemasRes, sources, navigate],
+  );
   if (schemaAtPath.status === "error") {
     return (
       <FieldSchemaError path={path} error={schemaAtPath.error} type="module" />
@@ -45,7 +66,7 @@ export function Module({ path }: { path: SourcePath }) {
                   <Fragment key={i}>
                     <button
                       onClick={() => {
-                        navigate(part.sourcePath);
+                        onNavigate(part.sourcePath);
                       }}
                     >
                       {part.text}
@@ -59,7 +80,7 @@ export function Module({ path }: { path: SourcePath }) {
               return (
                 <button
                   onClick={() => {
-                    navigate(part.sourcePath);
+                    onNavigate(part.sourcePath);
                   }}
                   key={i}
                 >

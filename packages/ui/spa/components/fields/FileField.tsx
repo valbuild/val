@@ -189,7 +189,7 @@ export function FileField({ path }: { path: SourcePath }) {
     filename = filePathRef.split("/").slice(-1)[0];
   }
   return (
-    <div>
+    <div id={path}>
       <ValidationErrors path={path} />
       {error && (
         <div className="p-4 rounded bg-bg-error-primary text-text-error-primary">

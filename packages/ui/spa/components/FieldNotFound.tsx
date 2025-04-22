@@ -26,7 +26,7 @@ export function FieldNotFound({
     return <FieldLoading path={path} type={type} />;
   }
   return (
-    <div className="pt-6">
+    <div className="pt-6" id={path}>
       <div>Could not get data</div>
     </div>
   );

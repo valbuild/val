@@ -71,7 +71,7 @@ export function StringField({
     );
   }
   return (
-    <div>
+    <div id={path}>
       <ValidationErrors path={path} />
       <div className="relative w-full">
         <Input

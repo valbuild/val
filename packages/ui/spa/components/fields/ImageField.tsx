@@ -153,8 +153,11 @@ export function ImageField({ path }: { path: SourcePath }) {
           remoteHost: config.remoteHost,
         }
       : null;
+  const metadataPath = Internal.createValPathOfItem(path, "metadata");
+  const altPath = Internal.createValPathOfItem(metadataPath, "alt");
+  const hotspotPath = Internal.createValPathOfItem(metadataPath, "hotspot");
   return (
-    <div>
+    <div id={path}>
       <ValidationErrors path={path} />
       {error && (
         <div className="p-4 rounded bg-bg-error-primary text-text-error-primary">
@@ -171,7 +174,7 @@ export function ImageField({ path }: { path: SourcePath }) {
 
       {source && (
         <div className="p-4 rounded-t-lg bg-bg-secondary">
-          <span>Alt text</span>
+          <span id={altPath}>Alt text</span>
           <Input
             value={
               source.metadata?.alt
@@ -243,6 +246,7 @@ export function ImageField({ path }: { path: SourcePath }) {
             style={{
               cursor: "crosshair",
             }}
+            id={hotspotPath}
             onClick={(ev) => {
               const { width, height, left, top } =
                 ev.currentTarget.getBoundingClientRect();

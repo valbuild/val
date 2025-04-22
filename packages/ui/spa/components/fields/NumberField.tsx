@@ -51,7 +51,7 @@ export function NumberField({ path }: { path: SourcePath }) {
   }
   const source = sourceAtPath.data;
   return (
-    <div>
+    <div id={path}>
       <ValidationErrors path={path} />
       <Input
         inputMode="numeric"

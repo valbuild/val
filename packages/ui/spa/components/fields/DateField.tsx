@@ -81,7 +81,7 @@ export function DateField({ path }: { path: SourcePath }) {
 
   const schema = schemaAtPath.data;
   return (
-    <div>
+    <div id={path}>
       <ValidationErrors path={path} />
       <Popover
         open={isPopoverOpen}

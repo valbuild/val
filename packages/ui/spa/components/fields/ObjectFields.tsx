@@ -49,7 +49,7 @@ export function ObjectFields({ path }: { path: SourcePath }) {
   }
   const schema = schemaAtPath.data;
   return (
-    <div>
+    <div id={path}>
       <ValidationErrors path={path} />
       <div className="flex flex-col gap-6">
         {Object.entries(schema.items).map(([key, itemSchema]) => {
@@ -105,7 +105,10 @@ export function ObjectLikePreview({
   schema: { items: Record<string, SerializedSchema> };
 }) {
   return (
-    <div className="grid grid-cols-[min-content,1fr] text-left gap-2 text-xs">
+    <div
+      id={path}
+      className="grid grid-cols-[min-content,1fr] text-left gap-2 text-xs"
+    >
       {Object.keys(schema.items).map((key) => {
         const subPath = sourcePathOfItem(path, key);
         return (

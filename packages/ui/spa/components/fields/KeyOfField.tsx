@@ -128,7 +128,7 @@ export function KeyOfField({ path }: { path: SourcePath }) {
       : undefined;
   const source = sourceAtPath.data;
   return (
-    <div>
+    <div id={path}>
       <ValidationErrors path={path} />
       {keys && keys.length > 0 && source !== null && !keys.includes(source) && (
         <div className="flex flex-col gap-2 p-4 rounded bg-bg-error-primary text-text-error-primary">

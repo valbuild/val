@@ -3,9 +3,7 @@ import classNames from "classnames";
 import { Loader2 } from "lucide-react";
 
 export function FieldLoading({
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   path,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   type,
 }: {
   path: SourcePath;
@@ -13,6 +11,7 @@ export function FieldLoading({
 }) {
   return (
     <div
+      id={path}
       className={classNames("pt-6", {
         "w-full flex items-center justify-center": type === "module",
         "text-left": type !== "module",

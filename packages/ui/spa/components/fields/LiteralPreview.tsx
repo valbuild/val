@@ -18,5 +18,9 @@ export function LiteralPreview({ path }: { path: SourcePath }) {
   if (sourceAtPath.data === null) {
     return <PreviewNull path={path} />;
   }
-  return <div className="truncate">{sourceAtPath.data}</div>;
+  return (
+    <div id={path} className="truncate">
+      {sourceAtPath.data}
+    </div>
+  );
 }
