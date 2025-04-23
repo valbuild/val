@@ -1021,11 +1021,6 @@ export class ValSyncEngine {
     const patchIdsDidChange =
       this.globalServerSidePatchIds === null ||
       !deepEqual(this.globalServerSidePatchIds, patchIds);
-    console.log("syncWithUpdatedStat", {
-      patchIdsDidChange,
-      patchIds,
-      globalServerSidePatchIds: this.globalServerSidePatchIds,
-    });
     if (patchIdsDidChange) {
       // Do not update the globalServerSidePatchIds if they are the same
       // since we using this directly in get snapshot method
