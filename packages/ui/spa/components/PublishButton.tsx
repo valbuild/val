@@ -57,12 +57,6 @@ export function PublishButton() {
       </Button>
     );
   }
-  console.log({
-    publishDisabled,
-    hasValidationErrors,
-    pendingServerSidePatchIds,
-    pendingClientSidePatchIds,
-  });
   return (
     <span>
       <Popover
