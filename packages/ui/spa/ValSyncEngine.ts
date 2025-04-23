@@ -110,10 +110,11 @@ export class ValSyncEngine {
      * They will be showed in a toast notification. (should we rename to toastQueue?)
      * Examples: network errors, transient sync errors, ...
      */
-    transientGlobalErrorQueue: {
+    globalTransientErrorQueue: {
       message: string;
       timestamp: number;
       details?: string;
+      id: string;
     }[];
     // TODO: unused for now, so remove:
     // /**
@@ -187,6 +188,7 @@ export class ValSyncEngine {
     this.cachedInitializedAtSnapshot = null;
     this.cachedAutoPublishSnapshot = null;
     this.cachedPublishDisabledSnapshot = null;
+    this.cachedGlobalTransientErrorSnapshot = null;
   }
 
   setAutoPublish(now: number, autoPublish: boolean) {
@@ -292,6 +294,7 @@ export class ValSyncEngine {
     this.cachedInitializedAtSnapshot = null;
     this.cachedAutoPublishSnapshot = null;
     this.cachedPublishDisabledSnapshot = null;
+    this.cachedGlobalTransientErrorSnapshot = null;
 
     this.invalidateInitializedAt();
   }
@@ -320,10 +323,7 @@ export class ValSyncEngine {
     path: SourcePath,
   ): (listener: () => void) => () => void;
   subscribe(
-    type: "transient-global-error",
-  ): (listener: () => void) => () => void;
-  subscribe(
-    type: "persistent-global-error",
+    type: "global-transient-errors",
   ): (listener: () => void) => () => void;
   subscribe(
     type: "global-server-side-patch-ids",
@@ -407,11 +407,8 @@ export class ValSyncEngine {
     this.cachedValidationErrors = null;
     this.emit(this.listeners["all-validation-errors"]?.[globalNamespace]);
   }
-  private invalidateTransientGlobalError() {
-    this.emit(this.listeners["transient-global-error"]?.[globalNamespace]);
-  }
-  private invalidatePersistentGlobalError() {
-    this.emit(this.listeners["persistent-global-error"]?.[globalNamespace]);
+  private invalidateGlobalTransientErrors() {
+    this.emit(this.listeners["global-transient-errors"]?.[globalNamespace]);
   }
   private invalidatePatchSets() {
     this.cachedSerializedPatchSetsSnapshot = null;
@@ -740,6 +737,22 @@ export class ValSyncEngine {
     return this.cachedAutoPublishSnapshot;
   }
 
+  private cachedGlobalTransientErrorSnapshot:
+    | {
+        message: string;
+        timestamp: number;
+        details?: string;
+        id: string;
+      }[]
+    | null;
+  getGlobalTransientErrorsSnapshot() {
+    if (this.cachedGlobalTransientErrorSnapshot === null) {
+      this.cachedGlobalTransientErrorSnapshot =
+        this.errors.globalTransientErrorQueue?.slice() || [];
+    }
+    return this.cachedGlobalTransientErrorSnapshot;
+  }
+
   // #region Patching
   addPatch(
     sourcePath: SourcePath | ModuleFilePath,
@@ -772,7 +785,7 @@ export class ValSyncEngine {
     ) {
       // This happens if the client add patches, but the server sources have not yet been initialized
       // so this should not happen
-      this.addTransientGlobalError(
+      this.addGlobalTransientError(
         `Content at '${moduleFilePath}' is not yet initialized`,
         now,
       );
@@ -794,7 +807,7 @@ export class ValSyncEngine {
     );
     if (result.isErr(patchRes)) {
       console.error("Could not apply patch:", patchRes.error);
-      this.addTransientGlobalError(
+      this.addGlobalTransientError(
         `Could apply patch: ${patchRes.error.message}`,
         now,
       );
@@ -1083,7 +1096,7 @@ export class ValSyncEngine {
     }
     const parentRef = this.getParentRef();
     if (parentRef === null) {
-      this.addTransientGlobalError(
+      this.addGlobalTransientError(
         `Tried to update content with changes, but could not since Val is not yet initialized`,
         now,
       );
@@ -1100,7 +1113,7 @@ export class ValSyncEngine {
     });
     if (addPatchesRes.status === null) {
       console.warn("Network error: trying again...");
-      this.addTransientGlobalError("Network error: trying again", now);
+      this.addGlobalTransientError("Network error: trying again", now);
       // Try again if it is a network error:
       return {
         status: "retry",
@@ -1118,7 +1131,7 @@ export class ValSyncEngine {
       console.error("Failed to add patches", {
         error: addPatchesRes.json.message,
       });
-      this.addTransientGlobalError(
+      this.addGlobalTransientError(
         `Failed to save changes`,
         now,
         addPatchesRes.json.message,
@@ -1211,14 +1224,14 @@ export class ValSyncEngine {
       },
     });
     if (deleteRes.status === null) {
-      this.addTransientGlobalError("Network error: trying again", now);
+      this.addGlobalTransientError("Network error: trying again", now);
       return {
         status: "retry",
         reason: "network-error",
       };
     } else if (deleteRes.status !== 200) {
       // Give up unless it is a network error
-      this.addTransientGlobalError("Failed to delete patches", now);
+      this.addGlobalTransientError("Failed to delete patches", now);
     } else {
       for (const patchId of op.patchIds) {
         if (this.patchDataByPatchId[patchId]) {
@@ -1322,7 +1335,7 @@ export class ValSyncEngine {
         },
       });
       if (res.status !== 200) {
-        this.addTransientGlobalError(
+        this.addGlobalTransientError(
           "Failed to get changes (full sync)",
           now,
           `Did not get ok status (got: ${res.status}): ${res.json.message}`,
@@ -1349,7 +1362,7 @@ export class ValSyncEngine {
         }
       }
       if (res.json.error) {
-        this.addTransientGlobalError(
+        this.addGlobalTransientError(
           "Some changes has errors",
           now,
           res.json.error.message,
@@ -1357,7 +1370,7 @@ export class ValSyncEngine {
       }
       for (const error of Object.values(res.json.errors || {})) {
         if (error) {
-          this.addTransientGlobalError(
+          this.addGlobalTransientError(
             "A change has an error",
             now,
             error.message,
@@ -1387,7 +1400,7 @@ export class ValSyncEngine {
             },
           });
           if (res.status !== 200) {
-            this.addTransientGlobalError(
+            this.addGlobalTransientError(
               "Failed to get changes (batch)",
               now,
               `Did not get ok status (got: ${res.status}): ${res.json.message}`,
@@ -1467,7 +1480,7 @@ export class ValSyncEngine {
           currentPatchIds,
           reset,
         });
-        this.addTransientGlobalError(
+        this.addGlobalTransientError(
           "Failed to get changes",
           now,
           `Missing data for patch ids: ${missingDataPatchIds.join(", ")}`,
@@ -1695,13 +1708,13 @@ export class ValSyncEngine {
           },
         });
         if (sourcesRes.status === null) {
-          this.addTransientGlobalError("Network error: trying again", now);
+          this.addGlobalTransientError("Network error: trying again", now);
           return {
             status: "retry",
             reason: "network-error",
           };
         } else if (sourcesRes.status !== 200) {
-          this.addTransientGlobalError(
+          this.addGlobalTransientError(
             "Could not sync content with server. Please wait or reload the application.",
             now,
             sourcesRes.json.message,
@@ -1771,7 +1784,7 @@ export class ValSyncEngine {
                 this.syncedServerSidePatchIds.push(syncedPatchId);
               }
             } else {
-              this.addTransientGlobalError(
+              this.addGlobalTransientError(
                 `Could not find '${moduleFilePath}' in server reply`,
                 now,
                 "This is most likely a bug",
@@ -1875,7 +1888,7 @@ export class ValSyncEngine {
           "Skipping publish since there's validation errors",
           this.errors.validationErrors,
         );
-        this.addTransientGlobalError(
+        this.addGlobalTransientError(
           "Could not publish changes, since there are validation errors",
           now,
         );
@@ -1885,7 +1898,7 @@ export class ValSyncEngine {
         } as const;
       }
       if (patchIds.length === 0) {
-        this.addTransientGlobalError(
+        this.addGlobalTransientError(
           "Could not publish changes, since there are no changes to publish",
           Date.now(),
         );
@@ -1900,7 +1913,7 @@ export class ValSyncEngine {
         },
       });
       if (res.status === null) {
-        this.addTransientGlobalError(
+        this.addGlobalTransientError(
           "Network error: could not publish",
           Date.now(),
         );
@@ -1908,7 +1921,7 @@ export class ValSyncEngine {
           status: "retry",
         } as const;
       } else if (res.status !== 200) {
-        this.addTransientGlobalError(
+        this.addGlobalTransientError(
           "Failed to publish changes",
           Date.now(),
           res.json.message,
@@ -1940,7 +1953,7 @@ export class ValSyncEngine {
       }
     } catch (err) {
       console.error("Error while publishing", err);
-      this.addTransientGlobalError(
+      this.addGlobalTransientError(
         "Failed to publish changes",
         Date.now(),
         (err as Error).message,
@@ -1956,17 +1969,29 @@ export class ValSyncEngine {
     }
   }
 
-  addTransientGlobalError(message: string, now: number, details?: string) {
-    if (!this.errors.transientGlobalErrorQueue) {
-      this.errors.transientGlobalErrorQueue = [];
+  addGlobalTransientError(message: string, now: number, details?: string) {
+    if (!this.errors.globalTransientErrorQueue) {
+      this.errors.globalTransientErrorQueue = [];
     }
-    console.error("Transient global error", message, details || "");
-    this.errors.transientGlobalErrorQueue.push({
+    console.error("Global transient error", message, details || "");
+    this.errors.globalTransientErrorQueue.push({
       message,
       details,
       timestamp: now,
+      id: crypto.randomUUID(),
     });
-    this.invalidateTransientGlobalError();
+    this.invalidateGlobalTransientErrors();
+  }
+
+  removeGlobalTransientErrors(ids: string[]) {
+    if (this.errors.globalTransientErrorQueue) {
+      const idsSet = new Set(ids);
+      this.errors.globalTransientErrorQueue =
+        this.errors.globalTransientErrorQueue.filter(
+          (error) => !idsSet.has(error.id),
+        );
+      this.invalidateGlobalTransientErrors();
+    }
   }
 }
 
@@ -2020,8 +2045,9 @@ type SyncEngineListenerType =
   | "all-patches"
   | "validation-error"
   | "all-validation-errors"
-  | "transient-global-error"
-  | "persistent-global-error"
+  | "global-transient-errors"
+  | "failed-patches"
+  | "skipped-patches"
   | "global-server-side-patch-ids"
   | "pending-client-side-patch-ids"
   | "synced-server-side-patch-ids"
