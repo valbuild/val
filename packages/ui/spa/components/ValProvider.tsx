@@ -1171,6 +1171,21 @@ export function useAllValidationErrors() {
   return validationErrors;
 }
 
+export function useGlobalTransientErrors() {
+  const { syncEngine } = useContext(ValContext);
+  const globalTransientErrors = useSyncExternalStore(
+    syncEngine.subscribe("global-transient-errors"),
+    () => syncEngine.getGlobalTransientErrorsSnapshot(),
+    () => syncEngine.getGlobalTransientErrorsSnapshot(),
+  );
+  return {
+    globalTransientErrors,
+    removeGlobalTransientErrors: (ids: string[]) => {
+      syncEngine.removeGlobalTransientErrors(ids);
+    },
+  };
+}
+
 export function useErrors() {
   const globalErrors: string[] = [];
   const patchErrors: Record<PatchId, string[]> = {};
