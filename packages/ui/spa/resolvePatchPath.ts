@@ -10,8 +10,8 @@ import {
 
 export function resolvePatchPath(
   patchPath: string[],
-  schema: SerializedSchema,
-  source: Json,
+  schema: SerializedSchema | undefined,
+  source: Json | undefined,
 ):
   | {
       success: true;
@@ -38,6 +38,18 @@ export function resolvePatchPath(
       current += "." + part;
     }
   };
+  if (schema === undefined) {
+    return {
+      success: false,
+      error: `Undefined schema in: '${patchPath.join("/")}'.`,
+    };
+  }
+  if (source === undefined) {
+    return {
+      success: false,
+      error: `Undefined source in: '${patchPath.join("/")}'.`,
+    };
+  }
   let currentSchema: SerializedSchema = schema;
   let currentSource: Json = source;
   const allResolved: {
