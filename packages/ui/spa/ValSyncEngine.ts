@@ -537,8 +537,9 @@ export class ValSyncEngine {
     }
     if (this.cachedSourceSnapshots[sourcePath] === undefined) {
       const moduleData =
-        this.optimisticClientSources[sourcePath] ||
-        this.serverSources?.[sourcePath];
+        this.optimisticClientSources[sourcePath] !== undefined
+          ? this.optimisticClientSources[sourcePath]
+          : this.serverSources?.[sourcePath];
 
       if (this.schemas === null) {
         this.cachedSourceSnapshots[sourcePath] = {
