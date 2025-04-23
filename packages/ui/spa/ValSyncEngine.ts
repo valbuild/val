@@ -131,6 +131,10 @@ export class ValSyncEngine {
     // /** Errors that prohibits publishing */
     // publishError: string | null;
     // patchErrors: Record<PatchId, string | null>;
+    /**
+     * If hasNetworkErrorTimestamp is not null, we show a network error
+     */
+    hasNetworkErrorTimestamp: number | null;
     validationErrors: Record<SourcePath, ValidationError[] | undefined>;
   }>;
   /**
@@ -325,6 +329,7 @@ export class ValSyncEngine {
   subscribe(
     type: "global-transient-errors",
   ): (listener: () => void) => () => void;
+  subscribe(type: "network-error"): (listener: () => void) => () => void;
   subscribe(
     type: "global-server-side-patch-ids",
   ): (listener: () => void) => () => void;
@@ -408,7 +413,13 @@ export class ValSyncEngine {
     this.emit(this.listeners["all-validation-errors"]?.[globalNamespace]);
   }
   private invalidateGlobalTransientErrors() {
+    this.cachedGlobalTransientErrorSnapshot = null;
     this.emit(this.listeners["global-transient-errors"]?.[globalNamespace]);
+  }
+  private invalidateNetworkError() {
+    // NOTE: normally we invalidate by setting to null, but network error can be null as well
+    this.cachedNetworkErrorSnapshot = undefined;
+    this.emit(this.listeners["network-error"]?.[globalNamespace]);
   }
   private invalidatePatchSets() {
     this.cachedSerializedPatchSetsSnapshot = null;
@@ -751,6 +762,15 @@ export class ValSyncEngine {
         this.errors.globalTransientErrorQueue?.slice() || [];
     }
     return this.cachedGlobalTransientErrorSnapshot;
+  }
+
+  private cachedNetworkErrorSnapshot: number | null | undefined;
+  getNetworkErrorSnapshot() {
+    if (this.cachedNetworkErrorSnapshot === undefined) {
+      this.cachedNetworkErrorSnapshot =
+        this.errors.hasNetworkErrorTimestamp || null;
+    }
+    return this.cachedNetworkErrorSnapshot;
   }
 
   // #region Patching
@@ -1111,9 +1131,12 @@ export class ValSyncEngine {
         parentRef,
       },
     });
+    if (addPatchesRes.status !== null) {
+      this.resetNetworkError();
+    }
     if (addPatchesRes.status === null) {
       console.warn("Network error: trying again...");
-      this.addGlobalTransientError("Network error: trying again", now);
+      this.addNetworkError(now);
       // Try again if it is a network error:
       return {
         status: "retry",
@@ -1223,8 +1246,11 @@ export class ValSyncEngine {
         id: op.patchIds.reverse(),
       },
     });
+    if (deleteRes.status !== null) {
+      this.resetNetworkError();
+    }
     if (deleteRes.status === null) {
-      this.addGlobalTransientError("Network error: trying again", now);
+      this.addNetworkError(now);
       return {
         status: "retry",
         reason: "network-error",
@@ -1480,11 +1506,15 @@ export class ValSyncEngine {
           currentPatchIds,
           reset,
         });
-        this.addGlobalTransientError(
-          "Failed to get changes",
-          now,
-          `Missing data for patch ids: ${missingDataPatchIds.join(", ")}`,
-        );
+        // TODO: we disabled this error on fs since in auto save it comes every time it saves.
+        // We should figure out why that happens and re-enable the error
+        if (this.mode !== "fs") {
+          this.addGlobalTransientError(
+            "Failed to get changes",
+            now,
+            `Missing data for patch ids: ${missingDataPatchIds.join(", ")}`,
+          );
+        }
       }
       return {
         status: "retry",
@@ -1707,8 +1737,11 @@ export class ValSyncEngine {
             validate_binary_files: false,
           },
         });
+        if (sourcesRes.status !== null) {
+          this.resetNetworkError();
+        }
         if (sourcesRes.status === null) {
-          this.addGlobalTransientError("Network error: trying again", now);
+          this.addNetworkError(now);
           return {
             status: "retry",
             reason: "network-error",
@@ -1969,6 +2002,16 @@ export class ValSyncEngine {
     }
   }
 
+  resetNetworkError() {
+    this.errors.hasNetworkErrorTimestamp = null;
+    this.invalidateNetworkError();
+  }
+
+  addNetworkError(now: number) {
+    this.errors.hasNetworkErrorTimestamp = now;
+    this.invalidateNetworkError();
+  }
+
   addGlobalTransientError(message: string, now: number, details?: string) {
     if (!this.errors.globalTransientErrorQueue) {
       this.errors.globalTransientErrorQueue = [];
@@ -2048,6 +2091,7 @@ type SyncEngineListenerType =
   | "global-transient-errors"
   | "failed-patches"
   | "skipped-patches"
+  | "network-error"
   | "global-server-side-patch-ids"
   | "pending-client-side-patch-ids"
   | "synced-server-side-patch-ids"

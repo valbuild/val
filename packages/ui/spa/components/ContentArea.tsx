@@ -2,16 +2,25 @@ import { ScrollArea } from "./designSystem/scroll-area";
 import { Module } from "./Module";
 import { PanelRightOpen, Search } from "lucide-react";
 import { useNavigation } from "./ValRouter";
-import { useConnectionStatus } from "./ValProvider";
+import { useConnectionStatus, useNetworkError } from "./ValProvider";
 import { useLayout } from "./Layout";
 import classNames from "classnames";
 
 export function ContentArea() {
   const connectionStatus = useConnectionStatus();
+  const networkError = useNetworkError();
   return (
     <>
       <ContentAreaHeader />
       <ScrollArea viewportId="val-content-area">
+        {networkError !== null && (
+          <>
+            <div className="w-full h-16"></div>
+            <div className="absolute w-full h-16 top-0 p-4 text-center text-white bg-bg-error-primary z-[10]">
+              Network error - retrying...
+            </div>
+          </>
+        )}
         <div className="max-h-[calc(100svh-64px)] max-w-[800px] px-4 mx-auto">
           {connectionStatus === "service-unavailable" ? (
             <div className="p-8 mt-20 text-center text-text-error-primary bg-bg-error-primary">
