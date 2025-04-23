@@ -1,11 +1,6 @@
 import { promises as fs } from "fs";
 import * as path from "path";
-import {
-  DEFAULT_CONTENT_HOST,
-  DEFAULT_VAL_REMOTE_HOST,
-  ValConfig,
-  ValModules,
-} from "@valbuild/core";
+import { DEFAULT_CONTENT_HOST, ValConfig, ValModules } from "@valbuild/core";
 import {
   Api,
   ApiEndpoint,
