@@ -530,6 +530,7 @@ export function useValConfig() {
     | (ValConfig & {
         remoteHost: string;
         appHost: string;
+        studioPrefix: string;
       })
     | undefined
   >(
@@ -537,6 +538,7 @@ export function useValConfig() {
       ...config,
       remoteHost: DEFAULT_VAL_REMOTE_HOST,
       appHost: DEFAULT_APP_HOST,
+      studioPrefix: "/val/~",
     },
   );
   useEffect(() => {
@@ -545,6 +547,7 @@ export function useValConfig() {
         ...config,
         remoteHost: DEFAULT_VAL_REMOTE_HOST,
         appHost: DEFAULT_APP_HOST,
+        studioPrefix: "/val/~",
       };
     }
   }, [config]);
