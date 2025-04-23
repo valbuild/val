@@ -128,14 +128,14 @@ export function ValPath({
           scrollToId: sourcePath,
         };
       } else {
-        console.error(
+        console.debug(
           `Failed to resolve nav path for ${moduleFilePath} and ${patchPath.join(
             ".",
           )}: ${navPath}`,
         );
       }
     } else {
-      console.error(
+      console.debug(
         `Failed to resolve source path for ${moduleFilePath} and ${patchPath.join(
           ".",
         )}: ${resolvedSourcePath.error}`,
