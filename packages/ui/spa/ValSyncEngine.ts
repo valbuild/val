@@ -1764,7 +1764,6 @@ export class ValSyncEngine {
                   valModule.validationErrors[sourcePath];
                 changedValidationErrors.add(sourcePath);
               }
-              this.syncedServerSidePatchIds = [];
               for (const syncedPatchId of valModule.patches?.applied || []) {
                 this.syncedServerSidePatchIds.push(syncedPatchId);
               }
