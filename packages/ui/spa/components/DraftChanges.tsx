@@ -21,6 +21,7 @@ import {
   usePublishSummary,
   useAllValidationErrors,
   useAutoPublish,
+  useGlobalTransientErrors,
 } from "./ValProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
@@ -86,6 +87,17 @@ export function DraftChanges({
   const pendingChanges = currentPatchIds.length - committedPatchIds.size;
   const navigation = useNavigation();
   const { deployments, dismissDeployment } = useDeployments();
+  const { globalTransientErrors, removeGlobalTransientErrors } =
+    useGlobalTransientErrors();
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setNow(new Date());
+    }, 60 * 1000);
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
 
   return (
     <div className={classNames("text-sm", className)}>
@@ -153,6 +165,50 @@ export function DraftChanges({
                         ),
                       )}
                     </Accordion>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </ScrollArea>
+        </div>
+      )}
+      {globalTransientErrors && globalTransientErrors.length > 0 && (
+        <div className="sticky top-0 text-white border-b border-border-primary bg-bg-error-primary z-5">
+          <ScrollArea orientation="horizontal">
+            <Accordion type="single" className="px-4 font-serif" collapsible>
+              <AccordionItem
+                value="error"
+                className="border-b-0 data-[state=open]:mb-4"
+              >
+                <AccordionTrigger>
+                  {globalTransientErrors.length} transient error
+                  {globalTransientErrors.length > 1 ? "s" : ""}
+                </AccordionTrigger>
+                <AccordionContent className="w-full">
+                  <div className="flex flex-col gap-2">
+                    {globalTransientErrors.map((error) => (
+                      <div
+                        key={error.id}
+                        className="flex items-start justify-between gap-2"
+                      >
+                        <div className="flex flex-col gap-1">
+                          <div>{error.message}</div>
+                          <div className="text-[10px] font-thin">
+                            {relativeLocalDate(
+                              now,
+                              new Date(error.timestamp).toISOString(),
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() =>
+                            removeGlobalTransientErrors([error.id])
+                          }
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </AccordionContent>
               </AccordionItem>

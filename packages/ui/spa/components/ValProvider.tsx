@@ -1186,6 +1186,16 @@ export function useGlobalTransientErrors() {
   };
 }
 
+export function useNetworkError() {
+  const { syncEngine } = useContext(ValContext);
+  const networkError = useSyncExternalStore(
+    syncEngine.subscribe("network-error"),
+    () => syncEngine.getNetworkErrorSnapshot(),
+    () => syncEngine.getNetworkErrorSnapshot(),
+  );
+  return networkError;
+}
+
 export function useErrors() {
   const globalErrors: string[] = [];
   const patchErrors: Record<PatchId, string[]> = {};
