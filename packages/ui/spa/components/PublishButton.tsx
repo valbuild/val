@@ -3,7 +3,6 @@ import { Button } from "./designSystem/button";
 import {
   useAllValidationErrors,
   useAutoPublish,
-  useCurrentPatchIds,
   usePendingClientSidePatchIds,
   usePendingServerSidePatchIds,
   usePublishSummary,

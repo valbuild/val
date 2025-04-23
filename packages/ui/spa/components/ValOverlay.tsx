@@ -24,7 +24,6 @@ import {
 } from "react";
 import { AnimateHeight } from "./AnimateHeight";
 import { Internal, SourcePath } from "@valbuild/core";
-import { CompressedPath } from "./CompressedPath";
 import { Button } from "./designSystem/button";
 import { AnyField } from "./AnyField";
 import {
@@ -44,8 +43,6 @@ import { urlOf } from "@valbuild/shared/internal";
 import { Popover, PopoverContent } from "./designSystem/popover";
 import { PopoverClose, PopoverTrigger } from "@radix-ui/react-popover";
 import { Switch } from "./designSystem/switch";
-import { prettifyFilename } from "../utils/prettifyFilename";
-import { fixCapitalization } from "../utils/fixCapitalization";
 import { DraftChanges } from "./DraftChanges";
 import { HoverCard } from "./designSystem/hover-card";
 import { HoverCardContent, HoverCardTrigger } from "@radix-ui/react-hover-card";
