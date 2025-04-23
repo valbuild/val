@@ -43,7 +43,7 @@ export function getNavPathFromAll(
 
   const source = allSources[moduleFilePath];
   const schema = schemas[moduleFilePath];
-  if (!source || !schema) {
+  if (source === undefined || !schema) {
     return null;
   }
 
