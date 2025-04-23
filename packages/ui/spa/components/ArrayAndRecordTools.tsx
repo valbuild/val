@@ -40,6 +40,7 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "./designSystem/hover-card";
+import { ValPath } from "./ValPath";
 
 type Variant = "module" | "field";
 export function ArrayAndRecordTools({
@@ -124,11 +125,19 @@ function ReferencesPopover({
       <PopoverContent container={portalContainer}>
         <div className="text-sm">
           <ul>
-            {refs.map((ref) => (
-              <li key={ref}>
-                <CompressedPath path={ref} />
-              </li>
-            ))}
+            {refs.map((ref) => {
+              const [moduleFilePath, modulePath] =
+                Internal.splitModuleFilePathAndModulePath(ref);
+              const patchPath = Internal.createPatchPath(modulePath);
+              return (
+                <li key={ref}>
+                  <ValPath
+                    moduleFilePath={moduleFilePath}
+                    patchPath={patchPath}
+                  />
+                </li>
+              );
+            })}
           </ul>
         </div>
       </PopoverContent>
