@@ -39,7 +39,7 @@ import ts from "typescript";
 import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
 import { ParentPatchId } from "@valbuild/core";
-import { ValCommit } from "@valbuild/shared/internal";
+import { ValCommit, ValDeployment } from "@valbuild/shared/internal";
 
 export type BaseSha = string & { readonly _tag: unique symbol };
 export type ConfigSha = string & { readonly _tag: unique symbol };
