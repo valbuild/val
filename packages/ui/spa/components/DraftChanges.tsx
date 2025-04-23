@@ -90,7 +90,7 @@ export function DraftChanges({
   return (
     <div className={classNames("text-sm", className)}>
       {allValidationErrors && validationErrorsCount > 0 && (
-        <div className="text-white border-b border-border-primary bg-bg-error-primary ">
+        <div className="sticky top-0 text-white border-b border-border-primary bg-bg-error-primary z-5">
           <ScrollArea orientation="horizontal">
             <Accordion type="single" className="px-4 font-serif" collapsible>
               <AccordionItem
