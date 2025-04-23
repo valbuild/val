@@ -29,7 +29,12 @@ import {
 } from "./ValOps";
 import { z } from "zod";
 import { fromError } from "zod-validation-error";
-import { ParentRef, Patch, ValCommit } from "@valbuild/shared/internal";
+import {
+  ParentRef,
+  Patch,
+  ValCommit,
+  ValDeployment,
+} from "@valbuild/shared/internal";
 import { result } from "@valbuild/core/fp";
 
 const textEncoder = new TextEncoder();
@@ -299,6 +304,7 @@ export class ValOpsHttp extends ValOps {
         sourcesSha: SourcesSha;
         commitSha: CommitSha;
         commits: ValCommit[];
+        deployments: ValDeployment[];
         patches: PatchId[];
       }
     | {
@@ -367,6 +373,7 @@ export class ValOpsHttp extends ValOps {
       schemaSha: currentSchemaSha,
       sourcesSha: currentSourcesSha,
       commits: allPatchData.commits || [],
+      deployments: allPatchData.deployments || [],
       patches,
       commitSha: this.commitSha as CommitSha,
     };
@@ -574,20 +581,16 @@ export class ValOpsHttp extends ValOps {
               });
             }
           }
-          const deployments: OrderedPatchesMetadata["d"] = [];
-
+          const deployments: OrderedPatchesMetadata["deployments"] = [];
           if (data.deployments) {
             for (const deployment of data.deployments) {
-              if (deployment.commitSha) {
-                const commit = commits.find(
-                  (c) => c.commitSha === deployment.commitSha,
-                );
-                if (commit) {
-                  commit.deploymentId = deployment.deploymentId;
-                  commit.deploymentState = deployment.deploymentState;
-                  commit.updatedAt = deployment.updatedAt;
-                }
-              }
+              deployments.push({
+                commitSha: deployment.commitSha as CommitSha,
+                deploymentId: deployment.deploymentId,
+                deploymentState: deployment.deploymentState,
+                createdAt: deployment.createdAt,
+                updatedAt: deployment.updatedAt,
+              });
             }
           }
           return {
