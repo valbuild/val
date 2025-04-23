@@ -1933,7 +1933,7 @@ export class ValSyncEngine {
         if (this.mode === "fs") {
           // In fs mode we delete all patch ids, so we start fresh
           this.globalServerSidePatchIds = [];
-          console.log("Deleting all patch ids");
+          console.debug("Deleting all patch ids");
         }
         this.pendingClientPatchIds = [];
         this.syncedServerSidePatchIds = [];
