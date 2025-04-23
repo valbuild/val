@@ -1,6 +1,6 @@
-import { Internal, ModuleFilePath, ModulePath } from "@valbuild/core";
-import { useEffect, useRef, useState } from "react";
-import { useAllSources, useSchemas } from "./ValProvider";
+import { Internal, ModuleFilePath } from "@valbuild/core";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useAllSources, useSchemas, useValConfig } from "./ValProvider";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { Tooltip, TooltipContent } from "./designSystem/tooltip";
 import { TooltipTrigger } from "@radix-ui/react-tooltip";
@@ -8,7 +8,6 @@ import { ScrollArea } from "./designSystem/scroll-area";
 import { getNavPathFromAll } from "./getNavPath";
 import { useNavigation } from "./ValRouter";
 import { resolvePatchPath } from "../resolvePatchPath";
-import { cn } from "./designSystem/cn";
 import classNames from "classnames";
 
 export function ValPath({
@@ -24,6 +23,7 @@ export function ValPath({
   patchPath: string[];
   className?: string;
 }) {
+  const config = useValConfig();
   const containerRef = useRef<HTMLAnchorElement>(null);
   const textWidthCacheRef = useRef<Map<string, number>>(new Map());
   const [segments, setSegments] = useState<Segment[]>([]);
@@ -107,10 +107,53 @@ export function ValPath({
       if (containerRef.current) observer.unobserve(containerRef.current);
     };
   }, [moduleFilePath, patchPath]);
+
+  const navPath = useMemo(() => {
+    if (!link) return null;
+    const schemas = "data" in schemasRes ? schemasRes.data : {};
+    const resolvedSourcePath = resolvePatchPath(
+      patchPath,
+      schemas[moduleFilePath],
+      allSources[moduleFilePath],
+    );
+    if (resolvedSourcePath.success) {
+      const sourcePath = Internal.joinModuleFilePathAndModulePath(
+        moduleFilePath,
+        resolvedSourcePath.modulePath,
+      );
+      const navPath = getNavPathFromAll(sourcePath, allSources, schemas);
+      if (navPath) {
+        return {
+          navPath,
+          scrollToId: sourcePath,
+        };
+      } else {
+        console.error(
+          `Failed to resolve nav path for ${moduleFilePath} and ${patchPath.join(
+            ".",
+          )}: ${navPath}`,
+        );
+      }
+    } else {
+      console.error(
+        `Failed to resolve source path for ${moduleFilePath} and ${patchPath.join(
+          ".",
+        )}: ${resolvedSourcePath.error}`,
+      );
+    }
+    return null;
+  }, [moduleFilePath, patchPath, allSources, schemasRes]);
+
   return (
     <Tooltip open={toolTip === false ? false : undefined}>
       <TooltipTrigger asChild>
         <a
+          href={
+            navPath && config
+              ? // TODO: use config to determine the /val/~ prefix
+                `${config.studioPrefix}${navPath.navPath}#${navPath.scrollToId}`
+              : undefined
+          }
           ref={containerRef}
           className={classNames(
             `inline-block whitespace-nowrap overflow-hidden w-full align-baseline`,
@@ -120,43 +163,17 @@ export function ValPath({
             className,
           )}
           onClick={(e) => {
-            if (!link) return;
-            e.preventDefault();
-            const schemas = "data" in schemasRes ? schemasRes.data : {};
-            const resolvedSourcePath = resolvePatchPath(
-              patchPath,
-              schemas[moduleFilePath],
-              allSources[moduleFilePath],
-            );
-            if (resolvedSourcePath.success) {
-              const sourcePath = Internal.joinModuleFilePathAndModulePath(
-                moduleFilePath,
-                resolvedSourcePath.modulePath,
-              );
-              const navPath = getNavPathFromAll(
-                sourcePath,
-                allSources,
-                schemas,
-              );
-              if (navPath) {
-                navigate(navPath, {
-                  scrollToId: sourcePath,
-                });
-              } else {
-                console.error(
-                  `Failed to resolve nav path for ${moduleFilePath} and ${patchPath.join(
-                    ".",
-                  )}: ${navPath}`,
-                );
-                navigate(moduleFilePath);
-              }
-            } else {
-              console.error(
-                `Failed to resolve source path for ${moduleFilePath} and ${patchPath.join(
-                  ".",
-                )}: ${resolvedSourcePath.error}`,
-              );
-              navigate(moduleFilePath);
+            if (
+              link &&
+              navPath &&
+              e.metaKey === false &&
+              e.ctrlKey === false &&
+              e.shiftKey === false
+            ) {
+              e.preventDefault();
+              navigate(navPath.navPath, {
+                scrollToId: navPath.scrollToId,
+              });
             }
           }}
         >
