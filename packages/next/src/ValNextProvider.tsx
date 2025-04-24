@@ -6,7 +6,11 @@ import {
   ModuleFilePath,
   ValConfig,
 } from "@valbuild/core";
-import { VAL_APP_PATH, VAL_OVERLAY_ID } from "@valbuild/ui";
+import {
+  VAL_APP_PATH,
+  VAL_OVERLAY_ID,
+  VERSION as UIVersion,
+} from "@valbuild/ui";
 import { useRouter } from "next/navigation";
 import Script from "next/script";
 import React from "react";
@@ -360,7 +364,7 @@ ${positionStyles}
         <React.Fragment>
           <Script
             type="module"
-            src={`${route}/static${VAL_APP_PATH}`}
+            src={`${route}/static${UIVersion ? `/${UIVersion}` : ""}${VAL_APP_PATH}`}
             crossOrigin="anonymous"
           />
           {/* TODO: use portal to mount overlay */}

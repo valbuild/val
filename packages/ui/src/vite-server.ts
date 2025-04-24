@@ -4,6 +4,7 @@ import {
 } from "@valbuild/shared/internal";
 import { getServerMimeType } from "../spa/serverMimeType";
 import { VAL_APP_PATH, VAL_CSS_PATH } from "./constants";
+import { VERSION } from "./vite-index";
 
 const files: Record<string, string> = JSON.parse(
   `BUILD_REPLACE_THIS_WITH_RECORD`,
@@ -61,6 +62,9 @@ export function createUIRequestHandler(): ValUIRequestHandler {
   }
 
   return async (path, url): Promise<ValServerGenericResult> => {
+    // NOTE: path === VAL_APP_PATH and path === VAL_CSS_PATH should no longer be used.
+    // So, why do we keep the redirects? Because we are just doing this, and we are not a 100% we covered everything.
+    // In the future, we should be able to remove the redirects.
     if (path === VAL_APP_PATH) {
       return {
         status: 302,
@@ -70,6 +74,24 @@ export function createUIRequestHandler(): ValUIRequestHandler {
       return {
         status: 302,
         redirectTo: url.replace(path, MAIN_CSS_FILE),
+      };
+    } else if (path === `${VERSION ? `/${VERSION}` : ""}${VAL_APP_PATH}`) {
+      return {
+        status: 200,
+        headers: {
+          "Content-Type": "application/javascript",
+          "Cache-Control": "public, max-age=31536000, immutable",
+        },
+        body: decodedFiles[MAIN_FILE],
+      };
+    } else if (path === `/${VERSION ? `/${VERSION}` : ""}${VAL_CSS_PATH}`) {
+      return {
+        status: 200,
+        headers: {
+          "Content-Type": "text/css",
+          "Cache-Control": "public, max-age=31536000, immutable",
+        },
+        body: decodedFiles[MAIN_CSS_FILE],
       };
     } else {
       if (files[path]) {

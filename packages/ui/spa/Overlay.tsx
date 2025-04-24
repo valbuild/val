@@ -11,6 +11,7 @@ import { ValProvider } from "./components/ValProvider";
 import { Fonts } from "./Fonts";
 import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
 import { useRemoteConfigReceiver } from "./hooks/useRemoteConfigReceiver";
+import { VERSION } from "../src";
 
 function Overlay() {
   const config = useRemoteConfigReceiver();
@@ -66,7 +67,10 @@ function Overlay() {
             visibility: hidden;
           }
         `}</style>
-        <link rel="stylesheet" href={`${host}/static${VAL_CSS_PATH}`} />
+        <link
+          rel="stylesheet"
+          href={`${host}/static${VERSION ? `/${VERSION}` : ""}${VAL_CSS_PATH}`}
+        />
         <ErrorBoundary fallbackRender={fallbackRender}>
           <ValProvider
             client={client}
