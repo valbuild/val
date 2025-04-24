@@ -131,30 +131,6 @@ export function ValProvider({
     setIsAuthenticated,
     serviceUnavailable,
   ] = useStatus(client);
-  const [profiles, setProfiles] = useState<Record<AuthorId, Profile>>({});
-  useEffect(() => {
-    const load = async () => {
-      const res = await client("/profiles", "GET", {});
-      if (res.status === 200) {
-        const profilesById: Record<AuthorId, Profile> = {};
-        for (const profile of res.json.profiles) {
-          profilesById[profile.profileId] = {
-            fullName: profile.fullName,
-            email: profile.email,
-            avatar: profile.avatar,
-          };
-        }
-        setProfiles(profilesById);
-      } else {
-        console.error("Could not get profiles", res.json);
-        const timeout = setTimeout(load, 2000);
-        return () => {
-          clearTimeout(timeout);
-        };
-      }
-    };
-    load();
-  }, [authenticationState, client, serviceUnavailable]);
 
   const syncEngine = useMemo(
     () =>
@@ -444,7 +420,11 @@ export function ValProvider({
       window.removeEventListener("beforeunload", handleBeforeUnload);
     };
   }, [pendingOpsCount]);
-
+  const profilesData = useProfilesData(
+    client,
+    authenticationState,
+    serviceUnavailable,
+  );
   return (
     <ValContext.Provider
       value={{
@@ -491,7 +471,8 @@ export function ValProvider({
           }
         },
         config,
-        profiles,
+        profiles:
+          "data" in profilesData && profilesData.data ? profilesData.data : {},
         remoteFiles,
       }}
     >
@@ -511,6 +492,69 @@ export function ValProvider({
       </TooltipProvider>
     </ValContext.Provider>
   );
+}
+
+function useProfilesData(
+  client: ValClient,
+  authenticationState: AuthenticationState,
+  serviceUnavailable: boolean | undefined,
+) {
+  const loadProfileDataRef = useRef(true);
+  const [profilesData, setProfilesData] = useState<
+    | {
+        data: Record<AuthorId, Profile>;
+        status: "done";
+      }
+    | {
+        data?: Record<AuthorId, Profile>;
+        status: "loading" | "error";
+      }
+    | {
+        status: "not-asked";
+      }
+  >({ status: "not-asked" });
+  const loadProfiles = useCallback(async () => {
+    setProfilesData((prev) => ({
+      status: "loading",
+      data: "data" in prev ? prev.data : undefined,
+    }));
+    const res = await client("/profiles", "GET", {});
+    if (res.status === 200) {
+      const profilesById: Record<AuthorId, Profile> = {};
+      for (const profile of res.json.profiles) {
+        profilesById[profile.profileId] = {
+          fullName: profile.fullName,
+          email: profile.email,
+          avatar: profile.avatar,
+        };
+      }
+      setProfilesData({
+        status: "done",
+        data: profilesById,
+      });
+    } else {
+      console.error("Could not get profiles", res.json);
+      loadProfileDataRef.current = true;
+      setProfilesData((prev) => ({
+        status: "error",
+        data: "data" in prev ? prev.data : undefined,
+      }));
+    }
+  }, [client, profilesData]);
+  useEffect(() => {
+    if (!loadProfileDataRef.current) {
+      return;
+    }
+    loadProfileDataRef.current = false;
+    if (profilesData.status === "error") {
+      // Wait a bit before retrying...
+      setTimeout(() => loadProfiles(), 2000);
+    } else if (profilesData.status === "not-asked") {
+      loadProfiles();
+    }
+  }, [authenticationState, client, profilesData, serviceUnavailable]);
+
+  return profilesData;
 }
 
 export function useValPortal() {
