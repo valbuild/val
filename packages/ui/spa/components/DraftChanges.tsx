@@ -192,7 +192,8 @@ export function DraftChanges({
                         className="flex items-start justify-between gap-2"
                       >
                         <div className="flex flex-col gap-1">
-                          <div>{error.message}</div>
+                          <div className="font-bold">{error.message}</div>
+                          {error.details && <div>{error.details}</div>}
                           <div className="text-[10px] font-thin">
                             {relativeLocalDate(
                               now,
