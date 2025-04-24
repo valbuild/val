@@ -1,7 +1,7 @@
 "use client";
 
 import { ValConfig } from "@valbuild/core";
-import { VAL_APP_PATH, VAL_APP_ID } from "@valbuild/ui";
+import { VAL_APP_PATH, VAL_APP_ID, VERSION as UIVersion } from "@valbuild/ui";
 import Script from "next/script";
 import { useEffect, useState } from "react";
 import { useRemoteConfigSender } from "./useRemoteConfigSender";
@@ -40,7 +40,7 @@ export const ValApp = ({ config }: { config: ValConfig }) => {
     <>
       <Script
         type="module"
-        src={`${route}/static${VAL_APP_PATH}`}
+        src={`${route}/static${UIVersion ? `/${UIVersion}` : ""}${VAL_APP_PATH}`}
         crossOrigin="anonymous"
       />
       <div id={VAL_APP_ID}></div>

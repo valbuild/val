@@ -5,7 +5,7 @@ import { fallbackRender } from "./fallbackRender";
 import { useMemo } from "react";
 import { createValClient } from "@valbuild/shared/internal";
 import { ShadowRoot } from "./components/ShadowRoot";
-import { VAL_CSS_PATH } from "../src";
+import { VAL_CSS_PATH, VERSION } from "../src";
 import { Fonts } from "./Fonts";
 import { DEFAULT_CONTENT_HOST } from "@valbuild/core";
 import { useRemoteConfigReceiver } from "./hooks/useRemoteConfigReceiver";
@@ -24,7 +24,10 @@ function App() {
     <>
       <Fonts />
       <ShadowRoot>
-        <link rel="stylesheet" href={`${host}/static${VAL_CSS_PATH}`} />
+        <link
+          rel="stylesheet"
+          href={`${host}/static${VERSION ? `/${VERSION}` : ""}${VAL_CSS_PATH}`}
+        />
         <ErrorBoundary fallbackRender={fallbackRender}>
           <ValStudio client={client} config={config} />
         </ErrorBoundary>

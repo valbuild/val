@@ -48,6 +48,7 @@ export const VAL_APP_PATH = "${VAL_CSS_PATH}";
 export const VAL_APP_ID = "${VAL_APP_ID}";
 export const VAL_OVERLAY_ID = "${VAL_OVERLAY_ID}";
 export const IS_DEV = false;
+export const VERSION = "0.0.0";
 `,
           };
         }
