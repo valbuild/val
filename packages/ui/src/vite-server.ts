@@ -84,7 +84,7 @@ export function createUIRequestHandler(): ValUIRequestHandler {
         },
         body: decodedFiles[MAIN_FILE],
       };
-    } else if (path === `/${VERSION ? `/${VERSION}` : ""}${VAL_CSS_PATH}`) {
+    } else if (path === `${VERSION ? `/${VERSION}` : ""}${VAL_CSS_PATH}`) {
       return {
         status: 200,
         headers: {
