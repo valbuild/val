@@ -943,7 +943,7 @@ export const ValServer = (
                 status: 400,
                 json: {
                   type: "patch-error",
-                  message: "Could not create patch",
+                  message: createPatchRes.error.error.message,
                   errors: {
                     [patch.path]: [
                       {
