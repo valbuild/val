@@ -4,12 +4,14 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 const fs = require("fs");
 const path = require("path");
+const packageJson = require("./package.json");
 
 const serverFiles = [
   "server/dist/valbuild-ui-server.esm.js",
   "server/dist/valbuild-ui-server.cjs.js",
 ];
 const inputDir = "server/.tmp";
+const version = packageJson.version;
 function walk(dir) {
   return fs.readdirSync(dir).reduce((files, fileOrDirName) => {
     const fileOrDirPath = path.join(dir, fileOrDirName);
@@ -19,7 +21,9 @@ function walk(dir) {
         ...walk(fileOrDirPath),
       };
     }
-    const fileContent = fs.readFileSync(fileOrDirPath, "utf-8");
+    const fileContent = fs
+      .readFileSync(fileOrDirPath, "utf-8")
+      .replaceAll("$$BUILD_$$REPLACE_WITH_VERSION$$", version);
     const encodedContent = Buffer.from(fileContent).toString("base64");
     return {
       ...files,
@@ -33,7 +37,7 @@ const stringifiedFiles = JSON.stringify(files);
 
 for (const serverFile of serverFiles) {
   const filePath = path.join(__dirname, serverFile);
-  const replaceString = "BUILD_REPLACE_THIS_WITH_RECORD";
+  const replaceString = "$$BUILD_$$REPLACE_WITH_RECORD$$";
   fs.readFile(filePath, "utf-8", (err, data) => {
     if (err) {
       console.error("Error reading file:", err);

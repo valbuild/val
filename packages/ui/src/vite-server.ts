@@ -7,7 +7,7 @@ import { VAL_APP_PATH, VAL_CSS_PATH } from "./constants";
 import { VERSION } from "./vite-index";
 
 const files: Record<string, string> = JSON.parse(
-  `BUILD_REPLACE_THIS_WITH_RECORD`,
+  `$$BUILD_$$REPLACE_WITH_RECORD$$`,
 ) as unknown as Record<string, string>;
 
 const decodedFiles: Record<string, string> = Object.fromEntries(
