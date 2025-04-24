@@ -845,27 +845,28 @@ export class ValSyncEngine {
         // ... either by merging them if possible (reduces amount of patch ops and data)
         const lastPatchIdx = (lastOp.data?.[moduleFilePath]?.length || 0) - 1;
         const lastPatch = lastOp.data?.[moduleFilePath]?.[lastPatchIdx]?.patch;
-        const patchId = lastOp.data?.[moduleFilePath]?.[lastPatchIdx]?.patchId;
+        const lastPatchId =
+          lastOp.data?.[moduleFilePath]?.[lastPatchIdx]?.patchId;
         if (
           canMerge(lastPatch, patch) &&
           // The type of the last should always be the same as long as the schema has not changed
           lastOp.data?.[moduleFilePath]?.[lastPatchIdx]?.type === type &&
           // If we do not have patchId nor patchData something is wrong and in this case we simply do not merge the patch
-          patchId &&
-          this.patchDataByPatchId[patchId]
+          lastPatchId &&
+          this.patchDataByPatchId[lastPatchId]
         ) {
           lastOp.data[moduleFilePath][lastPatchIdx].patch = patch;
           lastOp.updatedAt = now;
           this.invalidatePendingOps();
 
-          this.patchDataByPatchId[patchId]!.patch = patch;
-          this.patchSetInsert(moduleFilePath, patchId, patch, now);
+          this.patchDataByPatchId[lastPatchId]!.patch = patch;
+          this.patchSetInsert(moduleFilePath, lastPatchId, patch, now);
 
           this.invalidateSyncStatus(sourcePath);
           this.invalidateSource(moduleFilePath);
           return {
             status: "patch-merged",
-            patchId: patchId,
+            patchId: lastPatchId,
             moduleFilePath,
           } as const;
         } else {
