@@ -774,20 +774,13 @@ export class ValSyncEngine {
   }
 
   // #region Patching
-  addPatch(
+  private addPatchOnClientOnly(
     sourcePath: SourcePath | ModuleFilePath,
-    type: SerializedSchema["type"],
     patch: Patch,
     now: number,
   ):
     | {
-        status: "patch-merged";
-        patchId: PatchId;
-        moduleFilePath: ModuleFilePath;
-      }
-    | {
-        status: "patch-added";
-        patchId: PatchId;
+        status: "optimistic-client-sources-updated";
         moduleFilePath: ModuleFilePath;
       }
     | {
@@ -798,7 +791,6 @@ export class ValSyncEngine {
     const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
       sourcePath as SourcePath,
     );
-    const lastOp = this.pendingOps[this.pendingOps.length - 1];
     if (
       this.serverSources === null ||
       this.serverSources?.[moduleFilePath] === undefined
@@ -838,76 +830,80 @@ export class ValSyncEngine {
       };
     } else {
       const newSource = patchRes.value;
-      this.syncStatus[sourcePath] = "patches-pending";
       this.optimisticClientSources[moduleFilePath] = newSource;
-      // Try to batch add-patches ops together to avoid too many requests...
-      if (lastOp?.type === "add-patches") {
-        // ... either by merging them if possible (reduces amount of patch ops and data)
-        const lastPatchIdx = (lastOp.data?.[moduleFilePath]?.length || 0) - 1;
-        const lastPatch = lastOp.data?.[moduleFilePath]?.[lastPatchIdx]?.patch;
-        const lastPatchId =
-          lastOp.data?.[moduleFilePath]?.[lastPatchIdx]?.patchId;
-        if (
-          canMerge(lastPatch, patch) &&
-          // The type of the last should always be the same as long as the schema has not changed
-          lastOp.data?.[moduleFilePath]?.[lastPatchIdx]?.type === type &&
-          // If we do not have patchId nor patchData something is wrong and in this case we simply do not merge the patch
-          lastPatchId &&
-          this.patchDataByPatchId[lastPatchId]
-        ) {
-          lastOp.data[moduleFilePath][lastPatchIdx].patch = patch;
-          lastOp.updatedAt = now;
-          this.invalidatePendingOps();
+      return {
+        status: "optimistic-client-sources-updated",
+        moduleFilePath,
+      } as const;
+    }
+  }
 
-          this.patchDataByPatchId[lastPatchId]!.patch = patch;
-          this.patchSetInsert(moduleFilePath, lastPatchId, patch, now);
+  addPatch(
+    sourcePath: SourcePath | ModuleFilePath,
+    type: SerializedSchema["type"],
+    patch: Patch,
+    now: number,
+  ):
+    | {
+        status: "patch-merged";
+        patchId: PatchId;
+        moduleFilePath: ModuleFilePath;
+      }
+    | {
+        status: "patch-added";
+        patchId: PatchId;
+        moduleFilePath: ModuleFilePath;
+      }
+    | {
+        status: "patch-error";
+        message: string;
+        moduleFilePath: ModuleFilePath;
+      } {
+    const res = this.addPatchOnClientOnly(sourcePath, patch, now);
+    if (res.status !== "optimistic-client-sources-updated") {
+      return res;
+    }
+    const moduleFilePath = res.moduleFilePath;
+    this.syncStatus[sourcePath] = "patches-pending";
+    const lastOp = this.pendingOps[this.pendingOps.length - 1];
+    // Try to batch add-patches ops together to avoid too many requests...
+    if (lastOp?.type === "add-patches") {
+      // ... either by merging them if possible (reduces amount of patch ops and data)
+      const lastPatchIdx = (lastOp.data?.[moduleFilePath]?.length || 0) - 1;
+      const lastPatch = lastOp.data?.[moduleFilePath]?.[lastPatchIdx]?.patch;
+      const lastPatchId =
+        lastOp.data?.[moduleFilePath]?.[lastPatchIdx]?.patchId;
+      if (
+        canMerge(lastPatch, patch) &&
+        // The type of the last should always be the same as long as the schema has not changed
+        lastOp.data?.[moduleFilePath]?.[lastPatchIdx]?.type === type &&
+        // If we do not have patchId nor patchData something is wrong and in this case we simply do not merge the patch
+        lastPatchId &&
+        this.patchDataByPatchId[lastPatchId]
+      ) {
+        lastOp.data[moduleFilePath][lastPatchIdx].patch = patch;
+        lastOp.updatedAt = now;
+        this.invalidatePendingOps();
+        this.patchDataByPatchId[lastPatchId]!.patch = patch;
+        this.patchSetInsert(moduleFilePath, lastPatchId, patch, now);
 
-          this.invalidateSyncStatus(sourcePath);
-          this.invalidateSource(moduleFilePath);
-          return {
-            status: "patch-merged",
-            patchId: lastPatchId,
-            moduleFilePath,
-          } as const;
-        } else {
-          // ... or by just pushing it to the last op
-          if (!lastOp.data[moduleFilePath]) {
-            lastOp.data[moduleFilePath] = [];
-          }
-          const patchId = this.createPatchId();
-          lastOp.data[moduleFilePath].push({
-            patch,
-            type,
-            patchId,
-          });
-          this.invalidatePendingOps();
-          this.pendingClientPatchIds.push(patchId);
-          this.invalidatePendingClientSidePatchIds();
-          this.patchDataByPatchId[patchId] = {
-            moduleFilePath: moduleFilePath,
-            patch: patch,
-            isPending: true,
-            createdAt: new Date(now).toISOString(),
-            authorId: this.authorId,
-          };
-          this.patchSetInsert(moduleFilePath, patchId, patch, now);
-
-          this.invalidateSyncStatus(sourcePath);
-          this.invalidateSource(moduleFilePath);
-          return {
-            status: "patch-added",
-            patchId,
-            moduleFilePath,
-          } as const;
-        }
+        this.invalidateSyncStatus(sourcePath);
+        this.invalidateSource(moduleFilePath);
+        return {
+          status: "patch-merged",
+          patchId: lastPatchId,
+          moduleFilePath,
+        } as const;
       } else {
+        // ... or by just pushing it to the last op
+        if (!lastOp.data[moduleFilePath]) {
+          lastOp.data[moduleFilePath] = [];
+        }
         const patchId = this.createPatchId();
-        this.pendingOps.push({
-          type: "add-patches",
-          data: {
-            [moduleFilePath]: [{ patch, type, patchId }],
-          },
-          createdAt: now,
+        lastOp.data[moduleFilePath].push({
+          patch,
+          type,
+          patchId,
         });
         this.invalidatePendingOps();
         this.pendingClientPatchIds.push(patchId);
@@ -929,6 +925,34 @@ export class ValSyncEngine {
           moduleFilePath,
         } as const;
       }
+    } else {
+      const patchId = this.createPatchId();
+      this.pendingOps.push({
+        type: "add-patches",
+        data: {
+          [moduleFilePath]: [{ patch, type, patchId }],
+        },
+        createdAt: now,
+      });
+      this.invalidatePendingOps();
+      this.pendingClientPatchIds.push(patchId);
+      this.invalidatePendingClientSidePatchIds();
+      this.patchDataByPatchId[patchId] = {
+        moduleFilePath: moduleFilePath,
+        patch: patch,
+        isPending: true,
+        createdAt: new Date(now).toISOString(),
+        authorId: this.authorId,
+      };
+      this.patchSetInsert(moduleFilePath, patchId, patch, now);
+
+      this.invalidateSyncStatus(sourcePath);
+      this.invalidateSource(moduleFilePath);
+      return {
+        status: "patch-added",
+        patchId,
+        moduleFilePath,
+      } as const;
     }
   }
 
