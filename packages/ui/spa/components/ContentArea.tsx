@@ -16,7 +16,7 @@ export function ContentArea() {
         {networkError !== null && (
           <>
             <div className="w-full h-16"></div>
-            <div className="absolute w-full h-16 top-0 p-4 text-center text-white bg-bg-error-primary z-[10]">
+            <div className="absolute w-full h-16 top-0 p-4 text-center text-white bg-bg-error-primary z-[50]">
               Network error - retrying...
             </div>
           </>
