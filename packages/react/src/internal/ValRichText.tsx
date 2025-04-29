@@ -4,6 +4,8 @@ import {
   AllRichTextOptions,
   RichTextOptions,
   Styles,
+  SelectorSource,
+  Schema,
 } from "@valbuild/core";
 import React, { CSSProperties, ReactNode } from "react";
 import { RichText, StegaOfRichTextSource } from "../stega";
@@ -34,7 +36,9 @@ type ThemeOptions<O extends RichTextOptions = AllRichTextOptions> =
   DefaultThemes &
     Pick<
       OptionalFields,
-      | (NonNullable<O["inline"]>["img"] extends true ? "img" : never)
+      | (NonNullable<O["inline"]>["img"] extends true | Schema<SelectorSource>
+          ? "img"
+          : never)
       | (NonNullable<O["inline"]>["a"] extends true ? "a" : never)
       | (NonNullable<O["block"]>["ul"] extends true ? "ul" | "li" : never)
       | (NonNullable<O["block"]>["ol"] extends true ? "ol" | "li" : never)
