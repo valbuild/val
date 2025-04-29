@@ -1267,7 +1267,10 @@ export class ValSyncEngine {
     if (addPatchesRes.status !== null) {
       this.resetNetworkError();
     }
-    if (addPatchesRes.status === null) {
+    if (
+      addPatchesRes.status === null &&
+      addPatchesRes.json.type === "network_error"
+    ) {
       console.warn("Network error: trying again...");
       this.addNetworkError(now);
       // Try again if it is a network error:
@@ -1383,7 +1386,7 @@ export class ValSyncEngine {
     if (deleteRes.status !== null) {
       this.resetNetworkError();
     }
-    if (deleteRes.status === null) {
+    if (deleteRes.status === null && deleteRes.json.type === "network_error") {
       this.addNetworkError(now);
       return {
         status: "retry",
@@ -1874,7 +1877,10 @@ export class ValSyncEngine {
         if (sourcesRes.status !== null) {
           this.resetNetworkError();
         }
-        if (sourcesRes.status === null) {
+        if (
+          sourcesRes.status === null &&
+          sourcesRes.json.type === "network_error"
+        ) {
           this.addNetworkError(now);
           return {
             status: "retry",
