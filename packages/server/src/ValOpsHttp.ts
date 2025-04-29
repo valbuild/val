@@ -854,7 +854,6 @@ export class ValOpsHttp extends ValOps {
           data,
           type,
           metadata,
-          remote,
         }),
       },
     )

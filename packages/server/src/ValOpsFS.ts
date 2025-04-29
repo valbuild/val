@@ -702,12 +702,7 @@ export class ValOpsFS extends ValOps {
 
   protected override async getBase64EncodedBinaryFileMetadataFromPatch<
     T extends BinaryFileType,
-  >(
-    filePath: string,
-    type: T,
-    patchId: PatchId,
-    remote: boolean,
-  ): Promise<OpsMetadata<T>> {
+  >(filePath: string, type: T, patchId: PatchId): Promise<OpsMetadata<T>> {
     const patchDirRes = await this.getParentPatchIdFromPatchId(patchId);
     if (result.isErr(patchDirRes)) {
       return {
@@ -717,7 +712,6 @@ export class ValOpsFS extends ValOps {
     const metadataFilePath = this.getBinaryFileMetadataPath(
       filePath,
       patchDirRes.value,
-      remote,
     );
 
     if (!this.host.fileExists(metadataFilePath)) {
@@ -998,10 +992,7 @@ export class ValOpsFS extends ValOps {
           };
           continue;
         }
-        this.host.copyFile(
-          this.getBinaryFilePath(filePath, patchDir, false),
-          absPath,
-        );
+        this.host.copyFile(this.getBinaryFilePath(filePath, patchDir), absPath);
         updatedFiles.push(absPath);
       } catch (err) {
         errors[absPath] = {
