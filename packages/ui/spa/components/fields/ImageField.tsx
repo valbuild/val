@@ -21,10 +21,10 @@ import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { readImage } from "../../utils/readImage";
 import { createFilePatch } from "./FileField";
 import { ValidationErrors } from "../../components/ValidationError";
-import classNames from "classnames";
 import { useEffect, useState } from "react";
 import { Input } from "../designSystem/input";
 import { Loader2 } from "lucide-react";
+import { Button } from "../designSystem/button";
 
 export function ImageField({ path }: { path: SourcePath }) {
   const type = "image";
@@ -33,14 +33,17 @@ export function ImageField({ path }: { path: SourcePath }) {
   const currentRemoteFileBucket = useCurrentRemoteFileBucket();
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
-  const { patchPath, addPatch } = useAddPatch(path);
   const [hotspot, setHotspot] = useState<{ y: number; x: number } | undefined>(
     undefined,
   );
   const [error, setError] = useState<string | null>(null);
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
+  const { addPatch, patchPath, addAndUploadPatchWithFileOps } =
+    useAddPatch(path);
+  const [progressPercentage, setProgressPercentage] = useState<number | null>(
+    null,
+  );
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
   const maybeClientSideOnly =
     sourceAtPath.status === "success" && sourceAtPath.clientSideOnly;
@@ -171,191 +174,222 @@ export function ImageField({ path }: { path: SourcePath }) {
             {getRemoteFilesError(remoteFiles.reason)}
           </div>
         )}
-
-      {source && (
-        <div className="p-4 rounded-t-lg bg-bg-secondary">
-          <span id={altPath}>Alt text</span>
-          <Input
-            value={
-              source.metadata?.alt
-                ? typeof source.metadata?.alt === "string"
-                  ? source.metadata?.alt
+      <div className="flex flex-col gap-2">
+        {source && (
+          <div className="p-4 rounded-lg bg-bg-secondary">
+            <span id={altPath}>Alt text</span>
+            <Input
+              value={
+                source.metadata?.alt
+                  ? typeof source.metadata?.alt === "string"
+                    ? source.metadata?.alt
+                    : ""
                   : ""
-                : ""
-            }
-            disabled={disabled}
-            onChange={(ev) => {
-              const alt = ev.target.value;
-              if (source.metadata && "alt" in source.metadata) {
-                addPatch(
-                  [
-                    {
-                      op: "replace",
-                      value: alt,
-                      path: patchPath.concat(["metadata", "alt"]),
-                    },
-                  ],
-                  "string",
-                );
-              } else if (source.metadata && !("alt" in source.metadata)) {
-                addPatch(
-                  [
-                    {
-                      op: "add",
-                      value: alt,
-                      path: patchPath.concat(["metadata", "alt"]),
-                    },
-                  ],
-                  "string",
-                );
-              } else if (source.metadata === undefined) {
-                addPatch(
-                  [
-                    {
-                      op: "add",
-                      value: {
-                        ...(hotspot ? { hotspot } : {}),
-                        alt: alt,
-                      },
-                      path: patchPath.concat(["metadata"]),
-                    },
-                  ],
-                  "object",
-                );
-              } else {
-                console.warn(
-                  `Expected source.metadata to be an object but got ${typeof source.metadata}`,
-                );
               }
-            }}
-          />
-        </div>
-      )}
-      {source && url && (
-        <div className="relative bg-bg-secondary">
-          {loading && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="absolute inset-0 w-full h-full opacity-50 bg-bg-secondary" />
-              <Loader2 size={24} className="animate-spin" />
-            </div>
-          )}
-          <img
-            src={url}
-            draggable={false}
-            className="object-contain max-h-[500px] w-full"
-            style={{
-              cursor: "crosshair",
-            }}
-            id={hotspotPath}
-            onClick={(ev) => {
-              const { width, height, left, top } =
-                ev.currentTarget.getBoundingClientRect();
-              const hotspot = {
-                x: Math.max((ev.clientX - 6 - left) / width, 0),
-                y: Math.max((ev.clientY - 6 - top) / height, 0),
-              };
-              if (source.metadata && "hotspot" in source.metadata) {
-                addPatch(
-                  [
-                    {
-                      op: "replace",
-                      path: patchPath.concat(["metadata", "hotspot"]),
-                      value: hotspot,
-                    },
-                  ],
-                  "object",
-                );
-              } else if (source.metadata) {
-                addPatch(
-                  [
-                    {
-                      op: "add",
-                      path: patchPath.concat(["metadata", "hotspot"]),
-                      value: hotspot,
-                    },
-                  ],
-                  "object",
-                );
-              } else if (source.metadata === undefined) {
-                addPatch(
-                  [
-                    {
-                      op: "add",
-                      value: {
-                        ...(hotspot ? { hotspot } : {}),
+              disabled={disabled}
+              onChange={(ev) => {
+                const alt = ev.target.value;
+                if (source.metadata && "alt" in source.metadata) {
+                  addPatch(
+                    [
+                      {
+                        op: "replace",
+                        value: alt,
+                        path: patchPath.concat(["metadata", "alt"]),
                       },
-                      path: patchPath.concat(["metadata"]),
-                    },
-                  ],
-                  "object",
-                );
-              } else {
-                console.warn(
-                  `Expected source.metadata to be an object but got ${typeof source.metadata}`,
-                );
-              }
-            }}
-          />
-          {hotspot && (
-            <div
-              className="rounded-full h-[12px] w-[12px] bg-background mix-blend-difference border-bg-brand-solid border-2 absolute pointer-events-none"
-              style={{
-                top: `${hotspot.y * 100}%`,
-                left: `${hotspot.x * 100}%`,
+                    ],
+                    "string",
+                  );
+                } else if (source.metadata && !("alt" in source.metadata)) {
+                  addPatch(
+                    [
+                      {
+                        op: "add",
+                        value: alt,
+                        path: patchPath.concat(["metadata", "alt"]),
+                      },
+                    ],
+                    "string",
+                  );
+                } else if (source.metadata === undefined) {
+                  addPatch(
+                    [
+                      {
+                        op: "add",
+                        value: {
+                          ...(hotspot ? { hotspot } : {}),
+                          alt: alt,
+                        },
+                        path: patchPath.concat(["metadata"]),
+                      },
+                    ],
+                    "object",
+                  );
+                } else {
+                  console.warn(
+                    `Expected source.metadata to be an object but got ${typeof source.metadata}`,
+                  );
+                }
               }}
             />
-          )}
-        </div>
-      )}
-      <div>
-        <label
-          htmlFor={`img_input:${path}`}
-          className={classNames(
-            "block px-1 py-2 text-sm text-center rounded-b-lg cursor-pointer bg-bg-primary text-text-secondary",
-          )}
+          </div>
+        )}
+        {source && url && (
+          <div className="relative rounded-lg bg-bg-secondary">
+            {loading && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <div className="absolute inset-0 w-full h-full opacity-50 bg-bg-secondary" />
+                <Loader2 size={24} className="animate-spin" />
+                <div className="mt-2 text-xs font-thin text-white z-5">
+                  {progressPercentage !== null ? `${progressPercentage}%` : ""}
+                </div>
+              </div>
+            )}
+            <img
+              src={url}
+              draggable={false}
+              className="object-contain max-h-[500px] w-full"
+              style={{
+                cursor: "crosshair",
+              }}
+              id={hotspotPath}
+              onClick={(ev) => {
+                const { width, height, left, top } =
+                  ev.currentTarget.getBoundingClientRect();
+                const hotspot = {
+                  x: Math.max((ev.clientX - 6 - left) / width, 0),
+                  y: Math.max((ev.clientY - 6 - top) / height, 0),
+                };
+                if (source.metadata && "hotspot" in source.metadata) {
+                  addPatch(
+                    [
+                      {
+                        op: "replace",
+                        path: patchPath.concat(["metadata", "hotspot"]),
+                        value: hotspot,
+                      },
+                    ],
+                    "object",
+                  );
+                } else if (source.metadata) {
+                  addPatch(
+                    [
+                      {
+                        op: "add",
+                        path: patchPath.concat(["metadata", "hotspot"]),
+                        value: hotspot,
+                      },
+                    ],
+                    "object",
+                  );
+                } else if (source.metadata === undefined) {
+                  addPatch(
+                    [
+                      {
+                        op: "add",
+                        value: {
+                          ...(hotspot ? { hotspot } : {}),
+                        },
+                        path: patchPath.concat(["metadata"]),
+                      },
+                    ],
+                    "object",
+                  );
+                } else {
+                  console.warn(
+                    `Expected source.metadata to be an object but got ${typeof source.metadata}`,
+                  );
+                }
+              }}
+            />
+            {hotspot && (
+              <div
+                className="rounded-full h-[12px] w-[12px] bg-background mix-blend-difference border-bg-brand-solid border-2 absolute pointer-events-none"
+                style={{
+                  top: `${hotspot.y * 100}%`,
+                  left: `${hotspot.x * 100}%`,
+                }}
+              />
+            )}
+          </div>
+        )}
+        <Button
+          asChild
+          className="cursor-pointer bg-bg-primary hover:bg-bg-secondary_alt"
         >
-          Update
-        </label>
-      </div>
-      <input
-        disabled={sourceAtPath.status === "loading"}
-        hidden
-        id={`img_input:${path}`}
-        type="file"
-        accept={schemaAtPath.data.options?.accept || "image/*"}
-        onChange={(ev) => {
-          readImage(ev).then((res) => {
-            setUrl(res.src);
-            setLoading(true);
+          <label htmlFor={`img_input:${path}`}>Upload</label>
+        </Button>
+        <input
+          disabled={sourceAtPath.status === "loading"}
+          hidden
+          id={`img_input:${path}`}
+          type="file"
+          accept={schemaAtPath.data.options?.accept || "image/*"}
+          onChange={(ev) => {
+            readImage(ev).then((res) => {
+              const type = "image";
+              const prevUrl: string | null = url;
+              setUrl(res.src);
+              setLoading(true);
 
-            const data = { src: res.src, filename: res.filename };
-            let metadata: ImageMetadata | undefined;
-            if (res.width && res.height && res.mimeType) {
-              metadata = {
-                width: res.width,
-                height: res.height,
-                mimeType: res.mimeType,
-              };
-            }
-            setError(null);
-            createFilePatch(
-              patchPath,
-              data.src,
-              data.filename ?? null,
-              res.fileHash,
-              metadata,
-              "image",
-              remoteData,
-              config.files?.directory,
-            )
-              .then((patch) => addPatch(patch, "image"))
-              .catch((err) => {
-                console.error("Failed to create file patch", err);
-                setError("Could not upload file. Please try again later");
-              });
-          });
-        }}
-      />
+              const data = { src: res.src, filename: res.filename };
+              let metadata: ImageMetadata | undefined;
+              if (res.width && res.height && res.mimeType) {
+                metadata = {
+                  width: res.width,
+                  height: res.height,
+                  mimeType: res.mimeType,
+                  alt:
+                    maybeSourceData &&
+                    typeof maybeSourceData?.metadata?.alt === "string"
+                      ? maybeSourceData.metadata.alt
+                      : undefined,
+                };
+              }
+              setError(null);
+              createFilePatch(
+                patchPath,
+                data.src,
+                data.filename ?? null,
+                res.fileHash,
+                metadata,
+                type,
+                remoteData,
+                config.files?.directory,
+              )
+                .then((patch) => {
+                  setLoading(true);
+                  setProgressPercentage(0);
+                  addAndUploadPatchWithFileOps(
+                    patch,
+                    type,
+                    (errorMessage) => {
+                      setUrl(prevUrl);
+                      setError(errorMessage);
+                    },
+                    (bytesUploaded, totalBytes, currentFile, totalFiles) => {
+                      const overallProgress =
+                        (bytesUploaded * (currentFile + 1)) /
+                        (totalBytes * totalFiles);
+                      setProgressPercentage(Math.round(overallProgress * 100));
+                    },
+                  ).finally(() => {
+                    setProgressPercentage(null);
+                    setLoading(false);
+                  });
+                })
+                .catch((err) => {
+                  console.error("Failed to create file patch", err);
+                  setLoading(false);
+                  setUrl(prevUrl);
+                  setError("Could not upload file. Please try again later");
+                });
+              // reset the input value to allow re-uploading the same file
+              ev.target.value = "";
+            });
+          }}
+        />
+      </div>
     </div>
   );
 }

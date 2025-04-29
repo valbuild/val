@@ -1,6 +1,21 @@
 import { array } from "../fp";
 import type { JSONValue } from "./ops";
 
+type FileOperationBase<PathType> = {
+  op: "file";
+  metadata?: JSONValue;
+  /** path of the top-most element where the schema of the element points to */
+  path: PathType;
+  /** unless remote: file path relative to project (starts with /public, e.g. /public/example.png), for remote: the whole remote ref */
+  filePath: string;
+  /** files can be nested within an object (for richtext), in order to find the actual file element this path can be used (we use this to add the patch_id on files) */
+  nestedFilePath?: string[];
+  value: JSONValue;
+  /** true if this is a remote file */
+  remote: boolean;
+};
+type FileOperationJSON = FileOperationBase<string>;
+export type FileOperation = FileOperationBase<string[]>;
 /**
  * Raw JSON patch operation.
  */
@@ -34,13 +49,7 @@ export type OperationJSON =
       path: string;
       value: JSONValue;
     }
-  | {
-      op: "file";
-      path: string;
-      filePath: string;
-      value: JSONValue;
-      remote: boolean;
-    };
+  | FileOperationJSON;
 
 /**
  * Parsed form of JSON patch operation.
@@ -79,15 +88,4 @@ export type Operation =
       path: string[];
       value: JSONValue;
     }
-  | {
-      op: "file";
-      /** path of the top-most element where the schema of the element points to */
-      path: string[];
-      /** file path relative to project (starts with /public, e.g. /public/example.png) */
-      filePath: string;
-      /** files can be nested within an object (for richtext), in order to find the actual file element this path can be used (we use this to add the patch_id on files) */
-      nestedFilePath?: string[];
-      value: JSONValue;
-      /** true if this is a remote file */
-      remote: boolean;
-    };
+  | FileOperation;

@@ -123,6 +123,28 @@ export function ValOverlay(props: ValOverlayProps) {
           if (!path) {
             return;
           }
+          if (el.tagName === "SOURCE" || el.tagName === "TRACK") {
+            const sourceParentEl = el.parentElement;
+            if (
+              !sourceParentEl ||
+              !(
+                sourceParentEl.tagName === "VIDEO" ||
+                sourceParentEl.tagName === "PICTURE" ||
+                sourceParentEl.tagName === "AUDIO"
+              )
+            ) {
+              return;
+            }
+            const rect = sourceParentEl.getBoundingClientRect();
+            newBoundingBoxes.push({
+              top: rect.top,
+              left: rect.left,
+              width: rect.width,
+              height: rect.height,
+              joinedPaths: path,
+            });
+            return;
+          }
           const rect = el.getBoundingClientRect();
           newBoundingBoxes.push({
             top: rect.top,
@@ -208,6 +230,7 @@ export function ValOverlay(props: ValOverlayProps) {
     }
   };
 
+  console.log({ boundingBoxes });
   return (
     <div {...(theme ? { "data-mode": theme } : {})} id="val-overlay-container">
       <Window editMode={editMode} setMode={setMode} setEditMode={setEditMode} />
@@ -250,6 +273,7 @@ export function ValOverlay(props: ValOverlayProps) {
 
                     return (
                       <ValPath
+                        key={path}
                         link={false}
                         toolTip={false}
                         moduleFilePath={moduleFilePath}

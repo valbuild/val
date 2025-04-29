@@ -209,6 +209,105 @@ export class ValOpsHttp extends ValOps {
     // TODO: unused for now. Implement or remove
   }
 
+  async getPresignedAuthNonce(
+    profileId: string,
+    corsOrigin: string,
+  ): Promise<
+    | {
+        status: "success";
+        data: { nonce: string; baseUrl: string };
+      }
+    | { status: "error"; statusCode: 401 | 500; error: GenericErrorMessage }
+  > {
+    try {
+      const res = await fetch(
+        `${this.contentUrl}/v1/${this.project}/presigned-auth-nonce`,
+        {
+          method: "POST",
+          headers: {
+            ...this.authHeaders,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            profileId,
+            corsOrigin,
+          }),
+        },
+      );
+      if (res.ok) {
+        const json = await res.json();
+        const parsed = z
+          .object({
+            nonce: z.string(),
+            expiresAt: z.string(),
+          })
+          .safeParse(json);
+        if (parsed.success) {
+          const { nonce } = parsed.data;
+          return {
+            status: "success" as const,
+            data: { nonce, baseUrl: `${this.contentUrl}/v1/${this.project}` },
+          };
+        } else {
+          console.error(
+            "Could not parse presigned auth nonce response. Error: " +
+              fromError(parsed.error),
+          );
+          return {
+            status: "error" as const,
+            statusCode: 500,
+            error: {
+              message:
+                "Could not get presigned auth nonce. The response that Val got from the server was not in the expected format. You might be running on an old version, or it might be a transient error or a configuration issue. Please try again later.",
+            },
+          };
+        }
+      }
+      if (res.status === 401) {
+        return {
+          statusCode: 401,
+          status: "error",
+          error: {
+            message:
+              "Could not get presigned auth nonce. Although your user is authorized, the application has authorization issues. Contact the developers on your team and ask them to verify the api keys.",
+          },
+        };
+      }
+      if (res.headers.get("Content-Type")?.includes("application/json")) {
+        const json = await res.json();
+        if (json.message) {
+          console.error("Presigned auth nonce error:", json.message);
+          return {
+            status: "error",
+            statusCode: 500,
+            error: { message: json.message },
+          };
+        }
+      }
+      const unknownErrorMessage = `Could not get presigned auth nonce. HTTP error: ${res.status} ${res.statusText}`;
+      console.error(unknownErrorMessage);
+      return {
+        status: "error",
+        statusCode: 500,
+        error: { message: unknownErrorMessage },
+      };
+    } catch (e) {
+      console.error(
+        "Could not get presigned auth nonce (connection error?):",
+        e,
+      );
+      return {
+        status: "error",
+        statusCode: 500,
+        error: {
+          message: `Could not get presigned auth nonce. Error: ${
+            e instanceof Error ? e.message : JSON.stringify(e)
+          }`,
+        },
+      };
+    }
+  }
+
   override async getCommitSummary(preparedCommit: PreparedCommit): Promise<
     | {
         commitSummary: string | null;
@@ -728,30 +827,19 @@ export class ValOpsHttp extends ValOps {
       });
   }
 
-  protected override async saveBase64EncodedBinaryFileFromPatch(
+  /**
+   * @deprecated For HTTP ops use direct upload instead (i.e. client should upload the files directly) since hosting platforms (Vercel) might have low limits on the size of the request body.
+   */
+  override async saveBase64EncodedBinaryFileFromPatch(
     filePathOrRef: string,
-    _parentRef: ParentRef, // this is required for the FS implementation, but not for the HTTP implementation (patchId is enough)
+    parentRef: ParentRef,
     patchId: PatchId,
     data: string,
     type: BinaryFileType,
     metadata: MetadataOfType<BinaryFileType>,
-    remote: boolean,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
-    let filePath: string;
-    if (remote) {
-      const splitRemoteRefDataRes =
-        Internal.remote.splitRemoteRef(filePathOrRef);
-      if (splitRemoteRefDataRes.status === "error") {
-        return {
-          error: {
-            message: `Could not split remote ref: ${splitRemoteRefDataRes.error}`,
-          },
-        };
-      }
-      filePath = "/" + splitRemoteRefDataRes.filePath;
-    } else {
-      filePath = filePathOrRef;
-    }
+    const filePath: string = filePathOrRef;
+
     return fetch(
       `${this.contentUrl}/v1/${this.project}/patches/${patchId}/files`,
       {
@@ -762,6 +850,7 @@ export class ValOpsHttp extends ValOps {
         },
         body: JSON.stringify({
           filePath,
+          parentRef, // Not currently used
           data,
           type,
           metadata,

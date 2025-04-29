@@ -1,5 +1,9 @@
 export { JSONOps } from "./json";
-export { type OperationJSON, type Operation } from "./operation";
+export {
+  type OperationJSON,
+  type Operation,
+  type FileOperation,
+} from "./operation";
 export { parsePatch, parseJSONPointer, formatJSONPointer } from "./parse";
 export {
   type JSONValue,

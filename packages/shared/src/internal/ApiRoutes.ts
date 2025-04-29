@@ -571,6 +571,65 @@ export const Api = {
       ]),
     },
   },
+  // This has a path which is like this: /upload/patches/:patchId/files. Example: /upload/patches/76b9237a-7712-4d60-88b4-d273e6d6fe18/files
+  "/upload/patches": {
+    POST: {
+      req: {
+        path: z.string().optional(),
+        body: z.object({
+          parentRef: ParentRef,
+          filePath: z.string(),
+          data: z.any(), // TODO: Json zod type
+          type: z.union([z.literal("file"), z.literal("image")]),
+          metadata: z.any(), // TODO: Json zod type
+          remote: z.boolean(),
+        }),
+      },
+      res: z.union([
+        z.object({
+          status: z.literal(400),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            filePath: z.string(),
+            patchId: PatchId,
+          }),
+        }),
+      ]),
+    },
+  },
+  "/direct-file-upload-settings": {
+    POST: {
+      req: {
+        cookies: {
+          val_session: z.string().optional(),
+        },
+      },
+      res: z.union([
+        z.object({
+          status: z.literal(400),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(401),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(500),
+          json: GenericError,
+        }),
+        z.object({
+          status: z.literal(200),
+          json: z.object({
+            nonce: z.string().nullable(),
+            baseUrl: z.string(),
+          }),
+        }),
+      ]),
+    },
+  },
   "/patches": {
     DELETE: {
       req: {
@@ -876,16 +935,18 @@ export const Api = {
           json: z.union([
             z.object({
               message: z.string(),
-              details: z.union([
-                z.object({
-                  sourceFilePatchErrors: z.record(
-                    ModuleFilePath,
-                    z.array(GenericError),
-                  ),
-                  binaryFilePatchErrors: z.record(GenericError),
-                }),
-                z.array(GenericError),
-              ]),
+              details: z
+                .union([
+                  z.object({
+                    sourceFilePatchErrors: z.record(
+                      ModuleFilePath,
+                      z.array(GenericError),
+                    ),
+                    binaryFilePatchErrors: z.record(GenericError),
+                  }),
+                  z.array(GenericError),
+                ])
+                .optional(),
             }),
             z.object({
               message: z.string(),

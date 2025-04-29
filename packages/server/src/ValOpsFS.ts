@@ -614,13 +614,11 @@ export class ValOpsFS extends ValOps {
       );
 
       if (writeRes.type === "error") {
-        return writeRes.errorType === "dir-already-exists"
-          ? result.err({ errorType: "patch-head-conflict" })
-          : result.err({
-              errorType: "other",
-              error: writeRes.error,
-              message: "Failed to write patch file",
-            });
+        return result.err({
+          errorType: "other",
+          error: writeRes.error,
+          message: "Failed to write patch file",
+        });
       }
       return result.ok({ patchId });
     } catch (err) {
@@ -669,22 +667,17 @@ export class ValOpsFS extends ValOps {
     }
   }
 
-  protected override async saveBase64EncodedBinaryFileFromPatch(
+  override async saveBase64EncodedBinaryFileFromPatch(
     filePath: string,
     parentRef: ParentRef,
     patchId: PatchId,
     data: string,
     _type: BinaryFileType,
     metadata: MetadataOfType<BinaryFileType>,
-    remote: boolean,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>> {
     const patchDir = this.getParentPatchIdFromParentRef(parentRef);
-    const patchFilePath = this.getBinaryFilePath(filePath, patchDir, remote);
-    const metadataFilePath = this.getBinaryFileMetadataPath(
-      filePath,
-      patchDir,
-      remote,
-    );
+    const patchFilePath = this.getBinaryFilePath(filePath, patchDir);
+    const metadataFilePath = this.getBinaryFileMetadataPath(filePath, patchDir);
     try {
       const buffer = bufferFromDataUrl(data);
       if (!buffer) {
@@ -764,12 +757,7 @@ export class ValOpsFS extends ValOps {
     if (!result.isOk(patchDirRes)) {
       return null;
     }
-    const absPath = this.getBinaryFilePath(
-      filePath,
-      patchDirRes.value,
-      // We save remote remote files using the filepath (so not the remote reference) and we also retrieve them using the filepath. Therefore remote is always false
-      false, // remote = false
-    );
+    const absPath = this.getBinaryFilePath(filePath, patchDirRes.value);
 
     if (!this.host.fileExists(absPath)) {
       return null;
@@ -971,7 +959,6 @@ export class ValOpsFS extends ValOps {
           };
           continue;
         }
-        console.log("Uploading remote file", ref);
         const res = await uploadRemoteFile(
           this.contentUrl,
           this.options.config.project,
@@ -985,7 +972,6 @@ export class ValOpsFS extends ValOps {
           console.error("Failed to upload remote file", ref, res.error);
           throw new Error(`Failed to upload remote file: ${ref}. ${res.error}`);
         }
-        console.log("Completed remote file", ref);
         uploadedRemoteRefs.push(ref);
       }
     }
@@ -1162,24 +1148,7 @@ export class ValOpsFS extends ValOps {
     return fsPath.join(this.getPatchesDir(), patchDir);
   }
 
-  private getBinaryFilePath(
-    filePath: string,
-    patchDir: ParentPatchId,
-    remote: boolean,
-  ) {
-    if (remote) {
-      const res = Internal.remote.splitRemoteRef(filePath);
-      if (res.status === "error") {
-        throw new Error("Failed to split remote ref: " + filePath);
-      }
-      const actualFilePath = res.filePath;
-      return fsPath.join(
-        this.getFullPatchDir(patchDir),
-        "files",
-        actualFilePath,
-        fsPath.basename(actualFilePath),
-      );
-    }
+  private getBinaryFilePath(filePath: string, patchDir: ParentPatchId) {
     return fsPath.join(
       this.getFullPatchDir(patchDir),
       "files",
@@ -1188,26 +1157,7 @@ export class ValOpsFS extends ValOps {
     );
   }
 
-  private getBinaryFileMetadataPath(
-    filePath: string,
-    patchDir: ParentPatchId,
-    remote: boolean,
-  ) {
-    if (remote) {
-      const res = Internal.remote.splitRemoteRef(filePath);
-      if (res.status === "error") {
-        throw new Error(
-          "Failed to split remote ref (in metadata path): " + filePath,
-        );
-      }
-      const actualFilePath = res.filePath;
-      return fsPath.join(
-        this.getFullPatchDir(patchDir),
-        "files",
-        actualFilePath,
-        fsPath.basename(actualFilePath),
-      );
-    }
+  private getBinaryFileMetadataPath(filePath: string, patchDir: ParentPatchId) {
     return fsPath.join(
       this.getFullPatchDir(patchDir),
       "files",
@@ -1278,7 +1228,7 @@ class FSOpsHost {
     | { type: "success" }
     | {
         type: "error";
-        errorType: "dir-already-exists" | "failed-to-write-file";
+        errorType: "failed-to-write-file";
         error: unknown;
       } {
     try {
@@ -1288,11 +1238,7 @@ class FSOpsHost {
       // if the directory already exists. If we use recursive: true, it doesn't
       fs.mkdirSync(fsPath.dirname(path), { recursive: false });
     } catch (e) {
-      return {
-        type: "error",
-        errorType: "dir-already-exists",
-        error: e,
-      };
+      // ignore
     }
     try {
       fs.writeFileSync(path, data, "utf-8");

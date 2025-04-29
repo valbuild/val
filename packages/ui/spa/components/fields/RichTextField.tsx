@@ -15,7 +15,7 @@ import {
   richTextToRemirror,
 } from "@valbuild/shared/internal";
 import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchError";
-import { Operation, Patch } from "@valbuild/core/patch";
+import { FileOperation, Patch } from "@valbuild/core/patch";
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ValidationErrors } from "../../components/ValidationError";
 import {
@@ -28,7 +28,7 @@ import {
   useValConfig,
 } from "../ValProvider";
 import { RichTextEditor, useRichTextEditor } from "../RichTextEditor";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EditorState } from "@remirror/core";
 
 export function RichTextField({
@@ -51,7 +51,9 @@ export function RichTextField({
   const { manager } = useRichTextEditor(
     currentSourceData && richTextToRemirror(currentSourceData),
   );
-  const { patchPath, addPatch } = useAddPatch(path);
+  const disabledRef = useRef(false);
+  const { patchPath, addPatch, addAndUploadPatchWithFileOps } =
+    useAddPatch(path);
   const [editorState, setEditorState] = useState<Readonly<EditorState>>(
     manager.createState({
       content: currentSourceData && richTextToRemirror(currentSourceData),
@@ -60,6 +62,7 @@ export function RichTextField({
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
   const maybeClientSideOnly =
     "clientSideOnly" in sourceAtPath && sourceAtPath.clientSideOnly;
+
   useEffect(() => {
     if (maybeClientSideOnly === false) {
       setEditorState((prevState) => {
@@ -157,22 +160,45 @@ export function RichTextField({
       <ValidationErrors path={path} />
       <RichTextEditor
         autoFocus={autoFocus}
+        disabled={disabledRef.current}
         state={editorState}
         options={schema.options}
         manager={manager}
-        onChange={(event) => {
+        onChange={async (event) => {
           const currentDoc = editorState?.doc;
+          if (disabledRef.current) {
+            return;
+          }
           setEditorState(event.state);
           if (currentDoc && !event.state.doc.eq(currentDoc)) {
-            addPatch(
-              createRichTextPatch(
-                patchPath,
-                config?.files?.directory ?? "/public/val",
-                event.state.doc.toJSON(),
-                remoteOptions,
-              ),
-              type,
+            const patch = createRichTextPatch(
+              patchPath,
+              config?.files?.directory ?? "/public/val",
+              event.state.doc.toJSON(),
+              remoteOptions,
             );
+            if (patch.some((op) => op.op === "file")) {
+              disabledRef.current = true;
+              await addAndUploadPatchWithFileOps(
+                patch,
+                "image",
+                (onError) => {
+                  // TODO: we need to do something here nicer here
+                  alert("Error uploading image. Please try again later.");
+                  console.error("Error uploading image", onError);
+                },
+                (bytesUploaded, totalBytes, currentFile, totalFiles) => {
+                  // TODO: we need to do something here
+                  console.log(
+                    `Uploading ${bytesUploaded}/${totalBytes} (${currentFile}/${totalFiles})`,
+                  );
+                },
+              ).finally(() => {
+                disabledRef.current = false;
+              });
+            } else {
+              addPatch(patch, "richtext");
+            }
           }
         }}
       />
@@ -198,18 +224,21 @@ function createRichTextPatch(
       path,
       value: blocks,
     },
-    ...Object.entries(files).flatMap(([filePath, { value, patchPaths }]) => {
-      return patchPaths.map(
-        (patchPath): Operation => ({
-          op: "file" as const,
-          path,
-          filePath,
-          value,
-          nestedFilePath: patchPath,
-          remote: !!remoteOptions,
-        }),
-      );
-    }),
+    ...Object.values(files).flatMap(
+      ({ value, filePathOrRef, metadata, patchPaths }) => {
+        return patchPaths.map((patchPath): FileOperation => {
+          return {
+            op: "file" as const,
+            path,
+            filePath: filePathOrRef,
+            value,
+            metadata,
+            nestedFilePath: patchPath,
+            remote: !!remoteOptions,
+          };
+        });
+      },
+    ),
   ];
 }
 

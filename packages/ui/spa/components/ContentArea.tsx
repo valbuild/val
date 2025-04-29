@@ -2,22 +2,24 @@ import { ScrollArea } from "./designSystem/scroll-area";
 import { Module } from "./Module";
 import { PanelRightOpen, Search } from "lucide-react";
 import { useNavigation } from "./ValRouter";
-import { useConnectionStatus, useNetworkError } from "./ValProvider";
+import { useConnectionStatus, useGlobalError } from "./ValProvider";
 import { useLayout } from "./Layout";
 import classNames from "classnames";
 
 export function ContentArea() {
   const connectionStatus = useConnectionStatus();
-  const networkError = useNetworkError();
+  const globalError = useGlobalError();
   return (
     <>
       <ContentAreaHeader />
       <ScrollArea viewportId="val-content-area">
-        {networkError !== null && (
+        {globalError !== null && (
           <>
             <div className="w-full h-16"></div>
             <div className="absolute w-full h-16 top-0 p-4 text-center text-white bg-bg-error-primary z-[50]">
-              Network error - retrying...
+              {globalError.type === "network-error" &&
+                "Network error - retrying..."}
+              {globalError.type === "remote-files-error" && globalError.error}
             </div>
           </>
         )}

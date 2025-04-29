@@ -40,15 +40,29 @@ export type RemoteRichTextOptions = {
   schema: SerializedImageSchema;
   remoteHost: string;
 };
+type RTFiles = Record<
+  string,
+  {
+    value: string;
+    filePathOrRef: string;
+    patchPaths: string[][];
+    metadata: {
+      mimeType: string;
+      height: number;
+      width: number;
+      alt?: string;
+    };
+  }
+>;
 export function remirrorToRichTextSource(
   node: RemirrorJSON,
   configDirectory: ConfigDirectory,
   remoteOptions: RemoteRichTextOptions | null,
 ): {
   blocks: RichTextSource<AllRichTextOptions>;
-  files: Record<string, { value: string; patchPaths: string[][] }>;
+  files: RTFiles;
 } {
-  const files: Record<string, { value: string; patchPaths: string[][] }> = {};
+  const files: RTFiles = {};
   const blocks: BlockNode<AllRichTextOptions>[] = [];
   let i = 0;
   for (const child of node?.content || []) {
@@ -67,7 +81,7 @@ export function remirrorToRichTextSource(
 function convertBlock(
   path: string[],
   node: RemirrorJSON["content"][number],
-  files: Record<string, { value: string; patchPaths: string[][] }>,
+  files: RTFiles,
   configDirectory: ConfigDirectory,
   remoteOptions: RemoteRichTextOptions | null,
 ): BlockNode<AllRichTextOptions> {
@@ -114,7 +128,7 @@ function convertBlock(
 function convertHeadingChild(
   path: string[],
   node: RemirrorText | RemirrorBr | RemirrorImage,
-  files: Record<string, { value: string; patchPaths: string[][] }>,
+  files: RTFiles,
   configDirectory: ConfigDirectory,
   remoteOptions: RemoteRichTextOptions | null,
 ): HeadingNode<AllRichTextOptions>["children"][number] {
@@ -141,7 +155,7 @@ function convertHeadingChild(
 function convertParagraph(
   path: string[],
   child: RemirrorParagraph,
-  files: Record<string, { value: string; patchPaths: string[][] }>,
+  files: RTFiles,
   configDirectory: ConfigDirectory,
   remoteOptions: RemoteRichTextOptions | null,
 ): ParagraphNode<AllRichTextOptions> {
@@ -234,7 +248,7 @@ function convertTextNode(
 function convertListItem(
   path: string[],
   child: RemirrorListItem,
-  files: Record<string, { value: string; patchPaths: string[][] }>,
+  files: RTFiles,
   configDirectory: ConfigDirectory,
   remoteOptions: RemoteRichTextOptions | null,
 ): ListItemNode<AllRichTextOptions> {
@@ -279,7 +293,7 @@ function convertListItem(
 function convertBulletList(
   path: string[],
   node: RemirrorBulletList,
-  files: Record<string, { value: string; patchPaths: string[][] }>,
+  files: RTFiles,
   configDirectory: ConfigDirectory,
   remoteOptions: RemoteRichTextOptions | null,
 ): UnorderedListNode<AllRichTextOptions> {
@@ -308,7 +322,7 @@ function convertBulletList(
 function convertOrderedList(
   path: string[],
   node: RemirrorOrderedList,
-  files: Record<string, { value: string; patchPaths: string[][] }>,
+  files: RTFiles,
   configDirectory: ConfigDirectory,
   remoteOptions: RemoteRichTextOptions | null,
 ): OrderedListNode<AllRichTextOptions> {
@@ -334,11 +348,22 @@ function convertOrderedList(
   };
 }
 
+const convertToNumber = (value: string | number | null | undefined): number => {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+  if (typeof value === "number") {
+    return value;
+  }
+  const parsedValue = parseInt(value, 10);
+  return isNaN(parsedValue) ? 0 : parsedValue;
+};
+
 const textEncoder = new TextEncoder();
 function convertImageNode(
   path: string[],
   node: RemirrorImage,
-  files: Record<string, { value: string; patchPaths: string[][] }>,
+  files: RTFiles,
   configDirectory: ConfigDirectory,
   remoteOptions: RemoteRichTextOptions | null,
 ): ImageNode<AllRichTextOptions> {
@@ -369,15 +394,6 @@ function convertImageNode(
     const thisPath = path
       // file is added as src (see below):
       .concat("src");
-    if (existingFilesEntry) {
-      existingFilesEntry.patchPaths.push(thisPath);
-    } else {
-      files[filePath] = {
-        value: node.attrs.src,
-        patchPaths: [thisPath],
-      };
-    }
-
     const remoteFileHash = Internal.remote.hashToRemoteFileHash(fullFileHash);
     const ref = remoteOptions
       ? Internal.remote.createRemoteRef(remoteOptions.remoteHost, {
@@ -399,6 +415,21 @@ function convertImageNode(
           filePath: filePath.slice(1) as `public/val/${string}`,
         })
       : (filePath as `/public/${string}`);
+    if (existingFilesEntry) {
+      existingFilesEntry.patchPaths.push(thisPath);
+    } else {
+      // TODO: use ref instead on filePath?
+      files[filePath] = {
+        value: node.attrs.src,
+        filePathOrRef: ref,
+        metadata: {
+          height: convertToNumber(node.attrs.height),
+          width: convertToNumber(node.attrs.width),
+          mimeType,
+        },
+        patchPaths: [thisPath],
+      };
+    }
 
     return {
       tag: "img",
@@ -426,7 +457,14 @@ function convertImageNode(
     let remote = false;
     if (patchId) {
       remote = getParam("remote", url) === "true";
-      if (noParamsUrl.startsWith("/api/val/files/public")) {
+      if (remote) {
+        const remoteRef = getParam("ref", url);
+        if (remoteRef) {
+          noParamsUrl = decodeURIComponent(remoteRef);
+        } else {
+          console.error("Remote image URL does not contain ref: " + url);
+        }
+      } else if (noParamsUrl.startsWith("/api/val/files/public")) {
         noParamsUrl = noParamsUrl.slice("/api/val/files".length);
       } else {
         console.error(

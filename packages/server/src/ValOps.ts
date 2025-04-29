@@ -1134,125 +1134,11 @@ export abstract class ValOps {
         error?: undefined;
         patchId: PatchId;
         createdAt: string;
-        files: {
-          filePath: string;
-          error?: PatchError;
-        }[];
       },
       | { errorType: "other"; error: GenericErrorMessage }
       | { errorType: "patch-head-conflict" }
     >
   > {
-    const initTree = await this.initSources();
-    const schemas = initTree.schemas;
-    const moduleErrors = initTree.moduleErrors;
-    let sources = initTree.sources;
-
-    if (parentRef.type !== "head") {
-      // There's room for some optimizations here: we could do this once, then re-use every time we create a patch, then again we only create one patch at a time
-      const patchOps = await this.fetchPatches({ excludePatchOps: false });
-      const patchAnalysis = this.analyzePatches(patchOps.patches);
-      const tree = await this.getSources({
-        ...patchAnalysis,
-        ...patchOps,
-      });
-      sources = {
-        ...sources,
-        ...tree.sources,
-      };
-    }
-    const source = sources[path];
-    const schema = schemas[path];
-    const moduleError = moduleErrors.find((e) => e.path === path);
-    if (moduleError) {
-      console.error(
-        `Cannot patch. Module at path: '${path}' has fatal errors: "${moduleError.message}"`,
-      );
-      return result.err({
-        errorType: "other",
-        error: {
-          message:
-            `Cannot patch. Module at path: '${path}' has fatal errors: ` +
-            moduleErrors.map((m) => `"${m.message}"`).join(" and "),
-        },
-      });
-    }
-    if (source === undefined) {
-      console.error(
-        `Cannot patch. Module source at path: '${path}' does not exist`,
-      );
-      return result.err({
-        errorType: "other",
-        error: {
-          message: `Cannot patch. Module source at path: '${path}' does not exist`,
-        },
-      });
-    }
-    if (!schema) {
-      console.error(
-        `Cannot patch. Module schema at path: '${path}' does not exist`,
-      );
-      return result.err({
-        errorType: "other",
-        error: {
-          message: `Cannot patch. Module schema at path: '${path}' does not exist`,
-        },
-      });
-    }
-
-    const sourceFileOps: Patch = [];
-    const files: Record<
-      string,
-      | {
-          error?: undefined;
-          value: string;
-          path: string[];
-          sha256: string;
-          remote: boolean;
-        }
-      | {
-          error: PatchError;
-        }
-    > = {};
-    for (const op of patch) {
-      if (op.op !== "file") {
-        sourceFileOps.push(op);
-      } else {
-        const { value, filePath } = op;
-
-        if (files[filePath]) {
-          console.error(
-            `Cannot have multiple files with same path in same patch. Path: ${filePath}`,
-          );
-          files[filePath] = {
-            error: new PatchError(
-              "Cannot have multiple files with same path in same patch",
-            ),
-          };
-        } else if (typeof value !== "string") {
-          console.error(
-            `Value is not a string. Path: ${filePath}. Value: ${value}`,
-          );
-          files[filePath] = { error: new PatchError("Value is not a string") };
-        } else {
-          const sha256 = Internal.getSHA256Hash(textEncoder.encode(value));
-          files[filePath] = {
-            value,
-            sha256,
-            path: op.path,
-            remote: op.remote,
-          };
-          sourceFileOps.push({
-            op: "file",
-            path: op.path,
-            filePath,
-            nestedFilePath: op.nestedFilePath,
-            value: sha256,
-            remote: op.remote,
-          });
-        }
-      }
-    }
     const saveRes = await this.saveSourceFilePatch(
       path,
       patch,
@@ -1269,153 +1155,8 @@ export abstract class ValOps {
       }
       return result.err({ errorType: "other", error: saveRes.error });
     }
-    const saveFileRes: { filePath: string; error?: PatchError }[] =
-      await Promise.all(
-        Object.entries(files).map(
-          async ([filePath, data]): Promise<{
-            filePath: string;
-            error?: PatchError;
-          }> => {
-            if (data.error) {
-              return { filePath, error: data.error };
-            } else {
-              let type: string | null;
-              const modulePath = Internal.patchPathToModulePath(data.path);
-              try {
-                const { schema: schemaAtPath } = Internal.resolvePath(
-                  modulePath,
-                  source,
-                  schema,
-                );
-                type =
-                  schemaAtPath instanceof ImageSchema ||
-                  schemaAtPath instanceof RichTextSchema // if it's a rich text schema, we assume it's an image - hope this assumption holds!
-                    ? "image"
-                    : schemaAtPath instanceof FileSchema
-                      ? "file"
-                      : schemaAtPath.serialize().type;
-              } catch (e) {
-                if (e instanceof Error) {
-                  console.error(
-                    `Could not resolve file type at: ${modulePath}. Error: ${e.message}`,
-                  );
-                  return {
-                    filePath,
-                    error: new PatchError(
-                      `Could not resolve file type at: ${modulePath}. Error: ${e.message}`,
-                    ),
-                  };
-                }
-                console.error(
-                  `Could not resolve file type at: ${modulePath}. Unknown error.`,
-                );
-                return {
-                  filePath,
-                  error: new PatchError(
-                    `Could not resolve file type at: ${modulePath}. Unknown error.`,
-                  ),
-                };
-              }
-              if (type !== "image" && type !== "file") {
-                console.error(
-                  "Unknown file type (resolved from schema): " + type,
-                );
-                return {
-                  filePath,
-                  error: new PatchError(
-                    "Unknown file type (resolved from schema): " + type,
-                  ),
-                };
-              }
-              const mimeType = getMimeTypeFromBase64(data.value);
-              if (!mimeType) {
-                console.error(
-                  "Could not get mimeType from base 64 encoded value",
-                );
-                return {
-                  filePath,
-                  error: new PatchError(
-                    "Could not get mimeType from base 64 encoded value. First chars were: " +
-                      data.value.slice(0, 20),
-                  ),
-                };
-              }
-              const buffer = bufferFromDataUrl(data.value);
-              if (!buffer) {
-                console.error(
-                  "Could not create buffer from base 64 encoded value",
-                );
-                return {
-                  filePath,
-                  error: new PatchError(
-                    "Could not create buffer from base 64 encoded value",
-                  ),
-                };
-              }
-              const metadataOps = createMetadataFromBuffer(
-                type,
-                mimeType,
-                buffer,
-              );
-              if (metadataOps.errors) {
-                console.error(
-                  `Could not get metadata. Errors: ${metadataOps.errors
-                    .map((error) => error.message)
-                    .join(", ")}`,
-                );
-                return {
-                  filePath,
-                  error: new PatchError(
-                    `Could not get metadata. Errors: ${metadataOps.errors
-                      .map((error) => error.message)
-                      .join(", ")}`,
-                  ),
-                };
-              }
-              const MaxRetries = 3;
-              let lastRes;
-              for (let i = 0; i < MaxRetries; i++) {
-                lastRes = await this.saveBase64EncodedBinaryFileFromPatch(
-                  filePath,
-                  parentRef,
-                  patchId,
-                  data.value,
-                  type,
-                  metadataOps.metadata,
-                  data.remote,
-                );
-                if (!lastRes.error) {
-                  return { filePath };
-                }
-              }
-              return {
-                filePath,
-                error: new PatchError(
-                  lastRes?.error?.message ||
-                    "Unexpectedly could not save patch file",
-                ),
-              };
-            }
-          },
-        ),
-      );
-
-    const errors = saveFileRes.filter(
-      (f): f is { filePath: string; error: PatchError } => !!f.error,
-    );
-    if (errors.length > 0) {
-      return result.err({
-        errorType: "other",
-        error: {
-          message:
-            "Could not save patch: " +
-            errors.map((e) => e.error.message).join(", "),
-        },
-      });
-    }
     return result.ok({
       patchId,
-      files: saveFileRes,
       createdAt: new Date().toISOString(),
     });
   }
@@ -1448,14 +1189,13 @@ export abstract class ValOps {
   protected abstract getSourceFile(
     path: ModuleFilePath,
   ): Promise<WithGenericError<{ data: string }>>;
-  protected abstract saveBase64EncodedBinaryFileFromPatch(
+  abstract saveBase64EncodedBinaryFileFromPatch(
     filePath: string,
     parentRef: ParentRef,
     patchId: PatchId,
     data: string,
     type: "file" | "image",
     metadata: MetadataOfType<"file" | "image">,
-    remote: boolean,
   ): Promise<WithGenericError<{ patchId: PatchId; filePath: string }>>;
   abstract getBase64EncodedBinaryFileFromPatch(
     filePath: string,

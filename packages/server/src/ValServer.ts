@@ -11,7 +11,6 @@ import {
   Internal,
   FileSource,
   RemoteSource,
-  DEFAULT_VAL_REMOTE_HOST,
   Schema,
   SelectorSource,
 } from "@valbuild/core";
@@ -28,7 +27,7 @@ import {
   ValServerErrorStatus,
 } from "@valbuild/shared/internal";
 import { decodeJwt, encodeJwt, getExpire } from "./jwt";
-import { optional, z } from "zod";
+import { z } from "zod";
 import { ValOpsFS } from "./ValOpsFS";
 import {
   AuthorId,
@@ -792,13 +791,13 @@ export const ValServer = (
         const settingsRes = await getSettings(options.project, remoteFileAuth);
         if (!settingsRes.success) {
           console.warn(
-            "Could not get public project id: " + settingsRes.message,
+            "Could not get remote files settings: " + settingsRes.message,
           );
           return {
             status: 400,
             json: {
               errorCode: "error-could-not-get-settings",
-              message: `Could not get settings id: ${settingsRes.message}`,
+              message: `Could not get remote files settings: ${settingsRes.message}`,
             },
           };
         }
@@ -894,7 +893,112 @@ export const ValServer = (
         };
       },
     },
+    "/upload/patches": {
+      POST: async (req) => {
+        if (serverOps instanceof ValOpsHttp) {
+          return {
+            status: 400,
+            json: {
+              message: "Do not use this endpoint in HTTP mode",
+            },
+          };
+        }
+        const pathParts = req.path.split("/");
+        const patchId = pathParts[1] as PatchId;
+        const isValidPatchId = patchId.length === 36;
+        const isValidEndpoint =
+          pathParts[0] === "" && isValidPatchId && pathParts[2] === "files";
+        if (!isValidEndpoint) {
+          return {
+            status: 400,
+            json: {
+              message: "Invalid endpoint",
+            },
+          };
+        }
+        const { filePath, parentRef, type, data, metadata } = req.body;
+        const saveRes = await serverOps.saveBase64EncodedBinaryFileFromPatch(
+          filePath,
+          parentRef,
+          patchId,
+          data,
+          type,
+          metadata,
+        );
+        if (saveRes.error) {
+          return {
+            status: 400,
+            json: {
+              message: saveRes.error.message,
+            },
+          };
+        }
 
+        return {
+          status: 200,
+          json: {
+            filePath,
+            patchId,
+          },
+        };
+      },
+    },
+    "/direct-file-upload-settings": {
+      POST: async (req) => {
+        const cookies = req.cookies;
+        const auth = getAuth(cookies);
+        if (auth.error) {
+          return {
+            status: 401,
+            json: {
+              message: auth.error,
+            },
+          };
+        }
+        if (serverOps instanceof ValOpsFS) {
+          // In FS mode we do not use the remote server at all and just return an url that points to this server
+          // which has an endpoint that handles this
+          // A bit hacky perhaps, but we want to have as similar semantics as possible in client code when it comes to FS / HTTP
+          const host = `/api/val`;
+          return {
+            status: 200,
+            json: {
+              nonce: null,
+              baseUrl: `${host}/upload`, // NOTE: this is the /upload/patches endpoint - the client will add /patches/:patchId/files to this and post to it
+            },
+          };
+        }
+        const httpOps = serverOps;
+        const profileId =
+          "id" in auth && auth.id ? (auth.id as AuthorId) : undefined;
+        if (!profileId) {
+          return {
+            status: 401,
+            json: {
+              message: "Unauthorized",
+            },
+          };
+        }
+        const corsOrigin = "*"; // TODO: add cors origin
+        const presignedAuthNonce = await httpOps.getPresignedAuthNonce(
+          profileId,
+          corsOrigin,
+        );
+        if (presignedAuthNonce.status === "error") {
+          return {
+            status: presignedAuthNonce.statusCode,
+            json: presignedAuthNonce.error,
+          };
+        }
+        return {
+          status: 200,
+          json: {
+            nonce: presignedAuthNonce.data.nonce,
+            baseUrl: presignedAuthNonce.data.baseUrl,
+          },
+        };
+      },
+    },
     //#region patches
     "/patches": {
       PUT: async (req): Promise<z.infer<Api["/patches"]["PUT"]["res"]>> => {
@@ -1494,12 +1598,26 @@ export const ValServer = (
             return remoteFileAuthRes;
           }
           const remoteFileAuth = remoteFileAuthRes?.json?.remoteFileAuth;
-          const deleteRes = await serverOps.deleteAllPatches();
-          await serverOps.saveOrUploadFiles(
+          const saveRes = await serverOps.saveOrUploadFiles(
             preparedCommit,
             mode,
             remoteFileAuth,
           );
+          if (Object.keys(saveRes.errors).length > 0) {
+            console.error("Val: Failed to save files", saveRes.errors);
+            return {
+              status: 400,
+              json: {
+                message: "Failed to save files",
+                details: Object.entries(saveRes.errors).map(([key, error]) => {
+                  return {
+                    message: `Got error: ${error} in ${key}`,
+                  };
+                }),
+              },
+            };
+          }
+          const deleteRes = await serverOps.deleteAllPatches();
           if (deleteRes.error) {
             console.error(
               `Val got an error while cleaning up patches after publish: ${deleteRes.error.message}`,
