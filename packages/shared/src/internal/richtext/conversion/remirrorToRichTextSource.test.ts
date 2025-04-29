@@ -505,6 +505,12 @@ describe("Remirror to RichTextSource", () => {
       ],
       files: {
         "/public/val/example_836c5.png": {
+          filePathOrRef: "/public/val/example_836c5.png",
+          metadata: {
+            height: 10,
+            mimeType: "image/png",
+            width: 100,
+          },
           value: smallPngBuffer,
           patchPaths: [["0", "children", "0", "src"]],
         },
@@ -613,6 +619,12 @@ describe("Remirror to RichTextSource", () => {
       ],
       files: {
         "/public/val/example_836c5.png": {
+          filePathOrRef: "/public/val/example_836c5.png",
+          metadata: {
+            height: 10,
+            mimeType: "image/png",
+            width: 100,
+          },
           value: smallPngBuffer,
           patchPaths: [
             [
