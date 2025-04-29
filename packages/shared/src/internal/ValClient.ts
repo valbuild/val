@@ -61,10 +61,13 @@ export const createValClient = (
     }
     const reqBodyResult = apiEndpoint.req.body?.safeParse(anyReq.body);
     if (reqBodyResult && !reqBodyResult.success) {
-      console.error("Invalid request body", {
-        body: anyReq.body,
-        error: reqBodyResult.error,
-      });
+      console.error(
+        "Got an invalid request body while validating client-side. This is most likely a Val bug.",
+        {
+          body: anyReq.body,
+          error: reqBodyResult.error,
+        },
+      );
       return {
         status: null,
         json: {
