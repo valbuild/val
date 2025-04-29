@@ -663,7 +663,7 @@ export const Api = {
             z.object({
               path: ModuleFilePath,
               patchId: PatchId,
-              patch: Patch,
+              patch: z.any(), // TODO: this should be Patch instead - we got a weird validation error: although input looks good, it still does not accept objects as values... Which it should do via the z.record(JSONValue) type
             }),
           ),
         }),
