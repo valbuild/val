@@ -230,7 +230,6 @@ export function ValOverlay(props: ValOverlayProps) {
     }
   };
 
-  console.log({ boundingBoxes });
   return (
     <div {...(theme ? { "data-mode": theme } : {})} id="val-overlay-container">
       <Window editMode={editMode} setMode={setMode} setEditMode={setEditMode} />
