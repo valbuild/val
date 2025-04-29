@@ -64,6 +64,8 @@ export const createValClient = (
       console.error(
         "Got an invalid request body while validating client-side. This is most likely a Val bug.",
         {
+          path,
+          method,
           body: anyReq.body,
           error: reqBodyResult.error,
         },
