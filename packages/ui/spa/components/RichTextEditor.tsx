@@ -91,6 +91,7 @@ export function RichTextEditor<E extends AnyExtension>({
   onChange,
   onFocus,
   debug,
+  disabled,
   autoFocus,
 }: {
   initialContent?: Readonly<EditorState>;
@@ -100,6 +101,7 @@ export function RichTextEditor<E extends AnyExtension>({
   onChange?: (value: RemirrorEventListenerProps<E>) => void;
   onFocus?: (focused: boolean) => void;
   debug?: boolean;
+  disabled?: boolean;
   autoFocus?: boolean;
 }) {
   const hasOptions =
@@ -136,6 +138,7 @@ export function RichTextEditor<E extends AnyExtension>({
         state={state}
         classNames={remirrorClassNames}
         onChange={onChange}
+        editable={!disabled}
       >
         <Toolbar
           hasOptions={hasOptions}
@@ -383,6 +386,8 @@ const Toolbar = ({
                         })
                         .focus()
                         .run();
+                      // reset the input value to allow re-uploading the same file
+                      ev.target.value = "";
                     });
                   }}
                 />

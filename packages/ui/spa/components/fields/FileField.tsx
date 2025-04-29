@@ -92,6 +92,7 @@ export async function createFilePatch(
     },
     {
       value: data,
+      metadata,
       op: "file",
       path,
       filePath: ref,
@@ -107,16 +108,60 @@ export function FileField({ path }: { path: SourcePath }) {
   const remoteFiles = useRemoteFiles();
   const schemaAtPath = useSchemaAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
-  const { patchPath, addPatch } = useAddPatch(path);
+  const [showAsVideo, setShowAsVideo] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const { patchPath, addAndUploadPatchWithFileOps } = useAddPatch(path);
+  const [progressPercentage, setProgressPercentage] = useState<number | null>(
+    null,
+  );
+  const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
   const maybeClientSideOnly =
     sourceAtPath.status === "success" && sourceAtPath.clientSideOnly;
   useEffect(() => {
-    if (!maybeClientSideOnly) {
-      setLoading(false);
+    if (maybeSourceData) {
+      if (maybeSourceData.metadata) {
+        // We can't set the url before it is server side (since the we will be loading)
+        if (!maybeClientSideOnly) {
+          const nextUrl =
+            VAL_EXTENSION in maybeSourceData &&
+            maybeSourceData[VAL_EXTENSION] === "remote"
+              ? Internal.convertRemoteSource({
+                  ...maybeSourceData,
+                  [VAL_EXTENSION]: "remote",
+                }).url
+              : Internal.convertFileSource({
+                  ...maybeSourceData,
+                  [VAL_EXTENSION]: "file",
+                }).url;
+          setUrl(nextUrl);
+          setLoading(false);
+        }
+      }
     }
-  }, [maybeClientSideOnly]);
+  }, [sourceAtPath]);
+  useEffect(() => {
+    // We want to show video if only video is accepted
+    // If source is defined we also show a video if the mimeType is video
+    // If the mimeType is set but not a video, we never want to show video
+    if (
+      schemaAtPath.status === "success" &&
+      schemaAtPath.data.type === "file" &&
+      schemaAtPath.data.options?.accept?.startsWith("video/")
+    ) {
+      setShowAsVideo(true);
+    }
+    if (maybeSourceData) {
+      if (typeof maybeSourceData.metadata?.mimeType === "string") {
+        if (maybeSourceData.metadata.mimeType.startsWith("video/")) {
+          setShowAsVideo(true);
+        } else {
+          setShowAsVideo(false);
+        }
+      }
+    }
+  }, [schemaAtPath, maybeSourceData]);
 
   if (schemaAtPath.status === "error") {
     return (
@@ -208,44 +253,86 @@ export function FileField({ path }: { path: SourcePath }) {
                 size={16}
               />
             )}
+            {progressPercentage !== null && (
+              <div className="text-sm text-text-secondary">
+                {progressPercentage}%
+              </div>
+            )}
           </div>
         )}
         <div className="flex items-center gap-4">
-          <Button
-            asChild
-            variant={"ghost"}
-            className="cursor-pointer bg-bg-primary hover:bg-bg-secondary_alt"
-          >
-            <label htmlFor={`img_input:${path}`}>Update</label>
-          </Button>
-          {source && (
-            <a
-              className="flex items-center gap-2"
-              href={
-                VAL_EXTENSION in source && source[VAL_EXTENSION] === "remote"
-                  ? Internal.convertRemoteSource({
-                      ...source,
-                      [VAL_EXTENSION]: "remote",
-                    }).url
-                  : Internal.convertFileSource({
-                      ...source,
-                      [VAL_EXTENSION]: "file",
-                    }).url
-              }
-            >
-              <span> Open file</span>
-              <SquareArrowOutUpRight />
-            </a>
-          )}
+          {source &&
+            (showAsVideo ? (
+              <div className="flex flex-col gap-2">
+                <video
+                  className="w-full h-auto rounded-lg"
+                  controls
+                  src={
+                    VAL_EXTENSION in source &&
+                    source[VAL_EXTENSION] === "remote"
+                      ? Internal.convertRemoteSource({
+                          ...source,
+                          [VAL_EXTENSION]: "remote",
+                        }).url
+                      : Internal.convertFileSource({
+                          ...source,
+                          [VAL_EXTENSION]: "file",
+                        }).url
+                  }
+                />
+                <Button
+                  asChild
+                  variant={"ghost"}
+                  className="cursor-pointer bg-bg-primary hover:bg-bg-secondary_alt"
+                >
+                  <label htmlFor={`file_input:${path}`}>Upload</label>
+                </Button>
+              </div>
+            ) : (
+              <>
+                <Button
+                  asChild
+                  variant={"ghost"}
+                  className="cursor-pointer bg-bg-primary hover:bg-bg-secondary_alt"
+                >
+                  <label htmlFor={`file_input:${path}`}>Upload</label>
+                </Button>
+                <a
+                  className="flex items-center gap-2"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  download={filename}
+                  href={
+                    VAL_EXTENSION in source &&
+                    source[VAL_EXTENSION] === "remote"
+                      ? Internal.convertRemoteSource({
+                          ...source,
+                          [VAL_EXTENSION]: "remote",
+                        }).url
+                      : Internal.convertFileSource({
+                          ...source,
+                          [VAL_EXTENSION]: "file",
+                        }).url
+                  }
+                >
+                  <span> Open file</span>
+                  <SquareArrowOutUpRight />
+                </a>
+              </>
+            ))}
           <input
             disabled={disabled}
             hidden
-            id={`img_input:${path}`}
+            id={`file_input:${path}`}
             type="file"
             accept={schemaAtPath.data.options?.accept}
             onChange={(ev) => {
-              setLoading(true);
               readFile(ev).then((res) => {
+                const type = "file";
+                const prevUrl: string | null = url;
+                setUrl(res.src);
+                setLoading(true);
+
                 const data = { src: res.src, filename: res.filename };
                 let metadata: FileMetadata | undefined;
                 if (res.mimeType) {
@@ -260,18 +347,41 @@ export function FileField({ path }: { path: SourcePath }) {
                   data.filename ?? null,
                   res.fileHash,
                   metadata,
-                  "file",
+                  type,
                   remoteData,
                   config.files?.directory,
                 )
                   .then((patch) => {
-                    addPatch(patch, schemaAtPath.data.type);
+                    setLoading(true);
+                    setProgressPercentage(0);
+                    addAndUploadPatchWithFileOps(
+                      patch,
+                      type,
+                      (errorMessage) => {
+                        setUrl(prevUrl);
+                        setError(errorMessage);
+                      },
+                      (bytesUploaded, totalBytes, currentFile, totalFiles) => {
+                        const overallProgress =
+                          (bytesUploaded * (currentFile + 1)) /
+                          (totalBytes * totalFiles);
+                        setProgressPercentage(
+                          Math.round(overallProgress * 100),
+                        );
+                      },
+                    ).finally(() => {
+                      setProgressPercentage(null);
+                      setLoading(false);
+                    });
                   })
                   .catch((err) => {
-                    setLoading(false);
                     console.error("Failed to create file patch", err);
+                    setLoading(false);
+                    setUrl(prevUrl);
                     setError("Could not upload file. Please try again later");
                   });
+                // reset the input value to allow re-uploading the same file
+                ev.target.value = "";
               });
             }}
           />

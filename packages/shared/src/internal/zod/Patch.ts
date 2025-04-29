@@ -21,6 +21,17 @@ const JSONValueT: z.ZodType<JSONValueT> = z.lazy(() =>
   ]),
 );
 
+const FileOperation = <PathType extends z.ZodType>(path: PathType) =>
+  z.object({
+    op: z.literal("file"),
+    path,
+    filePath: z.string(),
+    value: z.string(),
+    remote: z.boolean(),
+    nestedFilePath: z.array(z.string()).optional(),
+    metadata: JSONValueT.optional(), // TODO: remove optional
+  });
+
 /**
  * Raw JSON patch operation.
  */
@@ -72,15 +83,7 @@ const OperationJSONT: z.ZodType<OperationJSONT> = z.discriminatedUnion("op", [
       value: JSONValueT,
     })
     .strict(),
-  z
-    .object({
-      op: z.literal("file"),
-      path: z.string(),
-      filePath: z.string(),
-      value: z.string(),
-      remote: z.boolean(),
-    })
-    .strict(),
+  FileOperation(z.string()).strict(),
 ]);
 
 export const PatchJSON: z.ZodType<PatchJSONT> = z.array(OperationJSONT);
@@ -131,16 +134,7 @@ const OperationT: z.ZodType<OperationT> = z.discriminatedUnion("op", [
       value: JSONValueT,
     })
     .strict(),
-  z
-    .object({
-      op: z.literal("file"),
-      path: z.array(z.string()),
-      filePath: z.string(),
-      nestedFilePath: z.array(z.string()).optional(),
-      value: z.string(),
-      remote: z.boolean(),
-    })
-    .strict(),
+  FileOperation(z.array(z.string())).strict(),
 ]);
 
 export const Patch: z.ZodType<PatchT> = z.array(OperationT);

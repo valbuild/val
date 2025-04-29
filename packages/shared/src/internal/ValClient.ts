@@ -119,7 +119,7 @@ export const createValClient = (
           json,
         };
         if (res.status === 500) {
-          console.log("Server responded with an error", json);
+          console.error("Server responded with an error", json);
           return {
             status: 500,
             json: {

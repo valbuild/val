@@ -23,8 +23,12 @@ import {
   SourcePath,
   ValConfig,
 } from "@valbuild/core";
-import { Patch } from "@valbuild/core/patch";
-import { SharedValConfig, ValClient } from "@valbuild/shared/internal";
+import { Operation, Patch } from "@valbuild/core/patch";
+import {
+  ParentRef,
+  SharedValConfig,
+  ValClient,
+} from "@valbuild/shared/internal";
 import { isJsonArray } from "../utils/isJsonArray";
 import { DayPickerProvider } from "react-day-picker";
 import { AuthenticationState, useStatus } from "../hooks/useStatus";
@@ -37,6 +41,7 @@ import {
   mergeCommitsAndDeployments,
 } from "../utils/mergeCommitsAndDeployments";
 import { TooltipProvider } from "./designSystem/tooltip";
+import { FileOperation } from "@valbuild/core/patch";
 
 type ValContextValue = {
   syncEngine: ValSyncEngine;
@@ -52,27 +57,6 @@ type ValContextValue = {
   setTheme: (theme: Themes | null) => void;
   config: ValConfig | undefined;
   authenticationState: AuthenticationState;
-  addPatch: (
-    moduleFilePath: ModuleFilePath,
-    patch: Patch,
-    type: SerializedSchema["type"],
-  ) =>
-    | {
-        status: "patch-merged";
-        patchId: PatchId;
-        moduleFilePath: ModuleFilePath;
-      }
-    | {
-        status: "patch-added";
-        patchId: PatchId;
-        moduleFilePath: ModuleFilePath;
-      }
-    | {
-        status: "patch-error";
-        message: string;
-        moduleFilePath: ModuleFilePath;
-      };
-  deletePatches: (patchIds: PatchId[]) => void;
   profiles: Record<AuthorId, Profile>;
   deployments: ValEnrichedDeployment[];
   dismissDeployment: (deploymentId: string) => void;
@@ -88,6 +72,7 @@ type ValContextValue = {
       }
     | {
         status: "inactive";
+        message: string;
         reason:
           | "unknown-error"
           | "project-not-configured"
@@ -276,11 +261,13 @@ export function ValProvider({
                 setRemoteFiles({
                   status: "inactive",
                   reason: res.json.errorCode,
+                  message: res.json.message,
                 });
               } else {
                 setRemoteFiles({
                   status: "inactive",
                   reason: "unknown-error",
+                  message: "An unknown error has occurred",
                 });
               }
               setTimeout(loadRemoteSettings, 5000);
@@ -288,7 +275,11 @@ export function ValProvider({
           })
           .catch((err) => {
             console.error("Error getting remote settings", err);
-            setRemoteFiles({ status: "inactive", reason: "unknown-error" });
+            setRemoteFiles({
+              status: "inactive",
+              reason: "unknown-error",
+              message: "An unknown error has occurred",
+            });
             setTimeout(loadRemoteSettings, 5000);
           });
       }
@@ -440,19 +431,6 @@ export function ValProvider({
         dismissDeployment,
         portalRef: portalRef.current,
         authenticationState,
-        addPatch: (moduleFilePath, patch, type) => {
-          return syncEngine.addPatch(moduleFilePath, type, patch, Date.now());
-        },
-        deletePatches: (patchIds) => {
-          // Delete in batches of 100 patch ids (since it is added to request url as query param)
-          const batches = [];
-          for (let i = 0; i < patchIds.length; i += 100) {
-            batches.push(patchIds.slice(i, i + 100));
-          }
-          for (const batch of batches) {
-            syncEngine.deletePatches(batch, Date.now());
-          }
-        },
         theme,
         setTheme: (theme) => {
           if (theme === "dark" || theme === "light") {
@@ -636,32 +614,331 @@ export function useConnectionStatus() {
   return serviceUnavailable === true ? "service-unavailable" : "connected";
 }
 
+const textEncoder = new TextEncoder();
+const SavePatchFileResponse = z.object({
+  patchId: z.string().refine((v): v is PatchId => v.length > 0),
+  filePath: z.string().refine((v): v is ModuleFilePath => v.length > 0),
+});
+
 export function useAddPatch(sourcePath: SourcePath) {
-  const { addPatch } = useContext(ValContext);
+  const { syncEngine, client } = useContext(ValContext);
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
   const patchPath = useMemo(() => {
     return Internal.createPatchPath(modulePath);
   }, [modulePath]);
-  const addPatchCallback = useCallback(
+  // TODO: do we even need these callbacks now? Earlier they were useful, but after moving to syncEngine, they give us very little value
+  const addPatch = useCallback(
     (patch: Patch, type: SerializedSchema["type"]) => {
-      addPatch(moduleFilePath, patch, type);
+      syncEngine.addPatch(moduleFilePath, type, patch, Date.now());
     },
-    [addPatch, sourcePath],
+    [syncEngine, moduleFilePath],
+  );
+  const addPatchAwaitable = useCallback(
+    (patch: Patch, type: SerializedSchema["type"], patchId: PatchId) => {
+      return syncEngine.addPatchAwaitable(
+        moduleFilePath,
+        type,
+        patch,
+        patchId,
+        Date.now(),
+      );
+    },
+    [syncEngine, moduleFilePath],
+  );
+  const addModuleFilePatch = useCallback(
+    (
+      moduleFilePath: ModuleFilePath,
+      patch: Patch,
+      type: SerializedSchema["type"],
+    ) => {
+      syncEngine.addPatch(moduleFilePath, type, patch, Date.now());
+    },
+    [syncEngine],
   );
 
+  const getDirectFileUploadSettings = useCallback(async (): Promise<
+    | {
+        status: "success";
+        data: {
+          nonce: string | null;
+          baseUrl: string;
+        };
+      }
+    | {
+        status: "error";
+        error: string;
+      }
+  > => {
+    let res = await client("/direct-file-upload-settings", "POST", {});
+    let retries = 0;
+    while (res.status === null && retries < 5) {
+      console.warn(
+        "Failed to get direct file upload settings, retrying...",
+        res,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 500 * (retries + 1)));
+      res = await client("/direct-file-upload-settings", "POST", {});
+      retries++;
+    }
+    if (res.status === 200) {
+      return { status: "success", data: res.json };
+    }
+    return {
+      status: "error",
+      error: "Could not get direct file upload settings",
+    };
+  }, [client]);
+
+  const uploadPatchFile = useCallback(
+    async (
+      baseUrl: string,
+      nonce: string | null,
+      parentRef: ParentRef,
+      patchId: PatchId,
+      type: "file" | "image",
+      op: FileOperation,
+      onProgress: (bytesUploaded: number, totalBytes: number) => void,
+    ): Promise<
+      | { status: "done"; patchId: PatchId; filePath: string }
+      | {
+          status: "error";
+          error: {
+            message: string;
+          };
+        }
+    > => {
+      const authHeaders = nonce
+        ? {
+            "x-val-auth-nonce": nonce,
+          }
+        : {};
+      const { filePath: filePathOrRef, value: data, metadata, remote } = op;
+
+      // Create the payload once
+      let filePath: string;
+      if (remote) {
+        const splitRemoteRefDataRes =
+          Internal.remote.splitRemoteRef(filePathOrRef);
+        if (splitRemoteRefDataRes.status === "error") {
+          return Promise.reject({
+            status: "error",
+            error: {
+              message: `Could not create correct file path of remote file (${splitRemoteRefDataRes.error}). This is most likely a Val bug.`,
+            },
+          });
+        }
+        filePath = "/" + splitRemoteRefDataRes.filePath;
+      } else {
+        filePath = filePathOrRef;
+      }
+      const payload = JSON.stringify({
+        filePath,
+        parentRef,
+        data,
+        type,
+        metadata,
+        remote,
+      });
+
+      // Get byte length directly from the string
+      const totalBytes = textEncoder.encode(payload).length;
+
+      // Initial progress report
+      onProgress(0, totalBytes);
+
+      return new Promise((resolve) => {
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener("progress", (event) => {
+          if (event.lengthComputable) {
+            onProgress(event.loaded, event.total);
+          }
+        });
+
+        xhr.addEventListener("load", () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const responseText = xhr.responseText;
+              const responseData = JSON.parse(responseText);
+              const parsed = SavePatchFileResponse.safeParse(responseData);
+
+              if (parsed.success) {
+                resolve({
+                  status: "done",
+                  patchId: parsed.data.patchId,
+                  filePath: parsed.data.filePath,
+                });
+              } else {
+                resolve({
+                  status: "error",
+                  error: {
+                    message: `While saving a file we got an unexpected response (${responseText?.slice(0, 100)}...)`,
+                  },
+                });
+              }
+            } catch (e) {
+              resolve({
+                status: "error",
+                error: {
+                  message: `Got an exception while saving a file. Error: ${e instanceof Error ? e.message : String(e)}`,
+                },
+              });
+            }
+          } else {
+            resolve({
+              status: "error",
+              error: {
+                message:
+                  "Could not save patch file. HTTP error: " +
+                  xhr.status +
+                  " " +
+                  xhr.statusText,
+              },
+            });
+          }
+        });
+
+        xhr.addEventListener("error", () => {
+          resolve({
+            status: "error",
+            error: {
+              message: `Could save source file (network error?)`,
+            },
+          });
+        });
+
+        xhr.addEventListener("abort", () => {
+          resolve({
+            status: "error",
+            error: {
+              message: "Upload was aborted",
+            },
+          });
+        });
+
+        xhr.responseType = "text";
+        xhr.open("POST", `${baseUrl}/patches/${patchId}/files`);
+
+        // Set headers
+        xhr.setRequestHeader("Content-Type", "application/json");
+        for (const [key, value] of Object.entries(authHeaders)) {
+          xhr.setRequestHeader(key, value);
+        }
+
+        // Send the payload
+        xhr.send(payload);
+      });
+    },
+    [],
+  );
+  const parentRef = useSyncExternalStore(
+    syncEngine.subscribe("parent-ref"),
+    () => syncEngine.getParentRefSnapshot(),
+    () => syncEngine.getParentRefSnapshot(),
+  );
+  const addAndUploadPatchWithFileOps = useCallback(
+    async (
+      patch: Patch,
+      type: "image" | "file",
+      onError: (message: string) => void,
+      onProgress: (
+        bytesUploaded: number,
+        totalBytes: number,
+        currentFile: number,
+        totalFiles: number,
+      ) => void,
+    ) => {
+      if (parentRef === null) {
+        onError("Cannot upload files yet. Not initialized.");
+        return;
+      }
+      const directFileUploadSettings = await getDirectFileUploadSettings();
+      if (directFileUploadSettings.status !== "success") {
+        onError(directFileUploadSettings.error);
+        return;
+      }
+      const { baseUrl, nonce } = directFileUploadSettings.data;
+      const fileOps: FileOperation[] = [];
+      const patchOps: Operation[] = [];
+      for (const op of patch) {
+        if (op.op === "file") {
+          fileOps.push(op);
+          // We need to know that we are writing a file, but we do not want to send all the file data
+          // because we will upload it separately
+          patchOps.push({
+            ...op,
+            value:
+              typeof op.value === "string"
+                ? Internal.getSHA256Hash(textEncoder.encode(op.value))
+                : op.value,
+          });
+        } else {
+          patchOps.push(op);
+        }
+      }
+      const patchId = syncEngine.createPatchId();
+      let currentFile = 0;
+      for (const fileOp of fileOps) {
+        // Currently we upload one by one, but we could do it in parallel but before we do that, we need to figure out if that is a good idea for file uploads in particular:
+        // Would it even likely be faster? How would that affect the server, ...
+        const res = await uploadPatchFile(
+          baseUrl,
+          nonce,
+          parentRef,
+          patchId,
+          type,
+          fileOp,
+          (bytesUploaded, totalBytes) => {
+            onProgress(bytesUploaded, totalBytes, currentFile, fileOps.length);
+          },
+        );
+        if (res.status === "error") {
+          onError(res.error.message);
+          return;
+        }
+        currentFile++;
+      }
+      const addPatchRes = await addPatchAwaitable(patchOps, type, patchId);
+      if (addPatchRes.status !== "patch-synced") {
+        onError(addPatchRes.message);
+        return;
+      }
+    },
+    [
+      getDirectFileUploadSettings,
+      addPatchAwaitable,
+      uploadPatchFile,
+      parentRef,
+      syncEngine,
+    ],
+  );
   return {
     patchPath,
-    addPatch: addPatchCallback,
+    addPatch,
+    addAndUploadPatchWithFileOps,
     /**
      * Prefer addPatch. Use addModuleFilePatch only if you need to add a patch to a different module file (should be rare).
      */
-    addModuleFilePatch: addPatch,
+    addModuleFilePatch,
   };
 }
 
 export function useDeletePatches() {
-  const { deletePatches } = useContext(ValContext);
+  const { syncEngine } = useContext(ValContext);
+  const deletePatches = useCallback(
+    (patchIds: PatchId[]) => {
+      // Delete in batches of 100 patch ids (since it is added to request url as query param)
+      const batches = [];
+      for (let i = 0; i < patchIds.length; i += 100) {
+        batches.push(patchIds.slice(i, i + 100));
+      }
+      for (const batch of batches) {
+        syncEngine.deletePatches(batch, Date.now());
+      }
+    },
+    [syncEngine],
+  );
   return { deletePatches };
 }
 
@@ -1230,14 +1507,32 @@ export function useGlobalTransientErrors() {
   };
 }
 
-export function useNetworkError() {
-  const { syncEngine } = useContext(ValContext);
+export function useGlobalError():
+  | { type: "network-error"; networkError: number }
+  | {
+      type: "remote-files-error";
+      error: string;
+    }
+  | null {
+  const { syncEngine, remoteFiles } = useContext(ValContext);
   const networkError = useSyncExternalStore(
     syncEngine.subscribe("network-error"),
     () => syncEngine.getNetworkErrorSnapshot(),
     () => syncEngine.getNetworkErrorSnapshot(),
   );
-  return networkError;
+  if (networkError !== null) {
+    return {
+      type: "network-error" as const,
+      networkError,
+    };
+  }
+  if (remoteFiles.status === "inactive") {
+    return {
+      type: "remote-files-error" as const,
+      error: remoteFiles.message,
+    };
+  }
+  return null;
 }
 
 export function useErrors() {

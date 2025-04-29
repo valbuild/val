@@ -193,6 +193,7 @@ export class ValSyncEngine {
     this.cachedAutoPublishSnapshot = null;
     this.cachedPublishDisabledSnapshot = null;
     this.cachedGlobalTransientErrorSnapshot = null;
+    this.cachedParentRef = undefined;
   }
 
   setAutoPublish(now: number, autoPublish: boolean) {
@@ -299,6 +300,7 @@ export class ValSyncEngine {
     this.cachedAutoPublishSnapshot = null;
     this.cachedPublishDisabledSnapshot = null;
     this.cachedGlobalTransientErrorSnapshot = null;
+    this.cachedParentRef = undefined;
 
     this.invalidateInitializedAt();
   }
@@ -313,6 +315,7 @@ export class ValSyncEngine {
   ): (listener: () => void) => () => void;
   subscribe(type: "all-sources"): (listener: () => void) => () => void;
   subscribe(type: "auto-publish"): (listener: () => void) => () => void;
+  subscribe(type: "parent-ref"): (listener: () => void) => () => void;
   subscribe(type: "pending-ops-count"): (listener: () => void) => () => void;
   subscribe(
     type: "validation-error",
@@ -447,8 +450,14 @@ export class ValSyncEngine {
     }
   }
 
+  private invalidateParentRef() {
+    this.cachedParentRef = undefined;
+    this.emit(this.listeners["parent-ref"]?.[globalNamespace]);
+  }
+
   private invalidateGlobalServerSidePatchIds() {
     this.cachedGlobalServerSidePatchIdsSnapshot = null;
+    this.invalidateParentRef();
     this.emit(
       this.listeners["global-server-side-patch-ids"]?.[globalNamespace],
     );
@@ -470,6 +479,7 @@ export class ValSyncEngine {
 
   private invalidateSavedServerSidePatchIds() {
     this.cachedSavedServerSidePatchIdsSnapshot = null;
+    this.invalidateParentRef();
     this.emit(this.listeners["saved-server-side-patch-ids"]?.[globalNamespace]);
   }
 
@@ -773,6 +783,14 @@ export class ValSyncEngine {
     return this.cachedNetworkErrorSnapshot;
   }
 
+  private cachedParentRef: ParentRef | null | undefined;
+  getParentRefSnapshot() {
+    if (this.cachedParentRef === undefined) {
+      this.cachedParentRef = this.getParentRef();
+    }
+    return this.cachedParentRef;
+  }
+
   // #region Patching
   private addPatchOnClientOnly(
     sourcePath: SourcePath | ModuleFilePath,
@@ -782,6 +800,8 @@ export class ValSyncEngine {
     | {
         status: "optimistic-client-sources-updated";
         moduleFilePath: ModuleFilePath;
+        prevSource: JSONValue;
+        patch: Patch;
       }
     | {
         status: "patch-error";
@@ -830,12 +850,97 @@ export class ValSyncEngine {
       };
     } else {
       const newSource = patchRes.value;
+      const prevSource = deepClone(
+        this.optimisticClientSources[moduleFilePath] as JSONValue,
+      );
       this.optimisticClientSources[moduleFilePath] = newSource;
       return {
         status: "optimistic-client-sources-updated",
         moduleFilePath,
+        prevSource,
+        patch,
       } as const;
     }
+  }
+
+  /**
+   * Use this to add a patch and IMMEDIATELY sync it to the server.
+   * The original intended use case is in conjunction with file operations.
+   * We first use this and add / create a new patch, then we can
+   * transfer the files to the server directly.
+   */
+  async addPatchAwaitable(
+    sourcePath: SourcePath | ModuleFilePath,
+    type: SerializedSchema["type"],
+    patch: Patch,
+    patchId: PatchId,
+    now: number,
+  ): Promise<
+    | {
+        status: "patch-synced";
+        patchId: PatchId;
+        parentRef: ParentRef; // this is the parent ref of the patch we just added (so before it was added) - we use it to upload files
+        moduleFilePath: ModuleFilePath;
+      }
+    | {
+        status: "patch-sync-error";
+        message: string;
+        moduleFilePath: ModuleFilePath;
+      }
+    | {
+        status: "patch-error";
+        message: string;
+        moduleFilePath: ModuleFilePath;
+      }
+  > {
+    const res = this.addPatchOnClientOnly(sourcePath, patch, now);
+    if (res.status !== "optimistic-client-sources-updated") {
+      return res;
+    }
+
+    const { moduleFilePath, patch: addedPatch } = res;
+    const addOp: AddPatchOp = {
+      type: "add-patches",
+      data: {
+        [moduleFilePath]: [
+          {
+            patch: addedPatch,
+            patchId,
+            type,
+          },
+        ],
+      },
+      createdAt: now,
+    };
+    let tries = 0;
+    this.syncStatus[sourcePath] = "patches-pending";
+    this.invalidateSyncStatus(sourcePath);
+    let opRes = await this.executeAddPatches(addOp, {}, now);
+    while (opRes.status === "retry" && tries < 3) {
+      tries++;
+      await new Promise((resolve) => setTimeout(resolve, 500 * (tries + 1))); // wait 500ms, 1000ms, 1500ms
+      opRes = await this.executeAddPatches(addOp, {}, now);
+      if (opRes.status !== "retry") {
+        break;
+      }
+    }
+    this.syncStatus[sourcePath] = "done";
+    this.invalidateSyncStatus(sourcePath);
+    if (opRes.status === "done") {
+      return {
+        status: "patch-synced",
+        patchId,
+        parentRef: opRes.parentRef,
+        moduleFilePath,
+      } as const;
+    }
+    // Reset optimistic state on failure
+    this.optimisticClientSources[moduleFilePath] = res.prevSource;
+    return {
+      status: "patch-sync-error",
+      message: "Could not sync patch. Tried 3 times.",
+      moduleFilePath,
+    } as const;
   }
 
   addPatch(
@@ -865,6 +970,7 @@ export class ValSyncEngine {
     }
     const moduleFilePath = res.moduleFilePath;
     this.syncStatus[sourcePath] = "patches-pending";
+    this.invalidateSyncStatus(sourcePath);
     const lastOp = this.pendingOps[this.pendingOps.length - 1];
     // Try to batch add-patches ops together to avoid too many requests...
     if (lastOp?.type === "add-patches") {
@@ -956,7 +1062,7 @@ export class ValSyncEngine {
     }
   }
 
-  private createPatchId() {
+  createPatchId() {
     const patchId = crypto.randomUUID() as PatchId;
     return patchId;
   }
@@ -1016,6 +1122,7 @@ export class ValSyncEngine {
     if (this.globalServerSidePatchIds === null) {
       return null;
     }
+    // NOTE: if we change this function, remember to update to reset the cachedParentRef where appropriate
     const patchId =
       // Avoid conflicts when it is only this client that creates patches
       this.savedButNotYetGlobalServerSidePatchIds[
@@ -1112,6 +1219,7 @@ export class ValSyncEngine {
   ): Promise<
     | {
         status: "done";
+        parentRef: ParentRef;
       }
     | {
         status: "retry";
@@ -1212,6 +1320,7 @@ export class ValSyncEngine {
     }
     return {
       status: "done",
+      parentRef,
     };
   }
 
@@ -2108,6 +2217,7 @@ type SyncEngineListenerType =
   | "schema"
   | "initialized-at"
   | "auto-publish"
+  | "parent-ref"
   | "sync-status"
   | "patch-sets"
   | "all-patches"
