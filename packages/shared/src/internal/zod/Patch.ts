@@ -26,7 +26,7 @@ const FileOperation = <PathType extends z.ZodType>(path: PathType) =>
     op: z.literal("file"),
     path,
     filePath: z.string(),
-    value: z.string(),
+    value: JSONValueT, // TODO: this should be string, but we believe we have a bug in Zod where setting this to z.string(), means that other types of patches also ends up requiring a string after we deploy a version
     remote: z.boolean(),
     nestedFilePath: z.array(z.string()).optional(),
     metadata: JSONValueT.optional(), // TODO: remove optional
