@@ -10,14 +10,14 @@ import type {
 import type { PatchId as PatchIdT } from "@valbuild/core";
 import { z } from "zod";
 
-const JSONValueT: z.ZodType<JSONValueT> = z.lazy(() =>
+const JSONValue: z.ZodType<JSONValueT> = z.lazy(() =>
   z.union([
     z.string(),
     z.number(),
     z.boolean(),
     z.null(),
-    z.array(JSONValueT),
-    z.record(JSONValueT),
+    z.array(JSONValue),
+    z.record(JSONValue),
   ]),
 );
 
@@ -26,21 +26,21 @@ const FileOperation = <PathType extends z.ZodType>(path: PathType) =>
     op: z.literal("file"),
     path,
     filePath: z.string(),
-    value: JSONValueT, // TODO: this should be string, but we believe we have a bug in Zod where setting this to z.string(), means that other types of patches also ends up requiring a string after we deploy a version
+    value: JSONValue, // TODO: this should be string, but we believe we have a bug in Zod where setting this to z.string(), means that other types of patches also ends up requiring a string after we deploy a version
     remote: z.boolean(),
     nestedFilePath: z.array(z.string()).optional(),
-    metadata: JSONValueT.optional(), // TODO: remove optional
+    metadata: JSONValue.optional(), // TODO: remove optional
   });
 
 /**
  * Raw JSON patch operation.
  */
-const OperationJSONT: z.ZodType<OperationJSONT> = z.discriminatedUnion("op", [
+const OperationJSON: z.ZodType<OperationJSONT> = z.discriminatedUnion("op", [
   z
     .object({
       op: z.literal("add"),
       path: z.string(),
-      value: JSONValueT,
+      value: JSONValue,
     })
     .strict(),
   z
@@ -56,7 +56,7 @@ const OperationJSONT: z.ZodType<OperationJSONT> = z.discriminatedUnion("op", [
     .object({
       op: z.literal("replace"),
       path: z.string(),
-      value: JSONValueT,
+      value: JSONValue,
     })
     .strict(),
   z
@@ -80,24 +80,24 @@ const OperationJSONT: z.ZodType<OperationJSONT> = z.discriminatedUnion("op", [
     .object({
       op: z.literal("test"),
       path: z.string(),
-      value: JSONValueT,
+      value: JSONValue,
     })
     .strict(),
   FileOperation(z.string()).strict(),
 ]);
 
-export const PatchJSON: z.ZodType<PatchJSONT> = z.array(OperationJSONT);
+export const PatchJSON: z.ZodType<PatchJSONT> = z.array(OperationJSON);
 export type PatchJSON = PatchJSONT;
 
 /**
  * Raw JSON patch operation.
  */
-const OperationT: z.ZodType<OperationT> = z.discriminatedUnion("op", [
+const Operation: z.ZodType<OperationT> = z.discriminatedUnion("op", [
   z
     .object({
       op: z.literal("add"),
       path: z.array(z.string()),
-      value: JSONValueT,
+      value: JSONValue,
     })
     .strict(),
   z
@@ -110,7 +110,7 @@ const OperationT: z.ZodType<OperationT> = z.discriminatedUnion("op", [
     .object({
       op: z.literal("replace"),
       path: z.array(z.string()),
-      value: JSONValueT,
+      value: JSONValue,
     })
     .strict(),
   z
@@ -131,13 +131,13 @@ const OperationT: z.ZodType<OperationT> = z.discriminatedUnion("op", [
     .object({
       op: z.literal("test"),
       path: z.array(z.string()),
-      value: JSONValueT,
+      value: JSONValue,
     })
     .strict(),
   FileOperation(z.array(z.string())).strict(),
 ]);
 
-export const Patch: z.ZodType<PatchT> = z.array(OperationT);
+export const Patch: z.ZodType<PatchT> = z.array(Operation);
 export type Patch = PatchT;
 
 export const PatchId = z.string().refine(
