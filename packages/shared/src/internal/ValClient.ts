@@ -73,7 +73,8 @@ export const createValClient = (
       return {
         status: null,
         json: {
-          message: "Invalid request body. This is most likely a Val bug.",
+          message:
+            "There was an issue validating your data. This is most likely a Val bug.",
           type: "client_side_validation_error",
           details: {
             validationError: fromZodError(reqBodyResult.error).toString(),
