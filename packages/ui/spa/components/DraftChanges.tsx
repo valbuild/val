@@ -25,7 +25,7 @@ import {
 } from "./ValProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
-import { ChevronDown, Loader2, Sparkles, Undo2, X } from "lucide-react";
+import { Check, ChevronDown, Loader2, Sparkles, Undo2, X } from "lucide-react";
 import { PatchMetadata, PatchSetMetadata } from "../utils/PatchSets";
 import { AnimateHeight } from "./AnimateHeight";
 import { relativeLocalDate } from "../utils/relativeLocalDate";
@@ -86,7 +86,8 @@ export function DraftChanges({
   }, [allValidationErrors]);
   const pendingChanges = currentPatchIds.length - committedPatchIds.size;
   const navigation = useNavigation();
-  const { deployments, dismissDeployment } = useDeployments();
+  const { deployments, dismissDeployment, observedCommitShas } =
+    useDeployments();
   const { globalTransientErrors, removeGlobalTransientErrors } =
     useGlobalTransientErrors();
   const [now, setNow] = useState(new Date());
@@ -221,6 +222,7 @@ export function DraftChanges({
         <div className="p-4 border-b border-border-primary">
           <Deployments
             deployments={deployments}
+            observedCommitShas={observedCommitShas}
             onDismiss={dismissDeployment}
           />
         </div>
@@ -296,11 +298,22 @@ export function DraftChanges({
 
 function Deployments({
   deployments,
+  observedCommitShas,
   onDismiss,
 }: {
   deployments: ValEnrichedDeployment[];
+  observedCommitShas: Set<string>;
   onDismiss: (commitSha: string) => void;
 }) {
+  useEffect(() => {
+    for (const deployment of deployments) {
+      if (observedCommitShas.has(deployment.commitSha)) {
+        setTimeout(() => {
+          onDismiss(deployment.commitSha);
+        }, 5000);
+      }
+    }
+  }, [deployments, observedCommitShas]);
   return (
     <div>
       <div className="flex items-center justify-between p-2 font-bold">
@@ -313,6 +326,7 @@ function Deployments({
             <Deployment
               key={deployment.commitSha}
               deployment={deployment}
+              isFinished={observedCommitShas.has(deployment.commitSha)}
               onDismiss={() => {
                 onDismiss(deployment.commitSha);
               }}
@@ -326,8 +340,11 @@ function Deployments({
 
 function Deployment({
   deployment,
+  isFinished,
+  onDismiss,
 }: {
   deployment: ValEnrichedDeployment;
+  isFinished: boolean;
   onDismiss: () => void;
 }) {
   const profilesById = useProfilesByAuthorId();
@@ -358,7 +375,21 @@ function Deployment({
           </TooltipContent>
         </Tooltip>
       </div>
-      <TimeSpent since={new Date(deployment.createdAt)} />
+      {isFinished && (
+        <div className="flex items-start gap-2">
+          <span className="text-xs font-light text-text-quartenary">
+            Deployed
+          </span>
+          <button
+            onClick={() => {
+              onDismiss();
+            }}
+          >
+            <Check size={14} />
+          </button>
+        </div>
+      )}
+      {!isFinished && <TimeSpent since={new Date(deployment.createdAt)} />}
     </div>
   );
 }

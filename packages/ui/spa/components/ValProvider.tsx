@@ -60,6 +60,7 @@ type ValContextValue = {
   profiles: Record<AuthorId, Profile>;
   deployments: ValEnrichedDeployment[];
   dismissDeployment: (deploymentId: string) => void;
+  observedCommitShas: Set<string>;
   remoteFiles:
     | {
         status: "ready";
@@ -215,6 +216,24 @@ export function ValProvider({
     });
     dismissedDeploymentsRef.current.add(commitSha);
   }, []);
+  const [observedCommitShas, setObservedCommitShas] = useState<Set<string>>(
+    new Set(),
+  );
+  useEffect(() => {
+    if ("data" in stat && stat.data?.commitSha) {
+      setObservedCommitShas((prev) => {
+        if (
+          stat.data?.commitSha === undefined ||
+          prev.has(stat.data.commitSha)
+        ) {
+          return prev;
+        }
+        const newSeenCommitShas = new Set(prev);
+        newSeenCommitShas.add(stat.data.commitSha);
+        return newSeenCommitShas;
+      });
+    }
+  }, ["data" in stat && stat.data?.commitSha]);
 
   const [remoteFiles, setRemoteFiles] = useState<
     ValContextValue["remoteFiles"]
@@ -427,6 +446,7 @@ export function ValProvider({
         mode: "data" in stat && stat.data ? stat.data.mode : "unknown",
         serviceUnavailable: showServiceUnavailable,
         baseSha,
+        observedCommitShas,
         deployments,
         dismissDeployment,
         portalRef: portalRef.current,
@@ -943,8 +963,9 @@ export function useDeletePatches() {
 }
 
 export function useDeployments() {
-  const { deployments, dismissDeployment } = useContext(ValContext);
-  return { deployments, dismissDeployment };
+  const { deployments, dismissDeployment, observedCommitShas } =
+    useContext(ValContext);
+  return { deployments, dismissDeployment, observedCommitShas };
 }
 
 export function usePatchSets():
