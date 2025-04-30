@@ -266,7 +266,7 @@ class SyncEngineTester {
   fakePatches: {
     path: ModuleFilePath;
     patchId: PatchId;
-    patch: Patch;
+    patch?: Patch;
     createdAt: string;
     authorId: null;
     appliedAt: null;
@@ -501,6 +501,9 @@ class SyncEngineTester {
     > = {};
     for (const patchData of this.fakePatches) {
       const { patch, patchId, path: moduleFilePath } = patchData;
+      if (!patch) {
+        continue;
+      }
       const patchRes = applyPatch(
         deepClone(this.fakeSources[moduleFilePath]),
         this.ops,
