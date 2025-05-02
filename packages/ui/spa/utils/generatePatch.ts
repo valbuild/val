@@ -26,7 +26,10 @@ export function generatePatch(
   });
 }
 
-function convertPath(path: string, basePath?: string[]): NonEmptyArray<string> {
+function convertPath(
+  path: string,
+  basePath?: string[],
+): array.NonEmptyArray<string> {
   if (basePath) {
     return basePath.concat(
       path.split("/").slice(1) as array.NonEmptyArray<string>,
