@@ -3,7 +3,6 @@ import { Label } from "./Label";
 import classNames from "classnames";
 import { ChevronDown, ChevronsDown } from "lucide-react";
 import { useEffect, useState } from "react";
-import { AnimateHeight } from "./AnimateHeight";
 import {
   useAddPatch,
   useLoadingStatus,
@@ -16,6 +15,11 @@ import { JSONValue } from "@valbuild/core/patch";
 import { ArrayAndRecordTools } from "./ArrayAndRecordTools";
 import { emptyOf } from "./fields/emptyOf";
 import { EmbeddedBooleanField } from "./fields/BooleanField";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+} from "./designSystem/accordion";
 
 export function Field({
   label,
@@ -136,13 +140,19 @@ export function Field({
         </div>
       </div>
       {!isBoolean && (
-        <AnimateHeight
-          isOpen={isExpanded && (source !== null || showEmptyFileOrImage)}
+        <Accordion
+          type="single"
+          collapsible
+          value={
+            isExpanded && (source !== null || showEmptyFileOrImage)
+              ? "open"
+              : "closed"
+          }
         >
-          {(source !== null || showEmptyFileOrImage) && (
-            <div className="flex flex-col gap-6 pt-6">{children}</div>
-          )}
-        </AnimateHeight>
+          <AccordionItem value={"open"} className="w-full border-b-0">
+            <AccordionContent>{children}</AccordionContent>
+          </AccordionItem>
+        </Accordion>
       )}
     </div>
   );

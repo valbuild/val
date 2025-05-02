@@ -4,7 +4,7 @@ import {
   SelectorOfSchema,
   SerializedSchema,
 } from ".";
-import { ReifiedPreview } from "../preview";
+import { PreviewSelector, ReifiedPreview } from "../preview";
 import { SelectorSource } from "../selector";
 import {
   createValPathOfItem,
@@ -168,6 +168,7 @@ export class RecordSchema<
           status: "success",
           data: {
             layout: "list",
+            parent: "record",
             items: Object.entries(src).map(([key, val]) => {
               // NB NB: display is actually defined by the user
               const { title, subtitle, image } = prepare({ key, val });
@@ -197,10 +198,6 @@ export class RecordSchema<
     return this;
   }
 }
-
-// TODO: improve this so that we do not get RawString and string, only string. Are there other things?
-type PreviewSelector<T extends Schema<SelectorSource>> =
-  T extends Schema<infer S> ? S : never;
 
 export const record = <S extends Schema<SelectorSource>>(
   schema: S,

@@ -1,7 +1,7 @@
 import {
   ImageSource,
   Internal,
-  ListRecordPreview as ListRecordPreviewT,
+  ListRecordPreview as ListRecordPreview,
   SourcePath,
 } from "@valbuild/core";
 import {
@@ -23,6 +23,7 @@ import { isParentError } from "../../utils/isParentError";
 import { ErrorIndicator } from "../ErrorIndicator";
 import { useState } from "react";
 import classNames from "classnames";
+import { PreviewError } from "../PreviewError";
 
 export function RecordFields({ path }: { path: SourcePath }) {
   const type = "record";
@@ -63,15 +64,24 @@ export function RecordFields({ path }: { path: SourcePath }) {
     );
   }
   const source = sourceAtPath.data;
-  const previewAtPathData =
-    previewAtPath && "data" in previewAtPath && previewAtPath.data;
+  const previewListAtPathData =
+    previewAtPath &&
+    "data" in previewAtPath &&
+    previewAtPath.data &&
+    previewAtPath.data.layout === "list" &&
+    previewAtPath.data.parent === "record"
+      ? previewAtPath.data
+      : undefined;
   return (
     <div id={path}>
       <ValidationErrors path={path} />
-      {previewAtPathData && (
-        <ListRecordPreview path={path} {...previewAtPathData} />
+      {previewAtPath?.status === "error" && (
+        <PreviewError error={previewAtPath.message} path={path} />
       )}
-      {!previewAtPathData && (
+      {previewListAtPathData && (
+        <ListRecordPreview path={path} {...previewListAtPathData} />
+      )}
+      {!previewListAtPathData && (
         <div className="grid grid-cols-1 gap-4">
           {source &&
             Object.entries(source).map(([key]) => (
@@ -101,37 +111,56 @@ export function RecordFields({ path }: { path: SourcePath }) {
   );
 }
 
+function ListPreviewItem({
+  title,
+  image,
+  subtitle,
+}: ListRecordPreview["items"][number][1]) {
+  return (
+    <div
+      className={classNames(
+        "flex w-full items-start justify-between pl-4 flex-grow text-left",
+      )}
+    >
+      <div className="flex flex-col flex-shrink py-4 overflow-x-clip">
+        <div className="text-lg font-medium">{title}</div>
+        {subtitle && (
+          <div className="flex-shrink block overflow-hidden text-sm text-gray-500 text-ellipsis max-h-5">
+            {subtitle}
+          </div>
+        )}
+      </div>
+      {image && <ImageOrPlaceholder src={image} alt={title} />}
+    </div>
+  );
+}
+
 function ListRecordPreview({
   path,
   items,
 }: {
   path: SourcePath;
-  items: ListRecordPreviewT["items"];
+  items: ListRecordPreview["items"];
 }) {
   const { navigate } = useNavigation();
   return (
     <div className="flex flex-col w-full space-y-4">
       {items.map(([key, { title, subtitle, image }]) => (
-        <div
+        <button
           key={key}
           onClick={() => navigate(sourcePathOfItem(path, key))}
           className={classNames(
-            "flex items-center justify-between max-w-full transition-colors border rounded-lg cursor-pointer border-border-primary",
             "hover:bg-bg-secondary_subtle",
+            "border rounded-lg cursor-pointer border-border-primary",
           )}
         >
-          <div className="flex flex-col flex-shrink px-4 py-4 truncate">
-            <div className="text-lg font-medium truncate">{title}</div>
-            {subtitle && (
-              <div className="text-sm text-gray-500 truncate">{subtitle}</div>
-            )}
-          </div>
-          {image && <ImageOrPlaceholder src={image} alt={title} />}
-        </div>
+          <ListPreviewItem title={title} subtitle={subtitle} image={image} />
+        </button>
       ))}
     </div>
   );
 }
+
 function ImageOrPlaceholder({
   src,
   alt,

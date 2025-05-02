@@ -19,8 +19,14 @@ import { DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import classNames from "classnames";
 import { GripVertical, Trash2 } from "lucide-react";
-import { SourcePath, SerializedArraySchema } from "@valbuild/core";
-import { Preview } from "./Preview";
+import {
+  SourcePath,
+  SerializedArraySchema,
+  ListArrayPreview,
+  ImageSource,
+  Internal,
+} from "@valbuild/core";
+import { Preview as AutoPreview } from "./Preview";
 import { StringField } from "./fields/StringField";
 import { isParentError } from "../utils/isParentError";
 import { ErrorIndicator } from "./ErrorIndicator";
@@ -28,14 +34,18 @@ import { useAllValidationErrors } from "./ValProvider";
 
 export function SortableList({
   source,
+  preview,
   path,
   schema,
+  disabled,
   onClick,
   onMove,
   onDelete,
 }: {
   source: SourcePath[];
   path: SourcePath;
+  disabled?: boolean;
+  preview?: ListArrayPreview;
   schema: SerializedArraySchema;
   onMove: (from: number, to: number) => void;
   onClick: (path: SourcePath) => void;
@@ -87,20 +97,30 @@ export function SortableList({
       collisionDetection={closestCenter}
       onDragEnd={handleDragEnd}
     >
-      <SortableContext items={items} strategy={verticalListSortingStrategy}>
-        <div className="grid grid-cols-[min-content,min-content,1fr,min-content] gap-4">
+      <SortableContext
+        items={items}
+        strategy={verticalListSortingStrategy}
+        disabled={disabled}
+      >
+        <div className="flex flex-col w-full gap-y-4">
           {items.map(({ path, id }) => {
             return (
               <SortableItem
                 key={id}
                 id={id}
                 schema={schema}
+                disabled={disabled}
+                previewLayout={preview?.layout}
+                preview={
+                  /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
+                  preview?.items[id - 1]
+                }
                 path={path}
                 onClick={onClick}
                 onDelete={(id) => {
                   onDelete(
-                    id -
-                      1 /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */,
+                    /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
+                    id - 1,
                   );
                 }}
               />
@@ -119,11 +139,14 @@ export function SortableItem({
   path,
   schema,
   disabled,
+  preview,
   onClick,
   onDelete,
 }: {
   id: number;
   path: SourcePath;
+  previewLayout?: "list";
+  preview?: ListArrayPreview["items"][number];
   schema: SerializedArraySchema;
   disabled?: boolean;
   onClick: (path: SourcePath) => void;
@@ -148,13 +171,16 @@ export function SortableItem({
     transform: CSS.Transform.toString(transform),
     transition,
   };
-
+  const centerGripAndDeleteIcons = true; // previewLayout === "list";
   return (
     <div
       touch-action="manipulation"
       ref={setNodeRef}
       style={style}
-      className="grid items-start col-span-4 gap-2 grid-cols-subgrid disabled:opacity-55"
+      className={classNames("flex disabled:opacity-55 flex-1", {
+        "items-start": !centerGripAndDeleteIcons,
+        "items-center": centerGripAndDeleteIcons,
+      })}
     >
       <button
         {...attributes}
@@ -170,7 +196,7 @@ export function SortableItem({
         <GripVertical />
       </button>
       <button
-        className="pt-2 my-1 font-serif text-accent"
+        className="pt-2 my-1 mr-2 -ml-1 font-serif text-accent"
         disabled={disabled}
         onClick={() => {
           onClick(path);
@@ -179,11 +205,16 @@ export function SortableItem({
         {formatNumber(id)}
       </button>
       {/** Changing this behavior means we need to change the getNavPath behavior */}
-      {schema?.item?.type === "string" && <StringField path={path} />}
-      {schema?.item?.type !== "string" && (
+      {!preview && schema?.item?.type === "string" && (
+        <div className="flex-grow w-full">
+          <StringField path={path} />
+        </div>
+      )}
+      {(preview || schema?.item?.type !== "string") && (
         <button
           className={classNames(
-            "relative grid p-4 overflow-hidden text-left border rounded border-border bg-card gap-y-2 grid-cols-subgrid cols-span-1 bg-bg-primary",
+            "flex-grow",
+            "relative flex text-left border rounded-lg border-border bg-card gap-y-2 bg-bg-primary",
             "hover:bg-bg-secondary_subtle",
           )}
           style={{
@@ -195,7 +226,12 @@ export function SortableItem({
             onClick(path);
           }}
         >
-          <Preview path={path} />
+          {preview && <ListPreviewItem {...preview} />}
+          {!preview && (
+            <div className="flex-grow w-full p-4">
+              <AutoPreview path={path} />
+            </div>
+          )}
           {isTruncated && (
             <div
               className="absolute bottom-0 left-0 w-full bg-gradient-to-b via-50% from-transparent via-card/90 to-card"
@@ -205,7 +241,10 @@ export function SortableItem({
         </button>
       )}
       <button
-        className="flex items-center pt-4 gap-x-2"
+        className={classNames("flex gap-x-2", {
+          "items-start pt-4": !centerGripAndDeleteIcons,
+          "items-center": centerGripAndDeleteIcons,
+        })}
         onClick={() => {
           onDelete(id);
         }}
@@ -221,9 +260,71 @@ export function SortableItem({
   );
 }
 
+function ListPreviewItem({
+  title,
+  image,
+  subtitle,
+}: ListArrayPreview["items"][number]) {
+  return (
+    <div
+      className={classNames(
+        "flex w-full items-center justify-between pl-4 flex-grow",
+      )}
+    >
+      <div className="flex flex-col flex-shrink py-4 overflow-x-clip">
+        <div className="text-lg font-medium">{title}</div>
+        {subtitle && (
+          <div className="flex-shrink block overflow-hidden text-sm text-gray-500 text-ellipsis max-h-5">
+            {subtitle}
+          </div>
+        )}
+      </div>
+      {image && <ImageOrPlaceholder src={image} alt={title} />}
+    </div>
+  );
+}
+
+function ImageOrPlaceholder({
+  src,
+  alt,
+}: {
+  src: ImageSource | null | undefined;
+  alt: string;
+}) {
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  if (src === null || src === undefined) {
+    return (
+      <div className="flex-shrink-0 w-20 h-20 ml-4 opacity-25 bg-bg-brand-secondary"></div>
+    );
+  }
+
+  const imageUrl = Internal.convertFileSource(src).url;
+
+  return (
+    <div className="relative flex-shrink-0 w-20 h-20 ml-4">
+      {!isLoaded && (
+        <div className="absolute inset-0 opacity-25 bg-bg-brand-secondary animate-in"></div>
+      )}
+      <img
+        src={imageUrl}
+        alt={alt}
+        onLoad={() => setIsLoaded(true)}
+        onError={() => setIsLoaded(false)}
+        className={`absolute inset-0 object-cover w-full h-full rounded-r-lg ${isLoaded ? "opacity-100" : "opacity-0"}`}
+        style={{
+          objectPosition: src.metadata?.hotspot
+            ? `${src.metadata.hotspot.x}% ${src.metadata.hotspot.y}%`
+            : "",
+          transition: "opacity 0.2s ease-in-out",
+        }}
+      />
+    </div>
+  );
+}
+
 function formatNumber(n: number) {
   return (
-    "#" +
     // DnD kit is 1-based
     (n - 1).toString()
   );

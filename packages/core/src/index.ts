@@ -121,7 +121,11 @@ export {
 } from "./schema/union";
 export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
 export { deserializeSchema } from "./schema/deserialize";
-export { type ListRecordPreview, type ReifiedPreview } from "./preview";
+export {
+  type ListRecordPreview,
+  type ListArrayPreview,
+  type ReifiedPreview,
+} from "./preview";
 
 export const FATAL_ERROR_TYPES = [
   "no-schema",

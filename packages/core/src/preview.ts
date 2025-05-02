@@ -1,8 +1,11 @@
+import { Schema } from "./schema";
+import { SelectorSource } from "./selector";
 import { ImageSource } from "./source/image";
 import { ModuleFilePath, SourcePath } from "./val";
 
 export type ListRecordPreview = {
   layout: "list";
+  parent: "record";
   items: [
     key: string,
     value: {
@@ -12,6 +15,21 @@ export type ListRecordPreview = {
     },
   ][];
 };
+
+export type ListArrayPreview = {
+  layout: "list";
+  parent: "array";
+  items: {
+    title: string;
+    subtitle?: string | null;
+    image?: ImageSource | null;
+  }[];
+};
+
+// Main preview type:
+type PreviewTypes = ListRecordPreview | ListArrayPreview;
+//
+
 type WithStatus<T> =
   | {
       status: "error";
@@ -26,8 +44,11 @@ type WithStatus<T> =
       status: "success";
       data: T;
     };
-type PreviewTypes = ListRecordPreview;
 export type ReifiedPreview = Record<
   SourcePath | ModuleFilePath,
   WithStatus<PreviewTypes>
 >;
+
+// TODO: improve this so that we do not get RawString and string, only string. Are there other things?
+export type PreviewSelector<T extends Schema<SelectorSource>> =
+  T extends Schema<infer S> ? S : never;
