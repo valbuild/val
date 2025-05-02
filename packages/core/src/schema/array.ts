@@ -5,11 +5,9 @@ import {
   SelectorOfSchema,
   SerializedSchema,
 } from ".";
+import { ReifiedPreview } from "../preview";
 import { SelectorSource } from "../selector";
-import {
-  createValPathOfItem,
-  unsafeCreateSourcePath,
-} from "../selector/SelectorProxy";
+import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
 import { SourcePath } from "../val";
 import {
   ValidationError,
@@ -114,6 +112,17 @@ export class ArraySchema<
       type: "array",
       item: this.item.serialize(),
       opt: this.opt,
+    };
+  }
+
+  protected executePreview(src: Src): ReifiedPreview {
+    return {
+      status: "success",
+      data: {
+        renderType: "auto",
+        schemaType: "array",
+        items: src?.map(this.item["executePreview"]) || null,
+      },
     };
   }
 }

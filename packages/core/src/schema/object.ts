@@ -6,6 +6,7 @@ import {
   SelectorOfSchema,
   SerializedSchema,
 } from ".";
+import { ReifiedPreview } from "../preview";
 import { SelectorSource } from "../selector";
 import { createValPathOfItem } from "../selector/SelectorProxy";
 import { SourcePath } from "../val";
@@ -185,6 +186,36 @@ export class ObjectSchema<
         ]),
       ),
       opt: this.opt,
+    };
+  }
+
+  protected executePreview(src: Src): ReifiedPreview {
+    if (src === null) {
+      return {
+        status: "success",
+        data: {
+          renderType: "auto",
+          schemaType: "object",
+          items: null,
+        },
+      };
+    }
+    const items: Record<string, ReifiedPreview> = {};
+    for (const key of Object.keys(src)) {
+      const item = this.items?.[key];
+      if (item && item["executePreview"]) {
+        const itemPreview = item["executePreview"](src[key]);
+        items[key] = itemPreview;
+      }
+    }
+
+    return {
+      status: "success",
+      data: {
+        renderType: "auto",
+        schemaType: "object",
+        items: items,
+      },
     };
   }
 }

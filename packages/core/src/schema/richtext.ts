@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { AssertError, Schema, SchemaAssertResult, SerializedSchema } from ".";
+import { ReifiedPreview } from "../preview";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
 import { ImageSource } from "../source/image";
 import {
@@ -544,6 +545,16 @@ export class RichTextSchema<
       type: "richtext",
       opt: this.opt,
       options: serializedOptions,
+    };
+  }
+
+  protected executePreview(src: Src): ReifiedPreview {
+    return {
+      status: "success",
+      data: {
+        renderType: "auto",
+        schemaType: "scalar",
+      },
     };
   }
 }

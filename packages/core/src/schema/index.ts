@@ -17,6 +17,7 @@ import { SerializedDateSchema } from "./date";
 import { ValidationErrors } from "./validation/ValidationError";
 import { FileSource } from "../source/file";
 import { GenericRichTextSourceNode, RichTextSource } from "../source/richtext";
+import { ReifiedPreview } from "../preview";
 // import { SerializedI18nSchema } from "./future/i18n";
 // import { SerializedOneOfSchema } from "./future/oneOf";
 
@@ -90,6 +91,7 @@ export abstract class Schema<Src extends SelectorSource> {
   abstract assert(path: SourcePath, src: unknown): SchemaAssertResult<Src>; // TODO: rename to parse? or _assert / _parse to indicate it is private? Or make protected (requires us to have some sort of calling it in the UX Val code)
   abstract nullable(): Schema<Src | null>;
   abstract serialize(): SerializedSchema;
+  protected abstract executePreview(src: Src): ReifiedPreview;
   // remote(): Src extends RemoteCompatibleSource
   //   ? Schema<RemoteSource<Src>>
   //   : never {

@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
+import { ReifiedPreview } from "../preview";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 
@@ -89,6 +90,16 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
       type: "literal",
       value: this.value,
       opt: this.opt,
+    };
+  }
+
+  protected executePreview(src: Src): ReifiedPreview {
+    return {
+      status: "success",
+      data: {
+        renderType: "auto",
+        schemaType: "scalar",
+      },
     };
   }
 }

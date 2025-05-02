@@ -830,6 +830,7 @@ export const Api = {
             modules: z.record(
               ModuleFilePath,
               z.object({
+                preview: z.any(), // TODO: improve this type
                 source: z.any(), //.optional(), // TODO: Json zod type
                 patches: z
                   .object({
