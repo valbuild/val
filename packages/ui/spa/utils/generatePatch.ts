@@ -1,5 +1,5 @@
 import { Operation } from "@valbuild/core/patch";
-import { NonEmptyArray } from "@valbuild/core/src/fp/array";
+import { array } from "@valbuild/core/fp";
 
 // NOTE: we are using the rfc6902 impl which seems good enough for now
 import { createPatch } from "rfc6902";
@@ -29,8 +29,8 @@ export function generatePatch(
 function convertPath(path: string, basePath?: string[]): NonEmptyArray<string> {
   if (basePath) {
     return basePath.concat(
-      path.split("/").slice(1) as NonEmptyArray<string>,
-    ) as NonEmptyArray<string>;
+      path.split("/").slice(1) as array.NonEmptyArray<string>,
+    ) as array.NonEmptyArray<string>;
   }
-  return path.split("/").slice(1) as NonEmptyArray<string>;
+  return path.split("/").slice(1) as array.NonEmptyArray<string>;
 }

@@ -20,7 +20,7 @@ import {
 import { ParentRef, ValClient } from "@valbuild/shared/internal";
 import { canMerge } from "./utils/mergePatches";
 import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
-import { ReifiedPreview } from "@valbuild/core/src/preview";
+import { ReifiedPreview } from "@valbuild/core";
 
 /**
  * ValSyncEngine is the engine that keeps track of the state of the Val client.
