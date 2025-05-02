@@ -133,7 +133,8 @@ export class ArraySchema<
     if (src === null) {
       return res;
     }
-    for (const key in src) {
+    for (let i = 0; i < src.length; i++) {
+      const key = i;
       const itemSrc = src[key];
       if (itemSrc === null || itemSrc === undefined) {
         continue;
