@@ -85,6 +85,7 @@ describe("UnionSchema", () => {
         status: "success",
         data: {
           layout: "list",
+          parent: "record",
           items: [
             [
               "record1",

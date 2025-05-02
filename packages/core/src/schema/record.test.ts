@@ -56,6 +56,7 @@ describe("RecordSchema", () => {
         status: "success",
         data: {
           layout: "list",
+          parent: "record",
           items: [
             ["test1", { title: "baz", subtitle: undefined, image: undefined }],
           ],
@@ -65,6 +66,7 @@ describe("RecordSchema", () => {
         status: "success",
         data: {
           layout: "list",
+          parent: "record",
           items: [
             [
               "upper-key",
