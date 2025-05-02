@@ -12,7 +12,7 @@
     "./package.json": "./package.json"
   },
   "types": "dist/valbuild-server.cjs.d.ts",
-  "version": "0.78.1",
+  "version": "0.78.2",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "jest",
@@ -23,9 +23,9 @@
     "@types/jest": "^29.2.5"
   },
   "dependencies": {
-    "@valbuild/core": "~0.78.1",
-    "@valbuild/shared": "~0.78.1",
-    "@valbuild/ui": "~0.78.1",
+    "@valbuild/core": "~0.78.2",
+    "@valbuild/shared": "~0.78.2",
+    "@valbuild/ui": "~0.78.2",
     "chokidar": "^4.0.1",
     "image-size": "^1.0.2",
     "minimatch": "^3.0.4",
