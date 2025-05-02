@@ -40,7 +40,7 @@ import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
 import { ParentPatchId } from "@valbuild/core";
 import { ValCommit, ValDeployment } from "@valbuild/shared/internal";
-import { ReifiedPreview } from "@valbuild/core/src/preview";
+import { ReifiedPreview } from "@valbuild/core";
 
 export type BaseSha = string & { readonly _tag: unique symbol };
 export type ConfigSha = string & { readonly _tag: unique symbol };

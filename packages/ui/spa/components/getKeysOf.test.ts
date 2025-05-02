@@ -6,7 +6,7 @@ import {
   ValModule,
   initVal,
 } from "@valbuild/core";
-import { SelectorSource } from "@valbuild/core/src/selector";
+import { SelectorSource } from "@valbuild/core";
 import { getKeysOf } from "./getKeysOf";
 
 const { s, c } = initVal();

@@ -47,7 +47,7 @@ import {
 } from "./personalAccessTokens";
 import path from "path";
 import { hasRemoteFileSchema } from "./hasRemoteFileSchema";
-import { ReifiedPreview } from "@valbuild/core/src/preview";
+import { ReifiedPreview } from "@valbuild/core";
 
 export type ValServerOptions = {
   route: string;
