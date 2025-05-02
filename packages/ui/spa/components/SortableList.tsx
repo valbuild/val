@@ -182,7 +182,10 @@ export function SortableItem({
       {schema?.item?.type === "string" && <StringField path={path} />}
       {schema?.item?.type !== "string" && (
         <button
-          className="relative grid p-4 overflow-hidden text-left border rounded border-border bg-card gap-y-2 grid-cols-subgrid cols-span-1 bg-bg-primary hover:bg-bg-brand-primary hover:text-text-brand-primary"
+          className={classNames(
+            "relative grid p-4 overflow-hidden text-left border rounded border-border bg-card gap-y-2 grid-cols-subgrid cols-span-1 bg-bg-primary",
+            "hover:bg-bg-secondary_subtle",
+          )}
           style={{
             maxHeight: LIST_ITEM_MAX_HEIGHT,
           }}

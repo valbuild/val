@@ -22,6 +22,7 @@ import { ValidationErrors } from "../../components/ValidationError";
 import { isParentError } from "../../utils/isParentError";
 import { ErrorIndicator } from "../ErrorIndicator";
 import { useState } from "react";
+import classNames from "classnames";
 
 export function RecordFields({ path }: { path: SourcePath }) {
   const type = "record";
@@ -77,7 +78,10 @@ export function RecordFields({ path }: { path: SourcePath }) {
               <div
                 key={key}
                 onClick={() => navigate(sourcePathOfItem(path, key))}
-                className="bg-primary-foreground cursor-pointer hover:bg-primary-foreground/50 min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4 hover:bg-bg-brand-primary hover:text-text-brand-primary"
+                className={classNames(
+                  "bg-primary-foreground cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
+                  "hover:bg-bg-secondary_subtle",
+                )}
               >
                 <div className="flex items-start justify-between">
                   <div className="pb-4 font-semibold text-md">{key}</div>
@@ -111,7 +115,10 @@ function ListRecordPreview({
         <div
           key={key}
           onClick={() => navigate(sourcePathOfItem(path, key))}
-          className="flex items-center justify-between max-w-full transition-colors border rounded-lg cursor-pointer border-border-primary"
+          className={classNames(
+            "flex items-center justify-between max-w-full transition-colors border rounded-lg cursor-pointer border-border-primary",
+            "hover:bg-bg-secondary_subtle",
+          )}
         >
           <div className="flex flex-col flex-shrink px-4 py-4 truncate">
             <div className="text-lg font-medium truncate">{title}</div>
