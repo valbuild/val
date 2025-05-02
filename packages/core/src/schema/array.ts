@@ -5,9 +5,10 @@ import {
   SelectorOfSchema,
   SerializedSchema,
 } from ".";
-import { ReifiedPreview } from "../preview";
+import { PreviewSelector, ReifiedPreview } from "../preview";
 import { SelectorSource } from "../selector";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
+import { ImageSource } from "../source/image";
 import { ModuleFilePath, SourcePath } from "../val";
 import {
   ValidationError,
@@ -115,7 +116,16 @@ export class ArraySchema<
     };
   }
 
-  protected executePreview(
+  private previewInput: {
+    layout: "list";
+    prepare: (input: { val: PreviewSelector<T> }) => {
+      title: string;
+      subtitle?: string | null;
+      image?: ImageSource | null;
+    };
+  } | null = null;
+
+  protected override executePreview(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
   ): ReifiedPreview {
@@ -123,24 +133,64 @@ export class ArraySchema<
     if (src === null) {
       return res;
     }
-    for (let i = 0; i < (src?.length || 0); i++) {
-      const itemSrc = src[i];
-      if (itemSrc === null) {
+    for (const key in src) {
+      const itemSrc = src[key];
+      if (itemSrc === null || itemSrc === undefined) {
         continue;
       }
-      const subPath = unsafeCreateSourcePath(sourcePath, i);
+      const subPath = unsafeCreateSourcePath(sourcePath, key);
       const itemResult = this.item["executePreview"](subPath, itemSrc);
       for (const keyS in itemResult) {
         const key = keyS as SourcePath | ModuleFilePath;
         res[key] = itemResult[key];
       }
     }
+    if (this.previewInput) {
+      const { prepare: prepare, layout: layout } = this.previewInput;
+      if (layout !== "list") {
+        res[sourcePath] = {
+          status: "error",
+          message: "Unknown layout type: " + layout,
+        };
+      }
+      try {
+        res[sourcePath] = {
+          status: "success",
+          data: {
+            layout: "list",
+            parent: "array",
+            items: src.map((val) => {
+              // NB NB: display is actually defined by the user
+              const { title, subtitle, image } = prepare({ val });
+              return { title, subtitle, image };
+            }),
+          },
+        };
+      } catch (e) {
+        res[sourcePath] = {
+          status: "error",
+          message: e instanceof Error ? e.message : "Unknown error",
+        };
+      }
+    }
     return res;
+  }
+
+  preview(input: {
+    layout: "list";
+    prepare: (input: { val: PreviewSelector<T> }) => {
+      title: string;
+      subtitle?: string | null;
+      image?: ImageSource | null;
+    };
+  }) {
+    this.previewInput = input;
+    return this;
   }
 }
 
 export const array = <S extends Schema<SelectorSource>>(
   schema: S,
-): Schema<SelectorOfSchema<S>[]> => {
+): ArraySchema<S, SelectorOfSchema<S>[] | null> => {
   return new ArraySchema(schema);
 };

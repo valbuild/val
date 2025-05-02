@@ -1410,7 +1410,7 @@ export function usePreviewOverrideAtPath(
         previewAtPath && "data" in previewAtPath
           ? previewAtPath?.data
           : undefined;
-      return { status: "loading", data: previewData };
+      return { status: "loading" as const, data: previewData };
     }
     return previewAtPath;
   }, [previewRes, initializedAt, sourcesRes, sourcePath]);
