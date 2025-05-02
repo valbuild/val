@@ -1,13 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Schema, SelectorOfSchema } from ".";
-import { SelectorSource } from "../selector";
-import { FILE_REF_PROP } from "../source/file";
-import { ImageSource } from "../source/image";
 import { SourcePath } from "../val";
-import { image } from "./image";
 import { number } from "./number";
 import { object } from "./object";
-import { RecordSchema, record } from "./record";
+import { record } from "./record";
 import { string } from "./string";
 
 describe("RecordSchema", () => {
@@ -19,49 +14,69 @@ describe("RecordSchema", () => {
     });
   });
 
-  test("types", () => {
+  test("record: nested previews", () => {
     const schema = record(
       object({
-        name: string(),
-        metadata: object({ foo: string(), image: image() }).nullable(),
-      }),
-    );
-    type TestInput = typeof schema;
-    type GetItemSchemaOfRecord<
-      T extends RecordSchema<
-        Schema<SelectorSource>,
-        Record<string, any> | null
-      >,
-    > = T extends RecordSchema<Schema<infer Child>, any> ? Child : never;
-
-    type InnerType = GetItemSchemaOfRecord<TestInput>;
-
-    type ImageSource = {
-      readonly [FILE_REF_PROP]: string;
-    };
-    type Test2 = {
-      test1: string;
-      test2: string;
-      test3: number;
-      metadata: {
-        zoo: string;
-        foo: {
-          bar: string;
+        title: string(),
+        bar: record(
+          object({
+            baz: string().nullable(),
+          }),
+        ).preview({
+          layout: "list",
+          prepare: ({ val }) => {
+            return {
+              title: val.baz || "No baz",
+            };
+          },
+        }),
+      }).nullable(),
+    ).preview({
+      layout: "list",
+      prepare: ({ val }) => {
+        return {
+          title: val?.title || "No item",
         };
-        image: ImageSource;
-      };
+      },
+    });
+    const src = {
+      "upper-key": {
+        title: "test",
+        bar: {
+          test1: {
+            baz: "baz",
+          },
+        },
+      },
+      "nullable-key": null,
     };
-    const FILE_REF_PROP = "_ref" as const;
-
-    type PathOfTarget<T, Target> = {
-      [K in keyof T]: T[K] extends Target
-        ? K
-        : T[K] extends { [FILE_REF_PROP]: string }
-          ? never
-          : T[K] extends Record<string, any>
-            ? `${K & string}.${PathOfTarget<T[K], Target> & string}`
-            : never;
-    }[keyof T];
-    const a: PathOfTarget<Test2, string> = "test1";
+    const res = schema["executePreview"]("/test.val.ts" as SourcePath, src);
+    expect(res).toStrictEqual({
+      '/test.val.ts?p="upper-key"."bar"': {
+        status: "success",
+        data: {
+          layout: "list",
+          items: [
+            ["test1", { title: "baz", subtitle: undefined, image: undefined }],
+          ],
+        },
+      },
+      "/test.val.ts": {
+        status: "success",
+        data: {
+          layout: "list",
+          items: [
+            [
+              "upper-key",
+              { title: "test", subtitle: undefined, image: undefined },
+            ],
+            [
+              "nullable-key",
+              { title: "No item", subtitle: undefined, image: undefined },
+            ],
+          ],
+        },
+      },
+    });
   });
 });

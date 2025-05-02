@@ -1,8 +1,8 @@
 import { ImageSource } from "./source/image";
+import { ModuleFilePath, SourcePath } from "./val";
 
-export type CardRecordPreview = {
-  renderType: "card";
-  schemaType: "record";
+export type ListRecordPreview = {
+  layout: "list";
   items: [
     key: string,
     value: {
@@ -26,21 +26,8 @@ type WithStatus<T> =
       status: "success";
       data: T;
     };
-export type ReifiedPreview = WithStatus<
-  | CardRecordPreview
-  | {
-      renderType: "auto";
-      schemaType: "object" | "record";
-      items: Record<string, ReifiedPreview> | null;
-    }
-  | {
-      renderType: "auto";
-      schemaType: "array";
-      items: ReifiedPreview[] | null;
-    }
-  | {
-      renderType: "auto";
-      schemaType: "scalar";
-    }
-  | null
+type PreviewTypes = ListRecordPreview;
+export type ReifiedPreview = Record<
+  SourcePath | ModuleFilePath,
+  WithStatus<PreviewTypes>
 >;

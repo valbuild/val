@@ -1,6 +1,6 @@
 // import { RemoteCompatibleSource, RemoteSource } from "../source/remote";
 import { SelectorSource } from "../selector";
-import { SourcePath } from "../val";
+import { ModuleFilePath, SourcePath } from "../val";
 import { SerializedArraySchema } from "./array";
 import { SerializedBooleanSchema } from "./boolean";
 import { SerializedFileSchema } from "./file";
@@ -91,7 +91,10 @@ export abstract class Schema<Src extends SelectorSource> {
   abstract assert(path: SourcePath, src: unknown): SchemaAssertResult<Src>; // TODO: rename to parse? or _assert / _parse to indicate it is private? Or make protected (requires us to have some sort of calling it in the UX Val code)
   abstract nullable(): Schema<Src | null>;
   abstract serialize(): SerializedSchema;
-  protected abstract executePreview(src: Src): ReifiedPreview;
+  protected abstract executePreview(
+    sourcePath: SourcePath | ModuleFilePath,
+    src: Src,
+  ): ReifiedPreview;
   // remote(): Src extends RemoteCompatibleSource
   //   ? Schema<RemoteSource<Src>>
   //   : never {

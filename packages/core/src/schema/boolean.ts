@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { ReifiedPreview } from "../preview";
-import { SourcePath } from "../val";
+import { ModuleFilePath, SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedBooleanSchema = {
@@ -76,14 +76,8 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     };
   }
 
-  protected executePreview(src: Src): ReifiedPreview {
-    return {
-      status: "success",
-      data: {
-        renderType: "auto",
-        schemaType: "scalar",
-      },
-    };
+  protected executePreview(): ReifiedPreview {
+    return {};
   }
 }
 

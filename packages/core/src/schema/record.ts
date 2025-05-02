@@ -6,9 +6,12 @@ import {
 } from ".";
 import { ReifiedPreview } from "../preview";
 import { SelectorSource } from "../selector";
-import { createValPathOfItem } from "../selector/SelectorProxy";
+import {
+  createValPathOfItem,
+  unsafeCreateSourcePath,
+} from "../selector/SelectorProxy";
 import { ImageSource } from "../source/image";
-import { SourcePath } from "../val";
+import { ModuleFilePath, SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedRecordSchema = {
@@ -124,71 +127,67 @@ export class RecordSchema<
   }
 
   private previewInput: {
-    as: "card";
-    display: (input: { key: string; val: PreviewSelector<T> }) => {
+    layout: "list";
+    prepare: (input: { key: string; val: PreviewSelector<T> }) => {
       title: string;
       subtitle?: string | null;
       image?: ImageSource | null;
     };
   } | null = null;
-  protected override executePreview(src: Src): ReifiedPreview {
-    if (src === null) {
-      return {
-        status: "success",
-        data: {
-          renderType: "auto",
-          schemaType: "record",
-          items: null,
-        },
-      };
-    }
-    if (!this.previewInput) {
-      const items: Record<string, ReifiedPreview> = {};
-      for (const key of Object.keys(src)) {
-        const itemPreview = this.item["executePreview"](src[key]);
-        items[key] = itemPreview;
-      }
 
-      return {
-        status: "success",
-        data: {
-          renderType: "auto",
-          schemaType: "record",
-          items: items,
-        },
-      };
+  protected override executePreview(
+    sourcePath: SourcePath | ModuleFilePath,
+    src: Src,
+  ): ReifiedPreview {
+    const res: ReifiedPreview = {};
+    if (src === null) {
+      return res;
     }
-    const { display, as: type } = this.previewInput;
-    if (type !== "card") {
-      return {
-        status: "error",
-        message: "Unknown preview type",
-      };
+    for (const key in src) {
+      const itemSrc = src[key];
+      if (itemSrc === null || itemSrc === undefined) {
+        continue;
+      }
+      const subPath = unsafeCreateSourcePath(sourcePath, key);
+      const itemResult = this.item["executePreview"](subPath, itemSrc);
+      for (const keyS in itemResult) {
+        const key = keyS as SourcePath | ModuleFilePath;
+        res[key] = itemResult[key];
+      }
     }
-    try {
-      return {
-        status: "success",
-        data: {
-          renderType: "card",
-          schemaType: "record",
-          items: Object.entries(src).map(([key, val]) => {
-            // NB NB: display is actually defined by the user
-            const { title, subtitle, image } = display({ key, val });
-            return [key, { title, subtitle, image }];
-          }),
-        },
-      };
-    } catch (e) {
-      return {
-        status: "error",
-        message: e instanceof Error ? e.message : "Unknown error",
-      };
+    if (this.previewInput) {
+      const { prepare: prepare, layout: layout } = this.previewInput;
+      if (layout !== "list") {
+        res[sourcePath] = {
+          status: "error",
+          message: "Unknown layout type: " + layout,
+        };
+      }
+      try {
+        res[sourcePath] = {
+          status: "success",
+          data: {
+            layout: "list",
+            items: Object.entries(src).map(([key, val]) => {
+              // NB NB: display is actually defined by the user
+              const { title, subtitle, image } = prepare({ key, val });
+              return [key, { title, subtitle, image }];
+            }),
+          },
+        };
+      } catch (e) {
+        res[sourcePath] = {
+          status: "error",
+          message: e instanceof Error ? e.message : "Unknown error",
+        };
+      }
     }
+    return res;
   }
 
   preview(input: {
-    as: "card";
-    display: (input: { key: string; val: PreviewSelector<T> }) => {
+    layout: "list";
+    prepare: (input: { key: string; val: PreviewSelector<T> }) => {
       title: string;
       subtitle?: string | null;
       image?: ImageSource | null;

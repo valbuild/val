@@ -87,14 +87,8 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     };
   }
 
-  protected executePreview(src: Src): ReifiedPreview {
-    return {
-      status: "success",
-      data: {
-        renderType: "auto",
-        schemaType: "scalar",
-      },
-    };
+  protected executePreview(): ReifiedPreview {
+    return {};
   }
 }
 

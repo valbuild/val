@@ -304,14 +304,8 @@ export class ImageSchema<
     };
   }
 
-  protected executePreview(src: Src): ReifiedPreview {
-    return {
-      status: "success",
-      data: {
-        renderType: "auto",
-        schemaType: "scalar",
-      },
-    };
+  protected executePreview(): ReifiedPreview {
+    return {};
   }
 }
 

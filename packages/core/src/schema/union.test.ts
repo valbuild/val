@@ -1,7 +1,7 @@
 import { object } from "./object";
 import { union } from "./union";
 import { literal } from "./literal";
-import { SourcePath } from "../val";
+import { ModuleFilePath, SourcePath } from "../val";
 import { string } from "./string";
 import { record } from "./record";
 
@@ -61,26 +61,50 @@ describe("UnionSchema", () => {
             value: string(),
           }),
         ).preview({
-          as: "card",
-          display: ({ val }) => {
+          layout: "list",
+          prepare: ({ val }) => {
             return {
               title: val.value,
             };
           },
         }),
       }),
-      object({ type: literal("value1"), innerString: string() }),
+      object({ type: literal("value2"), innerString: string() }),
     );
 
-    console.log(
-      JSON.stringify(
-        schema["executePreview"]({
-          type: "value1",
-          innerObject: { record1: { value: "test value" } },
-        }),
-        null,
-        2,
-      ),
-    );
+    expect(
+      schema["executePreview"]("/test.foo.val.ts" as ModuleFilePath, {
+        type: "value1",
+        innerObject: {
+          record1: { value: "test value 1" },
+          record2: { value: "test value 2" },
+        },
+      }),
+    ).toStrictEqual({
+      '/test.foo.val.ts?p="innerObject"': {
+        status: "success",
+        data: {
+          layout: "list",
+          items: [
+            [
+              "record1",
+              {
+                title: "test value 1",
+                subtitle: undefined,
+                image: undefined,
+              },
+            ],
+            [
+              "record2",
+              {
+                title: "test value 2",
+                subtitle: undefined,
+                image: undefined,
+              },
+            ],
+          ],
+        },
+      },
+    });
   });
 });

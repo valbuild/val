@@ -165,6 +165,7 @@ export class ValSyncEngine {
     this.mode = null;
     this.optimisticClientSources = {};
     this.serverSources = null;
+    this.previews = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
     this.savedButNotYetGlobalServerSidePatchIds = [];
@@ -273,6 +274,7 @@ export class ValSyncEngine {
     this.sourcesSha = null;
     this.optimisticClientSources = {};
     this.serverSources = null;
+    this.previews = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
     this.savedButNotYetGlobalServerSidePatchIds = [];
@@ -410,12 +412,13 @@ export class ValSyncEngine {
   }
 
   private invalidatePreview(moduleFilePath: ModuleFilePath) {
-    if (this.cachedPreviewSnapshots !== null) {
-      this.cachedPreviewSnapshots = {
-        ...this.cachedPreviewSnapshots,
-        [moduleFilePath]: null,
-      };
+    if (this.cachedSourceSnapshots === null) {
+      this.cachedSourceSnapshots = {};
     }
+    this.cachedPreviewSnapshots = {
+      ...this.cachedPreviewSnapshots,
+      [moduleFilePath]: null,
+    };
     this.emit(this.listeners["preview"]?.[moduleFilePath]);
   }
 
@@ -1029,7 +1032,6 @@ export class ValSyncEngine {
 
         this.invalidateSyncStatus(sourcePath);
         this.invalidateSource(moduleFilePath);
-        this.setPreviewLoading(moduleFilePath);
 
         return {
           status: "patch-merged",
@@ -1061,7 +1063,6 @@ export class ValSyncEngine {
 
         this.invalidateSyncStatus(sourcePath);
         this.invalidateSource(moduleFilePath);
-        this.setPreviewLoading(moduleFilePath);
 
         return {
           status: "patch-added",
@@ -1092,23 +1093,12 @@ export class ValSyncEngine {
 
       this.invalidateSyncStatus(sourcePath);
       this.invalidateSource(moduleFilePath);
-      this.setPreviewLoading(moduleFilePath);
 
       return {
         status: "patch-added",
         patchId,
         moduleFilePath,
       } as const;
-    }
-  }
-
-  private setPreviewLoading(moduleFilePath: ModuleFilePath) {
-    if (this.previews && this.previews[moduleFilePath]?.status === "success") {
-      this.previews[moduleFilePath] = {
-        ...this.previews[moduleFilePath],
-        status: "loading",
-      };
-      this.invalidatePreview(moduleFilePath);
     }
   }
 
@@ -1970,6 +1960,8 @@ export class ValSyncEngine {
                 this.previews = {};
               }
               this.previews[moduleFilePath] = valModule.preview || null;
+              this.invalidatePreview(moduleFilePath);
+
               if (
                 // Feel free to revisit / rewrite this if statement:
                 // We cannot remove optimisticClientSources, even if we just synced because the optimistic client side sources might have been changed while we were syncing
@@ -1993,7 +1985,6 @@ export class ValSyncEngine {
               // this.optimisticClientSources = {};
               // this.cachedDataSnapshots = {};
               this.invalidateSource(moduleFilePath);
-              this.invalidatePreview(moduleFilePath);
               this.overlayEmitter?.(moduleFilePath, valModule.source);
               // NOTE: we clean up relevant validation errors above
               for (const sourcePathS in valModule.validationErrors) {

@@ -1383,7 +1383,38 @@ export function useAutoPublish() {
   };
 }
 
-export function usePreviewAtPath(sourcePath: SourcePath) {}
+export function usePreviewOverrideAtPath(
+  sourcePath: SourcePath | ModuleFilePath,
+) {
+  const { syncEngine } = useContext(ValContext);
+  const [moduleFilePath] = useMemo(() => {
+    return Internal.splitModuleFilePathAndModulePath(sourcePath);
+  }, [sourcePath]);
+  const previewRes = useSyncExternalStore(
+    syncEngine.subscribe("preview", moduleFilePath),
+    () => syncEngine.getPreviewSnapshot(moduleFilePath),
+    () => syncEngine.getPreviewSnapshot(moduleFilePath),
+  );
+  const sourcesRes = useSyncExternalStore(
+    syncEngine.subscribe("source", moduleFilePath),
+    () => syncEngine.getSourceSnapshot(moduleFilePath),
+    () => syncEngine.getSourceSnapshot(moduleFilePath),
+  );
+  const initializedAt = useSyncEngineInitializedAt(syncEngine);
+  return useMemo(() => {
+    const isOptimistic =
+      sourcesRes.status === "success" && sourcesRes.optimistic;
+    const previewAtPath = previewRes?.[sourcePath];
+    if (initializedAt === null || isOptimistic) {
+      const previewData =
+        previewAtPath && "data" in previewAtPath
+          ? previewAtPath?.data
+          : undefined;
+      return { status: "loading", data: previewData };
+    }
+    return previewAtPath;
+  }, [previewRes, initializedAt, sourcesRes, sourcePath]);
+}
 
 export function useSchemaAtPath(sourcePath: SourcePath):
   | { status: "not-found" }
