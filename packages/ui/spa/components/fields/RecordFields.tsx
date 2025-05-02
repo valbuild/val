@@ -1,6 +1,12 @@
-import { SourcePath } from "@valbuild/core";
+import {
+  ImageSource,
+  Internal,
+  ListRecordPreview as ListRecordPreviewT,
+  SourcePath,
+} from "@valbuild/core";
 import {
   useAllValidationErrors,
+  usePreviewOverrideAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
 } from "../ValProvider";
@@ -15,13 +21,14 @@ import { Preview, PreviewLoading, PreviewNull } from "../../components/Preview";
 import { ValidationErrors } from "../../components/ValidationError";
 import { isParentError } from "../../utils/isParentError";
 import { ErrorIndicator } from "../ErrorIndicator";
+import { useState } from "react";
 
 export function RecordFields({ path }: { path: SourcePath }) {
   const type = "record";
   const validationErrors = useAllValidationErrors() || {};
   const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
-  const previewAtPath = usePreviewAtPath(path);
+  const previewAtPath = usePreviewOverrideAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   if (schemaAtPath.status === "error") {
     return (
@@ -55,30 +62,104 @@ export function RecordFields({ path }: { path: SourcePath }) {
     );
   }
   const source = sourceAtPath.data;
+  const previewAtPathData =
+    previewAtPath && "data" in previewAtPath && previewAtPath.data;
   return (
     <div id={path}>
       <ValidationErrors path={path} />
-      <div className="grid grid-cols-1 gap-4">
-        {source &&
-          Object.entries(source).map(([key]) => (
-            <div
-              key={key}
-              onClick={() => navigate(sourcePathOfItem(path, key))}
-              className="bg-primary-foreground cursor-pointer hover:bg-primary-foreground/50 min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4 hover:bg-bg-brand-primary hover:text-text-brand-primary"
-            >
-              <div className="flex items-start justify-between">
-                <div className="pb-4 font-semibold text-md">{key}</div>
-                {isParentError(
-                  sourcePathOfItem(path, key),
-                  validationErrors,
-                ) && <ErrorIndicator />}
+      {previewAtPathData && (
+        <ListRecordPreview path={path} {...previewAtPathData} />
+      )}
+      {!previewAtPathData && (
+        <div className="grid grid-cols-1 gap-4">
+          {source &&
+            Object.entries(source).map(([key]) => (
+              <div
+                key={key}
+                onClick={() => navigate(sourcePathOfItem(path, key))}
+                className="bg-primary-foreground cursor-pointer hover:bg-primary-foreground/50 min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4 hover:bg-bg-brand-primary hover:text-text-brand-primary"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="pb-4 font-semibold text-md">{key}</div>
+                  {isParentError(
+                    sourcePathOfItem(path, key),
+                    validationErrors,
+                  ) && <ErrorIndicator />}
+                </div>
+                <div>
+                  <Preview path={sourcePathOfItem(path, key)} />
+                </div>
               </div>
-              <div>
-                <Preview path={sourcePathOfItem(path, key)} />
-              </div>
-            </div>
-          ))}
-      </div>
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ListRecordPreview({
+  path,
+  items,
+}: {
+  path: SourcePath;
+  items: ListRecordPreviewT["items"];
+}) {
+  const { navigate } = useNavigation();
+  return (
+    <div className="flex flex-col w-full space-y-4">
+      {items.map(([key, { title, subtitle, image }]) => (
+        <div
+          key={key}
+          onClick={() => navigate(sourcePathOfItem(path, key))}
+          className="flex items-center justify-between max-w-full transition-colors border rounded-lg cursor-pointer border-border-primary"
+        >
+          <div className="flex flex-col flex-shrink px-4 py-4 truncate">
+            <div className="text-lg font-medium truncate">{title}</div>
+            {subtitle && (
+              <div className="text-sm text-gray-500 truncate">{subtitle}</div>
+            )}
+          </div>
+          {image && <ImageOrPlaceholder src={image} alt={title} />}
+        </div>
+      ))}
+    </div>
+  );
+}
+function ImageOrPlaceholder({
+  src,
+  alt,
+}: {
+  src: ImageSource | null | undefined;
+  alt: string;
+}) {
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  if (src === null || src === undefined) {
+    return (
+      <div className="flex-shrink-0 w-20 h-20 ml-4 opacity-25 bg-bg-brand-secondary"></div>
+    );
+  }
+
+  const imageUrl = Internal.convertFileSource(src).url;
+
+  return (
+    <div className="relative flex-shrink-0 w-20 h-20 ml-4">
+      {!isLoaded && (
+        <div className="absolute inset-0 opacity-25 bg-bg-brand-secondary animate-in"></div>
+      )}
+      <img
+        src={imageUrl}
+        alt={alt}
+        onLoad={() => setIsLoaded(true)}
+        onError={() => setIsLoaded(false)}
+        className={`absolute inset-0 object-cover w-full h-full rounded-r-lg ${isLoaded ? "opacity-100" : "opacity-0"}`}
+        style={{
+          objectPosition: src.metadata?.hotspot
+            ? `${src.metadata.hotspot.x}% ${src.metadata.hotspot.y}%`
+            : "",
+          transition: "opacity 0.2s ease-in-out",
+        }}
+      />
     </div>
   );
 }

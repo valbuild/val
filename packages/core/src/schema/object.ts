@@ -8,8 +8,11 @@ import {
 } from ".";
 import { ReifiedPreview } from "../preview";
 import { SelectorSource } from "../selector";
-import { createValPathOfItem } from "../selector/SelectorProxy";
-import { SourcePath } from "../val";
+import {
+  createValPathOfItem,
+  unsafeCreateSourcePath,
+} from "../selector/SelectorProxy";
+import { ModuleFilePath, SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedObjectSchema = {
@@ -189,34 +192,27 @@ export class ObjectSchema<
     };
   }
 
-  protected executePreview(src: Src): ReifiedPreview {
+  protected executePreview(
+    sourcePath: SourcePath | ModuleFilePath,
+    src: Src,
+  ): ReifiedPreview {
+    const res: ReifiedPreview = {};
     if (src === null) {
-      return {
-        status: "success",
-        data: {
-          renderType: "auto",
-          schemaType: "object",
-          items: null,
-        },
-      };
+      return res;
     }
-    const items: Record<string, ReifiedPreview> = {};
-    for (const key of Object.keys(src)) {
-      const item = this.items?.[key];
-      if (item && item["executePreview"]) {
-        const itemPreview = item["executePreview"](src[key]);
-        items[key] = itemPreview;
+    for (const key in this.items) {
+      const itemSrc = src[key];
+      if (itemSrc === null || itemSrc === undefined) {
+        continue;
+      }
+      const subPath = unsafeCreateSourcePath(sourcePath, key);
+      const itemResult = this.items[key]["executePreview"](subPath, itemSrc);
+      for (const keyS in itemResult) {
+        const key = keyS as SourcePath | ModuleFilePath;
+        res[key] = itemResult[key];
       }
     }
-
-    return {
-      status: "success",
-      data: {
-        renderType: "auto",
-        schemaType: "object",
-        items: items,
-      },
-    };
+    return res;
   }
 }
 

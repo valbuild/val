@@ -8,7 +8,7 @@ import {
 import { ReifiedPreview } from "../preview";
 import { SelectorSource } from "../selector";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
-import { SourcePath } from "../val";
+import { ModuleFilePath, SourcePath } from "../val";
 import {
   ValidationError,
   ValidationErrors,
@@ -115,15 +115,27 @@ export class ArraySchema<
     };
   }
 
-  protected executePreview(src: Src): ReifiedPreview {
-    return {
-      status: "success",
-      data: {
-        renderType: "auto",
-        schemaType: "array",
-        items: src?.map(this.item["executePreview"]) || null,
-      },
-    };
+  protected executePreview(
+    sourcePath: SourcePath | ModuleFilePath,
+    src: Src,
+  ): ReifiedPreview {
+    const res: ReifiedPreview = {};
+    if (src === null) {
+      return res;
+    }
+    for (let i = 0; i < (src?.length || 0); i++) {
+      const itemSrc = src[i];
+      if (itemSrc === null) {
+        continue;
+      }
+      const subPath = unsafeCreateSourcePath(sourcePath, i);
+      const itemResult = this.item["executePreview"](subPath, itemSrc);
+      for (const keyS in itemResult) {
+        const key = keyS as SourcePath | ModuleFilePath;
+        res[key] = itemResult[key];
+      }
+    }
+    return res;
   }
 }
 

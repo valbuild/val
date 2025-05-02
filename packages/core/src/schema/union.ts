@@ -1,10 +1,13 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { AssertError, Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { ReifiedPreview } from "../preview";
-import { createValPathOfItem } from "../selector/SelectorProxy";
+import {
+  createValPathOfItem,
+  unsafeCreateSourcePath,
+} from "../selector/SelectorProxy";
 import { SelectorSource } from "../selector/index";
 import { SourceObject } from "../source";
-import { SourcePath } from "../val";
+import { ModuleFilePath, SourcePath } from "../val";
 import { LiteralSchema, SerializedLiteralSchema } from "./literal";
 import { ObjectSchema, SerializedObjectSchema } from "./object";
 import { ValidationErrors } from "./validation/ValidationError";
@@ -430,24 +433,16 @@ export class UnionSchema<
     super();
   }
 
-  protected executePreview(src: Src): ReifiedPreview {
+  protected executePreview(
+    sourcePath: SourcePath | ModuleFilePath,
+    src: Src,
+  ): ReifiedPreview {
+    const res: ReifiedPreview = {};
     if (src === null) {
-      return {
-        status: "success",
-        data: {
-          renderType: "auto",
-          schemaType: "scalar",
-        },
-      };
+      return res;
     }
     if (this.key instanceof LiteralSchema) {
-      return {
-        status: "success",
-        data: {
-          renderType: "auto",
-          schemaType: "scalar",
-        },
-      };
+      return res;
     }
     const unionKey = this.key;
     if (typeof unionKey === "string") {
@@ -468,14 +463,19 @@ export class UnionSchema<
         },
       );
       if (thisSchema) {
-        return thisSchema["executePreview"](src);
+        const itemResult = thisSchema["executePreview"](sourcePath, src);
+        for (const keyS in itemResult) {
+          const key = keyS as SourcePath | ModuleFilePath;
+          res[key] = itemResult[key];
+        }
+        return res;
       }
-      return {
+      res[sourcePath] = {
         status: "error",
         message: `Could not find a matching (object) schema for the union key: ${unionKey}`,
       };
     }
-    return {
+    res[sourcePath] = {
       status: "error",
       message: `The schema of this value is wrong. Expected a object union schema, but union key is not a string. Got: '${JSON.stringify(
         unionKey,
@@ -483,6 +483,7 @@ export class UnionSchema<
         2,
       )}'`,
     };
+    return res;
   }
 }
 

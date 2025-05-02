@@ -436,7 +436,7 @@ export abstract class ValOps {
     const previews: Record<ModuleFilePath, ReifiedPreview | null> = {};
     for (const [pathS, schema] of Object.entries(schemas)) {
       const path = pathS as ModuleFilePath;
-      previews[path] = schema["executePreview"](sources[path]);
+      previews[path] = schema["executePreview"](path, sources[path]);
     }
     return { previews };
   }
