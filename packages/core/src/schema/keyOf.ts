@@ -6,6 +6,7 @@ import { Source, SourceObject } from "../source";
 import { SourcePath, getValPath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 import { RawString } from "./string";
+import { ReifiedPreview } from "../preview";
 
 export type SerializedKeyOfSchema = {
   type: "keyOf";
@@ -252,6 +253,16 @@ export class KeyOfSchema<
       opt: this.opt,
       values,
     } satisfies SerializedKeyOfSchema;
+  }
+
+  protected executePreview(src: Src): ReifiedPreview {
+    return {
+      status: "success",
+      data: {
+        renderType: "auto",
+        schemaType: "scalar",
+      },
+    };
   }
 }
 

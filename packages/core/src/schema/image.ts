@@ -7,6 +7,7 @@ import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 import { FileMetadata, Internal } from "..";
 import { RemoteSource } from "../source/remote";
+import { ReifiedPreview } from "../preview";
 
 export type ImageOptions = {
   ext?: ["jpg"] | ["webp"];
@@ -300,6 +301,16 @@ export class ImageSchema<
       options: this.options,
       opt: this.opt,
       remote: this.isRemote,
+    };
+  }
+
+  protected executePreview(src: Src): ReifiedPreview {
+    return {
+      status: "success",
+      data: {
+        renderType: "auto",
+        schemaType: "scalar",
+      },
     };
   }
 }

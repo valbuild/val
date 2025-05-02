@@ -1383,6 +1383,8 @@ export function useAutoPublish() {
   };
 }
 
+export function usePreviewAtPath(sourcePath: SourcePath) {}
+
 export function useSchemaAtPath(sourcePath: SourcePath):
   | { status: "not-found" }
   | { status: "loading" }

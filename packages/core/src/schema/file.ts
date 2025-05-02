@@ -6,6 +6,7 @@ import { VAL_EXTENSION } from "../source";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 import { Internal, RemoteSource } from "..";
+import { ReifiedPreview } from "../preview";
 
 export type FileOptions = {
   accept?: string;
@@ -273,6 +274,16 @@ export class FileSchema<
       options: this.options,
       opt: this.opt,
       remote: this.isRemote,
+    };
+  }
+
+  protected executePreview(src: Src): ReifiedPreview {
+    return {
+      status: "success",
+      data: {
+        renderType: "auto",
+        schemaType: "scalar",
+      },
     };
   }
 }

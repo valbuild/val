@@ -4,8 +4,10 @@ import {
   SelectorOfSchema,
   SerializedSchema,
 } from ".";
+import { ReifiedPreview } from "../preview";
 import { SelectorSource } from "../selector";
 import { createValPathOfItem } from "../selector/SelectorProxy";
+import { ImageSource } from "../source/image";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 
@@ -120,12 +122,89 @@ export class RecordSchema<
       opt: this.opt,
     };
   }
+
+  private previewInput: {
+    as: "card";
+    display: (input: { key: string; val: PreviewSelector<T> }) => {
+      title: string;
+      subtitle?: string | null;
+      image?: ImageSource | null;
+    };
+  } | null = null;
+  protected override executePreview(src: Src): ReifiedPreview {
+    if (src === null) {
+      return {
+        status: "success",
+        data: {
+          renderType: "auto",
+          schemaType: "record",
+          items: null,
+        },
+      };
+    }
+    if (!this.previewInput) {
+      const items: Record<string, ReifiedPreview> = {};
+      for (const key of Object.keys(src)) {
+        const itemPreview = this.item["executePreview"](src[key]);
+        items[key] = itemPreview;
+      }
+
+      return {
+        status: "success",
+        data: {
+          renderType: "auto",
+          schemaType: "record",
+          items: items,
+        },
+      };
+    }
+    const { display, as: type } = this.previewInput;
+    if (type !== "card") {
+      return {
+        status: "error",
+        message: "Unknown preview type",
+      };
+    }
+    try {
+      return {
+        status: "success",
+        data: {
+          renderType: "card",
+          schemaType: "record",
+          items: Object.entries(src).map(([key, val]) => {
+            // NB NB: display is actually defined by the user
+            const { title, subtitle, image } = display({ key, val });
+            return [key, { title, subtitle, image }];
+          }),
+        },
+      };
+    } catch (e) {
+      return {
+        status: "error",
+        message: e instanceof Error ? e.message : "Unknown error",
+      };
+    }
+  }
+
+  preview(input: {
+    as: "card";
+    display: (input: { key: string; val: PreviewSelector<T> }) => {
+      title: string;
+      subtitle?: string | null;
+      image?: ImageSource | null;
+    };
+  }) {
+    this.previewInput = input;
+    return this;
+  }
 }
+
+// TODO: improve this so that we do not get RawString and string, only string. Are there other things?
+type PreviewSelector<T extends Schema<SelectorSource>> =
+  T extends Schema<infer S> ? S : never;
 
 export const record = <S extends Schema<SelectorSource>>(
   schema: S,
-): Schema<Record<string, SelectorOfSchema<S>>> => {
-  return new RecordSchema(schema) as Schema<
-    Record<string, SelectorOfSchema<S>>
-  >;
+): RecordSchema<S, Record<string, SelectorOfSchema<S>>> => {
+  return new RecordSchema(schema);
 };

@@ -20,6 +20,7 @@ import {
 import { ParentRef, ValClient } from "@valbuild/shared/internal";
 import { canMerge } from "./utils/mergePatches";
 import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
+import { ReifiedPreview } from "@valbuild/core/src/preview";
 
 /**
  * ValSyncEngine is the engine that keeps track of the state of the Val client.
@@ -91,6 +92,7 @@ export class ValSyncEngine {
     ModuleFilePath,
     JSONValue | undefined
   >;
+  private previews: Record<ModuleFilePath, ReifiedPreview | null> | null;
   private schemas: Record<ModuleFilePath, SerializedSchema | undefined> | null;
   private serverSideSchemaSha: string | null;
   private clientSideSchemaSha: string | null;
@@ -178,6 +180,7 @@ export class ValSyncEngine {
     //
     this.cachedSourceSnapshots = null;
     this.cachedSchemaSnapshots = null;
+    this.cachedPreviewSnapshots = null;
     this.cachedPatchData = null;
     this.cachedSerializedPatchSetsSnapshot = null;
     this.cachedValidationErrors = null;
@@ -285,6 +288,7 @@ export class ValSyncEngine {
     //
     this.cachedSourceSnapshots = null;
     this.cachedSchemaSnapshots = null;
+    this.cachedPreviewSnapshots = null;
     this.cachedPatchData = null;
     this.cachedSerializedPatchSetsSnapshot = null;
     this.cachedValidationErrors = null;
@@ -311,6 +315,10 @@ export class ValSyncEngine {
   >;
   subscribe(
     type: "source",
+    path: ModuleFilePath,
+  ): (listener: () => void) => () => void;
+  subscribe(
+    type: "preview",
     path: ModuleFilePath,
   ): (listener: () => void) => () => void;
   subscribe(type: "all-sources"): (listener: () => void) => () => void;
@@ -400,6 +408,17 @@ export class ValSyncEngine {
     this.cachedAllSourcesSnapshot = null;
     this.emit(this.listeners.source?.[moduleFilePath]);
   }
+
+  private invalidatePreview(moduleFilePath: ModuleFilePath) {
+    if (this.cachedPreviewSnapshots !== null) {
+      this.cachedPreviewSnapshots = {
+        ...this.cachedPreviewSnapshots,
+        [moduleFilePath]: null,
+      };
+    }
+    this.emit(this.listeners["preview"]?.[moduleFilePath]);
+  }
+
   private invalidateSyncStatus(sourcePath: SourcePath | ModuleFilePath) {
     this.cachedSyncStatus = {
       ...this.cachedSyncStatus,
@@ -534,6 +553,21 @@ export class ValSyncEngine {
       }
     }
     return this.cachedSchemaSnapshots[sourcePath];
+  }
+
+  private cachedPreviewSnapshots: Record<
+    ModuleFilePath,
+    ReifiedPreview | null
+  > | null;
+  getPreviewSnapshot(moduleFilePath: ModuleFilePath) {
+    if (this.cachedPreviewSnapshots === null) {
+      this.cachedPreviewSnapshots = {};
+    }
+    if (this.cachedPreviewSnapshots[moduleFilePath] === null) {
+      this.cachedPreviewSnapshots[moduleFilePath] =
+        this.previews?.[moduleFilePath] || null;
+    }
+    return this.cachedPreviewSnapshots[moduleFilePath];
   }
 
   private cachedSourceSnapshots: Record<
@@ -995,6 +1029,8 @@ export class ValSyncEngine {
 
         this.invalidateSyncStatus(sourcePath);
         this.invalidateSource(moduleFilePath);
+        this.setPreviewLoading(moduleFilePath);
+
         return {
           status: "patch-merged",
           patchId: lastPatchId,
@@ -1025,6 +1061,8 @@ export class ValSyncEngine {
 
         this.invalidateSyncStatus(sourcePath);
         this.invalidateSource(moduleFilePath);
+        this.setPreviewLoading(moduleFilePath);
+
         return {
           status: "patch-added",
           patchId,
@@ -1054,11 +1092,23 @@ export class ValSyncEngine {
 
       this.invalidateSyncStatus(sourcePath);
       this.invalidateSource(moduleFilePath);
+      this.setPreviewLoading(moduleFilePath);
+
       return {
         status: "patch-added",
         patchId,
         moduleFilePath,
       } as const;
+    }
+  }
+
+  private setPreviewLoading(moduleFilePath: ModuleFilePath) {
+    if (this.previews && this.previews[moduleFilePath]?.status === "success") {
+      this.previews[moduleFilePath] = {
+        ...this.previews[moduleFilePath],
+        status: "loading",
+      };
+      this.invalidatePreview(moduleFilePath);
     }
   }
 
@@ -1916,6 +1966,10 @@ export class ValSyncEngine {
                 this.serverSources = {};
               }
               this.serverSources[moduleFilePath] = valModule.source;
+              if (this.previews === null) {
+                this.previews = {};
+              }
+              this.previews[moduleFilePath] = valModule.preview || null;
               if (
                 // Feel free to revisit / rewrite this if statement:
                 // We cannot remove optimisticClientSources, even if we just synced because the optimistic client side sources might have been changed while we were syncing
@@ -1939,6 +1993,7 @@ export class ValSyncEngine {
               // this.optimisticClientSources = {};
               // this.cachedDataSnapshots = {};
               this.invalidateSource(moduleFilePath);
+              this.invalidatePreview(moduleFilePath);
               this.overlayEmitter?.(moduleFilePath, valModule.source);
               // NOTE: we clean up relevant validation errors above
               for (const sourcePathS in valModule.validationErrors) {
@@ -2240,6 +2295,7 @@ type SyncEngineListenerType =
   | "publish-disabled"
   | "pending-ops-count"
   | "all-sources"
+  | "preview"
   | "source";
 type SyncStatus = "not-asked" | "fetching" | "patches-pending" | "done";
 type CommonOpProps<T> = T & {

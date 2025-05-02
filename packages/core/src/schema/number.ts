@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
+import { ReifiedPreview } from "../preview";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 
@@ -83,6 +84,16 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
       type: "number",
       options: this.options,
       opt: this.opt,
+    };
+  }
+
+  protected executePreview(src: Src): ReifiedPreview {
+    return {
+      status: "success",
+      data: {
+        renderType: "auto",
+        schemaType: "scalar",
+      },
     };
   }
 }

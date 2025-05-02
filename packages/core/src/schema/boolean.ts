@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
+import { ReifiedPreview } from "../preview";
 import { SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
 
@@ -72,6 +73,16 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     return {
       type: "boolean",
       opt: this.opt,
+    };
+  }
+
+  protected executePreview(src: Src): ReifiedPreview {
+    return {
+      status: "success",
+      data: {
+        renderType: "auto",
+        schemaType: "scalar",
+      },
     };
   }
 }

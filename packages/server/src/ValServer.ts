@@ -47,6 +47,7 @@ import {
 } from "./personalAccessTokens";
 import path from "path";
 import { hasRemoteFileSchema } from "./hasRemoteFileSchema";
+import { ReifiedPreview } from "@valbuild/core/src/preview";
 
 export type ValServerOptions = {
   route: string;
@@ -1310,6 +1311,7 @@ export const ValServer = (
           };
         }
         const patchAnalysis = serverOps.analyzePatches(patchOps.patches);
+        const schemasRes = await serverOps.getSchemas();
         let sourcesRes = await serverOps.getSources();
         const onlyPatchedTreeModules = await serverOps.getSources({
           ...patchAnalysis,
@@ -1325,6 +1327,11 @@ export const ValServer = (
             ...(onlyPatchedTreeModules.errors || {}),
           },
         };
+        const previewsRes = await serverOps.getPreviews(
+          schemasRes,
+          sourcesRes.sources,
+        );
+
         let sourcesValidation: {
           errors: Record<
             ModuleFilePath,
@@ -1368,6 +1375,7 @@ export const ValServer = (
           ModuleFilePath,
           {
             source: Json;
+            preview: ReifiedPreview | null;
             patches?: {
               applied: PatchId[];
               skipped?: PatchId[];
@@ -1376,6 +1384,7 @@ export const ValServer = (
             validationErrors?: Record<SourcePath, ValidationError[]>;
           }
         > = {};
+        sourcesRes;
         for (const [moduleFilePathS, module] of Object.entries(
           sourcesRes.sources,
         )) {
@@ -1403,6 +1412,7 @@ export const ValServer = (
             }
             modules[moduleFilePath] = {
               source: module,
+              preview: previewsRes.previews[moduleFilePath] || null,
               patches:
                 appliedPatches.length > 0 ||
                 skippedPatches.length > 0 ||

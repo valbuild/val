@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { AssertError, Schema, SchemaAssertResult, SerializedSchema } from ".";
+import { ReifiedPreview } from "../preview";
 import { createValPathOfItem } from "../selector/SelectorProxy";
 import { SelectorSource } from "../selector/index";
 import { SourceObject } from "../source";
@@ -427,6 +428,61 @@ export class UnionSchema<
     readonly opt: boolean = false,
   ) {
     super();
+  }
+
+  protected executePreview(src: Src): ReifiedPreview {
+    if (src === null) {
+      return {
+        status: "success",
+        data: {
+          renderType: "auto",
+          schemaType: "scalar",
+        },
+      };
+    }
+    if (this.key instanceof LiteralSchema) {
+      return {
+        status: "success",
+        data: {
+          renderType: "auto",
+          schemaType: "scalar",
+        },
+      };
+    }
+    const unionKey = this.key;
+    if (typeof unionKey === "string") {
+      const thisSchema = this.items.find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (item): item is ObjectSchema<any, any> => {
+          if (item instanceof ObjectSchema) {
+            const itemKey = item.items[unionKey];
+            if (itemKey instanceof LiteralSchema) {
+              return (
+                typeof src === "object" &&
+                unionKey in src &&
+                itemKey.value === src[unionKey]
+              );
+            }
+          }
+          return false;
+        },
+      );
+      if (thisSchema) {
+        return thisSchema["executePreview"](src);
+      }
+      return {
+        status: "error",
+        message: `Could not find a matching (object) schema for the union key: ${unionKey}`,
+      };
+    }
+    return {
+      status: "error",
+      message: `The schema of this value is wrong. Expected a object union schema, but union key is not a string. Got: '${JSON.stringify(
+        unionKey,
+        null,
+        2,
+      )}'`,
+    };
   }
 }
 

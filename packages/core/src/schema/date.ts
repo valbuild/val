@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
+import { ReifiedPreview } from "../preview";
 import { SourcePath } from "../val";
 import { RawString } from "./string";
 import { ValidationErrors } from "./validation/ValidationError";
@@ -158,6 +159,16 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       type: "date",
       opt: this.opt,
       options: this.options,
+    };
+  }
+
+  protected executePreview(src: Src): ReifiedPreview {
+    return {
+      status: "success",
+      data: {
+        renderType: "auto",
+        schemaType: "scalar",
+      },
     };
   }
 }

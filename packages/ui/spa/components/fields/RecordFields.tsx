@@ -21,6 +21,7 @@ export function RecordFields({ path }: { path: SourcePath }) {
   const validationErrors = useAllValidationErrors() || {};
   const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
+  const previewAtPath = usePreviewAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   if (schemaAtPath.status === "error") {
     return (
