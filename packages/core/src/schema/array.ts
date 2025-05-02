@@ -191,6 +191,6 @@ export class ArraySchema<
 
 export const array = <S extends Schema<SelectorSource>>(
   schema: S,
-): ArraySchema<S, SelectorOfSchema<S>[] | null> => {
+): ArraySchema<S, SelectorOfSchema<S>[]> => {
   return new ArraySchema(schema);
 };
