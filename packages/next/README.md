@@ -62,7 +62,12 @@ Join us on [discord](https://discord.gg/cZzqPvaX8k) to get help or give us feedb
 
 ## Installation
 
-- Make sure your project is using
+- Make sure you have setup a NextJS (version 13.4.+) project. If not you can create a new project like this:
+```sh
+
+npm create next-app
+```
+
 - Install the packages:
 
 ```sh
