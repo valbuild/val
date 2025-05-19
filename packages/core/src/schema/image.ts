@@ -292,7 +292,7 @@ export class ImageSchema<
   }
 
   nullable(): Schema<Src | null> {
-    return new ImageSchema<Src | null>(this.options, true);
+    return new ImageSchema<Src | null>(this.options, true, this.isRemote);
   }
 
   serialize(): SerializedSchema {
