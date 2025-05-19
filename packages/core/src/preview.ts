@@ -1,6 +1,8 @@
 import { Schema } from "./schema";
+import { ImageMetadata } from "./schema/image";
 import { SelectorSource } from "./selector";
 import { ImageSource } from "./source/image";
+import { RemoteSource } from "./source/remote";
 import { ModuleFilePath, SourcePath } from "./val";
 
 export type ListRecordPreview = {
@@ -11,7 +13,7 @@ export type ListRecordPreview = {
     value: {
       title: string;
       subtitle?: string | null;
-      image?: ImageSource | null;
+      image?: ImageSource | RemoteSource<ImageMetadata> | null;
     },
   ][];
 };
@@ -22,7 +24,7 @@ export type ListArrayPreview = {
   items: {
     title: string;
     subtitle?: string | null;
-    image?: ImageSource | null;
+    image?: ImageSource | RemoteSource<ImageMetadata> | null;
   }[];
 };
 
