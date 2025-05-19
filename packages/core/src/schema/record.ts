@@ -11,7 +11,9 @@ import {
   unsafeCreateSourcePath,
 } from "../selector/SelectorProxy";
 import { ImageSource } from "../source/image";
+import { RemoteSource } from "../source/remote";
 import { ModuleFilePath, SourcePath } from "../val";
+import { ImageMetadata } from "./image";
 import { ValidationErrors } from "./validation/ValidationError";
 
 export type SerializedRecordSchema = {
@@ -131,7 +133,7 @@ export class RecordSchema<
     prepare: (input: { key: string; val: PreviewSelector<T> }) => {
       title: string;
       subtitle?: string | null;
-      image?: ImageSource | null;
+      image?: ImageSource | RemoteSource<ImageMetadata> | null;
     };
   } | null = null;
 
@@ -191,7 +193,7 @@ export class RecordSchema<
     prepare: (input: { key: string; val: PreviewSelector<T> }) => {
       title: string;
       subtitle?: string | null;
-      image?: ImageSource | null;
+      image?: ImageSource | RemoteSource<ImageMetadata> | null;
     };
   }) {
     this.previewInput = input;

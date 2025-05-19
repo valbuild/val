@@ -25,6 +25,9 @@ import {
   ListArrayPreview,
   ImageSource,
   Internal,
+  ImageMetadata,
+  RemoteSource,
+  VAL_EXTENSION,
 } from "@valbuild/core";
 import { Preview as AutoPreview } from "./Preview";
 import { StringField } from "./fields/StringField";
@@ -288,7 +291,7 @@ function ImageOrPlaceholder({
   src,
   alt,
 }: {
-  src: ImageSource | null | undefined;
+  src: ImageSource | RemoteSource<ImageMetadata> | null | undefined;
   alt: string;
 }) {
   const [isLoaded, setIsLoaded] = useState(false);
@@ -299,7 +302,10 @@ function ImageOrPlaceholder({
     );
   }
 
-  const imageUrl = Internal.convertFileSource(src).url;
+  const imageUrl =
+    src[VAL_EXTENSION] === "file"
+      ? Internal.convertFileSource(src).url
+      : Internal.convertRemoteSource(src).url;
 
   return (
     <div className="relative flex-shrink-0 w-20 h-20 ml-4">
