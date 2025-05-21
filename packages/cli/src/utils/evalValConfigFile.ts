@@ -57,7 +57,7 @@ export async function evalValConfigFile(
     fileName: valConfigPath,
   });
 
-  const projectRootRequire = createRequire(projectRoot);
+  const projectRootRequire = createRequire(valConfigPath);
   const exportsObj = {};
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sandbox: Record<string, any> = {
