@@ -66,6 +66,7 @@ import {
   splitModulePath,
   splitModuleFilePath,
   resolvePath,
+  safeResolvePath,
   splitModuleFilePathAndModulePath,
   joinModuleFilePathAndModulePath,
   parentOfSourcePath,
@@ -156,6 +157,7 @@ const Internal = {
   getValPath,
   getSource,
   resolvePath,
+  safeResolvePath,
   splitModuleFilePathAndModulePath,
   joinModuleFilePathAndModulePath,
   remote: {

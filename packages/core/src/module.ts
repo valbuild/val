@@ -379,6 +379,239 @@ export function resolvePath<
   };
 }
 
+// TODO: replace all usages of resolvePath with safeResolvePath
+export function safeResolvePath<
+  Src extends ValModule<SelectorSource> | Source,
+  Sch extends Schema<SelectorSource> | SerializedSchema,
+>(
+  path: ModulePath,
+  valModule: Src,
+  schema: Sch,
+):
+  | {
+      status: "ok";
+      path: SourcePath;
+      schema: Sch;
+      source: Src;
+    }
+  | {
+      status: "source-undefined";
+      path: SourcePath;
+    }
+  | {
+      status: "error";
+      message: string;
+    } {
+  const parts = splitModulePath(path);
+  const origParts = [...parts];
+  let resolvedSchema: Schema<SelectorSource> | SerializedSchema = schema;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let resolvedSource: any /* TODO: any */ = valModule;
+  while (parts.length > 0) {
+    const part = parts.shift();
+    if (part === undefined) {
+      return {
+        status: "error",
+        message: "Unexpected undefined part",
+      };
+    }
+    if (isArraySchema(resolvedSchema)) {
+      if (Number.isNaN(Number(part))) {
+        return {
+          status: "error",
+          message: `Invalid path: array schema ${JSON.stringify(
+            resolvedSchema,
+          )} must have a number as path, but got ${part}. Path: ${path}`,
+        };
+      }
+      if (resolvedSource === undefined) {
+        return {
+          status: "source-undefined",
+          path: origParts
+            .slice(0, origParts.length - parts.length - 1)
+            .map((p) => JSON.stringify(p))
+            .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
+        };
+      }
+      if (
+        typeof resolvedSource !== "object" &&
+        !Array.isArray(resolvedSource)
+      ) {
+        return {
+          status: "error",
+          message: `Schema type error: expected source to be type of array, but got ${typeof resolvedSource}`,
+        };
+      }
+      resolvedSource = resolvedSource[part];
+      resolvedSchema = resolvedSchema.item;
+    } else if (isRecordSchema(resolvedSchema)) {
+      if (typeof part !== "string") {
+        return {
+          status: "error",
+          message: `Invalid path: record schema ${resolvedSchema} must have path: ${part} as string`,
+        };
+      }
+      if (resolvedSource === undefined) {
+        return {
+          status: "source-undefined",
+          path: origParts
+            .slice(0, origParts.length - parts.length - 1)
+            .map((p) => JSON.stringify(p))
+            .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
+        };
+      }
+      if (
+        typeof resolvedSource !== "object" &&
+        !Array.isArray(resolvedSource)
+      ) {
+        return {
+          status: "error",
+          message: `Schema type error: expected source to be type of record, but got ${typeof resolvedSource}`,
+        };
+      }
+      if (!resolvedSource[part]) {
+        return {
+          status: "error",
+          message: `Invalid path: record source did not have key ${part} from path: ${path}`,
+        };
+      }
+      resolvedSource = resolvedSource[part];
+      resolvedSchema = resolvedSchema.item;
+    } else if (isObjectSchema(resolvedSchema)) {
+      if (resolvedSource === undefined) {
+        return {
+          status: "source-undefined",
+          path: origParts
+            .slice(0, origParts.length - parts.length - 1)
+            .map((p) => JSON.stringify(p))
+            .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
+        };
+      }
+      if (typeof resolvedSource !== "object") {
+        return {
+          status: "error",
+          message: `Schema type error: expected source to be type of object, but got ${typeof resolvedSource}`,
+        };
+      }
+      if (resolvedSource !== null && resolvedSource[part] === undefined) {
+        return {
+          status: "error",
+          message: `Invalid path: object source did not have key ${part} from path: ${path}`,
+        };
+      }
+      resolvedSource =
+        resolvedSource === null ? resolvedSource : resolvedSource[part];
+      resolvedSchema = resolvedSchema.items[part];
+      // } else if (isI18nSchema(resolvedSchema)) {
+      //   if (!resolvedSchema.locales.includes(part)) {
+      //     throw Error(
+      //       `Invalid path: i18n schema ${resolvedSchema} supports locales ${resolvedSchema.locales.join(
+      //         ", "
+      //       )}, but found: ${part}`
+      //     );
+      //   }
+      //   if (!Object.keys(resolvedSource).includes(part)) {
+      //     throw Error(
+      //       `Schema type error: expected source to be type of i18n with locale ${part}, but got ${JSON.stringify(
+      //         Object.keys(resolvedSource)
+      //       )}`
+      //     );
+      //   }
+      //   resolvedSource = resolvedSource[part];
+      //   resolvedSchema = resolvedSchema.item;
+    } else if (isImageSchema(resolvedSchema)) {
+      return {
+        status: "ok",
+        path: origParts
+          .slice(0, origParts.length - parts.length - 1)
+          .map((p) => JSON.stringify(p))
+          .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
+        schema: resolvedSchema as Sch,
+        source: resolvedSource,
+      };
+    } else if (isUnionSchema(resolvedSchema)) {
+      const key = resolvedSchema.key;
+      if (typeof key !== "string") {
+        return {
+          status: "ok",
+          path: origParts
+            .map((p) => {
+              if (!Number.isNaN(Number(p))) {
+                return p;
+              } else {
+                return JSON.stringify(p);
+              }
+            })
+            .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
+          schema: resolvedSchema as Sch,
+          source: resolvedSource as Src,
+        };
+      }
+      const keyValue = resolvedSource[key];
+      if (!keyValue) {
+        return {
+          status: "error",
+          message: `Invalid path: union source ${resolvedSchema} did not have required key ${key} in path: ${path}`,
+        };
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const schemaOfUnionKey: any = (resolvedSchema.items as any).find(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (child: any) => child?.items?.[key]?.value === keyValue,
+      );
+      if (!schemaOfUnionKey) {
+        return {
+          status: "error",
+          message: `Invalid path: union schema ${resolvedSchema} did not have a child object with ${key} of value ${keyValue} in path: ${path}`,
+        };
+      }
+      resolvedSchema = schemaOfUnionKey.items[part];
+      resolvedSource = resolvedSource[part];
+    } else if (isRichTextSchema(resolvedSchema)) {
+      if (
+        "src" in resolvedSource &&
+        "tag" in resolvedSource &&
+        resolvedSource.tag === "img" &&
+        parts.length === 0
+      ) {
+        resolvedSchema =
+          resolvedSchema.options?.inline?.img &&
+          typeof resolvedSchema.options?.inline?.img !== "boolean"
+            ? resolvedSchema.options.inline.img
+            : resolvedSchema;
+      }
+      resolvedSource = resolvedSource[part];
+    } else {
+      return {
+        status: "error",
+        message: `Invalid path: ${part} resolved to an unexpected schema ${JSON.stringify(
+          resolvedSchema,
+        )}`,
+      };
+    }
+  }
+  if (parts.length > 0) {
+    return {
+      status: "error",
+      message: `Invalid path: ${parts.join(".")} is not a valid path`,
+    };
+  }
+  return {
+    status: "ok",
+    path: origParts
+      .map((p) => {
+        if (!Number.isNaN(Number(p))) {
+          return p;
+        } else {
+          return JSON.stringify(p);
+        }
+      })
+      .join(".") as SourcePath, // TODO: create a function generate path from parts (not sure if this always works)
+    schema: resolvedSchema as Sch,
+    source: resolvedSource as Src,
+  };
+}
+
 export function splitModuleFilePath(input: ModuleFilePath) {
   const parts = input.split("/").slice(1);
   return parts;
