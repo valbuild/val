@@ -119,7 +119,7 @@ export function ValRichText<O extends RichTextOptions>({
     className?: string,
   ) => JSX.Element | string | undefined;
 }) {
-  const root = children as RichText<AllRichTextOptions>;
+  const root = children as RichText<AllRichTextOptions> | undefined;
   function build(child: RichTextNode, key?: number): JSX.Element | string {
     if (typeof child === "string") {
       const transformed = transform && transform(child, []);
@@ -175,8 +175,8 @@ export function ValRichText<O extends RichTextOptions>({
     });
   }
   return (
-    <div className={className} style={style} data-val-path={root.valPath}>
-      {root.map(build)}
+    <div className={className} style={style} data-val-path={root?.valPath}>
+      {root?.map(build)}
     </div>
   );
 }
