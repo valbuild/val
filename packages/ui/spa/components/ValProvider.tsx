@@ -1451,11 +1451,23 @@ export function useSchemaAtPath(sourcePath: SourcePath):
     let resolvedSchemaAtPath: SerializedSchema | null = null;
 
     try {
-      resolvedSchemaAtPath = Internal.resolvePath(
+      const resolvedSchemaAtPathRes = Internal.safeResolvePath(
         modulePath,
         sourcesRes.data,
         schemaRes.data,
-      )?.schema;
+      );
+      if (resolvedSchemaAtPathRes.status === "error") {
+        return {
+          status: "error" as const,
+          error: resolvedSchemaAtPathRes.message,
+        };
+      }
+      if (resolvedSchemaAtPathRes.status === "source-undefined") {
+        return {
+          status: "source-not-found" as const,
+        };
+      }
+      resolvedSchemaAtPath = resolvedSchemaAtPathRes.schema;
     } catch (e) {
       console.error(
         "Error resolving schema at path",
