@@ -1448,11 +1448,28 @@ export function useSchemaAtPath(sourcePath: SourcePath):
     if (sourcesRes.status !== "success") {
       return sourcesRes;
     }
-    const resolvedSchemaAtPath = Internal.resolvePath(
-      modulePath,
-      sourcesRes.data,
-      schemaRes.data,
-    )?.schema;
+    let resolvedSchemaAtPath: SerializedSchema | null = null;
+
+    try {
+      resolvedSchemaAtPath = Internal.resolvePath(
+        modulePath,
+        sourcesRes.data,
+        schemaRes.data,
+      )?.schema;
+    } catch (e) {
+      console.error(
+        "Error resolving schema at path",
+        sourcePath,
+        modulePath,
+        sourcesRes.data,
+        schemaRes.data,
+        e,
+      );
+      return {
+        status: "error" as const,
+        error: `Error resolving schema at path: ${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
     if (!resolvedSchemaAtPath) {
       return {
         status: "resolved-schema-not-found" as const,
