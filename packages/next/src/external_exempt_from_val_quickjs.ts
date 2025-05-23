@@ -52,6 +52,7 @@ autoTagJSX();
 
 // Convenience types
 export type * as t from "./ValTypes";
+export type { DecodeValEncodedString } from "./raw";
 
 export const Internal = {
   ...InternalCore,
