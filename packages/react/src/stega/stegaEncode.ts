@@ -203,7 +203,10 @@ export type StegaOfRichTextSource<T extends Source> = Json extends T
  **/
 export type RichText<O extends RichTextOptions> = StegaOfRichTextSource<
   RichTextSource<O>
-> & { valPath: string };
+> & {
+  /** This path is used internally by Val to identify where this RichText source is defined */
+  valPath?: string;
+};
 
 export type StegaOfSource<T extends Source> = Json extends T
   ? Json
