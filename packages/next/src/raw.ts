@@ -1,8 +1,8 @@
-import { RichTextSource, type RawString } from "@valbuild/core";
+import { type RichTextSource, type RawString } from "@valbuild/core";
 import {
-  RichText,
-  StegaOfRichTextSource,
-  ValEncodedString,
+  type RichText,
+  type StegaOfRichTextSource,
+  type ValEncodedString,
   stegaClean,
 } from "@valbuild/react/stega";
 
