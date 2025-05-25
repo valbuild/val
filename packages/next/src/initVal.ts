@@ -9,6 +9,7 @@ import {
   Internal,
 } from "@valbuild/core";
 import { raw } from "./raw";
+import { getUnpatchedUnencodedVal } from "./getUnpatchedUnencodedVal";
 import { decodeValPathOfString } from "./decodeValPathOfString";
 import { ValEncodedString } from "./external_exempt_from_val_quickjs";
 
@@ -18,6 +19,19 @@ export const initVal = (
   config?: ValConfig,
 ): InitVal & {
   val: ValConstructor & {
+    /**
+     * Returns the original module data, without any applied patches or stega encoding.
+     *
+     * This represents the raw, canonical state of the module as it was initially defined.
+     * NOTE: images and files, will be transformed (and will therefore) include the url property.
+     *
+     * ⚠️ Prefer using `fetchVal` (in React Server Components) or `useVal` (in React Client Components)
+     * for most application logic.
+     *
+     * This method is primarily intended for tooling and other advanced use cases
+     * outside of the actual application.
+     */
+    unstable_getUnpatchedUnencodedVal: typeof getUnpatchedUnencodedVal;
     raw: typeof raw;
     attrs: <T extends ValModule<SelectorSource> | Json>(target: T) => ValAttrs;
     unstable_decodeValPathOfString: typeof decodeValPathOfString;
@@ -59,6 +73,7 @@ export const initVal = (
       },
       unstable_decodeValPathOfString: decodeValPathOfString,
       raw,
+      unstable_getUnpatchedUnencodedVal: getUnpatchedUnencodedVal,
     },
     config: currentConfig,
   };
