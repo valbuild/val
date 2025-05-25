@@ -55,7 +55,7 @@ export const VERSION = "0.0.0";
         if (modulePath === "@valbuild/react/stega") {
           return {
             value:
-              "export const useVal = () => { throw Error(`Cannot use 'useVal' in this type of file`) }; export const fetchVal = () => { throw Error(`Cannot use 'fetchVal' in this type of file`) }; export const autoTagJSX = () => { /* ignore */ }; export const stegaClean = () => { throw Error(`Cannot use 'stegaClean' in this type of file`) }; export const stegaDecodeString = () => { throw Error(`Cannot use 'stegaDecodeString' in this type of file`) }; ",
+              "export const useVal = () => { throw Error(`Cannot use 'useVal' in this type of file`) };export const fetchVal = () => { throw Error(`Cannot use 'fetchVal' in this type of file`) }; export const autoTagJSX = () => { /* ignore */ }; export const stegaClean = () => { throw Error(`Cannot use 'stegaClean' in this type of file`) }; export const stegaDecodeString = () => { throw Error(`Cannot use 'stegaDecodeString' in this type of file`) };  export const stegaEncode = () => { throw Error(`Cannot use 'stegaEncode' in this type of file`) }; ",
           };
         }
         if (modulePath.startsWith("next/navigation")) {
