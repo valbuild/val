@@ -1,4 +1,4 @@
-import { RawString } from "@valbuild/core";
+import { type RawString } from "@valbuild/core";
 import { ValEncodedString, stegaClean } from "@valbuild/react/stega";
 
 export type DecodeValEncodedString<T> = T extends ValEncodedString | RawString
