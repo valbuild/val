@@ -1,5 +1,9 @@
-import { GenericSelector, SelectorOf, SelectorSource } from "@valbuild/core";
-import { StegaOfSource, stegaEncode } from "@valbuild/react/stega";
+import type {
+  GenericSelector,
+  SelectorOf,
+  SelectorSource,
+} from "@valbuild/core";
+import { type StegaOfSource, stegaEncode } from "@valbuild/react/stega";
 
 export function getUnpatchedUnencodedVal<T extends SelectorSource>(
   selector: T,
