@@ -1384,7 +1384,6 @@ export const ValServer = (
             validationErrors?: Record<SourcePath, ValidationError[]>;
           }
         > = {};
-        sourcesRes;
         for (const [moduleFilePathS, module] of Object.entries(
           sourcesRes.sources,
         )) {
