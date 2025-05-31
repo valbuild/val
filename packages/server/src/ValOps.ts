@@ -474,7 +474,7 @@ export abstract class ValOps {
         if (!errors[path]) {
           errors[path] = [];
         }
-        console.error("Module not found", path);
+        console.error("Val: Module not found", path);
         errors[path].push({
           patchId: patchData.patchId,
           skipped: true,
