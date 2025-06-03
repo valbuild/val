@@ -33,6 +33,26 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
         ],
       } as ValidationErrors;
     }
+    if (this.options?.max && src > this.options.max) {
+      return {
+        [path]: [
+          {
+            message: `Expected 'number' less than ${this.options.max}`,
+            value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
+    if (this.options?.min && src < this.options.min) {
+      return {
+        [path]: [
+          {
+            message: `Expected 'number' greater than ${this.options.min}`,
+            value: src,
+          },
+        ],
+      } as ValidationErrors;
+    }
     return false;
   }
 
@@ -79,6 +99,14 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     return new NumberSchema<Src | null>(this.options, true) as Schema<Src>;
   }
 
+  max(max: number): NumberSchema<Src> {
+    return new NumberSchema<Src>({ ...this.options, max }, this.opt);
+  }
+
+  min(min: number): NumberSchema<Src> {
+    return new NumberSchema<Src>({ ...this.options, min }, this.opt);
+  }
+
   serialize(): SerializedSchema {
     return {
       type: "number",
@@ -92,6 +120,6 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
   }
 }
 
-export const number = (options?: NumberOptions): Schema<number> => {
-  return new NumberSchema(options) as Schema<number>;
+export const number = (options?: NumberOptions): NumberSchema<number> => {
+  return new NumberSchema(options) as NumberSchema<number>;
 };
