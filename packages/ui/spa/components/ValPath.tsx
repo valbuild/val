@@ -1,4 +1,4 @@
-import { Internal, ModuleFilePath } from "@valbuild/core";
+import { Internal, ModuleFilePath, SourcePath } from "@valbuild/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAllSources, useSchemas, useValConfig } from "./ValProvider";
 import { prettifyFilename } from "../utils/prettifyFilename";
@@ -111,6 +111,10 @@ export function ValPath({
   const navPath = useMemo(() => {
     if (!link) return null;
     const schemas = "data" in schemasRes ? schemasRes.data : {};
+    if (patchPath.length === 0) {
+      const sourcePath = moduleFilePath as unknown as SourcePath;
+      return { navPath: sourcePath, sourcePath };
+    }
     const resolvedSourcePath = resolvePatchPath(
       patchPath,
       schemas[moduleFilePath],
