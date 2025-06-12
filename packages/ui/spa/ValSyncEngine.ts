@@ -628,7 +628,7 @@ export class ValSyncEngine {
         const data =
           this.optimisticClientSources[moduleFilePath] ||
           this.serverSources?.[moduleFilePath];
-        if (data) {
+        if (data !== undefined) {
           this.cachedAllSourcesSnapshot[moduleFilePath] = deepClone(data);
         }
       }

@@ -18,8 +18,8 @@ export function getKeysOf(
   keyOfRecord?: string, // NOTE: if this is defined we find keys of this specific record, if not we find all potential references
 ): SourcePath[] {
   const parentSource = sources[parent];
-  if (!parentSource) {
-    console.error(`Get keysOf Source not found for ${parent}`);
+  if (parentSource === undefined) {
+    console.error(`Get keysOf source not found for ${parent}`);
     return [];
   }
   const parentSchema = schemas[parent];
