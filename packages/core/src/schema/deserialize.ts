@@ -31,6 +31,7 @@ export function deserializeSchema(
               serialized.options.regexp.source,
               serialized.options.regexp.flags,
             ),
+          regExpMessage: serialized.options?.regexp?.message,
         },
         serialized.opt,
       );

@@ -11,6 +11,7 @@ type StringOptions = {
   maxLength?: number;
   minLength?: number;
   regexp?: RegExp;
+  regExpMessage?: string;
 };
 
 export type SerializedStringSchema = {
@@ -19,6 +20,7 @@ export type SerializedStringSchema = {
     maxLength?: number;
     minLength?: number;
     regexp?: {
+      message?: string;
       source: string;
       flags: string;
     };
@@ -73,9 +75,9 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  regexp(regexp: RegExp): StringSchema<Src> {
+  regexp(regexp: RegExp, message?: string): StringSchema<Src> {
     return new StringSchema<Src>(
-      { ...this.options, regexp },
+      { ...this.options, regexp, regExpMessage: message },
       this.opt,
       this.isRaw,
     );
@@ -121,7 +123,9 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     }
     if (this.options?.regexp && !this.options.regexp.test(src)) {
       errors.push({
-        message: `Expected string to match reg exp: ${this.options.regexp.toString()}, got '${src}'`,
+        message:
+          this.options.regExpMessage ||
+          `Expected string to match reg exp: ${this.options.regexp.toString()}, got '${src}'`,
         value: src,
       });
     }
@@ -181,6 +185,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
         maxLength: this.options?.maxLength,
         minLength: this.options?.minLength,
         regexp: this.options?.regexp && {
+          message: this.options.regExpMessage,
           source: this.options.regexp.source,
           flags: this.options.regexp.flags,
         },
