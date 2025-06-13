@@ -14,7 +14,10 @@ import { SerializedRichTextSchema } from "./richtext";
 import { RawString, SerializedStringSchema } from "./string";
 import { SerializedUnionSchema } from "./union";
 import { SerializedDateSchema } from "./date";
-import { ValidationErrors } from "./validation/ValidationError";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
 import { FileSource } from "../source/file";
 import { GenericRichTextSourceNode, RichTextSource } from "../source/richtext";
 import { ReifiedPreview } from "../preview";
@@ -70,12 +73,36 @@ export type SchemaAssertResult<Src extends SelectorSource> =
       success: true;
     }
   | { success: false; errors: Record<SourcePath, AssertError[]> };
+export type CustomValidateFunction<Src extends SelectorSource> = (
+  src: Src,
+) => false | string;
 export abstract class Schema<Src extends SelectorSource> {
   /** Validate the value of source content */
   protected abstract executeValidate(
     path: SourcePath,
     src: Src,
   ): ValidationErrors;
+  protected executeCustomValidateFunctions(
+    src: Src,
+    customValidateFunctions: CustomValidateFunction<Src>[],
+  ): ValidationError[] {
+    const errors: ValidationError[] = [];
+    for (const customValidateFunction of customValidateFunctions) {
+      try {
+        const result = customValidateFunction(src);
+        if (result) {
+          errors.push({ message: result, value: src });
+        }
+      } catch (err) {
+        errors.push({
+          message: `Error in custom validate function: ${err instanceof Error ? err.message : String(err)}`,
+          value: src,
+          schemaError: true,
+        });
+      }
+    }
+    return errors;
+  }
   /**
    * Check if the **root** **type** of source is correct.
    *
@@ -114,17 +141,18 @@ export abstract class Schema<Src extends SelectorSource> {
     path: SourcePath,
     message: string,
     value: unknown,
+    schemaError?: boolean,
   ): ValidationErrors {
     if (current) {
       if (current[path]) {
-        current[path].push({ message, value });
+        current[path].push({ message, value, schemaError });
       } else {
-        current[path] = [{ message, value }];
+        current[path] = [{ message, value, schemaError }];
       }
       return current;
     } else {
       return {
-        [path]: [{ message, value }],
+        [path]: [{ message, value, schemaError }],
       } as ValidationErrors;
     }
   }

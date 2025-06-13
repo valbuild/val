@@ -1,5 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { AssertError, Schema, SchemaAssertResult, SerializedSchema } from ".";
+import {
+  AssertError,
+  CustomValidateFunction,
+  Schema,
+  SchemaAssertResult,
+  SerializedSchema,
+} from ".";
 import { ReifiedPreview } from "../preview";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
 import { ImageSource } from "../source/image";
@@ -9,7 +15,6 @@ import {
   SerializedRichTextOptions,
 } from "../source/richtext";
 import { SourcePath } from "../val";
-import { SerializedFileSchema } from "./file";
 import { ImageSchema, SerializedImageSchema } from "./image";
 import {
   ValidationError,
@@ -33,6 +38,7 @@ export class RichTextSchema<
   constructor(
     private readonly options: O & ValidationOptions,
     private readonly opt: boolean = false,
+    private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
   ) {
     super();
   }
@@ -57,20 +63,34 @@ export class RichTextSchema<
     );
   }
 
+  validate(
+    validationFunction: (src: Src) => false | string,
+  ): RichTextSchema<O, Src> {
+    return new RichTextSchema(this.options, this.opt, [
+      ...this.customValidateFunctions,
+      validationFunction,
+    ]);
+  }
+
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
+    const customValidationErrors: ValidationError[] =
+      this.executeCustomValidateFunctions(src, this.customValidateFunctions);
     const assertRes = this.executeAssert(path, src);
     if (!assertRes.success) {
-      return {
-        [path]: assertRes.errors[path],
-      };
+      return customValidationErrors.length > 0
+        ? { [path]: customValidationErrors }
+        : assertRes.errors;
     }
     const nodes = assertRes.data;
     if (nodes === null && this.opt) {
-      return false;
+      return customValidationErrors.length > 0
+        ? { [path]: customValidationErrors }
+        : false;
     }
     if (nodes === null) {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: "Expected 'array', got 'null'",
             typeError: true,
@@ -82,10 +102,19 @@ export class RichTextSchema<
     const current = {};
     const typeErrorRes = this.internalValidate(path, nodes, current);
     if (typeErrorRes) {
-      return typeErrorRes;
+      return customValidationErrors.length > 0
+        ? { [path]: customValidationErrors, ...typeErrorRes }
+        : typeErrorRes;
     }
     if (Object.keys(current).length > 0) {
-      return current;
+      return customValidationErrors.length > 0
+        ? { [path]: customValidationErrors, ...current }
+        : current;
+    }
+    if (customValidationErrors.length > 0) {
+      return {
+        [path]: customValidationErrors,
+      };
     }
     return false;
   }

@@ -1,11 +1,19 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SchemaAssertResult, SerializedSchema } from ".";
+import {
+  CustomValidateFunction,
+  Schema,
+  SchemaAssertResult,
+  SerializedSchema,
+} from ".";
 import { VAL_EXTENSION } from "../source";
 import { FileSource, FILE_REF_PROP } from "../source/file";
 import { ImageSource } from "../source/image";
 import { SourcePath } from "../val";
-import { ValidationErrors } from "./validation/ValidationError";
-import { FileMetadata, Internal } from "..";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
+import { FileMetadata, FileSchema, Internal } from "..";
 import { RemoteSource } from "../source/remote";
 import { ReifiedPreview } from "../preview";
 
@@ -42,6 +50,7 @@ export class ImageSchema<
     private readonly options?: ImageOptions,
     private readonly opt: boolean = false,
     protected readonly isRemote: boolean = false,
+    private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
   ) {
     super();
   }
@@ -50,13 +59,25 @@ export class ImageSchema<
     return new ImageSchema(this.options, this.opt, true);
   }
 
+  validate(validationFunction: CustomValidateFunction<Src>): ImageSchema<Src> {
+    return new ImageSchema(this.options, this.opt, this.isRemote, [
+      ...this.customValidateFunctions,
+      validationFunction,
+    ]);
+  }
+
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
+    const customValidationErrors: ValidationError[] =
+      this.executeCustomValidateFunctions(src, this.customValidateFunctions);
     if (this.opt && (src === null || src === undefined)) {
-      return false;
+      return customValidationErrors.length > 0
+        ? { [path]: customValidationErrors }
+        : false;
     }
     if (src === null || src === undefined) {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Non-optional image was null or undefined.`,
             value: src,
@@ -67,6 +88,7 @@ export class ImageSchema<
     if (this.isRemote && src[VAL_EXTENSION] !== "remote") {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Expected a remote image, but got a local image.`,
             value: src,
@@ -78,6 +100,7 @@ export class ImageSchema<
     if (this.isRemote && src[VAL_EXTENSION] === "remote") {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Remote image was not checked.`,
             value: src,
@@ -89,6 +112,7 @@ export class ImageSchema<
     if (!this.isRemote && src[VAL_EXTENSION] === "remote") {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Expected locale image, but found remote.`,
             value: src,
@@ -101,6 +125,7 @@ export class ImageSchema<
     if (typeof src[FILE_REF_PROP] !== "string") {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Image did not have a file reference string. Got: ${typeof src[
               FILE_REF_PROP
@@ -114,6 +139,7 @@ export class ImageSchema<
     if (src[VAL_EXTENSION] !== "file") {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Image did not have the valid file extension type. Got: ${src[VAL_EXTENSION]}`,
             value: src,
@@ -129,6 +155,7 @@ export class ImageSchema<
     if (accept && mimeType && !mimeType.includes("/")) {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Invalid mime type format. Got: '${mimeType}'`,
             value: src,
@@ -155,6 +182,7 @@ export class ImageSchema<
       if (!isValidMimeType) {
         return {
           [path]: [
+            ...customValidationErrors,
             {
               message: `Mime type mismatch. Found '${mimeType}' but schema accepts '${accept}'`,
               value: src,
@@ -169,6 +197,7 @@ export class ImageSchema<
     if (!fileMimeType) {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Could not determine mime type from file extension. Got: ${src[FILE_REF_PROP]}`,
             value: src,
@@ -181,6 +210,7 @@ export class ImageSchema<
     if (fileMimeType && mimeType && fileMimeType !== mimeType) {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Mime type and file extension not matching. Mime type is '${mimeType}' but file extension is '${fileMimeType}'`,
             value: src,
@@ -199,6 +229,7 @@ export class ImageSchema<
         ) {
           return {
             [path]: [
+              ...customValidationErrors,
               {
                 message: `Hotspot must be an object with x and y as numbers.`,
                 value: src,
@@ -209,6 +240,7 @@ export class ImageSchema<
       }
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Found metadata, but it could not be validated. Image metadata must be an object with the required props: width (positive number), height (positive number) and the mime type.`, // These validation errors will have to be picked up by logic outside of this package and revalidated. Reasons: 1) we have to read files to verify the metadata, which is handled differently in different runtimes (Browser, QuickJS, Node.js); 2) we want to keep this package dependency free.
             value: src,
@@ -220,6 +252,7 @@ export class ImageSchema<
 
     return {
       [path]: [
+        ...customValidationErrors,
         {
           message: `Could not validate Image metadata.`,
           value: src,

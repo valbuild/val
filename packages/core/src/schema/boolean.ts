@@ -84,6 +84,6 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
   }
 }
 
-export const boolean = (): Schema<boolean> => {
-  return new BooleanSchema() as Schema<boolean>;
+export const boolean = (): BooleanSchema<boolean> => {
+  return new BooleanSchema();
 };

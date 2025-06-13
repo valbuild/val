@@ -1,8 +1,16 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SchemaAssertResult, SerializedSchema } from ".";
+import {
+  CustomValidateFunction,
+  Schema,
+  SchemaAssertResult,
+  SerializedSchema,
+} from ".";
 import { ReifiedPreview } from "../preview";
 import { SourcePath } from "../val";
-import { ValidationErrors } from "./validation/ValidationError";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
 
 export type SerializedLiteralSchema = {
   type: "literal";
@@ -14,17 +22,32 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
   constructor(
     private readonly value: string,
     private readonly opt: boolean = false,
+    private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
   ) {
     super();
   }
 
+  validate(
+    validationFunction: (src: Src) => false | string,
+  ): LiteralSchema<Src> {
+    return new LiteralSchema(this.value, this.opt, [
+      ...this.customValidateFunctions,
+      validationFunction,
+    ]);
+  }
+
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
+    const customValidationErrors: ValidationError[] =
+      this.executeCustomValidateFunctions(src, this.customValidateFunctions);
     if (this.opt && (src === null || src === undefined)) {
-      return false;
+      return customValidationErrors.length > 0
+        ? { [path]: customValidationErrors }
+        : false;
     }
     if (typeof src !== "string") {
       return {
         [path]: [
+          ...customValidationErrors,
           { message: `Expected 'string', got '${typeof src}'`, value: src },
         ],
       } as ValidationErrors;
@@ -32,12 +55,18 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
     if (src !== this.value) {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Expected literal '${this.value}', got '${src}'`,
             value: src,
           },
         ],
       } as ValidationErrors;
+    }
+    if (customValidationErrors.length > 0) {
+      return {
+        [path]: customValidationErrors,
+      };
     }
     return false;
   }

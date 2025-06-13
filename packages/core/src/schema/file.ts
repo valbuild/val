@@ -1,10 +1,18 @@
 import { Json } from "../Json";
 import { FILE_REF_PROP, FileSource } from "../source/file";
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SchemaAssertResult, SerializedSchema } from ".";
+import {
+  CustomValidateFunction,
+  Schema,
+  SchemaAssertResult,
+  SerializedSchema,
+} from ".";
 import { VAL_EXTENSION } from "../source";
 import { SourcePath } from "../val";
-import { ValidationErrors } from "./validation/ValidationError";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
 import { Internal, RemoteSource } from "..";
 import { ReifiedPreview } from "../preview";
 
@@ -32,6 +40,7 @@ export class FileSchema<
     private readonly options?: FileOptions,
     private readonly opt: boolean = false,
     protected readonly isRemote: boolean = false,
+    private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
   ) {
     super();
   }
@@ -40,13 +49,25 @@ export class FileSchema<
     return new FileSchema(this.options, this.opt, true);
   }
 
+  validate(validationFunction: CustomValidateFunction<Src>): FileSchema<Src> {
+    return new FileSchema(this.options, this.opt, this.isRemote, [
+      ...this.customValidateFunctions,
+      validationFunction,
+    ]);
+  }
+
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
+    const customValidationErrors: ValidationError[] =
+      this.executeCustomValidateFunctions(src, this.customValidateFunctions);
     if (this.opt && (src === null || src === undefined)) {
-      return false;
+      return customValidationErrors.length > 0
+        ? { [path]: customValidationErrors }
+        : false;
     }
     if (src === null || src === undefined) {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Non-optional file was null or undefined.`,
             value: src,
@@ -57,6 +78,7 @@ export class FileSchema<
     if (typeof src[FILE_REF_PROP] !== "string") {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `File did not have a file reference string. Got: ${typeof src[
               FILE_REF_PROP
@@ -69,6 +91,7 @@ export class FileSchema<
     if (this.isRemote && src[VAL_EXTENSION] !== "remote") {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Expected a remote file, but got a local file.`,
             value: src,
@@ -80,6 +103,7 @@ export class FileSchema<
     if (this.isRemote && src[VAL_EXTENSION] === "remote") {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Remote file was not checked.`,
             value: src,
@@ -91,6 +115,7 @@ export class FileSchema<
     if (!this.isRemote && src[VAL_EXTENSION] === "remote") {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Expected locale file, but found remote.`,
             value: src,
@@ -103,6 +128,7 @@ export class FileSchema<
     if (src[VAL_EXTENSION] !== "file") {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `File did not have the valid file extension type. Got: ${src[VAL_EXTENSION]}`,
             value: src,
@@ -118,6 +144,7 @@ export class FileSchema<
     if (accept && mimeType && !mimeType.includes("/")) {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Invalid mime type format. Got: ${mimeType}`,
             value: src,
@@ -144,6 +171,7 @@ export class FileSchema<
       if (!isValidMimeType) {
         return {
           [path]: [
+            ...customValidationErrors,
             {
               message: `Mime type mismatch. Found '${mimeType}' but schema accepts '${accept}'`,
               value: src,
@@ -158,6 +186,7 @@ export class FileSchema<
     if (!fileMimeType) {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Could not determine mime type from file extension. Got: ${src[FILE_REF_PROP]}`,
             value: src,
@@ -170,6 +199,7 @@ export class FileSchema<
     if (fileMimeType !== mimeType) {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Mime type and file extension not matching. Mime type is '${mimeType}' but file extension is '${fileMimeType}'`,
             value: src,
@@ -182,6 +212,7 @@ export class FileSchema<
     if (src.metadata) {
       return {
         [path]: [
+          ...customValidationErrors,
           {
             message: `Found metadata, but it could not be validated. File metadata must be an object with the mimeType.`, // These validation errors will have to be picked up by logic outside of this package and revalidated. Reasons: 1) we have to read files to verify the metadata, which is handled differently in different runtimes (Browser, QuickJS, Node.js); 2) we want to keep this package dependency free.
             value: src,
@@ -193,6 +224,7 @@ export class FileSchema<
 
     return {
       [path]: [
+        ...customValidationErrors,
         {
           message: `Missing File metadata.`,
           value: src,

@@ -1,4 +1,5 @@
 import {
+  CustomValidateFunction,
   Schema,
   SchemaAssertResult,
   SelectorOfSchema,
@@ -14,7 +15,10 @@ import { ImageSource } from "../source/image";
 import { RemoteSource } from "../source/remote";
 import { ModuleFilePath, SourcePath } from "../val";
 import { ImageMetadata } from "./image";
-import { ValidationErrors } from "./validation/ValidationError";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
 
 export type SerializedRecordSchema = {
   type: "record";
@@ -29,30 +33,61 @@ export class RecordSchema<
   constructor(
     private readonly item: T,
     private readonly opt: boolean = false,
+    private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
   ) {
     super();
   }
 
+  validate(
+    validationFunction: (src: Src) => false | string,
+  ): RecordSchema<T, Src> {
+    return new RecordSchema(this.item, this.opt, [
+      ...this.customValidateFunctions,
+      validationFunction,
+    ]);
+  }
+
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     let error: ValidationErrors = false;
-
+    const customValidationErrors: ValidationError[] =
+      this.executeCustomValidateFunctions(src, this.customValidateFunctions);
     if (this.opt && (src === null || src === undefined)) {
-      return false;
+      return customValidationErrors.length > 0
+        ? { [path]: customValidationErrors }
+        : false;
     }
     if (src === null) {
       return {
-        [path]: [{ message: `Expected 'object', got 'null'` }],
+        [path]: [
+          ...customValidationErrors,
+          { message: `Expected 'object', got 'null'` },
+        ],
       } as ValidationErrors;
     }
     if (typeof src !== "object") {
       return {
-        [path]: [{ message: `Expected 'object', got '${typeof src}'` }],
+        [path]: [
+          ...customValidationErrors,
+          { message: `Expected 'object', got '${typeof src}'` },
+        ],
       } as ValidationErrors;
     }
     if (Array.isArray(src)) {
       return {
-        [path]: [{ message: `Expected 'object', got 'array'` }],
+        [path]: [
+          ...customValidationErrors,
+          { message: `Expected 'object', got 'array'` },
+        ],
       } as ValidationErrors;
+    }
+    for (const customValidationError of customValidationErrors) {
+      error = this.appendValidationError(
+        error,
+        path,
+        customValidationError.message,
+        src,
+        customValidationError.schemaError,
+      );
     }
     Object.entries(src).forEach(([key, elem]) => {
       const subPath = createValPathOfItem(path, key);

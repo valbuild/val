@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   AssertError,
+  CustomValidateFunction,
   Schema,
   SchemaAssertResult,
   SelectorOfSchema,
@@ -13,7 +14,10 @@ import {
   unsafeCreateSourcePath,
 } from "../selector/SelectorProxy";
 import { ModuleFilePath, SourcePath } from "../val";
-import { ValidationErrors } from "./validation/ValidationError";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
 
 export type SerializedObjectSchema = {
   type: "object";
@@ -49,16 +53,28 @@ export class ObjectSchema<
   constructor(
     private readonly items: Props,
     private readonly opt: boolean = false,
+    private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
   ) {
     super();
   }
 
+  validate(
+    validationFunction: (src: Src) => false | string,
+  ): ObjectSchema<Props, Src> {
+    return new ObjectSchema(this.items, this.opt, [
+      ...this.customValidateFunctions,
+      validationFunction,
+    ]);
+  }
+
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     let error: ValidationErrors = false;
-
-    // TODO: src should never be undefined
+    const customValidationErrors: ValidationError[] =
+      this.executeCustomValidateFunctions(src, this.customValidateFunctions);
     if (this.opt && (src === null || src === undefined)) {
-      return false;
+      return customValidationErrors.length > 0
+        ? { [path]: customValidationErrors }
+        : false;
     }
     if (src === null) {
       return {
@@ -75,8 +91,16 @@ export class ObjectSchema<
         [path]: [{ message: `Expected 'object', got 'array'` }],
       } as ValidationErrors;
     }
-
-    Object.entries(this.items).forEach(([key, schema]) => {
+    for (const customValidationError of customValidationErrors) {
+      error = this.appendValidationError(
+        error,
+        path,
+        customValidationError.message,
+        src,
+        customValidationError.schemaError,
+      );
+    }
+    for (const [key, schema] of Object.entries(this.items)) {
       const subPath = createValPathOfItem(path, key);
       if (!subPath) {
         error = this.appendValidationError(
@@ -98,7 +122,7 @@ export class ObjectSchema<
           error = subError;
         }
       }
-    });
+    }
 
     return error;
   }
@@ -221,8 +245,6 @@ export class ObjectSchema<
 
 export const object = <Props extends ObjectSchemaProps>(
   schema: Props,
-): Schema<{
-  [key in keyof Props]: SelectorOfSchema<Props[key]>;
-}> => {
+): ObjectSchema<Props, ObjectSchemaSrcOf<Props>> => {
   return new ObjectSchema(schema);
 };
