@@ -53,7 +53,7 @@ export class ObjectSchema<
     super();
   }
 
-  validate(path: SourcePath, src: Src): ValidationErrors {
+  protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     let error: ValidationErrors = false;
 
     // TODO: src should never be undefined
@@ -88,7 +88,7 @@ export class ObjectSchema<
           src,
         );
       } else {
-        const subError = schema.validate(subPath, src[key]);
+        const subError = schema["executeValidate"](subPath, src[key]);
         if (subError && error) {
           error = {
             ...subError,

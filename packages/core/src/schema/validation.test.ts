@@ -475,7 +475,7 @@ describe("validation", () => {
   test.each(ValidationTestCases)(
     'validate ($description): "$expected"',
     ({ input, schema, expected, fixes }) => {
-      const result = schema.validate(testPath, input);
+      const result = schema["executeValidate"](testPath, input);
       if (result) {
         expect(Object.keys(result)).toStrictEqual(expected);
         if (fixes) {

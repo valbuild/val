@@ -51,7 +51,7 @@ describe("RichTextSchema", () => {
       },
     });
     expectedErrorAtPaths(
-      schema.validate(
+      schema["executeValidate"](
         "/richtext.val.ts" as SourcePath,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         testValidateInput as any,
@@ -76,7 +76,7 @@ describe("RichTextSchema", () => {
       .minLength(1)
       .maxLength(100);
     expectedErrorAtPaths(
-      schema.validate(
+      schema["executeValidate"](
         "/richtext.val.ts" as SourcePath,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         testValidateInput as any,
@@ -99,7 +99,7 @@ describe("RichTextSchema", () => {
       },
     }).minLength(100);
     expectedErrorAtPaths(
-      schema.validate(
+      schema["executeValidate"](
         "/richtext.val.ts" as SourcePath,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         testValidateInput as any,
@@ -122,7 +122,7 @@ describe("RichTextSchema", () => {
       },
     }).maxLength(10);
     expectedErrorAtPaths(
-      schema.validate(
+      schema["executeValidate"](
         "/richtext.val.ts" as SourcePath,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         testValidateInput as any,
@@ -134,7 +134,7 @@ describe("RichTextSchema", () => {
   test("validate: basic red test", () => {
     const schema = richtext();
     expectedErrorAtPaths(
-      schema.validate(
+      schema["executeValidate"](
         "/richtext.val.ts" as SourcePath,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         testValidateInput as any,
@@ -152,7 +152,7 @@ describe("RichTextSchema", () => {
   test("validate: red test with maxLength", () => {
     const schema = richtext().maxLength(10);
     expectedErrorAtPaths(
-      schema.validate(
+      schema["executeValidate"](
         "/richtext.val.ts" as SourcePath,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         testValidateInput as any,

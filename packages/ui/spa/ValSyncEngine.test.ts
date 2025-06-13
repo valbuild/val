@@ -545,7 +545,10 @@ class SyncEngineTester {
       const schema = this.fakeSchemas[moduleFilePath];
       const validationErrors =
         req.query.validate_sources &&
-        schema.validate(moduleFilePath as unknown as SourcePath, source);
+        schema["executeValidate"](
+          moduleFilePath as unknown as SourcePath,
+          source,
+        );
       modules[moduleFilePath] = {
         source: deepClone(source),
       };

@@ -23,19 +23,19 @@ describe("NumberSchema", () => {
 
   test("validate: should return success if src is a number", () => {
     const schema = number().nullable();
-    const result = schema.validate("foo" as SourcePath, 1 as any);
+    const result = schema["executeValidate"]("foo" as SourcePath, 1 as any);
     expect(result).toEqual(false);
   });
 
   test("validate: should return success if src is within min and max", () => {
     const schema = number().min(10).max(20);
-    const result = schema.validate("foo" as SourcePath, 15 as any);
+    const result = schema["executeValidate"]("foo" as SourcePath, 15 as any);
     expect(result).toEqual(false);
   });
 
   test("validate: should return errors if src is greater than max", () => {
     const schema = number().max(10);
-    const result = schema.validate("foo" as SourcePath, 11 as any);
+    const result = schema["executeValidate"]("foo" as SourcePath, 11 as any);
     expect(result).toMatchObject({
       foo: [
         {
@@ -47,7 +47,7 @@ describe("NumberSchema", () => {
 
   test("validate: should return errors if src is less than min", () => {
     const schema = number().min(10);
-    const result = schema.validate("foo" as SourcePath, 9 as any);
+    const result = schema["executeValidate"]("foo" as SourcePath, 9 as any);
     expect(result).toMatchObject({
       foo: [
         {
@@ -59,7 +59,7 @@ describe("NumberSchema", () => {
 
   test("validate: should return errors if src is not a number", () => {
     const schema = number();
-    const result = schema.validate("foo" as SourcePath, "1" as any);
+    const result = schema["executeValidate"]("foo" as SourcePath, "1" as any);
     expect(result).toMatchObject({
       foo: [
         {

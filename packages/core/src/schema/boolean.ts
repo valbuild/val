@@ -13,7 +13,7 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
   constructor(readonly opt: boolean = false) {
     super();
   }
-  validate(path: SourcePath, src: Src): ValidationErrors {
+  protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     if (this.opt && (src === null || src === undefined)) {
       return false;
     }

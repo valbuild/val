@@ -54,7 +54,7 @@ export class UnionSchema<
   >[],
   Src extends SourceOf<Key, T> | null,
 > extends Schema<Src> {
-  validate(path: SourcePath, src: Src): ValidationErrors {
+  protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     const unknownSrc = src as unknown;
     const errors: ValidationErrors = false;
     if (this.opt && unknownSrc === null) {
@@ -184,7 +184,7 @@ export class UnionSchema<
         }
       }
       const objectSchemaAtKey = objectSchemas.find(
-        (schema) => !schema.items[key].validate(path, objectSrc[key]),
+        (schema) => !schema.items[key]["executeValidate"](path, objectSrc[key]),
       );
       if (!objectSchemaAtKey) {
         const keyPath = createValPathOfItem(path, key);
@@ -221,7 +221,7 @@ export class UnionSchema<
           ],
         };
       }
-      const error = objectSchemaAtKey.validate(path, objectSrc);
+      const error = objectSchemaAtKey["executeValidate"](path, objectSrc);
       if (error) {
         return error;
       }
@@ -239,7 +239,7 @@ export class UnionSchema<
       const literalItems = [key, ...this.items] as LiteralSchema<string>[];
       if (typeof unknownSrc === "string") {
         const isMatch = literalItems.some(
-          (item) => !item.validate(path, unknownSrc),
+          (item) => !item["executeValidate"](path, unknownSrc),
         );
         if (!isMatch) {
           return {

@@ -22,7 +22,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
   ) {
     super();
   }
-  validate(path: SourcePath, src: Src): ValidationErrors {
+  protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     if (this.opt && (src === null || src === undefined)) {
       return false;
     }

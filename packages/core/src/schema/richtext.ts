@@ -57,7 +57,7 @@ export class RichTextSchema<
     );
   }
 
-  validate(path: SourcePath, src: Src): ValidationErrors {
+  protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     const assertRes = this.assert(path, src);
     if (!assertRes.success) {
       return {
@@ -216,11 +216,11 @@ export class RichTextSchema<
             const srcPath = unsafeCreateSourcePath(path, "src");
             const imageValidationErrors =
               typeof this.options.inline?.img === "object"
-                ? this.options.inline?.img.validate(
+                ? this.options.inline?.img["executeValidate"](
                     srcPath,
                     node.src as ImageSource,
                   )
-                : new ImageSchema({}, false, false).validate(
+                : new ImageSchema({}, false, false)["executeValidate"](
                     srcPath,
                     node.src as ImageSource,
                   );
