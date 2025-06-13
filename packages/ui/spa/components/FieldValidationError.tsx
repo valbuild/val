@@ -24,15 +24,22 @@ export function FieldValidationError({
         <Accordion type="single" collapsible className="w-full min-h-6">
           <AccordionItem
             value="validation-errors"
-            className="w-full border-b-0 group"
+            className="w-full pb-2 border-b-0 group"
           >
-            <AccordionTrigger className="px-2 border-b-0 min-h-6">
-              <div className="flex items-center justify-between w-full">
-                <div className="text-text-primary">
+            <AccordionTrigger
+              className={cn(
+                "min-h-6",
+                "transition-colors duration-200 ease-in-out",
+                "group-data-[state=closed]:bg-bg-error-primary rounded-lg",
+                "p-2",
+              )}
+            >
+              <div className={cn("flex items-center justify-between w-full")}>
+                <div className="text-text-primary group-data-[state=closed]:text-text-error-primary">
                   {validationErrors.length} validation error
                   {validationErrors.length > 1 ? "s" : ""}
                 </div>
-                <div className="text-bg-error-secondary">
+                <div className="text-text-error-primary">
                   <TriangleAlert size={16} />
                 </div>
               </div>
@@ -42,7 +49,10 @@ export function FieldValidationError({
                 {validationErrors.map((error, i) => (
                   <div
                     key={i}
-                    className="px-2 py-2 rounded-md hover:bg-bg-secondary_subtle"
+                    className={cn(
+                      "p-2 rounded-lg",
+                      "bg-bg-error-primary text-text-error-primary",
+                    )}
                   >
                     {error.message}
                   </div>
@@ -113,19 +123,20 @@ function SingleValidationError({
   return (
     <div
       ref={containerRef}
-      className="flex items-start justify-between w-full pt-2 pb-2 transition-all duration-200 ease-in-out"
+      className={cn(
+        "flex items-start justify-between w-full transition-all duration-200 ease-in-out",
+        "p-2 mt-2",
+        "bg-bg-error-primary text-text-error-primary rounded-lg",
+      )}
       style={{
         height: open ? "auto" : undefined,
       }}
     >
       <div
         ref={textRef}
-        className={cn(
-          "text-text-primary transition-all duration-200 ease-in-out",
-          {
-            "line-clamp-1": !open,
-          },
-        )}
+        className={cn("transition-all duration-200 ease-in-out", {
+          "line-clamp-1": !open,
+        })}
         style={{
           flex: showChevron ? "1" : "auto",
           marginRight: showChevron ? "8px" : "0",
@@ -133,12 +144,17 @@ function SingleValidationError({
       >
         {validationError.message}
       </div>
+      {!showChevron && (
+        <div className="text-text-error-primary">
+          <TriangleAlert size={16} />
+        </div>
+      )}
       {showChevron && (
         <button
           className="flex items-center flex-shrink-0"
           onClick={() => setOpen(!open)}
         >
-          <div className="text-bg-error-secondary">
+          <div className="text-text-error-primary">
             <TriangleAlert size={16} />
           </div>
           <ChevronDown

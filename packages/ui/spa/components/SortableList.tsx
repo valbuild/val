@@ -218,7 +218,12 @@ export function SortableItem({
       </button>
       {/** Changing this behavior means we need to change the getNavPath behavior */}
       {!preview && schema?.item?.type === "string" && (
-        <div className="flex-grow w-full">
+        <div
+          className={cn("flex-grow w-full", {
+            "p-2 border border-bg-error-secondary rounded-lg":
+              !!validationErrors[path],
+          })}
+        >
           <StringField path={path} />
           {validationErrors[path] && (
             <div className="px-2">
