@@ -8,7 +8,7 @@ import { string } from "./string";
 describe("RecordSchema", () => {
   test("assert: basic record", () => {
     const schema = record(number().nullable());
-    expect(schema.assert("foo" as SourcePath, { bar: 1 })).toEqual({
+    expect(schema["executeAssert"]("foo" as SourcePath, { bar: 1 })).toEqual({
       success: true,
       data: { bar: 1 },
     });

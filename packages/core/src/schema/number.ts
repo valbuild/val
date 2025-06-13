@@ -56,7 +56,10 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     return false;
   }
 
-  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
+  protected executeAssert(
+    path: SourcePath,
+    src: unknown,
+  ): SchemaAssertResult<Src> {
     if (this.opt && src === null) {
       return {
         success: true,

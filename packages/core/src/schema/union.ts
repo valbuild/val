@@ -265,7 +265,10 @@ export class UnionSchema<
     return errors;
   }
 
-  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
+  protected executeAssert(
+    path: SourcePath,
+    src: unknown,
+  ): SchemaAssertResult<Src> {
     if (this.opt && src === null) {
       return {
         success: true,
@@ -339,7 +342,7 @@ export class UnionSchema<
           ];
           continue;
         }
-        const res = itemSchema.assert(path, src);
+        const res = itemSchema["executeAssert"](path, src);
         if (res.success) {
           success = true;
           break;
@@ -366,7 +369,7 @@ export class UnionSchema<
       let success = false;
       const errors: Record<SourcePath, AssertError[]> = {};
       for (const itemSchema of this.items) {
-        const res = itemSchema.assert(path, src);
+        const res = itemSchema["executeAssert"](path, src);
         if (res.success) {
           success = true;
           break;

@@ -58,7 +58,7 @@ export class RichTextSchema<
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
-    const assertRes = this.assert(path, src);
+    const assertRes = this.executeAssert(path, src);
     if (!assertRes.success) {
       return {
         [path]: assertRes.errors[path],
@@ -367,7 +367,10 @@ export class RichTextSchema<
     return false;
   }
 
-  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
+  protected executeAssert(
+    path: SourcePath,
+    src: unknown,
+  ): SchemaAssertResult<Src> {
     if (this.opt && src === null) {
       return {
         success: true,

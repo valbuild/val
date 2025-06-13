@@ -33,7 +33,7 @@ export class ArraySchema<
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
-    const assertRes = this.assert(path, src);
+    const assertRes = this.executeAssert(path, src);
     if (!assertRes.success) {
       return assertRes.errors;
     }
@@ -59,7 +59,10 @@ export class ArraySchema<
     return error;
   }
 
-  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
+  protected executeAssert(
+    path: SourcePath,
+    src: unknown,
+  ): SchemaAssertResult<Src> {
     if (src === null && this.opt) {
       return {
         success: true,
