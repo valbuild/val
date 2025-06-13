@@ -14,8 +14,6 @@ import { FieldSchemaMismatchError } from "../../components/FieldSchemaMismatchEr
 import { PreviewLoading, PreviewNull } from "../../components/Preview";
 import { useEffect, useState } from "react";
 import { ValidationErrors } from "../../components/ValidationError";
-import { Loader2 } from "lucide-react";
-import classNames from "classnames";
 
 export function StringField({
   path,
@@ -73,37 +71,24 @@ export function StringField({
   return (
     <div id={path}>
       <ValidationErrors path={path} />
-      <div className="relative w-full">
-        <Input
-          className="pr-6 sm:pr-8 sm:w-[calc(100%-0.5rem)]"
-          autoFocus={autoFocus}
-          value={currentValue || ""}
-          onChange={(ev) => {
-            setCurrentValue(ev.target.value);
-            addPatch(
-              [
-                {
-                  op: "replace",
-                  path: patchPath,
-                  value: ev.target.value,
-                },
-              ],
-              type,
-            );
-          }}
-        />
-        <span
-          className={classNames(
-            "absolute right-0 -translate-x-full top-4 duration-1000",
-            {
-              "opacity-0": sourceAtPath.data === currentValue,
-              "opacity-100": sourceAtPath.data !== currentValue,
-            },
-          )}
-        >
-          <Loader2 className="transition-opacity animate-spin" size={12} />
-        </span>
-      </div>
+      <Input
+        className="pr-6 sm:pr-8 sm:w-[calc(100%-0.5rem)]"
+        autoFocus={autoFocus}
+        value={currentValue || ""}
+        onChange={(ev) => {
+          setCurrentValue(ev.target.value);
+          addPatch(
+            [
+              {
+                op: "replace",
+                path: patchPath,
+                value: ev.target.value,
+              },
+            ],
+            type,
+          );
+        }}
+      />
     </div>
   );
 }
