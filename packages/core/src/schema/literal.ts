@@ -16,6 +16,7 @@ export type SerializedLiteralSchema = {
   type: "literal";
   value: string;
   opt: boolean;
+  customValidate?: boolean;
 };
 
 export class LiteralSchema<Src extends string | null> extends Schema<Src> {
@@ -122,6 +123,9 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
       type: "literal",
       value: this.value,
       opt: this.opt,
+      customValidate:
+        this.customValidateFunctions &&
+        this.customValidateFunctions?.length > 0,
     };
   }
 

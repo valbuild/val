@@ -22,6 +22,7 @@ export type SerializedKeyOfSchema = {
   schema: SerializedSchema;
   opt: boolean;
   values: "string" | string[];
+  customValidate?: boolean;
 };
 
 type KeyOfSelector<Sel extends GenericSelector<SourceObject>> =
@@ -289,6 +290,9 @@ export class KeyOfSchema<
       schema: serializedSchema,
       opt: this.opt,
       values,
+      customValidate:
+        this.customValidateFunctions &&
+        this.customValidateFunctions?.length > 0,
     } satisfies SerializedKeyOfSchema;
   }
 

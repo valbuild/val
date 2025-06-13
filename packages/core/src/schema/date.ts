@@ -1,5 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SchemaAssertResult, SerializedSchema } from ".";
+import {
+  CustomValidateFunction,
+  Schema,
+  SchemaAssertResult,
+  SerializedSchema,
+} from ".";
 import { ReifiedPreview } from "../preview";
 import { SourcePath } from "../val";
 import { RawString } from "./string";
@@ -26,14 +31,23 @@ export type SerializedDateSchema = {
   type: "date";
   options?: DateOptions;
   opt: boolean;
+  customValidate?: boolean;
 };
 
 export class DateSchema<Src extends string | null> extends Schema<Src> {
   constructor(
     private readonly options?: DateOptions,
     private readonly opt: boolean = false,
+    private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
   ) {
     super();
+  }
+
+  validate(validationFunction: (src: Src) => false | string): DateSchema<Src> {
+    return new DateSchema(this.options, this.opt, [
+      ...this.customValidateFunctions,
+      validationFunction,
+    ]);
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
@@ -162,6 +176,9 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
       type: "date",
       opt: this.opt,
       options: this.options,
+      customValidate:
+        this.customValidateFunctions &&
+        this.customValidateFunctions?.length > 0,
     };
   }
 

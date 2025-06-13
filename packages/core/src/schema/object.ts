@@ -23,6 +23,7 @@ export type SerializedObjectSchema = {
   type: "object";
   items: Record<string, SerializedSchema>;
   opt: boolean;
+  customValidate?: boolean;
 };
 
 type ObjectSchemaProps = { [key: string]: Schema<SelectorSource> } & {
@@ -216,6 +217,9 @@ export class ObjectSchema<
         ]),
       ),
       opt: this.opt,
+      customValidate:
+        this.customValidateFunctions &&
+        this.customValidateFunctions?.length > 0,
     };
   }
 

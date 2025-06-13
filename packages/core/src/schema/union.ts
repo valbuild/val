@@ -29,12 +29,14 @@ export type SerializedStringUnionSchema = {
   key: SerializedLiteralSchema;
   items: SerializedLiteralSchema[];
   opt: boolean;
+  customValidate?: boolean;
 };
 export type SerializedObjectUnionSchema = {
   type: "union";
   key: string;
   items: SerializedObjectSchema[];
   opt: boolean;
+  customValidate?: boolean;
 };
 
 type SourceOf<
@@ -474,6 +476,9 @@ export class UnionSchema<
         key: this.key,
         items: this.items.map((o) => o["executeSerialize"]()),
         opt: this.opt,
+        customValidate:
+          this.customValidateFunctions &&
+          this.customValidateFunctions?.length > 0,
       } as SerializedObjectUnionSchema;
     }
     return {
@@ -481,6 +486,9 @@ export class UnionSchema<
       key: this.key["executeSerialize"](),
       items: this.items.map((o) => o["executeSerialize"]()),
       opt: this.opt,
+      customValidate:
+        this.customValidateFunctions &&
+        this.customValidateFunctions?.length > 0,
     } as SerializedStringUnionSchema;
   }
 

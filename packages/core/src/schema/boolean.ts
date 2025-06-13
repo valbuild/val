@@ -1,5 +1,10 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { Schema, SchemaAssertResult, SerializedSchema } from ".";
+import {
+  CustomValidateFunction,
+  Schema,
+  SchemaAssertResult,
+  SerializedSchema,
+} from ".";
 import { ReifiedPreview } from "../preview";
 import { ModuleFilePath, SourcePath } from "../val";
 import { ValidationErrors } from "./validation/ValidationError";
@@ -7,12 +12,26 @@ import { ValidationErrors } from "./validation/ValidationError";
 export type SerializedBooleanSchema = {
   type: "boolean";
   opt: boolean;
+  customValidate?: boolean;
 };
 
 export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
-  constructor(private readonly opt: boolean = false) {
+  constructor(
+    private readonly opt: boolean = false,
+    private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+  ) {
     super();
   }
+
+  validate(
+    validationFunction: (src: Src) => false | string,
+  ): BooleanSchema<Src> {
+    return new BooleanSchema(this.opt, [
+      ...this.customValidateFunctions,
+      validationFunction,
+    ]);
+  }
+
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     if (this.opt && (src === null || src === undefined)) {
       return false;
@@ -76,6 +95,9 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     return {
       type: "boolean",
       opt: this.opt,
+      customValidate:
+        this.customValidateFunctions &&
+        this.customValidateFunctions?.length > 0,
     };
   }
 

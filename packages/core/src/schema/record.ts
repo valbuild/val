@@ -24,6 +24,7 @@ export type SerializedRecordSchema = {
   type: "record";
   item: SerializedSchema;
   opt: boolean;
+  customValidate?: boolean;
 };
 
 export class RecordSchema<
@@ -166,6 +167,9 @@ export class RecordSchema<
       type: "record",
       item: this.item["executeSerialize"](),
       opt: this.opt,
+      customValidate:
+        this.customValidateFunctions &&
+        this.customValidateFunctions?.length > 0,
     };
   }
 

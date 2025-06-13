@@ -29,6 +29,7 @@ export type SerializedImageSchema = {
   options?: ImageOptions;
   opt: boolean;
   remote?: boolean;
+  customValidate?: boolean;
 };
 
 export type ImageMetadata = FileMetadata & {
@@ -337,6 +338,9 @@ export class ImageSchema<
       options: this.options,
       opt: this.opt,
       remote: this.isRemote,
+      customValidate:
+        this.customValidateFunctions &&
+        this.customValidateFunctions?.length > 0,
     };
   }
 
