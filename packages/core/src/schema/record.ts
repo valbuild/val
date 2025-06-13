@@ -27,8 +27,8 @@ export class RecordSchema<
   Src extends Record<string, SelectorOfSchema<T>> | null,
 > extends Schema<Src> {
   constructor(
-    readonly item: T,
-    readonly opt: boolean = false,
+    private readonly item: T,
+    private readonly opt: boolean = false,
   ) {
     super();
   }

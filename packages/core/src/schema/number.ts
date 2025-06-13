@@ -17,8 +17,8 @@ export type SerializedNumberSchema = {
 
 export class NumberSchema<Src extends number | null> extends Schema<Src> {
   constructor(
-    readonly options?: NumberOptions,
-    readonly opt: boolean = false,
+    private readonly options?: NumberOptions,
+    private readonly opt: boolean = false,
   ) {
     super();
   }

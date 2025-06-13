@@ -241,7 +241,10 @@ export function resolvePath<
         );
       }
       resolvedSource = resolvedSource[part];
-      resolvedSchema = resolvedSchema.item;
+      resolvedSchema =
+        resolvedSchema instanceof ArraySchema
+          ? resolvedSchema?.["item"]
+          : resolvedSchema.item;
     } else if (isRecordSchema(resolvedSchema)) {
       if (typeof part !== "string") {
         throw Error(
@@ -262,7 +265,10 @@ export function resolvePath<
         );
       }
       resolvedSource = resolvedSource[part];
-      resolvedSchema = resolvedSchema.item;
+      resolvedSchema =
+        resolvedSchema instanceof RecordSchema
+          ? resolvedSchema?.["item"]
+          : resolvedSchema.item;
     } else if (isObjectSchema(resolvedSchema)) {
       if (typeof resolvedSource !== "object") {
         throw Error(
@@ -277,7 +283,10 @@ export function resolvePath<
       }
       resolvedSource =
         resolvedSource === null ? resolvedSource : resolvedSource[part];
-      resolvedSchema = resolvedSchema.items[part];
+      resolvedSchema =
+        resolvedSchema instanceof ObjectSchema
+          ? resolvedSchema["items"][part]
+          : resolvedSchema.items[part];
       // } else if (isI18nSchema(resolvedSchema)) {
       //   if (!resolvedSchema.locales.includes(part)) {
       //     throw Error(
@@ -347,9 +356,11 @@ export function resolvePath<
         parts.length === 0
       ) {
         resolvedSchema =
-          resolvedSchema.options?.inline?.img &&
-          typeof resolvedSchema.options?.inline?.img !== "boolean"
-            ? resolvedSchema.options.inline.img
+          resolvedSchema instanceof RichTextSchema
+            ? resolvedSchema["options"]?.inline?.img &&
+              typeof resolvedSchema["options"]?.inline?.img !== "boolean"
+              ? resolvedSchema["options"].inline.img
+              : resolvedSchema
             : resolvedSchema;
       }
       resolvedSource = resolvedSource[part];
@@ -443,7 +454,10 @@ export function safeResolvePath<
         };
       }
       resolvedSource = resolvedSource[part];
-      resolvedSchema = resolvedSchema.item;
+      resolvedSchema =
+        resolvedSchema instanceof ArraySchema
+          ? resolvedSchema?.["item"]
+          : resolvedSchema.item;
     } else if (isRecordSchema(resolvedSchema)) {
       if (typeof part !== "string") {
         return {
@@ -476,7 +490,10 @@ export function safeResolvePath<
         };
       }
       resolvedSource = resolvedSource[part];
-      resolvedSchema = resolvedSchema.item;
+      resolvedSchema =
+        resolvedSchema instanceof RecordSchema
+          ? resolvedSchema?.["item"]
+          : resolvedSchema.item;
     } else if (isObjectSchema(resolvedSchema)) {
       if (resolvedSource === undefined) {
         return {
@@ -501,7 +518,10 @@ export function safeResolvePath<
       }
       resolvedSource =
         resolvedSource === null ? resolvedSource : resolvedSource[part];
-      resolvedSchema = resolvedSchema.items[part];
+      resolvedSchema =
+        resolvedSchema instanceof ObjectSchema
+          ? resolvedSchema["items"][part]
+          : resolvedSchema.items[part];
       // } else if (isI18nSchema(resolvedSchema)) {
       //   if (!resolvedSchema.locales.includes(part)) {
       //     throw Error(
@@ -575,9 +595,11 @@ export function safeResolvePath<
         parts.length === 0
       ) {
         resolvedSchema =
-          resolvedSchema.options?.inline?.img &&
-          typeof resolvedSchema.options?.inline?.img !== "boolean"
-            ? resolvedSchema.options.inline.img
+          resolvedSchema instanceof RichTextSchema
+            ? resolvedSchema["options"]?.inline?.img &&
+              typeof resolvedSchema["options"]?.inline?.img !== "boolean"
+              ? resolvedSchema["options"].inline.img
+              : resolvedSchema
             : resolvedSchema;
       }
       resolvedSource = resolvedSource[part];

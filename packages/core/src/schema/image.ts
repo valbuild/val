@@ -39,8 +39,8 @@ export class ImageSchema<
     | null,
 > extends Schema<Src> {
   constructor(
-    readonly options?: ImageOptions,
-    readonly opt: boolean = false,
+    private readonly options?: ImageOptions,
+    private readonly opt: boolean = false,
     protected readonly isRemote: boolean = false,
   ) {
     super();

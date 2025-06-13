@@ -47,8 +47,8 @@ export class ObjectSchema<
   Src extends ObjectSchemaSrcOf<Props> | null,
 > extends Schema<Src> {
   constructor(
-    readonly items: Props,
-    readonly opt: boolean = false,
+    private readonly items: Props,
+    private readonly opt: boolean = false,
   ) {
     super();
   }
