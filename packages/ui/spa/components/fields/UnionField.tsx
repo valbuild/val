@@ -252,7 +252,6 @@ function ObjectUnionField({
               key={itemPath}
               path={itemPath}
               foldLevel="1"
-              transparent
               label={key}
               type={selectedSchema?.items?.[key]?.type}
             >
