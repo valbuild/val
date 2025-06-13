@@ -17,6 +17,11 @@ import {
 import { PopoverClose } from "@radix-ui/react-popover";
 import { PublishSummary } from "./PublishSummary";
 import { useState } from "react";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "./designSystem/hover-card";
 
 export function PublishButton() {
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -31,6 +36,31 @@ export function PublishButton() {
   const mode = useValMode();
   const portalContainer = useValPortal();
   const { autoPublish } = useAutoPublish();
+
+  if (hasValidationErrors) {
+    return (
+      <HoverCard>
+        <HoverCardTrigger>
+          <Button className="flex items-center gap-2" disabled={true}>
+            {mode === "fs" ? (
+              "Save"
+            ) : (
+              <>
+                <span>{"Ready"}</span>
+                <Upload size={16} />
+              </>
+            )}
+          </Button>
+        </HoverCardTrigger>
+        <HoverCardContent>
+          <div className="flex flex-col gap-2">
+            <p>Fix validation errors to continue</p>
+          </div>
+        </HoverCardContent>
+      </HoverCard>
+    );
+  }
+
   if (mode === "fs") {
     return (
       <Button
@@ -73,7 +103,6 @@ export function PublishButton() {
               pendingServerSidePatchIds.length === 0 ||
               pendingClientSidePatchIds.length > 0
             }
-            title={hasValidationErrors ? "Please fix validation errors" : ""}
             onClick={() => {
               setSummaryOpen(true);
             }}
