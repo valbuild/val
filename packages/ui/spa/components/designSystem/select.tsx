@@ -3,6 +3,7 @@ import * as SelectPrimitive from "@radix-ui/react-select";
 import { Check, ChevronDown } from "lucide-react";
 
 import { cn } from "./cn";
+import { ScrollArea } from "./scroll-area";
 
 const Select = SelectPrimitive.Root;
 
@@ -55,7 +56,11 @@ const SelectContent = React.forwardRef<
             "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)]",
         )}
       >
-        {children}
+        <ScrollArea orientation="vertical">
+          <div className="max-h-[var(--radix-select-content-available-height)]">
+            {children}
+          </div>
+        </ScrollArea>
       </SelectPrimitive.Viewport>
     </SelectPrimitive.Content>
   </SelectPrimitive.Portal>
