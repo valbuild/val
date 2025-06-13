@@ -17,14 +17,7 @@ import {
 import { useSortable } from "@dnd-kit/sortable";
 import { DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import classNames from "classnames";
-import {
-  Copy,
-  Ellipsis,
-  EllipsisVertical,
-  GripVertical,
-  Trash2,
-} from "lucide-react";
+import { Copy, EllipsisVertical, GripVertical, Trash2 } from "lucide-react";
 import {
   SourcePath,
   SerializedArraySchema,
@@ -46,6 +39,7 @@ import {
   PopoverTrigger,
 } from "./designSystem/popover";
 import { cn } from "./designSystem/cn";
+import { FieldValidationError } from "./FieldValidationError";
 
 export function SortableList({
   source,
@@ -197,13 +191,13 @@ export function SortableItem({
     transform: CSS.Transform.toString(transform),
     transition,
   };
-  const centerGripAndDeleteIcons = true; // previewLayout === "list";
+  const centerGripAndDeleteIcons = !(validationErrors[path]?.length > 0);
   return (
     <div
       touch-action="manipulation"
       ref={setNodeRef}
       style={style}
-      className={classNames("relative flex disabled:opacity-55 flex-1", {
+      className={cn("relative flex disabled:opacity-55 flex-1", {
         "items-start": !centerGripAndDeleteIcons,
         "items-center": centerGripAndDeleteIcons,
       })}
@@ -211,8 +205,9 @@ export function SortableItem({
       <button
         {...attributes}
         {...listeners}
-        className={classNames("pb-1 pr-2", {
+        className={cn("pb-1 pr-2", {
           "opacity-30": disabled,
+          "mt-2.5": !centerGripAndDeleteIcons,
         })}
         disabled={disabled}
         onClick={() => {
@@ -225,11 +220,16 @@ export function SortableItem({
       {!preview && schema?.item?.type === "string" && (
         <div className="flex-grow w-full">
           <StringField path={path} />
+          {validationErrors[path] && (
+            <div className="px-2">
+              <FieldValidationError validationErrors={validationErrors[path]} />
+            </div>
+          )}
         </div>
       )}
       {(preview || schema?.item?.type !== "string") && (
         <button
-          className={classNames(
+          className={cn(
             "flex-grow",
             "relative flex text-left border rounded-lg border-border bg-card gap-y-2 bg-bg-primary",
             "hover:bg-bg-secondary_subtle",
@@ -258,7 +258,12 @@ export function SortableItem({
         </button>
       )}
       {isParentError(path, validationErrors) && (
-        <div className="absolute top-2 right-3">
+        <div
+          className={cn("absolute right-3", {
+            "top-2": centerGripAndDeleteIcons,
+            "top-0": !centerGripAndDeleteIcons,
+          })}
+        >
           <ErrorIndicator />
         </div>
       )}
@@ -267,7 +272,7 @@ export function SortableItem({
           className={cn(
             "flex hover:bg-bg-secondary_subtle px-2 hover:rounded-lg",
             {
-              "items-start pt-4": !centerGripAndDeleteIcons,
+              "items-start mt-4": !centerGripAndDeleteIcons,
               "items-center py-2": centerGripAndDeleteIcons,
             },
           )}
@@ -310,9 +315,7 @@ function ListPreviewItem({
 }: ListArrayPreview["items"][number]) {
   return (
     <div
-      className={classNames(
-        "flex w-full items-center justify-between pl-4 flex-grow",
-      )}
+      className={cn("flex w-full items-center justify-between pl-4 flex-grow")}
     >
       <div className="flex flex-col flex-shrink py-4 overflow-x-clip">
         <div className="text-lg font-medium">{title}</div>
