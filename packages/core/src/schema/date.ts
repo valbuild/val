@@ -30,8 +30,8 @@ export type SerializedDateSchema = {
 
 export class DateSchema<Src extends string | null> extends Schema<Src> {
   constructor(
-    readonly options?: DateOptions,
-    readonly opt: boolean = false,
+    private readonly options?: DateOptions,
+    private readonly opt: boolean = false,
   ) {
     super();
   }

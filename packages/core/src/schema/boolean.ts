@@ -10,7 +10,7 @@ export type SerializedBooleanSchema = {
 };
 
 export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
-  constructor(readonly opt: boolean = false) {
+  constructor(private readonly opt: boolean = false) {
     super();
   }
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {

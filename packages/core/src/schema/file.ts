@@ -29,8 +29,8 @@ export class FileSchema<
     | null,
 > extends Schema<Src> {
   constructor(
-    readonly options?: FileOptions,
-    readonly opt: boolean = false,
+    private readonly options?: FileOptions,
+    private readonly opt: boolean = false,
     protected readonly isRemote: boolean = false,
   ) {
     super();

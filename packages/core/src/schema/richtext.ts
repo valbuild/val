@@ -31,8 +31,8 @@ export class RichTextSchema<
   Src extends RichTextSource<O> | null,
 > extends Schema<Src> {
   constructor(
-    readonly options: O & ValidationOptions,
-    readonly opt: boolean = false,
+    private readonly options: O & ValidationOptions,
+    private readonly opt: boolean = false,
   ) {
     super();
   }

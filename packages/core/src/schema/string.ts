@@ -29,8 +29,8 @@ export type RawString = string & { readonly [brand]: "raw" };
 
 export class StringSchema<Src extends string | null> extends Schema<Src> {
   constructor(
-    readonly options?: StringOptions,
-    readonly opt: boolean = false,
+    private readonly options?: StringOptions,
+    private readonly opt: boolean = false,
     private readonly isRaw: boolean = false,
   ) {
     super();

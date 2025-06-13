@@ -184,7 +184,8 @@ export class UnionSchema<
         }
       }
       const objectSchemaAtKey = objectSchemas.find(
-        (schema) => !schema.items[key]["executeValidate"](path, objectSrc[key]),
+        (schema) =>
+          !schema["items"][key]["executeValidate"](path, objectSrc[key]),
       );
       if (!objectSchemaAtKey) {
         const keyPath = createValPathOfItem(path, key);
@@ -246,7 +247,7 @@ export class UnionSchema<
             [path]: [
               {
                 message: `Union must match one of the following: ${literalItems
-                  .map((item) => `"${item.value}"`)
+                  .map((item) => `"${item["value"]}"`)
                   .join(", ")}`,
               },
             ],
@@ -429,9 +430,9 @@ export class UnionSchema<
   }
 
   constructor(
-    readonly key: Key,
-    readonly items: T,
-    readonly opt: boolean = false,
+    private readonly key: Key,
+    private readonly items: T,
+    private readonly opt: boolean = false,
   ) {
     super();
   }
@@ -453,12 +454,12 @@ export class UnionSchema<
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (item): item is ObjectSchema<any, any> => {
           if (item instanceof ObjectSchema) {
-            const itemKey = item.items[unionKey];
+            const itemKey = item["items"][unionKey];
             if (itemKey instanceof LiteralSchema) {
               return (
                 typeof src === "object" &&
                 unionKey in src &&
-                itemKey.value === src[unionKey]
+                itemKey["value"] === src[unionKey]
               );
             }
           }

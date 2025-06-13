@@ -12,8 +12,8 @@ export type SerializedLiteralSchema = {
 
 export class LiteralSchema<Src extends string | null> extends Schema<Src> {
   constructor(
-    readonly value: string,
-    readonly opt: boolean = false,
+    private readonly value: string,
+    private readonly opt: boolean = false,
   ) {
     super();
   }

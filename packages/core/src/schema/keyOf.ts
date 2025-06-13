@@ -34,9 +34,9 @@ export class KeyOfSchema<
   Src extends KeyOfSelector<Sel> | null,
 > extends Schema<Src> {
   constructor(
-    readonly schema?: SerializedSchema,
-    readonly sourcePath?: SourcePath,
-    readonly opt: boolean = false,
+    private readonly schema?: SerializedSchema,
+    private readonly sourcePath?: SourcePath,
+    private readonly opt: boolean = false,
   ) {
     super();
   }
