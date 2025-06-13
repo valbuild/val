@@ -18,7 +18,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import classNames from "classnames";
-import { GripVertical, Trash2 } from "lucide-react";
+import { Ellipsis, EllipsisVertical, GripVertical, Trash2 } from "lucide-react";
 import {
   SourcePath,
   SerializedArraySchema,
@@ -33,7 +33,13 @@ import { Preview as AutoPreview } from "./Preview";
 import { StringField } from "./fields/StringField";
 import { isParentError } from "../utils/isParentError";
 import { ErrorIndicator } from "./ErrorIndicator";
-import { useAllValidationErrors } from "./ValProvider";
+import { useAllValidationErrors, useValPortal } from "./ValProvider";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "./designSystem/popover";
+import { cn } from "./designSystem/cn";
 
 export function SortableList({
   source,
@@ -155,6 +161,7 @@ export function SortableItem({
   onClick: (path: SourcePath) => void;
   onDelete: (item: number) => void;
 }) {
+  const portalContainer = useValPortal();
   const ref = useRef<HTMLButtonElement>(null);
   const [isTruncated, setIsTruncated] = useState<boolean>(false);
   useEffect(() => {
@@ -235,21 +242,36 @@ export function SortableItem({
         </button>
       )}
       {isParentError(path, validationErrors) && (
-        <div className="absolute top-2 right-1">
+        <div className="absolute top-2 right-3">
           <ErrorIndicator />
         </div>
       )}
-      <button
-        className={classNames("h-full ml-2 block", {
-          "items-start pt-4": !centerGripAndDeleteIcons,
-          "items-center": centerGripAndDeleteIcons,
-        })}
-        onClick={() => {
-          onDelete(id);
-        }}
-      >
-        <Trash2 className="w-4 h-4" />
-      </button>
+      <Popover>
+        <PopoverTrigger
+          className={cn(
+            "flex hover:bg-bg-secondary_subtle px-2 hover:rounded-lg",
+            {
+              "items-start pt-4": !centerGripAndDeleteIcons,
+              "items-center py-2": centerGripAndDeleteIcons,
+            },
+          )}
+        >
+          <EllipsisVertical size={16} />
+        </PopoverTrigger>
+        <PopoverContent className="p-2" container={portalContainer} side="top">
+          <button
+            className={cn("flex items-center gap-x-2")}
+            onClick={() => {
+              onDelete(id);
+            }}
+          >
+            <span>
+              <Trash2 className="w-4 h-4" />
+            </span>
+            <span>Delete</span>
+          </button>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
