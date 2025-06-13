@@ -233,6 +233,7 @@ export function SortableItem({
             "flex-grow",
             "relative flex text-left border rounded-lg border-border bg-card gap-y-2 bg-bg-primary",
             "hover:bg-bg-secondary_subtle",
+            "overflow-y-clip",
           )}
           style={{
             maxHeight: LIST_ITEM_MAX_HEIGHT,
