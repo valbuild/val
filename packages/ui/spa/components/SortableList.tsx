@@ -18,7 +18,13 @@ import { useSortable } from "@dnd-kit/sortable";
 import { DragEndEvent } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import classNames from "classnames";
-import { Ellipsis, EllipsisVertical, GripVertical, Trash2 } from "lucide-react";
+import {
+  Copy,
+  Ellipsis,
+  EllipsisVertical,
+  GripVertical,
+  Trash2,
+} from "lucide-react";
 import {
   SourcePath,
   SerializedArraySchema,
@@ -50,6 +56,7 @@ export function SortableList({
   onClick,
   onMove,
   onDelete,
+  onDuplicate,
 }: {
   source: SourcePath[];
   path: SourcePath;
@@ -59,6 +66,7 @@ export function SortableList({
   onMove: (from: number, to: number) => void;
   onClick: (path: SourcePath) => void;
   onDelete: (item: number) => void;
+  onDuplicate: (item: number) => void;
 }) {
   const [items, setItems] = useState<{ path: SourcePath; id: number }[]>([]);
   useEffect(() => {
@@ -132,6 +140,12 @@ export function SortableList({
                     id - 1,
                   );
                 }}
+                onDuplicate={(id) => {
+                  onDuplicate(
+                    /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
+                    id - 1,
+                  );
+                }}
               />
             );
           })}
@@ -151,6 +165,7 @@ export function SortableItem({
   preview,
   onClick,
   onDelete,
+  onDuplicate,
 }: {
   id: number;
   path: SourcePath;
@@ -160,6 +175,7 @@ export function SortableItem({
   disabled?: boolean;
   onClick: (path: SourcePath) => void;
   onDelete: (item: number) => void;
+  onDuplicate: (item: number) => void;
 }) {
   const portalContainer = useValPortal();
   const ref = useRef<HTMLButtonElement>(null);
@@ -269,6 +285,17 @@ export function SortableItem({
               <Trash2 className="w-4 h-4" />
             </span>
             <span>Delete</span>
+          </button>
+          <button
+            className={cn("flex items-center gap-x-2")}
+            onClick={() => {
+              onDuplicate(id);
+            }}
+          >
+            <span>
+              <Copy className="w-4 h-4" />
+            </span>
+            <span>Duplicate</span>
           </button>
         </PopoverContent>
       </Popover>

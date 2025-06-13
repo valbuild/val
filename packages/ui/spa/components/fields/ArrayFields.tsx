@@ -4,6 +4,7 @@ import {
   usePreviewOverrideAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
+  useSourceAtPath,
 } from "../ValProvider";
 import { FieldLoading } from "../../components/FieldLoading";
 import { FieldNotFound } from "../../components/FieldNotFound";
@@ -23,7 +24,9 @@ export function ArrayFields({ path }: { path: SourcePath }) {
   const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
   const previewAtPath = usePreviewOverrideAtPath(path);
-  const sourceAtPath = useShallowSourceAtPath(path, type);
+  const shallowSourceAtPath = useShallowSourceAtPath(path, type);
+  const sourceAtPath = useSourceAtPath(path);
+
   const { addPatch, patchPath } = useAddPatch(path);
 
   if (schemaAtPath.status === "error") {
@@ -31,13 +34,17 @@ export function ArrayFields({ path }: { path: SourcePath }) {
       <FieldSchemaError path={path} error={schemaAtPath.error} type={type} />
     );
   }
-  if (sourceAtPath.status === "error") {
+  if (shallowSourceAtPath.status === "error") {
     return (
-      <FieldSourceError path={path} error={sourceAtPath.error} type={type} />
+      <FieldSourceError
+        path={path}
+        error={shallowSourceAtPath.error}
+        type={type}
+      />
     );
   }
   if (
-    sourceAtPath.status == "not-found" ||
+    shallowSourceAtPath.status == "not-found" ||
     schemaAtPath.status === "not-found"
   ) {
     return <FieldNotFound path={path} type={type} />;
@@ -65,8 +72,9 @@ export function ArrayFields({ path }: { path: SourcePath }) {
   // which we figured was better than not doing so
   const loading =
     previewAtPathData &&
-    ((sourceAtPath.status === "success" && sourceAtPath.clientSideOnly) ||
-      sourceAtPath.status === "loading");
+    ((shallowSourceAtPath.status === "success" &&
+      shallowSourceAtPath.clientSideOnly) ||
+      shallowSourceAtPath.status === "loading");
   return (
     <div id={path} className="relative w-full">
       <ValidationErrors path={path} />
@@ -97,6 +105,24 @@ export function ArrayFields({ path }: { path: SourcePath }) {
             schema.type,
           );
         }}
+        onDuplicate={async (item) => {
+          if (
+            "data" in sourceAtPath &&
+            sourceAtPath.data &&
+            Array.isArray(sourceAtPath.data)
+          ) {
+            addPatch(
+              [
+                {
+                  op: "add",
+                  path: patchPath.concat(item.toString()),
+                  value: sourceAtPath.data?.[item] ?? null,
+                },
+              ],
+              schema.type,
+            );
+          }
+        }}
         onMove={async (from, to) => {
           addPatch(
             [
@@ -118,7 +144,7 @@ export function ArrayFields({ path }: { path: SourcePath }) {
             ? previewAtPathData
             : undefined
         }
-        source={sourceAtPath.data || []}
+        source={shallowSourceAtPath.data || []}
       />
     </div>
   );
