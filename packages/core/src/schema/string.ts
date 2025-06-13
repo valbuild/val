@@ -74,7 +74,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  validate(path: SourcePath, src: Src): ValidationErrors {
+  protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     if (this.opt && (src === null || src === undefined)) {
       return false;
     }

@@ -72,11 +72,12 @@ import {
   parentOfSourcePath,
   patchPathToModulePath,
   splitJoinedSourcePaths,
+  type ValModule,
 } from "./module";
 const ModuleFilePathSep = "?p=";
 export { ModuleFilePathSep };
-import { getSchema } from "./selector";
-import { ModulePath, getValPath, isVal } from "./val";
+import { SelectorSource, getSchema } from "./selector";
+import { ModulePath, SourcePath, getValPath, isVal } from "./val";
 import { convertFileSource } from "./schema/file";
 import { createValPathOfItem } from "./selector/SelectorProxy";
 import { getSHA256Hash } from "./getSha256";
@@ -167,6 +168,15 @@ const Internal = {
     getFileHash,
     hashToRemoteFileHash,
     splitRemoteRef,
+  },
+  validate: (
+    val: ValModule<SelectorSource>,
+    path: SourcePath,
+    src: unknown,
+  ) => {
+    return (
+      val && getSchema(val)?.["executeValidate"](path, src as SelectorSource)
+    );
   },
   isVal,
   isFile,

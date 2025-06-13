@@ -634,7 +634,10 @@ export abstract class ValOps {
         };
         continue;
       }
-      const res = schema.validate(path as string as SourcePath, source);
+      const res = schema["executeValidate"](
+        path as string as SourcePath,
+        source,
+      );
       if (res === false) {
         continue;
       }

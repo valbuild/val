@@ -32,7 +32,7 @@ export class ArraySchema<
     super();
   }
 
-  validate(path: SourcePath, src: Src): ValidationErrors {
+  protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     const assertRes = this.assert(path, src);
     if (!assertRes.success) {
       return assertRes.errors;
@@ -44,7 +44,7 @@ export class ArraySchema<
     for (const [idx, i] of Object.entries(assertRes.data)) {
       const subPath = unsafeCreateSourcePath(path, Number(idx));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const subError = this.item.validate(subPath, i as any);
+      const subError = this.item["executeValidate"](subPath, i as any);
       if (subError) {
         error = {
           ...subError,

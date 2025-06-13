@@ -72,7 +72,10 @@ export type SchemaAssertResult<Src extends SelectorSource> =
   | { success: false; errors: Record<SourcePath, AssertError[]> };
 export abstract class Schema<Src extends SelectorSource> {
   /** Validate the value of source content */
-  abstract validate(path: SourcePath, src: Src): ValidationErrors;
+  protected abstract executeValidate(
+    path: SourcePath,
+    src: Src,
+  ): ValidationErrors;
   /**
    * Check if the **root** **type** of source is correct.
    *

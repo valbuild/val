@@ -71,10 +71,11 @@ globalThis.valModule = {
   path: valModule?.default && Internal.getValPath(valModule?.default),
   schema: !!globalThis['__VAL_OPTIONS__'].schema ? valModule?.default && Internal.getSchema(valModule?.default)?.serialize() : undefined,
   source: !!globalThis['__VAL_OPTIONS__'].source ? valModule?.default && Internal.getSource(valModule?.default) : undefined,
-  validation: !!globalThis['__VAL_OPTIONS__'].validate ? valModule?.default && Internal.getSchema(valModule?.default)?.validate(
-    valModule?.default && Internal.getValPath(valModule?.default) || "/",
-    valModule?.default && Internal.getSource(valModule?.default)
-  ) : undefined,
+  validation: !!globalThis['__VAL_OPTIONS__'].validate ? valModule?.default && (Internal.validate ? Internal.validate(valModule.default, Internal.getValPath(valModule?.default) || "/",
+    Internal.getSource(valModule?.default)) : Internal.getSchema(valModule?.default)?.validate(
+    Internal.getValPath(valModule?.default) || "/",
+    Internal.getSource(valModule?.default)
+  )) : undefined,
   defaultExport: !!valModule?.default,
 };
 `;

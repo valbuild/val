@@ -33,7 +33,7 @@ export class RecordSchema<
     super();
   }
 
-  validate(path: SourcePath, src: Src): ValidationErrors {
+  protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     let error: ValidationErrors = false;
 
     if (this.opt && (src === null || src === undefined)) {
@@ -66,7 +66,10 @@ export class RecordSchema<
           src,
         );
       } else {
-        const subError = this.item.validate(subPath, elem as SelectorSource);
+        const subError = this.item["executeValidate"](
+          subPath,
+          elem as SelectorSource,
+        );
         if (subError && error) {
           error = {
             ...subError,
