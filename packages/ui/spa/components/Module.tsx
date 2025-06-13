@@ -1,5 +1,10 @@
 import { SourcePath } from "@valbuild/core";
-import { useAllSources, useSchemaAtPath, useSchemas } from "./ValProvider";
+import {
+  useAllSources,
+  useSchemaAtPath,
+  useSchemas,
+  useValidationErrors,
+} from "./ValProvider";
 import { FieldSchemaError } from "./FieldSchemaError";
 import { FieldLoading } from "./FieldLoading";
 import { FieldNotFound } from "./FieldNotFound";
@@ -13,6 +18,8 @@ import {
 } from "./ArrayAndRecordTools";
 import { isParentArray, useParent } from "../hooks/useParent";
 import { getNavPathFromAll } from "./getNavPath";
+import { FieldValidationError } from "./FieldValidationError";
+import { cn } from "./designSystem/cn";
 
 export function Module({ path }: { path: SourcePath }) {
   const schemaAtPath = useSchemaAtPath(path);
@@ -20,6 +27,7 @@ export function Module({ path }: { path: SourcePath }) {
   const { navigate } = useNavigation();
   const sources = useAllSources();
   const schemasRes = useSchemas();
+  const validationErrors = useValidationErrors(path);
   const onNavigate = useCallback(
     (path: SourcePath) => {
       if ("data" in schemasRes) {
@@ -98,7 +106,15 @@ export function Module({ path }: { path: SourcePath }) {
           </div>
         </div>
       </div>
-      <AnyField key={path} path={path} schema={schema} />
+      <div
+        className={cn({
+          "border rounded-lg border-bg-error-secondary p-4":
+            validationErrors.length > 0,
+        })}
+      >
+        <AnyField key={path} path={path} schema={schema} />
+        <FieldValidationError validationErrors={validationErrors} />
+      </div>
     </div>
   );
 }

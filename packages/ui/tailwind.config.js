@@ -58,7 +58,6 @@ module.exports = {
         "border-brand": "var(--border-brand)",
         "border-disabled_subtle": "var(--border-disabled_subtle)",
         "border-disabled": "var(--border-disabled)",
-        "border-error_subtle": "var(--border-error_subtle)",
         "border-error": "var(--border-error)",
         "border-primary": "var(--border-primary)",
         "border-secondary": "var(--border-secondary)",
