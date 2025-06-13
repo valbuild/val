@@ -29,6 +29,7 @@ export type SerializedRichTextSchema = {
   type: "richtext";
   opt: boolean;
   options?: SerializedRichTextOptions & ValidationOptions;
+  customValidate?: boolean;
 };
 
 export class RichTextSchema<
@@ -579,6 +580,9 @@ export class RichTextSchema<
       type: "richtext",
       opt: this.opt,
       options: serializedOptions,
+      customValidate:
+        this.customValidateFunctions &&
+        this.customValidateFunctions?.length > 0,
     };
   }
 

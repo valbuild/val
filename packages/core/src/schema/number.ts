@@ -21,6 +21,7 @@ export type SerializedNumberSchema = {
   type: "number";
   options?: NumberOptions;
   opt: boolean;
+  customValidate?: boolean;
 };
 
 export class NumberSchema<Src extends number | null> extends Schema<Src> {
@@ -146,6 +147,9 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
       type: "number",
       options: this.options,
       opt: this.opt,
+      customValidate:
+        this.customValidateFunctions &&
+        this.customValidateFunctions?.length > 0,
     };
   }
 

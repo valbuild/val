@@ -19,6 +19,7 @@ export type SerializedArraySchema = {
   type: "array";
   item: SerializedSchema;
   opt: boolean;
+  customValidate?: boolean;
 };
 
 export class ArraySchema<
@@ -128,6 +129,9 @@ export class ArraySchema<
       type: "array",
       item: this.item["executeSerialize"](),
       opt: this.opt,
+      customValidate:
+        this.customValidateFunctions &&
+        this.customValidateFunctions?.length > 0,
     };
   }
 

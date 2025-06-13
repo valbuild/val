@@ -28,6 +28,7 @@ export type SerializedStringSchema = {
   };
   opt: boolean;
   raw: boolean;
+  customValidate?: boolean;
 };
 
 const brand = Symbol("string");
@@ -195,6 +196,9 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
       },
       opt: this.opt,
       raw: this.isRaw,
+      customValidate:
+        this.customValidateFunctions &&
+        this.customValidateFunctions?.length > 0,
     };
   }
 

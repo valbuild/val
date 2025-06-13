@@ -25,6 +25,7 @@ export type SerializedFileSchema = {
   options?: FileOptions;
   remote?: boolean;
   opt: boolean;
+  customValidate?: boolean;
 };
 
 export type FileMetadata = {
@@ -309,6 +310,9 @@ export class FileSchema<
       options: this.options,
       opt: this.opt,
       remote: this.isRemote,
+      customValidate:
+        this.customValidateFunctions &&
+        this.customValidateFunctions?.length > 0,
     };
   }
 
