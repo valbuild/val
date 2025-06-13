@@ -113,48 +113,39 @@ export function DraftChanges({
         <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-text-error-primary z-5">
           <ScrollArea orientation="horizontal">
             <Accordion type="single" className="px-4 font-serif" collapsible>
-              <AccordionItem
-                value="error"
-                className="border-b-0 data-[state=open]:mb-4"
-              >
-                <AccordionTrigger className="text-text-error-primary">
+              <AccordionItem value="error" className="border-b-0">
+                <AccordionTrigger className=" data-[state=open]:mb-4 text-text-error-primary border-fg-error-primary ">
                   <div className="flex items-center justify-between w-full ">
                     <div>
-                      {validationErrorsCount} validation error
+                      {validationErrorsCount} validation issue
                       {validationErrorsCount > 1 ? "s" : ""}
                     </div>
                     <TriangleAlert size={16} />
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className="">
-                  <div className="flex flex-col gap-2">
-                    <Accordion type="multiple" className="w-full">
-                      {Object.entries(allValidationErrors).map(
-                        ([sourcePath, errors], i) => (
-                          <AccordionItem
-                            key={sourcePath + "#" + i}
-                            value={sourcePath + "#" + i}
-                            className="border-b-0"
-                          >
-                            <AccordionTrigger className="items-start text-left">
-                              <ValidationErrorValPath sourcePath={sourcePath} />
-                            </AccordionTrigger>
-                            <AccordionContent>
-                              <ScrollArea
-                                orientation="horizontal"
-                                className="max-w-[280px]"
-                              >
-                                {errors?.map((error, j) => (
-                                  <div key={j} className="">
-                                    <div>{error.message}</div>
-                                  </div>
-                                ))}
-                              </ScrollArea>
-                            </AccordionContent>
-                          </AccordionItem>
-                        ),
-                      )}
-                    </Accordion>
+                  <div className="flex flex-col gap-4">
+                    {Object.entries(allValidationErrors).map(
+                      ([sourcePath, errors], i) => (
+                        <div key={sourcePath + "#" + i} className="pb-4">
+                          <div className="items-start text-left">
+                            <ValidationErrorValPath sourcePath={sourcePath} />
+                          </div>
+                          <div>
+                            <ScrollArea
+                              orientation="horizontal"
+                              className="max-w-[280px] text-pretty text-xs"
+                            >
+                              {errors?.map((error, j) => (
+                                <div key={j} className="">
+                                  <div>{error.message}</div>
+                                </div>
+                              ))}
+                            </ScrollArea>
+                          </div>
+                        </div>
+                      ),
+                    )}
                   </div>
                 </AccordionContent>
               </AccordionItem>
