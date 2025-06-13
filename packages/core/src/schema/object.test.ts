@@ -11,7 +11,7 @@ describe("ObjectSchema", () => {
     const src = {
       test: 1,
     };
-    expect(schema.assert("foo" as SourcePath, src)).toEqual({
+    expect(schema["executeAssert"]("foo" as SourcePath, src)).toEqual({
       success: true,
       data: src,
     });
@@ -25,7 +25,7 @@ describe("ObjectSchema", () => {
       test: null,
       ops: 1,
     };
-    expect(schema.assert("foo" as SourcePath, src)).toEqual({
+    expect(schema["executeAssert"]("foo" as SourcePath, src)).toEqual({
       success: true,
       data: src,
     });
@@ -38,6 +38,8 @@ describe("ObjectSchema", () => {
     const src = {
       ops: 1,
     };
-    expect(schema.assert("foo" as SourcePath, src).success).toEqual(false);
+    expect(schema["executeAssert"]("foo" as SourcePath, src).success).toEqual(
+      false,
+    );
   });
 });

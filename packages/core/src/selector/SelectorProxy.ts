@@ -97,8 +97,10 @@ export function newSelectorProxy(
                     )
                     .filter((a) => {
                       if (f && f instanceof Schema) {
-                        return f.assert(path || ("" as SourcePath), unValify(a))
-                          .success;
+                        return f["executeAssert"](
+                          path || ("" as SourcePath),
+                          unValify(a),
+                        ).success;
                       } else {
                         return unValify(f(a));
                       }

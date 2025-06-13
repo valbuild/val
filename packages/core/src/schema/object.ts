@@ -103,7 +103,10 @@ export class ObjectSchema<
     return error;
   }
 
-  assert(path: SourcePath, src: unknown): SchemaAssertResult<Src> {
+  protected executeAssert(
+    path: SourcePath,
+    src: unknown,
+  ): SchemaAssertResult<Src> {
     if (this.opt && src === null) {
       return {
         success: true,

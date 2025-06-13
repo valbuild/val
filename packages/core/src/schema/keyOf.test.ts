@@ -13,7 +13,7 @@ describe("KeyOfSchema", () => {
       }),
     );
     const src = "one";
-    const res = schema.assert("path" as SourcePath, src);
+    const res = schema["executeAssert"]("path" as SourcePath, src);
     expect(res).toEqual({
       success: true,
       data: src,

@@ -199,7 +199,9 @@ describe("RichTextSchema", () => {
         ],
       },
     ];
-    expect(schema.assert("/richtext.val.ts" as SourcePath, src)).toEqual({
+    expect(
+      schema["executeAssert"]("/richtext.val.ts" as SourcePath, src),
+    ).toEqual({
       success: true,
       data: src,
     });
@@ -240,7 +242,7 @@ describe("RichTextSchema", () => {
         ],
       },
     ];
-    const res = schema.assert("/richtext.val.ts" as SourcePath, src);
+    const res = schema["executeAssert"]("/richtext.val.ts" as SourcePath, src);
     expect(res.success).toEqual(false);
     if (!res.success) {
       expect(Object.keys(res.errors).sort()).toEqual(

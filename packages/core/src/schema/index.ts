@@ -91,7 +91,10 @@ export abstract class Schema<Src extends SelectorSource> {
    * When using assert, you must assert recursively if you want to verify the entire source.
    * For example, if you have an object schema, you must assert each key / value pair manually.
    */
-  abstract assert(path: SourcePath, src: unknown): SchemaAssertResult<Src>; // TODO: rename to parse? or _assert / _parse to indicate it is private? Or make protected (requires us to have some sort of calling it in the UX Val code)
+  protected abstract executeAssert(
+    path: SourcePath,
+    src: unknown,
+  ): SchemaAssertResult<Src>; // TODO: rename to parse? or _assert / _parse to indicate it is private? Or make protected (requires us to have some sort of calling it in the UX Val code)
   abstract nullable(): Schema<Src | null>;
   abstract serialize(): SerializedSchema;
   protected abstract executePreview(
