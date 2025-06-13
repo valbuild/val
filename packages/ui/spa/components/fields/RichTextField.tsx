@@ -56,7 +56,9 @@ export function RichTextField({
     useAddPatch(path);
   const [editorState, setEditorState] = useState<Readonly<EditorState>>(
     manager.createState({
-      content: currentSourceData && richTextToRemirror(currentSourceData),
+      content: currentSourceData
+        ? richTextToRemirror(currentSourceData)
+        : undefined,
     }),
   );
   const maybeSourceData = "data" in sourceAtPath && sourceAtPath.data;
