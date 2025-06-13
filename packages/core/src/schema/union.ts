@@ -1,5 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import { AssertError, Schema, SchemaAssertResult, SerializedSchema } from ".";
+import {
+  AssertError,
+  CustomValidateFunction,
+  Schema,
+  SchemaAssertResult,
+  SerializedSchema,
+} from ".";
 import { ReifiedPreview } from "../preview";
 import {
   createValPathOfItem,
@@ -10,7 +16,10 @@ import { SourceObject } from "../source";
 import { ModuleFilePath, SourcePath } from "../val";
 import { LiteralSchema, SerializedLiteralSchema } from "./literal";
 import { ObjectSchema, SerializedObjectSchema } from "./object";
-import { ValidationErrors } from "./validation/ValidationError";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
 
 export type SerializedUnionSchema =
   | SerializedStringUnionSchema
@@ -54,46 +63,69 @@ export class UnionSchema<
   >[],
   Src extends SourceOf<Key, T> | null,
 > extends Schema<Src> {
+  validate(
+    validationFunction: (src: Src) => false | string,
+  ): UnionSchema<Key, T, Src> {
+    return new UnionSchema<Key, T, Src>(
+      this.key,
+      this.items,
+      this.opt,
+      this.customValidateFunctions.concat(validationFunction),
+    );
+  }
+
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
+    const customValidationErrors: ValidationError[] =
+      this.executeCustomValidateFunctions(src, this.customValidateFunctions);
     const unknownSrc = src as unknown;
-    const errors: ValidationErrors = false;
     if (this.opt && unknownSrc === null) {
-      return false;
+      return customValidationErrors.length > 0
+        ? { [path]: customValidationErrors }
+        : false;
     }
 
     if (!this.key) {
-      return {
-        [path]: [
-          {
-            message: `Missing required first argument in union`,
-            schemaError: true,
-          },
-        ],
-      };
+      return customValidationErrors.length > 0
+        ? { [path]: customValidationErrors }
+        : {
+            [path]: [
+              ...customValidationErrors,
+              {
+                message: `Missing required first argument in union`,
+                schemaError: true,
+              },
+            ],
+          };
     }
 
     const key = this.key;
     if (!Array.isArray(this.items)) {
-      return {
-        [path]: [
-          {
-            message: `A union schema must take more than 1 schema arguments`,
-            schemaError: true,
-          },
-        ],
-      };
+      return customValidationErrors.length > 0
+        ? { [path]: customValidationErrors }
+        : {
+            [path]: [
+              ...customValidationErrors,
+              {
+                message: `A union schema must take more than 1 schema arguments`,
+                schemaError: true,
+              },
+            ],
+          };
     }
     if (typeof key === "string") {
       // tagged union
       if (this.items.some((item) => !(item instanceof ObjectSchema))) {
-        return {
-          [path]: [
-            {
-              message: `Key is a string, so all schema items must be objects`,
-              schemaError: true,
-            },
-          ],
-        };
+        return customValidationErrors.length > 0
+          ? { [path]: customValidationErrors }
+          : {
+              [path]: [
+                ...customValidationErrors,
+                {
+                  message: `Key is a string, so all schema items must be objects`,
+                  schemaError: true,
+                },
+              ],
+            };
       }
       const objectSchemas = this.items as unknown as ObjectSchema<
         {
@@ -113,18 +145,21 @@ export class UnionSchema<
       );
 
       if (illegalSchemas.length > 0) {
-        return {
-          [path]: [
-            {
-              message: `All schema items must be objects with a key: ${key} that is a literal schema. Found: ${JSON.stringify(
-                illegalSchemas,
-                null,
-                2,
-              )}`,
-              schemaError: true,
-            },
-          ],
-        };
+        return customValidationErrors.length > 0
+          ? { [path]: customValidationErrors }
+          : {
+              [path]: [
+                ...customValidationErrors,
+                {
+                  message: `All schema items must be objects with a key: ${key} that is a literal schema. Found: ${JSON.stringify(
+                    illegalSchemas,
+                    null,
+                    2,
+                  )}`,
+                  schemaError: true,
+                },
+              ],
+            };
       }
       const serializedObjectSchemas =
         serializedSchemas as SerializedObjectSchema[];
@@ -132,37 +167,46 @@ export class UnionSchema<
         (schema) => schema.items[key].opt,
       );
       if (optionalLiterals.length > 1) {
-        return {
-          [path]: [
-            {
-              message: `Schema cannot have an optional keys: ${key}`,
-              schemaError: true,
-            },
-          ],
-        };
+        return customValidationErrors.length > 0
+          ? { [path]: customValidationErrors }
+          : {
+              [path]: [
+                ...customValidationErrors,
+                {
+                  message: `Schema cannot have an optional keys: ${key}`,
+                  schemaError: true,
+                },
+              ],
+            };
       }
 
       if (typeof unknownSrc !== "object") {
-        return {
-          [path]: [
-            {
-              message: `Expected an object`,
-              typeError: true,
-            },
-          ],
-        };
+        return customValidationErrors.length > 0
+          ? { [path]: customValidationErrors }
+          : {
+              [path]: [
+                ...customValidationErrors,
+                {
+                  message: `Expected an object`,
+                  typeError: true,
+                },
+              ],
+            };
       }
       const objectSrc = unknownSrc as { [key: string]: SelectorSource };
 
       if (objectSrc[key] === undefined) {
-        return {
-          [path]: [
-            {
-              message: `Missing required key: ${key}`,
-              typeError: true,
-            },
-          ],
-        };
+        return customValidationErrors.length > 0
+          ? { [path]: customValidationErrors }
+          : {
+              [path]: [
+                ...customValidationErrors,
+                {
+                  message: `Missing required key: ${key}`,
+                  typeError: true,
+                },
+              ],
+            };
       }
 
       const foundSchemaLiterals: string[] = [];
@@ -172,14 +216,17 @@ export class UnionSchema<
           if (!foundSchemaLiterals.includes(schemaKey.value)) {
             foundSchemaLiterals.push(schemaKey.value);
           } else {
-            return {
-              [path]: [
-                {
-                  message: `Found duplicate key in schema: ${schemaKey.value}`,
-                  schemaError: true,
-                },
-              ],
-            };
+            return customValidationErrors.length > 0
+              ? { [path]: customValidationErrors }
+              : {
+                  [path]: [
+                    ...customValidationErrors,
+                    {
+                      message: `Found duplicate key in schema: ${schemaKey.value}`,
+                      schemaError: true,
+                    },
+                  ],
+                };
           }
         }
       }
@@ -243,27 +290,35 @@ export class UnionSchema<
           (item) => !item["executeValidate"](path, unknownSrc),
         );
         if (!isMatch) {
-          return {
-            [path]: [
-              {
-                message: `Union must match one of the following: ${literalItems
-                  .map((item) => `"${item["value"]}"`)
-                  .join(", ")}`,
-              },
-            ],
-          };
+          return customValidationErrors.length > 0
+            ? { [path]: customValidationErrors }
+            : {
+                [path]: [
+                  ...customValidationErrors,
+                  {
+                    message: `Union must match one of the following: ${literalItems
+                      .map((item) => `"${item["value"]}"`)
+                      .join(", ")}`,
+                  },
+                ],
+              };
         }
       }
     } else {
-      return {
-        [path]: [
-          {
-            message: `Expected a string or literal`,
-          },
-        ],
-      };
+      return customValidationErrors.length > 0
+        ? { [path]: customValidationErrors }
+        : {
+            [path]: [
+              ...customValidationErrors,
+              {
+                message: `Expected a string or literal`,
+              },
+            ],
+          };
     }
-    return errors;
+    return customValidationErrors.length > 0
+      ? { [path]: customValidationErrors }
+      : false;
   }
 
   protected executeAssert(
@@ -433,6 +488,7 @@ export class UnionSchema<
     private readonly key: Key,
     private readonly items: T,
     private readonly opt: boolean = false,
+    private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
   ) {
     super();
   }
@@ -503,6 +559,6 @@ export const union = <
 >(
   key: Key,
   ...objects: T
-): Schema<SourceOf<Key, T>> => {
+): UnionSchema<Key, T, SourceOf<Key, T>> => {
   return new UnionSchema(key, objects);
 };

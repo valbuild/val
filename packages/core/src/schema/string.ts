@@ -2,7 +2,10 @@
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
 import { ReifiedPreview } from "../preview";
 import { SourcePath } from "../val";
-import { ValidationErrors } from "./validation/ValidationError";
+import {
+  ValidationError,
+  ValidationErrors,
+} from "./validation/ValidationError";
 
 type StringOptions = {
   maxLength?: number;
@@ -19,6 +22,7 @@ export type SerializedStringSchema = {
       source: string;
       flags: string;
     };
+    customValidate?: boolean;
   };
   opt: boolean;
   raw: boolean;
@@ -32,6 +36,9 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     private readonly options?: StringOptions,
     private readonly opt: boolean = false,
     private readonly isRaw: boolean = false,
+    private readonly customValidateFunctions: ((
+      src: Src,
+    ) => false | string)[] = [],
   ) {
     super();
   }
@@ -74,9 +81,24 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
+  validate(
+    validationFunction: (src: Src) => false | string,
+  ): StringSchema<Src> {
+    return new StringSchema<Src>(
+      this.options,
+      this.opt,
+      this.isRaw,
+      this.customValidateFunctions.concat(validationFunction),
+    );
+  }
+
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
+    const errors: ValidationError[] = this.executeCustomValidateFunctions(
+      src,
+      this.customValidateFunctions,
+    );
     if (this.opt && (src === null || src === undefined)) {
-      return false;
+      return errors.length > 0 ? { [path]: errors } : false;
     }
     if (typeof src !== "string") {
       return {
@@ -85,7 +107,6 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
         ],
       } as ValidationErrors;
     }
-    const errors = [];
     if (this.options?.maxLength && src.length > this.options.maxLength) {
       errors.push({
         message: `Expected string to be at most ${this.options.maxLength} characters long, got ${src.length}`,
@@ -163,6 +184,9 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
           source: this.options.regexp.source,
           flags: this.options.regexp.flags,
         },
+        customValidate:
+          this.customValidateFunctions &&
+          this.customValidateFunctions?.length > 0,
       },
       opt: this.opt,
       raw: this.isRaw,
