@@ -58,7 +58,6 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "./designSystem/accordion";
-import { useNavigation } from "./ValRouter";
 import { ValEnrichedDeployment } from "../utils/mergeCommitsAndDeployments";
 import {
   Tooltip,
