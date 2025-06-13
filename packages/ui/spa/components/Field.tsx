@@ -20,6 +20,7 @@ import {
   AccordionContent,
   AccordionItem,
 } from "./designSystem/accordion";
+import { FieldValidationError } from "./FieldValidationError";
 
 export function Field({
   label,
@@ -62,9 +63,9 @@ export function Field({
   const isNullable = "data" in schemaAtPath && schemaAtPath.data?.opt === true;
   return (
     <div
-      className={classNames("p-4 border rounded-lg", {
+      className={classNames("px-4 pt-6 pb-0 border rounded-lg", {
         "bg-bg-tertiary": !transparent,
-        "border-border-error": validationErrors.length > 0,
+        "border-bg-error-secondary": validationErrors.length > 0,
       })}
     >
       <div className="flex items-center justify-between">
@@ -154,6 +155,7 @@ export function Field({
           </AccordionItem>
         </Accordion>
       )}
+      <FieldValidationError validationErrors={validationErrors} />
     </div>
   );
 }

@@ -309,10 +309,13 @@ function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
   return (
     <div className="w-full text-sm">
       <button
-        className={classNames("relative flex justify-between w-full p-2", {
-          underline: currentSourcePath.startsWith(path) && !isDirectory,
-          "font-bold": currentSourcePath.startsWith(path) && isDirectory,
-        })}
+        className={classNames(
+          "relative flex items-center justify-between w-full p-2",
+          {
+            underline: currentSourcePath.startsWith(path) && !isDirectory,
+            "font-bold": currentSourcePath.startsWith(path) && isDirectory,
+          },
+        )}
         onClick={() => {
           if (isDirectory) {
             setIsOpen(!isOpen);
@@ -339,7 +342,7 @@ function ExplorerNode({ name, fullPath, isDirectory, children }: PathNode) {
           <span>{prettifyFilename(name)}</span>
         </div>
         {showErrorIndicator && (
-          <div className="w-2 h-2 ml-2 rounded-full bg-bg-error-primary"></div>
+          <div className="w-2 h-2 ml-2 rounded-full bg-bg-error-secondary"></div>
         )}
       </button>
       <div className="pl-2">

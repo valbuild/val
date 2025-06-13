@@ -180,7 +180,7 @@ export function SortableItem({
       touch-action="manipulation"
       ref={setNodeRef}
       style={style}
-      className={classNames("flex disabled:opacity-55 flex-1", {
+      className={classNames("relative flex disabled:opacity-55 flex-1", {
         "items-start": !centerGripAndDeleteIcons,
         "items-center": centerGripAndDeleteIcons,
       })}
@@ -188,7 +188,7 @@ export function SortableItem({
       <button
         {...attributes}
         {...listeners}
-        className={classNames("pt-2 my-1", {
+        className={classNames("pb-1 pr-2", {
           "opacity-30": disabled,
         })}
         disabled={disabled}
@@ -197,15 +197,6 @@ export function SortableItem({
         }}
       >
         <GripVertical />
-      </button>
-      <button
-        className="pt-2 my-1 mr-2 -ml-1 font-serif text-accent"
-        disabled={disabled}
-        onClick={() => {
-          onClick(path);
-        }}
-      >
-        {formatNumber(id)}
       </button>
       {/** Changing this behavior means we need to change the getNavPath behavior */}
       {!preview && schema?.item?.type === "string" && (
@@ -243,8 +234,13 @@ export function SortableItem({
           )}
         </button>
       )}
+      {isParentError(path, validationErrors) && (
+        <div className="absolute top-2 right-1">
+          <ErrorIndicator />
+        </div>
+      )}
       <button
-        className={classNames("flex gap-x-2", {
+        className={classNames("h-full ml-2 block", {
           "items-start pt-4": !centerGripAndDeleteIcons,
           "items-center": centerGripAndDeleteIcons,
         })}
@@ -252,12 +248,7 @@ export function SortableItem({
           onDelete(id);
         }}
       >
-        {isParentError(path, validationErrors) ? (
-          <ErrorIndicator />
-        ) : (
-          <div className="w-2 h-2" />
-        )}
-        <Trash2 className="w-4 h-4 mr-2" />
+        <Trash2 className="w-4 h-4" />
       </button>
     </div>
   );
@@ -326,12 +317,5 @@ function ImageOrPlaceholder({
         }}
       />
     </div>
-  );
-}
-
-function formatNumber(n: number) {
-  return (
-    // DnD kit is 1-based
-    (n - 1).toString()
   );
 }

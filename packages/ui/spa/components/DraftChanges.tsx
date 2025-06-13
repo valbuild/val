@@ -1,4 +1,4 @@
-import { ModuleFilePath, PatchId, SourcePath } from "@valbuild/core";
+import { Internal, ModuleFilePath, PatchId, SourcePath } from "@valbuild/core";
 import {
   useState,
   useEffect,
@@ -25,7 +25,15 @@ import {
 } from "./ValProvider";
 import { Checkbox } from "./designSystem/checkbox";
 import classNames from "classnames";
-import { Check, ChevronDown, Loader2, Sparkles, Undo2, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  Loader2,
+  Sparkles,
+  TriangleAlert,
+  Undo2,
+  X,
+} from "lucide-react";
 import { PatchMetadata, PatchSetMetadata } from "../utils/PatchSets";
 import { AnimateHeight } from "./AnimateHeight";
 import { relativeLocalDate } from "../utils/relativeLocalDate";
@@ -85,7 +93,6 @@ export function DraftChanges({
     return count;
   }, [allValidationErrors]);
   const pendingChanges = currentPatchIds.length - committedPatchIds.size;
-  const navigation = useNavigation();
   const { deployments, dismissDeployment, observedCommitShas } =
     useDeployments();
   const { globalTransientErrors, removeGlobalTransientErrors } =
@@ -103,18 +110,23 @@ export function DraftChanges({
   return (
     <div className={classNames("text-sm", className)}>
       {allValidationErrors && validationErrorsCount > 0 && (
-        <div className="sticky top-0 text-white border-b border-border-primary bg-bg-error-primary z-5">
+        <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-text-error-primary z-5">
           <ScrollArea orientation="horizontal">
             <Accordion type="single" className="px-4 font-serif" collapsible>
               <AccordionItem
                 value="error"
                 className="border-b-0 data-[state=open]:mb-4"
               >
-                <AccordionTrigger>
-                  {validationErrorsCount} validation error
-                  {validationErrorsCount > 1 ? "s" : ""}
+                <AccordionTrigger className="text-text-error-primary">
+                  <div className="flex items-center justify-between w-full ">
+                    <div>
+                      {validationErrorsCount} validation error
+                      {validationErrorsCount > 1 ? "s" : ""}
+                    </div>
+                    <TriangleAlert size={16} />
+                  </div>
                 </AccordionTrigger>
-                <AccordionContent className="w-full">
+                <AccordionContent className="">
                   <div className="flex flex-col gap-2">
                     <Accordion type="multiple" className="w-full">
                       {Object.entries(allValidationErrors).map(
@@ -122,45 +134,22 @@ export function DraftChanges({
                           <AccordionItem
                             key={sourcePath + "#" + i}
                             value={sourcePath + "#" + i}
+                            className="border-b-0"
                           >
-                            <AccordionTrigger>
-                              <div className="flex items-center justify-between">
-                                <span
-                                  className="underline cursor-pointer"
-                                  onClick={() => {
-                                    navigation.navigate(
-                                      sourcePath as SourcePath,
-                                    );
-                                  }}
-                                >
-                                  {sourcePath}
-                                </span>
-                                <span className="pl-4">
-                                  ({errors?.length || 0})
-                                </span>
-                              </div>
+                            <AccordionTrigger className="items-start text-left">
+                              <ValidationErrorValPath sourcePath={sourcePath} />
                             </AccordionTrigger>
                             <AccordionContent>
-                              <div className="flex flex-col gap-2">
+                              <ScrollArea
+                                orientation="horizontal"
+                                className="max-w-[280px]"
+                              >
                                 {errors?.map((error, j) => (
-                                  <div key={j}>
+                                  <div key={j} className="">
                                     <div>{error.message}</div>
-                                    <div className="pl-4 font-thin">
-                                      at
-                                      <span
-                                        className="underline cursor-pointer"
-                                        onClick={() => {
-                                          navigation.navigate(
-                                            sourcePath as SourcePath,
-                                          );
-                                        }}
-                                      >
-                                        {sourcePath}
-                                      </span>
-                                    </div>
                                   </div>
                                 ))}
-                              </div>
+                              </ScrollArea>
                             </AccordionContent>
                           </AccordionItem>
                         ),
@@ -174,7 +163,7 @@ export function DraftChanges({
         </div>
       )}
       {globalTransientErrors && globalTransientErrors.length > 0 && (
-        <div className="sticky top-0 text-white border-b border-border-primary bg-bg-error-primary z-5">
+        <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-text-error-primary z-5">
           <ScrollArea orientation="horizontal">
             <Accordion type="single" className="px-4 font-serif" collapsible>
               <AccordionItem
@@ -294,6 +283,17 @@ export function DraftChanges({
       )}
     </div>
   );
+}
+
+function ValidationErrorValPath({
+  sourcePath,
+}: {
+  sourcePath: SourcePath | string;
+}) {
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(sourcePath as SourcePath);
+  const patchPath = Internal.splitModulePath(modulePath);
+  return <ValPath moduleFilePath={moduleFilePath} patchPath={patchPath} />;
 }
 
 function Deployments({
