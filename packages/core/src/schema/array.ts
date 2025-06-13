@@ -28,8 +28,20 @@ export class ArraySchema<
   constructor(
     private readonly item: T,
     private readonly opt: boolean = false,
+    private readonly customValidateFunctions: ((
+      src: Src,
+    ) => false | string)[] = [],
   ) {
     super();
+  }
+
+  validate(
+    validationFunction: (src: Src) => false | string,
+  ): ArraySchema<T, Src> {
+    return new ArraySchema(this.item, this.opt, [
+      ...this.customValidateFunctions,
+      validationFunction,
+    ]);
   }
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
