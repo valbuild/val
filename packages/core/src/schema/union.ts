@@ -104,7 +104,7 @@ export class UnionSchema<
         }
       >[];
       const serializedSchemas = objectSchemas.map((schema) =>
-        schema.serialize(),
+        schema["executeSerialize"](),
       );
       const illegalSchemas = serializedSchemas.filter(
         (schema) =>
@@ -411,19 +411,19 @@ export class UnionSchema<
     return new UnionSchema(this.key, this.items, true) as Schema<Src | null>;
   }
 
-  serialize(): SerializedSchema {
+  protected executeSerialize(): SerializedSchema {
     if (typeof this.key === "string") {
       return {
         type: "union",
         key: this.key,
-        items: this.items.map((o) => o.serialize()),
+        items: this.items.map((o) => o["executeSerialize"]()),
         opt: this.opt,
       } as SerializedObjectUnionSchema;
     }
     return {
       type: "union",
-      key: this.key.serialize(),
-      items: this.items.map((o) => o.serialize()),
+      key: this.key["executeSerialize"](),
+      items: this.items.map((o) => o["executeSerialize"]()),
       opt: this.opt,
     } as SerializedStringUnionSchema;
   }

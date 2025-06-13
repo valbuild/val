@@ -271,7 +271,7 @@ export class FileSchema<
     return new FileSchema<Src | null>(this.options, true);
   }
 
-  serialize(): SerializedSchema {
+  protected executeSerialize(): SerializedSchema {
     return {
       type: "file",
       options: this.options,

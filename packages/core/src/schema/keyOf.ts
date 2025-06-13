@@ -224,7 +224,7 @@ export class KeyOfSchema<
     ) as Schema<Src | null>;
   }
 
-  serialize(): SerializedSchema {
+  protected executeSerialize(): SerializedSchema {
     const path = this.sourcePath;
     if (!path) {
       throw new Error(
@@ -269,7 +269,7 @@ export const keyOf = <
   valModule: Src,
 ): Schema<KeyOfSelector<Src>> => {
   return new KeyOfSchema(
-    valModule?.[GetSchema]?.serialize(),
+    valModule?.[GetSchema]?.["executeSerialize"](),
     getValPath(valModule),
   ) as Schema<KeyOfSelector<Src>>;
 };

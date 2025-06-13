@@ -124,7 +124,7 @@ function convert(
   const output: Record<ModuleFilePath, SerializedSchema> = {};
   for (const valModule of input) {
     output[getModuleFilePath(valModule)] =
-      Internal.getSchema(valModule)!.serialize();
+      Internal.getSchema(valModule)!["executeSerialize"]();
   }
   return output;
 }

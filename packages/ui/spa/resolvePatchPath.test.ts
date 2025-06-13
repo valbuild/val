@@ -44,7 +44,7 @@ const testModule1 = c.define(
     },
   },
 );
-const testSchema1 = Internal.getSchema(testModule1)!.serialize();
+const testSchema1 = Internal.getSchema(testModule1)!["executeSerialize"]();
 const testSource1 = Internal.getSource(testModule1);
 
 describe("resolvePatchPath", () => {

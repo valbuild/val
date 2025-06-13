@@ -110,7 +110,7 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     return new NumberSchema<Src>({ ...this.options, min }, this.opt);
   }
 
-  serialize(): SerializedSchema {
+  protected executeSerialize(): SerializedSchema {
     return {
       type: "number",
       options: this.options,

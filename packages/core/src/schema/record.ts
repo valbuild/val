@@ -126,10 +126,10 @@ export class RecordSchema<
     return new RecordSchema(this.item, true) as Schema<Src | null>;
   }
 
-  serialize(): SerializedRecordSchema {
+  executeSerialize(): SerializedRecordSchema {
     return {
       type: "record",
-      item: this.item.serialize(),
+      item: this.item["executeSerialize"](),
       opt: this.opt,
     };
   }

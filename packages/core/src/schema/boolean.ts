@@ -72,7 +72,7 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
   nullable(): Schema<Src | null> {
     return new BooleanSchema<Src | null>(true);
   }
-  serialize(): SerializedSchema {
+  protected executeSerialize(): SerializedSchema {
     return {
       type: "boolean",
       opt: this.opt,

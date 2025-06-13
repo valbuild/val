@@ -530,7 +530,7 @@ export class RichTextSchema<
     return new RichTextSchema(this.options, true) as Schema<Src | null>;
   }
 
-  serialize(): SerializedSchema {
+  protected executeSerialize(): SerializedSchema {
     const serializedOptions: SerializedRichTextOptions & ValidationOptions = {
       maxLength: this.options.maxLength,
       minLength: this.options.minLength,
@@ -540,7 +540,9 @@ export class RichTextSchema<
         a: this.options.inline.a,
         img:
           this.options.inline.img && typeof this.options.inline.img === "object"
-            ? (this.options.inline.img.serialize() as SerializedImageSchema)
+            ? (this.options.inline.img[
+                "executeSerialize"
+              ]() as SerializedImageSchema)
             : this.options.inline.img,
       },
     };

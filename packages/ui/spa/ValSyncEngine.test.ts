@@ -346,7 +346,7 @@ class SyncEngineTester {
   ): z.infer<Api["/schema"]["GET"]["res"]> {
     const serializedSchemas = Object.fromEntries(
       Object.entries(this.fakeSchemas).map(([path, schema]) => {
-        return [path, schema.serialize()] as const;
+        return [path, schema?.["executeSerialize"]()] as const;
       }),
     );
     return {

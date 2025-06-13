@@ -108,7 +108,7 @@ export class Service {
         path: sourcePath,
         schema:
           resolved.schema instanceof Schema
-            ? resolved.schema.serialize()
+            ? resolved.schema["executeSerialize"]()
             : resolved.schema,
         source: resolved.source,
         errors:
