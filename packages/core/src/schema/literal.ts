@@ -88,7 +88,7 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
     return new LiteralSchema<Src | null>(this.value, true);
   }
 
-  serialize(): SerializedSchema {
+  protected executeSerialize(): SerializedSchema {
     return {
       type: "literal",
       value: this.value,

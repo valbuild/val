@@ -1218,7 +1218,7 @@ function testPatchSet(
     for (const op of patch.patch) {
       patchSet.insert(
         moduleFilePath,
-        schema.serialize(),
+        schema["executeSerialize"](),
         op,
         patch.patchId,
         patch.createdAt,

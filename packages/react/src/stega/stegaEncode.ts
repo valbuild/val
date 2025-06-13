@@ -329,7 +329,7 @@ export function stegaEncode(
             : Internal.getSource(sourceOrSelector),
           opts.disabled
             ? undefined
-            : { path: selectorPath, schema: newSchema?.serialize() },
+            : { path: selectorPath, schema: newSchema?.["executeSerialize"]() },
         );
       }
 

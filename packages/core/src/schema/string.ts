@@ -153,7 +153,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     );
   }
 
-  serialize(): SerializedSchema {
+  protected executeSerialize(): SerializedSchema {
     return {
       type: "string",
       options: {

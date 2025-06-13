@@ -111,10 +111,10 @@ export class ArraySchema<
     return new ArraySchema(this.item, true);
   }
 
-  serialize(): SerializedArraySchema {
+  protected executeSerialize(): SerializedArraySchema {
     return {
       type: "array",
-      item: this.item.serialize(),
+      item: this.item["executeSerialize"](),
       opt: this.opt,
     };
   }

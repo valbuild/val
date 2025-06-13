@@ -169,9 +169,9 @@ describe("module", () => {
           },
         },
       ] as SelectorOfSchema<typeof basicSchema>,
-      basicSchema.serialize(),
+      basicSchema["executeSerialize"](),
     );
-    expect(res.schema).toStrictEqual(number().serialize());
+    expect(res.schema).toStrictEqual(number()["executeSerialize"]());
     expect(res.source).toStrictEqual(1);
   });
 

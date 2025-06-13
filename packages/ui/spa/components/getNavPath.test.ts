@@ -129,7 +129,7 @@ function testNavPath(
   const moduleFilePath = Internal.getValPath(
     module,
   ) as unknown as ModuleFilePath;
-  const schema = Internal.getSchema(module)!.serialize();
+  const schema = Internal.getSchema(module)!["executeSerialize"]();
   const navPath = getNavPathFromAll(
     path as SourcePath | ModuleFilePath,
     {

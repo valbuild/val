@@ -293,7 +293,7 @@ export abstract class ValOps {
             );
             return;
           }
-          if (typeof schema.serialize !== "function") {
+          if (typeof schema["executeSerialize"] !== "function") {
             addModuleError(
               `schema.serialize in path '${path}' is not a function`,
               moduleIdx,
@@ -308,7 +308,7 @@ export abstract class ValOps {
           }
           let serializedSchema: SerializedSchema;
           try {
-            serializedSchema = schema.serialize();
+            serializedSchema = schema["executeSerialize"]();
           } catch (e) {
             const message = e instanceof Error ? e.message : JSON.stringify(e);
             addModuleError(
@@ -578,7 +578,7 @@ export abstract class ValOps {
         sourcePath as SourcePath,
       );
       const keyOfModuleSource = sources[moduleFilePath];
-      const keyOfModuleSchema = schemas[moduleFilePath]?.serialize();
+      const keyOfModuleSchema = schemas[moduleFilePath]?.["executeSerialize"]();
       if (keyOfModuleSchema && keyOfModuleSchema.type !== "record") {
         return {
           error: true,

@@ -298,7 +298,7 @@ export class ImageSchema<
     return new ImageSchema<Src | null>(this.options, true, this.isRemote);
   }
 
-  serialize(): SerializedSchema {
+  protected executeSerialize(): SerializedSchema {
     return {
       type: "image",
       options: this.options,

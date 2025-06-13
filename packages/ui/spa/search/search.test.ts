@@ -178,7 +178,7 @@ function createTestDate(data: ValModule<SelectorSource>[]) {
   for (const m of data) {
     res[Internal.getValPath(m) as unknown as ModuleFilePath] = {
       source: Internal.getSource(m),
-      schema: Internal.getSchema(m)!.serialize(),
+      schema: Internal.getSchema(m)!["executeSerialize"](),
     };
   }
   return res;

@@ -223,7 +223,7 @@ function getModuleFilePath(
 }
 
 function getSchema(valModule: ValModule<SelectorSource>): SerializedSchema {
-  const schema = Internal.getSchema(valModule)?.serialize();
+  const schema = Internal.getSchema(valModule)?.["executeSerialize"]();
   if (!schema) {
     throw new Error("Schema not found");
   }

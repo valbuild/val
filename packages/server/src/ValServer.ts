@@ -1236,7 +1236,7 @@ export const ValServer = (
         try {
           for (const [moduleFilePathS, schema] of Object.entries(schemas)) {
             const moduleFilePath = moduleFilePathS as ModuleFilePath;
-            serializedSchemas[moduleFilePath] = schema.serialize();
+            serializedSchemas[moduleFilePath] = schema["executeSerialize"]();
           }
         } catch (e) {
           console.error("Val: Failed to serialize schemas", e);
@@ -2115,7 +2115,7 @@ function getIsRemoteRequired(
 ): boolean {
   for (const moduleFilePathS in schemas) {
     const moduleFilePath = moduleFilePathS as ModuleFilePath;
-    const schema = schemas[moduleFilePath].serialize();
+    const schema = schemas[moduleFilePath]["executeSerialize"]();
     const isRemoteRequired = hasRemoteFileSchema(schema);
     if (isRemoteRequired) {
       return true;

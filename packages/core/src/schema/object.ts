@@ -182,13 +182,13 @@ export class ObjectSchema<
     return new ObjectSchema(this.items, true) as Schema<Src | null>;
   }
 
-  serialize(): SerializedSchema {
+  protected executeSerialize(): SerializedSchema {
     return {
       type: "object",
       items: Object.fromEntries(
         Object.entries(this.items).map(([key, schema]) => [
           key,
-          schema.serialize(),
+          schema["executeSerialize"](),
         ]),
       ),
       opt: this.opt,

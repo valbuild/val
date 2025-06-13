@@ -157,7 +157,7 @@ export class DateSchema<Src extends string | null> extends Schema<Src> {
     return new DateSchema<Src | null>(this.options, true);
   }
 
-  serialize(): SerializedSchema {
+  protected executeSerialize(): SerializedSchema {
     return {
       type: "date",
       opt: this.opt,
