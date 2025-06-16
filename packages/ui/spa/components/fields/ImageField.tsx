@@ -176,7 +176,7 @@ export function ImageField({ path }: { path: SourcePath }) {
         )}
       <div className="flex flex-col gap-2">
         {source && (
-          <div className="p-4 rounded-lg bg-bg-secondary">
+          <div className="">
             <span id={altPath}>Alt text</span>
             <Input
               value={
@@ -313,10 +313,7 @@ export function ImageField({ path }: { path: SourcePath }) {
             )}
           </div>
         )}
-        <Button
-          asChild
-          className="cursor-pointer bg-bg-primary hover:bg-bg-secondary_alt"
-        >
+        <Button asChild variant={"secondary"}>
           <label htmlFor={`img_input:${path}`}>Upload</label>
         </Button>
         <input

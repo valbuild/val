@@ -280,21 +280,13 @@ export function FileField({ path }: { path: SourcePath }) {
                         }).url
                   }
                 />
-                <Button
-                  asChild
-                  variant={"ghost"}
-                  className="cursor-pointer bg-bg-primary hover:bg-bg-secondary_alt"
-                >
+                <Button asChild variant={"secondary"}>
                   <label htmlFor={`file_input:${path}`}>Upload</label>
                 </Button>
               </div>
             ) : (
               <>
-                <Button
-                  asChild
-                  variant={"ghost"}
-                  className="cursor-pointer bg-bg-primary hover:bg-bg-secondary_alt"
-                >
+                <Button asChild variant={"secondary"}>
                   <label htmlFor={`file_input:${path}`}>Upload</label>
                 </Button>
                 <a
