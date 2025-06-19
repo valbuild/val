@@ -328,7 +328,7 @@ export class ImageSchema<
     } as SchemaAssertResult<Src>;
   }
 
-  nullable(): Schema<Src | null> {
+  nullable(): ImageSchema<Src | null> {
     return new ImageSchema<Src | null>(this.options, true, this.isRemote);
   }
 

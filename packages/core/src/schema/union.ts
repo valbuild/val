@@ -465,8 +465,8 @@ export class UnionSchema<
     }
   }
 
-  nullable(): Schema<Src | null> {
-    return new UnionSchema(this.key, this.items, true) as Schema<Src | null>;
+  nullable(): UnionSchema<Key, T, Src | null> {
+    return new UnionSchema(this.key, this.items, true);
   }
 
   protected executeSerialize(): SerializedSchema {

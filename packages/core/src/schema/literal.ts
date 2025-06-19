@@ -114,7 +114,7 @@ export class LiteralSchema<Src extends string | null> extends Schema<Src> {
     };
   }
 
-  nullable(): Schema<Src | null> {
+  nullable(): LiteralSchema<Src | null> {
     return new LiteralSchema<Src | null>(this.value, true);
   }
 

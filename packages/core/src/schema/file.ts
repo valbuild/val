@@ -300,7 +300,7 @@ export class FileSchema<
     } as SchemaAssertResult<Src>;
   }
 
-  nullable(): Schema<Src | null> {
+  nullable(): FileSchema<Src | null> {
     return new FileSchema<Src | null>(this.options, true);
   }
 

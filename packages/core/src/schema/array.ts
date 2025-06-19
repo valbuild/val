@@ -120,7 +120,7 @@ export class ArraySchema<
     } as SchemaAssertResult<Src>;
   }
 
-  nullable(): Schema<Src | null> {
+  nullable(): ArraySchema<T, Src | null> {
     return new ArraySchema(this.item, true);
   }
 

@@ -130,8 +130,8 @@ export class NumberSchema<Src extends number | null> extends Schema<Src> {
     };
   }
 
-  nullable(): Schema<Src> {
-    return new NumberSchema<Src | null>(this.options, true) as Schema<Src>;
+  nullable(): NumberSchema<Src | null> {
+    return new NumberSchema<Src | null>(this.options, true);
   }
 
   max(max: number): NumberSchema<Src> {

@@ -88,7 +88,7 @@ export class BooleanSchema<Src extends boolean | null> extends Schema<Src> {
     } as SchemaAssertResult<Src>;
   }
 
-  nullable(): Schema<Src | null> {
+  nullable(): BooleanSchema<Src | null> {
     return new BooleanSchema<Src | null>(true);
   }
   protected executeSerialize(): SerializedSchema {
