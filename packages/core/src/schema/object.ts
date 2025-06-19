@@ -203,8 +203,8 @@ export class ObjectSchema<
     } as SchemaAssertResult<Src>;
   }
 
-  nullable(): Schema<Src | null> {
-    return new ObjectSchema(this.items, true) as Schema<Src | null>;
+  nullable(): ObjectSchema<Props, Src | null> {
+    return new ObjectSchema(this.items, true);
   }
 
   protected executeSerialize(): SerializedSchema {

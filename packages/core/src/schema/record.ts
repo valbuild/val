@@ -158,8 +158,8 @@ export class RecordSchema<
     } as SchemaAssertResult<Src>;
   }
 
-  nullable(): Schema<Src | null> {
-    return new RecordSchema(this.item, true) as Schema<Src | null>;
+  nullable(): RecordSchema<T, Src | null> {
+    return new RecordSchema(this.item, true);
   }
 
   executeSerialize(): SerializedRecordSchema {

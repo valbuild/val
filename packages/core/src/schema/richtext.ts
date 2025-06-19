@@ -556,8 +556,8 @@ export class RichTextSchema<
     }
   }
 
-  nullable(): Schema<Src | null> {
-    return new RichTextSchema(this.options, true) as Schema<Src | null>;
+  nullable(): RichTextSchema<O, Src | null> {
+    return new RichTextSchema(this.options, true);
   }
 
   protected executeSerialize(): SerializedSchema {

@@ -251,12 +251,8 @@ export class KeyOfSchema<
     } as SchemaAssertResult<Src>;
   }
 
-  nullable(): Schema<Src | null> {
-    return new KeyOfSchema(
-      this.schema,
-      this.sourcePath,
-      true,
-    ) as Schema<Src | null>;
+  nullable(): KeyOfSchema<Sel, Src | null> {
+    return new KeyOfSchema(this.schema, this.sourcePath, true);
   }
 
   protected executeSerialize(): SerializedSchema {
