@@ -75,7 +75,9 @@ export class RichTextSchema<
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     const customValidationErrors: ValidationError[] =
-      this.executeCustomValidateFunctions(src, this.customValidateFunctions);
+      this.executeCustomValidateFunctions(src, this.customValidateFunctions, {
+        path,
+      });
     const assertRes = this.executeAssert(path, src);
     if (!assertRes.success) {
       return customValidationErrors.length > 0
