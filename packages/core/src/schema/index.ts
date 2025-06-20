@@ -75,6 +75,7 @@ export type SchemaAssertResult<Src extends SelectorSource> =
   | { success: false; errors: Record<SourcePath, AssertError[]> };
 export type CustomValidateFunction<Src extends SelectorSource> = (
   src: Src,
+  ctx: { path: SourcePath },
 ) => false | string;
 export abstract class Schema<Src extends SelectorSource> {
   /** Validate the value of source content */
@@ -85,11 +86,12 @@ export abstract class Schema<Src extends SelectorSource> {
   protected executeCustomValidateFunctions(
     src: Src,
     customValidateFunctions: CustomValidateFunction<Src>[],
+    ctx: { path: SourcePath },
   ): ValidationError[] {
     const errors: ValidationError[] = [];
     for (const customValidateFunction of customValidateFunctions) {
       try {
-        const result = customValidateFunction(src);
+        const result = customValidateFunction(src, ctx);
         if (result) {
           errors.push({ message: result, value: src });
         }
