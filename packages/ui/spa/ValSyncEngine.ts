@@ -687,7 +687,7 @@ export class ValSyncEngine {
     if (this.cachedSyncStatus[sourcePath] === undefined) {
       this.cachedSyncStatus[sourcePath] = this.syncStatus[sourcePath] || null;
     }
-    return this.syncStatus[sourcePath];
+    return this.cachedSyncStatus[sourcePath];
   }
 
   private cachedPendingOpsCountSnapshot: number | null;
