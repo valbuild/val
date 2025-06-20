@@ -78,7 +78,9 @@ export class UnionSchema<
 
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     const customValidationErrors: ValidationError[] =
-      this.executeCustomValidateFunctions(src, this.customValidateFunctions);
+      this.executeCustomValidateFunctions(src, this.customValidateFunctions, {
+        path,
+      });
     const unknownSrc = src as unknown;
     if (this.opt && unknownSrc === null) {
       return customValidationErrors.length > 0

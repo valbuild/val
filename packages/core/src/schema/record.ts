@@ -6,6 +6,8 @@ import {
   SerializedSchema,
 } from ".";
 import { RenderSelector, ReifiedRender } from "../render";
+import { splitModuleFilePathAndModulePath } from "../module";
+import { ValRouter } from "../router";
 import { SelectorSource } from "../selector";
 import {
   createValPathOfItem,
@@ -24,6 +26,7 @@ export type SerializedRecordSchema = {
   type: "record";
   item: SerializedSchema;
   opt: boolean;
+  router?: string;
   customValidate?: boolean;
 };
 
@@ -35,6 +38,7 @@ export class RecordSchema<
     private readonly item: T,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
+    private readonly router: ValRouter | null = null,
   ) {
     super();
   }
@@ -51,7 +55,9 @@ export class RecordSchema<
   protected executeValidate(path: SourcePath, src: Src): ValidationErrors {
     let error: ValidationErrors = false;
     const customValidationErrors: ValidationError[] =
-      this.executeCustomValidateFunctions(src, this.customValidateFunctions);
+      this.executeCustomValidateFunctions(src, this.customValidateFunctions, {
+        path,
+      });
     if (this.opt && (src === null || src === undefined)) {
       return customValidationErrors.length > 0
         ? { [path]: customValidationErrors }
@@ -162,11 +168,86 @@ export class RecordSchema<
     return new RecordSchema(this.item, true);
   }
 
-  executeSerialize(): SerializedRecordSchema {
+  routes(router: ValRouter): RecordSchema<T, Src> {
+    return new RecordSchema(
+      this.item,
+      this.opt,
+      this.customValidateFunctions,
+      router,
+    );
+  }
+
+  private getRouterValidations(path: SourcePath, src: Src): ValidationErrors {
+    if (!this.router) {
+      return false;
+    }
+    if (src === null) {
+      return false;
+    }
+    const [moduleFilePath, modulePath] = splitModuleFilePathAndModulePath(path);
+    if (modulePath) {
+      return {
+        [path]: [
+          {
+            message: `This field was configured as a router, but it is not defined at the root of the module`,
+            schemaError: true,
+          },
+        ],
+      };
+    }
+    const routerValidations = this.router.validate(
+      moduleFilePath,
+      Object.keys(src),
+    );
+    if (routerValidations.length > 0) {
+      return Object.fromEntries(
+        routerValidations.map((validation): [SourcePath, ValidationError[]] => {
+          if (!validation.error.urlPath) {
+            return [
+              path,
+              [
+                {
+                  message: `Router validation error: ${validation.error.message} has no url path`,
+                  schemaError: true,
+                },
+              ],
+            ];
+          }
+          const subPath = createValPathOfItem(path, validation.error.urlPath);
+          if (!subPath) {
+            return [
+              path,
+              [
+                {
+                  message: `Could not create path for router validation error`,
+                  schemaError: true,
+                },
+              ],
+            ];
+          }
+          return [
+            subPath,
+            [
+              {
+                message: validation.error.message,
+                fixes: validation.error.expectedPath
+                  ? ["record:router:fix-url"]
+                  : undefined,
+              },
+            ],
+          ];
+        }),
+      );
+    }
+    return false;
+  }
+
+  protected executeSerialize(): SerializedRecordSchema {
     return {
       type: "record",
       item: this.item["executeSerialize"](),
       opt: this.opt,
+      router: this.router?.getRouterId(),
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,
