@@ -1741,6 +1741,93 @@ export function useShallowSourceAtPath<
   return source;
 }
 
+type ShallowSourcesOf<SchemaType extends SerializedSchema["type"]> =
+  | {
+      status: "not-found";
+      data: ShallowSource[SchemaType][];
+      notFoundPaths: ModuleFilePath[];
+    }
+  | {
+      status: "success";
+      data: ShallowSource[SchemaType][] | null;
+    }
+  | {
+      status: "loading";
+      data?: ShallowSource[SchemaType][] | null;
+    }
+  | {
+      status: "error";
+      data?: ShallowSource[SchemaType][] | null;
+      errors: { moduleFilePath: ModuleFilePath; message: string }[];
+    };
+export function useShallowModulesAtPaths<
+  SchemaType extends SerializedSchema["type"],
+>(
+  moduleFilePaths: ModuleFilePath[],
+  type: SchemaType,
+): ShallowSourcesOf<SchemaType> {
+  const { syncEngine } = useContext(ValContext);
+  const sourcesRes = useSyncExternalStore(
+    syncEngine.subscribe("sources", moduleFilePaths || []),
+    () => syncEngine.getSourcesSnapshot(moduleFilePaths || []),
+    () => syncEngine.getSourcesSnapshot(moduleFilePaths || []),
+  );
+  const initializedAt = useSyncEngineInitializedAt(syncEngine);
+  if (initializedAt === null) {
+    return { status: "loading" };
+  }
+  return useMemo((): ShallowSourcesOf<SchemaType> => {
+    if (!sourcesRes) {
+      return {
+        status: "not-found",
+        data: [],
+        notFoundPaths: moduleFilePaths || [],
+      };
+    }
+    const allSources: ShallowSource[SchemaType][] = [];
+    const errors: { moduleFilePath: ModuleFilePath; message: string }[] = [];
+    const notFoundPaths: ModuleFilePath[] = [];
+    if (!moduleFilePaths || moduleFilePaths.length === 0) {
+      return { status: "success", data: [] };
+    }
+    for (let i = 0; i < moduleFilePaths.length; i++) {
+      const moduleFilePath = moduleFilePaths?.[i];
+      if (moduleFilePath === undefined) {
+        // should never happen
+        throw new Error(
+          "While resolving shallow modules at paths, we unexpectedly got an undefined module file path",
+        );
+      }
+      const source = sourcesRes?.[i];
+      if (!source) {
+        notFoundPaths.push(moduleFilePath);
+      }
+      const mappedSource = mapSource(
+        moduleFilePath,
+        "" as ModulePath,
+        type,
+        source,
+      );
+
+      if (mappedSource.status === "success") {
+        allSources.push(mappedSource.data as ShallowSource[SchemaType]);
+      } else {
+        errors.push({ moduleFilePath, message: mappedSource.error });
+      }
+    }
+    if (notFoundPaths.length > 0) {
+      return { status: "not-found", data: allSources, notFoundPaths };
+    }
+    if (errors.length > 0) {
+      return { status: "error", data: allSources, errors };
+    }
+    return {
+      status: "success",
+      data: allSources,
+    };
+  }, [sourcesRes, type]);
+}
+
 export function useAllSources() {
   const { syncEngine } = useContext(ValContext);
   const sources = useSyncExternalStore(
