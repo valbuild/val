@@ -128,6 +128,7 @@ export {
   type ListArrayPreview,
   type ReifiedPreview,
 } from "./preview";
+export type { ValRouter, RouteValidationError } from "./router";
 
 export const FATAL_ERROR_TYPES = [
   "no-schema",

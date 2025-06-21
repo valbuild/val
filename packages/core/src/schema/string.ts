@@ -99,6 +99,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     const errors: ValidationError[] = this.executeCustomValidateFunctions(
       src,
       this.customValidateFunctions,
+      { path },
     );
     if (this.opt && (src === null || src === undefined)) {
       return errors.length > 0 ? { [path]: errors } : false;
