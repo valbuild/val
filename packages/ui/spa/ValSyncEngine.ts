@@ -191,6 +191,7 @@ export class ValSyncEngine {
     this.cachedSyncedServerSidePatchIdsSnapshot = null;
     this.cachedSavedServerSidePatchIdsSnapshot = null;
     this.cachedAllSourcesSnapshot = null;
+    this.cachedSourcesSnapshot = null;
     this.cachedSyncStatus = null;
     this.cachedPendingOpsCountSnapshot = null;
     this.cachedInitializedAtSnapshot = null;
@@ -320,6 +321,10 @@ export class ValSyncEngine {
     path: ModuleFilePath,
   ): (listener: () => void) => () => void;
   subscribe(
+    type: "sources",
+    paths: ModuleFilePath[],
+  ): (listener: () => void) => () => void;
+  subscribe(
     type: "render",
     path: ModuleFilePath,
   ): (listener: () => void) => () => void;
@@ -361,7 +366,7 @@ export class ValSyncEngine {
   subscribe(type: "all-patches"): (listener: () => void) => () => void;
   subscribe(
     type: SyncEngineListenerType,
-    path?: string,
+    path?: string | string[],
   ): (listener: () => void) => () => void {
     const p = path || globalNamespace;
     return (listener: () => void) => {
@@ -372,13 +377,29 @@ export class ValSyncEngine {
       if (!listeners[type]) {
         listeners[type] = {};
       }
-      if (!listeners[type][p]) {
-        listeners[type][p] = [];
+      if (Array.isArray(p)) {
+        const indices: number[] = [];
+        for (const path of p) {
+          if (!listeners[type][path]) {
+            listeners[type][path] = [];
+          }
+          const idx = listeners[type][path].push(listener) - 1;
+          indices.push(idx);
+        }
+        return () => {
+          for (const idx of indices) {
+            listeners[type]?.[p[idx]].splice(idx, 1);
+          }
+        };
+      } else {
+        if (!listeners[type][p]) {
+          listeners[type][p] = [];
+        }
+        const idx = listeners[type][p].push(listener) - 1;
+        return () => {
+          listeners[type]?.[p].splice(idx, 1);
+        };
       }
-      const idx = listeners[type][p].push(listener) - 1;
-      return () => {
-        listeners[type]?.[p].splice(idx, 1);
-      };
     };
   }
   private emit(listeners?: (() => void)[]) {
@@ -408,6 +429,18 @@ export class ValSyncEngine {
       };
     }
     this.cachedAllSourcesSnapshot = null;
+    if (this.cachedSourcesSnapshot !== null) {
+      const invalidatedKeys: string[] = [];
+      for (const key in this.cachedSourcesSnapshot) {
+        if (key.includes(moduleFilePath + this.multipleSourcesSep)) {
+          invalidatedKeys.push(key);
+        }
+        this.emit(this.listeners.sources?.[key]);
+      }
+      for (const key of invalidatedKeys) {
+        this.cachedSourcesSnapshot[key] = undefined;
+      }
+    }
     this.emit(this.listeners.source?.[moduleFilePath]);
   }
 
@@ -634,6 +667,30 @@ export class ValSyncEngine {
       }
     }
     return this.cachedAllSourcesSnapshot;
+  }
+
+  private multipleSourcesSep = "|";
+  private cachedSourcesSnapshot: Record<string, Json[] | undefined> | null;
+  getSourcesSnapshot(paths: ModuleFilePath[]) {
+    const pathsKey = paths
+      .sort()
+      .map((path) => path + this.multipleSourcesSep)
+      .join(this.multipleSourcesSep);
+    if (this.cachedSourcesSnapshot === null) {
+      this.cachedSourcesSnapshot = {};
+      for (const moduleFilePath of paths) {
+        const data =
+          this.optimisticClientSources[moduleFilePath] ||
+          this.serverSources?.[moduleFilePath];
+        if (data !== undefined) {
+          this.cachedSourcesSnapshot[pathsKey] = [
+            ...(this.cachedSourcesSnapshot[pathsKey] || []),
+            deepClone(data),
+          ];
+        }
+      }
+    }
+    return this.cachedSourcesSnapshot[pathsKey];
   }
 
   private cachedAllSchemasSnapshot: Record<
@@ -2287,7 +2344,8 @@ type SyncEngineListenerType =
   | "pending-ops-count"
   | "all-sources"
   | "render"
-  | "source";
+  | "source"
+  | "sources";
 type SyncStatus = "not-asked" | "fetching" | "patches-pending" | "done";
 type CommonOpProps<T> = T & {
   createdAt: number;
