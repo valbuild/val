@@ -477,7 +477,7 @@ function Window({
             }}
           ></div>
           <form
-            className="flex flex-col items-start justify-start w-full gap-4 lg:justify-start"
+            className="flex flex-col gap-4 justify-start items-start w-full lg:justify-start"
             onSubmit={(ev) => {
               ev.preventDefault();
               ev.stopPropagation();
@@ -615,18 +615,18 @@ function ValMenu({
                     ? "bottom"
                     : "top";
   return (
-    <div className="p-4 right-16">
+    <div className="right-16 p-4">
       {/* See ValNextProvider: this same snippet is used there  */}
       {loading && (
         <div className={getPositionClassName(dropZone) + " p-4"}>
-          <div className="flex items-center justify-center p-2 text-white bg-black rounded backdrop-blur">
+          <div className="flex justify-center items-center p-2 text-white bg-black rounded backdrop-blur">
             <Clock className="animate-spin" size={16} />
           </div>
         </div>
       )}
       {authenticationState === "login-required" && (
         <div className={getPositionClassName(dropZone) + " p-4"}>
-          <div className="flex items-center justify-center p-2 text-white bg-black rounded backdrop-blur">
+          <div className="flex justify-center items-center p-2 text-white bg-black rounded backdrop-blur">
             <a
               href={urlOf("/api/val/authorize", {
                 redirect_to: window.location.href,
@@ -744,13 +744,13 @@ function ValMenu({
               sideOffset={publishPopoverSideOffset}
               className="z-[9000] relative max-w-[352px] w-screen rounded-none sm:rounded flex flex-col items-end"
             >
-              <div className="absolute sm:hidden top-4 right-4">
+              <div className="absolute top-4 right-4 sm:hidden">
                 <PopoverClose>
                   <X size={16} />
                 </PopoverClose>
               </div>
               {!publishDisabled && (
-                <div className="flex items-center justify-between gap-4 px-4 py-4 pt-8 sm:hidden">
+                <div className="flex gap-4 justify-between items-center px-4 py-4 pt-8 sm:hidden">
                   <PublishButton />
                 </div>
               )}
@@ -838,7 +838,7 @@ function ValMenu({
       >
         <div
           className={classNames(
-            "flex relative rounded bg-bg-primary text-text-primary gap-2",
+            "flex relative rounded bg-bg-primary text-text-primary gap-2 justify-center items-center",
             {
               "flex-col py-4 px-2": dir === "vertical",
               "flex-row px-4 py-2": dir === "horizontal",
