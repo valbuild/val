@@ -2,7 +2,7 @@ export function fixCapitalization(path: string): string {
   let styledPath = "";
   let lastWasLowerCase = false;
   for (let i = 0; i < path.length; i++) {
-    const isUpperCase = path[i] === path[i].toUpperCase();
+    const isUpperCase = path[i] !== path[i].toLowerCase();
     if (i === 0) {
       styledPath += path[i].toUpperCase();
       lastWasLowerCase = false;
