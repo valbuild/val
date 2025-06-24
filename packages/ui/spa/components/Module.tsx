@@ -67,7 +67,7 @@ export function Module({ path }: { path: SourcePath }) {
     <div className="flex flex-col gap-6 pt-4 pb-40">
       <div className="flex flex-col gap-2 text-left">
         {parts.length > 1 && (
-          <div className="inline-flex items-center text-sm text-text-quartenary">
+          <div className="inline-flex items-center text-sm text-text-quaternary">
             {init.map((part, i) => {
               if (i < init.length - 1) {
                 return (

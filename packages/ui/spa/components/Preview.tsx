@@ -74,7 +74,7 @@ export function PreviewLoading({ path }: { path: SourcePath }) {
 
 export function PreviewNull({ path }: { path: SourcePath }) {
   return (
-    <div id={path} key={path + "-null"} className="text-text-quartenary">
+    <div id={path} key={path + "-null"} className="text-text-quaternary">
       {"<empty>"}
     </div>
   );
