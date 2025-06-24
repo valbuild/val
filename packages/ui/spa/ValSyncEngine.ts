@@ -429,18 +429,7 @@ export class ValSyncEngine {
       };
     }
     this.cachedAllSourcesSnapshot = null;
-    if (this.cachedSourcesSnapshot !== null) {
-      const invalidatedKeys: string[] = [];
-      for (const key in this.cachedSourcesSnapshot) {
-        if (key.includes(moduleFilePath + this.multipleSourcesSep)) {
-          invalidatedKeys.push(key);
-        }
-        this.emit(this.listeners.sources?.[key]);
-      }
-      for (const key of invalidatedKeys) {
-        this.cachedSourcesSnapshot[key] = undefined;
-      }
-    }
+    this.cachedSourcesSnapshot = null;
     this.emit(this.listeners.source?.[moduleFilePath]);
   }
 
