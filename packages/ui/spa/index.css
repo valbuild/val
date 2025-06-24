@@ -112,7 +112,7 @@
     --bg-primary_hover: var(--colors-gray-light-mode-gray-50);
     --bg-primary-solid: var(--colors-gray-light-mode-gray-950);
     --bg-primary: var(--colors-base-white);
-    --bg-quartenary: var(--colors-gray-light-mode-gray-200);
+    --bg-quaternary: var(--colors-gray-light-mode-gray-200);
     --bg-secondary_alt: var(--colors-gray-light-mode-gray-50);
     --bg-secondary_hover: var(--colors-gray-light-mode-gray-100);
     --bg-secondary_subtle: var(--colors-gray-light-mode-gray-25);
@@ -138,8 +138,8 @@
     --fg-disabled_subtle: var(--colors-gray-light-mode-gray-300);
     --fg-disabled: var(--colors-gray-light-mode-gray-400);
     --fg-primary: var(--colors-gray-light-mode-grey-900);
-    --fg-quartenary_hover: var(--colors-gray-light-mode-gray-600);
-    --fg-quartenary: var(--colors-gray-light-mode-gray-500);
+    --fg-quaternary_hover: var(--colors-gray-light-mode-gray-600);
+    --fg-quaternary: var(--colors-gray-light-mode-gray-500);
     --fg-quinary_hover: var(--colors-gray-light-mode-gray-500);
     --fg-quinary: var(--colors-gray-light-mode-gray-400);
     --fg-secondary_hover: var(--colors-gray-light-mode-grey-800);
@@ -161,8 +161,8 @@
     --text-placeholder: var(--colors-gray-light-mode-gray-500);
     --text-primary_on-brand: var(--colors-base-white);
     --text-primary: var(--colors-gray-light-mode-grey-900);
-    --text-quartenary_on-brand: var(--turquoise-300);
-    --text-quartenary: var(--colors-gray-light-mode-gray-500);
+    --text-quaternary_on-brand: var(--turquoise-300);
+    --text-quaternary: var(--colors-gray-light-mode-gray-500);
     --text-secondary_hover: var(--colors-gray-light-mode-grey-800);
     --text-secondary_on-brand: var(--turquoise-200);
     --text-secondary: var(--colors-gray-light-mode-gray-700);
@@ -195,7 +195,7 @@
     --bg-primary_hover: var(--colors-gray-dark-mode-gray-800);
     --bg-primary-solid: var(--colors-gray-dark-mode-gray-900);
     --bg-primary: var(--colors-gray-dark-mode-gray-950);
-    --bg-quartenary: var(--colors-gray-dark-mode-gray-700);
+    --bg-quaternary: var(--colors-gray-dark-mode-gray-700);
     --bg-secondary_alt: var(--colors-gray-dark-mode-gray-950);
     --bg-secondary_hover: var(--colors-gray-dark-mode-gray-800);
     --bg-secondary_subtle: var(--colors-gray-dark-mode-gray-900);
@@ -221,8 +221,8 @@
     --fg-disabled_subtle: var(--colors-gray-dark-mode-gray-600);
     --fg-disabled: var(--colors-gray-dark-mode-gray-500);
     --fg-primary: var(--colors-base-white);
-    --fg-quartenary_hover: var(--colors-gray-dark-mode-gray-300);
-    --fg-quartenary: var(--colors-gray-dark-mode-gray-400);
+    --fg-quaternary_hover: var(--colors-gray-dark-mode-gray-300);
+    --fg-quaternary: var(--colors-gray-dark-mode-gray-400);
     --fg-quinary_hover: var(--colors-gray-dark-mode-gray-400);
     --fg-quinary: var(--colors-gray-dark-mode-gray-500);
     --fg-secondary_hover: var(--colors-gray-dark-mode-gray-200);
@@ -244,8 +244,8 @@
     --text-placeholder: var(--colors-gray-dark-mode-gray-400);
     --text-primary_on-brand: var(--colors-gray-dark-mode-gray-50);
     --text-primary: var(--colors-gray-dark-mode-gray-50);
-    --text-quartenary_on-brand: var(--colors-gray-dark-mode-gray-400);
-    --text-quartenary: var(--colors-gray-dark-mode-gray-400);
+    --text-quaternary_on-brand: var(--colors-gray-dark-mode-gray-400);
+    --text-quaternary: var(--colors-gray-dark-mode-gray-400);
     --text-secondary_hover: var(--colors-gray-dark-mode-gray-200);
     --text-secondary_on-brand: var(--colors-gray-dark-mode-gray-300);
     --text-secondary: var(--colors-gray-dark-mode-gray-300);

@@ -367,7 +367,7 @@ function Deployment({
       </div>
       {isFinished && (
         <div className="flex items-start gap-2">
-          <span className="text-xs font-light text-text-quartenary">
+          <span className="text-xs font-light text-text-quaternary">
             Deployed
           </span>
           <button
@@ -414,7 +414,7 @@ function TimeSpent({ since }: { since: Date }) {
     };
   }, [since]);
   return (
-    <div className="text-xs font-light text-text-quartenary">
+    <div className="text-xs font-light text-text-quaternary">
       {minutes}
       {seconds !== null ? `:${seconds}` : " mins"}
     </div>
@@ -685,7 +685,7 @@ const PatchOrPatchSetCard = forwardRef<
         ref={ref}
         className={classNames("p-6", {
           "bg-bg-secondary": !isOpen,
-          "bg-bg-quartenary": isOpen,
+          "bg-bg-quaternary": isOpen,
           "opacity-50": isApplied,
         })}
       >
@@ -724,7 +724,7 @@ const PatchOrPatchSetCard = forwardRef<
               className="relative ml-5"
             >
               {amount && (
-                <span className="absolute px-2 text-xs rounded-full -top-6 -right-5 bg-bg-quartenary">
+                <span className="absolute px-2 text-xs rounded-full -top-6 -right-5 bg-bg-quaternary">
                   {amount > 10 ? "10+" : amount}
                 </span>
               )}
@@ -782,7 +782,7 @@ const PatchOrPatchSetCard = forwardRef<
                       >
                         <span
                           className={classNames(
-                            "flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full bg-bg-quartenary text-fg-primary",
+                            "flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full bg-bg-quaternary text-fg-primary",
                           )}
                           aria-label={"Initials for: " + author.fullName}
                         >
@@ -802,7 +802,7 @@ const PatchOrPatchSetCard = forwardRef<
                         "-ml-3": authors.length > 2,
                       })}
                     >
-                      <span className="flex items-center justify-center w-6 h-6 -ml-3 text-xs font-semibold rounded-full bg-bg-quartenary text-fg-primary">
+                      <span className="flex items-center justify-center w-6 h-6 -ml-3 text-xs font-semibold rounded-full bg-bg-quaternary text-fg-primary">
                         +{authors.length - 2}
                       </span>
                     </HoverCardTrigger>
