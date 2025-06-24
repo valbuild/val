@@ -485,7 +485,7 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
             {node.name === "/" && (
               <HoverCard>
                 <HoverCardTrigger>
-                  <span className="text-fg-brand-sencondary">/</span>
+                  <span className="text-fg-brand-secondary">/</span>
                 </HoverCardTrigger>
                 <HoverCardContent>Main page</HoverCardContent>
               </HoverCard>
@@ -494,7 +494,7 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
               <>
                 <span
                   className={cn("pr-[2px]", {
-                    "text-fg-brand-sencondary": !!node.sourcePath,
+                    "text-fg-brand-secondary": !!node.sourcePath,
                   })}
                 >
                   /
