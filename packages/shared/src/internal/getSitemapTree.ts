@@ -1,7 +1,15 @@
+import {
+  Internal,
+  ModuleFilePath,
+  ModulePath,
+  SourcePath,
+} from "@valbuild/core";
+
 export type PageNode = {
   type: "leaf";
   name: string;
   fullPath?: string;
+  sourcePath: SourcePath | ModuleFilePath;
   pattern?: string; // if a pattern is present you can add new children to this node
   children: (SitemapNode | PageNode)[];
 };
@@ -16,6 +24,7 @@ export type SitemapNode = {
   pattern?: string; // if a pattern is present you can add new children to this node
   isLinear?: true;
   children: (SitemapNode | PageNode)[];
+  sourcePath?: SourcePath | ModuleFilePath;
 };
 
 // Strictly speaking this should be in the next package but it's shared, because we want to use it in the ui package. We want to resolve that somehow
@@ -30,17 +39,23 @@ export function getNextAppRouterSitemapTree(
   };
 
   for (const path of paths) {
-    const { urlPath, moduleFilePath } = path;
+    const { urlPath, moduleFilePath: moduleFilePathS } = path;
+    const moduleFilePath = moduleFilePathS as ModuleFilePath;
     if (!urlPath.startsWith("/")) {
       console.error(`urlPath must start with /: ${urlPath}`);
       continue;
     }
     const pattern = getPatternFromModuleFilePath(moduleFilePath, srcFolder);
     if (urlPath === "/") {
+      const fullPath = "/";
       root.pattern = getPatternFromModuleFilePath(moduleFilePath, srcFolder);
       root.page = {
-        fullPath: "/",
+        fullPath,
       };
+      root.sourcePath = Internal.joinModuleFilePathAndModulePath(
+        moduleFilePath,
+        fullPath as ModulePath,
+      );
       continue;
     }
 
@@ -51,12 +66,16 @@ export function getNextAppRouterSitemapTree(
       const hasChildren = index < pathParts.length - 1;
       const isLast = index === pathParts.length - 1;
       const fullPath = "/" + pathParts.slice(0, index + 1).join("/");
+      const sourcePath = Internal.joinModuleFilePathAndModulePath(
+        moduleFilePath,
+        fullPath as ModulePath,
+      );
       const node: SitemapNode | PageNode = hasChildren
         ? {
             type: "node",
             name: part,
             pattern,
-            ...(isLast ? { page: { fullPath } } : {}),
+            ...(isLast ? { page: { fullPath }, sourcePath } : {}),
             children: [],
           }
         : {
@@ -64,6 +83,7 @@ export function getNextAppRouterSitemapTree(
             name: part,
             pattern,
             fullPath,
+            sourcePath,
             children: [],
           };
 
@@ -82,12 +102,14 @@ export function getNextAppRouterSitemapTree(
       } else {
         const existingNode = currentNode.children[existingNodeIndex];
         if (existingNode.type === "leaf" && hasChildren) {
+          const sourcePath = existingNode.sourcePath as SourcePath;
           // convert leaf to node
           currentNode.children[existingNodeIndex] = {
             type: "node",
             name: part,
             pattern,
             page: { fullPath },
+            sourcePath,
             children: existingNode.children,
           };
           currentNode = currentNode.children[existingNodeIndex];
