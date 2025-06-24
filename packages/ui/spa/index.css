@@ -134,7 +134,7 @@
     --border-tertiary: var(--colors-gray-light-mode-gray-100);
     --fg-brand-primary_alt: var(--turquoise-500);
     --fg-brand-primary: var(--turquoise-500);
-    --fg-brand-sencondary: var(--turquoise-500);
+    --fg-brand-secondary: var(--turquoise-500);
     --fg-disabled_subtle: var(--colors-gray-light-mode-gray-300);
     --fg-disabled: var(--colors-gray-light-mode-gray-400);
     --fg-primary: var(--colors-gray-light-mode-grey-900);
@@ -217,7 +217,7 @@
     --border-tertiary: var(--colors-gray-dark-mode-gray-800);
     --fg-brand-primary_alt: var(--colors-gray-dark-mode-gray-300);
     --fg-brand-primary: var(--turquoise-500);
-    --fg-brand-sencondary: var(--turquoise-500);
+    --fg-brand-secondary: var(--turquoise-500);
     --fg-disabled_subtle: var(--colors-gray-dark-mode-gray-600);
     --fg-disabled: var(--colors-gray-dark-mode-gray-500);
     --fg-primary: var(--colors-base-white);

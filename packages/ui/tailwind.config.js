@@ -64,7 +64,7 @@ module.exports = {
         "border-tertiary": "var(--border-tertiary)",
         "fg-brand-primary_alt": "var(--fg-brand-primary_alt)",
         "fg-brand-primary": "var(--fg-brand-primary)",
-        "fg-brand-sencondary": "var(--fg-brand-sencondary)",
+        "fg-brand-secondary": "var(--fg-brand-secondary)",
         "fg-disabled_subtle": "var(--fg-disabled_subtle)",
         "fg-disabled": "var(--fg-disabled)",
         "fg-error-primary": "var(--fg-error-primary)",
