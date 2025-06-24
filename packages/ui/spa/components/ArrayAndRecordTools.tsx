@@ -350,7 +350,7 @@ function ChangeRecordPopover({
             </PopoverTrigger>
           </Button>
         </HoverCardTrigger>
-        <HoverCardContent side="top">Change name</HoverCardContent>
+        <HoverCardContent side="top">Rename</HoverCardContent>
       </HoverCard>
       <PopoverContent container={portalContainer} className="text-text-primary">
         <form
