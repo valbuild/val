@@ -640,7 +640,7 @@ const SavePatchFileResponse = z.object({
   filePath: z.string().refine((v): v is ModuleFilePath => v.length > 0),
 });
 
-export function useAddPatch(sourcePath: SourcePath) {
+export function useAddPatch(sourcePath: SourcePath | ModuleFilePath) {
   const { syncEngine, client } = useContext(ValContext);
   const [moduleFilePath, modulePath] =
     Internal.splitModuleFilePathAndModulePath(sourcePath);
@@ -1414,7 +1414,7 @@ export function useRenderOverrideAtPath(
   }, [renderRes, initializedAt, sourcesRes, sourcePath]);
 }
 
-export function useSchemaAtPath(sourcePath: SourcePath):
+export function useSchemaAtPath(sourcePath: SourcePath | ModuleFilePath):
   | { status: "not-found" }
   | { status: "loading" }
   | {
@@ -1702,7 +1702,10 @@ type ShallowSourceOf<SchemaType extends SerializedSchema["type"]> =
  */
 export function useShallowSourceAtPath<
   SchemaType extends SerializedSchema["type"],
->(sourcePath?: SourcePath, type?: SchemaType): ShallowSourceOf<SchemaType> {
+>(
+  sourcePath?: SourcePath | ModuleFilePath,
+  type?: SchemaType,
+): ShallowSourceOf<SchemaType> {
   const { syncEngine } = useContext(ValContext);
   const [moduleFilePath, modulePath] = sourcePath
     ? Internal.splitModuleFilePathAndModulePath(sourcePath)
