@@ -38,7 +38,7 @@ export class RecordSchema<
     private readonly item: T,
     private readonly opt: boolean = false,
     private readonly customValidateFunctions: CustomValidateFunction<Src>[] = [],
-    private readonly router: ValRouter | null = null,
+    private readonly currentRouter: ValRouter | null = null,
   ) {
     super();
   }
@@ -86,6 +86,10 @@ export class RecordSchema<
           { message: `Expected 'object', got 'array'` },
         ],
       } as ValidationErrors;
+    }
+    const routerValidations = this.getRouterValidations(path, src);
+    if (routerValidations) {
+      return routerValidations;
     }
     for (const customValidationError of customValidationErrors) {
       error = this.appendValidationError(
@@ -168,7 +172,7 @@ export class RecordSchema<
     return new RecordSchema(this.item, true);
   }
 
-  routes(router: ValRouter): RecordSchema<T, Src> {
+  router(router: ValRouter): RecordSchema<T, Src> {
     return new RecordSchema(
       this.item,
       this.opt,
@@ -178,7 +182,7 @@ export class RecordSchema<
   }
 
   private getRouterValidations(path: SourcePath, src: Src): ValidationErrors {
-    if (!this.router) {
+    if (!this.currentRouter) {
       return false;
     }
     if (src === null) {
@@ -195,7 +199,7 @@ export class RecordSchema<
         ],
       };
     }
-    const routerValidations = this.router.validate(
+    const routerValidations = this.currentRouter.validate(
       moduleFilePath,
       Object.keys(src),
     );
@@ -230,9 +234,6 @@ export class RecordSchema<
             [
               {
                 message: validation.error.message,
-                fixes: validation.error.expectedPath
-                  ? ["record:router:fix-url"]
-                  : undefined,
               },
             ],
           ];
@@ -247,7 +248,7 @@ export class RecordSchema<
       type: "record",
       item: this.item["executeSerialize"](),
       opt: this.opt,
-      router: this.router?.getRouterId(),
+      router: this.currentRouter?.getRouterId(),
       customValidate:
         this.customValidateFunctions &&
         this.customValidateFunctions?.length > 0,

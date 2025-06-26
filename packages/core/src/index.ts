@@ -129,6 +129,7 @@ export {
   type ReifiedRender,
 } from "./render";
 export type { ValRouter, RouteValidationError } from "./router";
+import { nextAppRouter } from "./router";
 
 export const FATAL_ERROR_TYPES = [
   "no-schema",
@@ -162,6 +163,7 @@ const Internal = {
   safeResolvePath,
   splitModuleFilePathAndModulePath,
   joinModuleFilePathAndModulePath,
+  nextAppRouter,
   remote: {
     createRemoteRef,
     getValidationBasis,

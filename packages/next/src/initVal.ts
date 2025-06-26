@@ -16,12 +16,7 @@ import { ValEncodedString } from "./external_exempt_from_val_quickjs";
 
 type ValAttrs = { "data-val-path"?: string };
 
-const nextAppRouter: ValRouter = {
-  getRouterId: () => "next-app-router",
-  validate: (moduleFilePath, urlPaths) => {
-    return [];
-  },
-};
+const nextAppRouter: ValRouter = Internal.nextAppRouter;
 
 export const initVal = (
   config?: ValConfig,

@@ -52,7 +52,7 @@ export type Content = t.inferSchema<typeof schema>;
 export type Image = t.inferSchema<typeof image>;
 export default c.define(
   "/app/page.val.ts",
-  s.record(schema).routes(nextAppRouter),
+  s.record(schema).router(nextAppRouter),
   {
     "/": {
       video: c.file("/public/val/file_example.webm", {

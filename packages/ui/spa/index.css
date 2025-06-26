@@ -274,7 +274,7 @@
   }
 
   ::selection {
-    background-color: var(--bg-brand-solid_hover);
+    background-color: var(--bg-active);
     color: --var(--text-brand-primary);
   }
 }

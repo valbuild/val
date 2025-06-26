@@ -29,7 +29,9 @@ import {
   Sun,
   LogOut,
   User,
-  Home,
+  Plus,
+  Edit2,
+  Trash2,
   Globe,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -50,8 +52,11 @@ import { prettifyFilename } from "../utils/prettifyFilename";
 import { useNavigation } from "./ValRouter";
 import { ScrollArea } from "./designSystem/scroll-area";
 import { fixCapitalization } from "../utils/fixCapitalization";
-import { Popover, PopoverContent } from "./designSystem/popover";
-import { PopoverTrigger } from "@radix-ui/react-popover";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "./designSystem/popover";
 import { useLayout } from "./Layout";
 import { ProfileImage } from "./ProfileImage";
 import {
@@ -66,6 +71,19 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "./designSystem/hover-card";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogTrigger,
+} from "./designSystem/dialog";
+import { RenameRecordKeyForm } from "./RenameRecordKeyForm";
+import { useKeysOf } from "./useKeysOf";
+import { DeleteRecordButton } from "./DeleteRecordButton";
+import { Button } from "./designSystem/button";
+import { RoutePattern, parseRoutePattern } from "../utils/parseRoutePattern";
+import { Input } from "./designSystem/input";
+import { AddRecordPopover } from "./AddRecordPopover";
 
 export const NAV_MENU_MOBILE_BREAKPOINT = 1280; // nav menu behaves a bit differently (closes it self) below this breakpoint.
 
@@ -283,7 +301,6 @@ function useTrees(): Remote<{
           moduleFilePaths.push(filePath);
         }
       }
-
       return {
         status: remoteSchemasByModuleFilePath.status,
         data: {
@@ -325,7 +342,7 @@ function NavSection({
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen ?? true);
   return (
-    <div className="pr-4 pl-0">
+    <div className="">
       {title && (
         <button
           className="flex justify-between items-center py-2 w-full text-sm tracking-tighter uppercase text-fg-secondary"
@@ -342,7 +359,7 @@ function NavSection({
           />
         </button>
       )}
-      <AnimateHeight isOpen={isOpen} className="pr-4 pl-0">
+      <AnimateHeight isOpen={isOpen} className="pr-1">
         {children}
       </AnimateHeight>
     </div>
@@ -375,7 +392,6 @@ function NextAppRouterSitemap({
 }: {
   moduleFilePaths: ModuleFilePath[];
 }) {
-  const { navigate } = useNavigation();
   const shallowModules = useShallowModulesAtPaths(moduleFilePaths, "record");
   const rootNode = useMemo((): Remote<SitemapNode> => {
     const paths: { urlPath: string; moduleFilePath: ModuleFilePath }[] = [];
@@ -439,42 +455,58 @@ function NextAppRouterSitemap({
     console.error("Sitemap errors", rootNode.error);
     return null;
   }
-  return (
-    <div>
-      <SiteMapNode node={rootNode.data} />
-    </div>
-  );
+  return <SiteMapNode node={rootNode.data} />;
 }
 
 function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
+  const portalContainer = useValPortal();
   const [isOpen, setIsOpen] = useState(true);
   const { navigate } = useNavigation();
-  if (node.type === "leaf") {
-    return (
-      <button
-        className="p-2 w-full text-left"
-        onClick={() => {
-          navigate(node.sourcePath);
-        }}
-      >
-        <span className="pr-1 text-fg-tertiary">/</span>
-        <span>{node.name}</span>
-      </button>
-    );
-  }
-  if (node.type === "node") {
-    return (
-      <div>
-        <div className="flex items-center">
-          <button onClick={() => setIsOpen(!isOpen)} className="py-2 pr-1">
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [addRouteOpen, setAddRouteOpen] = useState(false);
+  const routePatternWithParams = useMemo(() => {
+    if (!node.pattern) {
+      return undefined;
+    }
+    const routePattern = parseRoutePattern(node.pattern);
+    if (
+      routePattern.some(
+        (part) => part.type === "string-param" || part.type === "array-param",
+      )
+    ) {
+      return routePattern;
+    } else {
+      return undefined;
+    }
+  }, [node.pattern]);
+  const moduleFilePath = useMemo(
+    () =>
+      node.sourcePath &&
+      Internal.splitModuleFilePathAndModulePath(node.sourcePath)[0],
+    [node.sourcePath],
+  );
+  return (
+    <div>
+      <div className="flex justify-between items-center w-full group">
+        <div className="flex items-center my-1">
+          <button
+            onClick={() => setIsOpen(!isOpen)}
+            className={cn("hidden", {
+              "group-hover:block": node.children?.length > 0,
+            })}
+          >
             <ChevronRight
               size={16}
               className={cn("", "transform", {
                 "rotate-90": isOpen,
-                hidden: !node.children?.length,
               })}
             />
           </button>
+          <div
+            className={cn("block w-4 h-4", {
+              "group-hover:hidden": node.children?.length > 0,
+            })}
+          />
           <button
             onClick={() => {
               if (node.sourcePath) {
@@ -483,35 +515,242 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
             }}
           >
             {node.name === "/" && (
-              <HoverCard>
-                <HoverCardTrigger>
-                  <span className="text-fg-brand-secondary">/</span>
-                </HoverCardTrigger>
-                <HoverCardContent>Main page</HoverCardContent>
-              </HoverCard>
+              <>
+                {node.sourcePath ? (
+                  <HoverCard>
+                    <HoverCardTrigger>
+                      <Globe size={16} className="hover:stroke-2" />
+                    </HoverCardTrigger>
+                    <HoverCardContent side="top">
+                      Go to main page
+                    </HoverCardContent>
+                  </HoverCard>
+                ) : (
+                  <span className="text-fg-brand-secondary">
+                    <Globe size={16} />
+                  </span>
+                )}
+              </>
             )}
             {node.name !== "/" && (
               <>
-                <span
-                  className={cn("pr-[2px]", {
-                    "text-fg-brand-secondary": !!node.sourcePath,
-                  })}
-                >
-                  /
-                </span>
+                <span className={cn("pr-[2px] text-fg-quaternary")}>/</span>
                 <span>{node.name}</span>
               </>
             )}
           </button>
         </div>
-        <AnimateHeight isOpen={isOpen} className="pl-2">
-          {node.children.map((child, i) => (
-            <SiteMapNode node={child} key={i} />
-          ))}
-        </AnimateHeight>
+        <div
+          className={cn("gap-2 items-center group-hover:flex", {
+            hidden: !optionsOpen && !addRouteOpen,
+            flex: optionsOpen || addRouteOpen,
+          })}
+        >
+          <Popover onOpenChange={setOptionsOpen} open={optionsOpen}>
+            <PopoverTrigger>
+              <Ellipsis size={12} />
+            </PopoverTrigger>
+            <PopoverContent container={portalContainer}>
+              <SiteMapNodeOptions
+                node={node}
+                onClose={() => setOptionsOpen(false)}
+              />
+            </PopoverContent>
+          </Popover>
+          {routePatternWithParams && moduleFilePath && (
+            <AddRecordPopover path={moduleFilePath} size="sm" variant="ghost">
+              <Plus size={12} />
+            </AddRecordPopover>
+          )}
+        </div>
       </div>
+      <AnimateHeight isOpen={isOpen} className="pl-3">
+        {node.children.map((child, i) => (
+          <SiteMapNode node={child} key={i} />
+        ))}
+      </AnimateHeight>
+    </div>
+  );
+}
+
+function AddRouteForm({
+  routePattern,
+  onClose,
+}: {
+  routePattern: RoutePattern[];
+  onClose: () => void;
+}) {
+  const [params, setParams] = useState<{
+    [paramName: string]: string;
+  }>({});
+  const [errors, setErrors] = useState<{
+    [paramName: string]: string | undefined;
+  }>({});
+  const fullPath = useMemo(() => {
+    return (
+      "/" +
+      routePattern
+        .map((part) => {
+          if (part.type === "string-param" || part.type === "array-param") {
+            return params[part.paramName] || `[${part.paramName}]`;
+          }
+          return part.name;
+        })
+        .join("/")
     );
-  }
+  }, [routePattern, params]);
+  const isComplete = useMemo(() => {
+    return routePattern.every((part) => {
+      if (part.type === "string-param" || part.type === "array-param") {
+        return !!params[part.paramName] && !errors[part.paramName];
+      }
+      return true;
+    });
+  }, [routePattern, params, errors]);
+
+  return (
+    <div className="p-4 space-y-3">
+      <form
+        className="flex items-center"
+        onSubmit={(e) => {
+          e.preventDefault();
+
+          onClose();
+        }}
+      >
+        {routePattern.map((part, i) => (
+          <span key={i}>
+            {part.type === "string-param" || part.type === "array-param" ? (
+              <span className="flex items-center">
+                /
+                <span className="flex flex-col">
+                  <input
+                    className={cn("p-1 bg-transparent border-0", {
+                      "border-border-secondary border-1":
+                        errors[part.paramName],
+                    })}
+                    placeholder={part.paramName}
+                    value={params[part.paramName] || ""}
+                    onChange={(e) => {
+                      setParams({
+                        ...params,
+                        [part.paramName]: e.target.value,
+                      });
+                      const compareValue =
+                        part.type === "string-param"
+                          ? e.target.value
+                          : e.target.value.replace(/\//g, "");
+                      if (encodeURIComponent(compareValue) !== compareValue) {
+                        setErrors({
+                          ...errors,
+                          [part.paramName]: "Invalid characters",
+                        });
+                      } else {
+                        setErrors({
+                          ...errors,
+                          [part.paramName]: undefined,
+                        });
+                      }
+                    }}
+                  />
+                  {errors[part.paramName] && (
+                    <span className="text-xs text-fg-error-secondary">
+                      {errors[part.paramName]}
+                    </span>
+                  )}
+                </span>
+              </span>
+            ) : (
+              <span className="text-fg-secondary">/{part.name}</span>
+            )}
+          </span>
+        ))}
+      </form>
+      <div className="text-xs text-fg-tertiary">
+        Full path: <span className="font-mono">{fullPath}</span>
+      </div>
+      <Button disabled={!isComplete}>Create</Button>
+    </div>
+  );
+}
+
+function SiteMapNodeOptions({
+  node,
+  onClose,
+}: {
+  node: SitemapNode | PageNode;
+  onClose: () => void;
+}) {
+  const { navigate } = useNavigation();
+  const [optionsState, setOptionsState] = useState<"rename" | "delete" | null>(
+    null,
+  );
+  const currentKey = useMemo(() => {
+    return node.type === "leaf" ? node.fullPath : node.page?.fullPath;
+  }, [node]);
+  const parentPath = useMemo(
+    () =>
+      node.sourcePath
+        ? Internal.splitModuleFilePathAndModulePath(node.sourcePath)[0]
+        : undefined,
+    [node?.sourcePath],
+  );
+  const refs = useKeysOf(parentPath, currentKey);
+  return (
+    <div>
+      {optionsState === null && (
+        <>
+          {currentKey !== undefined && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="flex gap-2 items-center"
+              onClick={() => {
+                setOptionsState("rename");
+              }}
+            >
+              <Edit2 size={12} />
+              <span>Rename</span>
+            </Button>
+          )}
+          {parentPath && node.sourcePath && (
+            <DeleteRecordButton
+              path={node.sourcePath as SourcePath}
+              parentPath={parentPath}
+              refs={refs}
+              size="sm"
+              variant="ghost"
+            >
+              <div className="flex gap-2 items-center">
+                <Trash2 size={12} />
+                <span>Delete</span>
+              </div>
+            </DeleteRecordButton>
+          )}
+        </>
+      )}
+      {optionsState === "rename" &&
+        currentKey !== undefined &&
+        node.sourcePath &&
+        parentPath && (
+          <RenameRecordKeyForm
+            parentPath={parentPath}
+            path={node.sourcePath}
+            defaultValue={currentKey}
+            refs={refs}
+            onSubmit={(sourcePath) => {
+              setOptionsState(null);
+              onClose();
+              navigate(sourcePath);
+            }}
+            onCancel={() => {
+              setOptionsState(null);
+              onClose();
+            }}
+          />
+        )}
+    </div>
+  );
 }
 
 function Loading() {
