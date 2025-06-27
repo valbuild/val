@@ -1,6 +1,6 @@
 {
   "name": "@valbuild/create",
-  "version": "0.81.0",
+  "version": "0.82.0",
   "description": "Create a new Val project with Next.js",
   "main": "dist/valbuild-create.cjs.js",
   "module": "dist/valbuild-create.esm.js",
