@@ -18,12 +18,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@valbuild/core": "~0.80.0",
-    "@valbuild/server": "~0.80.0",
-    "@valbuild/eslint-plugin": "~0.80.0",
-    "eslint": "^8.31.0",
     "@inquirer/confirm": "^2.0.15",
     "@inquirer/prompts": "^3.0.2",
+    "@valbuild/core": "~0.80.0",
+    "@valbuild/eslint-plugin": "~0.80.0",
+    "@valbuild/server": "~0.80.0",
     "chalk": "^4.1.2",
     "cors": "^2.8.5",
     "express": "^4.18.2",
