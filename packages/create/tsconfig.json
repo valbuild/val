@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "lib": ["es2020", "DOM"],
+    "strict": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "skipLibCheck": true,
+    "target": "ESNext"
+  }
+}

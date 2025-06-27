@@ -1,0 +1,49 @@
+{
+  "name": "@valbuild/create",
+  "version": "0.80.0",
+  "description": "Create a new Val project with Next.js",
+  "main": "dist/valbuild-create.cjs.js",
+  "module": "dist/valbuild-create.esm.js",
+  "bin": {
+    "@valbuild/create": "./bin.js"
+  },
+  "exports": {
+    ".": {
+      "module": "./dist/valbuild-create.esm.js",
+      "default": "./dist/valbuild-create.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/index.ts --",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "degit": "^2.8.4",
+    "@inquirer/prompts": "^3.0.2",
+    "chalk": "^4.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "tsx": "^4.0.0"
+  },
+  "keywords": [
+    "val",
+    "valbuild",
+    "create",
+    "cli",
+    "nextjs"
+  ],
+  "author": "Valbuild",
+  "license": "MIT",
+  "preconstruct": {
+    "entrypoints": [
+      "index.ts"
+    ]
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  }
+}
