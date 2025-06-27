@@ -26,7 +26,6 @@ async function main(): Promise<void> {
       Options:
         --root [root], -r [root] Set project root directory (default process.cwd())
         --fix  [fix]             Attempt to fix validation errors
-        --noEslint [noEslint]    Disable eslint validation during validate
 
       
       Command: login
@@ -106,7 +105,6 @@ async function main(): Promise<void> {
       return validate({
         root: flags.root,
         fix: flags.fix,
-        noEslint: flags.noEslint,
       });
     default:
       return error(`Unknown command "${input.join(" ")}"`);
