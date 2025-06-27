@@ -1,3 +1,3 @@
 #!/usr/bin/env node
 "use strict";
-require("./create");
+require("./dist/valbuild-create.cjs.prod.js");
