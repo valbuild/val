@@ -86,15 +86,6 @@ function renderTimeline(currentStep: number, errorStep?: number) {
   process.stdout.write(out + "\n");
 }
 
-function displayHeading() {
-  const heading = chalk.bold.cyan(`
-╔══════════════════════════════════════════════════════════════╗
-║                    Creating Val Project                      ║
-╚══════════════════════════════════════════════════════════════╝
-`);
-  process.stdout.write(heading);
-}
-
 function displayValLogo() {
   const logo = chalk.cyan(`
 ###########
@@ -112,7 +103,7 @@ function displayValLogo() {
   process.stdout.write(logo);
 }
 
-function displaySuccessMessage(projectName: string, templateRepo: string) {
+function displaySuccessMessage(projectName: string) {
   const nextSteps = chalk.bold(`
 ${chalk.cyan("Next steps:")}
   ${chalk.cyan("cd")} ${chalk.white(projectName)}
@@ -295,7 +286,7 @@ async function main() {
       );
 
       // Show final success message
-      displaySuccessMessage(projectName, selectedTemplate.repo);
+      displaySuccessMessage(projectName);
     } catch (error) {
       renderTimeline(currentStep, currentStep);
       console.error(
