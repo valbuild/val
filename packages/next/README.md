@@ -70,7 +70,7 @@ If you're starting from scratch, the easiest way to get up and running with Val 
 npm create @valbuild
 ```
 
-Once setup completes, you're ready start building!
+This will setup Val on a default Next.JS template and is the fastest way to get started with Val.
 
 ### Integrating into an existing project
 
