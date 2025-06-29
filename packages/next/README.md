@@ -62,15 +62,13 @@ Join us on [discord](https://discord.gg/cZzqPvaX8k) to get help or give us feedb
 
 ## Installation
 
-### Using the starter template
+### Using the NextJS starter templates
 
-If you're starting from scratch, the easiest way to get up and running with Val is to use npm (or similar) create script:
+If you're starting from scratch, the easiest way to get up and running with Val and NextJS is to use npm (or similar) create script:
 
 ```sh
 npm create @valbuild
 ```
-
-This will setup Val on a default Next.JS template and is the fastest way to get started with Val.
 
 ### Integrating into an existing project
 
