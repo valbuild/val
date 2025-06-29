@@ -62,12 +62,19 @@ Join us on [discord](https://discord.gg/cZzqPvaX8k) to get help or give us feedb
 
 ## Installation
 
-- Make sure you have setup a NextJS (version 14 or higher) project. If not you can create a new project like this:
+### Using the starter template
+
+If you're starting from scratch, the easiest way to get up and running with Val is to use npm (or similar) create script:
 
 ```sh
-
-npm create next-app
+npm create @valbuild
 ```
+
+Once setup completes, you're ready start building!
+
+### Integrating into an existing project
+
+- Make sure you have setup a NextJS (version 14 or higher) project.
 
 - Install the packages:
 
@@ -87,7 +94,9 @@ npm install -D  @valbuild/eslint-plugin@latest
 npx @valbuild/init@latest
 ```
 
-If you do not wish to use the init script, or having issues with it, checkout the [manual configuration guide](./MANUAL_CONFIGURATION.md).
+### Manually
+
+It is also possible to setup Val using the [manual configuration guide](./MANUAL_CONFIGURATION.md).
 
 ## Additional setup
 
