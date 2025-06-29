@@ -74,7 +74,7 @@ This will setup Val on a default Next.JS template and is the fastest way to get 
 
 ### Integrating into an existing project
 
-- Make sure you have setup a NextJS (version 14 or higher) project.
+- Make sure you have NextJS (version 14 or higher) installed
 
 - Install the packages:
 
