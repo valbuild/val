@@ -46,6 +46,7 @@ Join us on [discord](https://discord.gg/cZzqPvaX8k) to get help or give us feedb
 
 ## Table of contents
 
+- [Installation](./packages/next/README.md#Installation)
 - [Introduction](#content-as-code)
 - [Examples](#examples)
 - [Documentation](#documentation)
