@@ -99,7 +99,7 @@ export function Module({ path }: { path: SourcePath }) {
           </div>
         )}
         <div>
-          <div className="flex items-center justify-between h-6 gap-4 text-xl">
+          <div className="flex gap-4 justify-between items-center h-6 text-xl">
             {!showNumber && <span>{last.text}</span>}
             {showNumber && <span>#{Number(last.text)}</span>}
             <ArrayAndRecordTools path={path} variant={"module"} />
