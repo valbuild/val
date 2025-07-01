@@ -68,7 +68,7 @@ export function getNextAppRouterSitemapTree(
       const fullPath = "/" + pathParts.slice(0, index + 1).join("/");
       const sourcePath = Internal.joinModuleFilePathAndModulePath(
         moduleFilePath,
-        fullPath as ModulePath,
+        `"${fullPath}"` as ModulePath,
       );
       const node: SitemapNode | PageNode = hasChildren
         ? {
@@ -123,7 +123,7 @@ export function getNextAppRouterSitemapTree(
   return root;
 }
 
-function getPatternFromModuleFilePath(
+export function getPatternFromModuleFilePath(
   moduleFilePath: string,
   srcFolder: string,
 ) {

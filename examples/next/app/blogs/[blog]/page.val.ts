@@ -10,6 +10,6 @@ export default c.define(
   s.record(blogSchema).router(nextAppRouter),
   {
     "/blogs/blog2": { title: "Blog 2", content: "Blog 2 content" },
-    "/bloggs/blog1": { title: "Blog 1", content: "Blog 1 content" },
+    "/blogs/blog1": { title: "Blog 1", content: "Blog 1 content" },
   },
 );

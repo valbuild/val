@@ -12,6 +12,7 @@ import { Button } from "./designSystem/button";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import {
   useAddPatch,
+  useNextAppRouterSrcFolder,
   useSchemaAtPath,
   useShallowSourceAtPath,
   useValPortal,
@@ -38,6 +39,8 @@ import { RenameRecordKeyForm } from "./RenameRecordKeyForm";
 import { useKeysOf } from "./useKeysOf";
 import { DeleteRecordButton } from "./DeleteRecordButton";
 import { AddRecordPopover } from "./AddRecordPopover";
+import { RoutePattern, parseRoutePattern } from "../utils/parseRoutePattern";
+import { getPatternFromModuleFilePath } from "@valbuild/shared/internal";
 
 type Variant = "module" | "field";
 export function ArrayAndRecordTools({
@@ -49,6 +52,7 @@ export function ArrayAndRecordTools({
 }) {
   const schemaAtPath = useSchemaAtPath(path);
   const { path: maybeParentPath, schema: parentSchemaAtPath } = useParent(path);
+  const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(path);
   const parts = splitIntoInitAndLastParts(path);
   const last = parts[parts.length - 1];
   const refs = useKeysOf(
@@ -57,6 +61,19 @@ export function ArrayAndRecordTools({
       ? last?.part
       : undefined,
   );
+  const srcFolder = useNextAppRouterSrcFolder();
+  const routePattern =
+    srcFolder.status === "success" &&
+    srcFolder.data &&
+    "data" in schemaAtPath &&
+    schemaAtPath.data.type === "record" &&
+    schemaAtPath.data.router
+      ? getRouterPattern(
+          moduleFilePath,
+          srcFolder.data,
+          schemaAtPath.data.router,
+        )
+      : null;
   return (
     <span className="inline-flex gap-2 items-center">
       {isParentRecord(path, maybeParentPath, parentSchemaAtPath) && (
@@ -90,6 +107,7 @@ export function ArrayAndRecordTools({
             path={path}
             variant={getButtonVariant(variant)}
             size={getButtonSize(variant)}
+            routePattern={routePattern}
           >
             <Plus size={getIconSize(variant)} />
           </AddRecordPopover>
@@ -97,6 +115,18 @@ export function ArrayAndRecordTools({
       )}
     </span>
   );
+}
+
+function getRouterPattern(
+  moduleFilePath: ModuleFilePath,
+  srcFolder: string,
+  router: string,
+): RoutePattern[] | null {
+  if (router === "next-app-router") {
+    const pattern = getPatternFromModuleFilePath(moduleFilePath, srcFolder);
+    return parseRoutePattern(pattern);
+  }
+  return null;
 }
 
 function ReferencesPopover({

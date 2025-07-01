@@ -1831,6 +1831,56 @@ export function useShallowModulesAtPaths<
   }, [sourcesRes, type]);
 }
 
+// TODO: this should be in the next package somehow - that might require a lot of refactoring to accomplish though
+export function useNextAppRouterSrcFolder():
+  | {
+      status: "success";
+      data: string | null;
+    }
+  | {
+      status: "error";
+      error: string;
+    }
+  | {
+      status: "loading";
+    } {
+  const schemas = useSchemas();
+  return useMemo(() => {
+    if (schemas.status === "success") {
+      let currentSrcFolder: string | null = null;
+      for (const moduleFilePath in schemas.data) {
+        if (moduleFilePath.startsWith("/app")) {
+          if (currentSrcFolder === null) {
+            currentSrcFolder = "/app";
+          } else {
+            if (currentSrcFolder !== "/app") {
+              return {
+                status: "error",
+                error:
+                  "Found multiple different src folders in the same project",
+              };
+            }
+          }
+        } else if (moduleFilePath.startsWith("/src/app")) {
+          if (currentSrcFolder === null) {
+            currentSrcFolder = "/src/app";
+          } else {
+            if (currentSrcFolder !== "/src/app") {
+              return {
+                status: "error",
+                error:
+                  "Found multiple different src folders in the same project",
+              };
+            }
+          }
+        }
+      }
+      return { status: "success", data: currentSrcFolder };
+    }
+    return schemas;
+  }, [schemas]);
+}
+
 export function useAllSources() {
   const { syncEngine } = useContext(ValContext);
   const sources = useSyncExternalStore(
