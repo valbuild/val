@@ -24,7 +24,7 @@ export function FieldValidationError({
         <Accordion type="single" collapsible className="w-full min-h-6">
           <AccordionItem
             value="validation-errors"
-            className="w-full pb-2 border-b-0 group"
+            className="pb-2 w-full border-b-0 group"
           >
             <AccordionTrigger
               className={cn(
@@ -124,7 +124,7 @@ function SingleValidationError({
     <div
       ref={containerRef}
       className={cn(
-        "flex items-start justify-between w-full transition-all duration-200 ease-in-out",
+        "flex items-center justify-between w-full transition-all duration-200 ease-in-out",
         "p-2 mt-2",
         "bg-bg-error-primary text-text-error-primary rounded-lg",
       )}
@@ -151,7 +151,7 @@ function SingleValidationError({
       )}
       {showChevron && (
         <button
-          className="flex items-center flex-shrink-0"
+          className="flex flex-shrink-0 items-center"
           onClick={() => setOpen(!open)}
         >
           <div className="text-text-error-primary">

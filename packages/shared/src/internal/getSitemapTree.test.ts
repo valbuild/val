@@ -41,6 +41,7 @@ describe("getNextAppRouterSitemapTree", () => {
           name: "foo",
           pattern: "/foo",
           fullPath: "/foo",
+          sourcePath: '/app/foo/page.val.ts?p="/foo"',
           children: [],
         },
         {
@@ -53,6 +54,7 @@ describe("getNextAppRouterSitemapTree", () => {
               name: "one",
               pattern: "/bar/[test]",
               fullPath: "/bar/one",
+              sourcePath: '/app/bar/[test]/page.val.ts?p="/bar/one"',
               children: [],
             },
             {
@@ -60,6 +62,7 @@ describe("getNextAppRouterSitemapTree", () => {
               name: "two",
               pattern: "/bar/[test]",
               fullPath: "/bar/two",
+              sourcePath: '/app/bar/[test]/page.val.ts?p="/bar/two"',
               children: [],
             },
           ],
@@ -74,6 +77,7 @@ describe("getNextAppRouterSitemapTree", () => {
               name: "dead",
               pattern: "/zed/[[...path]]",
               fullPath: "/zed/dead",
+              sourcePath: '/app/zed/[[...path]]/page.val.ts?p="/zed/dead"',
               children: [],
             },
             {
@@ -88,12 +92,16 @@ describe("getNextAppRouterSitemapTree", () => {
                   page: {
                     fullPath: "/zed/lead/dead",
                   },
+                  sourcePath:
+                    '/app/zed/[[...path]]/page.val.ts?p="/zed/lead/dead"',
                   children: [
                     {
                       type: "leaf",
                       name: "bled",
                       pattern: "/zed/[[...path]]",
                       fullPath: "/zed/lead/dead/bled",
+                      sourcePath:
+                        '/app/zed/[[...path]]/page.val.ts?p="/zed/lead/dead/bled"',
                       children: [],
                     },
                   ],
@@ -125,6 +133,7 @@ describe("getNextAppRouterSitemapTree", () => {
     ];
 
     const sitemap = getNextAppRouterSitemapTree("/app", paths);
+    console.log(JSON.stringify(sitemap, null, 2));
     expect(sitemap).toEqual({
       type: "node",
       name: "/",
@@ -134,29 +143,26 @@ describe("getNextAppRouterSitemapTree", () => {
           name: "foo",
           pattern: "/foo",
           fullPath: "/foo",
+          sourcePath: '/app/foo/page.val.ts?p="/foo"',
           children: [],
         },
         {
           type: "node",
           name: "bar",
           pattern: "/bar/[test]/sub",
-          page: {
-            fullPath: "/bar",
-          },
           children: [
             {
               type: "node",
               name: "one",
               pattern: "/bar/[test]/sub",
-              page: {
-                fullPath: "/bar/one",
-              },
               children: [
                 {
                   type: "leaf",
                   name: "sub",
                   pattern: "/bar/[test]/sub",
                   fullPath: "/bar/one/sub",
+                  sourcePath:
+                    '/app/bar/[test]/sub/page.val.ts?p="/bar/one/sub"',
                   children: [],
                 },
               ],
@@ -166,15 +172,14 @@ describe("getNextAppRouterSitemapTree", () => {
               type: "node",
               name: "two",
               pattern: "/bar/[test]/sub",
-              page: {
-                fullPath: "/bar/two",
-              },
               children: [
                 {
                   type: "leaf",
                   name: "sub",
                   pattern: "/bar/[test]/sub",
                   fullPath: "/bar/two/sub",
+                  sourcePath:
+                    '/app/bar/[test]/sub/page.val.ts?p="/bar/two/sub"',
                   children: [],
                 },
               ],
@@ -211,39 +216,32 @@ describe("getNextAppRouterSitemapTree", () => {
     expect(sitemap).toEqual({
       type: "node",
       name: "/",
-      page: {
-        fullPath: "/",
-      },
-      pattern: "",
       children: [
         {
           type: "leaf",
           name: "foo",
           pattern: "/foo",
           fullPath: "/foo",
+          sourcePath: '/app/foo/page.val.ts?p="/foo"',
           children: [],
         },
         {
           type: "node",
           name: "bar",
           pattern: "/bar/[test]/sub",
-          page: {
-            fullPath: "/bar",
-          },
           children: [
             {
               type: "node",
               name: "one",
               pattern: "/bar/[test]/sub",
-              page: {
-                fullPath: "/bar/one",
-              },
               children: [
                 {
                   type: "leaf",
                   name: "sub",
                   pattern: "/bar/[test]/sub",
                   fullPath: "/bar/one/sub",
+                  sourcePath:
+                    '/app/bar/[test]/sub/page.val.ts?p="/bar/one/sub"',
                   children: [],
                 },
               ],
@@ -253,15 +251,14 @@ describe("getNextAppRouterSitemapTree", () => {
               type: "node",
               name: "two",
               pattern: "/bar/[test]/sub",
-              page: {
-                fullPath: "/bar/two",
-              },
               children: [
                 {
                   type: "leaf",
                   name: "sub",
                   pattern: "/bar/[test]/sub",
                   fullPath: "/bar/two/sub",
+                  sourcePath:
+                    '/app/bar/[test]/sub/page.val.ts?p="/bar/two/sub"',
                   children: [],
                 },
               ],
@@ -270,6 +267,11 @@ describe("getNextAppRouterSitemapTree", () => {
           ],
         },
       ],
+      pattern: "",
+      page: {
+        fullPath: "/",
+      },
+      sourcePath: "/app/page.val.ts?p=/",
     });
   });
 
@@ -282,11 +284,12 @@ describe("getNextAppRouterSitemapTree", () => {
     expect(sitemap).toStrictEqual({
       type: "node",
       name: "/",
+      children: [],
+      pattern: "",
       page: {
         fullPath: "/",
       },
-      pattern: "",
-      children: [],
+      sourcePath: "/app/page.val.ts?p=/",
     });
   });
 
@@ -311,15 +314,13 @@ describe("getNextAppRouterSitemapTree", () => {
           type: "node",
           name: "foo",
           pattern: "/foo/bar",
-          page: {
-            fullPath: "/foo",
-          },
           children: [
             {
               type: "leaf",
               name: "bar",
               pattern: "/foo/bar",
               fullPath: "/foo/bar",
+              sourcePath: '/app/foo/bar/page.val.ts?p="/foo/bar"',
               children: [],
             },
           ],
@@ -347,6 +348,7 @@ describe("getNextAppRouterSitemapTree", () => {
           name: "foo",
           pattern: "/foo",
           fullPath: "/foo",
+          sourcePath: '/app/(main)/foo/page.val.ts?p="/foo"',
           children: [],
         },
       ],

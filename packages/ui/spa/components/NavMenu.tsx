@@ -39,6 +39,7 @@ import { PathNode, pathTree } from "../utils/pathTree";
 import { Remote } from "../utils/Remote";
 import {
   useAllValidationErrors,
+  useNextAppRouterSrcFolder,
   useCurrentProfile,
   useSchemaAtPath,
   useSchemas,
@@ -71,18 +72,11 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "./designSystem/hover-card";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogTrigger,
-} from "./designSystem/dialog";
 import { RenameRecordKeyForm } from "./RenameRecordKeyForm";
 import { useKeysOf } from "./useKeysOf";
 import { DeleteRecordButton } from "./DeleteRecordButton";
 import { Button } from "./designSystem/button";
 import { RoutePattern, parseRoutePattern } from "../utils/parseRoutePattern";
-import { Input } from "./designSystem/input";
 import { AddRecordPopover } from "./AddRecordPopover";
 
 export const NAV_MENU_MOBILE_BREAKPOINT = 1280; // nav menu behaves a bit differently (closes it self) below this breakpoint.
@@ -393,8 +387,18 @@ function NextAppRouterSitemap({
   moduleFilePaths: ModuleFilePath[];
 }) {
   const shallowModules = useShallowModulesAtPaths(moduleFilePaths, "record");
+  const srcFolder = useNextAppRouterSrcFolder();
   const rootNode = useMemo((): Remote<SitemapNode> => {
     const paths: { urlPath: string; moduleFilePath: ModuleFilePath }[] = [];
+    if (srcFolder.status !== "success") {
+      return srcFolder;
+    }
+    if (srcFolder.data === null) {
+      return {
+        status: "error",
+        error: "No src folder found",
+      };
+    }
     if (shallowModules.status !== "success") {
       if (shallowModules.status === "not-found") {
         return {
@@ -414,40 +418,23 @@ function NextAppRouterSitemap({
       }
       return shallowModules;
     }
-    let srcFolder = undefined;
     for (const shallowSource of shallowModules.data || []) {
       for (const path in shallowSource) {
         const [moduleFilePath] = Internal.splitModuleFilePathAndModulePath(
           shallowSource[path],
         );
-        if (moduleFilePath.startsWith("/app")) {
-          srcFolder = "/app";
-        } else if (moduleFilePath.startsWith("/src/app")) {
-          srcFolder = "/src/app";
-        } else {
-          console.warn(
-            `Unknown src folder for module file path: ${moduleFilePath}`,
-          );
-        }
         paths.push({
           urlPath: path,
           moduleFilePath,
         });
       }
     }
-    if (!srcFolder) {
-      console.warn("No src folder found");
-      return {
-        status: "error",
-        error: "No src folder found",
-      };
-    }
-    const sitemapData = getNextAppRouterSitemapTree(srcFolder, paths);
+    const sitemapData = getNextAppRouterSitemapTree(srcFolder.data, paths);
     return {
       status: shallowModules.status,
       data: sitemapData,
     };
-  }, [shallowModules]);
+  }, [shallowModules, srcFolder]);
   if (rootNode.status === "loading" || rootNode.status === "not-asked") {
     return <Loading />;
   }
@@ -541,14 +528,16 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
           </button>
         </div>
         <div
-          className={cn("gap-2 items-center group-hover:flex", {
+          className={cn("items-center group-hover:flex h-6", {
             hidden: !optionsOpen && !addRouteOpen,
             flex: optionsOpen || addRouteOpen,
           })}
         >
           <Popover onOpenChange={setOptionsOpen} open={optionsOpen}>
-            <PopoverTrigger>
-              <Ellipsis size={12} />
+            <PopoverTrigger asChild>
+              <Button size="sm" variant="ghost">
+                <Ellipsis size={12} />
+              </Button>
             </PopoverTrigger>
             <PopoverContent container={portalContainer}>
               <SiteMapNodeOptions
@@ -558,7 +547,14 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
             </PopoverContent>
           </Popover>
           {routePatternWithParams && moduleFilePath && (
-            <AddRecordPopover path={moduleFilePath} size="sm" variant="ghost">
+            <AddRecordPopover
+              path={moduleFilePath}
+              size="sm"
+              variant="ghost"
+              open={addRouteOpen}
+              setOpen={setAddRouteOpen}
+              routePattern={routePatternWithParams}
+            >
               <Plus size={12} />
             </AddRecordPopover>
           )}
@@ -569,107 +565,6 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
           <SiteMapNode node={child} key={i} />
         ))}
       </AnimateHeight>
-    </div>
-  );
-}
-
-function AddRouteForm({
-  routePattern,
-  onClose,
-}: {
-  routePattern: RoutePattern[];
-  onClose: () => void;
-}) {
-  const [params, setParams] = useState<{
-    [paramName: string]: string;
-  }>({});
-  const [errors, setErrors] = useState<{
-    [paramName: string]: string | undefined;
-  }>({});
-  const fullPath = useMemo(() => {
-    return (
-      "/" +
-      routePattern
-        .map((part) => {
-          if (part.type === "string-param" || part.type === "array-param") {
-            return params[part.paramName] || `[${part.paramName}]`;
-          }
-          return part.name;
-        })
-        .join("/")
-    );
-  }, [routePattern, params]);
-  const isComplete = useMemo(() => {
-    return routePattern.every((part) => {
-      if (part.type === "string-param" || part.type === "array-param") {
-        return !!params[part.paramName] && !errors[part.paramName];
-      }
-      return true;
-    });
-  }, [routePattern, params, errors]);
-
-  return (
-    <div className="p-4 space-y-3">
-      <form
-        className="flex items-center"
-        onSubmit={(e) => {
-          e.preventDefault();
-
-          onClose();
-        }}
-      >
-        {routePattern.map((part, i) => (
-          <span key={i}>
-            {part.type === "string-param" || part.type === "array-param" ? (
-              <span className="flex items-center">
-                /
-                <span className="flex flex-col">
-                  <input
-                    className={cn("p-1 bg-transparent border-0", {
-                      "border-border-secondary border-1":
-                        errors[part.paramName],
-                    })}
-                    placeholder={part.paramName}
-                    value={params[part.paramName] || ""}
-                    onChange={(e) => {
-                      setParams({
-                        ...params,
-                        [part.paramName]: e.target.value,
-                      });
-                      const compareValue =
-                        part.type === "string-param"
-                          ? e.target.value
-                          : e.target.value.replace(/\//g, "");
-                      if (encodeURIComponent(compareValue) !== compareValue) {
-                        setErrors({
-                          ...errors,
-                          [part.paramName]: "Invalid characters",
-                        });
-                      } else {
-                        setErrors({
-                          ...errors,
-                          [part.paramName]: undefined,
-                        });
-                      }
-                    }}
-                  />
-                  {errors[part.paramName] && (
-                    <span className="text-xs text-fg-error-secondary">
-                      {errors[part.paramName]}
-                    </span>
-                  )}
-                </span>
-              </span>
-            ) : (
-              <span className="text-fg-secondary">/{part.name}</span>
-            )}
-          </span>
-        ))}
-      </form>
-      <div className="text-xs text-fg-tertiary">
-        Full path: <span className="font-mono">{fullPath}</span>
-      </div>
-      <Button disabled={!isComplete}>Create</Button>
     </div>
   );
 }
