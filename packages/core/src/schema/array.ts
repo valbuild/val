@@ -5,7 +5,7 @@ import {
   SelectorOfSchema,
   SerializedSchema,
 } from ".";
-import { PreviewSelector, ReifiedPreview } from "../preview";
+import { RenderSelector, ReifiedRender } from "../render";
 import { SelectorSource } from "../selector";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
 import { ImageSource } from "../source/image";
@@ -135,20 +135,20 @@ export class ArraySchema<
     };
   }
 
-  private previewInput: {
+  private renderInput: {
     layout: "list";
-    prepare: (input: { val: PreviewSelector<T> }) => {
+    prepare: (input: { val: RenderSelector<T> }) => {
       title: string;
       subtitle?: string | null;
       image?: ImageSource | null;
     };
   } | null = null;
 
-  protected override executePreview(
+  protected override executeRender(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
-  ): ReifiedPreview {
-    const res: ReifiedPreview = {};
+  ): ReifiedRender {
+    const res: ReifiedRender = {};
     if (src === null) {
       return res;
     }
@@ -159,14 +159,14 @@ export class ArraySchema<
         continue;
       }
       const subPath = unsafeCreateSourcePath(sourcePath, key);
-      const itemResult = this.item["executePreview"](subPath, itemSrc);
+      const itemResult = this.item["executeRender"](subPath, itemSrc);
       for (const keyS in itemResult) {
         const key = keyS as SourcePath | ModuleFilePath;
         res[key] = itemResult[key];
       }
     }
-    if (this.previewInput) {
-      const { prepare: prepare, layout: layout } = this.previewInput;
+    if (this.renderInput) {
+      const { prepare: prepare, layout: layout } = this.renderInput;
       if (layout !== "list") {
         res[sourcePath] = {
           status: "error",
@@ -196,15 +196,15 @@ export class ArraySchema<
     return res;
   }
 
-  preview(input: {
+  render(input: {
     layout: "list";
-    prepare: (input: { val: PreviewSelector<T> }) => {
+    prepare: (input: { val: RenderSelector<T> }) => {
       title: string;
       subtitle?: string | null;
       image?: ImageSource | null;
     };
   }) {
-    this.previewInput = input;
+    this.renderInput = input;
     return this;
   }
 }

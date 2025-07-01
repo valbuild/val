@@ -5,7 +5,7 @@ import { ImageSource } from "./source/image";
 import { RemoteSource } from "./source/remote";
 import { ModuleFilePath, SourcePath } from "./val";
 
-export type ListRecordPreview = {
+export type ListRecordRender = {
   layout: "list";
   parent: "record";
   items: [
@@ -18,7 +18,7 @@ export type ListRecordPreview = {
   ][];
 };
 
-export type ListArrayPreview = {
+export type ListArrayRender = {
   layout: "list";
   parent: "array";
   items: {
@@ -28,8 +28,8 @@ export type ListArrayPreview = {
   }[];
 };
 
-// Main preview type:
-type PreviewTypes = ListRecordPreview | ListArrayPreview;
+// Main render type:
+type RenderTypes = ListRecordRender | ListArrayRender;
 //
 
 type WithStatus<T> =
@@ -46,11 +46,11 @@ type WithStatus<T> =
       status: "success";
       data: T;
     };
-export type ReifiedPreview = Record<
+export type ReifiedRender = Record<
   SourcePath | ModuleFilePath,
-  WithStatus<PreviewTypes>
+  WithStatus<RenderTypes>
 >;
 
 // TODO: improve this so that we do not get RawString and string, only string. Are there other things?
-export type PreviewSelector<T extends Schema<SelectorSource>> =
+export type RenderSelector<T extends Schema<SelectorSource>> =
   T extends Schema<infer S> ? S : never;

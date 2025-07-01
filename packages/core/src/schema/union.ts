@@ -6,7 +6,7 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { ReifiedPreview } from "../preview";
+import { ReifiedRender } from "../render";
 import {
   createValPathOfItem,
   unsafeCreateSourcePath,
@@ -501,11 +501,11 @@ export class UnionSchema<
     super();
   }
 
-  protected executePreview(
+  protected executeRender(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
-  ): ReifiedPreview {
-    const res: ReifiedPreview = {};
+  ): ReifiedRender {
+    const res: ReifiedRender = {};
     if (src === null) {
       return res;
     }
@@ -531,7 +531,7 @@ export class UnionSchema<
         },
       );
       if (thisSchema) {
-        const itemResult = thisSchema["executePreview"](sourcePath, src);
+        const itemResult = thisSchema["executeRender"](sourcePath, src);
         for (const keyS in itemResult) {
           const key = keyS as SourcePath | ModuleFilePath;
           res[key] = itemResult[key];

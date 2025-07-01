@@ -14,7 +14,7 @@ describe("RecordSchema", () => {
     });
   });
 
-  test("record: nested previews", () => {
+  test("record: nested renders", () => {
     const schema = record(
       object({
         title: string(),
@@ -22,7 +22,7 @@ describe("RecordSchema", () => {
           object({
             baz: string().nullable(),
           }),
-        ).preview({
+        ).render({
           layout: "list",
           prepare: ({ val }) => {
             return {
@@ -31,7 +31,7 @@ describe("RecordSchema", () => {
           },
         }),
       }).nullable(),
-    ).preview({
+    ).render({
       layout: "list",
       prepare: ({ val }) => {
         return {
@@ -50,7 +50,7 @@ describe("RecordSchema", () => {
       },
       "nullable-key": null,
     };
-    const res = schema["executePreview"]("/test.val.ts" as SourcePath, src);
+    const res = schema["executeRender"]("/test.val.ts" as SourcePath, src);
     expect(res).toStrictEqual({
       '/test.val.ts?p="upper-key"."bar"': {
         status: "success",

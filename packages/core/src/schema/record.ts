@@ -5,7 +5,7 @@ import {
   SelectorOfSchema,
   SerializedSchema,
 } from ".";
-import { PreviewSelector, ReifiedPreview } from "../preview";
+import { RenderSelector, ReifiedRender } from "../render";
 import { SelectorSource } from "../selector";
 import {
   createValPathOfItem,
@@ -173,20 +173,20 @@ export class RecordSchema<
     };
   }
 
-  private previewInput: {
+  private renderInput: {
     layout: "list";
-    prepare: (input: { key: string; val: PreviewSelector<T> }) => {
+    prepare: (input: { key: string; val: RenderSelector<T> }) => {
       title: string;
       subtitle?: string | null;
       image?: ImageSource | RemoteSource<ImageMetadata> | null;
     };
   } | null = null;
 
-  protected override executePreview(
+  protected override executeRender(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
-  ): ReifiedPreview {
-    const res: ReifiedPreview = {};
+  ): ReifiedRender {
+    const res: ReifiedRender = {};
     if (src === null) {
       return res;
     }
@@ -196,14 +196,14 @@ export class RecordSchema<
         continue;
       }
       const subPath = unsafeCreateSourcePath(sourcePath, key);
-      const itemResult = this.item["executePreview"](subPath, itemSrc);
+      const itemResult = this.item["executeRender"](subPath, itemSrc);
       for (const keyS in itemResult) {
         const key = keyS as SourcePath | ModuleFilePath;
         res[key] = itemResult[key];
       }
     }
-    if (this.previewInput) {
-      const { prepare: prepare, layout: layout } = this.previewInput;
+    if (this.renderInput) {
+      const { prepare: prepare, layout: layout } = this.renderInput;
       if (layout !== "list") {
         res[sourcePath] = {
           status: "error",
@@ -233,15 +233,15 @@ export class RecordSchema<
     return res;
   }
 
-  preview(input: {
+  render(input: {
     layout: "list";
-    prepare: (input: { key: string; val: PreviewSelector<T> }) => {
+    prepare: (input: { key: string; val: RenderSelector<T> }) => {
       title: string;
       subtitle?: string | null;
       image?: ImageSource | RemoteSource<ImageMetadata> | null;
     };
   }) {
-    this.previewInput = input;
+    this.renderInput = input;
     return this;
   }
 }

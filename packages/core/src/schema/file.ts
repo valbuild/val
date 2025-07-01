@@ -14,7 +14,7 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { Internal, RemoteSource } from "..";
-import { ReifiedPreview } from "../preview";
+import { ReifiedRender } from "../render";
 
 export type FileOptions = {
   accept?: string;
@@ -316,7 +316,7 @@ export class FileSchema<
     };
   }
 
-  protected executePreview(): ReifiedPreview {
+  protected executeRender(): ReifiedRender {
     return {};
   }
 }

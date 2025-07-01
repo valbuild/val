@@ -40,7 +40,7 @@ import { ValSyntaxError, ValSyntaxErrorTree } from "./patch/ts/syntax";
 import sizeOf from "image-size";
 import { ParentPatchId } from "@valbuild/core";
 import { ValCommit, ValDeployment } from "@valbuild/shared/internal";
-import { ReifiedPreview } from "@valbuild/core";
+import { ReifiedRender } from "@valbuild/core";
 
 export type BaseSha = string & { readonly _tag: unique symbol };
 export type ConfigSha = string & { readonly _tag: unique symbol };
@@ -426,19 +426,19 @@ export abstract class ValOps {
     };
   }
 
-  // #region getPreviews
-  async getPreviews(
+  // #region getRenders
+  async getRenders(
     schemas: Schemas,
     sources: Sources,
   ): Promise<{
-    previews: Record<ModuleFilePath, ReifiedPreview | null>;
+    renders: Record<ModuleFilePath, ReifiedRender | null>;
   }> {
-    const previews: Record<ModuleFilePath, ReifiedPreview | null> = {};
+    const renders: Record<ModuleFilePath, ReifiedRender | null> = {};
     for (const [pathS, schema] of Object.entries(schemas)) {
       const path = pathS as ModuleFilePath;
-      previews[path] = schema["executePreview"](path, sources[path]);
+      renders[path] = schema["executeRender"](path, sources[path]);
     }
-    return { previews };
+    return { renders };
   }
 
   // #region getSources
