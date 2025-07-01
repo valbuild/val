@@ -24,7 +24,7 @@ describe("RecordSchema", () => {
           }),
         ).render({
           layout: "list",
-          prepare: ({ val }) => {
+          select: ({ val }) => {
             return {
               title: val.baz || "No baz",
             };
@@ -33,7 +33,7 @@ describe("RecordSchema", () => {
       }).nullable(),
     ).render({
       layout: "list",
-      prepare: ({ val }) => {
+      select: ({ val }) => {
         return {
           title: val?.title || "No item",
         };

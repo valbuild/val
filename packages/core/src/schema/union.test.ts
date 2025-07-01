@@ -68,7 +68,7 @@ describe("UnionSchema", () => {
           }),
         ).render({
           layout: "list",
-          prepare: ({ val }) => {
+          select: ({ val }) => {
             return {
               title: val.value,
             };
