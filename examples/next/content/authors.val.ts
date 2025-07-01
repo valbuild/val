@@ -9,7 +9,7 @@ export const schema = s
   )
   .render({
     layout: "list",
-    prepare: ({ val }) => ({
+    select: ({ val }) => ({
       title: val.name,
       subtitle: val.birthdate,
     }),

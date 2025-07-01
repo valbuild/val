@@ -137,7 +137,7 @@ export class ArraySchema<
 
   private renderInput: {
     layout: "list";
-    prepare: (input: { val: RenderSelector<T> }) => {
+    select: (input: { val: RenderSelector<T> }) => {
       title: string;
       subtitle?: string | null;
       image?: ImageSource | null;
@@ -166,7 +166,7 @@ export class ArraySchema<
       }
     }
     if (this.renderInput) {
-      const { prepare: prepare, layout: layout } = this.renderInput;
+      const { select, layout: layout } = this.renderInput;
       if (layout !== "list") {
         res[sourcePath] = {
           status: "error",
@@ -181,7 +181,7 @@ export class ArraySchema<
             parent: "array",
             items: src.map((val) => {
               // NB NB: display is actually defined by the user
-              const { title, subtitle, image } = prepare({ val });
+              const { title, subtitle, image } = select({ val });
               return { title, subtitle, image };
             }),
           },
@@ -198,7 +198,7 @@ export class ArraySchema<
 
   render(input: {
     layout: "list";
-    prepare: (input: { val: RenderSelector<T> }) => {
+    select: (input: { val: RenderSelector<T> }) => {
       title: string;
       subtitle?: string | null;
       image?: ImageSource | null;

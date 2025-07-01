@@ -175,7 +175,7 @@ export class RecordSchema<
 
   private renderInput: {
     layout: "list";
-    prepare: (input: { key: string; val: RenderSelector<T> }) => {
+    select: (input: { key: string; val: RenderSelector<T> }) => {
       title: string;
       subtitle?: string | null;
       image?: ImageSource | RemoteSource<ImageMetadata> | null;
@@ -203,7 +203,7 @@ export class RecordSchema<
       }
     }
     if (this.renderInput) {
-      const { prepare: prepare, layout: layout } = this.renderInput;
+      const { select: prepare, layout: layout } = this.renderInput;
       if (layout !== "list") {
         res[sourcePath] = {
           status: "error",
@@ -235,7 +235,7 @@ export class RecordSchema<
 
   render(input: {
     layout: "list";
-    prepare: (input: { key: string; val: RenderSelector<T> }) => {
+    select: (input: { key: string; val: RenderSelector<T> }) => {
       title: string;
       subtitle?: string | null;
       image?: ImageSource | RemoteSource<ImageMetadata> | null;
