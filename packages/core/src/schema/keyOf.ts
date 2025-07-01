@@ -14,7 +14,7 @@ import {
   ValidationErrors,
 } from "./validation/ValidationError";
 import { RawString } from "./string";
-import { ReifiedPreview } from "../preview";
+import { ReifiedRender } from "../render";
 
 export type SerializedKeyOfSchema = {
   type: "keyOf";
@@ -292,7 +292,7 @@ export class KeyOfSchema<
     } satisfies SerializedKeyOfSchema;
   }
 
-  protected executePreview(): ReifiedPreview {
+  protected executeRender(): ReifiedRender {
     return {};
   }
 }

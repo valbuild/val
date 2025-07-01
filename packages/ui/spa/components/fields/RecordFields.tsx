@@ -2,14 +2,14 @@ import {
   ImageMetadata,
   ImageSource,
   Internal,
-  ListRecordPreview as ListRecordPreview,
+  ListRecordRender as ListRecordRender,
   RemoteSource,
   SourcePath,
   VAL_EXTENSION,
 } from "@valbuild/core";
 import {
   useAllValidationErrors,
-  usePreviewOverrideAtPath,
+  useRenderOverrideAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
 } from "../ValProvider";
@@ -33,7 +33,7 @@ export function RecordFields({ path }: { path: SourcePath }) {
   const validationErrors = useAllValidationErrors() || {};
   const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
-  const previewAtPath = usePreviewOverrideAtPath(path);
+  const renderAtPath = useRenderOverrideAtPath(path);
   const sourceAtPath = useShallowSourceAtPath(path, type);
   if (schemaAtPath.status === "error") {
     return (
@@ -67,24 +67,24 @@ export function RecordFields({ path }: { path: SourcePath }) {
     );
   }
   const source = sourceAtPath.data;
-  const previewListAtPathData =
-    previewAtPath &&
-    "data" in previewAtPath &&
-    previewAtPath.data &&
-    previewAtPath.data.layout === "list" &&
-    previewAtPath.data.parent === "record"
-      ? previewAtPath.data
+  const renderListAtPathData =
+    renderAtPath &&
+    "data" in renderAtPath &&
+    renderAtPath.data &&
+    renderAtPath.data.layout === "list" &&
+    renderAtPath.data.parent === "record"
+      ? renderAtPath.data
       : undefined;
   return (
     <div id={path}>
       <ValidationErrors path={path} />
-      {previewAtPath?.status === "error" && (
-        <PreviewError error={previewAtPath.message} path={path} />
+      {renderAtPath?.status === "error" && (
+        <PreviewError error={renderAtPath.message} path={path} />
       )}
-      {previewListAtPathData && (
-        <ListRecordPreview path={path} {...previewListAtPathData} />
+      {renderListAtPathData && (
+        <ListRecordRenderComponent path={path} {...renderListAtPathData} />
       )}
-      {!previewListAtPathData && (
+      {!renderListAtPathData && (
         <div className="grid grid-cols-1 gap-4">
           {source &&
             Object.entries(source).map(([key]) => (
@@ -96,7 +96,7 @@ export function RecordFields({ path }: { path: SourcePath }) {
                   "hover:bg-bg-secondary_subtle",
                 )}
               >
-                <div className="flex items-start justify-between">
+                <div className="flex justify-between items-start">
                   <div className="pb-4 font-semibold text-md">{key}</div>
                   {isParentError(
                     sourcePathOfItem(path, key),
@@ -118,7 +118,7 @@ function ListPreviewItem({
   title,
   image,
   subtitle,
-}: ListRecordPreview["items"][number][1]) {
+}: ListRecordRender["items"][number][1]) {
   return (
     <div
       className={classNames(
@@ -128,7 +128,7 @@ function ListPreviewItem({
       <div className="flex flex-col flex-shrink py-4 overflow-x-clip">
         <div className="text-lg font-medium">{title}</div>
         {subtitle && (
-          <div className="flex-shrink block overflow-hidden text-sm text-gray-500 text-ellipsis max-h-5">
+          <div className="block overflow-hidden flex-shrink max-h-5 text-sm text-gray-500 text-ellipsis">
             {subtitle}
           </div>
         )}
@@ -138,16 +138,16 @@ function ListPreviewItem({
   );
 }
 
-function ListRecordPreview({
+function ListRecordRenderComponent({
   path,
   items,
 }: {
   path: SourcePath;
-  items: ListRecordPreview["items"];
+  items: ListRecordRender["items"];
 }) {
   const { navigate } = useNavigation();
   return (
-    <div className="flex flex-col w-full space-y-4">
+    <div className="flex flex-col space-y-4 w-full">
       {items.map(([key, { title, subtitle, image }]) => (
         <button
           key={key}
@@ -175,7 +175,7 @@ function ImageOrPlaceholder({
 
   if (src === null || src === undefined) {
     return (
-      <div className="flex-shrink-0 w-20 h-20 ml-4 opacity-25 bg-bg-brand-secondary"></div>
+      <div className="flex-shrink-0 ml-4 w-20 h-20 opacity-25 bg-bg-brand-secondary"></div>
     );
   }
 
@@ -185,7 +185,7 @@ function ImageOrPlaceholder({
       : Internal.convertRemoteSource(src).url;
 
   return (
-    <div className="relative flex-shrink-0 w-20 h-20 ml-4">
+    <div className="relative flex-shrink-0 ml-4 w-20 h-20">
       {!isLoaded && (
         <div className="absolute inset-0 opacity-25 bg-bg-brand-secondary animate-in"></div>
       )}

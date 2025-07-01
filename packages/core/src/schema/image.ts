@@ -15,7 +15,7 @@ import {
 } from "./validation/ValidationError";
 import { FileMetadata, FileSchema, Internal } from "..";
 import { RemoteSource } from "../source/remote";
-import { ReifiedPreview } from "../preview";
+import { ReifiedRender } from "../render";
 
 export type ImageOptions = {
   ext?: ["jpg"] | ["webp"];
@@ -344,7 +344,7 @@ export class ImageSchema<
     };
   }
 
-  protected executePreview(): ReifiedPreview {
+  protected executeRender(): ReifiedRender {
     return {};
   }
 }

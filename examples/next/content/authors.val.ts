@@ -7,7 +7,7 @@ export const schema = s
       birthdate: s.date().from("1900-01-01").to("2024-01-01").nullable(),
     }),
   )
-  .preview({
+  .render({
     layout: "list",
     prepare: ({ val }) => ({
       title: val.name,

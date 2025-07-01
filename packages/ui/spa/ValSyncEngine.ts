@@ -20,7 +20,7 @@ import {
 import { ParentRef, ValClient } from "@valbuild/shared/internal";
 import { canMerge } from "./utils/mergePatches";
 import { PatchSets, SerializedPatchSet } from "./utils/PatchSets";
-import { ReifiedPreview } from "@valbuild/core";
+import { ReifiedRender } from "@valbuild/core";
 
 /**
  * ValSyncEngine is the engine that keeps track of the state of the Val client.
@@ -92,7 +92,7 @@ export class ValSyncEngine {
     ModuleFilePath,
     JSONValue | undefined
   >;
-  private previews: Record<ModuleFilePath, ReifiedPreview | null> | null;
+  private renders: Record<ModuleFilePath, ReifiedRender | null> | null;
   private schemas: Record<ModuleFilePath, SerializedSchema | undefined> | null;
   private serverSideSchemaSha: string | null;
   private clientSideSchemaSha: string | null;
@@ -165,7 +165,7 @@ export class ValSyncEngine {
     this.mode = null;
     this.optimisticClientSources = {};
     this.serverSources = null;
-    this.previews = null;
+    this.renders = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
     this.savedButNotYetGlobalServerSidePatchIds = [];
@@ -181,7 +181,7 @@ export class ValSyncEngine {
     //
     this.cachedSourceSnapshots = null;
     this.cachedSchemaSnapshots = null;
-    this.cachedPreviewSnapshots = null;
+    this.cachedRenderSnapshots = null;
     this.cachedPatchData = null;
     this.cachedSerializedPatchSetsSnapshot = null;
     this.cachedValidationErrors = null;
@@ -274,7 +274,7 @@ export class ValSyncEngine {
     this.sourcesSha = null;
     this.optimisticClientSources = {};
     this.serverSources = null;
-    this.previews = null;
+    this.renders = null;
     this.globalServerSidePatchIds = [];
     this.syncedServerSidePatchIds = [];
     this.savedButNotYetGlobalServerSidePatchIds = [];
@@ -290,7 +290,7 @@ export class ValSyncEngine {
     //
     this.cachedSourceSnapshots = null;
     this.cachedSchemaSnapshots = null;
-    this.cachedPreviewSnapshots = null;
+    this.cachedRenderSnapshots = null;
     this.cachedPatchData = null;
     this.cachedSerializedPatchSetsSnapshot = null;
     this.cachedValidationErrors = null;
@@ -320,7 +320,7 @@ export class ValSyncEngine {
     path: ModuleFilePath,
   ): (listener: () => void) => () => void;
   subscribe(
-    type: "preview",
+    type: "render",
     path: ModuleFilePath,
   ): (listener: () => void) => () => void;
   subscribe(type: "all-sources"): (listener: () => void) => () => void;
@@ -411,15 +411,15 @@ export class ValSyncEngine {
     this.emit(this.listeners.source?.[moduleFilePath]);
   }
 
-  private invalidatePreview(moduleFilePath: ModuleFilePath) {
+  private invalidateRenders(moduleFilePath: ModuleFilePath) {
     if (this.cachedSourceSnapshots === null) {
       this.cachedSourceSnapshots = {};
     }
-    this.cachedPreviewSnapshots = {
-      ...this.cachedPreviewSnapshots,
+    this.cachedRenderSnapshots = {
+      ...this.cachedRenderSnapshots,
       [moduleFilePath]: null,
     };
-    this.emit(this.listeners["preview"]?.[moduleFilePath]);
+    this.emit(this.listeners["render"]?.[moduleFilePath]);
   }
 
   private invalidateSyncStatus(sourcePath: SourcePath | ModuleFilePath) {
@@ -558,19 +558,19 @@ export class ValSyncEngine {
     return this.cachedSchemaSnapshots[sourcePath];
   }
 
-  private cachedPreviewSnapshots: Record<
+  private cachedRenderSnapshots: Record<
     ModuleFilePath,
-    ReifiedPreview | null
+    ReifiedRender | null
   > | null;
-  getPreviewSnapshot(moduleFilePath: ModuleFilePath) {
-    if (this.cachedPreviewSnapshots === null) {
-      this.cachedPreviewSnapshots = {};
+  getRenderSnapshot(moduleFilePath: ModuleFilePath) {
+    if (this.cachedRenderSnapshots === null) {
+      this.cachedRenderSnapshots = {};
     }
-    if (this.cachedPreviewSnapshots[moduleFilePath] === null) {
-      this.cachedPreviewSnapshots[moduleFilePath] =
-        this.previews?.[moduleFilePath] || null;
+    if (this.cachedRenderSnapshots[moduleFilePath] === null) {
+      this.cachedRenderSnapshots[moduleFilePath] =
+        this.renders?.[moduleFilePath] || null;
     }
-    return this.cachedPreviewSnapshots[moduleFilePath];
+    return this.cachedRenderSnapshots[moduleFilePath];
   }
 
   private cachedSourceSnapshots: Record<
@@ -1956,11 +1956,11 @@ export class ValSyncEngine {
                 this.serverSources = {};
               }
               this.serverSources[moduleFilePath] = valModule.source;
-              if (this.previews === null) {
-                this.previews = {};
+              if (this.renders === null) {
+                this.renders = {};
               }
-              this.previews[moduleFilePath] = valModule.preview || null;
-              this.invalidatePreview(moduleFilePath);
+              this.renders[moduleFilePath] = valModule.render || null;
+              this.invalidateRenders(moduleFilePath);
 
               if (
                 // Feel free to revisit / rewrite this if statement:
@@ -2286,7 +2286,7 @@ type SyncEngineListenerType =
   | "publish-disabled"
   | "pending-ops-count"
   | "all-sources"
-  | "preview"
+  | "render"
   | "source";
 type SyncStatus = "not-asked" | "fetching" | "patches-pending" | "done";
 type CommonOpProps<T> = T & {

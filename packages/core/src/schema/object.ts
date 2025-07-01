@@ -7,7 +7,7 @@ import {
   SelectorOfSchema,
   SerializedSchema,
 } from ".";
-import { ReifiedPreview } from "../preview";
+import { ReifiedRender } from "../render";
 import { SelectorSource } from "../selector";
 import {
   createValPathOfItem,
@@ -223,11 +223,11 @@ export class ObjectSchema<
     };
   }
 
-  protected executePreview(
+  protected executeRender(
     sourcePath: SourcePath | ModuleFilePath,
     src: Src,
-  ): ReifiedPreview {
-    const res: ReifiedPreview = {};
+  ): ReifiedRender {
+    const res: ReifiedRender = {};
     if (src === null) {
       return res;
     }
@@ -237,7 +237,7 @@ export class ObjectSchema<
         continue;
       }
       const subPath = unsafeCreateSourcePath(sourcePath, key);
-      const itemResult = this.items[key]["executePreview"](subPath, itemSrc);
+      const itemResult = this.items[key]["executeRender"](subPath, itemSrc);
       for (const keyS in itemResult) {
         const key = keyS as SourcePath | ModuleFilePath;
         res[key] = itemResult[key];

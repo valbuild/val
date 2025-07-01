@@ -6,7 +6,7 @@ import {
   SchemaAssertResult,
   SerializedSchema,
 } from ".";
-import { ReifiedPreview } from "../preview";
+import { ReifiedRender } from "../render";
 import { unsafeCreateSourcePath } from "../selector/SelectorProxy";
 import { ImageSource } from "../source/image";
 import {
@@ -586,7 +586,7 @@ export class RichTextSchema<
     };
   }
 
-  protected executePreview(): ReifiedPreview {
+  protected executeRender(): ReifiedRender {
     return {};
   }
 }
