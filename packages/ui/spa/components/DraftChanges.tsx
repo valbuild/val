@@ -685,7 +685,7 @@ const PatchOrPatchSetCard = forwardRef<
         ref={ref}
         className={classNames("p-6", {
           "bg-bg-secondary": !isOpen,
-          "bg-bg-quaternary": isOpen,
+          "bg-bg-tertiary": isOpen,
           "opacity-50": isApplied,
         })}
       >
@@ -724,7 +724,7 @@ const PatchOrPatchSetCard = forwardRef<
               className="relative ml-5"
             >
               {amount && (
-                <span className="absolute -right-5 -top-6 px-2 text-xs rounded-full bg-bg-quaternary">
+                <span className="absolute -right-5 -top-6 px-2 text-xs rounded-full">
                   {amount > 10 ? "10+" : amount}
                 </span>
               )}
@@ -782,7 +782,7 @@ const PatchOrPatchSetCard = forwardRef<
                       >
                         <span
                           className={classNames(
-                            "flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full bg-bg-quaternary text-fg-primary",
+                            "flex items-center justify-center w-6 h-6 text-xs font-semibold rounded-full bg-bg-primary text-fg-primary",
                           )}
                           aria-label={"Initials for: " + author.fullName}
                         >
@@ -802,7 +802,7 @@ const PatchOrPatchSetCard = forwardRef<
                         "-ml-3": authors.length > 2,
                       })}
                     >
-                      <span className="flex justify-center items-center -ml-3 w-6 h-6 text-xs font-semibold rounded-full bg-bg-quaternary text-fg-primary">
+                      <span className="flex justify-center items-center -ml-3 w-6 h-6 text-xs font-semibold rounded-full bg-bg-primary text-fg-primary">
                         +{authors.length - 2}
                       </span>
                     </HoverCardTrigger>

@@ -131,10 +131,6 @@
     --bg-tertiary: var(--colors-gray-light-mode-gray-100);
     --fg-tertiary: var(--colors-gray-light-mode-gray-600);
 
-    /* Quaternary colors */
-    --bg-quaternary: var(--colors-gray-light-mode-gray-200);
-    --fg-quaternary: var(--colors-gray-light-mode-gray-500);
-
     /* Brand colors */
     /* Brand primary */
     --bg-brand-primary: var(--colors-brand-green-200);
@@ -169,7 +165,6 @@
     /* Disabled colors */
     --bg-disabled: var(--colors-gray-light-mode-gray-100);
     --fg-disabled: var(--colors-gray-light-mode-gray-400);
-    --text-disabled: var(--colors-gray-light-mode-gray-500);
   }
 
   /* dark theme */
@@ -192,10 +187,6 @@
     /* Tertiary colors */
     --bg-tertiary: var(--colors-gray-dark-mode-gray-800);
     --fg-tertiary: var(--colors-gray-dark-mode-gray-400);
-
-    /* Quaternary colors */
-    --bg-quaternary: var(--colors-gray-dark-mode-gray-700);
-    --fg-quaternary: var(--colors-gray-dark-mode-gray-400);
 
     /* Brand colors */
     /* Brand primary */

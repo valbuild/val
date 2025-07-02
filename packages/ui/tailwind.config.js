@@ -45,10 +45,6 @@ module.exports = {
         "bg-tertiary": "var(--bg-tertiary)",
         "fg-tertiary": "var(--fg-tertiary)",
 
-        /* Quaternary colors */
-        "bg-quaternary": "var(--bg-quaternary)",
-        "fg-quaternary": "var(--fg-quaternary)",
-
         /* Brand colors */
         /* Brand primary */
         "bg-brand-primary": "var(--bg-brand-primary)",
@@ -82,6 +78,7 @@ module.exports = {
 
         /* Disabled colors */
         "bg-disabled": "var(--bg-disabled)",
+        "fg-disabled": "var(--fg-disabled)",
       },
       borderRadius: {
         lg: "var(--radius)",
