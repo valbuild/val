@@ -717,20 +717,34 @@ const PatchOrPatchSetCard = forwardRef<
               }}
             />
           )}
-          {onDelete && !isApplied && (
-            <button
-              onClick={onDelete}
-              title="Revert change"
-              className="relative ml-5"
-            >
-              {amount && (
-                <span className="absolute -right-5 -top-6 px-2 text-xs rounded-full">
-                  {amount > 10 ? "10+" : amount}
-                </span>
-              )}
-              <Undo2 size={16} className="inline" />
-            </button>
-          )}
+          <div className="inline relative ml-5">
+            {amount && (
+              <Tooltip>
+                <TooltipTrigger>
+                  <span className="absolute -right-5 -top-6 w-6 h-6 text-xs leading-6 text-center rounded-full bg-bg-primary text-fg-primary">
+                    {amount > 9 ? "9+" : amount}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="left">
+                  <p>
+                    {amount} change{amount > 1 ? "s" : ""} in this patch set
+                  </p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {onDelete && !isApplied && (
+              <Tooltip>
+                <TooltipTrigger>
+                  <button onClick={onDelete}>
+                    <Undo2 size={16} className="inline" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Revert change</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
         </div>
         {errors && errors.length > 0 && !skipped && (
           <div className="p-2 max-w-[240px] bg-bg-error-primary text-fg-primary">
