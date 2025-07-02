@@ -26,6 +26,11 @@ import { prettifyFilename } from "../utils/prettifyFilename";
 import { useNavigation } from "./ValRouter";
 import { PublishButton } from "./PublishButton";
 import { Checkbox } from "./designSystem/checkbox";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "./designSystem/tooltip";
 
 export function ToolsMenu() {
   const loadingStatus = useLoadingStatus();
@@ -200,7 +205,18 @@ export function ToolsMenuButtons() {
         <div className="flex gap-2 justify-end items-center w-full">
           {mode === "fs" && (
             <div className="overflow-hidden flex items-center gap-2 text-[10px] lg:text-xs">
-              <span className="truncate text-fg-secondary">Auto-save</span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="truncate text-fg-secondary">Auto-save</span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>
+                    When auto-save is enabled Val will save to changes to disk
+                    automatically
+                  </p>
+                  <p>This is a development mode feature</p>
+                </TooltipContent>
+              </Tooltip>
               <Checkbox
                 checked={autoPublish}
                 onCheckedChange={setAutoPublish}
