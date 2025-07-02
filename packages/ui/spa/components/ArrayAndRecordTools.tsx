@@ -281,7 +281,7 @@ function ChangeRecordPopover({
   return (
     <Popover open={open}>
       <Tooltip>
-        <TooltipTrigger>
+        <TooltipTrigger asChild>
           <Button
             asChild
             size={getButtonSize(variant)}
