@@ -41,6 +41,7 @@ module.exports = {
         "bg-secondary": "var(--bg-secondary)",
         "bg-secondary-hover": "var(--bg-secondary-hover)",
         "fg-secondary": "var(--fg-secondary)",
+        "fg-secondary-alt": "var(--fg-secondary-alt)",
         "border-secondary": "var(--border-secondary)",
 
         /* Tertiary colors */
