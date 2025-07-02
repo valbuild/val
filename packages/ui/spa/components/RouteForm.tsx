@@ -90,11 +90,7 @@ export function RouteForm({
                         errors[part.paramName],
                     })}
                     placeholder={part.paramName}
-                    value={
-                      part.type === "array-param"
-                        ? (params[part.paramName] as string[])?.join("/") || ""
-                        : params[part.paramName] || ""
-                    }
+                    value={getParamValue(params, part.paramName)}
                     onChange={(e) => {
                       setParams({
                         ...params,
@@ -138,4 +134,17 @@ export function RouteForm({
       </div>
     </form>
   );
+}
+
+function getParamValue(
+  params: {
+    [paramName: string]: string | string[];
+  },
+  paramName: string,
+) {
+  const value = params[paramName];
+  if (Array.isArray(value)) {
+    return value.join("/");
+  }
+  return value || "";
 }

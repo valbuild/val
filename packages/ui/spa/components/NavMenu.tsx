@@ -44,7 +44,7 @@ import {
 import { AnimateHeight } from "./AnimateHeight";
 import { prettifyFilename } from "../utils/prettifyFilename";
 import { useNavigation } from "./ValRouter";
-import { ScrollArea } from "./designSystem/scroll-area";
+import { ScrollArea, ScrollBar } from "./designSystem/scroll-area";
 import { fixCapitalization } from "../utils/fixCapitalization";
 import {
   Popover,
@@ -151,7 +151,7 @@ export function NavMenu() {
       {"data" in remoteSchemasByModuleFilePath && (
         <div className={classNames("py-4 pl-2", {})}>
           <ScrollArea>
-            <div className="max-h-[calc(100svh-32px-64px-32px-16px)] px-2">
+            <div className="max-h-[calc(100svh-32px-64px-32px-16px)] max-w-[320px] px-2">
               {"data" in remoteSchemaTree ? (
                 <>
                   <SiteMapExplorer
@@ -169,6 +169,7 @@ export function NavMenu() {
                 <Loading />
               ) : null}
             </div>
+            <ScrollBar orientation="horizontal" />
           </ScrollArea>
         </div>
       )}

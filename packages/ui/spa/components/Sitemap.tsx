@@ -5,8 +5,8 @@ import {
   Plus,
   Edit2,
   Trash2,
-  Globe,
   Loader2,
+  Link,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Remote } from "../utils/Remote";
@@ -39,6 +39,7 @@ import {
   TooltipTrigger,
 } from "./designSystem/tooltip";
 import { ChangeRecordPopover } from "./ChangeRecordPopover";
+import { PopoverClose } from "@radix-ui/react-popover";
 
 // TODO: technically this shouldn't be defined here in the ui package, but it should be in the next package.
 export function NextAppRouterSitemap({
@@ -130,31 +131,26 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
       return undefined;
     }
   }, [node.pattern]);
-  const moduleFilePath = useMemo(
-    () =>
-      node.sourcePath &&
-      Internal.splitModuleFilePathAndModulePath(node.sourcePath)[0],
-    [node.sourcePath],
-  );
+  const moduleFilePath = node.moduleFilePath;
   return (
     <div>
-      <div className="flex justify-between items-center w-full group">
+      <div className="flex relative justify-between items-center w-full h-10 group">
         <div className="flex items-center my-1">
           <button
             onClick={() => setIsOpen(!isOpen)}
-            className={cn("hidden", {
+            className={cn("hidden h-6 w-6", {
               "group-hover:block": node.children?.length > 0,
             })}
           >
             <ChevronRight
               size={16}
-              className={cn("", "transform", {
+              className={cn("transform", {
                 "rotate-90": isOpen,
               })}
             />
           </button>
           <div
-            className={cn("block w-4 h-4", {
+            className={cn("block h-6 w-6", {
               "group-hover:hidden": node.children?.length > 0,
             })}
           />
@@ -165,60 +161,88 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
+                        disabled={!node.sourcePath}
                         onClick={() => {
                           if (node.sourcePath) {
                             navigate(node.sourcePath);
                           }
                         }}
                       >
-                        <Globe size={16} className="hover:stroke-2" />
+                        /
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top">Go to main page</TooltipContent>
                   </Tooltip>
                 ) : (
                   <button
+                    disabled={!node.sourcePath}
                     onClick={() => {
+                      console.log("clicked");
                       if (node.sourcePath) {
                         navigate(node.sourcePath);
                       }
                     }}
                   >
-                    <span className="text-fg-brand-secondary">
-                      <Globe size={16} />
-                    </span>
+                    <span className="text-fg-brand-secondary">/</span>
                   </button>
                 )}
               </>
             )}
             {node.name !== "/" && (
-              <>
+              <button
+                disabled={!node.sourcePath}
+                onClick={() => {
+                  if (node.sourcePath) {
+                    navigate(node.sourcePath);
+                  }
+                }}
+                className="cursor-pointer disabled:cursor-default"
+              >
                 <span className={cn("pr-[2px] text-fg-quaternary")}>/</span>
                 <span>{node.name}</span>
-              </>
+              </button>
             )}
           </span>
         </div>
         <div
-          className={cn("items-center group-hover:flex h-6", {
-            hidden: !optionsOpen && !addRouteOpen,
-            flex: optionsOpen || addRouteOpen,
-          })}
+          className={cn(
+            "absolute right-0 top-0 items-center group-hover:flex h-10 bg-bg-primary",
+            {
+              hidden: !optionsOpen && !addRouteOpen,
+              flex: optionsOpen || addRouteOpen,
+            },
+          )}
         >
-          <Popover onOpenChange={setOptionsOpen} open={optionsOpen}>
-            <PopoverTrigger asChild>
-              <Button size="sm" variant="ghost">
-                <Ellipsis size={12} />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent container={portalContainer}>
-              <SiteMapNodeOptions
-                node={node}
-                routePatternWithParams={routePatternWithParams}
-                onClose={() => setOptionsOpen(false)}
-              />
-            </PopoverContent>
-          </Popover>
+          {node.sourcePath && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                if (node.sourcePath) {
+                  navigate(node.sourcePath);
+                }
+              }}
+              className="flex gap-2 items-center"
+            >
+              <Link size={12} />
+            </Button>
+          )}
+          {(node.sourcePath || node.type === "leaf" || node.page) && (
+            <Popover onOpenChange={setOptionsOpen} open={optionsOpen}>
+              <PopoverTrigger asChild>
+                <Button size="sm" variant="ghost">
+                  <Ellipsis size={12} />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent container={portalContainer}>
+                <SiteMapNodeOptions
+                  node={node}
+                  routePatternWithParams={routePatternWithParams}
+                  onClose={() => setOptionsOpen(false)}
+                />
+              </PopoverContent>
+            </Popover>
+          )}
           {routePatternWithParams && moduleFilePath && (
             <AddRecordPopover
               path={moduleFilePath}
@@ -262,22 +286,44 @@ function SiteMapNodeOptions({
     [node?.sourcePath],
   );
   const refs = useKeysOf(parentPath, currentKey);
+  const portalContainer = useValPortal();
   return (
     <div className="grid gap-2 justify-start items-center">
       {parentPath && node.sourcePath && (
-        <DeleteRecordButton
-          path={node.sourcePath as SourcePath}
-          parentPath={parentPath}
-          refs={refs}
-          size="sm"
-          variant="destructive"
-          onComplete={onClose}
-        >
-          <div className="flex gap-2 items-center">
-            <Trash2 size={12} />
-            <span>Delete</span>
-          </div>
-        </DeleteRecordButton>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="flex gap-2 items-center"
+            >
+              <Trash2 size={12} />
+              <span>Delete</span>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            container={portalContainer}
+            className="flex flex-col gap-2"
+          >
+            <div className="text-lg font-bold">Are you sure?</div>
+            <div>This will delete the {currentKey} page.</div>
+            <PopoverClose asChild>
+              <DeleteRecordButton
+                path={node.sourcePath as SourcePath}
+                parentPath={parentPath}
+                refs={refs}
+                size="sm"
+                variant="destructive"
+                onComplete={onClose}
+              >
+                <div className="flex gap-2 items-center">
+                  <Trash2 size={12} />
+                  <span>Delete</span>
+                </div>
+              </DeleteRecordButton>
+            </PopoverClose>
+          </PopoverContent>
+        </Popover>
       )}
       {currentKey !== undefined && node.sourcePath && parentPath && (
         <ChangeRecordPopover
