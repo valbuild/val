@@ -224,7 +224,7 @@ export function DraftChanges({
             >
               <PopoverTrigger asChild>
                 <Button
-                  variant="outline"
+                  variant="secondary"
                   className="flex gap-2 items-center text-sm"
                 >
                   <span>Summary</span>
