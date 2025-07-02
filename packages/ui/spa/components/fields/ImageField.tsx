@@ -237,7 +237,7 @@ export function ImageField({ path }: { path: SourcePath }) {
         {source && url && (
           <div className="relative rounded-lg bg-bg-secondary">
             {loading && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <div className="flex absolute inset-0 flex-col justify-center items-center">
                 <div className="absolute inset-0 w-full h-full opacity-50 bg-bg-secondary" />
                 <Loader2 size={24} className="animate-spin" />
                 <div className="mt-2 text-xs font-thin text-white z-5">
@@ -304,7 +304,7 @@ export function ImageField({ path }: { path: SourcePath }) {
             />
             {hotspot && (
               <div
-                className="rounded-full h-[12px] w-[12px] bg-background mix-blend-difference border-bg-brand-solid border-2 absolute pointer-events-none"
+                className="rounded-full h-[12px] w-[12px] bg-background mix-blend-difference border-bg-brand-primary border-2 absolute pointer-events-none"
                 style={{
                   top: `${hotspot.y * 100}%`,
                   left: `${hotspot.x * 100}%`,
