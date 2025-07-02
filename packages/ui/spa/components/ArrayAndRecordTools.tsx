@@ -87,31 +87,48 @@ export function ArrayAndRecordTools({
           parentSchemaAtPath.router,
         )
       : null;
+  const isParentFixedRoute =
+    parentRoutePattern?.every((part) => part.type === "literal") || false;
+  const canParentDelete =
+    // not a route - just a normal record so can delete:
+    !parentRoutePattern ||
+    // there are no dynamic route parts so we cannot delete
+    !isParentFixedRoute;
+  const canParentChange = parentRoutePattern && !isParentFixedRoute;
+
+  const isFixedRoute =
+    routePattern?.every((part) => part.type === "literal") || false;
+  const canAdd = !routePattern || !isFixedRoute; // cannot add if this is a router and this has no dynamic route parts
+
   return (
     <span className="inline-flex gap-2 items-center">
       {isParentRecord(path, maybeParentPath, parentSchemaAtPath) && (
         <>
           <ReferencesPopover refs={refs} variant={variant} />
-          <ChangeRecordPopover
-            defaultValue={last.text}
-            path={path}
-            parentPath={maybeParentPath}
-            variant={getButtonVariant(variant)}
-            size={getButtonSize(variant)}
-            routePattern={parentRoutePattern}
-            existingKeys={refs}
-          >
-            <Edit size={getIconSize(variant)} />
-          </ChangeRecordPopover>
-          <DeleteRecordButton
-            path={path}
-            parentPath={maybeParentPath}
-            variant={getButtonVariant(variant)}
-            size={getButtonSize(variant)}
-            refs={refs}
-          >
-            <Trash size={getIconSize(variant)} />
-          </DeleteRecordButton>
+          {canParentChange && (
+            <ChangeRecordPopover
+              defaultValue={last.text}
+              path={path}
+              parentPath={maybeParentPath}
+              variant={getButtonVariant(variant)}
+              size={getButtonSize(variant)}
+              routePattern={parentRoutePattern}
+              existingKeys={refs}
+            >
+              <Edit size={getIconSize(variant)} />
+            </ChangeRecordPopover>
+          )}
+          {canParentDelete && (
+            <DeleteRecordButton
+              path={path}
+              parentPath={maybeParentPath}
+              variant={getButtonVariant(variant)}
+              size={getButtonSize(variant)}
+              refs={refs}
+            >
+              <Trash size={getIconSize(variant)} />
+            </DeleteRecordButton>
+          )}
         </>
       )}
       {isArray("data" in schemaAtPath ? schemaAtPath.data : undefined) && (
@@ -120,14 +137,16 @@ export function ArrayAndRecordTools({
       {isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined) && (
         <>
           <ReferencesPopover refs={refs} variant={variant} />
-          <AddRecordPopover
-            path={path}
-            variant={getButtonVariant(variant)}
-            size={getButtonSize(variant)}
-            routePattern={routePattern}
-          >
-            <Plus size={getIconSize(variant)} />
-          </AddRecordPopover>
+          {canAdd && (
+            <AddRecordPopover
+              path={path}
+              variant={getButtonVariant(variant)}
+              size={getButtonSize(variant)}
+              routePattern={routePattern}
+            >
+              <Plus size={getIconSize(variant)} />
+            </AddRecordPopover>
+          )}
         </>
       )}
     </span>
