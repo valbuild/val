@@ -127,6 +127,7 @@
     --bg-secondary: var(--colors-gray-light-mode-gray-50);
     --bg-secondary-hover: var(--colors-gray-light-mode-gray-100);
     --fg-secondary: var(--colors-gray-light-mode-gray-700);
+    --fg-secondary-alt: var(--colors-gray-light-mode-gray-500);
     --border-secondary: var(--colors-gray-light-mode-gray-200);
 
     /* Tertiary colors */
@@ -186,6 +187,7 @@
     --bg-secondary: var(--colors-gray-dark-mode-gray-900);
     --bg-secondary-hover: var(--colors-gray-dark-mode-gray-800);
     --fg-secondary: var(--colors-gray-dark-mode-gray-300);
+    --fg-secondary-alt: var(--colors-gray-dark-mode-gray-500);
     --border-secondary: var(--colors-gray-dark-mode-gray-800);
 
     /* Tertiary colors */
