@@ -70,7 +70,7 @@ export function ToolsMenu() {
             globalErrors.length !== sumValidationErrors && (
               <Accordion type="single" collapsible>
                 <AccordionItem value="global-errors">
-                  <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-text-error-primary">
+                  <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-fg-error-primary">
                     Cannot {mode === "fs" ? "save" : "publish"} now. Found{" "}
                     {globalErrors?.length} errors in all.{" "}
                     {globalErrors.length - sumValidationErrors} were
@@ -95,7 +95,7 @@ export function ToolsMenu() {
             errorModules.length > 0 && (
               <Accordion type="single" collapsible>
                 <AccordionItem value="global-errors">
-                  <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-text-error-primary">
+                  <AccordionTrigger className="p-4 font-normal text-left rounded data-[state=open]:rounded-b-none bg-bg-error-primary text-fg-error-primary">
                     <div>
                       <div>
                         Cannot {mode === "fs" ? "save" : "publish"} now.
@@ -134,7 +134,7 @@ function ModuleError({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
   const moduleFilePathParts = Internal.splitModuleFilePath(moduleFilePath);
   const navigation = useNavigation();
   return (
-    <div className="px-4 py-2 border-b bg-bg-error-primary text-text-error-primary border-border-error">
+    <div className="px-4 py-2 border-b bg-bg-error-primary text-fg-error-primary border-border-error-primary">
       <button
         className="underline cursor-pointer"
         onClick={() => {
@@ -164,7 +164,7 @@ function ShortenedErrorMessage({ error }: { error: string }) {
   return (
     <div
       className={cn(
-        "px-1 py-2 bg-bg-error-primary text-text-error-primary border-b border-border-error",
+        "px-1 py-2 bg-bg-error-primary text-fg-error-primary border-b border-border-error-primary",
         {
           truncate: !isExpanded,
           "whitespace-normal": isExpanded,

@@ -32,14 +32,13 @@ module.exports = {
 
         /* Primary colors */
         "bg-primary": "var(--bg-primary)",
-        "bg-primary-solid": "var(--bg-primary-solid)",
         "fg-primary": "var(--fg-primary)",
         "text-primary": "var(--text-primary)",
         "border-primary": "var(--border-primary)",
 
         /* Secondary colors */
         "bg-secondary": "var(--bg-secondary)",
-        "bg-secondary_hover": "var(--bg-secondary_hover)",
+        "bg-secondary-hover": "var(--bg-secondary-hover)",
         "bg-secondary_alt": "var(--bg-secondary_alt)",
         "bg-secondary_subtle": "var(--bg-secondary_subtle)",
         "bg-secondary-solid": "var(--bg-secondary-solid)",
@@ -51,7 +50,6 @@ module.exports = {
         /* Tertiary colors */
         "bg-tertiary": "var(--bg-tertiary)",
         "fg-tertiary": "var(--fg-tertiary)",
-        "text-tertiary": "var(--text-tertiary)",
 
         /* Quaternary colors */
         "bg-quaternary": "var(--bg-quaternary)",
@@ -59,11 +57,13 @@ module.exports = {
         "text-quaternary": "var(--text-quaternary)",
 
         /* Brand colors */
+        /* Brand primary */
         "bg-brand-primary": "var(--bg-brand-primary)",
         "bg-brand-primary-hover": "var(--bg-brand-primary-hover)",
         "fg-brand-primary": "var(--fg-brand-primary)",
         "fg-brand-primary-alt": "var(--fg-brand-primary-alt)",
         "border-brand-primary": "var(--border-brand-primary)",
+        /* Brand secondary */
         "bg-brand-secondary": "var(--bg-brand-secondary)",
         "bg-brand-secondary-hover": "var(--bg-brand-secondary-hover)",
         "fg-brand-secondary": "var(--fg-brand-secondary)",
@@ -74,17 +74,21 @@ module.exports = {
         "bg-warning-primary": "var(--bg-warning-primary)",
 
         /* Error colors */
+        /* Error primary */
         "bg-error-primary": "var(--bg-error-primary)",
-        "bg-error-secondary": "var(--bg-error-secondary)",
+        "bg-error-primary-hover": "var(--bg-error-primary-hover)",
         "fg-error-primary": "var(--fg-error-primary)",
+        "fg-error-primary-alt": "var(--fg-error-primary-alt)",
+        "border-error-primary": "var(--border-error-primary)",
+        /* Error secondary */
+        "bg-error-secondary": "var(--bg-error-secondary)",
+        "bg-error-secondary-hover": "var(--bg-error-secondary-hover)",
         "fg-error-secondary": "var(--fg-error-secondary)",
-        "text-error-primary": "var(--text-error-primary)",
-        "border-error": "var(--border-error)",
+        "fg-error-secondary-alt": "var(--fg-error-secondary-alt)",
+        "border-error-secondary": "var(--border-error-secondary)",
 
         /* Disabled colors */
         "bg-disabled": "var(--bg-disabled)",
-        "fg-disabled": "var(--fg-disabled)",
-        "text-disabled": "var(--text-disabled)",
 
         /* Other colors */
         "text-white": "var(--text-white)",

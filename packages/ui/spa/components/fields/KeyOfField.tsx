@@ -131,7 +131,7 @@ export function KeyOfField({ path }: { path: SourcePath }) {
     <div id={path}>
       <ValidationErrors path={path} />
       {keys && keys.length > 0 && source !== null && !keys.includes(source) && (
-        <div className="flex flex-col gap-2 p-4 rounded bg-bg-error-primary text-text-error-primary">
+        <div className="flex flex-col gap-2 p-4 rounded bg-bg-error-primary text-fg-error-primary">
           <span>Value must be one of: {keys.join(", ")}</span>
         </div>
       )}

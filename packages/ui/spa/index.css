@@ -118,14 +118,13 @@
 
     /* Primary colors */
     --bg-primary: var(--colors-base-white);
-    --bg-primary-solid: var(--colors-gray-light-mode-gray-950);
     --fg-primary: var(--colors-gray-light-mode-grey-900);
     --text-primary: var(--colors-gray-light-mode-grey-900);
     --border-primary: var(--colors-gray-light-mode-gray-300);
 
     /* Secondary colors */
     --bg-secondary: var(--colors-gray-light-mode-gray-50);
-    --bg-secondary_hover: var(--colors-gray-light-mode-gray-100);
+    --bg-secondary-hover: var(--colors-gray-light-mode-gray-100);
     --bg-secondary_alt: var(--colors-gray-light-mode-gray-50);
     --bg-secondary_subtle: var(--colors-gray-light-mode-gray-25);
     --bg-secondary-solid: var(--colors-gray-light-mode-gray-600);
@@ -137,7 +136,6 @@
     /* Tertiary colors */
     --bg-tertiary: var(--colors-gray-light-mode-gray-100);
     --fg-tertiary: var(--colors-gray-light-mode-gray-600);
-    --text-tertiary: var(--colors-gray-light-mode-gray-600);
 
     /* Quaternary colors */
     --bg-quaternary: var(--colors-gray-light-mode-gray-200);
@@ -162,12 +160,18 @@
     --bg-warning-primary: var(--colors-warning-yellow-50);
 
     /* Error colors */
-    --bg-error-primary: #550c12;
-    --bg-error-secondary: var(--colors-error-red-500);
-    --fg-error-primary: #ffccd0;
-    --fg-error-secondary: #ff98a1;
-    --text-error-primary: #ffccd0;
-    --border-error: #550c12;
+    /* Error primary */
+    --bg-error-primary: var(--colors-error-red-500);
+    --bg-error-primary-hover: var(--colors-error-red-400);
+    --fg-error-primary: var(--colors-error-red-100);
+    --fg-error-primary-alt: var(--colors-error-red-200);
+    --border-error-primary: var(--colors-error-red-300);
+    /* Error secondary */
+    --bg-error-secondary: var(--colors-error-red-100);
+    --bg-error-secondary-hover: var(--colors-error-red-200);
+    --fg-error-secondary: var(--colors-error-red-500);
+    --fg-error-secondary-alt: var(--colors-error-red-400);
+    --border-error-secondary: var(--colors-error-red-300);
 
     /* Disabled colors */
     --bg-disabled: var(--colors-gray-light-mode-gray-100);
@@ -186,14 +190,13 @@
 
     /* Primary colors */
     --bg-primary: var(--colors-gray-dark-mode-gray-950);
-    --bg-primary-solid: var(--colors-gray-dark-mode-gray-900);
     --fg-primary: var(--colors-base-white);
     --text-primary: var(--colors-gray-dark-mode-gray-50);
     --border-primary: var(--colors-gray-dark-mode-gray-700);
 
     /* Secondary colors */
     --bg-secondary: var(--colors-gray-dark-mode-gray-900);
-    --bg-secondary_hover: var(--colors-gray-dark-mode-gray-800);
+    --bg-secondary-hover: var(--colors-gray-dark-mode-gray-800);
     --bg-secondary_alt: var(--colors-gray-dark-mode-gray-950);
     --bg-secondary_subtle: var(--colors-gray-dark-mode-gray-900);
     --bg-secondary-solid: var(--colors-gray-dark-mode-gray-600);
@@ -205,7 +208,6 @@
     /* Tertiary colors */
     --bg-tertiary: var(--colors-gray-dark-mode-gray-800);
     --fg-tertiary: var(--colors-gray-dark-mode-gray-400);
-    --text-tertiary: var(--colors-gray-dark-mode-gray-400);
 
     /* Quaternary colors */
     --bg-quaternary: var(--colors-gray-dark-mode-gray-700);
@@ -230,17 +232,22 @@
     --bg-warning-primary: var(--colors-warning-yellow-500);
 
     /* Error colors */
-    --bg-error-primary: #550c12;
+    /* Error primary */
+    --bg-error-primary: var(--colors-error-red-500);
+    --bg-error-primary-hover: var(--colors-error-red-400);
+    --fg-error-primary: var(--colors-error-red-100);
+    --fg-error-primary-alt: var(--colors-error-red-200);
+    --border-error-primary: var(--colors-error-red-300);
+    /* Error secondary */
     --bg-error-secondary: var(--colors-error-red-500);
-    --fg-error-primary: #ffccd0;
-    --fg-error-secondary: #ff98a1;
-    --text-error-primary: #ffccd0;
-    --border-error: #550c12;
+    --bg-error-secondary-hover: var(--colors-error-red-400);
+    --fg-error-secondary: var(--colors-error-red-500);
+    --fg-error-secondary-alt: var(--colors-error-red-400);
+    --border-error-secondary: var(--colors-error-red-300);
 
     /* Disabled colors */
     --bg-disabled: var(--colors-gray-dark-mode-gray-800);
     --fg-disabled: var(--colors-gray-dark-mode-gray-500);
-    --text-disabled: var(--colors-gray-dark-mode-gray-500);
 
     /* Other colors */
     --text-white: var(--colors-base-white);

@@ -10,7 +10,7 @@ export function FieldSchemaError({
 }) {
   return (
     <div id={path}>
-      <div className="p-4 bg-bg-error-primary text-text-error-primary">
+      <div className="p-4 bg-bg-error-primary text-fg-error-primary">
         {error}
       </div>
     </div>

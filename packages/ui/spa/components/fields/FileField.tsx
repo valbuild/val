@@ -237,7 +237,7 @@ export function FileField({ path }: { path: SourcePath }) {
     <div id={path}>
       <ValidationErrors path={path} />
       {error && (
-        <div className="p-4 rounded bg-bg-error-primary text-text-error-primary">
+        <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
           {error}
         </div>
       )}

@@ -163,14 +163,14 @@ export function ImageField({ path }: { path: SourcePath }) {
     <div id={path}>
       <ValidationErrors path={path} />
       {error && (
-        <div className="p-4 rounded bg-bg-error-primary text-text-error-primary">
+        <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
           {error}
         </div>
       )}
       {schemaAtPath.data.type === "image" &&
         schemaAtPath.data.remote &&
         remoteFiles.status === "inactive" && (
-          <div className="p-4 rounded bg-bg-error-primary text-text-error-primary">
+          <div className="p-4 rounded bg-bg-error-primary text-fg-error-primary">
             {getRemoteFilesError(remoteFiles.reason)}
           </div>
         )}

@@ -25,7 +25,7 @@ export function ContentArea() {
         )}
         <div className="max-h-[calc(100svh-64px)] max-w-[800px] px-4 mx-auto">
           {connectionStatus === "service-unavailable" ? (
-            <div className="p-8 mt-20 text-center text-text-error-primary bg-bg-error-primary">
+            <div className="p-8 mt-20 text-center text-fg-error-primary bg-bg-error-primary">
               <p>Could not connect to the content service.</p>
               <p>Please try again later</p>
             </div>
