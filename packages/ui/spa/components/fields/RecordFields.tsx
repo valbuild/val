@@ -222,7 +222,7 @@ export function RecordPreview({ path }: { path: SourcePath }) {
   const keys = Object.keys(sourceAtPath.data);
   return (
     <div className="text-left">
-      <span className="text-fg-brand-primary">{keys.length}</span>
+      <span className="text-text-brand-primary">{keys.length}</span>
       <span className="mr-1">{` item${keys.length === 1 ? "" : "s"}:`}</span>
       {keys.map((key, index) => (
         <>
