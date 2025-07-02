@@ -32,13 +32,14 @@ import { RenameRecordKeyForm } from "./RenameRecordKeyForm";
 import { useKeysOf } from "./useKeysOf";
 import { DeleteRecordButton } from "./DeleteRecordButton";
 import { Button } from "./designSystem/button";
-import { parseRoutePattern } from "../utils/parseRoutePattern";
+import { RoutePattern, parseRoutePattern } from "../utils/parseRoutePattern";
 import { AddRecordPopover } from "./AddRecordPopover";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "./designSystem/tooltip";
+import { ChangeRecordPopover } from "./ChangeRecordPopover";
 
 // TODO: technically this shouldn't be defined here in the ui package, but it should be in the next package.
 export function NextAppRouterSitemap({
@@ -214,6 +215,7 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
             <PopoverContent container={portalContainer}>
               <SiteMapNodeOptions
                 node={node}
+                routePatternWithParams={routePatternWithParams}
                 onClose={() => setOptionsOpen(false)}
               />
             </PopoverContent>
@@ -244,14 +246,12 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
 function SiteMapNodeOptions({
   node,
   onClose,
+  routePatternWithParams,
 }: {
   node: SitemapNode | PageNode;
   onClose: () => void;
+  routePatternWithParams?: RoutePattern[] | null;
 }) {
-  const { navigate } = useNavigation();
-  const [optionsState, setOptionsState] = useState<"rename" | "delete" | null>(
-    null,
-  );
   const currentKey = useMemo(() => {
     return node.type === "leaf" ? node.fullPath : node.page?.fullPath;
   }, [node]);
@@ -264,58 +264,39 @@ function SiteMapNodeOptions({
   );
   const refs = useKeysOf(parentPath, currentKey);
   return (
-    <div>
-      {optionsState === null && (
-        <>
-          {currentKey !== undefined && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="flex gap-2 items-center"
-              onClick={() => {
-                setOptionsState("rename");
-              }}
-            >
-              <Edit2 size={12} />
-              <span>Rename</span>
-            </Button>
-          )}
-          {parentPath && node.sourcePath && (
-            <DeleteRecordButton
-              path={node.sourcePath as SourcePath}
-              parentPath={parentPath}
-              refs={refs}
-              size="sm"
-              variant="ghost"
-            >
-              <div className="flex gap-2 items-center">
-                <Trash2 size={12} />
-                <span>Delete</span>
-              </div>
-            </DeleteRecordButton>
-          )}
-        </>
+    <div className="grid gap-2 justify-start items-center">
+      {parentPath && node.sourcePath && (
+        <DeleteRecordButton
+          path={node.sourcePath as SourcePath}
+          parentPath={parentPath}
+          refs={refs}
+          size="sm"
+          variant="destructive"
+          onComplete={onClose}
+        >
+          <div className="flex gap-2 items-center">
+            <Trash2 size={12} />
+            <span>Delete</span>
+          </div>
+        </DeleteRecordButton>
       )}
-      {optionsState === "rename" &&
-        currentKey !== undefined &&
-        node.sourcePath &&
-        parentPath && (
-          <RenameRecordKeyForm
-            parentPath={parentPath}
-            path={node.sourcePath}
-            defaultValue={currentKey}
-            refs={refs}
-            onSubmit={(sourcePath) => {
-              setOptionsState(null);
-              onClose();
-              navigate(sourcePath);
-            }}
-            onCancel={() => {
-              setOptionsState(null);
-              onClose();
-            }}
-          />
-        )}
+      {currentKey !== undefined && node.sourcePath && parentPath && (
+        <ChangeRecordPopover
+          variant="ghost"
+          size="sm"
+          existingKeys={refs}
+          path={node.sourcePath as SourcePath}
+          defaultValue={currentKey}
+          routePattern={routePatternWithParams}
+          parentPath={parentPath}
+          onComplete={onClose}
+        >
+          <div className="flex gap-2 items-center">
+            <Edit2 size={12} />
+            <span>Rename</span>
+          </div>
+        </ChangeRecordPopover>
+      )}
     </div>
   );
 }

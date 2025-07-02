@@ -6,7 +6,6 @@ import {
 } from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
 import { Plus, Trash, Edit, Workflow } from "lucide-react";
-import { useState, useEffect } from "react";
 import { emptyOf } from "./fields/emptyOf";
 import { Button } from "./designSystem/button";
 import { prettifyFilename } from "../utils/prettifyFilename";
@@ -30,7 +29,6 @@ import {
   useParent,
 } from "../hooks/useParent";
 import { ValPath } from "./ValPath";
-import { RenameRecordKeyForm } from "./RenameRecordKeyForm";
 import { useKeysOf } from "./useKeysOf";
 import { DeleteRecordButton } from "./DeleteRecordButton";
 import { AddRecordPopover } from "./AddRecordPopover";
@@ -41,6 +39,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "./designSystem/tooltip";
+import { ChangeRecordPopover } from "./ChangeRecordPopover";
 
 type Variant = "module" | "field";
 export function ArrayAndRecordTools({
@@ -63,6 +62,7 @@ export function ArrayAndRecordTools({
   );
   const srcFolder = useNextAppRouterSrcFolder();
   const routePattern =
+    isRecord("data" in schemaAtPath ? schemaAtPath.data : undefined) &&
     srcFolder.status === "success" &&
     srcFolder.data &&
     "data" in schemaAtPath &&
@@ -74,6 +74,19 @@ export function ArrayAndRecordTools({
           schemaAtPath.data.router,
         )
       : null;
+  const parentRoutePattern =
+    isParentRecord(path, maybeParentPath, parentSchemaAtPath) &&
+    srcFolder.status === "success" &&
+    srcFolder.data &&
+    parentSchemaAtPath &&
+    parentSchemaAtPath.type === "record" &&
+    parentSchemaAtPath.router
+      ? getRouterPattern(
+          moduleFilePath,
+          srcFolder.data,
+          parentSchemaAtPath.router,
+        )
+      : null;
   return (
     <span className="inline-flex gap-2 items-center">
       {isParentRecord(path, maybeParentPath, parentSchemaAtPath) && (
@@ -83,9 +96,13 @@ export function ArrayAndRecordTools({
             defaultValue={last.text}
             path={path}
             parentPath={maybeParentPath}
-            variant={variant}
-            refs={refs}
-          />
+            variant={getButtonVariant(variant)}
+            size={getButtonSize(variant)}
+            routePattern={parentRoutePattern}
+            existingKeys={refs}
+          >
+            <Edit size={getIconSize(variant)} />
+          </ChangeRecordPopover>
           <DeleteRecordButton
             path={path}
             parentPath={maybeParentPath}
@@ -248,73 +265,6 @@ function AddArrayButton({
     >
       <Plus size={getIconSize(variant)} />
     </Button>
-  );
-}
-
-function ChangeRecordPopover({
-  defaultValue,
-  path,
-  parentPath,
-  variant,
-  refs,
-}: {
-  defaultValue: string;
-  path: SourcePath;
-  parentPath: SourcePath;
-  variant: Variant;
-  refs: SourcePath[];
-}) {
-  const { navigate } = useNavigation();
-  const [open, setOpen] = useState(false);
-  const portalContainer = useValPortal();
-  useEffect(() => {
-    const keyDownListener = (ev: KeyboardEvent) => {
-      if (ev.key === "Escape") {
-        setOpen(false);
-      }
-    };
-    window.addEventListener("keydown", keyDownListener);
-    return () => {
-      window.removeEventListener("keydown", keyDownListener);
-    };
-  }, []);
-  return (
-    <Popover open={open}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            asChild
-            size={getButtonSize(variant)}
-            variant={getButtonVariant(variant)}
-          >
-            <PopoverTrigger
-              onClick={() => {
-                setOpen(true);
-              }}
-            >
-              <Edit size={16} />
-            </PopoverTrigger>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="top">Rename</TooltipContent>
-      </Tooltip>
-      <PopoverContent container={portalContainer} className="text-fg-primary">
-        <RenameRecordKeyForm
-          parentPath={parentPath}
-          path={path}
-          defaultValue={defaultValue}
-          refs={refs}
-          onSubmit={(sourcePath) => {
-            navigate(sourcePath, {
-              replace: true,
-            });
-          }}
-          onCancel={() => {
-            setOpen(false);
-          }}
-        />
-      </PopoverContent>
-    </Popover>
   );
 }
 
