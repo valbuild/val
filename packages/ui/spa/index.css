@@ -147,10 +147,6 @@
     --text-quaternary: var(--colors-gray-light-mode-gray-500);
     --text-quaternary_on-brand: var(--turquoise-300);
 
-    /* Quinary colors */
-    --fg-quinary: var(--colors-gray-light-mode-gray-400);
-    --fg-quinary_hover: var(--colors-gray-light-mode-gray-500);
-
     /* Brand colors */
     --bg-brand-primary: var(--turquoise-500);
     --bg-brand-primary_alt: var(--turquoise-50);
@@ -251,10 +247,6 @@
     --fg-quaternary_hover: var(--colors-gray-dark-mode-gray-300);
     --text-quaternary: var(--colors-gray-dark-mode-gray-400);
     --text-quaternary_on-brand: var(--colors-gray-dark-mode-gray-400);
-
-    /* Quinary colors */
-    --fg-quinary: var(--colors-gray-dark-mode-gray-500);
-    --fg-quinary_hover: var(--colors-gray-dark-mode-gray-400);
 
     /* Brand colors */
     --bg-brand-primary: var(--turquoise-500);

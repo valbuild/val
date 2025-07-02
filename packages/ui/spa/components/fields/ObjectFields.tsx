@@ -130,7 +130,7 @@ function PreviewField({
 }) {
   return (
     <>
-      <span className="flex whitespace-nowrap text-fg-quinary">
+      <span className="flex whitespace-nowrap text-text-disabled">
         {fixCapitalization(label)}
       </span>
       {children}
