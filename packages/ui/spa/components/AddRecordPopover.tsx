@@ -122,18 +122,20 @@ export function AddRecordPopover({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <Button asChild size={size} variant={variant}>
-        <PopoverTrigger
-          onClick={() => {
-            setOpen(true);
-          }}
-        >
-          <Tooltip>
-            <TooltipTrigger>{children}</TooltipTrigger>
-            <TooltipContent>
-              <p>Add</p>
-            </TooltipContent>
-          </Tooltip>
-        </PopoverTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger
+              onClick={() => {
+                setOpen(true);
+              }}
+            >
+              {children}
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>Add</p>
+          </TooltipContent>
+        </Tooltip>
       </Button>
       <PopoverContent container={portalContainer}>
         {routePattern ? (
