@@ -113,12 +113,11 @@
     --radius: 0.5rem;
 
     /* (Text) Selection colors */
-    --bg-selection: var(--turquoise-500);
-    --text-selection: var(--colors-base-white);
+    --bg-selection: var(--colors-gray-light-mode-gray-200);
+    --text-selection: var(--colors-base-color);
 
     /* Primary colors */
     --bg-primary: var(--colors-base-white);
-    --bg-primary_hover: var(--colors-gray-light-mode-gray-50);
     --bg-primary-solid: var(--colors-gray-light-mode-gray-950);
     --fg-primary: var(--colors-gray-light-mode-grey-900);
     --text-primary: var(--colors-gray-light-mode-grey-900);
@@ -146,12 +145,14 @@
     --text-quaternary: var(--colors-gray-light-mode-gray-500);
 
     /* Brand colors */
-    --bg-brand-primary: var(--turquoise-500);
-    --bg-brand-secondary: var(--turquoise-500);
-    --fg-brand-primary: var(--turquoise-500);
-    --fg-brand-secondary: var(--turquoise-500);
-    --text-brand-primary: var(--turquoise-100);
-    --text-brand-secondary: var(--turquoise-200);
+    --bg-brand-primary: var(--colors-brand-green-500);
+    --bg-brand-primary-hover: var(--colors-brand-green-600);
+    --bg-brand-secondary: var(--colors-brand-green-400);
+    --fg-brand-primary: var(--colors-brand-green-600);
+    --fg-brand-secondary: var(--colors-brand-green-500);
+    --text-brand-primary: var(--colors-brand-green-100);
+    --text-brand-primary-hover: var(--colors-brand-green-50);
+    --text-brand-secondary: var(--colors-brand-green-200);
 
     /* Warning colors */
     --bg-warning-primary: var(--colors-warning-yellow-50);
@@ -177,12 +178,11 @@
   /* dark theme */
   *[data-mode="dark"] {
     /* (Text) Selection colors */
-    --bg-selection: var(--turquoise-500);
-    --text-selection: var(--colors-base-white);
+    --bg-selection: var(--colors-gray-light-mode-gray-50);
+    --text-selection: var(--colors-base-color);
 
     /* Primary colors */
     --bg-primary: var(--colors-gray-dark-mode-gray-950);
-    --bg-primary_hover: var(--colors-gray-dark-mode-gray-800);
     --bg-primary-solid: var(--colors-gray-dark-mode-gray-900);
     --fg-primary: var(--colors-base-white);
     --text-primary: var(--colors-gray-dark-mode-gray-50);
@@ -210,12 +210,14 @@
     --text-quaternary: var(--colors-gray-dark-mode-gray-400);
 
     /* Brand colors */
-    --bg-brand-primary: var(--turquoise-500);
-    --bg-brand-secondary: var(--turquoise-500);
-    --fg-brand-primary: var(--turquoise-500);
-    --fg-brand-secondary: var(--turquoise-500);
-    --text-brand-primary: var(--colors-gray-dark-mode-gray-50);
-    --text-brand-secondary: var(--colors-gray-dark-mode-gray-300);
+    --bg-brand-primary: var(--colors-brand-green-500);
+    --bg-brand-primary-hover: var(--colors-brand-green-600);
+    --bg-brand-secondary: var(--colors-brand-green-400);
+    --fg-brand-primary: var(--colors-brand-green-400);
+    --fg-brand-secondary: var(--colors-brand-green-300);
+    --text-brand-primary: var(--colors-brand-green-100);
+    --text-brand-primary-hover: var(--colors-brand-green-50);
+    --text-brand-secondary: var(--colors-brand-green-200);
 
     /* Warning colors */
     --bg-warning-primary: var(--colors-warning-yellow-500);
