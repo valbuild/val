@@ -32,9 +32,9 @@ module.exports = {
 
         /* Primary colors */
         "bg-primary": "var(--bg-primary)",
-        "bg-primary-alt": "var(--bg-primary-alt)",
         "bg-primary-hover": "var(--bg-primary-hover)",
         "fg-primary": "var(--fg-primary)",
+        "fg-primary-alt": "var(--fg-primary-alt)",
         "border-primary": "var(--border-primary)",
 
         /* Secondary colors */
