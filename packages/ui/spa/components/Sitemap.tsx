@@ -28,7 +28,6 @@ import {
   getNextAppRouterSitemapTree,
 } from "@valbuild/shared/internal";
 import { cn } from "./designSystem/cn";
-import { RenameRecordKeyForm } from "./RenameRecordKeyForm";
 import { useKeysOf } from "./useKeysOf";
 import { DeleteRecordButton } from "./DeleteRecordButton";
 import { Button } from "./designSystem/button";
