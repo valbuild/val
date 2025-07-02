@@ -121,22 +121,23 @@ export function AddRecordPopover({
     Internal.splitModuleFilePathAndModulePath(path);
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <Button asChild size={size} variant={variant}>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <PopoverTrigger
-              onClick={() => {
-                setOpen(true);
-              }}
-            >
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger
+            onClick={() => {
+              setOpen(true);
+            }}
+            asChild
+          >
+            <Button size={size} variant={variant}>
               {children}
-            </PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>Add</p>
-          </TooltipContent>
-        </Tooltip>
-      </Button>
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p>Add</p>
+        </TooltipContent>
+      </Tooltip>
       <PopoverContent container={portalContainer}>
         {routePattern ? (
           <RouteAddForm
