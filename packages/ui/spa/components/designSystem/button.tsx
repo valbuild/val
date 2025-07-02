@@ -5,7 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "./cn";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-fg-primary text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:text-text-disabled disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-fg-primary text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:text-fg-disabled disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
@@ -14,17 +14,18 @@ const buttonVariants = cva(
           "border border-border-brand-primary",
           "bg-bg-brand-primary text-fg-brand-primary",
           "hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary-hover",
-          "disabled:bg-bg-disabled disabled:text-text-disabled disabled:border disabled:border-border-primary",
+          "disabled:bg-bg-disabled disabled:text-fg-disabled disabled:border disabled:border-border-primary",
         ),
         destructive: cn(
           "cursor-pointer",
-          "border border-border-error",
-          "bg-bg-error text-text-error-primary hover:bg-bg-error_hover/90",
+          "border border-border-error-primary",
+          "bg-bg-error text-fg-error-primary hover:bg-bg-error_hover/90",
         ),
         outline: cn(
           "cursor-pointer",
-          "border border-border-secondary",
+          "border border-transparent",
           "bg-bg-background hover:bg-bg-secondary",
+          "disabled:bg-bg-disabled disabled:text-fg-disabled disabled:border disabled:border-border-primary",
         ),
         secondary: cn(
           "cursor-pointer",
@@ -33,12 +34,14 @@ const buttonVariants = cva(
         ),
         ghost: cn(
           "cursor-pointer",
-          "border border-border-secondary",
-          "hover:bg-bg-secondary_hover hover:text-fg-secondary",
+          "border border-transparent",
+          "bg-bg-background hover:bg-bg-secondary",
+          "disabled:bg-bg-disabled disabled:text-fg-disabled disabled:border disabled:border-border-primary",
+          "hover:bg-bg-secondary-hover hover:text-fg-secondary",
         ),
         link: cn(
           "cursor-pointer",
-          "border border-border-secondary",
+          "border border-transparent",
           "text-fg-primary underline-offset-4 hover:underline",
         ),
       },

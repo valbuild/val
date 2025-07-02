@@ -696,7 +696,7 @@ function ValMenu({
                             "w-4 h-4 text-[9px] leading-4 text-center rounded-full",
                             {
                               "bg-bg-brand-primary": validationErrorCount === 0,
-                              "bg-bg-error-primary text-text-error-primary":
+                              "bg-bg-error-primary text-fg-error-primary":
                                 validationErrorCount > 0,
                             },
                           )}
@@ -721,7 +721,7 @@ function ValMenu({
                 <HoverCardContent>
                   <div className="p-2 rounded bg-bg-primary text-text-primary">
                     {validationErrorCount > 0 && (
-                      <div className="text-text-error-primary">
+                      <div className="text-fg-error-primary">
                         Cannot {valMode === "fs" ? "save" : "publish"} due to{" "}
                         {validationErrorCount} validation error
                         {validationErrorCount > 1 && "s"}

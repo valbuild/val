@@ -109,12 +109,12 @@ export function DraftChanges({
   return (
     <div className={classNames("text-sm", className)}>
       {allValidationErrors && validationErrorsCount > 0 && (
-        <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-text-error-primary z-5">
+        <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-fg-error-primary z-5">
           <ScrollArea orientation="horizontal">
             <Accordion type="single" className="px-4 font-serif" collapsible>
               <AccordionItem value="error" className="border-b-0">
-                <AccordionTrigger className=" data-[state=open]:mb-4 text-text-error-primary border-fg-error-primary ">
-                  <div className="flex items-center justify-between w-full ">
+                <AccordionTrigger className=" data-[state=open]:mb-4 text-fg-error-primary border-fg-error-primary ">
+                  <div className="flex justify-between items-center w-full">
                     <div>
                       {validationErrorsCount} validation issue
                       {validationErrorsCount > 1 ? "s" : ""}
@@ -153,7 +153,7 @@ export function DraftChanges({
         </div>
       )}
       {globalTransientErrors && globalTransientErrors.length > 0 && (
-        <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-text-error-primary z-5">
+        <div className="sticky top-0 border-b border-border-primary bg-bg-error-primary text-fg-error-primary z-5">
           <ScrollArea orientation="horizontal">
             <Accordion type="single" className="px-4 font-serif" collapsible>
               <AccordionItem
@@ -169,7 +169,7 @@ export function DraftChanges({
                     {globalTransientErrors.map((error) => (
                       <div
                         key={error.id}
-                        className="flex items-start justify-between gap-2"
+                        className="flex gap-2 justify-between items-start"
                       >
                         <div className="flex flex-col gap-1">
                           <div className="font-bold">{error.message}</div>
@@ -207,8 +207,8 @@ export function DraftChanges({
         </div>
       )}
       <div className="p-4 z-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="flex justify-between items-center">
+          <div className="flex gap-2 items-center">
             <div className="font-bold">
               {pendingChanges <= 0 ? "No " : `${pendingChanges} `}
               pending change
@@ -230,7 +230,7 @@ export function DraftChanges({
               <PopoverTrigger asChild>
                 <Button
                   variant="outline"
-                  className="flex items-center gap-2 text-sm"
+                  className="flex gap-2 items-center text-sm"
                 >
                   <span>Summary</span>
                   {canGenerate && <Sparkles size={14} />}
@@ -306,7 +306,7 @@ function Deployments({
   }, [deployments, observedCommitShas]);
   return (
     <div>
-      <div className="flex items-center justify-between p-2 font-bold">
+      <div className="flex justify-between items-center p-2 font-bold">
         <span>Deployments</span>
         <Loader2 size={16} className="inline animate-spin" />
       </div>
@@ -341,8 +341,8 @@ function Deployment({
   const portalContainer = useValPortal();
   const author = deployment.creator && profilesById[deployment.creator];
   return (
-    <div className="flex items-start justify-between p-2">
-      <div className="flex items-start gap-2">
+    <div className="flex justify-between items-start p-2">
+      <div className="flex gap-2 items-start">
         {author && (
           <img
             src={author.avatar?.url}
@@ -366,7 +366,7 @@ function Deployment({
         </Tooltip>
       </div>
       {isFinished && (
-        <div className="flex items-start gap-2">
+        <div className="flex gap-2 items-start">
           <span className="text-xs font-light text-text-quaternary">
             Deployed
           </span>
@@ -724,7 +724,7 @@ const PatchOrPatchSetCard = forwardRef<
               className="relative ml-5"
             >
               {amount && (
-                <span className="absolute px-2 text-xs rounded-full -top-6 -right-5 bg-bg-quaternary">
+                <span className="absolute -right-5 -top-6 px-2 text-xs rounded-full bg-bg-quaternary">
                   {amount > 10 ? "10+" : amount}
                 </span>
               )}
@@ -749,7 +749,7 @@ const PatchOrPatchSetCard = forwardRef<
             <div className="truncate">Skipped</div>
           </div>
         )}
-        <div className="flex items-center justify-between pt-2">
+        <div className="flex justify-between items-center pt-2">
           <span className="flex flex-shrink-0 gap-2">
             {authors !== undefined && authors.length > 0 && (
               <span className="flex gap-1 mr-2">
@@ -757,7 +757,7 @@ const PatchOrPatchSetCard = forwardRef<
                   if (author.url) {
                     return (
                       <HoverCard key={author.url}>
-                        <HoverCardTrigger className="flex-shrink-0 w-6 h-6 ">
+                        <HoverCardTrigger className="flex-shrink-0 w-6 h-6">
                           <img
                             src={author.url}
                             alt={author.fullName}
@@ -802,7 +802,7 @@ const PatchOrPatchSetCard = forwardRef<
                         "-ml-3": authors.length > 2,
                       })}
                     >
-                      <span className="flex items-center justify-center w-6 h-6 -ml-3 text-xs font-semibold rounded-full bg-bg-quaternary text-fg-primary">
+                      <span className="flex justify-center items-center -ml-3 w-6 h-6 text-xs font-semibold rounded-full bg-bg-quaternary text-fg-primary">
                         +{authors.length - 2}
                       </span>
                     </HoverCardTrigger>
@@ -839,14 +839,14 @@ const PatchOrPatchSetCard = forwardRef<
               ></span>
             )}
             {changeDescription && (
-              <span className={classNames({ "text-text-disabled": skipped })}>
+              <span className={classNames({ "text-fg-disabled": skipped })}>
                 {changeDescription}
               </span>
             )}
           </span>
           {isOpen !== undefined && (
             <button
-              className="flex-shrink-0 inline-block"
+              className="inline-block flex-shrink-0"
               onClick={() => {
                 if (setOpen) {
                   setOpen(!isOpen);
