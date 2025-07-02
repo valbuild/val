@@ -6,10 +6,10 @@ import { useAddPatch, useShallowSourceAtPath } from "./ValProvider";
 import { useNavigation } from "./ValRouter";
 import { CompressedPath } from "./CompressedPath";
 import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "./designSystem/hover-card";
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "./designSystem/tooltip";
 
 export function DeleteRecordButton({
   path,
@@ -39,8 +39,8 @@ export function DeleteRecordButton({
     return null;
   }
   return (
-    <HoverCard>
-      <HoverCardTrigger>
+    <Tooltip>
+      <TooltipTrigger asChild>
         <Button
           size={size}
           variant={variant}
@@ -60,8 +60,8 @@ export function DeleteRecordButton({
         >
           {children}
         </Button>
-      </HoverCardTrigger>
-      <HoverCardContent side="top">
+      </TooltipTrigger>
+      <TooltipContent side="top">
         {refs.length > 0 ? (
           <div>
             <p>Cannot delete record.</p>
@@ -80,7 +80,7 @@ export function DeleteRecordButton({
         ) : (
           <p>Delete record</p>
         )}
-      </HoverCardContent>
-    </HoverCard>
+      </TooltipContent>
+    </Tooltip>
   );
 }

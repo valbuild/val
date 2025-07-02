@@ -29,11 +29,6 @@ import {
   isRecord,
   useParent,
 } from "../hooks/useParent";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "./designSystem/hover-card";
 import { ValPath } from "./ValPath";
 import { RenameRecordKeyForm } from "./RenameRecordKeyForm";
 import { useKeysOf } from "./useKeysOf";
@@ -285,8 +280,8 @@ function ChangeRecordPopover({
   }, []);
   return (
     <Popover open={open}>
-      <HoverCard>
-        <HoverCardTrigger>
+      <Tooltip>
+        <TooltipTrigger>
           <Button
             asChild
             size={getButtonSize(variant)}
@@ -300,9 +295,9 @@ function ChangeRecordPopover({
               <Edit size={16} />
             </PopoverTrigger>
           </Button>
-        </HoverCardTrigger>
-        <HoverCardContent side="top">Rename</HoverCardContent>
-      </HoverCard>
+        </TooltipTrigger>
+        <TooltipContent side="top">Rename</TooltipContent>
+      </Tooltip>
       <PopoverContent container={portalContainer} className="text-fg-primary">
         <RenameRecordKeyForm
           parentPath={parentPath}

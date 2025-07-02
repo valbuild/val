@@ -45,11 +45,6 @@ import {
   PopoverTrigger,
 } from "./designSystem/popover";
 import { PopoverClose } from "@radix-ui/react-popover";
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "./designSystem/hover-card";
 import { PublishSummary } from "./PublishSummary";
 import { ScrollArea } from "./designSystem/scroll-area";
 import {
@@ -770,8 +765,8 @@ const PatchOrPatchSetCard = forwardRef<
                 {authors.slice(0, 2).map((author, i) => {
                   if (author.url) {
                     return (
-                      <HoverCard key={author.url}>
-                        <HoverCardTrigger className="flex-shrink-0 w-6 h-6">
+                      <Tooltip key={author.url}>
+                        <TooltipTrigger className="flex-shrink-0 w-6 h-6">
                           <img
                             src={author.url}
                             alt={author.fullName}
@@ -779,17 +774,17 @@ const PatchOrPatchSetCard = forwardRef<
                               "-ml-3": authors.length > 2 && i > 0,
                             })}
                           />
-                        </HoverCardTrigger>
-                        <HoverCardContent>
+                        </TooltipTrigger>
+                        <TooltipContent>
                           <div>{author.fullName}</div>
-                        </HoverCardContent>
-                      </HoverCard>
+                        </TooltipContent>
+                      </Tooltip>
                     );
                   }
                   const initials = getInitials(author.fullName);
                   return (
-                    <HoverCard key={author.fullName + author.url}>
-                      <HoverCardTrigger
+                    <Tooltip key={author.fullName + author.url}>
+                      <TooltipTrigger
                         className={classNames({
                           "-ml-3": authors.length > 2 && i > 0,
                         })}
@@ -802,16 +797,16 @@ const PatchOrPatchSetCard = forwardRef<
                         >
                           {initials}
                         </span>
-                      </HoverCardTrigger>
-                      <HoverCardContent>
+                      </TooltipTrigger>
+                      <TooltipContent>
                         <div>{author.fullName}</div>
-                      </HoverCardContent>
-                    </HoverCard>
+                      </TooltipContent>
+                    </Tooltip>
                   );
                 })}
                 {authors.length > 2 && (
-                  <HoverCard>
-                    <HoverCardTrigger
+                  <Tooltip>
+                    <TooltipTrigger
                       className={classNames({
                         "-ml-3": authors.length > 2,
                       })}
@@ -819,8 +814,8 @@ const PatchOrPatchSetCard = forwardRef<
                       <span className="flex justify-center items-center -ml-3 w-6 h-6 text-xs font-semibold rounded-full bg-bg-primary text-fg-primary">
                         +{authors.length - 2}
                       </span>
-                    </HoverCardTrigger>
-                    <HoverCardContent className="grid grid-cols-[auto,1fr] gap-2">
+                    </TooltipTrigger>
+                    <TooltipContent className="grid grid-cols-[auto,1fr] gap-2">
                       {authors.slice(2).map((author) => {
                         return (
                           <Fragment key={author.fullName + author.url}>
@@ -839,8 +834,8 @@ const PatchOrPatchSetCard = forwardRef<
                           </Fragment>
                         );
                       })}
-                    </HoverCardContent>
-                  </HoverCard>
+                    </TooltipContent>
+                  </Tooltip>
                 )}
               </span>
             )}
