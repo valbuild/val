@@ -47,7 +47,7 @@ import {
 } from "./personalAccessTokens";
 import path from "path";
 import { hasRemoteFileSchema } from "./hasRemoteFileSchema";
-import { ReifiedPreview } from "@valbuild/core";
+import { ReifiedRender } from "@valbuild/core";
 
 export type ValServerOptions = {
   route: string;
@@ -1327,7 +1327,7 @@ export const ValServer = (
             ...(onlyPatchedTreeModules.errors || {}),
           },
         };
-        const previewsRes = await serverOps.getPreviews(
+        const renderRes = await serverOps.getRenders(
           schemasRes,
           sourcesRes.sources,
         );
@@ -1375,7 +1375,7 @@ export const ValServer = (
           ModuleFilePath,
           {
             source: Json;
-            preview: ReifiedPreview | null;
+            render: ReifiedRender | null;
             patches?: {
               applied: PatchId[];
               skipped?: PatchId[];
@@ -1411,7 +1411,7 @@ export const ValServer = (
             }
             modules[moduleFilePath] = {
               source: module,
-              preview: previewsRes.previews[moduleFilePath] || null,
+              render: renderRes.renders[moduleFilePath] || null,
               patches:
                 appliedPatches.length > 0 ||
                 skippedPatches.length > 0 ||

@@ -124,10 +124,10 @@ export {
 export { type SerializedLiteralSchema, LiteralSchema } from "./schema/literal";
 export { deserializeSchema } from "./schema/deserialize";
 export {
-  type ListRecordPreview,
-  type ListArrayPreview,
-  type ReifiedPreview,
-} from "./preview";
+  type ListRecordRender,
+  type ListArrayRender,
+  type ReifiedRender,
+} from "./render";
 
 export const FATAL_ERROR_TYPES = [
   "no-schema",

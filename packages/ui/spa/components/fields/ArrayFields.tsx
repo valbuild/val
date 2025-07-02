@@ -1,7 +1,7 @@
 import { SourcePath, SerializedArraySchema } from "@valbuild/core";
 import {
   useAddPatch,
-  usePreviewOverrideAtPath,
+  useRenderOverrideAtPath,
   useSchemaAtPath,
   useShallowSourceAtPath,
   useSourceAtPath,
@@ -23,7 +23,7 @@ export function ArrayFields({ path }: { path: SourcePath }) {
   const type = "array";
   const { navigate } = useNavigation();
   const schemaAtPath = useSchemaAtPath(path);
-  const previewAtPath = usePreviewOverrideAtPath(path);
+  const renderAtPath = useRenderOverrideAtPath(path);
   const shallowSourceAtPath = useShallowSourceAtPath(path, type);
   const sourceAtPath = useSourceAtPath(path);
 
@@ -62,24 +62,24 @@ export function ArrayFields({ path }: { path: SourcePath }) {
     );
   }
   const schema = schemaAtPath.data as SerializedArraySchema;
-  const previewAtPathData =
-    previewAtPath && "data" in previewAtPath ? previewAtPath.data : undefined;
+  const renderAtPathData =
+    renderAtPath && "data" in renderAtPath ? renderAtPath.data : undefined;
 
   // NOTE: we do not really want to show loading here, but since
-  // preview data is loaded from the server,
+  // render data is loaded from the server,
   // we have a rather jarring UX of items rearranging when it finally finishes
   // Ideally this is less jarring, but for now we just show a loading spinner
   // which we figured was better than not doing so
   const loading =
-    previewAtPathData &&
+    renderAtPathData &&
     ((shallowSourceAtPath.status === "success" &&
       shallowSourceAtPath.clientSideOnly) ||
       shallowSourceAtPath.status === "loading");
   return (
     <div id={path} className="relative w-full">
       <ValidationErrors path={path} />
-      {previewAtPath?.status === "error" && (
-        <PreviewError error={previewAtPath.message} path={path} />
+      {renderAtPath?.status === "error" && (
+        <PreviewError error={renderAtPath.message} path={path} />
       )}
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-bg-disabled z-[40] opacity-40">
@@ -138,10 +138,10 @@ export function ArrayFields({ path }: { path: SourcePath }) {
           );
         }}
         schema={schema}
-        preview={
-          previewAtPathData?.layout === "list" &&
-          previewAtPathData.parent === "array"
-            ? previewAtPathData
+        render={
+          renderAtPathData?.layout === "list" &&
+          renderAtPathData.parent === "array"
+            ? renderAtPathData
             : undefined
         }
         source={shallowSourceAtPath.data || []}

@@ -21,13 +21,13 @@ import { Copy, EllipsisVertical, GripVertical, Trash2 } from "lucide-react";
 import {
   SourcePath,
   SerializedArraySchema,
-  ListArrayPreview,
   ImageSource,
   Internal,
   ImageMetadata,
   RemoteSource,
   VAL_EXTENSION,
 } from "@valbuild/core";
+import type { ListArrayRender } from "@valbuild/core";
 import { Preview as AutoPreview } from "./Preview";
 import { StringField } from "./fields/StringField";
 import { isParentError } from "../utils/isParentError";
@@ -43,7 +43,7 @@ import { FieldValidationError } from "./FieldValidationError";
 
 export function SortableList({
   source,
-  preview,
+  render,
   path,
   schema,
   disabled,
@@ -55,7 +55,7 @@ export function SortableList({
   source: SourcePath[];
   path: SourcePath;
   disabled?: boolean;
-  preview?: ListArrayPreview;
+  render?: ListArrayRender;
   schema: SerializedArraySchema;
   onMove: (from: number, to: number) => void;
   onClick: (path: SourcePath) => void;
@@ -113,7 +113,7 @@ export function SortableList({
         strategy={verticalListSortingStrategy}
         disabled={disabled}
       >
-        <div className="flex flex-col w-full gap-y-4">
+        <div className="flex flex-col gap-y-4 w-full">
           {items.map(({ path, id }) => {
             return (
               <SortableItem
@@ -121,10 +121,10 @@ export function SortableList({
                 id={id}
                 schema={schema}
                 disabled={disabled}
-                previewLayout={preview?.layout}
-                preview={
+                renderLayout={render?.layout}
+                render={
                   /* id is 1-based because dnd kit didn't work with 0 based - surely we're doing something strange... (??) */
-                  preview?.items[id - 1]
+                  render?.items[id - 1]
                 }
                 path={path}
                 onClick={onClick}
@@ -156,15 +156,15 @@ export function SortableItem({
   path,
   schema,
   disabled,
-  preview,
+  render,
   onClick,
   onDelete,
   onDuplicate,
 }: {
   id: number;
   path: SourcePath;
-  previewLayout?: "list";
-  preview?: ListArrayPreview["items"][number];
+  renderLayout?: "list";
+  render?: ListArrayRender["items"][number];
   schema: SerializedArraySchema;
   disabled?: boolean;
   onClick: (path: SourcePath) => void;
@@ -217,7 +217,7 @@ export function SortableItem({
         <GripVertical />
       </button>
       {/** Changing this behavior means we need to change the getNavPath behavior */}
-      {!preview && schema?.item?.type === "string" && (
+      {!render && schema?.item?.type === "string" && (
         <div
           className={cn("flex-grow w-full", {
             "p-2 border border-bg-error-secondary rounded-lg":
@@ -232,7 +232,7 @@ export function SortableItem({
           )}
         </div>
       )}
-      {(preview || schema?.item?.type !== "string") && (
+      {(render || schema?.item?.type !== "string") && (
         <button
           className={cn(
             "flex-grow",
@@ -249,9 +249,9 @@ export function SortableItem({
             onClick(path);
           }}
         >
-          {preview && <ListPreviewItem {...preview} />}
-          {!preview && (
-            <div className="flex-grow w-full p-4">
+          {render && <ListPreviewItem {...render} />}
+          {!render && (
+            <div className="flex-grow p-4 w-full">
               <AutoPreview path={path} />
             </div>
           )}
@@ -318,7 +318,7 @@ function ListPreviewItem({
   title,
   image,
   subtitle,
-}: ListArrayPreview["items"][number]) {
+}: ListArrayRender["items"][number]) {
   return (
     <div
       className={cn("flex w-full items-center justify-between pl-4 flex-grow")}
@@ -326,7 +326,7 @@ function ListPreviewItem({
       <div className="flex flex-col flex-shrink py-4 overflow-x-clip">
         <div className="text-lg font-medium">{title}</div>
         {subtitle && (
-          <div className="flex-shrink block overflow-hidden text-sm text-gray-500 text-ellipsis max-h-5">
+          <div className="block overflow-hidden flex-shrink max-h-5 text-sm text-gray-500 text-ellipsis">
             {subtitle}
           </div>
         )}
@@ -347,7 +347,7 @@ function ImageOrPlaceholder({
 
   if (src === null || src === undefined) {
     return (
-      <div className="flex-shrink-0 w-20 h-20 ml-4 opacity-25 bg-bg-brand-secondary"></div>
+      <div className="flex-shrink-0 ml-4 w-20 h-20 opacity-25 bg-bg-brand-secondary"></div>
     );
   }
 
@@ -357,7 +357,7 @@ function ImageOrPlaceholder({
       : Internal.convertRemoteSource(src).url;
 
   return (
-    <div className="relative flex-shrink-0 w-20 h-20 ml-4">
+    <div className="relative flex-shrink-0 ml-4 w-20 h-20">
       {!isLoaded && (
         <div className="absolute inset-0 opacity-25 bg-bg-brand-secondary animate-in"></div>
       )}
