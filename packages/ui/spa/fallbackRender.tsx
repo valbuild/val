@@ -11,10 +11,10 @@ import { X } from "lucide-react";
 export function fallbackRender({ error, resetErrorBoundary }: any) {
   console.error(error);
   return (
-    <div className="absolute top-0 left-0 flex items-center justify-center w-screen h-screen bg-bg-primary text-text-primary">
-      <div className="w-full h-full p-10">
-        <div className="w-full h-full p-10 overflow-scroll bg-card text-primary">
-          <div className="flex items-center justify-between">
+    <div className="flex absolute top-0 left-0 justify-center items-center w-screen h-screen bg-bg-primary text-fg-primary">
+      <div className="p-10 w-full h-full">
+        <div className="overflow-scroll p-10 w-full h-full bg-card text-fg-primary">
+          <div className="flex justify-between items-center">
             <div className="flex items-center gap-[0.5em] text-lg font-bold text-center py-2">
               <Logo /> encountered an error
             </div>
@@ -22,7 +22,7 @@ export function fallbackRender({ error, resetErrorBoundary }: any) {
               <X />
             </button>
           </div>
-          <div className="text-4xl font-normal ">Message:</div>
+          <div className="text-4xl font-normal">Message:</div>
           <pre>{error.message}</pre>
           {error.stack && (
             <Accordion

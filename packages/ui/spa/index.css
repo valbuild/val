@@ -119,18 +119,12 @@
     /* Primary colors */
     --bg-primary: var(--colors-base-white);
     --fg-primary: var(--colors-gray-light-mode-grey-900);
-    --text-primary: var(--colors-gray-light-mode-grey-900);
     --border-primary: var(--colors-gray-light-mode-gray-300);
 
     /* Secondary colors */
     --bg-secondary: var(--colors-gray-light-mode-gray-50);
     --bg-secondary-hover: var(--colors-gray-light-mode-gray-100);
-    --bg-secondary_alt: var(--colors-gray-light-mode-gray-50);
-    --bg-secondary_subtle: var(--colors-gray-light-mode-gray-25);
-    --bg-secondary-solid: var(--colors-gray-light-mode-gray-600);
     --fg-secondary: var(--colors-gray-light-mode-gray-700);
-    --text-secondary: var(--colors-gray-light-mode-gray-700);
-    --text-secondary_hover: var(--colors-gray-light-mode-grey-800);
     --border-secondary: var(--colors-gray-light-mode-gray-200);
 
     /* Tertiary colors */
@@ -140,7 +134,6 @@
     /* Quaternary colors */
     --bg-quaternary: var(--colors-gray-light-mode-gray-200);
     --fg-quaternary: var(--colors-gray-light-mode-gray-500);
-    --text-quaternary: var(--colors-gray-light-mode-gray-500);
 
     /* Brand colors */
     /* Brand primary */
@@ -177,9 +170,6 @@
     --bg-disabled: var(--colors-gray-light-mode-gray-100);
     --fg-disabled: var(--colors-gray-light-mode-gray-400);
     --text-disabled: var(--colors-gray-light-mode-gray-500);
-
-    /* Other colors */
-    --text-white: var(--colors-base-white);
   }
 
   /* dark theme */
@@ -191,18 +181,12 @@
     /* Primary colors */
     --bg-primary: var(--colors-gray-dark-mode-gray-950);
     --fg-primary: var(--colors-base-white);
-    --text-primary: var(--colors-gray-dark-mode-gray-50);
     --border-primary: var(--colors-gray-dark-mode-gray-700);
 
     /* Secondary colors */
     --bg-secondary: var(--colors-gray-dark-mode-gray-900);
     --bg-secondary-hover: var(--colors-gray-dark-mode-gray-800);
-    --bg-secondary_alt: var(--colors-gray-dark-mode-gray-950);
-    --bg-secondary_subtle: var(--colors-gray-dark-mode-gray-900);
-    --bg-secondary-solid: var(--colors-gray-dark-mode-gray-600);
     --fg-secondary: var(--colors-gray-dark-mode-gray-300);
-    --text-secondary: var(--colors-gray-dark-mode-gray-300);
-    --text-secondary_hover: var(--colors-gray-dark-mode-gray-200);
     --border-secondary: var(--colors-gray-dark-mode-gray-800);
 
     /* Tertiary colors */
@@ -212,7 +196,6 @@
     /* Quaternary colors */
     --bg-quaternary: var(--colors-gray-dark-mode-gray-700);
     --fg-quaternary: var(--colors-gray-dark-mode-gray-400);
-    --text-quaternary: var(--colors-gray-dark-mode-gray-400);
 
     /* Brand colors */
     /* Brand primary */
@@ -248,9 +231,6 @@
     /* Disabled colors */
     --bg-disabled: var(--colors-gray-dark-mode-gray-800);
     --fg-disabled: var(--colors-gray-dark-mode-gray-500);
-
-    /* Other colors */
-    --text-white: var(--colors-base-white);
   }
 }
 
@@ -259,7 +239,7 @@
     @apply border-border-primary;
   }
   body {
-    @apply bg-bg-primary text-text-primary;
+    @apply bg-bg-primary text-fg-primary;
   }
 
   ::selection {

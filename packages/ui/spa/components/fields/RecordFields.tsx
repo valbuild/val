@@ -93,7 +93,7 @@ export function RecordFields({ path }: { path: SourcePath }) {
                 onClick={() => navigate(sourcePathOfItem(path, key))}
                 className={classNames(
                   "bg-primary-foreground cursor-pointer min-w-[320px] max-h-[170px] overflow-hidden rounded-md border border-border-primary p-4",
-                  "hover:bg-bg-secondary_subtle",
+                  "hover:bg-bg-secondary-hover",
                 )}
               >
                 <div className="flex justify-between items-start">
@@ -153,7 +153,7 @@ function ListRecordRenderComponent({
           key={key}
           onClick={() => navigate(sourcePathOfItem(path, key))}
           className={classNames(
-            "hover:bg-bg-secondary_subtle",
+            "hover:bg-bg-secondary-hover",
             "border rounded-lg cursor-pointer border-border-primary",
           )}
         >

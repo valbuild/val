@@ -240,7 +240,7 @@ export function ImageField({ path }: { path: SourcePath }) {
               <div className="flex absolute inset-0 flex-col justify-center items-center">
                 <div className="absolute inset-0 w-full h-full opacity-50 bg-bg-secondary" />
                 <Loader2 size={24} className="animate-spin" />
-                <div className="mt-2 text-xs font-thin text-white z-5">
+                <div className="mt-2 text-xs font-thin text-[white] z-5">
                   {progressPercentage !== null ? `${progressPercentage}%` : ""}
                 </div>
               </div>

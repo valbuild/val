@@ -244,17 +244,17 @@ export function FileField({ path }: { path: SourcePath }) {
       <div className="grid gap-2">
         {filename && (
           <div className="flex items-center gap-2">
-            <div className="text-sm text-text-secondary">{filename}</div>
+            <div className="text-sm text-fg-secondary">{filename}</div>
             {loading && (
               <Loader2
-                className={`animate-spin text-text-secondary ${
+                className={`animate-spin text-fg-secondary ${
                   loading ? "block" : "hidden"
                 }`}
                 size={16}
               />
             )}
             {progressPercentage !== null && (
-              <div className="text-sm text-text-secondary">
+              <div className="text-sm text-fg-secondary">
                 {progressPercentage}%
               </div>
             )}

@@ -354,7 +354,7 @@ ${positionStyles}
           </style>
           {/* This same snippet is used in ValOverlay (ValMenu) - we use this to indicate when val is loading */}
           <div className={getPositionClassName(dropZone) + " p-4"}>
-            <div className="flex items-center justify-center p-2 text-white bg-black rounded backdrop-blur">
+            <div className="flex justify-center items-center p-2 text-white bg-black rounded backdrop-blur">
               <Clock className="animate-spin" size={16} />
             </div>
           </div>

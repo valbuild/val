@@ -30,7 +30,7 @@ const buttonVariants = cva(
         secondary: cn(
           "cursor-pointer",
           "border border-border-secondary",
-          "bg-bg-secondary text-text-secondary hover:bg-secondary_alt",
+          "bg-bg-secondary text-fg-secondary hover:bg-secondary-hover",
         ),
         ghost: cn(
           "cursor-pointer",

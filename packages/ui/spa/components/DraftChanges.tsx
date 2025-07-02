@@ -367,7 +367,7 @@ function Deployment({
       </div>
       {isFinished && (
         <div className="flex gap-2 items-start">
-          <span className="text-xs font-light text-text-quaternary">
+          <span className="text-xs font-light text-fg-quaternary">
             Deployed
           </span>
           <button
@@ -414,7 +414,7 @@ function TimeSpent({ since }: { since: Date }) {
     };
   }, [since]);
   return (
-    <div className="text-xs font-light text-text-quaternary">
+    <div className="text-xs font-light text-fg-quaternary">
       {minutes}
       {seconds !== null ? `:${seconds}` : " mins"}
     </div>
@@ -733,7 +733,7 @@ const PatchOrPatchSetCard = forwardRef<
           )}
         </div>
         {errors && errors.length > 0 && !skipped && (
-          <div className="p-2 max-w-[240px] bg-bg-error-primary text-text-primary">
+          <div className="p-2 max-w-[240px] bg-bg-error-primary text-fg-primary">
             {errors.slice(0, 1).map((error, i) => (
               <div key={i} title={error} className="truncate">
                 {error}
@@ -745,7 +745,7 @@ const PatchOrPatchSetCard = forwardRef<
           </div>
         )}
         {(!errors || errors.length === 0) && skipped && (
-          <div className="p-2 max-w-[240px] bg-bg-error-primary text-text-primary">
+          <div className="p-2 max-w-[240px] bg-bg-error-primary text-fg-primary">
             <div className="truncate">Skipped</div>
           </div>
         )}

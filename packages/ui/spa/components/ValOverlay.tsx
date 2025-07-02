@@ -444,7 +444,7 @@ function Window({
        */}
       <div
         className={classNames(
-          "absolute grid grid-cols-[32px,1fr,32px] rounded bg-bg-primary text-text-primary cursor-pointer",
+          "absolute grid grid-cols-[32px,1fr,32px] rounded bg-bg-primary text-fg-primary cursor-pointer",
           {
             "w-[calc(100vw-32px)] h-[calc(100svh-32px)]":
               windowInnerWidth < 1024,
@@ -647,7 +647,7 @@ function ValMenu({
       >
         <div
           className={classNames(
-            "flex relative rounded bg-bg-primary border border-border-primary text-text-primary gap-2",
+            "flex relative rounded bg-bg-primary border border-border-primary text-fg-primary gap-2",
             {
               "flex-col py-4 px-2": dir === "vertical",
               "flex-row px-4 py-2": dir === "horizontal",
@@ -719,7 +719,7 @@ function ValMenu({
                   </div>
                 </HoverCardTrigger>
                 <HoverCardContent>
-                  <div className="p-2 rounded bg-bg-primary text-text-primary">
+                  <div className="p-2 rounded bg-bg-primary text-fg-primary">
                     {validationErrorCount > 0 && (
                       <div className="text-fg-error-primary">
                         Cannot {valMode === "fs" ? "save" : "publish"} due to{" "}
@@ -838,7 +838,7 @@ function ValMenu({
       >
         <div
           className={classNames(
-            "flex relative rounded bg-bg-primary text-text-primary gap-2 justify-center items-center",
+            "flex relative rounded bg-bg-primary text-fg-primary gap-2 justify-center items-center",
             {
               "flex-col py-4 px-2": dir === "vertical",
               "flex-row px-4 py-2": dir === "horizontal",
