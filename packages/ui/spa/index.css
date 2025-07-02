@@ -14,6 +14,7 @@
   :host,
   :root {
     --colors-base-white: #ffffff;
+
     --colors-gray-light-mode-gray-100: #f2f4f7;
     --colors-gray-light-mode-gray-200: #e4e7ec;
     --colors-gray-light-mode-gray-300: #d0d5dd;
@@ -23,32 +24,10 @@
     --colors-gray-light-mode-gray-700: #344054;
     --colors-gray-light-mode-grey-800: #182230;
     --colors-gray-light-mode-grey-900: #101828;
-    --turquoise-50: #f8fcfb;
-    --turquoise-200: #add3c6;
-    --turquoise-300: #8bc6b8;
-    --turquoise-400: #5db8a1;
-    --turquoise-500: #38cd98;
-    --turquoise-700: #1f9e5b;
-    --purple-600: #7839ee;
-    --grey-400: #919191;
-    --red-light: #ef4343;
-    --red--dark: #811d1d;
-    --black: #0a0a0a;
-    --colors-brand-purple-25: #fbfaff;
-    --grey-700: #454545;
-    --grey-200: #dfdfdf;
-    --grey-300: #bfbfbf;
-    --grey-500: #626262;
-    --yellow-light: #dacc4f;
-    --yellow-dark: #9a8e23;
-    --green-light: #38cd47;
-    --green--dark: #21882b;
-    --turquoise-100: #eff1ee;
-    --lime-green: #d6ea5a;
-    --colors-base-color: #000000;
     --colors-gray-light-mode-gray-950: #0c111d;
     --colors-gray-light-mode-gray-50: #f9fafb;
     --colors-gray-light-mode-gray-25: #fcfcfd;
+
     --colors-gray-dark-mode-gray-25: #fafafa;
     --colors-gray-dark-mode-gray-50: #f5f5f6;
     --colors-gray-dark-mode-gray-100: #f0f1f1;
@@ -74,19 +53,6 @@
     --colors-warning-yellow-800: #93370d;
     --colors-warning-yellow-900: #7a2e0e;
     --colors-warning-yellow-950: #4e1d09;
-    --colors-success-green-25: #f6fef9;
-    --colors-success-green-50: #ecfdf3;
-    --colors-success-green-100: #dcfae6;
-    --colors-success-green-200: #abefc6;
-    --colors-success-green-300: #75e0a7;
-    --colors-success-green-400: #47cd89;
-    --colors-success-green-500: #17b26a;
-    --colors-success-green-600: #079455;
-    --colors-success-green-700: #067647;
-    --colors-success-green-800: #085d3a;
-    --colors-success-green-900: #074d31;
-    --colors-success-green-950: #053321;
-    /**/
 
     --colors-brand-green-100: #dcfae6;
     --colors-brand-green-200: #abefc6;
@@ -114,7 +80,7 @@
 
     /* (Text) Selection colors */
     --bg-selection: var(--colors-gray-light-mode-gray-200);
-    --text-selection: var(--colors-base-color);
+    --text-selection: var(--colors-gray-light-mode-gray-900);
 
     /* Primary colors */
     --bg-primary: var(--colors-base-white);
@@ -174,7 +140,7 @@
   *[data-mode="dark"] {
     /* (Text) Selection colors */
     --bg-selection: var(--colors-gray-light-mode-gray-50);
-    --text-selection: var(--colors-base-color);
+    --text-selection: var(--colors-gray-light-mode-gray-900);
 
     /* Primary colors */
     --bg-primary: var(--colors-gray-dark-mode-gray-950);
