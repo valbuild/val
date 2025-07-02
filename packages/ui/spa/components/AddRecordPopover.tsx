@@ -1,6 +1,6 @@
 import { SourcePath, Internal, ModuleFilePath } from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { emptyOf } from "./fields/emptyOf";
 import { Button } from "./designSystem/button";
 import { Input } from "./designSystem/input";
@@ -17,12 +17,12 @@ import {
   PopoverTrigger,
 } from "./designSystem/popover";
 import { RoutePattern } from "../utils/parseRoutePattern";
-import { cn } from "./designSystem/cn";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "./designSystem/tooltip";
+import { RouteForm } from "./RouteForm";
 
 export function AddRecordPopover({
   path,
@@ -66,7 +66,6 @@ export function AddRecordPopover({
   }, [defaultOpen]);
   const onSubmit = useCallback(
     (key: string) => {
-      console.log("onSubmit", key);
       const schema = "data" in schemaAtPath ? schemaAtPath.data : null;
       if (schema === null) {
         return;
@@ -140,11 +139,15 @@ export function AddRecordPopover({
       </Tooltip>
       <PopoverContent container={portalContainer}>
         {routePattern ? (
-          <RouteAddForm
+          <RouteForm
             routePattern={routePattern}
             existingKeys={Object.keys(shallowSourceAtPath.data)}
             onSubmit={onSubmit}
-          />
+            onCancel={() => {
+              setOpen(false);
+            }}
+            submitText="Create"
+          ></RouteForm>
         ) : (
           <BasicAddForm
             existingKeys={Object.keys(shallowSourceAtPath.data)}
@@ -184,110 +187,6 @@ function BasicAddForm({
         <Button type="submit" disabled={disabled} variant={"outline"}>
           Add
         </Button>
-      </div>
-    </form>
-  );
-}
-
-function RouteAddForm({
-  routePattern,
-  existingKeys,
-  onSubmit,
-}: {
-  routePattern: RoutePattern[];
-  existingKeys: string[];
-  onSubmit: (key: string) => void;
-}) {
-  const [params, setParams] = useState<{
-    [paramName: string]: string;
-  }>({});
-  const [errors, setErrors] = useState<{
-    [paramName: string]: string | undefined;
-  }>({});
-  const fullPath = useMemo(() => {
-    return (
-      "/" +
-      routePattern
-        .map((part) => {
-          if (part.type === "string-param" || part.type === "array-param") {
-            return params[part.paramName] || `[${part.paramName}]`;
-          }
-          return part.name;
-        })
-        .join("/")
-    );
-  }, [routePattern, params]);
-  const isComplete = useMemo(() => {
-    return routePattern.every((part) => {
-      if (part.type === "string-param" || part.type === "array-param") {
-        return !!params[part.paramName] && !errors[part.paramName];
-      }
-      return true;
-    });
-  }, [routePattern, params, errors]);
-
-  const disabled = !isComplete || fullPath in existingKeys;
-  console.log("fullPath", fullPath, { disabled });
-  return (
-    <form
-      className="p-4 space-y-3"
-      onSubmit={(e) => {
-        e.preventDefault();
-        console.log("onSubmit", fullPath);
-        onSubmit(fullPath);
-      }}
-    >
-      <div className="flex items-center">
-        {routePattern.map((part, i) => (
-          <span key={i}>
-            {part.type === "string-param" || part.type === "array-param" ? (
-              <span className="flex items-center">
-                /
-                <span className="flex flex-col">
-                  <input
-                    className={cn("p-1 bg-transparent border-0", {
-                      "border-border-secondary border-1":
-                        errors[part.paramName],
-                    })}
-                    placeholder={part.paramName}
-                    value={params[part.paramName] || ""}
-                    onChange={(e) => {
-                      setParams({
-                        ...params,
-                        [part.paramName]: e.target.value,
-                      });
-                      const compareValue =
-                        part.type === "string-param"
-                          ? e.target.value
-                          : e.target.value.replace(/\//g, "");
-                      if (encodeURIComponent(compareValue) !== compareValue) {
-                        setErrors({
-                          ...errors,
-                          [part.paramName]: "Invalid characters",
-                        });
-                      } else {
-                        setErrors({
-                          ...errors,
-                          [part.paramName]: undefined,
-                        });
-                      }
-                    }}
-                  />
-                  {errors[part.paramName] && (
-                    <span className="text-xs text-fg-error-secondary">
-                      {errors[part.paramName]}
-                    </span>
-                  )}
-                </span>
-              </span>
-            ) : (
-              <span className="text-fg-secondary">/{part.name}</span>
-            )}
-          </span>
-        ))}
-      </div>
-      <div>
-        <Button disabled={disabled}>Create</Button>
       </div>
     </form>
   );

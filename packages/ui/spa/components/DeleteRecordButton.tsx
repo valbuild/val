@@ -18,13 +18,15 @@ export function DeleteRecordButton({
   refs,
   children,
   size,
+  onComplete,
 }: {
   path: SourcePath;
   parentPath: SourcePath | ModuleFilePath;
   refs: SourcePath[];
   children: React.ReactNode;
   size?: "icon" | "sm" | "lg" | "default";
-  variant?: "ghost" | "outline" | "default" | "secondary";
+  variant?: "ghost" | "outline" | "default" | "secondary" | "destructive";
+  onComplete?: () => void;
 }) {
   const { navigate } = useNavigation();
   const { addPatch, patchPath } = useAddPatch(path);
@@ -56,6 +58,9 @@ export function DeleteRecordButton({
               "record",
             );
             navigate(parentPath);
+            if (onComplete) {
+              onComplete();
+            }
           }}
         >
           {children}
