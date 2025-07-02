@@ -41,6 +41,11 @@ import { DeleteRecordButton } from "./DeleteRecordButton";
 import { AddRecordPopover } from "./AddRecordPopover";
 import { RoutePattern, parseRoutePattern } from "../utils/parseRoutePattern";
 import { getPatternFromModuleFilePath } from "@valbuild/shared/internal";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "./designSystem/tooltip";
 
 type Variant = "module" | "field";
 export function ArrayAndRecordTools({
@@ -142,8 +147,8 @@ function ReferencesPopover({
   }
   return (
     <Popover>
-      <HoverCard>
-        <HoverCardTrigger>
+      <Tooltip>
+        <TooltipTrigger>
           <Button
             asChild
             size={getButtonSize(variant)}
@@ -153,11 +158,9 @@ function ReferencesPopover({
               <Workflow size={getIconSize(variant)} />
             </PopoverTrigger>
           </Button>
-        </HoverCardTrigger>
-        <HoverCardContent side="top">
-          References to this record
-        </HoverCardContent>
-      </HoverCard>
+        </TooltipTrigger>
+        <TooltipContent side="top">References to this record</TooltipContent>
+      </Tooltip>
       <PopoverContent container={portalContainer}>
         <div className="text-sm">
           <ul>
