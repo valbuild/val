@@ -58,7 +58,7 @@ export function ToolsMenu() {
         <ToolsMenuButtons />
       </div>
       {isPublishing && (
-        <div className="flex items-center justify-end gap-2 p-4 text-right border-t bg-bg-tertiary text-text-primary border-border-primary">
+        <div className="flex gap-2 justify-end items-center p-4 text-right border-t bg-bg-tertiary text-text-primary border-border-primary">
           <span>Publishing changes </span>
           <Loader2 size={16} className="animate-spin" />
         </div>
@@ -144,7 +144,7 @@ function ModuleError({ moduleFilePath }: { moduleFilePath: ModuleFilePath }) {
         {moduleFilePathParts.map((part, i) => (
           <Fragment key={i}>
             <span
-              className={cn("text-text-brand-secondary", {
+              className={cn("text-fg-brand-secondary", {
                 "ml-1": i > 0,
               })}
             >
@@ -183,7 +183,7 @@ export function ToolsMenuButtons() {
   const { setAutoPublish, autoPublish } = useAutoPublish();
   return (
     <div className="flex flex-col">
-      <div className="flex items-center justify-between w-full gap-2 p-4">
+      <div className="flex gap-2 justify-between items-center p-4 w-full">
         <button
           className="lg:hidden"
           onClick={() => {
@@ -197,7 +197,7 @@ export function ToolsMenuButtons() {
             })}
           />
         </button>
-        <div className="flex items-center justify-end w-full gap-2">
+        <div className="flex gap-2 justify-end items-center w-full">
           {mode === "fs" && (
             <div className="overflow-hidden flex items-center gap-2 text-[10px] lg:text-xs">
               <span className="truncate text-text-secondary">Auto-save</span>
@@ -208,7 +208,7 @@ export function ToolsMenuButtons() {
             </div>
           )}
           <Button
-            className="flex items-center gap-2"
+            className="flex gap-2 items-center"
             variant={"outline"}
             onClick={() => {
               window.location.href = urlOf("/api/val/enable", {

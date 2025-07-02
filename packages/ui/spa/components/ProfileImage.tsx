@@ -24,7 +24,7 @@ export function ProfileImage({
   const lastName = tail[tail.length - 1] || "";
   const initials = `${firstName[0].toUpperCase()}${lastName[0].toUpperCase()}`;
   const className = classNames(
-    `rounded-full text-center inline-block bg-bg-brand-primary text-text-brand-primary`,
+    `rounded-full text-center inline-block bg-bg-brand-primary text-fg-brand-primary`,
     {
       "h-8 w-8 leading-8 text-xs": size === "sm",
       "h-10 w-10 leading-10 text-base": size === "md",
