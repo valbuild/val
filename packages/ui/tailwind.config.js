@@ -27,6 +27,7 @@ module.exports = {
     extend: {
       colors: {
         "bg-brand-primary": "var(--bg-brand-primary)",
+        "bg-brand-primary-hover": "var(--bg-brand-primary-hover)",
         "bg-brand-secondary": "var(--bg-brand-secondary)",
         "bg-disabled": "var(--bg-disabled)",
         "bg-error-primary": "var(--bg-error-primary)",
@@ -34,7 +35,6 @@ module.exports = {
         "bg-error-solid": "var(--bg-error-solid)",
         "bg-primary": "var(--bg-primary)",
         "bg-primary-solid": "var(--bg-primary-solid)",
-        "bg-primary_hover": "var(--bg-primary_hover)",
         "bg-quaternary": "var(--bg-quaternary)",
         "bg-secondary": "var(--bg-secondary)",
         "bg-secondary-solid": "var(--bg-secondary-solid)",
@@ -57,6 +57,7 @@ module.exports = {
         "fg-secondary": "var(--fg-secondary)",
         "fg-tertiary": "var(--fg-tertiary)",
         "text-brand-primary": "var(--text-brand-primary)",
+        "text-brand-primary-hover": "var(--text-brand-primary-hover)",
         "text-brand-secondary": "var(--text-brand-secondary)",
         "text-disabled": "var(--text-disabled)",
         "text-error-primary": "var(--text-error-primary)",
