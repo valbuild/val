@@ -18,8 +18,8 @@ const buttonVariants = cva(
         ),
         destructive: cn(
           "cursor-pointer",
-          "border border-border-error-primary",
-          "bg-bg-error text-fg-error-primary hover:bg-bg-error_hover/90",
+          "border border-bg-error-primary",
+          "bg-bg-error-primary text-fg-error-primary hover:bg-bg-error-primary-hover disabled:text-fg-error-primary",
         ),
         outline: cn(
           "cursor-pointer",
