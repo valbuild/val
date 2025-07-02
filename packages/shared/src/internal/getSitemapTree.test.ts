@@ -41,6 +41,7 @@ describe("getNextAppRouterSitemapTree", () => {
           name: "foo",
           pattern: "/foo",
           fullPath: "/foo",
+          moduleFilePath: "/app/foo/page.val.ts" as ModuleFilePath,
           sourcePath: '/app/foo/page.val.ts?p="/foo"',
           children: [],
         },
@@ -48,12 +49,14 @@ describe("getNextAppRouterSitemapTree", () => {
           type: "node",
           name: "bar",
           pattern: "/bar/[test]",
+          moduleFilePath: "/app/bar/[test]/page.val.ts" as ModuleFilePath,
           children: [
             {
               type: "leaf",
               name: "one",
               pattern: "/bar/[test]",
               fullPath: "/bar/one",
+              moduleFilePath: "/app/bar/[test]/page.val.ts" as ModuleFilePath,
               sourcePath: '/app/bar/[test]/page.val.ts?p="/bar/one"',
               children: [],
             },
@@ -62,6 +65,7 @@ describe("getNextAppRouterSitemapTree", () => {
               name: "two",
               pattern: "/bar/[test]",
               fullPath: "/bar/two",
+              moduleFilePath: "/app/bar/[test]/page.val.ts" as ModuleFilePath,
               sourcePath: '/app/bar/[test]/page.val.ts?p="/bar/two"',
               children: [],
             },
@@ -71,12 +75,15 @@ describe("getNextAppRouterSitemapTree", () => {
           type: "node",
           name: "zed",
           pattern: "/zed/[[...path]]",
+          moduleFilePath: "/app/zed/[[...path]]/page.val.ts" as ModuleFilePath,
           children: [
             {
               type: "leaf",
               name: "dead",
               pattern: "/zed/[[...path]]",
               fullPath: "/zed/dead",
+              moduleFilePath:
+                "/app/zed/[[...path]]/page.val.ts" as ModuleFilePath,
               sourcePath: '/app/zed/[[...path]]/page.val.ts?p="/zed/dead"',
               children: [],
             },
@@ -84,6 +91,8 @@ describe("getNextAppRouterSitemapTree", () => {
               type: "node",
               name: "lead",
               pattern: "/zed/[[...path]]",
+              moduleFilePath:
+                "/app/zed/[[...path]]/page.val.ts" as ModuleFilePath,
               children: [
                 {
                   type: "node",
@@ -94,6 +103,8 @@ describe("getNextAppRouterSitemapTree", () => {
                   },
                   sourcePath:
                     '/app/zed/[[...path]]/page.val.ts?p="/zed/lead/dead"',
+                  moduleFilePath:
+                    "/app/zed/[[...path]]/page.val.ts" as ModuleFilePath,
                   children: [
                     {
                       type: "leaf",
@@ -102,6 +113,8 @@ describe("getNextAppRouterSitemapTree", () => {
                       fullPath: "/zed/lead/dead/bled",
                       sourcePath:
                         '/app/zed/[[...path]]/page.val.ts?p="/zed/lead/dead/bled"',
+                      moduleFilePath:
+                        "/app/zed/[[...path]]/page.val.ts" as ModuleFilePath,
                       children: [],
                     },
                   ],
@@ -143,6 +156,7 @@ describe("getNextAppRouterSitemapTree", () => {
           name: "foo",
           pattern: "/foo",
           fullPath: "/foo",
+          moduleFilePath: "/app/foo/page.val.ts" as ModuleFilePath,
           sourcePath: '/app/foo/page.val.ts?p="/foo"',
           children: [],
         },
@@ -150,11 +164,14 @@ describe("getNextAppRouterSitemapTree", () => {
           type: "node",
           name: "bar",
           pattern: "/bar/[test]/sub",
+          moduleFilePath: "/app/bar/[test]/sub/page.val.ts" as ModuleFilePath,
           children: [
             {
               type: "node",
               name: "one",
               pattern: "/bar/[test]/sub",
+              moduleFilePath:
+                "/app/bar/[test]/sub/page.val.ts" as ModuleFilePath,
               children: [
                 {
                   type: "leaf",
@@ -163,6 +180,8 @@ describe("getNextAppRouterSitemapTree", () => {
                   fullPath: "/bar/one/sub",
                   sourcePath:
                     '/app/bar/[test]/sub/page.val.ts?p="/bar/one/sub"',
+                  moduleFilePath:
+                    "/app/bar/[test]/sub/page.val.ts" as ModuleFilePath,
                   children: [],
                 },
               ],
@@ -172,6 +191,8 @@ describe("getNextAppRouterSitemapTree", () => {
               type: "node",
               name: "two",
               pattern: "/bar/[test]/sub",
+              moduleFilePath:
+                "/app/bar/[test]/sub/page.val.ts" as ModuleFilePath,
               children: [
                 {
                   type: "leaf",
@@ -180,6 +201,8 @@ describe("getNextAppRouterSitemapTree", () => {
                   fullPath: "/bar/two/sub",
                   sourcePath:
                     '/app/bar/[test]/sub/page.val.ts?p="/bar/two/sub"',
+                  moduleFilePath:
+                    "/app/bar/[test]/sub/page.val.ts" as ModuleFilePath,
                   children: [],
                 },
               ],
@@ -222,6 +245,7 @@ describe("getNextAppRouterSitemapTree", () => {
           name: "foo",
           pattern: "/foo",
           fullPath: "/foo",
+          moduleFilePath: "/app/foo/page.val.ts" as ModuleFilePath,
           sourcePath: '/app/foo/page.val.ts?p="/foo"',
           children: [],
         },
@@ -229,11 +253,14 @@ describe("getNextAppRouterSitemapTree", () => {
           type: "node",
           name: "bar",
           pattern: "/bar/[test]/sub",
+          moduleFilePath: "/app/bar/[test]/sub/page.val.ts" as ModuleFilePath,
           children: [
             {
               type: "node",
               name: "one",
               pattern: "/bar/[test]/sub",
+              moduleFilePath:
+                "/app/bar/[test]/sub/page.val.ts" as ModuleFilePath,
               children: [
                 {
                   type: "leaf",
@@ -242,6 +269,8 @@ describe("getNextAppRouterSitemapTree", () => {
                   fullPath: "/bar/one/sub",
                   sourcePath:
                     '/app/bar/[test]/sub/page.val.ts?p="/bar/one/sub"',
+                  moduleFilePath:
+                    "/app/bar/[test]/sub/page.val.ts" as ModuleFilePath,
                   children: [],
                 },
               ],
@@ -251,6 +280,8 @@ describe("getNextAppRouterSitemapTree", () => {
               type: "node",
               name: "two",
               pattern: "/bar/[test]/sub",
+              moduleFilePath:
+                "/app/bar/[test]/sub/page.val.ts" as ModuleFilePath,
               children: [
                 {
                   type: "leaf",
@@ -259,6 +290,8 @@ describe("getNextAppRouterSitemapTree", () => {
                   fullPath: "/bar/two/sub",
                   sourcePath:
                     '/app/bar/[test]/sub/page.val.ts?p="/bar/two/sub"',
+                  moduleFilePath:
+                    "/app/bar/[test]/sub/page.val.ts" as ModuleFilePath,
                   children: [],
                 },
               ],
@@ -272,6 +305,7 @@ describe("getNextAppRouterSitemapTree", () => {
         fullPath: "/",
       },
       sourcePath: "/app/page.val.ts?p=/",
+      moduleFilePath: "/app/page.val.ts" as ModuleFilePath,
     });
   });
 
@@ -290,6 +324,7 @@ describe("getNextAppRouterSitemapTree", () => {
         fullPath: "/",
       },
       sourcePath: "/app/page.val.ts?p=/",
+      moduleFilePath: "/app/page.val.ts" as ModuleFilePath,
     });
   });
 
@@ -314,6 +349,7 @@ describe("getNextAppRouterSitemapTree", () => {
           type: "node",
           name: "foo",
           pattern: "/foo/bar",
+          moduleFilePath: "/app/foo/bar/page.val.ts" as ModuleFilePath,
           children: [
             {
               type: "leaf",
@@ -321,6 +357,7 @@ describe("getNextAppRouterSitemapTree", () => {
               pattern: "/foo/bar",
               fullPath: "/foo/bar",
               sourcePath: '/app/foo/bar/page.val.ts?p="/foo/bar"',
+              moduleFilePath: "/app/foo/bar/page.val.ts" as ModuleFilePath,
               children: [],
             },
           ],
@@ -349,6 +386,7 @@ describe("getNextAppRouterSitemapTree", () => {
           pattern: "/foo",
           fullPath: "/foo",
           sourcePath: '/app/(main)/foo/page.val.ts?p="/foo"',
+          moduleFilePath: "/app/(main)/foo/page.val.ts" as ModuleFilePath,
           children: [],
         },
       ],

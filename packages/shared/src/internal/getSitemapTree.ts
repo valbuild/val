@@ -9,6 +9,7 @@ export type PageNode = {
   type: "leaf";
   name: string;
   fullPath?: string;
+  moduleFilePath: ModuleFilePath;
   sourcePath: SourcePath | ModuleFilePath;
   pattern?: string; // if a pattern is present you can add new children to this node
   children: (SitemapNode | PageNode)[];
@@ -24,6 +25,7 @@ export type SitemapNode = {
   pattern?: string; // if a pattern is present you can add new children to this node
   isLinear?: true;
   children: (SitemapNode | PageNode)[];
+  moduleFilePath?: ModuleFilePath;
   sourcePath?: SourcePath | ModuleFilePath;
 };
 
@@ -56,6 +58,7 @@ export function getNextAppRouterSitemapTree(
         moduleFilePath,
         fullPath as ModulePath,
       );
+      root.moduleFilePath = moduleFilePath;
       continue;
     }
 
@@ -75,6 +78,7 @@ export function getNextAppRouterSitemapTree(
             type: "node",
             name: part,
             pattern,
+            moduleFilePath,
             ...(isLast ? { page: { fullPath }, sourcePath } : {}),
             children: [],
           }
@@ -83,6 +87,7 @@ export function getNextAppRouterSitemapTree(
             name: part,
             pattern,
             fullPath,
+            moduleFilePath,
             sourcePath,
             children: [],
           };
@@ -111,6 +116,7 @@ export function getNextAppRouterSitemapTree(
             page: { fullPath },
             sourcePath,
             children: existingNode.children,
+            moduleFilePath,
           };
           currentNode = currentNode.children[existingNodeIndex];
         } else {
