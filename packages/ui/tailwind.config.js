@@ -26,47 +26,67 @@ module.exports = {
     },
     extend: {
       colors: {
-        "bg-brand-primary": "var(--bg-brand-primary)",
-        "bg-brand-primary-hover": "var(--bg-brand-primary-hover)",
-        "bg-brand-secondary": "var(--bg-brand-secondary)",
-        "bg-disabled": "var(--bg-disabled)",
-        "bg-error-primary": "var(--bg-error-primary)",
-        "bg-error-secondary": "var(--bg-error-secondary)",
-        "bg-error-solid": "var(--bg-error-solid)",
+        /* (Text) Selection colors */
+        "bg-selection": "var(--bg-selection)",
+        "text-selection": "var(--text-selection)",
+
+        /* Primary colors */
         "bg-primary": "var(--bg-primary)",
         "bg-primary-solid": "var(--bg-primary-solid)",
-        "bg-quaternary": "var(--bg-quaternary)",
-        "bg-secondary": "var(--bg-secondary)",
-        "bg-secondary-solid": "var(--bg-secondary-solid)",
-        "bg-secondary_alt": "var(--bg-secondary_alt)",
-        "bg-secondary_hover": "var(--bg-secondary_hover)",
-        "bg-secondary_subtle": "var(--bg-secondary_subtle)",
-        "bg-selection": "var(--bg-selection)",
-        "bg-tertiary": "var(--bg-tertiary)",
-        "bg-warning-primary": "var(--bg-warning-primary)",
-        "border-error": "var(--border-error)",
-        "border-primary": "var(--border-primary)",
-        "border-secondary": "var(--border-secondary)",
-        "fg-brand-primary": "var(--fg-brand-primary)",
-        "fg-brand-secondary": "var(--fg-brand-secondary)",
-        "fg-disabled": "var(--fg-disabled)",
-        "fg-error-primary": "var(--fg-error-primary)",
-        "fg-error-secondary": "var(--fg-error-secondary)",
         "fg-primary": "var(--fg-primary)",
-        "fg-quaternary": "var(--fg-quaternary)",
-        "fg-secondary": "var(--fg-secondary)",
-        "fg-tertiary": "var(--fg-tertiary)",
-        "text-brand-primary": "var(--text-brand-primary)",
-        "text-brand-primary-hover": "var(--text-brand-primary-hover)",
-        "text-brand-secondary": "var(--text-brand-secondary)",
-        "text-disabled": "var(--text-disabled)",
-        "text-error-primary": "var(--text-error-primary)",
         "text-primary": "var(--text-primary)",
-        "text-quaternary": "var(--text-quaternary)",
+        "border-primary": "var(--border-primary)",
+
+        /* Secondary colors */
+        "bg-secondary": "var(--bg-secondary)",
+        "bg-secondary_hover": "var(--bg-secondary_hover)",
+        "bg-secondary_alt": "var(--bg-secondary_alt)",
+        "bg-secondary_subtle": "var(--bg-secondary_subtle)",
+        "bg-secondary-solid": "var(--bg-secondary-solid)",
+        "fg-secondary": "var(--fg-secondary)",
         "text-secondary": "var(--text-secondary)",
         "text-secondary_hover": "var(--text-secondary_hover)",
-        "text-selection": "var(--text-selection)",
+        "border-secondary": "var(--border-secondary)",
+
+        /* Tertiary colors */
+        "bg-tertiary": "var(--bg-tertiary)",
+        "fg-tertiary": "var(--fg-tertiary)",
         "text-tertiary": "var(--text-tertiary)",
+
+        /* Quaternary colors */
+        "bg-quaternary": "var(--bg-quaternary)",
+        "fg-quaternary": "var(--fg-quaternary)",
+        "text-quaternary": "var(--text-quaternary)",
+
+        /* Brand colors */
+        "bg-brand-primary": "var(--bg-brand-primary)",
+        "bg-brand-primary-hover": "var(--bg-brand-primary-hover)",
+        "fg-brand-primary": "var(--fg-brand-primary)",
+        "fg-brand-primary-alt": "var(--fg-brand-primary-alt)",
+        "border-brand-primary": "var(--border-brand-primary)",
+        "bg-brand-secondary": "var(--bg-brand-secondary)",
+        "bg-brand-secondary-hover": "var(--bg-brand-secondary-hover)",
+        "fg-brand-secondary": "var(--fg-brand-secondary)",
+        "fg-brand-secondary-alt": "var(--fg-brand-secondary-alt)",
+        "border-brand-secondary": "var(--border-brand-secondary)",
+
+        /* Warning colors */
+        "bg-warning-primary": "var(--bg-warning-primary)",
+
+        /* Error colors */
+        "bg-error-primary": "var(--bg-error-primary)",
+        "bg-error-secondary": "var(--bg-error-secondary)",
+        "fg-error-primary": "var(--fg-error-primary)",
+        "fg-error-secondary": "var(--fg-error-secondary)",
+        "text-error-primary": "var(--text-error-primary)",
+        "border-error": "var(--border-error)",
+
+        /* Disabled colors */
+        "bg-disabled": "var(--bg-disabled)",
+        "fg-disabled": "var(--fg-disabled)",
+        "text-disabled": "var(--text-disabled)",
+
+        /* Other colors */
         "text-white": "var(--text-white)",
       },
       borderRadius: {

@@ -9,17 +9,38 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default:
-          "cursor-pointer bg-bg-brand-primary text-bg-primary hover:bg-bg-secondary_hover/90 disabled:bg-bg-primary disabled:text-text-disabled disabled:border disabled:border-border-primary",
-        destructive:
-          "cursor-pointer bg-bg-error text-text-error-pimary hover:bg-bg-error_hover/90",
-        outline:
-          "cursor-pointer border border-input bg-bg-background hover:bg-bg-secondary",
-        secondary:
-          "cursor-pointer bg-bg-secondary text-fg-secondary-foreground hover:bg-secondary_alt",
-        ghost:
-          "cursor-pointer hover:bg-bg-secondary_hover hover:text-fg-secondary",
-        link: "cursor-pointer text-fg-primary underline-offset-4 hover:underline",
+        default: cn(
+          "cursor-pointer",
+          "border border-border-brand-primary",
+          "bg-bg-brand-primary text-fg-brand-primary",
+          "hover:bg-bg-brand-primary-hover hover:text-fg-brand-primary-hover",
+          "disabled:bg-bg-disabled disabled:text-text-disabled disabled:border disabled:border-border-primary",
+        ),
+        destructive: cn(
+          "cursor-pointer",
+          "border border-border-error",
+          "bg-bg-error text-text-error-primary hover:bg-bg-error_hover/90",
+        ),
+        outline: cn(
+          "cursor-pointer",
+          "border border-border-secondary",
+          "bg-bg-background hover:bg-bg-secondary",
+        ),
+        secondary: cn(
+          "cursor-pointer",
+          "border border-border-secondary",
+          "bg-bg-secondary text-text-secondary hover:bg-secondary_alt",
+        ),
+        ghost: cn(
+          "cursor-pointer",
+          "border border-border-secondary",
+          "hover:bg-bg-secondary_hover hover:text-fg-secondary",
+        ),
+        link: cn(
+          "cursor-pointer",
+          "border border-border-secondary",
+          "text-fg-primary underline-offset-4 hover:underline",
+        ),
       },
       size: {
         default: "h-10 px-4 py-2",

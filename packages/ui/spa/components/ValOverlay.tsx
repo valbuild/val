@@ -258,7 +258,7 @@ export function ValOverlay(props: ValOverlayProps) {
           >
             <div className="relative top-0 left-0 w-full">
               <div
-                className="absolute top-[0px] right-[0px] w-full truncate bg-bg-brand-primary text-text-brand-primary flex gap-2 px-2 rounded-bl hover:opacity-20 cursor-pointer"
+                className="absolute top-[0px] right-[0px] w-full truncate bg-bg-brand-primary text-fg-brand-primary flex gap-2 px-2 rounded-bl hover:opacity-20 cursor-pointer"
                 style={{
                   fontSize: `${Math.min(boundingBox.height - 2, 10)}px`,
                   maxHeight: `${Math.min(boundingBox.height - 2, 16)}px`,
@@ -897,7 +897,7 @@ function MenuButton({
     <button
       disabled={disabled}
       className={classNames("p-2 rounded-full disabled:bg-bg-disabled", {
-        "bg-bg-brand-primary text-text-brand-primary": variant === "primary",
+        "bg-bg-brand-primary text-fg-brand-primary": variant === "primary",
         "text-bg-brand-primary": !!active,
       })}
       onClick={onClick}
