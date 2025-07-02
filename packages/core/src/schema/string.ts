@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { Schema, SchemaAssertResult, SerializedSchema } from ".";
-import { ReifiedPreview } from "../preview";
+import { ReifiedRender } from "../render";
 import { SourcePath } from "../val";
 import {
   ValidationError,
@@ -202,7 +202,7 @@ export class StringSchema<Src extends string | null> extends Schema<Src> {
     };
   }
 
-  protected executePreview(): ReifiedPreview {
+  protected executeRender(): ReifiedRender {
     return {};
   }
 }

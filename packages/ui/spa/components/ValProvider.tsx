@@ -1383,17 +1383,17 @@ export function useAutoPublish() {
   };
 }
 
-export function usePreviewOverrideAtPath(
+export function useRenderOverrideAtPath(
   sourcePath: SourcePath | ModuleFilePath,
 ) {
   const { syncEngine } = useContext(ValContext);
   const [moduleFilePath] = useMemo(() => {
     return Internal.splitModuleFilePathAndModulePath(sourcePath);
   }, [sourcePath]);
-  const previewRes = useSyncExternalStore(
-    syncEngine.subscribe("preview", moduleFilePath),
-    () => syncEngine.getPreviewSnapshot(moduleFilePath),
-    () => syncEngine.getPreviewSnapshot(moduleFilePath),
+  const renderRes = useSyncExternalStore(
+    syncEngine.subscribe("render", moduleFilePath),
+    () => syncEngine.getRenderSnapshot(moduleFilePath),
+    () => syncEngine.getRenderSnapshot(moduleFilePath),
   );
   const sourcesRes = useSyncExternalStore(
     syncEngine.subscribe("source", moduleFilePath),
@@ -1404,16 +1404,14 @@ export function usePreviewOverrideAtPath(
   return useMemo(() => {
     const isOptimistic =
       sourcesRes.status === "success" && sourcesRes.optimistic;
-    const previewAtPath = previewRes?.[sourcePath];
+    const renderAtPath = renderRes?.[sourcePath];
     if (initializedAt === null || isOptimistic) {
-      const previewData =
-        previewAtPath && "data" in previewAtPath
-          ? previewAtPath?.data
-          : undefined;
-      return { status: "loading" as const, data: previewData };
+      const renderData =
+        renderAtPath && "data" in renderAtPath ? renderAtPath?.data : undefined;
+      return { status: "loading" as const, data: renderData };
     }
-    return previewAtPath;
-  }, [previewRes, initializedAt, sourcesRes, sourcePath]);
+    return renderAtPath;
+  }, [renderRes, initializedAt, sourcesRes, sourcePath]);
 }
 
 export function useSchemaAtPath(sourcePath: SourcePath):
