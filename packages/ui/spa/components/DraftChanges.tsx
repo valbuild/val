@@ -100,6 +100,7 @@ export function DraftChanges({
       clearInterval(interval);
     };
   }, []);
+  const { deletePatches } = useDeletePatches();
 
   return (
     <div className={classNames("text-sm", className)}>
@@ -201,6 +202,40 @@ export function DraftChanges({
           />
         </div>
       )}
+      {mode === "http" && (
+        <div className="flex justify-end items-center p-4 border-b z-5 border-border-primary">
+          <Popover
+            open={summaryOpen}
+            onOpenChange={(open) => {
+              setSummaryOpen(open);
+            }}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                variant="secondary"
+                className="flex gap-2 items-center text-sm"
+              >
+                <span>Summary</span>
+                {canGenerate && <Sparkles size={14} />}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              container={portalContainer}
+              align="end"
+              className="z-[9001] flex flex-col gap-4"
+            >
+              <PopoverClose asChild className="self-end cursor-pointer">
+                <X size={12} />
+              </PopoverClose>
+              <PublishSummary
+                onClose={() => {
+                  setSummaryOpen(false);
+                }}
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
+      )}
       <div className="p-4 z-5">
         <div className="flex justify-between items-center">
           <div className="flex gap-2 items-center">
@@ -215,38 +250,38 @@ export function DraftChanges({
               </div>
             )}
           </div>
-          {mode === "http" && (
-            <Popover
-              open={summaryOpen}
-              onOpenChange={(open) => {
-                setSummaryOpen(open);
-              }}
-            >
-              <PopoverTrigger asChild>
-                <Button
-                  variant="secondary"
-                  className="flex gap-2 items-center text-sm"
-                >
-                  <span>Summary</span>
-                  {canGenerate && <Sparkles size={14} />}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                container={portalContainer}
-                align="end"
-                className="z-[9001] flex flex-col gap-4"
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                disabled={currentPatchIds.length === 0}
+                variant="secondary"
+                className="flex gap-2 items-center text-sm"
               >
-                <PopoverClose asChild className="self-end cursor-pointer">
-                  <X size={12} />
-                </PopoverClose>
-                <PublishSummary
-                  onClose={() => {
-                    setSummaryOpen(false);
-                  }}
-                />
-              </PopoverContent>
-            </Popover>
-          )}
+                <span>Revert all</span>
+                <Undo2 size={14} />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent container={portalContainer}>
+              <div className="flex flex-col gap-4">
+                <div className="text-lg font-bold">Are you sure?</div>
+                <div>This will revert all changes to the current state.</div>
+                <div>
+                  <PopoverClose asChild>
+                    <Button
+                      variant="destructive"
+                      className="flex gap-2 items-center text-sm"
+                      onClick={() => {
+                        deletePatches(currentPatchIds);
+                      }}
+                    >
+                      <span>Revert all changes</span>
+                      <Undo2 size={14} />
+                    </Button>
+                  </PopoverClose>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
       {(!autoPublish || validationErrorsCount > 0) && (
