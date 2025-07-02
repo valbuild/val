@@ -118,6 +118,7 @@
 
     /* Primary colors */
     --bg-primary: var(--colors-base-white);
+    --bg-primary-alt: var(--colors-gray-light-mode-gray-50);
     --bg-primary-hover: var(--colors-gray-light-mode-gray-100);
     --fg-primary: var(--colors-gray-light-mode-grey-900);
     --border-primary: var(--colors-gray-light-mode-gray-300);
@@ -176,6 +177,7 @@
 
     /* Primary colors */
     --bg-primary: var(--colors-gray-dark-mode-gray-950);
+    --bg-primary-alt: var(--colors-gray-dark-mode-gray-900);
     --bg-primary-hover: var(--colors-gray-dark-mode-gray-800);
     --fg-primary: var(--colors-base-white);
     --border-primary: var(--colors-gray-dark-mode-gray-700);
