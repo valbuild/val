@@ -1,9 +1,4 @@
-import {
-  SourcePath,
-  Internal,
-  ModuleFilePath,
-  SerializedSchema,
-} from "@valbuild/core";
+import { SourcePath, Internal, ModuleFilePath } from "@valbuild/core";
 import { JSONValue } from "@valbuild/core/patch";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { emptyOf } from "./fields/emptyOf";
@@ -23,6 +18,11 @@ import {
 } from "./designSystem/popover";
 import { RoutePattern } from "../utils/parseRoutePattern";
 import { cn } from "./designSystem/cn";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "./designSystem/tooltip";
 
 export function AddRecordPopover({
   path,
@@ -126,9 +126,13 @@ export function AddRecordPopover({
           onClick={() => {
             setOpen(true);
           }}
-          title="Add"
         >
-          {children}
+          <Tooltip>
+            <TooltipTrigger>{children}</TooltipTrigger>
+            <TooltipContent>
+              <p>Add</p>
+            </TooltipContent>
+          </Tooltip>
         </PopoverTrigger>
       </Button>
       <PopoverContent container={portalContainer}>
