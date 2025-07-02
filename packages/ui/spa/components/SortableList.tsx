@@ -237,7 +237,7 @@ export function SortableItem({
           className={cn(
             "flex-grow",
             "relative flex text-left border rounded-lg border-border bg-card gap-y-2 bg-bg-primary",
-            "hover:bg-bg-secondary_subtle",
+            "hover:bg-bg-secondary-hover",
             "overflow-y-clip",
           )}
           style={{
@@ -276,7 +276,7 @@ export function SortableItem({
       <Popover>
         <PopoverTrigger
           className={cn(
-            "flex hover:bg-bg-secondary_subtle px-2 hover:rounded-lg",
+            "flex hover:bg-bg-secondary-hover px-2 hover:rounded-lg",
             {
               "items-start mt-4": !centerGripAndDeleteIcons,
               "items-center py-2": centerGripAndDeleteIcons,

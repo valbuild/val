@@ -35,7 +35,7 @@ export function FieldValidationError({
               )}
             >
               <div className={cn("flex items-center justify-between w-full")}>
-                <div className="text-text-primary group-data-[state=closed]:text-fg-error-primary">
+                <div className="text-fg-primary group-data-[state=closed]:text-fg-error-primary">
                   {validationErrors.length} validation error
                   {validationErrors.length > 1 ? "s" : ""}
                 </div>

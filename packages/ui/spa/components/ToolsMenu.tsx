@@ -58,7 +58,7 @@ export function ToolsMenu() {
         <ToolsMenuButtons />
       </div>
       {isPublishing && (
-        <div className="flex gap-2 justify-end items-center p-4 text-right border-t bg-bg-tertiary text-text-primary border-border-primary">
+        <div className="flex gap-2 justify-end items-center p-4 text-right border-t bg-bg-tertiary text-fg-primary border-border-primary">
           <span>Publishing changes </span>
           <Loader2 size={16} className="animate-spin" />
         </div>
@@ -200,7 +200,7 @@ export function ToolsMenuButtons() {
         <div className="flex gap-2 justify-end items-center w-full">
           {mode === "fs" && (
             <div className="overflow-hidden flex items-center gap-2 text-[10px] lg:text-xs">
-              <span className="truncate text-text-secondary">Auto-save</span>
+              <span className="truncate text-fg-secondary">Auto-save</span>
               <Checkbox
                 checked={autoPublish}
                 onCheckedChange={setAutoPublish}

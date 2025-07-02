@@ -300,7 +300,7 @@ function ChangeRecordPopover({
         </HoverCardTrigger>
         <HoverCardContent side="top">Rename</HoverCardContent>
       </HoverCard>
-      <PopoverContent container={portalContainer} className="text-text-primary">
+      <PopoverContent container={portalContainer} className="text-fg-primary">
         <RenameRecordKeyForm
           parentPath={parentPath}
           path={path}

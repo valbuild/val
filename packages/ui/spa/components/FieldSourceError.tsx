@@ -10,7 +10,7 @@ export function FieldSourceError({
 }) {
   return (
     <div id={path}>
-      <div className="p-4 rounded bg-bg-error-primary text-text-primary">
+      <div className="p-4 rounded bg-bg-error-primary text-fg-primary">
         Source error: {error}
       </div>
     </div>

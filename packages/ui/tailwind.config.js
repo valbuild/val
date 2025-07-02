@@ -33,18 +33,12 @@ module.exports = {
         /* Primary colors */
         "bg-primary": "var(--bg-primary)",
         "fg-primary": "var(--fg-primary)",
-        "text-primary": "var(--text-primary)",
         "border-primary": "var(--border-primary)",
 
         /* Secondary colors */
         "bg-secondary": "var(--bg-secondary)",
         "bg-secondary-hover": "var(--bg-secondary-hover)",
-        "bg-secondary_alt": "var(--bg-secondary_alt)",
-        "bg-secondary_subtle": "var(--bg-secondary_subtle)",
-        "bg-secondary-solid": "var(--bg-secondary-solid)",
         "fg-secondary": "var(--fg-secondary)",
-        "text-secondary": "var(--text-secondary)",
-        "text-secondary_hover": "var(--text-secondary_hover)",
         "border-secondary": "var(--border-secondary)",
 
         /* Tertiary colors */
@@ -54,7 +48,6 @@ module.exports = {
         /* Quaternary colors */
         "bg-quaternary": "var(--bg-quaternary)",
         "fg-quaternary": "var(--fg-quaternary)",
-        "text-quaternary": "var(--text-quaternary)",
 
         /* Brand colors */
         /* Brand primary */
@@ -89,9 +82,6 @@ module.exports = {
 
         /* Disabled colors */
         "bg-disabled": "var(--bg-disabled)",
-
-        /* Other colors */
-        "text-white": "var(--text-white)",
       },
       borderRadius: {
         lg: "var(--radius)",

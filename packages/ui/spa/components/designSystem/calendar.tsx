@@ -52,7 +52,7 @@ function Calendar({
         ),
         day_range_end: "day-range-end",
         day_selected:
-          "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:text-primary-foreground",
+          "bg-primary text-fg-primary hover:bg-primary hover:text-fg-primary focus:text-fg-primary",
         day_today: "bg-accent text-accent-foreground",
         day_outside:
           "day-outside text-muted-foreground opacity-50 aria-selected:bg-accent/50 aria-selected:text-muted-foreground aria-selected:opacity-30",
@@ -84,7 +84,7 @@ function Calendar({
                     <ChevronDown className="w-4 h-4" />
                   </Button>
                 </Select.Trigger>
-                <Select.Content className="z-50 p-1 rounded-md bg-bg-secondary_alt text-text-secondary">
+                <Select.Content className="z-50 p-1 rounded-md bg-bg-secondary text-fg-secondary">
                   <Select.Viewport className="overflow-y-auto pr-4 pb-4 max-h-48 rounded-md shadow-lg bg-bg-tertiary text-fg-tertiary">
                     {React.Children.map(children, (child) => {
                       if (React.isValidElement(child)) {
