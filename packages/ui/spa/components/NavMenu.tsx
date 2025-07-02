@@ -30,8 +30,7 @@ import {
   User,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { PathNode, pathTree } from "../utils/pathTree";
-import { Remote } from "../utils/Remote";
+import { PathNode } from "../utils/pathTree";
 import {
   useAllValidationErrors,
   useCurrentProfile,
@@ -55,6 +54,7 @@ import { useLayout } from "./Layout";
 import { ProfileImage } from "./ProfileImage";
 import { urlOf } from "@valbuild/shared/internal";
 import { NextAppRouterSitemap } from "./Sitemap";
+import { useTrees } from "./useTrees";
 
 export const NAV_MENU_MOBILE_BREAKPOINT = 1280; // nav menu behaves a bit differently (closes it self) below this breakpoint.
 
@@ -252,37 +252,6 @@ export function NavMenu() {
       </div>
     </nav>
   );
-}
-
-function useTrees(): Remote<{
-  root: PathNode;
-  sitemap: { [routerId: string]: ModuleFilePath[] };
-}> {
-  const remoteSchemasByModuleFilePath = useSchemas();
-  return useMemo(() => {
-    if (remoteSchemasByModuleFilePath.status === "success") {
-      const moduleFilePaths: ModuleFilePath[] = [];
-      const routerPaths: { [routerId: string]: ModuleFilePath[] } = {};
-      for (const filePathS in remoteSchemasByModuleFilePath.data) {
-        const filePath = filePathS as ModuleFilePath;
-        const schema = remoteSchemasByModuleFilePath.data[filePath];
-        if (schema.type === "record" && schema.router) {
-          routerPaths[schema.router] = routerPaths[schema.router] || [];
-          routerPaths[schema.router].push(filePath);
-        } else {
-          moduleFilePaths.push(filePath);
-        }
-      }
-      return {
-        status: remoteSchemasByModuleFilePath.status,
-        data: {
-          root: pathTree(moduleFilePaths),
-          sitemap: routerPaths,
-        },
-      };
-    }
-    return remoteSchemasByModuleFilePath;
-  }, [remoteSchemasByModuleFilePath]);
 }
 
 function NavContentExplorer({
