@@ -257,14 +257,14 @@ export function DraftChanges({
                 variant="secondary"
                 className="flex gap-2 items-center text-sm"
               >
-                <span>Revert all</span>
+                <span>Undo all</span>
                 <Undo2 size={14} />
               </Button>
             </PopoverTrigger>
             <PopoverContent container={portalContainer}>
               <div className="flex flex-col gap-4">
                 <div className="text-lg font-bold">Are you sure?</div>
-                <div>This will revert all changes to the current state.</div>
+                <div>This will undo all changes to the current state.</div>
                 <div>
                   <PopoverClose asChild>
                     <Button
@@ -274,7 +274,7 @@ export function DraftChanges({
                         deletePatches(currentPatchIds);
                       }}
                     >
-                      <span>Revert all changes</span>
+                      <span>Undo all changes</span>
                       <Undo2 size={14} />
                     </Button>
                   </PopoverClose>
@@ -710,6 +710,7 @@ const PatchOrPatchSetCard = forwardRef<
     },
     ref,
   ) => {
+    const portalContainer = useValPortal();
     return (
       <div
         ref={ref}
@@ -762,17 +763,30 @@ const PatchOrPatchSetCard = forwardRef<
                 </TooltipContent>
               </Tooltip>
             )}
-            {onDelete && !isApplied && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button onClick={onDelete}>
-                    <Undo2 size={16} className="inline" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Revert change</p>
-                </TooltipContent>
-              </Tooltip>
+            {onDelete && !isApplied && amount && amount > 0 && (
+              <Popover>
+                <PopoverTrigger>
+                  <Undo2 size={16} className="inline" />
+                </PopoverTrigger>
+                <PopoverContent
+                  container={portalContainer}
+                  className="flex flex-col gap-2"
+                >
+                  <div className="text-lg font-bold">Are you sure?</div>
+                  <div>
+                    This will undo {amount} change
+                    {amount > 1 ? "s" : ""}.
+                  </div>
+                  <div>
+                    <PopoverClose asChild>
+                      <Button variant="destructive" onClick={onDelete}>
+                        Undo change
+                        {amount > 1 ? "s" : ""}
+                      </Button>
+                    </PopoverClose>
+                  </div>
+                </PopoverContent>
+              </Popover>
             )}
           </div>
         </div>
