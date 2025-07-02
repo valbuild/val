@@ -160,7 +160,7 @@ function ReferencesPopover({
   return (
     <Popover>
       <Tooltip>
-        <TooltipTrigger>
+        <TooltipTrigger asChild>
           <Button
             asChild
             size={getButtonSize(variant)}
