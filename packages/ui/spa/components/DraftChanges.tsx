@@ -734,7 +734,7 @@ const PatchOrPatchSetCard = forwardRef<
             )}
             {onDelete && !isApplied && (
               <Tooltip>
-                <TooltipTrigger>
+                <TooltipTrigger asChild>
                   <button onClick={onDelete}>
                     <Undo2 size={16} className="inline" />
                   </button>
