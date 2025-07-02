@@ -4,6 +4,8 @@ import {
   useErrors,
   useLoadingStatus,
   usePublishSummary,
+  useSchemas,
+  useShallowSourceAtPath,
   useValMode,
 } from "./ValProvider";
 import { ScrollArea } from "./designSystem/scroll-area";
@@ -183,6 +185,65 @@ function ShortenedErrorMessage({ error }: { error: string }) {
 }
 
 export function ToolsMenuButtons() {
+  const { currentSourcePath } = useNavigation();
+  const schemas = useSchemas();
+  const [moduleFilePath, modulePath] =
+    Internal.splitModuleFilePathAndModulePath(currentSourcePath);
+  const maybeRecordSource = useShallowSourceAtPath(moduleFilePath, "record");
+  const maybePreviewRoute = useMemo(():
+    | {
+        status: "success";
+        data: null | {
+          previewRoute: string;
+        };
+      }
+    | {
+        status: "loading";
+      }
+    | {
+        status: "error";
+        error: string;
+      }
+    | {
+        status: "not-found";
+      } => {
+    if (schemas.status !== "success") {
+      return schemas;
+    }
+    if (maybeRecordSource.status !== "success") {
+      return maybeRecordSource;
+    }
+    const schema = schemas.data[moduleFilePath];
+
+    if (schema.type === "record" && schema.router) {
+      if (maybeRecordSource.data === null) {
+        return {
+          status: "success",
+          data: null,
+        };
+      }
+
+      const keys = Object.keys(maybeRecordSource.data);
+      const routePartOfModulePath = Internal.splitModulePath(modulePath)[0];
+      for (const key of keys) {
+        if (routePartOfModulePath.startsWith(key)) {
+          return {
+            status: "success",
+            data: { previewRoute: key },
+          };
+        }
+      }
+    }
+    return {
+      status: "success",
+      data: null,
+    };
+  }, [
+    "data" in schemas && schemas.data,
+    moduleFilePath,
+    modulePath,
+    maybeRecordSource,
+  ]);
   const { navMenu, toolsMenu } = useLayout();
   const mode = useValMode();
   const { setAutoPublish, autoPublish } = useAutoPublish();
@@ -227,13 +288,30 @@ export function ToolsMenuButtons() {
             className="flex gap-2 items-center"
             variant={"outline"}
             onClick={() => {
-              window.location.href = urlOf("/api/val/enable", {
-                redirect_to: window.origin,
-              });
+              if (
+                maybePreviewRoute.status === "success" &&
+                maybePreviewRoute.data?.previewRoute
+              ) {
+                window.location.href = urlOf("/api/val/enable", {
+                  redirect_to:
+                    window.origin + maybePreviewRoute.data.previewRoute,
+                });
+              } else {
+                window.location.href = urlOf("/api/val/enable", {
+                  redirect_to: window.origin,
+                });
+              }
             }}
           >
-            <span>Preview</span>
-            <Eye size={16} />
+            {maybePreviewRoute.status === "success" &&
+            maybePreviewRoute.data?.previewRoute ? (
+              <>
+                <span>Preview</span>
+                <Eye size={16} />
+              </>
+            ) : (
+              <span>Draft mode</span>
+            )}
           </Button>
           <PublishButton />
         </div>
