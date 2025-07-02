@@ -161,7 +161,7 @@ export function NavMenu() {
                   />
                   <NavContentExplorer
                     title="Explorer"
-                    defaultOpen={false}
+                    defaultOpen={true}
                     node={remoteSchemaTree.data.root}
                   />
                 </>
@@ -313,7 +313,7 @@ function NavSection({
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen ?? true);
   return (
-    <div className="">
+    <div className="py-2">
       {title && (
         <button
           className="flex justify-between items-center py-2 w-full text-sm tracking-tighter uppercase text-fg-secondary"
