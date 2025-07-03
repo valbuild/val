@@ -1,8 +1,12 @@
 import { ModuleFilePath, SourcePath } from "@valbuild/core";
 import { array } from "@valbuild/core/fp";
-import { Workflow } from "lucide-react";
+import { Trash2, Workflow } from "lucide-react";
 import { Button } from "./designSystem/button";
-import { useAddPatch, useShallowSourceAtPath } from "./ValProvider";
+import {
+  useAddPatch,
+  useShallowSourceAtPath,
+  useValPortal,
+} from "./ValProvider";
 import { useNavigation } from "./ValRouter";
 import { CompressedPath } from "./CompressedPath";
 import {
@@ -10,8 +14,68 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "./designSystem/tooltip";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "./designSystem/popover";
+import { PopoverClose } from "@radix-ui/react-popover";
 
-export function DeleteRecordButton({
+export function DeleteRecordPopover({
+  path,
+  parentPath,
+  variant,
+  refs,
+  children,
+  size,
+  onComplete,
+  confirmationMessage,
+  className,
+}: {
+  path: SourcePath;
+  parentPath: SourcePath | ModuleFilePath;
+  refs: SourcePath[];
+  children: React.ReactNode;
+  size?: "icon" | "sm" | "lg" | "default";
+  variant?: "ghost" | "outline" | "default" | "secondary" | "destructive";
+  onComplete?: () => void;
+  confirmationMessage: string;
+  className?: string;
+}) {
+  const portalContainer = useValPortal();
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button size={size} variant={variant} className={className}>
+          {children}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        container={portalContainer}
+        className="flex flex-col gap-2 p-4"
+      >
+        <div className="text-lg font-bold">Are you sure?</div>
+        <div>{confirmationMessage}</div>
+        <PopoverClose asChild>
+          <DeleteRecordButton
+            path={path}
+            parentPath={parentPath}
+            refs={refs}
+            variant={"destructive"}
+            onComplete={onComplete}
+          >
+            <div className="flex gap-2 items-center">
+              <Trash2 size={12} />
+              <span>Delete</span>
+            </div>
+          </DeleteRecordButton>
+        </PopoverClose>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function DeleteRecordButton({
   path,
   parentPath,
   variant,
