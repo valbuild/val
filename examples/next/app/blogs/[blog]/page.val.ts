@@ -1,12 +1,12 @@
 import { c, nextAppRouter, s } from "_/val.config";
-import { linkSchema } from "../../../components/link";
 import authorsVal from "../../../content/authors.val";
+import { linkButtonSchema } from "../../../components/linkButton";
 
 const blogSchema = s.object({
   title: s.string(),
   content: s.string(),
   author: s.keyOf(authorsVal),
-  link: linkSchema,
+  link: linkButtonSchema,
 });
 
 export default c.define(
@@ -16,19 +16,25 @@ export default c.define(
     "/blogs/blog2": {
       title: "Blog 2",
       content: "Blog 2 content",
-      author: "author2",
+      author: "freekh",
       link: {
-        type: "generic",
-        href: "/generic/test/foo",
+        label: "Read more",
+        link: {
+          type: "blog",
+          href: "/blogs/blog1",
+        },
       },
     },
     "/blogs/blog1": {
       title: "Blog 1",
       content: "Blog 1 content",
-      author: "author1",
+      author: "freekh",
       link: {
-        type: "generic",
-        href: "/generic/test/foo",
+        label: "See more",
+        link: {
+          type: "generic",
+          href: "/generic/test/foo",
+        },
       },
     },
   },
