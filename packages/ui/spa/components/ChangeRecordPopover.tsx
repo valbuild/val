@@ -129,7 +129,10 @@ export function ChangeRecordPopover({
             routePattern={routePattern}
             existingKeys={existingKeys}
             defaultValue={defaultValue}
-            onSubmit={onSubmit}
+            onSubmit={(key) => {
+              onSubmit(key);
+              setOpen(false);
+            }}
             onCancel={() => {
               setOpen(false);
             }}
@@ -140,7 +143,10 @@ export function ChangeRecordPopover({
             parentPath={parentPath}
             defaultValue={defaultValue}
             existingKeys={existingKeys}
-            onSubmit={onSubmit}
+            onSubmit={(key) => {
+              onSubmit(key);
+              setOpen(false);
+            }}
             onCancel={() => {
               setOpen(false);
             }}
