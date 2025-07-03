@@ -328,7 +328,11 @@ function SiteMapExplorer({
 }
 
 function Loading() {
-  return null;
+  return (
+    <div className="flex justify-start items-center w-full h-full">
+      <Loader2 size={16} className="animate-spin" />
+    </div>
+  );
 }
 
 function sortPathTree(a: PathNode, b: PathNode) {
