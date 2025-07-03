@@ -8,7 +8,7 @@ import {
   Loader2,
   Link,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Remote } from "../utils/Remote";
 import {
   useNextAppRouterSrcFolder,
@@ -131,6 +131,13 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
       return undefined;
     }
   }, [node.pattern]);
+  const onClick = useCallback(() => {
+    if (node.sourcePath) {
+      navigate(node.sourcePath);
+    } else if (node.type === "node" && node.children?.length > 0) {
+      setIsOpen((prev) => !prev);
+    }
+  }, [navigate, node]);
   const moduleFilePath = node.moduleFilePath;
   return (
     <div>
@@ -160,29 +167,12 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
                 {node.sourcePath ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <button
-                        disabled={!node.sourcePath}
-                        onClick={() => {
-                          if (node.sourcePath) {
-                            navigate(node.sourcePath);
-                          }
-                        }}
-                      >
-                        /
-                      </button>
+                      <button onClick={onClick}>/</button>
                     </TooltipTrigger>
                     <TooltipContent side="top">Go to main page</TooltipContent>
                   </Tooltip>
                 ) : (
-                  <button
-                    disabled={!node.sourcePath}
-                    onClick={() => {
-                      console.log("clicked");
-                      if (node.sourcePath) {
-                        navigate(node.sourcePath);
-                      }
-                    }}
-                  >
+                  <button onClick={onClick}>
                     <span className="text-fg-brand-secondary">/</span>
                   </button>
                 )}
@@ -190,12 +180,7 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
             )}
             {node.name !== "/" && (
               <button
-                disabled={!node.sourcePath}
-                onClick={() => {
-                  if (node.sourcePath) {
-                    navigate(node.sourcePath);
-                  }
-                }}
+                onClick={onClick}
                 className="cursor-pointer disabled:cursor-default"
               >
                 <span className={cn("pr-[2px] text-fg-quaternary")}>/</span>
@@ -217,11 +202,7 @@ function SiteMapNode({ node }: { node: SitemapNode | PageNode }) {
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => {
-                if (node.sourcePath) {
-                  navigate(node.sourcePath);
-                }
-              }}
+              onClick={onClick}
               className="flex gap-2 items-center"
             >
               <Link size={12} />
